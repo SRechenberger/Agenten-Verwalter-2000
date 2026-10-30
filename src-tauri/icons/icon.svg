@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Quelle des App-Icons (Kachel, Sprechblase = Chat first, Verlauf mit Zweig = Changes second).
+     Alle Größen neu erzeugen: siehe AGENTS.md, Befehl „pnpm tauri icon“. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <defs>
+    <linearGradient id="kachel" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#37373d"/>
+      <stop offset="1" stop-color="#1f1f1f"/>
+    </linearGradient>
+    <linearGradient id="blase" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#e0825c"/>
+      <stop offset="1" stop-color="#c4572f"/>
+    </linearGradient>
+  </defs>
+  <!-- Kachel -->
+  <rect x="32" y="32" width="960" height="960" rx="216" fill="url(#kachel)"/>
+  <rect x="48" y="48" width="928" height="928" rx="204" fill="none" stroke="#ffffff" stroke-opacity="0.06" stroke-width="8"/>
+  <!-- Sprechblase -->
+  <path d="M 272 216 H 752 A 112 112 0 0 1 864 328 V 600 A 112 112 0 0 1 752 712 H 440 L 232 836 L 300 712 H 272 A 112 112 0 0 1 160 600 V 328 A 112 112 0 0 1 272 216 Z" fill="url(#blase)"/>
+  <!-- Verlauf mit Zweig -->
+  <g fill="none" stroke="#f8f8f8" stroke-width="42" stroke-linecap="round">
+    <path d="M 424 324 V 604"/>
+    <path d="M 640 344 A 216 216 0 0 1 424 560"/>
+  </g>
+  <g fill="#f8f8f8">
+    <circle cx="424" cy="324" r="58"/>
+    <circle cx="424" cy="604" r="58"/>
+    <circle cx="640" cy="344" r="58"/>
+  </g>
+</svg>
