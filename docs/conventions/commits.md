@@ -21,6 +21,12 @@
 - Doku-Änderungen, die zu einer Code-Änderung gehören (Code-Map, Glossar, Konventionen), kommen in denselben Commit
 - Generierte Typen (`src/lib/bindings/`) werden zusammen mit der Rust-Änderung committet, die sie erzeugt
 
+## Branches
+
+- Ein Branch je logischer Änderung, abgezweigt von `main`: `<präfix>/<thema>` in Kleinbuchstaben, ASCII, Wörter mit Bindestrich, Umlaute als `ae`, `oe`, `ue`
+- Das Präfix ist der Commit-Type der Hauptänderung: `feature/` für `feat`, sonst `fix/`, `docs/`, `refactor/`, `chore/`
+- Beispiele: `feature/unveraenderte-zeilen`, `docs/bau-voraussetzungen`
+
 ## Critical Rules
 
 1. **Keine Zugangsdaten, Tokens oder API-Schlüssel in Commits** — auch nicht in Beispielen oder Logs.

@@ -37,10 +37,15 @@ Leitsatz: **Chat first, Changes second.** Was dem Agent-Workflow nicht aktiv hil
 ### Voraussetzungen
 
 - Windows 11
-- [Rust](https://rustup.rs/) (stable, Version in `rust-toolchain.toml`) und die Microsoft C++ Build Tools
+- [Rust](https://rustup.rs/) (stable, Version in `rust-toolchain.toml`)
+- Visual Studio 2022 Build Tools mit dem Workload „Desktopentwicklung mit C++“ (MSVC x64 und Windows SDK); eine Visual-Studio-Installation ohne diesen Workload reicht nicht
+- CMake im PATH — liegt den Build Tools bei (`…\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin`) oder `winget install Kitware.CMake`
+- [LLVM](https://llvm.org/) per `winget install LLVM.LLVM`, dazu `C:\Program Files\LLVM\bin` im PATH (winget trägt es nicht ein); `whisper-rs-sys` erzeugt seine Bindings per bindgen
 - Node.js ≥ 22 und [pnpm](https://pnpm.io/) — pnpm per `npm install -g pnpm` installieren, Node 25+ bringt kein Corepack mehr mit
 - Git
 - [Claude Code](https://docs.anthropic.com/en/docs/claude-code), angemeldet (nur für die Betriebsarten mit Claude)
+
+Sind mehrere Visual-Studio-Instanzen installiert, etwa Community ohne C++ neben den Build Tools, wählt clang unter Umständen die Instanz ohne C++-Werkzeuge und findet dann weder MSVC-Header noch Windows SDK (`fatal error: 'stdio.h' file not found`). Abhilfe: Umgebungsvariable `VCToolsInstallDir` auf `<Build Tools>\VC\Tools\MSVC\<Version>\` setzen oder den Workload in jeder Instanz installieren. Einzelheiten: [docs/conventions/linting.md](docs/conventions/linting.md).
 
 Optional: [LM Studio](https://lmstudio.ai/) für lokale Modelle.
 
