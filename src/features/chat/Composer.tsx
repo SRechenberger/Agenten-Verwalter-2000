@@ -22,6 +22,8 @@ import { McpProblemChip } from '@/features/mcp/McpProblemChip';
 import { CacheAwareModelMenu } from '@/features/promptcache/CacheAwareModelMenu';
 import { CacheColdHint } from '@/features/promptcache/CacheColdHint';
 import { ReviewCommentList } from '@/features/review/ReviewCommentList';
+import { openSide } from '@/features/side/openSide';
+import { SideWindow } from '@/features/side/SideWindow';
 import { VoiceButton } from '@/features/voice/VoiceButton';
 import type { Attachment } from '@/lib/bindings/Attachment';
 import type { CommandError } from '@/lib/bindings/CommandError';
@@ -57,6 +59,7 @@ import { NO_COMMENTS, useReviewStore } from '@/stores/review';
 import type { CollectedComment } from '@/stores/review';
 import { useSessionsStore } from '@/stores/sessions';
 import { useSettingsStore } from '@/stores/settings';
+import { useSideStore } from '@/stores/side';
 import { useVoiceStore } from '@/stores/voice';
 import './Composer.css';
 
@@ -105,6 +108,7 @@ export function Composer({ session, onSessionCreated }: ComposerProps): ReactEle
   const collected: readonly CollectedComment[] = useReviewStore(
     (state) => state.collected[session.id] ?? NO_COMMENTS,
   );
+  const sideNotice: string | null = useSideStore((state) => state.notices[session.id] ?? null);
   const showView = useSessionsStore((state) => state.showView);
   const startRename = useSessionsStore((state) => state.startRename);
   const operatingMode = useSettingsStore((state) => state.settings?.operatingMode ?? 'claude');
@@ -195,6 +199,7 @@ export function Composer({ session, onSessionCreated }: ComposerProps): ReactEle
     const commentIds: string[] = sentComments.map((entry: CollectedComment) => entry.id);
     setIsSending(true);
     setErrorMessage(null);
+    useSideStore.getState().clearNotice(session.id);
     sendMessage(
       session.id,
       text,
@@ -258,6 +263,9 @@ export function Composer({ session, onSessionCreated }: ComposerProps): ReactEle
     } else if (command === 'chrome') {
       setErrorMessage(null);
       setSessionChrome(session.id, !session.chrome).catch(report);
+    } else if (command === 'btw') {
+      setErrorMessage(null);
+      openSide(session.id, operatingMode);
     } else {
       setErrorMessage(null);
       pauseSession(session.id).catch(report);
@@ -291,6 +299,11 @@ export function Composer({ session, onSessionCreated }: ComposerProps): ReactEle
     openPicker();
   }
 
+  function pickSideFromPlusMenu(): void {
+    closeMenu();
+    runSessionCommand('btw');
+  }
+
   function handleKeyDown(event: KeyboardEvent<HTMLTextAreaElement>): void {
     if (commandMenu.handleSlashKeyDown(event, pickRow)) {
       return;
@@ -312,10 +325,12 @@ export function Composer({ session, onSessionCreated }: ComposerProps): ReactEle
     }
   }
 
+  const shownError: string | null = errorMessage ?? sideNotice;
   const boxClass = `composer__box${isDragging ? ' composer__box--dragging' : ''}`;
 
   return (
     <div className="composer">
+      <SideWindow session={session} />
       <div className={boxClass}>
         <CacheColdHint session={session} onSessionCreated={onSessionCreated} />
         <ReviewCommentList sessionId={session.id} />
@@ -379,7 +394,13 @@ export function Composer({ session, onSessionCreated }: ComposerProps): ReactEle
             >
               <PlusIcon />
             </button>
-            {openMenu === 'plus' && <AttachMenu onPick={pickFromPlusMenu} onClose={closeMenu} />}
+            {openMenu === 'plus' && (
+              <AttachMenu
+                onPick={pickFromPlusMenu}
+                onSide={pickSideFromPlusMenu}
+                onClose={closeMenu}
+              />
+            )}
           </div>
           <button
             type="button"
@@ -521,9 +542,9 @@ export function Composer({ session, onSessionCreated }: ComposerProps): ReactEle
           />
         )}
       </div>
-      {errorMessage !== null && (
+      {shownError !== null && (
         <p className="composer__error" role="alert">
-          {errorMessage}
+          {shownError}
         </p>
       )}
       {openMenu === 'mcp' && <McpDialog session={session} onClose={closeMenu} />}

@@ -24,6 +24,7 @@ import { useRetroProgress } from '@/features/retro/useRetroProgress';
 import { EmptyState } from '@/features/sessions/EmptyState';
 import { NewSession } from '@/features/sessions/NewSession';
 import { useSessionSummaries } from '@/features/sessions/useSessionSummaries';
+import { openSide } from '@/features/side/openSide';
 import { useViewedSession } from '@/features/sessions/useViewedSession';
 import { SettingsView } from '@/features/settings/SettingsView';
 import { useSettings } from '@/features/settings/useSettings';
@@ -33,6 +34,7 @@ import type { ArtifactList } from '@/lib/bindings/ArtifactList';
 import type { BackgroundItem } from '@/lib/bindings/BackgroundItem';
 import type { ChangesReach } from '@/lib/bindings/ChangesReach';
 import type { HandoffStartedEvent } from '@/lib/bindings/HandoffStartedEvent';
+import type { OperatingMode } from '@/lib/bindings/OperatingMode';
 import type { ProjectCreated } from '@/lib/bindings/ProjectCreated';
 import type { ProjectRestored } from '@/lib/bindings/ProjectRestored';
 import type { ProjectSummary } from '@/lib/bindings/ProjectSummary';
@@ -69,6 +71,9 @@ export function App(): ReactElement {
     reload: reloadSettings,
   } = useSettings();
   // Kontingent-Warnungen kommen nur von der Claude-Kommandozeile mit dem Claude-Abo.
+  const operatingMode: OperatingMode = useSettingsStore(
+    (state) => state.settings?.operatingMode ?? 'claude',
+  );
   const isClaude: boolean = useSettingsStore(
     (state) => (state.settings?.operatingMode ?? 'claude') === 'claude',
   );
@@ -192,6 +197,26 @@ export function App(): ReactElement {
     () => indexByToolUseId(backgroundItems),
     [backgroundItems],
   );
+
+  // Strg+; öffnet die Nebenfrage der Session, deren Chat gerade vor der Eingabeleiste steht. Auf deutscher
+  // Tastatur liegt das Semikolon auf Umschalt+Komma: `shiftKey` darf die Abfrage nicht ausschließen.
+  const chatSessionId: string | null =
+    visibleSession !== null && !isChangesView && !isArtifactsView ? visibleSession.id : null;
+  useEffect(() => {
+    if (chatSessionId === null) {
+      return undefined;
+    }
+    function handleKeyDown(event: KeyboardEvent): void {
+      if (event.ctrlKey && !event.altKey && event.key === ';' && chatSessionId !== null) {
+        event.preventDefault();
+        openSide(chatSessionId, operatingMode);
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown);
+    return (): void => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [chatSessionId, operatingMode]);
 
   // Der Core sendet für den Anfangsstatus keine Änderung — die Rückgabe von `createProject` muss selbst in die Liste.
   function handleCreated(created: ProjectCreated): void {

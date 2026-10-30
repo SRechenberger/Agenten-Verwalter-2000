@@ -1,0 +1,642 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Entwurf Umsetzung</title>
+<link rel="stylesheet" href="entwurf-umsetzung/app.css">
+<style>
+.btn.sm { height: 24px; padding: 0 8px; font-size: 11.5px; }
+.app.xl { min-height: 820px; }
+.sb-s .prog { color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+.dot.wait { background: var(--waiting); }
+
+/* Leiste unter der Kopfzeile */
+.sub { display: flex; align-items: center; gap: 14px; padding: 8px 22px; border-bottom: 1px solid var(--border-subtle); font-size: 12.5px; color: var(--fg2); }
+.sub .sp { flex: 1; }
+.sub .bar { width: 160px; height: 6px; border-radius: 999px; background: var(--bg-hover); overflow: hidden; }
+.sub .bar i { display: block; height: 100%; background: var(--ok); }
+.sub .sw { display: inline-flex; align-items: center; gap: 7px; }
+
+.work { display: grid; grid-template-columns: 300px minmax(0, 1fr); align-items: stretch; }
+
+/* Zeitleiste */
+.rail { padding: 12px 12px 24px 14px; border-right: 1px solid var(--border-subtle); }
+.ph { display: grid; grid-template-columns: 26px minmax(0, 1fr) auto; gap: 8px; align-items: baseline; padding: 14px 6px 5px 0; position: relative; }
+.ph:first-child { padding-top: 4px; }
+.ph .pk { grid-column: 2; font-size: 10.5px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); font-weight: 600; }
+.ph .pk b { text-transform: none; letter-spacing: 0; font-size: 13px; color: var(--fg); margin-left: 6px; }
+.ph .m { font-size: 11px; color: var(--muted); white-space: nowrap; }
+.ph.act .m { color: var(--waiting); font-weight: 600; }
+.st { display: grid; grid-template-columns: 26px minmax(0, 1fr) auto; gap: 8px; align-items: center; width: 100%; text-align: left; padding: 5px 8px 5px 0; border-radius: 7px; font-size: 12.5px; color: var(--fg2); position: relative; }
+/* Die Linie ist ein Stück, über alle Phasen hinweg: grün bis zur letzten fertigen Station, dann in der Farbe der aktuellen, danach grau */
+.rail, .pr { position: relative; }
+.ln { position: absolute; width: 2px; z-index: 0; pointer-events: none; }
+.ln.h { height: 2px; width: auto; }
+.ln.base { background: var(--border); }
+.ln.done { background: var(--ok); }
+.ln.wait { background: var(--waiting); }
+.ln.run { background: var(--running); }
+
+/* Feste Zeilenhöhen für die Beispiele „parallel“ und „Plan geändert“ */
+.mo2 { min-width: 960px; background: var(--bg-base); display: grid; grid-template-columns: 490px minmax(0, 1fr); }
+.mo2 > .left { padding: 16px 0 20px 14px; border-right: 1px solid var(--border-subtle); }
+.pr .ph { height: 30px; padding: 0 8px 0 0; align-items: center; }
+.pr .st { height: 28px; padding: 0 8px 0 0; cursor: default; }
+.wl { height: 30px; display: flex; align-items: center; gap: 8px; padding-left: 34px; font-size: 10.5px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); font-weight: 600; }
+.wv { display: grid; grid-template-columns: 230px 230px; }
+.gap14 { height: 14px; }
+.tagn { font-size: 10px; font-weight: 600; padding: 1px 7px; border-radius: 999px; background: var(--accent-subtle); color: var(--accent-text); margin-left: 6px; text-transform: none; letter-spacing: 0; }
+.chg { height: 30px; display: flex; align-items: center; padding-left: 34px; position: relative; }
+.chg::before { content: ""; position: absolute; left: 13px; top: 14px; width: 16px; height: 2px; background: var(--accent); }
+.chg span { font-size: 11.5px; padding: 2px 9px; border: 1px dashed var(--accent); border-radius: 999px; color: var(--accent-text); background: var(--bg-base); }
+.mo2 > .deck { padding: 16px 22px 20px; }
+.blk { font: 12px/1.6 var(--mono); padding: 8px 10px; border-radius: 8px; background: var(--bg-sidebar); border: 1px solid var(--border-subtle); color: var(--fg2); white-space: pre; overflow-x: auto; margin: 0; }
+.blk em { font-style: normal; color: var(--accent-text); font-weight: 600; }
+
+/* Seitengespräch */
+.mo3 { min-width: 1120px; background: var(--bg-base); display: grid; grid-template-columns: 300px minmax(0, 1fr) 380px; }
+.mo3 > .left { padding: 16px 0 20px 14px; border-right: 1px solid var(--border-subtle); }
+.mo3 > .deck { padding: 16px 18px 20px; }
+.sc { border-left: 1px solid var(--border-subtle); display: grid; grid-template-rows: auto 1fr auto; background: var(--bg-base); }
+.sc-h { display: flex; align-items: center; gap: 8px; padding: 10px 14px; border-bottom: 1px solid var(--border-subtle); font-size: 12.5px; }
+.sc-h b { flex: 1; }
+.sc-h .m { color: var(--muted); font-size: 11.5px; }
+.sc-b { padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; font-size: 12.5px; }
+.sc-b .umsg { max-width: 90%; }
+.sc-b .amsg p { margin: 0 0 6px; }
+.att { align-self: flex-end; display: inline-flex; gap: 8px; align-items: center; padding: 5px 9px; border-radius: 7px; background: var(--bg-hover); font-size: 12px; }
+.att b { font-weight: 600; }
+.att span { color: var(--muted); }
+.sc-in { margin: 8px 12px 12px; border: 1px solid var(--border); border-radius: 10px; padding: 9px 12px; color: var(--muted); font-size: 12.5px; }
+.st:hover { background: var(--bg-hover); }
+.st.sel { background: var(--bg-selected); color: var(--fg); }
+.st.sel .lb { font-weight: 600; }
+.st .m { font-size: 11px; color: var(--muted); white-space: nowrap; }
+.st.wait .m { color: var(--waiting); font-weight: 600; }
+.st.todo { color: var(--muted); }
+.st .nx { font-size: 10.5px; font-weight: 600; color: var(--accent-text); }
+
+/* Punkte: alle gleich groß, der Zustand steckt in Füllung und Zeichen */
+.dt { width: 16px; height: 16px; border-radius: 50%; justify-self: center; position: relative; z-index: 1; display: grid; place-items: center; font: 700 10px/1 var(--sans); box-sizing: border-box; flex: none; }
+.ok > .dt, .dt.ok { background: var(--ok) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M4.6 8.3 7 10.6 11.4 5.8' fill='none' stroke='white' stroke-width='1.9' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center/16px no-repeat; }
+.wait > .dt, .dt.wait { background: var(--waiting); color: var(--bg-base); animation: pulse 1.8s ease-out infinite; }
+.run > .dt, .dt.run { background: var(--running); border: 2px solid var(--running); box-shadow: inset 0 0 0 3px var(--bg-base); animation: pulse-run 1.8s ease-out infinite; }
+.todo > .dt, .dt.todo { background: var(--bg-base); border: 2px solid var(--border); }
+@keyframes pulse { 0% { box-shadow: 0 0 0 0 var(--waiting-subtle), 0 0 0 0 var(--waiting); } 100% { box-shadow: 0 0 0 7px transparent, 0 0 0 0 transparent; } }
+@keyframes pulse-run { 0% { box-shadow: inset 0 0 0 3px var(--bg-base), 0 0 0 0 var(--running); } 100% { box-shadow: inset 0 0 0 3px var(--bg-base), 0 0 0 7px transparent; } }
+@media (prefers-reduced-motion: reduce) { .dt { animation: none !important; } }
+
+/* Kartei rechts */
+.deck { padding: 14px 22px 24px; display: grid; gap: 8px; align-content: start; }
+.dk-h { display: flex; align-items: center; gap: 8px; margin-bottom: 2px; }
+.dk-h .sp { flex: 1; }
+.lbl { font-size: 10.5px; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); font-weight: 600; }
+.lbl.w { color: var(--waiting); }
+.tz { display: grid; grid-template-columns: 16px minmax(0, 220px) minmax(0, 1fr) auto; gap: 10px; align-items: center; width: 100%; text-align: left; padding: 7px 12px; border: 1px solid var(--border-subtle); border-radius: 8px; background: var(--bg-surface); font-size: 12px; color: var(--fg2); transition: transform .15s; }
+.tz:hover { border-color: var(--border); }
+.tz .tt { font-weight: 600; color: var(--fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tz .ts { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tz .m { color: var(--muted); font-size: 11px; white-space: nowrap; }
+.tz.todo .tt { color: var(--muted); font-weight: 400; }
+.tz .dt { width: 14px; height: 14px; animation: none; background-size: 14px; }
+.card { border: 1px solid var(--border-subtle); border-left: 3px solid var(--border); border-radius: 10px; background: var(--bg-surface); padding: 14px 16px; display: grid; gap: 10px; font-size: 13px; box-shadow: var(--shadow); margin: 4px 0; }
+.card .t { display: flex; gap: 8px; align-items: baseline; }
+.card .t b { flex: 1; min-width: 0; font-size: 15px; }
+.card .m { color: var(--muted); font-size: 11.5px; white-space: nowrap; }
+.card .r { color: var(--fg2); }
+.card .q { color: var(--fg); }
+.card .opts { display: flex; flex-wrap: wrap; gap: 6px; }
+.card .ans { border: 1px solid var(--border); border-radius: 6px; padding: 6px 9px; color: var(--muted); font-size: 12px; }
+.card .acts { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.card .facts { display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: 11.5px; color: var(--muted); border-top: 1px solid var(--border-subtle); padding-top: 8px; }
+.card .facts b { color: var(--fg2); font-weight: 600; }
+.card.ok { border-left-color: var(--ok); }
+.card.run { border-left-color: var(--running); }
+.card.wait { border-color: var(--waiting); border-left-color: var(--waiting); }
+.card.todo { border-left-color: var(--border); }
+.hint { font-size: 11.5px; color: var(--muted); margin-top: 4px; }
+kbd { font: 11px var(--mono); padding: 0 4px; border: 1px solid var(--border); border-radius: 4px; }
+
+/* Texte */
+.panel { max-width: 1200px; margin: 0 auto; border: 1px solid var(--border-subtle); border-radius: 10px; background: var(--bg-base); padding: 14px 18px; }
+.panel h3 { margin: 0 0 6px; font: 600 13.5px var(--display); }
+.panel ul, .panel ol { margin: 0; padding-left: 20px; display: grid; gap: 6px; color: var(--fg2); }
+.panel li b { color: var(--fg); }
+.panel code { font: 12px var(--mono); padding: 1px 4px; border-radius: 4px; background: var(--bg-hover); }
+.two { max-width: 1200px; margin: 0 auto; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.two .panel { margin: 0; }
+.legend { display: flex; flex-wrap: wrap; gap: 8px 22px; align-items: center; font-size: 12.5px; color: var(--fg2); }
+.legend span { display: inline-flex; gap: 8px; align-items: center; }
+.legend .dt { animation: none; }
+@media (max-width: 640px) { .two { grid-template-columns: 1fr; } }
+
+/* Parallele Phasen: Linien versetzt, Inhalte untereinander */
+.pp .ph, .pp .st { grid-template-columns: 38px minmax(0, 1fr) auto; }
+.pp .st .dt { justify-self: start; margin-left: 5px; }
+.pp .st.t2 .dt { margin-left: 17px; }
+.pp .wl { padding-left: 46px; }
+.pp .lb, .pp .pk { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mo2 { grid-template-columns: minmax(280px, 420px) minmax(0, 1fr); }
+
+/* Technik */
+.flowx { max-width: 1200px; margin: 0 auto; display: flex; flex-wrap: wrap; gap: 10px; align-items: stretch; }
+.fx { flex: 1 1 210px; border: 1px solid var(--border-subtle); border-radius: 9px; padding: 10px 12px; background: var(--bg-surface); font-size: 12.5px; color: var(--fg2); }
+.fx b { display: block; color: var(--fg); margin-bottom: 4px; }
+.fx code { font: 11.5px var(--mono); }
+.fa { align-self: center; color: var(--muted); }
+
+/* Rückfrage */
+.notice { align-self: center; font-size: 11.5px; color: var(--muted); padding: 2px 10px; border-radius: 999px; background: var(--bg-hover); }
+.att { display: inline-flex; gap: 8px; align-items: center; padding: 5px 9px; border-radius: 7px; background: var(--bg-hover); font-size: 12px; }
+.att b { font-weight: 600; }
+.att span { color: var(--muted); }
+
+.tbl { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.tbl th, .tbl td { text-align: left; padding: 7px 8px; border-top: 1px solid var(--border-subtle); color: var(--fg2); vertical-align: top; }
+.tbl th { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); border-top: 0; }
+.tbl td:first-child { white-space: nowrap; }
+.tbl code, .panel code { font: 12px var(--mono); }
+</style>
+</head>
+<body>
+
+<header class="intro">
+  <span class="eyebrow">Entwurf · Verwalter</span>
+  <h1>Umsetzung</h1>
+  <p>Links die Zeitleiste von oben nach unten, eine Station je Session, gruppiert nach Phase. Rechts eine Kartei, die an die Zeitleiste gekoppelt ist: groß die Karte im Fokus, darüber die vorigen, darunter die kommenden als kleine Karten. Klick auf eine Station oder eine kleine Karte holt sie nach vorn, die Pfeiltasten <kbd>↑</kbd> <kbd>↓</kbd> blättern; die Station im Fokus ist links hervorgehoben. Der Entwurf ist klickbar.</p>
+</header>
+
+<section class="state">
+  <h2><span class="mk">1</span>Die Umsetzung, während Phase 2 eine Frage stellt</h2>
+  <p>Fünf Phasen, sechzehn Sessions. Phase 1 ist fertig, mit einer Fix-Runde; in Phase 2 ist der Test fertig, die Umsetzung fragt gerade. Probier es aus: Klick links auf „Review“ in Phase 1 oder auf eine kleine Karte rechts.</p>
+  <div class="frame"><div class="app xl">
+    <aside class="sidebar">
+      <div class="sb-head">Agenten Verwalter 2000</div>
+      <div class="sb-p"><span class="dot wait"></span>Kontext-Leiste</div>
+      <div class="sb-s sel"><span class="grow">Umsetzung Kontext-Leiste</span><span class="prog">6/16</span></div>
+      <div class="sb-s"><span class="grow">Plan anlegen</span><span class="n">#2</span></div>
+      <div class="sb-s"><span class="grow">Bug: Phasen falsch gezählt</span><span class="n">#1</span></div>
+      <div class="sb-p"><span class="dot run"></span>Sprint 44</div>
+      <div class="sb-s"><span class="grow">Sprint planen</span><span class="n">#2</span></div>
+      <div class="sb-s"><span class="grow">Backlog sichten</span><span class="n">#1</span></div>
+      <div class="sb-p"><span class="dot"></span>Kundenpräsentation Q4</div>
+      <div class="sb-s"><span class="grow">Folien bauen</span><span class="n">#2</span></div>
+    </aside>
+    <div class="main">
+      <div class="hdr"><div class="hdr-l"><span class="crumb">Kontext-Leiste ›</span><span class="hname">Umsetzung</span><span class="pill">feature/kontext-leiste</span></div><div class="tabs"><span class="tab on">Ablauf</span><span class="tab">Changes 11</span></div><div class="hdr-r"></div></div>
+      <div class="sub"><span>Phase 2 von 5 · 6 von 16 Sessions fertig</span><span class="bar"><i style="width:38%"></i></span><span class="sp"></span><span class="sw">Automatisch weiter <span class="switch"></span></span><button class="btn sm">Anhalten nach dieser Session</button></div>
+      <div class="work new">
+        <div class="rail" id="rail" aria-label="Zeitleiste der Umsetzung"></div>
+        <div class="deck" id="deck" aria-live="polite"></div>
+      </div>
+    </div>
+  </div></div>
+</section>
+
+<section class="state">
+  <h2><span class="mk">2</span>Parallele Phasen</h2>
+  <p>Weist der Plan zwei Phasen derselben Welle zu, läuft links eine zweite Linie mit, eng neben der ersten. Die Phasen selbst stehen weiter untereinander, nie nebeneinander — so bricht nichts um, egal wie schmal das Fenster ist. Jede Phase hängt an ihrer eigenen Linie; vor der nächsten Phase laufen beide zusammen, und die startet erst, wenn beide fertig sind. Hier: Phase 2 läuft, Phase 3 fragt dich.</p>
+  <div class="frame"><div class="mo2">
+    <div class="left"><div class="pr pp" style="height:500px">
+      <span class="ln done" style="left:12px;top:44px;height:144px"></span>
+      <span class="ln run" style="left:12px;top:188px;height:28px"></span>
+      <span class="ln base" style="left:12px;top:216px;height:163px"></span>
+      <span class="ln h done" style="left:12px;top:137px;width:14px"></span>
+      <span class="ln done" style="left:24px;top:137px;height:165px"></span>
+      <span class="ln wait" style="left:24px;top:302px;height:28px"></span>
+      <span class="ln base" style="left:24px;top:330px;height:49px"></span>
+      <span class="ln h base" style="left:12px;top:379px;width:14px"></span>
+      <span class="ln base" style="left:12px;top:379px;height:107px"></span>
+      <div class="ph done"><span class="pk">Phase 1<b>Core</b></span><span class="m">fertig · 42 min</span></div>
+      <div class="st ok"><span class="dt"></span><span class="lb">Test</span><span class="m">#3 · 8 min</span></div>
+      <div class="st ok"><span class="dt"></span><span class="lb">Umsetzung</span><span class="m">#4 · 24 min</span></div>
+      <div class="st ok"><span class="dt"></span><span class="lb">Review</span><span class="m">#5 · 10 min</span></div>
+      <div class="wl">Welle 2 · Phase 2 und 3 gleichzeitig</div>
+      <div class="ph"><span class="pk">Phase 2<b>Oberfläche</b></span><span class="m" style="color:var(--running)">läuft</span></div>
+      <div class="st ok"><span class="dt"></span><span class="lb">Test</span><span class="m">#6 · 9 min</span></div>
+      <div class="st run"><span class="dt"></span><span class="lb">Umsetzung</span><span class="m" style="color:var(--running)">#8 · läuft</span></div>
+      <div class="st todo"><span class="dt"></span><span class="lb">Review</span><span class="m"></span></div>
+      <div class="ph act"><span class="pk">Phase 3<b>Einstellungen</b></span><span class="m">fragt dich</span></div>
+      <div class="st t2 ok"><span class="dt"></span><span class="lb">Test</span><span class="m">#7 · 8 min</span></div>
+      <div class="st t2 wait sel"><span class="dt">?</span><span class="lb">Umsetzung</span><span class="m">#9 · fragt</span></div>
+      <div class="st t2 todo"><span class="dt"></span><span class="lb">Review</span><span class="m"></span></div>
+      <div class="gap14"></div>
+      <div class="ph"><span class="pk">Phase 4<b>Automatik</b></span><span class="m">wenn 2 und 3 fertig sind</span></div>
+      <div class="st todo"><span class="dt"></span><span class="lb">Test</span><span class="m"></span></div>
+      <div class="st todo"><span class="dt"></span><span class="lb">Umsetzung</span><span class="m"></span></div>
+      <div class="st todo"><span class="dt"></span><span class="lb">Review</span><span class="m"></span></div>
+    </div></div>
+    <div class="deck">
+      <div class="dk-h"><span class="lbl w">Wartet auf dich</span><span class="sp"></span><span class="m" style="font-size:11.5px;color:var(--muted)">2 Spuren aktiv</span></div>
+      <button type="button" class="tz run"><span class="dt"></span><span class="tt">Phase 2 · Umsetzung</span><span class="ts">läuft seit 12 min, bearbeitet SidebarProject.tsx</span><span class="m">#8</span></button>
+      <div class="card wait"><div class="t"><b>Phase 3 · Umsetzung</b><span class="m">#9 · fragt seit 2 min</span></div><div class="q">Der Standard für „Automatisch weiter“ — für neue Vorhaben an oder aus?</div><div class="opts"><button class="btn sm primary">Aus (empfohlen)</button><button class="btn sm">An</button></div><div class="acts"><button class="btn sm">Chat öffnen</button><button class="btn sm">Changes · 2 Dateien</button></div></div>
+      <pre class="blk">{ "key": "2", "title": "Oberfläche", <em>"wave": 2</em>, … }
+{ "key": "3", "title": "Einstellungen", <em>"wave": 2</em>, … }</pre>
+      <div class="hint">So kommt die Welle beim Anlegen an (Abschnitt 4); sie stammt aus der Spalte „Wave“ des Plans.</div>
+    </div>
+  </div></div>
+  <div class="panel" style="margin-top:12px"><ul>
+    <li><b>Start beider Spuren:</b> Sobald die Station vor der Welle fertig gemeldet hat, startet der Verwalter die ersten Stationen beider Phasen; die Phase nach der Welle wartet, bis beide Spuren fertig sind.</li>
+    <li><b>Kartei:</b> Vorn liegt, was dich braucht; die andere aktive Spur steht direkt darüber. Geblättert wird in der Reihenfolge des Plans.</li>
+    <li><b>🟡 Gleicher Arbeitsbaum:</b> Beide Spuren schreiben in denselben Ordner. Der Plan darf eine Welle nur ausweisen, wenn die Phasen verschiedene Dateien anfassen; Prüfläufe und Commits regelt der Skill nacheinander.</li>
+    <li><b>Schmale Fenster:</b> Nebeneinander stehen nur die Linien, je 12 px versetzt. Mehr als drei gleichzeitige Phasen teilen sich die dritte Linie; der Text rückt nie weiter ein.</li>
+  </ul></div>
+</section>
+
+<section class="state">
+  <h2><span class="mk">3</span>Plan ändert sich unterwegs</h2>
+  <p>Eine neue Zwischenphase oder eine vorgezogene Phase ist eine Änderung am Plan. Die Session schlägt sie über das Werkzeug des Verwalters vor; der Verwalter zeigt dir die Unterschiede als Karte, und erst dein „Übernehmen“ baut den grauen Teil neu; Fertiges und Laufendes bleiben, wie sie sind. Auf der Linie markiert ein Hinweis die Stelle, an der sich der Plan geändert hat.</p>
+  <div class="frame"><div class="mo2">
+    <div class="left"><div class="pr" style="height:486px">
+      <span class="ln done" style="left:12px;top:44px;height:56px"></span>
+      <span class="ln run" style="left:12px;top:100px;height:88px"></span>
+      <span class="ln base" style="left:12px;top:188px;height:284px"></span>
+      <div class="ph done"><span class="pk">Phase 2<b>Oberfläche</b></span><span class="m">fertig · 47 min</span></div>
+      <div class="st ok"><span class="dt"></span><span class="lb">Test</span><span class="m">#8 · 9 min</span></div>
+      <div class="st ok"><span class="dt"></span><span class="lb">Umsetzung</span><span class="m">#9 · 27 min</span></div>
+      <div class="st ok"><span class="dt"></span><span class="lb">Review</span><span class="m">#10 · 11 min</span></div>
+      <div class="chg"><span>Plan geändert · aus #10 · von dir übernommen</span></div>
+      <div class="ph"><span class="pk">Phase 2a<b>Migration</b><span class="tagn">neu</span></span><span class="m" style="color:var(--running)">läuft</span></div>
+      <div class="st run"><span class="dt"></span><span class="lb">Test</span><span class="m" style="color:var(--running)">#11 · läuft</span></div>
+      <div class="st todo"><span class="dt"></span><span class="lb">Umsetzung</span><span class="m"></span></div>
+      <div class="st todo"><span class="dt"></span><span class="lb">Review</span><span class="m"></span></div>
+      <div class="ph"><span class="pk">Phase 4<b>Automatik</b><span class="tagn">vorgezogen</span></span><span class="m">geplant</span></div>
+      <div class="st todo"><span class="dt"></span><span class="lb">Test</span><span class="m"></span></div>
+      <div class="st todo"><span class="dt"></span><span class="lb">Umsetzung</span><span class="m"></span></div>
+      <div class="st todo"><span class="dt"></span><span class="lb">Review</span><span class="m"></span></div>
+      <div class="ph"><span class="pk">Phase 3<b>Einstellungen</b></span><span class="m">geplant</span></div>
+      <div class="st todo"><span class="dt"></span><span class="lb">Test</span><span class="m"></span></div>
+      <div class="st todo"><span class="dt"></span><span class="lb">Umsetzung</span><span class="m"></span></div>
+      <div class="st todo"><span class="dt"></span><span class="lb">Review</span><span class="m"></span></div>
+    </div></div>
+    <div class="deck">
+      <div class="dk-h"><span class="lbl">Plan geändert</span><span class="sp"></span><button class="lnk">Zur aktuellen</button></div>
+      <div class="card" style="border-left-color:var(--accent)"><div class="t"><b>Plan geändert</b><span class="m">aus #10 · Phase 2 · Review · vor 14 min</span></div>
+        <div class="r">Das Review hat festgestellt, dass die Tabelle für die Stationen eine eigene Migration braucht, bevor die Automatik darauf aufsetzt.</div>
+        <ul style="margin:0;padding-left:18px;color:var(--fg2);display:grid;gap:3px"><li><b style="color:var(--fg)">Neu:</b> Phase 2a Migration (Test, Umsetzung, Review)</li><li><b style="color:var(--fg)">Vorgezogen:</b> Phase 4 Automatik vor Phase 3</li><li><b style="color:var(--fg)">Entfallen:</b> nichts</li></ul>
+        <div class="facts"><span><b>Übernommen</b> von dir um 14:32</span><span><b>Stationen</b> 16 → 19</span></div>
+        <div class="acts"><button class="btn sm">Chat öffnen</button><button class="btn sm">Plan ansehen</button></div>
+      </div>
+      <div class="hint">Der Hinweis „Plan geändert“ auf der Linie ist anklickbar wie eine Station; die Kartei zeigt dann diese Karte.</div>
+    </div>
+  </div></div>
+  <div class="panel" style="margin-top:12px"><ul>
+    <li><b>Nur über <code>implementation_set_phases</code></b>, immer mit der vollständigen Liste der kommenden Phasen. Der Verwalter vergleicht sie mit dem bisherigen Stand und zeigt dir die Unterschiede als Karte „Plan ändern?“; erst dein „Übernehmen“ ändert die Linie.</li>
+    <li><b>Neu</b> und <b>vorgezogen</b> stehen als Marke an der Phase, bis sie beginnt; entfallene Phasen verschwinden und stehen in der Karte „Plan geändert“.</li>
+    <li><b>Nummern</b> übernimmt der Verwalter aus dem Aufruf (etwa „2a“); er nummeriert nicht selbst um.</li>
+  </ul></div>
+</section>
+
+<section class="state">
+  <h2><span class="mk">4</span>Technik: Werkzeuge des Verwalters</h2>
+  <p>Der Agent bekommt vom Verwalter fünf Werkzeuge, mit denen er die Umsetzung des aktuellen Vorhabens anlegt, liest und ändert — mit Titel und Kurzbeschreibung je Phase. Woher der Plan kommt, ist dem Verwalter egal: Markdown-Dateien, Manager oder einfach das Gespräch. Der Agent liest die Quelle und ruft die Werkzeuge auf; der Verwalter prüft jeden Aufruf und meldet Fehler sofort an den Agenten zurück.</p>
+  <div class="flowx">
+    <div class="fx"><b>1 · Plan-Quelle</b>Markdown-Dateien in <code>docs/planning/</code>, der Manager oder das Gespräch.</div>
+    <span class="fa">→</span>
+    <div class="fx"><b>2 · Agent</b>Die Planung, <code>/implement</code> oder eine Rückfrage liest die Quelle und ruft ein Werkzeug des Verwalters auf.</div>
+    <span class="fa">→</span>
+    <div class="fx"><b>3 · Verwalter</b>Prüft den Aufruf, speichert in SQLite, antwortet dem Agenten mit dem neuen Stand oder dem Fehler.</div>
+    <span class="fa">→</span>
+    <div class="fx"><b>4 · Ansicht</b>Linie und Kartei aktualisieren sich sofort; Zustände kommen aus den Sessions.</div>
+  </div>
+  <div class="panel" style="margin-top:12px">
+    <table class="tbl">
+      <tr><th>Werkzeug</th><th>Wirkung</th><th>Freigabe durch dich</th></tr>
+      <tr><td><code>implementation_get</code></td><td>Liest Phasen, Stationen, Zustände, Ergebnisse und offene Fragen — dieselben Daten wie der Lagebericht.</td><td>keine</td></tr>
+      <tr><td><code>implementation_create</code></td><td>Legt eine Umsetzung an: Name, Quelle und je Phase Kennung, Titel, Kurzbeschreibung, Welle und Stationen (Stufe, Modell, Agent oder du).</td><td>keine — den Plan hast du schon im Chat freigegeben</td></tr>
+      <tr><td><code>implementation_set_phases</code></td><td>Legt den kommenden Teil neu fest, immer als vollständige Liste. Gestartetes bleibt, wie es ist; Nummern wie „2a“ kommen aus dem Aufruf.</td><td>sobald die Umsetzung läuft: Karte „Plan ändern?“ mit den Unterschieden</td></tr>
+      <tr><td><code>phase_describe</code></td><td>Ändert Titel und Kurzbeschreibung einer Phase, auch einer fertigen.</td><td>keine</td></tr>
+      <tr><td><code>station_complete</code></td><td>Meldet die eigene Station als fertig, mit einer Zeile Ergebnis. Findet ein Review Mängel, hängt es dabei eine Fix-Runde und ein zweites Review an. Danach startet der Verwalter, was keine offenen Vorgänger mehr hat.</td><td>keine</td></tr>
+    </table>
+  </div>
+  <div class="two" style="margin-top:12px">
+    <div class="panel"><h3>Beispiel: Anlegen nach der Planung</h3>
+      <pre class="blk">implementation_create({
+  "name": "Kontext-Leiste",
+  "source": "docs/planning/2026-10-29_kontext-leiste/",
+  "phases": [
+    { "key": "1", "title": "Core",
+      "description": "Core erkennt Phase und Stufe und speichert die Stationen.",
+      "stations": [ { "stage": "Test", "model": "sonnet" },
+                    { "stage": "Umsetzung", "model": "sonnet" },
+                    { "stage": "Review", "model": "sonnet" } ] },
+    { "key": "2", "title": "Oberfläche", <em>"wave": 2</em>, … },
+    { "key": "3", "title": "Einstellungen", <em>"wave": 2</em>, … },
+    { "key": "5", "title": "Doku und Release",
+      "stations": [ { "stage": "Umsetzung" } ] },
+    { "key": "Abschluss", "title": "Abschluss",
+      "stations": [ { "stage": "Gesamt-Review", "model": "fable" },
+                    { "stage": "Merge", "by": "you" } ] }
+  ]
+})</pre>
+    </div>
+    <div class="panel"><h3>Wie die Werkzeuge zum Agenten kommen</h3><ul>
+      <li><b>Ein MCP-Server im Verwalter selbst</b>, nur auf 127.0.0.1 erreichbar, mit einem Schlüssel je Session. Der Schlüssel bindet jeden Aufruf an das Vorhaben dieser Session: ein Agent sieht und ändert nur seine eigene Umsetzung.</li>
+      <li><b>Übergabe beim Start:</b> Der Verwalter reicht eine Konfigurationsdatei über <code>--mcp-config</code> nach — denselben Weg nutzt er heute schon für die <code>.mcp.json</code> der Repositories. Der autarke Agent liest dieselbe Option und spricht schon heute MCP über HTTP.</li>
+      <li><b>Basis ist der Artefakt-Server</b> (127.0.0.1, Zufalls-Port, Standardbibliothek, keine neue Abhängigkeit). Er kann bisher nur GET; für MCP kommt POST mit JSON dazu (initialize, tools/list, tools/call). Die JSON-RPC-Typen gibt es schon im MCP-Client des autarken Agenten.</li>
+      <li><b>🟡 Codex</b> liest seine MCP-Server aus der eigenen Konfiguration; ob der Server dort über den Übersetzer ankommt, ist offen und wird im Plan geprüft.</li>
+      <li><b>🟡 Sicherheit:</b> Artefakt-Seiten sind vom Agenten geschriebenes HTML mit Skripten. Der MCP-Zugang braucht deshalb einen eigenen Port oder einen eigenen Schlüssel im <code>Authorization</code>-Kopf und antwortet nie auf CORS — sonst könnte eine Seite die Umsetzung ändern.</li>
+    </ul></div>
+  </div>
+  <div class="two" style="margin-top:12px">
+    <div class="panel"><h3>Wie Stationen starten</h3><ul>
+      <li><b>Ohne Einstiegszeile:</b> Eine Station startet, sobald ihre Vorgänger fertig gemeldet haben — mit dem Modell aus dem Plan und einer ersten Nachricht, die der Verwalter zusammenstellt: Auftrag der Station, Titel und Beschreibung der Phase, Ergebniszeilen der Vorgänger, Quelle des Plans. Der 10-Sekunden-Countdown zum Abbrechen bleibt.</li>
+      <li><b>Fertig heißt gemeldet:</b> Endet eine Antwort ohne <code>station_complete</code> — mit einer Frage, 🔴 oder einer Bitte um Freigabe —, wartet die Station auf dich; nichts startet von selbst.</li>
+      <li><b>Zustand einer Station</b> = Zustand ihrer Session; die Werkzeuge ändern nur Aufbau und Texte.</li>
+      <li><b>Ohne Verwalter</b> (Terminal) fehlen die Werkzeuge; die Skills arbeiten dann wie heute.</li>
+    </ul></div>
+    <div class="panel"><h3>Andere Wege, geprüft</h3><ul>
+      <li><b>Textblock in der Antwort:</b> am schnellsten gebaut, aber ohne Prüfung und ohne Lesezugriff; ein Tippfehler fällt erst in der Ansicht auf. Verworfen.</li>
+      <li><b>Datei im Workspace</b>, die der Verwalter beobachtet: jeder Agent kann sie schreiben, aber Fehler meldet niemand zurück, und zwei Sessions überschreiben sich. Nur als Rückfall, falls ein Agent kein MCP kann.</li>
+      <li><b>Verwalter liest Plan-Dateien selbst:</b> bindet ihn an euer Tabellenformat und lässt den Manager außen vor. Verworfen.</li>
+    </ul></div>
+  </div>
+</section>
+
+<section class="state">
+  <h2><span class="mk">5</span>Rückfragen während der Umsetzung</h2>
+  <p>Eine Rückfrage ist eine reguläre Session im Vorhaben und steht ganz normal links in der Seitenleiste. „Neue Rückfrage“ legt eine frische Session an, hängt den aktuellen Lagebericht an und setzt den Cursor ins Eingabefeld; den Namen bekommt sie aus deiner Frage. Zurück kommst du jederzeit über die Seitenleiste. Für ein neues Thema klickst du wieder „Neue Rückfrage“.</p>
+  <div class="frame"><div class="app">
+    <aside class="sidebar">
+      <div class="sb-head">Agenten Verwalter 2000</div>
+      <div class="sb-p"><span class="dot wait"></span>Kontext-Leiste</div>
+      <div class="sb-s sel new"><span class="grow">Phase 4 vor Phase 3 ziehen?</span><span class="n">#12</span></div>
+      <div class="sb-s"><span class="grow">Umsetzung Kontext-Leiste</span><span class="prog">7/16</span></div>
+      <div class="sb-s"><span class="grow">Plan anlegen</span><span class="n">#2</span></div>
+      <div class="sb-s"><span class="grow">Bug: Phasen falsch gezählt</span><span class="n">#1</span></div>
+      <div class="sb-p"><span class="dot run"></span>Sprint 44</div>
+      <div class="sb-s"><span class="grow">Sprint planen</span><span class="n">#2</span></div>
+    </aside>
+    <div class="main">
+      <div class="hdr"><div class="hdr-l"><span class="crumb">Kontext-Leiste ›</span><span class="crumb">#12</span><span class="hname">Phase 4 vor Phase 3 ziehen?</span></div><div class="tabs"><span class="tab on">Chat</span><span class="tab">Changes</span></div><div class="hdr-r"></div></div>
+      <div class="chat"><div class="col">
+        <div class="umsg"><span class="att" style="align-self:flex-start"><b>Lagebericht</b><span>Umsetzung Kontext-Leiste · Stand 14:46</span></span>Können wir die Automatik vor die Einstellungen ziehen? Die Einstellungen bauen doch darauf auf.</div>
+        <div class="amsg"><p>Ja. Phase 4 braucht nur die Tabelle aus Phase 2, nichts aus Phase 3; umgekehrt liest Phase 3 den Schalter aus Phase 4.</p><p>Soll ich das vorschlagen? Du bestätigst es dann auf der Karte „Plan ändern?“; die laufende Umsetzung arbeitet weiter.</p></div>
+        <div class="umsg">Ja, mach.</div>
+        <div class="amsg"><p>Vorgeschlagen. Nach deinem „Übernehmen“ steht Phase 4 als „vorgezogen“ auf der Linie.</p></div>
+        <div class="notice new">Lagebericht aktualisiert angehängt · Stand 15:20 · Phase 2 fertig</div>
+        <div class="umsg">Und jetzt, wo Phase 2 durch ist — passt die Schätzung für Phase 4 noch?</div>
+      </div></div>
+      <div class="cwrap"><div class="cbox"><div class="cfield">Nachricht an Claude … (/ für Skills)</div><div class="cfoot"><span>＋</span><span>/</span><span class="sp"></span><span>Sonnet · Mittel</span><span class="send">↑</span></div></div></div>
+    </div>
+  </div></div>
+  <div class="two" style="margin-top:12px">
+    <div class="panel"><h3>So arbeitest du damit</h3><ul>
+      <li><b>Starten:</b> „Neue Rückfrage“ in der Kopfleiste der Umsetzung oder im Kontextmenü ihrer Zeile in der Seitenleiste.</li>
+      <li><b>Lagebericht als Anhang:</b> Der Verwalter schreibt ihn als Datei in den Anhänge-Ordner des Vorhabens und hängt sie an, wie jede Datei, die du selbst anhängst.</li>
+      <li><b>Später weiterfragen:</b> Rückfrage links öffnen und schreiben. Hat sich die Lage seit dem angehängten Bericht geändert, hängt der Verwalter beim Senden den neuen Stand an und vermerkt das im Verlauf.</li>
+      <li><b>Frische Session:</b> wieder „Neue Rückfrage“ — leerer Kontext, Bericht von jetzt.</li>
+      <li><b>Umplanen</b> geht wie in Abschnitt 3: Die Rückfrage schlägt die Änderung über das Werkzeug vor, du übernimmst sie auf der Karte.</li>
+      <li><b>🟡 Kein Code:</b> Die Rückfrage arbeitet im selben Ordner wie die Umsetzung. Dass sie keinen Code ändert, steht als Anweisung im Lagebericht — es ist eine Regel für den Agenten, keine Sperre.</li>
+    </ul></div>
+    <div class="panel"><h3>Der Lagebericht</h3>
+      <pre class="blk" style="white-space:pre-wrap">Lage: Umsetzung Kontext-Leiste — Stand 14:46
+Diese Session ist eine Rückfrage: lesen, erklären, umplanen; keinen Code ändern.
+Quelle: docs/planning/2026-10-29_kontext-leiste/
+Ziel: Die Seitenleiste zählt Phasen richtig und zeigt …
+Stand: Phase 2 von 5 · 6 von 16 Sessions fertig
+Jetzt: Phase 2 · Umsetzung (#9) fragt dich:
+  Migration 16 anlegen oder 15 erweitern?
+Fertig:
+  Phase 1 · Test #3 — Fünf Abnahme-Tests, alle rot
+  Phase 1 · Umsetzung #4 — Core erkennt Phase und Stufe
+  Phase 1 · Review #5 — 2 Mängel …
+  Phase 2 · Test #8 — Fünf Abnahme-Tests, alle rot
+Offen: Phase 2 Review · Phase 3–5 · Abschluss
+Plan-Änderungen: keine
+Geänderte Dateien: 11</pre>
+      <p style="margin-top:8px;color:var(--fg2)">Der Verwalter baut ihn ohne Modell aus dem, was er ohnehin weiß: Ablauf, Zustand und TL;DR-Zeile jeder Station, offene Frage, Plan-Änderungen, Zahl der geänderten Dateien; „Ziel“ ist die erste Zeile der Plan-README. Auf Wunsch schreibt Haiku drei Sätze Kurzfassung obendrauf. „Lagebericht“ allein zeigt ihn ohne Session.</p>
+    </div>
+  </div>
+</section>
+
+<section class="state">
+  <h2><span class="mk">6</span>Punkte und Phasen</h2>
+  <div class="panel">
+    <div class="legend">
+      <span><span class="dt ok"></span>fertig</span>
+      <span><span class="dt run"></span>läuft</span>
+      <span><span class="dt wait">?</span>wartet auf dich</span>
+      <span><span class="dt todo"></span>wartet auf Start</span>
+    </div>
+    <p style="margin:10px 0 0;color:var(--fg2)">Alle Punkte sind gleich groß; der Zustand steckt in Füllung und Zeichen. Vorher waren Fix-Runden kleiner und Phasen eckige Knoten auf der Linie — jetzt ist eine Phase eine Überschrift, keine Station, und eine Fix-Runde ein normaler Punkt mit dem Namen „Fix-Runde“. Die Linie ist ein durchgehender Strich: grün bis zur letzten fertigen Station, dann gelb bis zur Station, die dich fragt (blau, wenn sie läuft), danach grau.</p>
+  </div>
+</section>
+
+<section class="state">
+  <h2><span class="mk">7</span>Regeln</h2>
+  <div class="two">
+    <div class="panel"><h3>Zeitleiste und Kartei</h3><ul>
+      <li><b>Eine Station je Session</b>, in der Reihenfolge des Plans; was noch nicht begonnen hat, steht schon grau da. Eine mechanische Phase hat nur „Umsetzung“, das steht an der Phase.</li>
+      <li><b>Kartei gekoppelt:</b> Die große Karte ist die Station im Fokus, links hervorgehoben. Darüber bis zu drei vorige, darunter bis zu drei kommende Stationen als kleine Karten.</li>
+      <li><b>Fokus von selbst:</b> Ohne dein Zutun liegt die Station vorn, die gerade läuft oder fragt; „Zur aktuellen“ springt dorthin zurück.</li>
+      <li><b>Chat:</b> „Chat öffnen“ auf der großen Karte oder Doppelklick auf eine Station.</li>
+    </ul></div>
+    <div class="panel"><h3>Ablauf</h3><ul>
+      <li><b>Entstehung:</b> Die Planung (reguläre Session) legt nach deiner Freigabe die Umsetzung über <code>implementation_create</code> an, mit Modell und Auftrag je Station; der Verwalter startet die erste nach 10 Sekunden.</li>
+      <li><b>Abarbeiten:</b> Jede Session meldet sich über <code>station_complete</code> fertig; der Verwalter startet jede Station, deren Vorgänger fertig sind, in einer frischen Session.</li>
+      <li><b>Fragen</b> beantwortest du auf der großen Karte; die Session arbeitet weiter. Bei 🔴 oder „Merge“ startet nichts von selbst.</li>
+      <li><b>Steuern:</b> „Automatisch weiter“ aus → ▶ auf der Karte der nächsten Station; „Anhalten nach dieser Session“ stoppt nach der laufenden.</li>
+    </ul></div>
+  </div>
+</section>
+
+<section class="state">
+  <h2><span class="mk">8</span>Was sich an den Skills ändert</h2>
+  <p>Ist der Agent im Verwalter gestartet, findet er die Werkzeuge vor und braucht keine Einstiegszeile mehr; im Terminal fehlen sie, und alles läuft wie heute.</p>
+  <div class="panel"><h3>Planung, beide Profile</h3><ul>
+    <li><b>Nach der Plan-Freigabe</b> <code>implementation_create</code>: je Phase Titel und ein, zwei Sätze, worum es geht; Welle aus der Spalte „Wave“; je Station Stufe, Modell und Auftrag. Keine Einstiegszeile.</li>
+    <li><b>Stationen je Phase:</b> privat eine „Umsetzung“; work bei mechanisch eine „Umsetzung“, sonst „Test, Umsetzung, Review“. Am Ende privat „Abnahme“ durch dich, work „Gesamt-Review“ auf Fable und „Merge“ durch dich.</li>
+    <li><b>Modelle</b> aus der Einstufung, wie heute in den Tabellen der Skills: mechanisch und standard Sonnet, heikel Opus, Gesamt-Review Fable.</li>
+    <li><b>Plan ändert sich:</b> <code>implementation_set_phases</code> mit der vollständigen Liste, dann Plan-Dateien bzw. Manager nachziehen. Die Freigabe holt der Verwalter über seine Karte.</li>
+  </ul></div>
+  <div class="two" style="margin-top:12px">
+    <div class="panel"><h3>Umsetzung, privat</h3><ul>
+      <li><b>Phasengrenze:</b> Stand persistieren, <code>station_complete</code> mit einer Ergebniszeile, Ende. Die nächste Station startet der Verwalter in einer frischen Session — das ist der Clear.</li>
+      <li><b>Letzte Phase:</b> gibt die Prüfliste aus; sie steht auf der Station „Abnahme“.</li>
+      <li><b>Unverändert:</b> keine Tests, keine Reviews, keine Subagenten.</li>
+    </ul></div>
+    <div class="panel"><h3>Umsetzung, work</h3><ul>
+      <li><b>Der Orchestrator mit Subagenten entfällt.</b> Test, Umsetzung und Review sind eigene Stationen; die Anweisungen für Tester, Developer und Reviewer gelten jetzt für diese Sessions.</li>
+      <li><b>Fertigmelden:</b> Test und Umsetzung melden mit <code>station_complete</code>. Das Review meldet grün erst nach dem Commit — bei Review-Modus „pro Phase“ nach deiner Freigabe. Bei Mängeln hängt es „Fix“ und ein zweites Review an; nach zwei Fix-Runden ohne grün meldet es nicht fertig, sondern fragt dich (🔴).</li>
+      <li><b>Report-Back</b> in die Phasen-Datei; die Ergebniszeile geht mit der Fertigmeldung an den Verwalter.</li>
+      <li><b>Schreiber:</b> die laufende Session. Bei einer Welle schreibt jede Spur nur ihre Phasen-Datei; STATE.md und Commits macht die erste Station nach dem Zusammenlauf.</li>
+      <li><b>Rot-Gate:</b> Die Test-Station belegt Rot selbst gegen den Stand vor der Phase; die Bestands-Suite läuft einmal in der ersten Test-Station.</li>
+      <li><b>Manager:</b> <code>start_work</code> macht die erste Station einer Phase, <code>complete_work</code> das Review nach dem Commit.</li>
+      <li><b>Subagenten</b> nur noch für Mengenarbeit (Testläufe, Suchen), nie als Rolle.</li>
+    </ul></div>
+  </div>
+  <div class="panel" style="margin-top:12px"><p><b>CLAUDE.md:</b> ein Halbsatz — Rollen-Sessions starten „per Einstiegszeile oder, im Agenten-Verwalter, über dessen Umsetzung“. Sonst nichts.</p></div>
+</section>
+
+<section class="state">
+  <h2><span class="mk">9</span>Für den Plan</h2>
+  <div class="two">
+    <div class="panel"><h3>Festgelegt</h3><ul>
+      <li><b>Ein Plan</b> im Verwalter-Repo; die Anpassung der Skills ist seine letzte Phase (Master unter <code>G:\Meine Ablage\U104_Agents\skills</code>, danach spiegeln).</li>
+      <li><b>Reguläre Sessions</b> bleiben unverändert. Eine Umsetzung ist ein eigener Eintrag im Vorhaben, in der Seitenleiste eine Zeile mit Fortschritt; Sortierung wie heute.</li>
+      <li><b>Ansicht:</b> Zeitleiste von oben nach unten mit gekoppelter Kartei; alle Punkte gleich groß; Linie durchgehend (grün, Farbe der aktuellen Station, grau); parallele Phasen als versetzte Linien, Inhalte untereinander.</li>
+      <li><b>Werkzeuge</b> über den MCP-Zugang des Verwalters: nur 127.0.0.1, Schlüssel je Session, übergeben per <code>--mcp-config</code>; fünf Werkzeuge (Abschnitt 4). Den Zugang selbst baut der Plan zur Artefakt-Seite.</li>
+      <li><b>Start ohne Einstiegszeile:</b> sobald die Vorgänger fertig gemeldet haben; Modell aus dem Plan; erste Nachricht stellt der Verwalter zusammen; 10-Sekunden-Countdown zum Abbrechen.</li>
+      <li><b>Fertig heißt gemeldet:</b> Endet eine Antwort ohne Fertigmeldung, wartet die Station auf dich.</li>
+      <li><b>Änderungen</b> an einer laufenden Umsetzung erst nach „Übernehmen“ auf der Karte; Gestartetes bleibt.</li>
+      <li><b>Rückfragen</b> sind reguläre Sessions mit dem Lagebericht als Anhang; der Bericht ist programmatisch, Haiku nur auf Wunsch obendrauf.</li>
+      <li><b>Nicht drin:</b> Kanban, Burn-up, Drag and Drop.</li>
+    </ul></div>
+    <div class="panel"><h3>Offen für die Planung</h3><ul>
+      <li><b>Grundlage MCP-Zugang</b> baut der Plan zur Artefakt-Seite (andere Session) als erste Phase, auf Basis des Artefakt-Servers. Dieser Plan setzt darauf auf und startet erst danach; Nummern für ADR und Migration mit ihm abstimmen.</li>
+      <li><b>Codex:</b> wie der Server über den Übersetzer ankommt.</li>
+      <li><b>Erste Nachricht</b> einer Station: genaues Format, etwa Skill-Aufruf plus Phase, Auftrag und Ergebniszeilen der Vorgänger.</li>
+      <li><b>Fehler einer Station</b> (Session bricht ab, Status „Fehler“): Anzeige und ob die Kette anhält.</li>
+      <li><b>„Automatisch weiter“</b> und seine Bremse bleiben für reguläre Sessions; Abgrenzung zum Start in der Umsetzung.</li>
+      <li><b>Parallele Spuren</b> und der geparkte Plan „Parallele Sessions“ (zwei Sessions im selben Ordner): Bezug klären.</li>
+      <li><b>Nummern:</b> nächste freie ADR und Migration im Repo prüfen.</li>
+    </ul></div>
+  </div>
+</section>
+
+
+<script>
+(function () {
+  var P = [
+    { n: 1, name: 'Core', state: 'fertig · 59 min', cls: 'done' },
+    { n: 2, name: 'Oberfläche', state: 'fragt dich', cls: 'act' },
+    { n: 3, name: 'Einstellungen', state: 'geplant', cls: '' },
+    { n: 4, name: 'Automatik', state: 'geplant', cls: '' },
+    { n: 5, name: 'Doku und Release', state: 'nur Umsetzung', cls: '' },
+    { n: 6, name: '', state: 'geplant', cls: '', end: true }
+  ];
+  var S = [
+    { p: 1, stage: 'Test', n: 3, st: 'ok', min: 8, res: 'Fünf Abnahme-Tests geschrieben, alle rot gegen den Ausgangsstand.' },
+    { p: 1, stage: 'Umsetzung', n: 4, st: 'ok', min: 24, res: 'Core speichert Umsetzung und Stationen; Prüfkette grün.', files: 7 },
+    { p: 1, stage: 'Review', n: 5, st: 'ok', min: 11, res: '2 Mängel: Die Zählung überspringt Phasen ohne Session; der Fokus springt nach dem Wechsel an den Anfang.' },
+    { p: 1, stage: 'Fix-Runde', n: 6, st: 'ok', min: 9, res: 'Beide Mängel aus dem Review behoben.', files: 2 },
+    { p: 1, stage: 'Review · 2. Durchgang', n: 7, st: 'ok', min: 7, res: 'Hält stand, Prüfkette grün. Phase 1 ist committet.' },
+    { p: 2, stage: 'Test', n: 8, st: 'ok', min: 9, res: 'Fünf Abnahme-Tests, alle rot gegen den Ausgangsstand.' },
+    { p: 2, stage: 'Umsetzung', n: 9, st: 'wait', min: 18, q: 'Für die geplanten Sessions braucht der Verwalter eine neue Tabelle. Als neue Migration 16 anlegen oder Migration 15 erweitern?', opts: ['Neue Migration 16 (empfohlen)', 'Migration 15 erweitern'], last: 'bearbeitet src-tauri/src/db/migrations.rs', files: 3 },
+    { p: 2, stage: 'Review', st: 'todo' },
+    { p: 3, stage: 'Test', st: 'todo' }, { p: 3, stage: 'Umsetzung', st: 'todo' }, { p: 3, stage: 'Review', st: 'todo' },
+    { p: 4, stage: 'Test', st: 'todo' }, { p: 4, stage: 'Umsetzung', st: 'todo' }, { p: 4, stage: 'Review', st: 'todo' },
+    { p: 5, stage: 'Umsetzung', st: 'todo' },
+    { p: 6, stage: 'Gesamt-Review', st: 'todo' },
+    { p: 6, stage: 'Merge durch dich', st: 'todo', human: true }
+  ];
+  var current = 6;
+  var next = 7;
+  var focus = current;
+  var rail = document.getElementById('rail');
+  var deck = document.getElementById('deck');
+
+  function phaseName(s) { var p = P[s.p - 1]; return p.end ? 'Abschluss' : 'Phase ' + p.n; }
+  function title(s) { return phaseName(s) + ' · ' + s.stage; }
+  function mark(s) { return '<span class="dt">' + (s.st === 'wait' ? '?' : '') + '</span>'; }
+  function meta(s, i) {
+    if (s.st === 'ok') return '#' + s.n + ' · ' + s.min + ' min';
+    if (s.st === 'wait') return '#' + s.n + ' · fragt';
+    if (s.st === 'run') return '#' + s.n + ' · läuft';
+    if (i === next) return '<span class="nx">als Nächstes</span>';
+    return '';
+  }
+  function short(s, i) {
+    if (s.st === 'ok') return s.res;
+    if (s.st === 'wait') return 'fragt dich: ' + s.q;
+    if (s.human) return 'du entscheidest über den Merge';
+    return i === next ? 'startet als Nächstes' : 'wartet auf Start';
+  }
+
+  function renderRail() {
+    var html = '', last = 0;
+    S.forEach(function (s, i) {
+      if (s.p !== last) {
+        var p = P[s.p - 1];
+        html += '<div class="ph ' + p.cls + '"><span class="pk">' + (p.end ? 'Abschluss' : 'Phase ' + p.n + '<b>' + p.name + '</b>') + '</span><span class="m">' + p.state + '</span></div>';
+        last = s.p;
+      }
+      html += '<button type="button" class="st ' + s.st + (i === focus ? ' sel' : '') + (i === S.length - 1 ? ' last' : '') + '" data-i="' + i + '" title="Doppelklick öffnet den Chat">' + mark(s) + '<span class="lb">' + s.stage + '</span><span class="m">' + meta(s, i) + '</span></button>';
+    });
+    rail.innerHTML = html;
+    drawLine();
+  }
+
+  // Eine durchgehende Linie statt Stücken je Zeile: grau über alles, grün bis zur letzten
+  // fertigen Station, in der Farbe der aktuellen Station bis zu ihr.
+  function drawLine() {
+    var dots = rail.querySelectorAll('.st .dt');
+    if (!dots.length) return;
+    var r = rail.getBoundingClientRect();
+    function y(el) { var b = el.getBoundingClientRect(); return b.top + b.height / 2 - r.top; }
+    var d0 = dots[0].getBoundingClientRect();
+    var x = d0.left + d0.width / 2 - r.left - 1;
+    var lastOk = -1;
+    S.forEach(function (s, i) { if (s.st === 'ok') lastOk = i; });
+    function seg(cls, from, to) {
+      return '<span class="ln ' + cls + '" style="left:' + x + 'px;top:' + from + 'px;height:' + Math.max(0, to - from) + 'px"></span>';
+    }
+    var h = seg('base', y(dots[0]), y(dots[dots.length - 1]));
+    if (lastOk >= 0) h += seg('done', y(dots[0]), y(dots[lastOk]));
+    if (lastOk >= 0 && current > lastOk) h += seg(S[current].st, y(dots[lastOk]), y(dots[current]));
+    rail.insertAdjacentHTML('beforeend', h);
+  }
+  window.addEventListener('resize', function () { renderRail(); });
+
+  function teaser(i, dist) {
+    var s = S[i];
+    var op = [1, 1, 0.82, 0.64][dist];
+    return '<button type="button" class="tz ' + s.st + '" data-i="' + i + '" style="opacity:' + op + '">' + mark(s) + '<span class="tt">' + title(s) + '</span><span class="ts">' + short(s, i) + '</span><span class="m">' + (s.n ? '#' + s.n : '') + '</span></button>';
+  }
+
+  function big(s, i) {
+    var h = '<div class="card ' + s.st + '"><div class="t"><b>' + title(s) + '</b><span class="m">';
+    if (s.st === 'ok') h += '#' + s.n + ' · ' + s.min + ' min · fertig';
+    else if (s.st === 'wait') h += '#' + s.n + ' · fragt seit 3 min';
+    else h += i === next ? 'als Nächstes' : 'wartet auf Start';
+    h += '</span></div>';
+    if (s.st === 'ok') {
+      h += '<div class="r">' + s.res + '</div><div class="acts"><button class="btn sm">Chat öffnen</button>' + (s.files ? '<button class="btn sm">Changes · ' + s.files + ' Dateien</button>' : '') + '</div>';
+    } else if (s.st === 'wait') {
+      h += '<div class="q">' + s.q + '</div><div class="opts">' + s.opts.map(function (o, k) { return '<button class="btn sm' + (k === 0 ? ' primary' : '') + '">' + o + '</button>'; }).join('') + '</div><div class="ans">Eigene Antwort …</div><div class="acts"><button class="btn sm">Chat öffnen</button><button class="btn sm">Changes · ' + s.files + ' Dateien</button></div><div class="facts"><span><b>Modell</b> Sonnet</span><span><b>Läuft seit</b> ' + s.min + ' min</span><span><b>Zuletzt</b> ' + s.last + '</span></div>';
+    } else if (s.human) {
+      h += '<div class="r">Am Ende fragt dich das Gesamt-Review nach dem Merge; deine Antwort schließt die Umsetzung ab.</div>';
+    } else if (i === next) {
+      h += '<div class="r">Startet von selbst, sobald ' + title(S[current]) + ' fertig gemeldet hat. Ist „Automatisch weiter“ aus, startest du hier.</div><div class="acts"><button class="btn sm primary">▶ Jetzt starten</button></div>';
+    } else {
+      h += '<div class="r">Geplant. Startet, wenn die Station davor fertig ist.</div>';
+    }
+    return h + '</div>';
+  }
+
+  function renderDeck() {
+    var s = S[focus];
+    var head = focus === current ? '<span class="lbl w">Wartet auf dich</span>' : '<span class="lbl">Station ' + (focus + 1) + ' von ' + S.length + '</span>';
+    var h = '<div class="dk-h">' + head + '<span class="sp"></span><button class="btn sm" data-act="up" aria-label="Vorige Station">↑</button><button class="btn sm" data-act="down" aria-label="Nächste Station">↓</button>' + (focus !== current ? '<button class="lnk" data-act="cur">Zur aktuellen</button>' : '') + '</div>';
+    for (var d = 3; d >= 1; d--) if (focus - d >= 0) h += teaser(focus - d, d);
+    h += big(s, focus);
+    for (var e = 1; e <= 3; e++) if (focus + e < S.length) h += teaser(focus + e, e);
+    h += '<div class="hint">Klick auf eine Station oder kleine Karte holt sie nach vorn · <kbd>↑</kbd> <kbd>↓</kbd> blättern</div>';
+    deck.innerHTML = h;
+  }
+
+  function render() { renderRail(); renderDeck(); }
+  function go(i) { focus = Math.max(0, Math.min(S.length - 1, i)); render(); }
+
+  var engaged = false;
+  document.addEventListener('click', function (ev) {
+    engaged = rail.contains(ev.target) || deck.contains(ev.target);
+    var t = ev.target.closest('[data-i], [data-act]');
+    if (!t || !(rail.contains(t) || deck.contains(t))) return;
+    if (t.dataset.i !== undefined) go(+t.dataset.i);
+    else if (t.dataset.act === 'up') go(focus - 1);
+    else if (t.dataset.act === 'down') go(focus + 1);
+    else if (t.dataset.act === 'cur') go(current);
+  });
+  document.addEventListener('keydown', function (ev) {
+    if (!engaged) return;
+    if (ev.key === 'ArrowUp') { ev.preventDefault(); go(focus - 1); }
+    if (ev.key === 'ArrowDown') { ev.preventDefault(); go(focus + 1); }
+  });
+  render();
+})();
+</script>
+</body>
+</html>

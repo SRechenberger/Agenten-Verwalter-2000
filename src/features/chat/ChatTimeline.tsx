@@ -1,5 +1,5 @@
 import { useEffect, useEffectEvent, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import type { ReactElement } from 'react';
+import type { MouseEvent, ReactElement } from 'react';
 import { useVirtualizer, type VirtualItem } from '@tanstack/react-virtual';
 import { FileLinkSessionContext } from '@/components/FileLinkSessionContext';
 import { ArtifactCard } from '@/features/artifacts/ArtifactCard';
@@ -11,6 +11,8 @@ import { PinnedUserMessage } from '@/features/chat/PinnedUserMessage';
 import { lastAnswerSeq } from '@/features/chat/handoff';
 import { QuestionBlock } from '@/features/chat/QuestionBlock';
 import { NoticeBlock } from '@/features/notices/NoticeBlock';
+import { SelectionMenu } from '@/features/side/SelectionMenu';
+import { selectedChatText } from '@/features/side/selectionText';
 import {
   digitQuestionIndex,
   emptyDraft,
@@ -29,6 +31,7 @@ import type { Artifact } from '@/lib/bindings/Artifact';
 import type { ArtifactList } from '@/lib/bindings/ArtifactList';
 import type { BackgroundItem } from '@/lib/bindings/BackgroundItem';
 import type { ChatEntry } from '@/lib/bindings/ChatEntry';
+import type { OperatingMode } from '@/lib/bindings/OperatingMode';
 import type { QuestionAnswer } from '@/lib/bindings/QuestionAnswer';
 import type { SessionSummary } from '@/lib/bindings/SessionSummary';
 import type { SessionStatus } from '@/lib/bindings/SessionStatus';
@@ -80,6 +83,13 @@ interface ChatTimelineProps {
   bottomInset: number;
 }
 
+/** Das offene Rechtsklick-Menü: markierter Text und Mausposition in Fensterkoordinaten. */
+interface SelectionMenuState {
+  text: string;
+  x: number;
+  y: number;
+}
+
 interface LayoutMark {
   firstSeq: number | null;
   scrollHeight: number;
@@ -106,9 +116,11 @@ export function ChatTimeline({
     () => new Map<string, QuestionDraft>(),
   );
   const [sendingIds, setSendingIds] = useState<ReadonlySet<string>>(() => new Set<string>());
-  const isClaude: boolean = useSettingsStore(
-    (state) => (state.settings?.operatingMode ?? 'claude') === 'claude',
+  const [selectionMenu, setSelectionMenu] = useState<SelectionMenuState | null>(null);
+  const operatingMode: OperatingMode = useSettingsStore(
+    (state) => state.settings?.operatingMode ?? 'claude',
   );
+  const isClaude: boolean = operatingMode === 'claude';
   const reportSessionError = useSessionErrorsStore((state) => state.report);
   const clearSessionError = useSessionErrorsStore((state) => state.clear);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -241,6 +253,20 @@ export function ChatTimeline({
     if (element.scrollTop < LOAD_OLDER_THRESHOLD) {
       onLoadOlder();
     }
+  }
+
+  /** Ohne Auswahl, auf einem Link oder in einem Textfeld bleibt das Standardmenü. */
+  function handleContextMenu(event: MouseEvent<HTMLDivElement>): void {
+    const element: HTMLDivElement | null = scrollRef.current;
+    if (element === null || isTextTarget(event.target) || isLinkTarget(event.target)) {
+      return;
+    }
+    const text: string | null = selectedChatText(element);
+    if (text === null) {
+      return;
+    }
+    event.preventDefault();
+    setSelectionMenu({ text, x: event.clientX, y: event.clientY });
   }
 
   function jumpToLastUserMessage(): void {
@@ -467,6 +493,7 @@ export function ChatTimeline({
         aria-live="polite"
         aria-label="Verlauf"
         onScroll={handleScroll}
+        onContextMenu={handleContextMenu}
       >
         {olderError !== null && (
           <p className="chat-timeline__older-error" style={{ marginTop: `${String(topInset)}px` }}>
@@ -496,6 +523,18 @@ export function ChatTimeline({
       </div>
       {pinnedText !== null && (
         <PinnedUserMessage text={pinnedText} top={topInset} onJump={jumpToLastUserMessage} />
+      )}
+      {selectionMenu !== null && (
+        <SelectionMenu
+          sessionId={session.id}
+          operatingMode={operatingMode}
+          text={selectionMenu.text}
+          x={selectionMenu.x}
+          y={selectionMenu.y}
+          onClose={(): void => {
+            setSelectionMenu(null);
+          }}
+        />
       )}
     </>
   );
@@ -538,6 +577,10 @@ function isTextTarget(target: EventTarget | null): boolean {
   return (
     target.closest('input, textarea, [contenteditable]:not([contenteditable="false"])') !== null
   );
+}
+
+function isLinkTarget(target: EventTarget | null): boolean {
+  return target instanceof HTMLElement && target.closest('a') !== null;
 }
 
 /** Windows unterscheidet bei Dateinamen nicht zwischen Groß- und Kleinschreibung. */

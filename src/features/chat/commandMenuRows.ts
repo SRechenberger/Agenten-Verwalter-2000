@@ -6,7 +6,7 @@ import { modelName } from '@/lib/labels';
 
 /** `full`: Knopf `/` in der Eingabeleiste · `slash`: `/` am Feldanfang · `skills`: nur Skills („Neue Session“). */
 export type CommandScope = 'full' | 'slash' | 'skills';
-const SESSION_COMMANDS = ['rename', 'changes', 'mcp', 'pause', 'chrome'] as const;
+const SESSION_COMMANDS = ['rename', 'changes', 'mcp', 'pause', 'chrome', 'btw'] as const;
 export type SessionCommand = (typeof SESSION_COMMANDS)[number];
 export type CommandRow =
   | { kind: 'attach' }
@@ -36,6 +36,7 @@ const SESSION_COMMAND_TEXT: Record<Exclude<SessionCommand, 'chrome'>, RowText> =
   changes: { label: '/changes', description: 'Changes-Ansicht öffnen' },
   mcp: { label: '/mcp', description: 'MCP-Server anzeigen, ausschalten, neu verbinden' },
   pause: { label: '/pause', description: 'Agent pausieren' },
+  btw: { label: '/btw', description: 'Nebenfrage stellen, ohne den Chat zu verlängern' },
 };
 
 export function rowText(row: CommandRow, session: SessionSummary | null): RowText {
@@ -184,6 +185,8 @@ function sessionRows(
   if (PAUSABLE_STATUSES.includes(session.status)) {
     rows.push({ kind: 'session', command: 'pause' });
   }
+  // Auch in Betriebsarten ohne Nebenfragen: die Auswahl sagt dort, dass es noch nicht geht.
+  rows.push({ kind: 'session', command: 'btw' });
   return rows;
 }
 

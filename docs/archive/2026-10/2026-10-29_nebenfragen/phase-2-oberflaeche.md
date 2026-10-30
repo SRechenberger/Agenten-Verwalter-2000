@@ -42,14 +42,19 @@ Ergebnis: Fenster über der Eingabeleiste, Reiter „Nebenfragen“, die Einstie
 
 ## Checkliste
 
-- [ ] Wrapper, Store, Hook, `SideWindow`, `SideTab`, `openSide` anlegen; Store-Typ `BackgroundTab` um `side` erweitern und alle Stellen nachziehen, die `Record<BackgroundTab, …>` brauchen (`TAB_LABEL`, `NO_SELECTION`) — der Typecheck zeigt sie.
-- [ ] `Composer`, `commandMenuRows`, `AttachMenu`, `App` verdrahten.
-- [ ] CSS nach BEM mit Tokens aus `theme.css` (keine Rohfarben), Muster `Composer.css`, `BackgroundPanel.css`.
-- [ ] `pnpm check` grün.
+- [x] Wrapper, Store, Hook, `SideWindow`, `SideTab`, `openSide` anlegen; Store-Typ `BackgroundTab` um `side` erweitern und alle Stellen nachziehen, die `Record<BackgroundTab, …>` brauchen (`TAB_LABEL`, `NO_SELECTION`) — der Typecheck zeigt sie.
+- [x] `Composer`, `commandMenuRows`, `AttachMenu`, `App` verdrahten.
+- [x] CSS nach BEM mit Tokens aus `theme.css` (keine Rohfarben), Muster `Composer.css`, `BackgroundPanel.css`.
+- [x] `pnpm check` grün.
 - [ ] **Selbstprüfung in der laufenden App** (`pnpm tauri dev`, Prüfkette: [STATE.md](../../../STATE.md)): AK 1–8, je Punkt ein Screenshot oder eine Zeile im Report-Back; AK 7 mit einem langen Auftrag; AK 6 durch Umschalten der Betriebsart in den Einstellungen.
-- [ ] Doku: `docs/code-map.md`, `docs/glossary.md` wie oben.
+- [x] Doku: `docs/code-map.md`, `docs/glossary.md` wie oben.
 - [ ] Ein Commit, Scope `side`.
 
 ## Report-Back
+
+- Stand: umgesetzt, `pnpm check` grün (Lint, Typecheck, Format, Build, rustfmt, Clippy), committet als `bc68a37`.
+- **Selbstprüfung in der laufenden App (AK 1–8) nicht gelaufen** — kein Weg, die Oberfläche aus der Session heraus zu bedienen; offen für den Betrieb.
+- Abweichungen: `SIDE_UNSUPPORTED_HINT` liegt in `openSide.ts` statt in `Composer.tsx`. Der Hinweis für Autark/Codex läuft über `useSideStore.notices`, damit `Strg+;` (in `App`) und später der Rechtsklick ihn ohne Zugriff auf die Fehlerzeile der Leiste setzen können. Die Zeile im `+`-Menü erscheint nur in der Eingabeleiste (Prop `onSide` optional, „Neue Session“ hat keinen Verlauf).
+- Pille: `promptCacheState` warm/kalt vor und während der Antwort, danach zusätzlich `<n>k Tokens aus dem Cache`; bei `fresh`/`unknown` zeigt sie vor dem Senden nichts.
 
 Screenshots zu AK 1, 3, 4, 5, 6, 7, `pnpm check`-Ergebniszeile, Commit-Hash.

@@ -1,17 +1,23 @@
 import { create } from 'zustand';
 import type { BackgroundItem } from '@/lib/bindings/BackgroundItem';
 
-export const BACKGROUND_TABS = ['processes', 'subagents', 'scratchpad'] as const;
+export const BACKGROUND_TABS = ['processes', 'subagents', 'scratchpad', 'side'] as const;
 export type BackgroundTab = (typeof BACKGROUND_TABS)[number];
 
-/** Gewählter Eintrag je Reiter: Eintrags-ID (Prozesse, Subagenten) bzw. relativer Pfad (Scratchpad). */
+/** Gewählter Eintrag je Reiter: Eintrags-ID (Prozesse, Subagenten, Nebenfragen) bzw. relativer Pfad (Scratchpad). */
 export interface BackgroundSelection {
   processes: string | null;
   subagents: string | null;
   scratchpad: string | null;
+  side: string | null;
 }
 
-const NO_SELECTION: BackgroundSelection = { processes: null, subagents: null, scratchpad: null };
+const NO_SELECTION: BackgroundSelection = {
+  processes: null,
+  subagents: null,
+  scratchpad: null,
+  side: null,
+};
 
 interface BackgroundState {
   isOpen: boolean;

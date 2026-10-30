@@ -7,8 +7,8 @@ Kontext für jeden Umsetzer: [AGENTS.md](../../../AGENTS.md), [docs/code-map.md]
 | # | Phase | Rating | Wave | Status |
 |---|---|---|---|---|
 | 1 | Core: Einmal-Aufruf als Fork, Zustand, Befehle, Prüfprogramm `side-probe`, ADR 044 | heikel | 1 | complete |
-| 2 | Oberfläche: Fenster, Reiter, `/btw`, `+`-Menü, `Strg+;`, Doku | standard | 2 | pending |
-| 3 | Markieren → Rechtsklick → „Nebenfrage zur Auswahl“ | standard | 3 | pending |
+| 2 | Oberfläche: Fenster, Reiter, `/btw`, `+`-Menü, `Strg+;`, Doku | standard | 2 | complete |
+| 3 | Markieren → Rechtsklick → „Nebenfrage zur Auswahl“ | standard | 3 | complete |
 
 **Rahmen:** strikt 1 → 2 → 3, keine Parallelspur (drei Phasen; Phase 2 braucht die erzeugten Bindings aus Phase 1, Phase 3 den Store aus Phase 2). Direkt auf `main`, ein Commit pro Phase, Scope `side`. `pnpm check` grün vor jedem Commit, Prüfkette auf diesem Rechner siehe [STATE.md](../../../STATE.md) („Nächster Schritt“), keine neuen Abhängigkeiten, Bindings mitcommitten. Keine automatisierten Tests (Projektregel, [linting.md](../../conventions/linting.md)), keine Smoke-Checkliste; geprüft wird mit dem Prüfprogramm (Phase 1) und in der laufenden App (Phase 2, 3). Planabschluss mit Versions-Tag (Minor-Version). **Reihenfolge zu anderen Plänen:** unabhängig von `unveraenderte-zeilen`, `parallele-sessions`, `umgebung` (andere Dateien); `parallele-sessions` und `umgebung` fassen `send` in `registry.rs` an, dieser Plan nicht — der neue Code liegt in `sessions/registry/side.rs`.
 
@@ -93,10 +93,23 @@ Unsicherste Stellen: (1) trägt der Prompt-Cache bei einem Fork mit `--tools ""`
 
 ### Summary
 
+Nebenfragen sind umgesetzt: eine Frage zur laufenden Session läuft als Einmal-Aufruf auf einem Fork (gleiche Werkzeugliste wie der Hauptprozess, daher Prompt-Cache nutzbar, Messung in ADR 044), erscheint nicht im Chat-Verlauf und liegt nur im Speicher. Vier Einstiege öffnen dasselbe Fenster: `/btw`, `+`-Menü, `Strg+;`, Rechtsklick auf markierten Text. Der Reiter „Nebenfragen“ sammelt sie je Session. In Autark und Codex sagt jeder Einstieg, dass es dort noch nicht geht.
+
 ### Files touched
+
+Core `src-tauri/src/side/`, `sessions/registry/side.rs`, `agents/claude/side.rs`, `commands/side.rs`, Prüfprogramm `side-probe`; Oberfläche `src/features/side/` (Fenster, Reiter, `openSide`, `SelectionMenu`, `selectedChatText`), `src/stores/side.ts`, `src/lib/side.ts`; Anschluss in `Composer`, `commandMenuRows`, `BackgroundPanel`, `App`, `ChatTimeline`, `composerDraft`; Doku `docs/code-map.md`, ADR 044.
 
 ### Commits
 
+`5632fbe` Core · `bc68a37` Oberfläche · `551cc66` Rechtsklick-Menü (jeweils Scope `side`).
+
 ### Deviations from plan
 
+- Die vorab festgelegte Regel „zweite Frage entscheidet, bei Gleichstand `bare`“ entfiel nach der Messung in Phase 1; es gibt nur eine Variante ([ADR 044](../../decisions/044-nebenfragen.md)).
+- Phase 3: Die Zeile „Nebenfrage zur Auswahl …“ trägt kein `Strg ;`, weil `Strg+;` das Fenster ohne Zitat öffnet.
+- Phase 3 wurde auf Wunsch des Users ohne Selbstprüfung der AK 1–7 in der laufenden App committet.
+
 ### Follow-ups
+
+- Selbstprüfung der Oberfläche in der echten App (Phase 2 und AK 1–7 aus Phase 3), vor allem: bleibt die Auswahl erhalten, wenn die erste Menüzeile den Fokus bekommt.
+- Nicht in Version 1: „Als Fork weiterführen“, Nachfragen im selben Fenster, Speichern in der Datenbank, Nebenfragen für Autark und Codex.

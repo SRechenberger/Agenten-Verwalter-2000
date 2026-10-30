@@ -1,0 +1,182 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Artefakte für alle Dateitypen</title>
+<style>
+:root {
+  --bg: #f7f7f5; --surface: #ffffff; --surface-2: #f0efec; --text: #1d1d1b; --muted: #6b6a66;
+  --line: #e2e0dc; --accent: #3a63d8; --accent-soft: #e6ecfb; --ok: #2f8a4c; --warn: #b7791f; --warn-soft: #fbf1df;
+  --red: #c0392b; --red-soft: #fbe5e2;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #161615; --surface: #1f1f1d; --surface-2: #2a2a27; --text: #ecebe7; --muted: #9c9a94;
+    --line: #34332f; --accent: #7d9cf0; --accent-soft: #232c45; --ok: #5cbf7a; --warn: #e0a64a; --warn-soft: #3a2f1c;
+    --red: #e57366; --red-soft: #3d2320;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #161615; --surface: #1f1f1d; --surface-2: #2a2a27; --text: #ecebe7; --muted: #9c9a94;
+  --line: #34332f; --accent: #7d9cf0; --accent-soft: #232c45; --ok: #5cbf7a; --warn: #e0a64a; --warn-soft: #3a2f1c;
+  --red: #e57366; --red-soft: #3d2320;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif; }
+main { max-width: 1040px; margin: 0 auto; padding: 32px 16px 64px; }
+h1 { font-size: 26px; margin: 0 0 6px; }
+h2 { font-size: 19px; margin: 40px 0 10px; }
+h3 { font-size: 15px; margin: 0 0 6px; }
+p { margin: 0 0 10px; }
+.lead { color: var(--muted); max-width: 70ch; }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 16px; }
+.grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }
+.note { border-left: 3px solid var(--warn); background: var(--warn-soft); padding: 10px 14px; border-radius: 6px; margin: 12px 0; }
+.decide { border-left: 3px solid var(--red); background: var(--red-soft); padding: 10px 14px; border-radius: 6px; margin: 12px 0; }
+code { font: 13px ui-monospace, "Cascadia Code", Consolas, monospace; background: var(--surface-2); padding: 1px 5px; border-radius: 4px; }
+.table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+table { border-collapse: collapse; width: 100%; min-width: 760px; font-size: 14px; }
+th, td { text-align: left; vertical-align: top; padding: 9px 12px; border-bottom: 1px solid var(--line); }
+th { background: var(--surface-2); font-weight: 600; position: sticky; top: 0; }
+tr:last-child td { border-bottom: 0; }
+td.group { background: var(--accent-soft); font-weight: 600; color: var(--accent); }
+.stage { display: inline-block; min-width: 26px; text-align: center; font-weight: 700; border-radius: 999px; padding: 0 8px; font-size: 12px; }
+.s1 { background: var(--ok); color: #fff; } .s2 { background: var(--accent); color: #fff; } .s3 { background: var(--warn); color: #fff; } .s4 { background: var(--muted); color: #fff; }
+/* Mock-up der Liste */
+.mock { display: grid; grid-template-columns: 280px 1fr; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: var(--surface); }
+.mock nav { border-right: 1px solid var(--line); padding: 8px 0; background: var(--surface); }
+.mock .head { padding: 6px 14px; font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+.mock details { border-top: 1px solid var(--line); }
+.mock summary { list-style: none; cursor: pointer; padding: 8px 14px; display: flex; justify-content: space-between; gap: 8px; font-weight: 600; font-size: 13px; }
+.mock summary::-webkit-details-marker { display: none; }
+.mock summary .count { color: var(--muted); font-weight: 400; }
+.mock summary.own { color: var(--accent); }
+.mock .entry { display: flex; gap: 10px; align-items: flex-start; padding: 6px 14px 6px 22px; font-size: 13px; }
+.mock .entry.sel { background: var(--accent-soft); }
+.mock .badge { flex: none; font: 600 10px ui-monospace, Consolas, monospace; border: 1px solid var(--line); border-radius: 4px; padding: 1px 4px; color: var(--muted); min-width: 34px; text-align: center; margin-top: 2px; }
+.mock .meta { color: var(--muted); font-size: 12px; }
+.mock .preview { padding: 16px; }
+.mock .tree { font: 13px ui-monospace, Consolas, monospace; line-height: 1.7; }
+.mock .k { color: var(--accent); } .mock .s { color: var(--ok); } .mock .n { color: var(--warn); }
+@media (max-width: 720px) { .mock { grid-template-columns: 1fr; } .mock nav { border-right: 0; border-bottom: 1px solid var(--line); } }
+ol li, ul li { margin-bottom: 6px; }
+</style>
+</head>
+<body>
+<main>
+<h1>Artefakte für alle Dateitypen</h1>
+<p class="lead">Was sich als Artefakt anbietet, wie jeder Typ angezeigt wird und wie die Liste nach der Session gruppiert wird, die ein Artefakt angelegt hat. Stand: Entwurf, noch kein Plan.</p>
+
+<h2>Ausgangslage im Code</h2>
+<div class="grid">
+  <div class="card"><h3>Liste nimmt nur HTML</h3><p>Die Liste lässt nur <code>.html</code>/<code>.htm</code> direkt im Ordner <code>.artefakte</code> durch. Alles andere gilt als Zubehör einer Seite.</p></div>
+  <div class="card"><h3>Server kann mehr</h3><p>Der Artefakt-Server liefert Bilder, Videos, Schriften, CSS, JS und JSON schon heute korrekt aus. PDF, Audio, YAML und weitere Typen kennt er noch nicht.</p></div>
+  <div class="card"><h3>Session-Zuordnung existiert</h3><p>Jedes Artefakt trägt schon die Session, die es <strong>zuletzt</strong> per Werkzeug geschrieben hat. Die Liste zeigt sie nur als Meta-Zeile, flach nach Datum sortiert.</p></div>
+</div>
+
+<h2>Gruppierung nach Session</h2>
+<p>Die Liste im Reiter bekommt einen aufklappbaren Abschnitt je Session des Vorhabens. Die eigene Session steht oben und ist hervorgehoben, danach folgen die anderen Sessions, sortiert nach ihrem neuesten Artefakt. Am Ende kommt „Ohne Zuordnung“ für Dateien, die per Shell oder von Subagenten geschrieben wurden.</p>
+<div class="mock" aria-label="Entwurf der gruppierten Liste">
+  <nav>
+    <div class="head">Artefakte · 7</div>
+    <details open>
+      <summary class="own"><span>#4 Artefakt-Typen · diese Session</span><span class="count">3</span></summary>
+      <div class="entry sel"><span class="badge">JSON</span><div>Typ-Katalog<div class="meta">katalog.json · 14:02</div></div></div>
+      <div class="entry"><span class="badge">MD</span><div>Entscheidungsnotiz<div class="meta">notiz.md · 13:51</div></div></div>
+      <div class="entry"><span class="badge">HTML</span><div>Artefakte für alle Dateitypen<div class="meta">artefakte-alle-dateitypen.html · 13:40</div></div></div>
+    </details>
+    <details open>
+      <summary><span>#3 Nebenfragen</span><span class="count">2</span></summary>
+      <div class="entry"><span class="badge">PNG</span><div>screenshot-kontextmenue<div class="meta">screenshot-kontextmenue.png · gestern</div></div></div>
+      <div class="entry"><span class="badge">DIR</span><div>testlauf-logs/<div class="meta">12 Dateien · gestern</div></div></div>
+    </details>
+    <details>
+      <summary><span>#1 Grundgerüst</span><span class="count">1</span></summary>
+      <div class="entry"><span class="badge">PDF</span><div>Abnahme<div class="meta">abnahme.pdf · 28.10.</div></div></div>
+    </details>
+    <details>
+      <summary><span>Ohne Zuordnung</span><span class="count">1</span></summary>
+      <div class="entry"><span class="badge">YAML</span><div>pipeline<div class="meta">pipeline.yaml · 27.10.</div></div></div>
+    </details>
+  </nav>
+  <div class="preview">
+    <div class="meta" style="color:var(--muted);font-size:12px;margin-bottom:8px">katalog.json · Baum | Rohtext · Pfad kopieren</div>
+    <div class="tree">
+      ▾ {<br>
+      &nbsp;&nbsp;<span class="k">"typen"</span>: ▾ [ 3 ]<br>
+      &nbsp;&nbsp;&nbsp;&nbsp;▸ 0: { <span class="k">"endung"</span>: <span class="s">"md"</span>, … }<br>
+      &nbsp;&nbsp;&nbsp;&nbsp;▸ 1: { <span class="k">"endung"</span>: <span class="s">"json"</span>, … }<br>
+      &nbsp;&nbsp;&nbsp;&nbsp;▸ 2: { <span class="k">"endung"</span>: <span class="s">"yaml"</span>, … }<br>
+      &nbsp;&nbsp;<span class="k">"stufe"</span>: <span class="n">2</span><br>
+      }
+    </div>
+  </div>
+</div>
+<ul>
+  <li>Die Karte im Chat bleibt, wie sie ist. Sie erscheint weiter beim Schreib-Werkzeug des Hauptagenten und bekommt jetzt auch für Nicht-HTML-Dateien das passende Typ-Abzeichen.</li>
+  <li>In der Vorhaben-Übersicht (ohne aktive Session) gibt es keine „diese Session“-Gruppe; dort ist die Reihenfolge rein nach Neuigkeit.</li>
+  <li>Der Klappzustand je Gruppe bleibt pro Vorhaben gespeichert.</li>
+</ul>
+<div class="note"><strong>Festgelegt: Gruppe = anlegende Session.</strong> Die Datenbank merkt sich je Session und Datei nur den <em>letzten</em> Schreibzeitpunkt. Wer eine Datei <em>angelegt</em> hat, lässt sich daraus nicht sicher ablesen. Gruppieren nach Anleger braucht eine neue Spalte „zuerst geschrieben“; für schon vorhandene Artefakte bleibt der Anleger dann unbekannt, sie fallen auf „zuletzt geschrieben“ zurück. <strong>Empfehlung:</strong> nach Anleger gruppieren und den letzten Bearbeiter als Meta-Zeile zeigen, wenn er abweicht.</div>
+
+<h2>Dateityp-Katalog</h2>
+<p>Stufe 1 = zuerst, Stufe 4 = erst bei Bedarf. „Kommentieren“ heißt: Kommentar an eine Stelle heften, wie heute bei HTML-Elementen.</p>
+<div class="table-wrap">
+<table>
+<thead><tr><th>Typ</th><th>Endungen</th><th>Darstellung</th><th>Kommentieren an</th><th>Stufe</th></tr></thead>
+<tbody>
+<tr><td class="group" colspan="5">Seiten und Dokumente</td></tr>
+<tr><td>Webseite</td><td><code>html</code> <code>htm</code></td><td>Wie heute: bedienbare Seite im abgeschotteten Rahmen.</td><td>Element</td><td><span class="stage s1">0</span></td></tr>
+<tr><td>Markdown</td><td><code>md</code> <code>markdown</code></td><td>Formatiert gerendert, Inhaltsverzeichnis am Rand, Code-Blöcke mit Syntaxfarben, <code>mermaid</code>-Blöcke als Diagramm, Aufgabenlisten als Häkchen, Umschalter auf Rohtext.</td><td>Absatz / Überschrift</td><td><span class="stage s2">2</span></td></tr>
+<tr><td>PDF</td><td><code>pdf</code></td><td>Seitenweise mit eigener PDF-Anzeige (pdf.js), Seitenleiste mit Vorschaubildern, Zoom, Suche.</td><td>Seite</td><td><span class="stage s3">3</span></td></tr>
+<tr><td>Office</td><td><code>docx</code> <code>pptx</code></td><td>Keine Vorschau. Karte mit Name, Größe, „Mit Standardprogramm öffnen“.</td><td>Datei</td><td><span class="stage s4">4</span></td></tr>
+<tr><td class="group" colspan="5">Strukturierte Daten</td></tr>
+<tr><td>JSON</td><td><code>json</code></td><td>Aufklappbarer Baum mit Typfarben, Anzahl je Liste, Suche, Pfad eines Knotens kopieren; Umschalter auf formatierten Rohtext. Ungültiges JSON: Rohtext mit markierter Fehlerstelle.</td><td>Knoten (Pfad)</td><td><span class="stage s2">2</span></td></tr>
+<tr><td>JSON Lines</td><td><code>jsonl</code> <code>ndjson</code></td><td>Tabelle, eine Zeile je Datensatz, Spalten aus den Feldern; Klick öffnet den Datensatz als Baum.</td><td>Zeile</td><td><span class="stage s3">3</span></td></tr>
+<tr><td>YAML</td><td><code>yaml</code> <code>yml</code></td><td>Syntaxfarben mit Zeilennummern und Einklappen nach Einrückung; Umschalter auf Baum wie JSON. Mehrere Dokumente (<code>---</code>) als Abschnitte.</td><td>Zeile</td><td><span class="stage s2">2</span></td></tr>
+<tr><td>TOML / INI / .env</td><td><code>toml</code> <code>ini</code> <code>env</code></td><td>Syntaxfarben, Abschnitte als Sprungmarken. <code>.env</code>: Werte standardmäßig verdeckt, aufdecken je Zeile.</td><td>Zeile</td><td><span class="stage s3">3</span></td></tr>
+<tr><td>XML</td><td><code>xml</code></td><td>Syntaxfarben, Elemente einklappbar.</td><td>Zeile</td><td><span class="stage s3">3</span></td></tr>
+<tr><td>Tabelle</td><td><code>csv</code> <code>tsv</code></td><td>Tabelle mit fester Kopfzeile, Sortieren je Spalte, Filterfeld, Zahlen rechtsbündig; Trennzeichen automatisch erkannt (auch <code>;</code>).</td><td>Zeile</td><td><span class="stage s2">2</span></td></tr>
+<tr><td>Excel</td><td><code>xlsx</code></td><td>Tabelle je Blatt mit Reitern (nur lesen, keine Formeln ausführen).</td><td>Zelle</td><td><span class="stage s4">4</span></td></tr>
+<tr><td>SQLite</td><td><code>sqlite</code> <code>db</code></td><td>Tabellenliste, Klick zeigt die ersten Zeilen — nur lesend geöffnet.</td><td>Tabelle</td><td><span class="stage s4">4</span></td></tr>
+<tr><td class="group" colspan="5">Code und Text</td></tr>
+<tr><td>Quelltext</td><td><code>ts</code> <code>py</code> <code>rs</code> <code>sql</code> <code>sh</code> <code>ps1</code> …</td><td>Syntaxfarben, Zeilennummern, Zeilenumbruch umschaltbar — dieselbe Optik wie die Diff-Ansicht.</td><td>Zeile</td><td><span class="stage s1">1</span></td></tr>
+<tr><td>Text / Log</td><td><code>txt</code> <code>log</code></td><td>Festbreitenschrift; bei <code>.log</code> Ebenen (ERROR, WARN) farbig, Filter nach Ebene, „ans Ende springen“ beim Neuladen.</td><td>Zeile</td><td><span class="stage s1">1</span></td></tr>
+<tr><td>Diff</td><td><code>diff</code> <code>patch</code></td><td>Eigene schlichte Darstellung im Betrachter (+ grün, − rot); die Diff-Ansicht der App läuft im App-Fenster und darf keine Agenten-Dateien rendern.</td><td>Zeile</td><td><span class="stage s3">3</span></td></tr>
+<tr><td class="group" colspan="5">Diagramme</td></tr>
+<tr><td>Mermaid</td><td><code>mmd</code> <code>mermaid</code></td><td>Als Diagramm gezeichnet, Zoom und Verschieben, Umschalter auf Quelltext.</td><td>Knoten</td><td><span class="stage s3">3</span></td></tr>
+<tr><td>Graphviz</td><td><code>dot</code> <code>gv</code></td><td>Als Diagramm gezeichnet (Graphviz als WebAssembly).</td><td>Knoten</td><td><span class="stage s4">4</span></td></tr>
+<tr><td>Excalidraw</td><td><code>excalidraw</code></td><td>Skizze nur lesend gezeichnet.</td><td>Datei</td><td><span class="stage s4">4</span></td></tr>
+<tr><td class="group" colspan="5">Medien</td></tr>
+<tr><td>Bild</td><td><code>png</code> <code>jpg</code> <code>webp</code> <code>gif</code> <code>avif</code> <code>svg</code></td><td>Eingepasst, Zoom per Mausrad, 1:1-Ansicht, Schachbrett hinter Transparenz, Hintergrund hell/dunkel umschaltbar, Abmessungen und Größe in der Kopfzeile.</td><td>Punkt im Bild</td><td><span class="stage s1">1</span></td></tr>
+<tr><td>Video</td><td><code>mp4</code> <code>webm</code></td><td>Player mit Bild-für-Bild-Schritt und Geschwindigkeit.</td><td>Zeitpunkt</td><td><span class="stage s1">1</span></td></tr>
+<tr><td>Audio</td><td><code>mp3</code> <code>wav</code> <code>ogg</code> <code>m4a</code></td><td>Player mit Wellenform.</td><td>Zeitpunkt</td><td><span class="stage s1">1</span></td></tr>
+<tr><td>3D-Modell</td><td><code>glb</code> <code>gltf</code> <code>stl</code></td><td>Drehbar mit Maus, Licht und Raster.</td><td>Datei</td><td><span class="stage s4">4</span></td></tr>
+<tr><td class="group" colspan="5">Ordner und Sammlungen</td></tr>
+<tr><td>Website-Ordner</td><td>Ordner mit <code>index.html</code></td><td>Wie eine Webseite; Unterseiten über deren eigene Links.</td><td>Element</td><td><span class="stage s3">3</span></td></tr>
+<tr><td>Ordner</td><td>Unterordner</td><td>Dateibaum links, Vorschau der gewählten Datei rechts mit derselben Typ-Darstellung; reine Bildordner als Galerie mit Vorschaubildern.</td><td>Datei im Ordner</td><td><span class="stage s3">3</span></td></tr>
+<tr><td>Archiv</td><td><code>zip</code></td><td>Inhaltsliste mit Größen, nichts wird entpackt.</td><td>Datei</td><td><span class="stage s4">4</span></td></tr>
+<tr><td class="group" colspan="5">Rest</td></tr>
+<tr><td>Unbekannt</td><td>alles andere</td><td>Karte mit Name, Größe, Typ und den Knöpfen „Im Explorer zeigen“ und „Mit Standardprogramm öffnen“. Nie leer, nie Fehlermeldung.</td><td>Datei</td><td><span class="stage s1">1</span></td></tr>
+</tbody>
+</table>
+</div>
+
+<h2>Leitplanken</h2>
+<div class="note"><strong>Sicherheit: nichts davon im Fenster der App rendern.</strong> Markdown kann HTML enthalten, SVG kann Skripte enthalten. Im App-Fenster hätte das Zugriff auf die Befehle der App. Deshalb liefert der Artefakt-Server zu jedem Typ eine kleine Betrachter-Seite, die im selben abgeschotteten Rahmen läuft wie heute die HTML-Artefakte. Die Kommentar-Brücke funktioniert damit für alle Typen gleich.</div>
+<div class="note"><strong>Bibliotheken aus dem Netz, Rohtext als Rückfall:</strong> Markdown, Syntaxfarben, PDF und Diagramme laden ihre Bibliothek mit fester Version und Prüfsumme von einem CDN. Grund: Das App-Update tauscht nur die exe, gebündelte Dateien daneben kämen nicht mit, und in die exe eingebaut würden sie jede Version um mehrere MB aufblähen. Ohne Netz zeigt jeder Betrachter den Rohtext.</div>
+<div class="note"><strong>Festgelegt: welcher Ordner ist Zubehör?</strong> Ein Unterordner ist Zubehör, wenn sein Name mit <code>_</code> beginnt, er so heißt wie eine HTML-Datei daneben oder eine HTML-Datei auf ihn verweist. Jeder andere Unterordner wird ein Artefakt. Die Anweisung an den Agenten nennt die <code>_</code>-Regel.</div>
+<div class="note"><strong>Neue Anweisung an den Agenten:</strong> Der Text im Systemprompt („schreibe es als eigenständige HTML-Datei“) wird erweitert: Bilder, PDFs, Markdown und Daten dürfen direkt als Artefakt abgelegt werden, HTML bleibt die Wahl für alles Interaktive. Gleiches gilt für die Anweisung an Codex.</div>
+
+<h2>Vorgeschlagene Stufen</h2>
+<ol>
+  <li><strong>Grundgerüst + Gruppierung:</strong> Liste nimmt alle Dateien und Ordner, Typ-Erkennung, Abzeichen, Gruppierung nach Session (inkl. Spalte „zuerst geschrieben“), Betrachter-Rahmen, Rest-Karte, Bild, Video, Audio, Quelltext, Text/Log.</li>
+  <li><strong>Lesbare Dokumente und Daten:</strong> Markdown, JSON, YAML, CSV.</li>
+  <li><strong>Größere Brocken:</strong> PDF, Ordner und Website-Ordner, Mermaid, JSON Lines, TOML/INI/.env, XML, Diff.</li>
+  <li><strong>Bei Bedarf:</strong> Excel, SQLite, Graphviz, Excalidraw, 3D, Zip, Office-Karte.</li>
+</ol>
+<p class="lead">Jede Stufe ist für sich nutzbar. Die Architektur-Entscheidung 026 bekommt einen Nachfolger, der die Erweiterung festhält.</p>
+</main>
+</body>
+</html>

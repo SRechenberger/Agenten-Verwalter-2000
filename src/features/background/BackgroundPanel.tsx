@@ -5,6 +5,8 @@ import { ProcessesTab } from '@/features/background/ProcessesTab';
 import { ScratchpadTab } from '@/features/background/ScratchpadTab';
 import { SubagentsTab } from '@/features/background/SubagentsTab';
 import { useNow } from '@/features/background/useNow';
+import { SideTab } from '@/features/side/SideTab';
+import { useSideQuestions } from '@/features/side/useSideQuestions';
 import type { BackgroundItem } from '@/lib/bindings/BackgroundItem';
 import type { SessionBackground } from '@/lib/bindings/SessionBackground';
 import type { SessionSummary } from '@/lib/bindings/SessionSummary';
@@ -16,6 +18,7 @@ const TAB_LABEL: Record<BackgroundTab, string> = {
   processes: 'Prozesse',
   subagents: 'Subagenten',
   scratchpad: 'Scratchpad',
+  side: 'Nebenfragen',
 };
 
 const NO_ITEMS: readonly BackgroundItem[] = [];
@@ -35,6 +38,7 @@ export function BackgroundPanel({
   const tab: BackgroundTab = useBackgroundStore((state) => state.tab);
   const showTab = useBackgroundStore((state) => state.showTab);
   const close = useBackgroundStore((state) => state.close);
+  const sideQuestions = useSideQuestions(session.id);
 
   const items: readonly BackgroundItem[] = background === null ? NO_ITEMS : background.items;
   const now: number = useNow(items.some((item: BackgroundItem) => item.state === 'running'));
@@ -46,6 +50,9 @@ export function BackgroundPanel({
     if (target === 'processes') {
       const groups: ProcessGroups = splitProcesses(items);
       return groups.running.length + groups.executed.length;
+    }
+    if (target === 'side') {
+      return sideQuestions.questions.length;
     }
     // Die Zahl der Dateien kennt nur der geöffnete Reiter.
     return null;
@@ -59,6 +66,8 @@ export function BackgroundPanel({
         return <SubagentsTab sessionId={session.id} items={items} now={now} />;
       case 'scratchpad':
         return <ScratchpadTab session={session} />;
+      case 'side':
+        return <SideTab session={session} />;
     }
   }
 

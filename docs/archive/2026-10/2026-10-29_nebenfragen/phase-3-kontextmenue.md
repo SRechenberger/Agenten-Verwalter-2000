@@ -29,11 +29,13 @@ Ergebnis: Wer im Chat Text einer Antwort markiert und rechtsklickt, bekommt ein 
 
 ## Checkliste
 
-- [ ] `selectionText.ts`, `SelectionMenu` anlegen; in `ChatTimeline` einhängen; die virtualisierte Liste darf die Auswahl nicht verlieren (nach `preventDefault` bleibt die Auswahl bestehen; Scrollen innerhalb des Menüs gibt es nicht).
-- [ ] CSS nach BEM mit Tokens (keine Rohfarben).
-- [ ] `pnpm check` grün.
+- [x] `selectionText.ts`, `SelectionMenu` anlegen; in `ChatTimeline` einhängen; die virtualisierte Liste darf die Auswahl nicht verlieren (nach `preventDefault` bleibt die Auswahl bestehen; Scrollen innerhalb des Menüs gibt es nicht).
+- [x] CSS nach BEM mit Tokens (keine Rohfarben).
+- [x] `pnpm check` grün.
 - [ ] Selbstprüfung in der laufenden App: AK 1–7, je Punkt Screenshot oder Zeile im Report-Back.
-- [ ] Doku wie oben.
+- [x] Doku wie oben.
+
+Abweichung: Die Zeile „Nebenfrage zur Auswahl …“ trägt kein `Strg ;`, weil `Strg+;` (`App.tsx`) das Fenster ohne Zitat öffnet — die Anzeige hätte etwas anderes versprochen.
 - [ ] Ein Commit, Scope `side`. Danach Planabschluss: archivieren nach `docs/archive/2026-10/2026-10-29_nebenfragen/`, `STATE.md` nachführen, Versions-Tag (Minor-Version) nach `mode-committing`.
 
 ## Report-Back
