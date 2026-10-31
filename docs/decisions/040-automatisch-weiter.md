@@ -25,3 +25,12 @@
 - Der Haltegrund „Merge“ greift auch bei „Merge-Gate“ in der TL;DR-Zeile; gewollt vorsichtig.
 - Nach einem Neustart der App läuft kein Countdown weiter; der Knopf steht wieder da, die Kette beginnt bei 0.
 - Die Spalte heißt weiter `handoff_line`, obwohl sie mehrere Zeilen trägt; eine Umbenennung wäre eine Migration ohne Nutzen.
+
+## Nachtrag 2026-10-31: Knopf unter der Zeile
+
+- Der Knopf einer Einstiegszeile steht im Antworttext direkt unter seiner Zeile (`HandoffAnswer`), nicht mehr in einer gemeinsamen Leiste. Die UI teilt den Text hinter jeder Zeile, die sie im Text findet: von hinten zugeordnet über die bereinigte Zeile (wie `clean` im Core), eine Zeile in einem offenen Code-Zaun zählt nicht. Core, Datenbank und Erkennung (letzte fünf nicht leere Zeilen) bleiben unverändert.
+- Eine Zeile ohne Stelle im Text behält ihre Reihe in der Leiste unter der Antwort, mit Art und Auszug, wenn es mehrere gibt; so geht nie ein Knopf verloren. Countdown, Haltegrund, Fehler und Schalter stehen einmal je Antwort in der Leiste. Die Regeln „Countdown ersetzt die Weiter- und Zurück-Knöpfe“ und „Zurück an ohne Eltern-Session: keine Reihe“ gelten für beide Orte.
+- Verworfen: die Knöpfe per rehype nach dem umgebenden Block einfügen — Zeilen im selben Absatz bekämen ihre Knöpfe gemeinsam darunter.
+- Folge: Eine „Weiter:“-Zeile im selben Absatz wird ein eigener Absatz; eine Nadel für „ohne Fundstelle“, die über eine Teilung hinwegreicht, wird nicht mehr markiert.
+- Jede zugeordnete Zeile ist ein eigener Absatz: die Teilung schneidet auch vor der Zeile, damit sie nicht mit Text davor oder einer anderen Einstiegszeile verschmilzt. Andere Zeilenumbrüche bleiben, wie sie sind.
+- Der Knopf einer „Weiter:“- und einer „Neues Vorhaben“-Zeile wird grau, sobald die neue Session bzw. der Dialog geöffnet ist (`stores/handoffOpened.ts`, Schlüssel Session plus Zeilentext); beim Anlegen und bei einem Fehler bleibt er orange, ein weiterer Klick legt wieder eine Session an. Der Zustand liegt nur im Speicher: nach Neuladen oder Neustart ist der Knopf wieder orange. Verworfen: je Session und Zeile speichern — das braucht eine Spalte und einen Befehl und lässt sich später nachrüsten.
