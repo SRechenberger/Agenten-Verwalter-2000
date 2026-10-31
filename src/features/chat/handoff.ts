@@ -5,11 +5,12 @@ import type { KnownRepository } from '@/lib/bindings/KnownRepository';
 
 const SESSION_PREFIX = 'Weiter:';
 const PROJECT_PREFIX = 'Neues Vorhaben';
+const BACK_PREFIX = 'Zurück an';
 const REPOSITORY_NAME_CHARACTER = /[a-z0-9_-]/;
 
 /** Erklärung am Info-Symbol des Schalters „Automatisch weiter“ (ADR 040). */
 export const AUTO_HANDOFF_TITLE =
-  'Startet nach jeder fertigen Antwort mit genau einer „Weiter:“-Zeile die nächste Session dieses Vorhabens selbst — nach 10 Sekunden Countdown, mit dem Modell aus der Zeile und der Zeile als erster Nachricht. Hält an, wenn die Antwort 🔴 enthält, mit einer Frage endet, „Merge“ nennt oder mehrere „Weiter:“-Zeilen hat, und nach 6 automatischen Starts in Folge ohne Nachricht von dir.';
+  'Startet nach jeder fertigen Antwort mit genau einer „Weiter:“-Zeile die nächste Session dieses Vorhabens selbst — nach 10 Sekunden Countdown, mit dem Modell aus der Zeile und der Zeile als erster Nachricht. Hält an, wenn die Antwort 🔴 enthält, mit einer Frage endet, „Merge“ nennt oder mehrere „Weiter:“-Zeilen hat, und nach 6 automatischen Starts in Folge ohne Nachricht von dir — oder sendet die Zeile „Zurück an …“ an die Session, aus der diese gestartet wurde (nur wenn sie ruht).';
 
 /** Grund unter der Antwort, warum „Automatisch weiter“ nicht startet (ADR 040). */
 export const HALT_TEXT: Record<HandoffHalt, string> = {
@@ -44,10 +45,33 @@ export function taskOfProjectLine(text: string): string {
   return text.slice(text.indexOf(':') + 1).trim();
 }
 
-/** Die Zeile ohne ihr Kennwort („Weiter:“ bzw. „Neues Vorhaben“) — für die Anzeige in einer Reihe. */
+/** Die Zeilen, zu denen die Leiste eine Reihe zeigt: „Zurück an“ nur mit gemerkter Eltern-Session. */
+export function visibleHandoffLines(
+  lines: readonly HandoffLine[],
+  parentSessionId: string | null,
+): HandoffLine[] {
+  return lines.filter((line: HandoffLine) => line.kind !== 'back' || parentSessionId !== null);
+}
+
+/** Der Text einer Zeile „Zurück an <Name>: <Text>“ — alles hinter dem ersten Doppelpunkt. */
+export function handoffBackText(line: HandoffLine): string {
+  return line.text.slice(line.text.indexOf(':') + 1).trim();
+}
+
+/** Der Name aus einer Zeile „Zurück an <Name>: <Text>“ — für den Knopf, wenn die Eltern-Session nicht im Speicher steht. */
+export function handoffBackName(line: HandoffLine): string {
+  return line.text.slice(BACK_PREFIX.length, line.text.indexOf(':')).trim();
+}
+
+const PREFIX_OF_KIND: Record<HandoffLine['kind'], string> = {
+  session: SESSION_PREFIX,
+  project: PROJECT_PREFIX,
+  back: BACK_PREFIX,
+};
+
+/** Die Zeile ohne ihr Kennwort („Weiter:“, „Neues Vorhaben“ bzw. „Zurück an“) — für die Anzeige in einer Reihe. */
 export function handoffExcerpt(line: HandoffLine): string {
-  const prefix: string = line.kind === 'session' ? SESSION_PREFIX : PROJECT_PREFIX;
-  return line.text.slice(prefix.length).trim();
+  return line.text.slice(PREFIX_OF_KIND[line.kind].length).trim();
 }
 
 /** IDs der vorhandenen Repositories, deren Name in `text` als ganzes Wort steht (ohne Groß-/Kleinschreibung). */

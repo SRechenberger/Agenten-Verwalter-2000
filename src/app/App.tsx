@@ -367,6 +367,10 @@ export function App(): ReactElement {
           projects.find((project: ProjectSummary) => project.id === session.projectId)
             ?.autoHandoff ?? false
         }
+        parentName={
+          sessions.find((other: SessionSummary) => other.id === session.parentSessionId)?.name ??
+          null
+        }
       />
     );
   }

@@ -1,6 +1,6 @@
 # 040 — Automatisch weiter und mehrere Einstiegszeilen
 
-**Status:** angenommen · **Datum:** 2026-10-26
+**Status:** angenommen · **Datum:** 2026-10-26 · ergänzt durch [ADR 050](050-zurueck-zeile.md) (Zeilenart „Zurück an …“)
 
 ## Kontext
 

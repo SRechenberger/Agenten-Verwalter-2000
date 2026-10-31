@@ -28,6 +28,8 @@ interface ChatViewProps {
   onSessionCreated: (created: SessionSummary) => void;
   /** „Automatisch weiter“ des Vorhabens (ADR 040). */
   autoHandoff: boolean;
+  /** Name der Eltern-Session von `session`; `null`, wenn es keine gibt. */
+  parentName: string | null;
 }
 
 /** Die Einträge einer Session sind ab 0 durchnummeriert; der letzte geladene trägt die höchste `seq`. */
@@ -46,6 +48,7 @@ export function ChatView({
   artifacts,
   onSessionCreated,
   autoHandoff,
+  parentName,
 }: ChatViewProps): ReactElement {
   const { entries, hasMore, loadingOlder, loadError, olderError, loadOlder } = useChatEntries(
     session.id,
@@ -141,6 +144,7 @@ export function ChatView({
         onLoadOlder={loadOlder}
         onSessionCreated={onSessionCreated}
         autoHandoff={autoHandoff}
+        parentName={parentName}
         topInset={topInset}
         bottomInset={bottomInset}
       />
