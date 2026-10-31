@@ -6,6 +6,7 @@ import {
   HALT_TEXT,
   handoffBackName,
   handoffExcerpt,
+  isRowShown,
   visibleHandoffLines,
 } from '@/features/chat/handoff';
 import { ProjectHandoffButton } from '@/features/chat/ProjectHandoffButton';
@@ -24,11 +25,52 @@ const KIND_LABEL: Record<HandoffLine['kind'], string> = {
   back: 'Zurück',
 };
 
+interface HandoffButtonsProps {
+  projectId: string;
+  sessionId: string;
+  /** Eltern-Session von `sessionId` (ADR 050); ohne sie bekommt eine „Zurück an“-Zeile keinen Knopf. */
+  parentSessionId: string | null;
+  /** Name der Eltern-Session; `null`, wenn sie nicht in der Liste steht. */
+  parentName: string | null;
+  /** Nimmt die angelegte Session in die Liste und wählt sie aus (`handleSessionCreated` in `App`). */
+  onSessionCreated: (created: SessionSummary) => void;
+  line: HandoffLine;
+}
+
+/** Der Knopf einer Einstiegszeile — in der Leiste neben Art und Auszug, im Antworttext direkt unter der Zeile. */
+export function HandoffButtons({
+  projectId,
+  sessionId,
+  parentSessionId,
+  parentName,
+  onSessionCreated,
+  line,
+}: HandoffButtonsProps): ReactElement | null {
+  if (line.kind === 'session') {
+    return (
+      <HandoffButton
+        projectId={projectId}
+        parentSessionId={sessionId}
+        line={line}
+        onSessionCreated={onSessionCreated}
+      />
+    );
+  }
+  if (line.kind === 'back') {
+    return parentSessionId === null ? null : (
+      <BackButton line={line} parentSessionId={parentSessionId} parentName={parentName} />
+    );
+  }
+  return <ProjectHandoffButton sessionId={sessionId} line={line} />;
+}
+
 interface HandoffBarProps {
   projectId: string;
   sessionId: string;
   /** Einstiegszeilen der letzten Antwort in Antwort-Reihenfolge. */
   lines: readonly HandoffLine[];
+  /** Die Zeilen, die im Antworttext keine Stelle gefunden haben; nur sie bekommen hier eine Reihe. */
+  unplaced: readonly HandoffLine[];
   /** Eltern-Session von `sessionId` (ADR 050); ohne sie bekommt eine „Zurück an“-Zeile keine Reihe. */
   parentSessionId: string | null;
   /** Name der Eltern-Session; `null`, wenn sie nicht in der Liste steht. */
@@ -41,24 +83,25 @@ interface HandoffBarProps {
   autoState: AutoHandoff | null;
 }
 
-/** Eine Reihe je Einstiegszeile unter der Antwort; Art und Zeilenanfang nur, wenn es mehrere gibt.
- *  Während des Countdowns ersetzt die Countdown-Zeile die Knöpfe „In neuer Session weiter“. */
+/** Unter der Antwort: eine Reihe je Einstiegszeile ohne Stelle im Text (Art und Zeilenanfang nur, wenn es
+ *  mehrere gibt), Countdown, Fehler und Schalter. Während des Countdowns ersetzt die Countdown-Zeile die
+ *  Knöpfe „In neuer Session weiter“. */
 export function HandoffBar({
   projectId,
   sessionId,
   lines,
+  unplaced,
   parentSessionId,
   parentName,
   onSessionCreated,
   autoHandoff,
   autoState,
-}: HandoffBarProps): ReactElement {
+}: HandoffBarProps): ReactElement | null {
   const isCountdown: boolean = autoState?.kind === 'countdown';
   const shownLines: readonly HandoffLine[] = visibleHandoffLines(lines, parentSessionId);
-  // Während des Countdowns ersetzt er die Knöpfe „Weiter“ und „Zurück“.
-  const visibleLines: readonly HandoffLine[] = isCountdown
-    ? shownLines.filter((line: HandoffLine) => line.kind === 'project')
-    : shownLines;
+  const visibleLines: readonly HandoffLine[] = unplaced.filter((line: HandoffLine) =>
+    isRowShown(line, isCountdown),
+  );
   const backLine: HandoffLine | undefined = shownLines.find(
     (line: HandoffLine) => line.kind === 'back',
   );
@@ -68,23 +111,10 @@ export function HandoffBar({
       ? null
       : (parentName ?? handoffBackName(backLine));
 
-  function renderButton(line: HandoffLine): ReactElement | null {
-    if (line.kind === 'session') {
-      return (
-        <HandoffButton
-          projectId={projectId}
-          parentSessionId={sessionId}
-          line={line}
-          onSessionCreated={onSessionCreated}
-        />
-      );
-    }
-    if (line.kind === 'back') {
-      return parentSessionId === null ? null : (
-        <BackButton line={line} parentSessionId={parentSessionId} parentName={parentName} />
-      );
-    }
-    return <ProjectHandoffButton line={line} />;
+  const hasFoot: boolean = shownLines.some((line: HandoffLine) => line.kind !== 'project');
+  const hasStatus: boolean = autoState?.kind === 'countdown' || autoState?.kind === 'failed';
+  if (visibleLines.length === 0 && !hasStatus && !hasFoot) {
+    return null;
   }
   return (
     <div className="handoff-bar">
@@ -98,7 +128,14 @@ export function HandoffBar({
               </span>
             </>
           )}
-          {renderButton(line)}
+          <HandoffButtons
+            projectId={projectId}
+            sessionId={sessionId}
+            parentSessionId={parentSessionId}
+            parentName={parentName}
+            onSessionCreated={onSessionCreated}
+            line={line}
+          />
         </div>
       ))}
       {autoState?.kind === 'countdown' && (
@@ -115,7 +152,7 @@ export function HandoffBar({
           Automatischer Start gescheitert: {autoState.message}
         </p>
       )}
-      {shownLines.some((line: HandoffLine) => line.kind !== 'project') && (
+      {hasFoot && (
         <div className="handoff-bar__foot">
           {autoState?.kind === 'halted' ? (
             <span className="handoff-bar__halt">{HALT_TEXT[autoState.reason]}</span>

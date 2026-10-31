@@ -9,6 +9,12 @@
     font-size: var(--font-size-sm);
     cursor: pointer;
 
+    /* Neue Session schon geöffnet: grau, aber lesbar und weiter klickbar (ein Klick legt wieder eine an). */
+    &--opened:not(:disabled) {
+      border-color: var(--color-border);
+      color: var(--color-fg-secondary);
+    }
+
     &:disabled {
       border-color: var(--color-border);
       color: var(--color-fg-muted);

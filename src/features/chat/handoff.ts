@@ -53,6 +53,87 @@ export function visibleHandoffLines(
   return lines.filter((line: HandoffLine) => line.kind !== 'back' || parentSessionId !== null);
 }
 
+/** Ob die Reihe einer Zeile gezeigt wird; während des Countdowns ersetzt er „Weiter“ und „Zurück“ (Text wie Leiste). */
+export function isRowShown(line: HandoffLine, isCountdown: boolean): boolean {
+  return !isCountdown || line.kind === 'project';
+}
+
+/** Wie `clean` im Core (`sessions/handoff.rs`): Zitatzeichen vorn, `**` überall, Backticks außen weg. */
+function cleanLine(raw: string): string {
+  const trimmed: string = raw.trim();
+  const unquoted: string = trimmed.startsWith('>') ? trimmed.slice(1).trimStart() : trimmed;
+  return unquoted
+    .replace(/\*\*/g, '')
+    .trim()
+    .replace(/^`+|`+$/g, '')
+    .trim();
+}
+
+/** Ein Stück des Antworttexts; `lineIndex` ist die Einstiegszeile (Index in `lines`), die dieses Stück ist, sonst `null`. */
+export interface HandoffSegment {
+  text: string;
+  lineIndex: number | null;
+}
+
+/**
+ * Teilt den Antworttext vor und hinter jeder Zeile, die er im Text findet, sodass jede Einstiegszeile ein
+ * eigenes Stück (eigener Absatz) ist — auch wenn der Agent sie ohne Leerzeile unter anderen Text oder unter
+ * eine andere Einstiegszeile geschrieben hat. Alles andere bleibt, wie es ist. `lines` sind die sichtbaren
+ * Zeilen in Antwort-Reihenfolge; `placed[i]` sagt, ob Zeile `i` gefunden wurde. Leere Stücke entfallen.
+ *
+ * Der Core speichert nur den Text der Zeilen, keine Position — deshalb von hinten zuordnen: steht derselbe
+ * Text weiter oben noch einmal, ist die letzte Fundstelle die Einstiegszeile. Eine Rohzeile in einem offenen
+ * Code-Zaun zählt nicht (der Core liest dort keine).
+ */
+export function splitAtHandoffLines(
+  text: string,
+  lines: readonly HandoffLine[],
+): { segments: HandoffSegment[]; placed: boolean[] } {
+  const rawLines: string[] = text.split('\n');
+  const insideFence: boolean[] = [];
+  let open = false;
+  for (const raw of rawLines) {
+    if (raw.trim().startsWith('```')) {
+      open = !open;
+      insideFence.push(true);
+    } else {
+      insideFence.push(open);
+    }
+  }
+  const placed: boolean[] = lines.map(() => false);
+  const found: { rawIndex: number; lineIndex: number }[] = [];
+  let next: number = lines.length - 1;
+  for (let index = rawLines.length - 1; index >= 0 && next >= 0; index -= 1) {
+    if (insideFence[index] ?? false) {
+      continue;
+    }
+    // Eine Zeile, die nicht im Text steht, soll die davor nicht mitreißen: weiter nach vorn suchen.
+    const cleaned: string = cleanLine(rawLines[index] ?? '');
+    let match: number = next;
+    while (match >= 0 && lines[match]?.text !== cleaned) {
+      match -= 1;
+    }
+    if (match >= 0) {
+      found.push({ rawIndex: index, lineIndex: match });
+      placed[match] = true;
+      next = match - 1;
+    }
+  }
+  found.reverse();
+  const segments: HandoffSegment[] = [];
+  let from = 0;
+  for (const { rawIndex, lineIndex } of found) {
+    segments.push({ text: rawLines.slice(from, rawIndex).join('\n'), lineIndex: null });
+    segments.push({ text: rawLines[rawIndex] ?? '', lineIndex });
+    from = rawIndex + 1;
+  }
+  segments.push({ text: rawLines.slice(from).join('\n'), lineIndex: null });
+  return {
+    segments: segments.filter((segment: HandoffSegment) => segment.text.trim() !== ''),
+    placed,
+  };
+}
+
 /** Der Text einer Zeile „Zurück an <Name>: <Text>“ — alles hinter dem ersten Doppelpunkt. */
 export function handoffBackText(line: HandoffLine): string {
   return line.text.slice(line.text.indexOf(':') + 1).trim();

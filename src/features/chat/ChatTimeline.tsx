@@ -6,7 +6,7 @@ import { ArtifactCard } from '@/features/artifacts/ArtifactCard';
 import { BackgroundLine } from '@/features/chat/BackgroundLine';
 import { buildBlocks, type ChatBlock } from '@/features/chat/buildBlocks';
 import { ErrorBlock } from '@/features/chat/ErrorBlock';
-import { HandoffBar } from '@/features/chat/HandoffBar';
+import { HandoffAnswer } from '@/features/chat/HandoffAnswer';
 import { PinnedUserMessage } from '@/features/chat/PinnedUserMessage';
 import { lastAnswerSeq, visibleHandoffLines } from '@/features/chat/handoff';
 import { QuestionBlock } from '@/features/chat/QuestionBlock';
@@ -397,22 +397,21 @@ export function ChatTimeline({
           />
         );
       case 'text':
-        return (
-          <>
-            <TextBlock text={entry.text} unsourced={entry.unsourced} />
-            {showsHandoff && entry.seq === answerSeq && (
-              <HandoffBar
-                projectId={session.projectId}
-                sessionId={session.id}
-                lines={session.handoffLines}
-                parentSessionId={session.parentSessionId}
-                parentName={parentName}
-                onSessionCreated={onSessionCreated}
-                autoHandoff={autoHandoff}
-                autoState={session.autoHandoff}
-              />
-            )}
-          </>
+        return showsHandoff && entry.seq === answerSeq ? (
+          <HandoffAnswer
+            text={entry.text}
+            unsourced={entry.unsourced}
+            projectId={session.projectId}
+            sessionId={session.id}
+            lines={session.handoffLines}
+            parentSessionId={session.parentSessionId}
+            parentName={parentName}
+            onSessionCreated={onSessionCreated}
+            autoHandoff={autoHandoff}
+            autoState={session.autoHandoff}
+          />
+        ) : (
+          <TextBlock text={entry.text} unsourced={entry.unsourced} />
         );
       case 'thinking':
         return (

@@ -6,6 +6,7 @@ import type { ModelId } from '@/lib/bindings/ModelId';
 import type { SessionSummary } from '@/lib/bindings/SessionSummary';
 import { commandErrorText } from '@/lib/errors';
 import { createSessionInProject, setSessionModel } from '@/lib/sessions';
+import { handoffKey, useHandoffOpenedStore } from '@/stores/handoffOpened';
 import './HandoffButton.css';
 
 const HANDOFF_TITLE =
@@ -29,6 +30,8 @@ export function HandoffButton({
 }: HandoffButtonProps): ReactElement {
   const [isCreating, setIsCreating] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const key: string = handoffKey(parentSessionId, line.text);
+  const isOpened: boolean = useHandoffOpenedStore((state) => key in state.opened);
 
   async function continueInNewSession(): Promise<void> {
     setIsCreating(true);
@@ -42,6 +45,7 @@ export function HandoffButton({
       return;
     }
     onSessionCreated(created);
+    useHandoffOpenedStore.getState().markOpened(key);
     const model: ModelId | null = line.model;
     if (model !== null && model !== created.model) {
       try {
@@ -59,8 +63,8 @@ export function HandoffButton({
     <div className="handoff">
       <button
         type="button"
-        className="handoff__button"
-        title={HANDOFF_TITLE}
+        className={isOpened ? 'handoff__button handoff__button--opened' : 'handoff__button'}
+        title={isOpened ? `${HANDOFF_TITLE} Bereits gestartet.` : HANDOFF_TITLE}
         disabled={isCreating}
         onClick={(): void => {
           void continueInNewSession();

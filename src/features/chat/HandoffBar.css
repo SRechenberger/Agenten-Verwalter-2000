@@ -91,3 +91,18 @@
     font-size: var(--font-size-sm);
   }
 }
+
+/* Die Teile der Antwort stehen im Abstand eines Absatzes (wie in `Markdown.css`); die Reihe hängt dicht unter ihrer Zeile. */
+.handoff-answer {
+  > * + * {
+    margin-top: var(--space-md);
+  }
+
+  > .handoff-bar__inline {
+    margin-top: var(--space-xs);
+  }
+}
+
+.handoff-bar__inline {
+  display: flex;
+}
