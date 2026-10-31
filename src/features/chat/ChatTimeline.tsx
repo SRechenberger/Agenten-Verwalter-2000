@@ -8,7 +8,7 @@ import { buildBlocks, type ChatBlock } from '@/features/chat/buildBlocks';
 import { ErrorBlock } from '@/features/chat/ErrorBlock';
 import { HandoffBar } from '@/features/chat/HandoffBar';
 import { PinnedUserMessage } from '@/features/chat/PinnedUserMessage';
-import { lastAnswerSeq } from '@/features/chat/handoff';
+import { lastAnswerSeq, visibleHandoffLines } from '@/features/chat/handoff';
 import { QuestionBlock } from '@/features/chat/QuestionBlock';
 import { NoticeBlock } from '@/features/notices/NoticeBlock';
 import { SelectionMenu } from '@/features/side/SelectionMenu';
@@ -81,6 +81,8 @@ interface ChatTimelineProps {
   onSessionCreated: (created: SessionSummary) => void;
   /** „Automatisch weiter“ des Vorhabens (ADR 040). */
   autoHandoff: boolean;
+  /** Name der Eltern-Session (`session.parentSessionId`); `null`, wenn es keine gibt. */
+  parentName: string | null;
   /** Höhe der Überlagerung oben (TL;DR) und unten (Eingabe); der Verlauf lässt so viel Platz frei. */
   topInset: number;
   bottomInset: number;
@@ -109,6 +111,7 @@ export function ChatTimeline({
   onLoadOlder,
   onSessionCreated,
   autoHandoff,
+  parentName,
   topInset,
   bottomInset,
 }: ChatTimelineProps): ReactElement {
@@ -156,7 +159,8 @@ export function ChatTimeline({
   const lastErrorSeq: number | null = useMemo(() => findLastErrorSeq(entries), [entries]);
   const answerSeq: number | null = useMemo(() => lastAnswerSeq(entries), [entries]);
   const showsHandoff: boolean =
-    session.handoffLines.length > 0 && !HANDOFF_HIDDEN_STATUSES.includes(session.status);
+    visibleHandoffLines(session.handoffLines, session.parentSessionId).length > 0 &&
+    !HANDOFF_HIDDEN_STATUSES.includes(session.status);
   const workingLabel: string = useMemo(() => findActiveTodoLabel(entries), [entries]);
   const oldestOpenQuestion: QuestionEntry | null = useMemo(
     () => findOldestOpenQuestion(entries),
@@ -401,6 +405,8 @@ export function ChatTimeline({
                 projectId={session.projectId}
                 sessionId={session.id}
                 lines={session.handoffLines}
+                parentSessionId={session.parentSessionId}
+                parentName={parentName}
                 onSessionCreated={onSessionCreated}
                 autoHandoff={autoHandoff}
                 autoState={session.autoHandoff}

@@ -17,8 +17,11 @@ export function listSessions(): Promise<SessionSummary[]> {
 
 /** Legt im Vorhaben eine Session im Status „Neu“ an, ohne Agent; gibt es schon eine, kommt diese zurück.
  *  @throws {import('@/lib/bindings/CommandError').CommandError} `internal`, `database` */
-export function createSessionInProject(projectId: string): Promise<SessionSummary> {
-  return invoke<SessionSummary>('session_create_in_project', { projectId });
+export function createSessionInProject(
+  projectId: string,
+  parentSessionId?: string,
+): Promise<SessionSummary> {
+  return invoke<SessionSummary>('session_create_in_project', { projectId, parentSessionId });
 }
 
 /** Unterbricht die laufende Antwort; die Session wechselt auf „Pausiert“.

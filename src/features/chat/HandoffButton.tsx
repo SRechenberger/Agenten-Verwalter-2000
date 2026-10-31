@@ -13,6 +13,8 @@ const HANDOFF_TITLE =
 
 interface HandoffButtonProps {
   projectId: string;
+  /** Die Session mit der Antwort; der Core merkt sie als Eltern-Session der neuen (ADR 050). */
+  parentSessionId: string;
   /** Die Einstiegszeile, die in den Entwurf der neuen Session kommt. */
   line: HandoffLine;
   /** Nimmt die angelegte Session in die Liste und wählt sie aus (`handleSessionCreated` in `App`). */
@@ -21,6 +23,7 @@ interface HandoffButtonProps {
 
 export function HandoffButton({
   projectId,
+  parentSessionId,
   line,
   onSessionCreated,
 }: HandoffButtonProps): ReactElement {
@@ -32,7 +35,7 @@ export function HandoffButton({
     setErrorMessage(null);
     let created: SessionSummary;
     try {
-      created = await createSessionInProject(projectId);
+      created = await createSessionInProject(projectId, parentSessionId);
     } catch (reason: unknown) {
       setErrorMessage(commandErrorText(reason));
       setIsCreating(false);

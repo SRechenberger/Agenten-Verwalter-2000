@@ -1,5 +1,6 @@
 import { formatDuration } from '@/features/background/backgroundLabels';
 import type { AwaitedScript } from '@/lib/bindings/AwaitedScript';
+import type { HandoffLine } from '@/lib/bindings/HandoffLine';
 import type { SessionStatus } from '@/lib/bindings/SessionStatus';
 import type { SessionSummary } from '@/lib/bindings/SessionSummary';
 import { modelName, repositoryCountLabel } from '@/lib/labels';
@@ -32,7 +33,10 @@ export function displayStatus(
   if (session.awaitedScript !== null) {
     return 'script';
   }
-  if (session.status !== 'completed' || session.handoffLines.length === 0) {
+  if (
+    session.status !== 'completed' ||
+    !session.handoffLines.some((line: HandoffLine) => line.kind !== 'back')
+  ) {
     return session.status;
   }
   const hasFollowUp: boolean = sessions.some(

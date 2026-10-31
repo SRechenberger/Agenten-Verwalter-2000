@@ -56,6 +56,9 @@ pub struct SessionSummary {
     pub mcp_problems: u32,
     /// Letztes Senden des Users oder Abgeben des Agenten (Rückfrage, fertig, Fehler); beim Anlegen `created_at`.
     pub last_activity_at: f64,
+    /// Eltern-Session, an die eine Zeile „Zurück an …“ ihren Text sendet; `None`, wenn keine gemerkt
+    /// ist oder die Eltern-Session nicht mehr existiert.
+    pub parent_session_id: Option<String>,
     /// Seit dem letzten Blick des Users hat der Agent abgegeben.
     pub unread: bool,
     /// Einstiegszeilen der letzten Antwort in Antwort-Reihenfolge (ADR 027, ADR 040); leer ohne oder nach einer neueren Nutzernachricht.
@@ -74,6 +77,8 @@ pub enum HandoffKind {
     Session,
     /// „Neues Vorhaben … : …“ — Auftrag für ein neues Vorhaben.
     Project,
+    /// „Zurück an <Name>: <Text>“ — Text für die Eltern-Session, von der diese Session ausging.
+    Back,
 }
 
 /// Eine Einstiegszeile am Ende einer Antwort (ADR 027, ADR 040).
@@ -98,6 +103,8 @@ pub enum HandoffHalt {
     PendingSession,
     ChainLimit,
     Cancelled,
+    /// „Zurück an …“: die Eltern-Session arbeitet noch oder wartet auf eine Antwort.
+    ParentBusy,
 }
 
 /// Stand der Automatik unter der letzten Antwort; nur im Speicher.

@@ -1,6 +1,6 @@
 # 027 — Session-Übergabe über die Einstiegszeile
 
-**Status:** angenommen · **Datum:** 2026-10-06 · teilweise abgelöst durch [ADR 040](040-automatisch-weiter.md) (mehrere Zeilen, Modell im Core, automatisches Senden)
+**Status:** angenommen · **Datum:** 2026-10-06 · teilweise abgelöst durch [ADR 040](040-automatisch-weiter.md) (mehrere Zeilen, Modell im Core, automatisches Senden); dritte Zeilenart „Zurück an …“ in [ADR 050](050-zurueck-zeile.md)
 
 ## Kontext
 

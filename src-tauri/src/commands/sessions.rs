@@ -16,8 +16,9 @@ pub async fn session_list(
 pub async fn session_create_in_project(
     registry: tauri::State<'_, SessionRegistry>,
     project_id: String,
+    parent_session_id: Option<String>,
 ) -> Result<SessionSummary, CommandError> {
-    registry.create_in_project(&project_id)
+    registry.create_in_project(&project_id, parent_session_id.as_deref())
 }
 
 #[tauri::command]

@@ -5,8 +5,8 @@ use std::sync::Arc;
 use tauri::AppHandle;
 
 use super::{
-    ProjectState, Session, SessionRegistry, StoredSession, build_session, project_not_found,
-    summarize, write_paused,
+    ProjectState, Session, SessionRegistry, StoredSession, build_session, forget_missing_parents,
+    project_not_found, summarize, write_paused,
 };
 use crate::archive::model::ProjectRestored;
 use crate::db::projects::{self as project_rows, ProjectRow};
@@ -50,6 +50,7 @@ impl SessionRegistry {
             sessions.push(session);
             interrupted.extend(paused_row);
         }
+        forget_missing_parents(&sessions);
         self.database
             .with(|connection| project_rows::restore(connection, project_id))?;
         // Sperr-Regel der Registry: erst die Vorhaben, loslassen, dann die Sessions-Map.
