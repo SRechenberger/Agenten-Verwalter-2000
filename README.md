@@ -57,6 +57,7 @@ pnpm tauri dev      # App im Entwicklungsmodus
 ```
 
 Unter Windows startet auch `starten.cmd` die App im Entwicklungsmodus; `starten.cmd build` baut die lose exe.
+Unter Linux startet `starten.sh` die App im Entwicklungsmodus, auch aus einem anderen Arbeitsverzeichnis, etwa aus einem Desktop-Starter mit `Exec=<Pfad>/starten.sh` und `Terminal=true`.
 
 ### Prüfen und bauen
 
