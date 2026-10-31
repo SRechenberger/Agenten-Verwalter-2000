@@ -67,8 +67,8 @@ use crate::sessions::auto_handoff::{
     self, AUTO_HANDOFF_CHAIN_LIMIT, AUTO_HANDOFF_DELAY, FollowUp, ScheduledHandoff,
 };
 use crate::sessions::model::{
-    AutoHandoff, AwaitedScript, ChatEntryEvent, ChatPage, HandoffHalt, HandoffKind, HandoffLine,
-    SessionStatus, SessionSummary,
+    AutoHandoff, AwaitedScript, ChatEntryEvent, ChatPage, HandoffHalt, HandoffLine, SessionStatus,
+    SessionSummary,
 };
 use crate::sessions::{MAX_NAME_CHARS, handoff, name_from_task};
 use crate::settings;
@@ -230,6 +230,9 @@ struct SessionState {
     last_activity_at: f64,
     /// Einstiegszeilen der letzten Antwort (ADR 027, ADR 040); eine Nutzernachricht löscht sie.
     handoff_lines: Vec<HandoffLine>,
+    /// Davon die Zeilen im Fenster am Ende der Antwort; nur sie darf die Automatik starten. Nur im
+    /// Speicher, nach einem Neustart beim Laden des Verlaufs neu bestimmt.
+    handoff_window: Vec<HandoffLine>,
     /// Haltegrund aus dem Text der letzten Antwort (ADR 040); nur im Speicher, nach einem Neustart
     /// beim Laden des Verlaufs neu bestimmt.
     handoff_stop: Option<HandoffHalt>,
@@ -834,21 +837,8 @@ impl SessionRegistry {
                 {
                     return Ok(None);
                 }
-                let of_kind = |kind: HandoffKind| -> Vec<HandoffLine> {
-                    state
-                        .handoff_lines
-                        .iter()
-                        .filter(|line: &&HandoffLine| line.kind == kind)
-                        .cloned()
-                        .collect()
-                };
-                // Ohne „Weiter:“-Zeile gilt „Zurück an …“ an die gemerkte Eltern-Session; gemischte
-                // Antworten laufen nur über „Weiter:“.
-                let mut lines: Vec<HandoffLine> = of_kind(HandoffKind::Session);
-                let is_back: bool = lines.is_empty();
-                if is_back {
-                    lines = of_kind(HandoffKind::Back);
-                }
+                let (lines, is_back, above) =
+                    handoff::auto_candidates(&state.handoff_lines, &state.handoff_window);
                 // Ohne Zeile, mit veralteter Zeile oder ohne Eltern-Session: still, wie der
                 // Anzeige-Status „Wiedereinstieg“.
                 let Some(line) = lines.first().cloned() else {
@@ -861,15 +851,16 @@ impl SessionRegistry {
                     state.drop_auto_handoff(outbox);
                     return Ok(None);
                 }
-                let halt: Option<HandoffHalt> = state.handoff_stop.or(if lines.len() > 1 {
-                    Some(HandoffHalt::SeveralLines)
-                } else if !is_back && follow_up.pending_new {
-                    Some(HandoffHalt::PendingSession)
-                } else if state.auto_chain >= AUTO_HANDOFF_CHAIN_LIMIT {
-                    Some(HandoffHalt::ChainLimit)
-                } else {
-                    None
-                });
+                let halt: Option<HandoffHalt> =
+                    state.handoff_stop.or(if lines.len() > 1 || above {
+                        Some(HandoffHalt::SeveralLines)
+                    } else if !is_back && follow_up.pending_new {
+                        Some(HandoffHalt::PendingSession)
+                    } else if state.auto_chain >= AUTO_HANDOFF_CHAIN_LIMIT {
+                        Some(HandoffHalt::ChainLimit)
+                    } else {
+                        None
+                    });
                 if let Some(reason) = halt {
                     state.set_auto_handoff(outbox, AutoHandoff::Halted { reason });
                     return Ok(None);
@@ -2289,6 +2280,7 @@ impl SessionState {
             created_at: now,
             last_activity_at: now,
             handoff_lines: Vec::new(),
+            handoff_window: Vec::new(),
             handoff_stop: None,
             auto_handoff: None,
             auto_handoff_token: 0,
@@ -2398,15 +2390,16 @@ impl SessionState {
         self.background = background;
         self.entries_loaded = true;
         if !self.handoff_lines.is_empty() {
-            self.handoff_stop = self
-                .entries
-                .iter()
-                .rev()
-                .find_map(|entry: &ChatEntry| match entry {
-                    ChatEntry::Text { text, .. } => Some(handoff::stop_reason(text)),
-                    _ => None,
-                })
-                .flatten();
+            let last_text: Option<&str> =
+                self.entries
+                    .iter()
+                    .rev()
+                    .find_map(|entry: &ChatEntry| match entry {
+                        ChatEntry::Text { text, .. } => Some(text.as_str()),
+                        _ => None,
+                    });
+            self.handoff_stop = last_text.and_then(handoff::stop_reason);
+            self.handoff_window = last_text.map_or_else(Vec::new, handoff::window_lines);
         }
         self.settle_background_after_restart(session);
         if self.needs_settling {
@@ -2815,6 +2808,7 @@ impl SessionState {
         });
         self.touch_activity(outbox);
         self.handoff_lines.clear();
+        self.handoff_window.clear();
         self.handoff_stop = None;
         self.drop_auto_handoff(outbox);
         self.auto_chain = 0;
@@ -2952,6 +2946,7 @@ impl SessionState {
                     self.handoff_lines = lines;
                     outbox.summary_dirty = true;
                 }
+                self.handoff_window = handoff::window_lines(&text);
                 self.handoff_stop = handoff::stop_reason(&text);
                 self.drop_auto_handoff(outbox);
                 let seq: u32 = self.push_entry(outbox, |seq: u32| ChatEntry::Text {

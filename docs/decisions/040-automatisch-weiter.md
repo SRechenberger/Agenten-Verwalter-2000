@@ -34,3 +34,12 @@
 - Folge: Eine „Weiter:“-Zeile im selben Absatz wird ein eigener Absatz; eine Nadel für „ohne Fundstelle“, die über eine Teilung hinwegreicht, wird nicht mehr markiert.
 - Jede zugeordnete Zeile ist ein eigener Absatz: die Teilung schneidet auch vor der Zeile, damit sie nicht mit Text davor oder einer anderen Einstiegszeile verschmilzt. Andere Zeilenumbrüche bleiben, wie sie sind.
 - Der Knopf einer „Weiter:“- und einer „Neues Vorhaben“-Zeile wird grau, sobald die neue Session bzw. der Dialog geöffnet ist (`stores/handoffOpened.ts`, Schlüssel Session plus Zeilentext); beim Anlegen und bei einem Fehler bleibt er orange, ein weiterer Klick legt wieder eine Session an. Der Zustand liegt nur im Speicher: nach Neuladen oder Neustart ist der Knopf wieder orange. Verworfen: je Session und Zeile speichern — das braucht eine Spalte und einen Befehl und lässt sich später nachrüsten.
+
+## Nachtrag 2026-10-31: Einstiegszeilen in der ganzen Antwort
+
+- **Erkennung:** `handoff_lines` liefert die Zeilen des Fensters (letzte fünf nicht leere Zeilen, unverändert) und alle weiteren weiter oben in der Antwort, die **nicht in einem Code-Zaun** stehen (Zaunparität von vorn wie bei 🔴; eine Zeile, die selbst mit drei Backticks beginnt, ist keine). Die Oberfläche zeigt für jede einen Knopf unter ihrer Zeile.
+- **Automatik:** nur Zeilen im Fenster (`window_lines`, `SessionState.handoff_window`) dürfen einen Countdown auslösen. Gibt es von derselben Art (Weiter bzw. Zurück) weitere Zeilen weiter oben, gilt `SeveralLines`; gibt es nur Zeilen weiter oben, bleibt die Automatik still (kein Countdown, kein Halt). Kein neuer Wert in `HandoffHalt`. Die Wahl trifft `handoff::auto_candidates`.
+- **Haltegründe unverändert:** 🔴 überall außerhalb von Zäunen; Frage und „merge“ nur in den gezählten letzten Zeilen. Eine Einstiegszeile mitten im Text ändert daran nichts.
+- **Neustart:** `handoff_line` speichert weiter nur den Text aller Zeilen; Fenster und Haltegrund werden beim Laden aus dem letzten Text-Eintrag neu bestimmt.
+- **Folge:** Die Sidebar zeigt „wartet auf Wiedereinstieg“ auch bei einer Zeile mitten im Text.
+- Verworfen: Zeilen in einem Zaun mitten im Text erkennen (dort stehen Beispiele aus Briefen); alle Zeilen für die Automatik zählen (ein Beispiel im Text würde Sessions starten).

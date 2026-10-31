@@ -1,4 +1,4 @@
-//! Einstiegszeilen am Ende einer Agenten-Antwort (ADR 027, ADR 040).
+//! Einstiegszeilen einer Agenten-Antwort (ADR 027, ADR 040).
 
 use std::sync::LazyLock;
 
@@ -21,12 +21,48 @@ static MODEL: LazyLock<Regex> = LazyLock::new(|| {
         .expect("MODEL ist ein gültiger regulärer Ausdruck")
 });
 
-/// Die Einstiegszeilen einer Antwort in Antwort-Reihenfolge. Gesucht wird von hinten; Einstiegszeilen
-/// zählen nicht gegen das Fenster, andere nicht leere Zeilen schon (fünf, dann ist Schluss).
+/// Die Einstiegszeilen einer Antwort in Antwort-Reihenfolge: die Zeilen des Fensters am Ende
+/// ([`window_lines`]) und alle weiteren weiter oben außerhalb von Code-Blöcken (ADR 040, Nachtrag).
 pub fn handoff_lines(text: &str) -> Vec<HandoffLine> {
-    let (mut found, _) = tail(text);
+    let (mut found, _, start) = tail(text);
+    found.reverse();
+    let mut all: Vec<HandoffLine> = above(text, start);
+    all.append(&mut found);
+    all
+}
+
+/// Nur die Einstiegszeilen im Fenster am Ende der Antwort (letzte fünf nicht leere Zeilen, ADR 027),
+/// in Antwort-Reihenfolge. Nur sie darf die Automatik starten.
+pub fn window_lines(text: &str) -> Vec<HandoffLine> {
+    let (mut found, _, _) = tail(text);
     found.reverse();
     found
+}
+
+/// Welche Zeilen die Automatik betrachtet (ADR 040): die „Weiter:“-Zeilen im Fenster, ohne sie die
+/// „Zurück an …“-Zeilen im Fenster (`true` an zweiter Stelle). Gibt es von dieser Art weitere Zeilen
+/// weiter oben in der Antwort, ist der Start mehrdeutig (`true` an dritter Stelle); Zeilen allein
+/// weiter oben starten nichts. Gemischte Antworten laufen nur über „Weiter:“.
+pub fn auto_candidates(
+    all: &[HandoffLine],
+    window: &[HandoffLine],
+) -> (Vec<HandoffLine>, bool, bool) {
+    let of_kind = |lines: &[HandoffLine], kind: HandoffKind| -> Vec<HandoffLine> {
+        lines
+            .iter()
+            .filter(|line: &&HandoffLine| line.kind == kind)
+            .cloned()
+            .collect()
+    };
+    let mut kind: HandoffKind = HandoffKind::Session;
+    let mut picked: Vec<HandoffLine> = of_kind(window, kind);
+    let is_back: bool = picked.is_empty();
+    if is_back {
+        kind = HandoffKind::Back;
+        picked = of_kind(window, kind);
+    }
+    let above: bool = of_kind(all, kind).len() > picked.len();
+    (picked, is_back, above)
 }
 
 /// Warum die Einstiegszeile dieser Antwort nicht automatisch gesendet wird (ADR 040); `None` ohne
@@ -36,7 +72,7 @@ pub fn stop_reason(text: &str) -> Option<HandoffHalt> {
     if has_red(text) {
         return Some(HandoffHalt::Red);
     }
-    let (_, counted) = tail(text);
+    let (_, counted, _) = tail(text);
     counted.iter().find_map(|line: &String| {
         if line.ends_with('?') {
             Some(HandoffHalt::Question)
@@ -48,11 +84,14 @@ pub fn stop_reason(text: &str) -> Option<HandoffHalt> {
     })
 }
 
-/// Einstiegszeilen und gezählte bereinigte Zeilen vom Ende der Antwort, beide von unten nach oben.
-fn tail(text: &str) -> (Vec<HandoffLine>, Vec<String>) {
+/// Einstiegszeilen und gezählte bereinigte Zeilen vom Ende der Antwort, beide von unten nach oben,
+/// und der Index der obersten betrachteten Zeile (0, wenn das Fenster die ganze Antwort umfasst).
+fn tail(text: &str) -> (Vec<HandoffLine>, Vec<String>, usize) {
     let mut found: Vec<HandoffLine> = Vec::new();
     let mut counted: Vec<String> = Vec::new();
-    for line in text.lines().rev().map(str::trim) {
+    let lines: Vec<&str> = text.lines().collect();
+    for (index, line) in lines.iter().enumerate().rev() {
+        let line: &str = line.trim();
         if line.is_empty() || line.starts_with(CODE_FENCE) {
             continue;
         }
@@ -62,12 +101,27 @@ fn tail(text: &str) -> (Vec<HandoffLine>, Vec<String>) {
             None => {
                 counted.push(cleaned);
                 if counted.len() == HANDOFF_WINDOW {
-                    break;
+                    return (found, counted, index);
                 }
             }
         }
     }
-    (found, counted)
+    (found, counted, 0)
+}
+
+/// Einstiegszeilen vor der Zeile `end` (Fenster-Beginn), außerhalb von Code-Blöcken, von oben nach
+/// unten; die Zaunparität zählt von vorn wie in [`has_red`].
+fn above(text: &str, end: usize) -> Vec<HandoffLine> {
+    let mut in_code: bool = false;
+    let mut found: Vec<HandoffLine> = Vec::new();
+    for line in text.lines().take(end).map(str::trim) {
+        if line.starts_with(CODE_FENCE) {
+            in_code = !in_code;
+        } else if !in_code && let Some(handoff) = parse_line(&clean(line)) {
+            found.push(handoff);
+        }
+    }
+    found
 }
 
 fn has_red(text: &str) -> bool {
