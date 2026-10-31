@@ -55,6 +55,11 @@ mcpProblems: number,
  */
 lastActivityAt: number, 
 /**
+ * Eltern-Session, an die eine Zeile „Zurück an …“ ihren Text sendet; `None`, wenn keine gemerkt
+ * ist oder die Eltern-Session nicht mehr existiert.
+ */
+parentSessionId: string | null, 
+/**
  * Seit dem letzten Blick des Users hat der Agent abgegeben.
  */
 unread: boolean, 

@@ -6,7 +6,10 @@ use std::time::Duration;
 
 use tauri::{AppHandle, Emitter, Manager};
 
-use crate::sessions::model::{HandoffHalt, HandoffLine, HandoffStartedEvent, SessionSummary};
+use crate::sessions::handoff;
+use crate::sessions::model::{
+    HandoffHalt, HandoffKind, HandoffLine, HandoffStartedEvent, SessionSummary,
+};
 use crate::sessions::registry::{Session, SessionRegistry};
 
 pub const AUTO_HANDOFF_DELAY: Duration = Duration::from_secs(10);
@@ -67,6 +70,10 @@ fn fire(app: &AppHandle, session: &Arc<Session>, scheduled: ScheduledHandoff) {
     if !registry.project_auto_handoff(session.project_id()) {
         return;
     }
+    if scheduled.line.kind == HandoffKind::Back {
+        fire_back(app, session, &scheduled);
+        return;
+    }
     let follow_up: FollowUp = registry.follow_up(session);
     if follow_up.later_started {
         let _ = registry.take_auto_handoff(app, session, scheduled.token);
@@ -79,7 +86,7 @@ fn fire(app: &AppHandle, session: &Arc<Session>, scheduled: ScheduledHandoff) {
     if !registry.take_auto_handoff(app, session, scheduled.token) {
         return;
     }
-    let created: SessionSummary = match registry.create_in_project(session.project_id()) {
+    let created: SessionSummary = match registry.create_in_project(session.project_id(), None) {
         Ok(created) => created,
         Err(error) => {
             registry.fail_auto_handoff(app, session, format!("Session nicht angelegt: {error}"));
@@ -101,6 +108,38 @@ fn fire(app: &AppHandle, session: &Arc<Session>, scheduled: ScheduledHandoff) {
     let event = HandoffStartedEvent {
         from_session_id: session.id.clone(),
         to_session_id: created.id.clone(),
+    };
+    if let Err(error) = app.emit(HANDOFF_STARTED_EVENT, event) {
+        session.log_line(format!("Automatischer Start nicht gemeldet: {error}"));
+    }
+}
+
+/// „Zurück an …“: sendet den Text nach dem Countdown an die Eltern-Session, sofern sie ruht; sonst
+/// Halt `ParentBusy`. Prüfen (unter der Sperre der Eltern-Session) und Senden (ohne Sperre) sind
+/// getrennt — fängt die Eltern-Session dazwischen an zu arbeiten und scheitert `send`, steht
+/// `Failed` unter der Antwort.
+fn fire_back(app: &AppHandle, session: &Arc<Session>, scheduled: &ScheduledHandoff) {
+    let registry = app.state::<SessionRegistry>();
+    let Some((parent_id, rests)) = registry.parent_rest(session) else {
+        let _ = registry.take_auto_handoff(app, session, scheduled.token);
+        return;
+    };
+    if !rests {
+        registry.halt_auto_handoff(app, session, scheduled.token, HandoffHalt::ParentBusy);
+        return;
+    }
+    if !registry.take_auto_handoff(app, session, scheduled.token) {
+        return;
+    }
+    let text: &str = handoff::back_text(&scheduled.line);
+    if let Err(error) = registry.send(app, &parent_id, text, &[], &[]) {
+        registry.fail_auto_handoff(app, session, format!("Nicht gesendet: {error}"));
+        return;
+    }
+    registry.set_auto_chain(&parent_id, scheduled.chain + 1);
+    let event = HandoffStartedEvent {
+        from_session_id: session.id.clone(),
+        to_session_id: parent_id,
     };
     if let Err(error) = app.emit(HANDOFF_STARTED_EVENT, event) {
         session.log_line(format!("Automatischer Start nicht gemeldet: {error}"));

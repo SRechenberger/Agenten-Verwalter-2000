@@ -239,6 +239,9 @@ struct SessionState {
     auto_handoff_token: u64,
     /// Der wievielte automatische Start in Folge diese Session ist; 0 = von dir gestartet. Nur im Speicher.
     auto_chain: u32,
+    /// Eltern-Session im selben Vorhaben, an die „Zurück an …“ sendet; gespeichert, ohne
+    /// Fremdschlüssel. Nur `create_in_project` setzt sie.
+    parent_session_id: Option<String>,
     /// Wann der User die Session zuletzt gesehen hat.
     seen_at: f64,
     /// Die Oberfläche zeigt die Session gerade (`set_viewed`); nur im Speicher.
@@ -430,6 +433,7 @@ impl SessionRegistry {
             built.push(session);
             interrupted.extend(paused_row);
         }
+        forget_missing_parents(&built);
         {
             let mut sessions = registry.lock_sessions();
             for session in built {
@@ -576,7 +580,15 @@ impl SessionRegistry {
     /// Legt im Vorhaben eine Session im Status „Neu“ an: kein Agent, kein Verlauf. Modell,
     /// Denkaufwand, Modus, Workspace und Repositories kommen von der Session mit der höchsten
     /// Nummer. Gibt es schon eine nicht gestartete Session, kommt diese zurück.
-    pub fn create_in_project(&self, project_id: &str) -> Result<SessionSummary, CommandError> {
+    ///
+    /// `parent_session_id` wird als Eltern-Session der zurückgegebenen Session gemerkt, wenn sie im
+    /// selben Vorhaben liegt und nicht die Session selbst ist; sonst wird sie ignoriert. Ohne Wert
+    /// bleibt eine schon gemerkte Eltern-Session stehen.
+    pub fn create_in_project(
+        &self,
+        project_id: &str,
+        parent_session_id: Option<&str>,
+    ) -> Result<SessionSummary, CommandError> {
         let mut members: Vec<Arc<Session>> = self
             .lock_sessions()
             .values()
@@ -587,9 +599,28 @@ impl SessionRegistry {
         let Some(latest) = members.last().cloned() else {
             return Err(project_not_found(project_id));
         };
+        let parent: Option<String> = parent_session_id
+            .filter(|parent: &&str| {
+                members
+                    .iter()
+                    .any(|member: &Arc<Session>| member.id == *parent)
+            })
+            .map(str::to_owned);
         for member in &members {
-            let state = member.lock();
+            let mut state = member.lock();
             if state.status == SessionStatus::New {
+                if let Some(parent) = parent.filter(|parent: &String| *parent != member.id)
+                    && state.parent_session_id.as_ref() != Some(&parent)
+                {
+                    let previous = state.parent_session_id.replace(parent);
+                    let saved = self.database.with(|connection| {
+                        session_rows::upsert(connection, &row_of(member, &state))
+                    });
+                    if let Err(error) = saved {
+                        state.parent_session_id = previous;
+                        return Err(error);
+                    }
+                }
                 return Ok(summarize(member, &state));
             }
         }
@@ -607,6 +638,7 @@ impl SessionRegistry {
         let mut state = SessionState::new(format!("Session {number}"), model, effort, mode);
         state.codex_model = codex_model;
         state.status = SessionStatus::New;
+        state.parent_session_id = parent;
         // Die Vorhaben-Sperre hält ein gleichzeitiges `add_repository` an, bis die neue Session in
         // der Map steht — sonst verpasste sie das angehängte Repository. Die Sperre der neuen
         // Session (`row_of`) darunter kann sich nicht verklemmen: solange sie in keiner Map steht,
@@ -743,6 +775,47 @@ impl SessionRegistry {
         follow_up
     }
 
+    /// Nach dem Löschen von `deleted`: Kinder, die auf sie zeigen, vergessen die Eltern-Session
+    /// (im Speicher; die Datenbankzeile schreibt `update` mit, `forget_missing_parents` räumt sonst
+    /// beim Laden auf). Die Sessions-Map wird nur kopiert, jede Session-Sperre einzeln genommen.
+    fn forget_parent(&self, app: &AppHandle, deleted: &Session) {
+        let siblings: Vec<Arc<Session>> = self.lock_sessions().values().cloned().collect();
+        for child in siblings {
+            if child.project_id != deleted.project_id
+                || child.lock().parent_session_id.as_deref() != Some(deleted.id.as_str())
+            {
+                continue;
+            }
+            // Scheitert das Laden des Verlaufs, bleibt die ID bis zum nächsten Start stehen.
+            let _ = update(
+                app,
+                &child,
+                |state: &mut SessionState, outbox: &mut Outbox| {
+                    state.parent_session_id = None;
+                    outbox.summary_dirty = true;
+                    Ok(())
+                },
+            );
+        }
+    }
+
+    /// Die gemerkte Eltern-Session von `session` und ob sie ruht: abgeschlossen, ohne offene
+    /// Rückfrage, ohne laufenden Subagent oder Skript. `None` ohne (noch existierende) Eltern-Session.
+    /// Sperrt nur die Eltern-Session, kurz; das Senden danach läuft ohne Sperre.
+    pub(crate) fn parent_rest(&self, session: &Session) -> Option<(String, bool)> {
+        let parent_id: String = session.lock().parent_session_id.clone()?;
+        let parent: Arc<Session> = self.get(&parent_id).ok()?;
+        let rests: bool = parent
+            .lock_loaded()
+            .is_ok_and(|state: MutexGuard<'_, SessionState>| {
+                state.status == SessionStatus::Completed
+                    && state.pending.is_empty()
+                    && !state.is_awaiting_subagent()
+                    && state.awaited_script().is_none()
+            });
+        Some((parent_id, rests))
+    }
+
     /// Entscheidet unter der Sperre der Session, ob ein Countdown beginnt.
     pub(crate) fn schedule_auto_handoff(
         &self,
@@ -761,24 +834,36 @@ impl SessionRegistry {
                 {
                     return Ok(None);
                 }
-                let session_lines: Vec<HandoffLine> = state
-                    .handoff_lines
-                    .iter()
-                    .filter(|line: &&HandoffLine| line.kind == HandoffKind::Session)
-                    .cloned()
-                    .collect();
-                // Ohne Zeile oder mit veralteter Zeile: still, wie der Anzeige-Status „Wiedereinstieg“.
-                let Some(line) = session_lines.first().cloned() else {
+                let of_kind = |kind: HandoffKind| -> Vec<HandoffLine> {
+                    state
+                        .handoff_lines
+                        .iter()
+                        .filter(|line: &&HandoffLine| line.kind == kind)
+                        .cloned()
+                        .collect()
+                };
+                // Ohne „Weiter:“-Zeile gilt „Zurück an …“ an die gemerkte Eltern-Session; gemischte
+                // Antworten laufen nur über „Weiter:“.
+                let mut lines: Vec<HandoffLine> = of_kind(HandoffKind::Session);
+                let is_back: bool = lines.is_empty();
+                if is_back {
+                    lines = of_kind(HandoffKind::Back);
+                }
+                // Ohne Zeile, mit veralteter Zeile oder ohne Eltern-Session: still, wie der
+                // Anzeige-Status „Wiedereinstieg“.
+                let Some(line) = lines.first().cloned() else {
                     state.drop_auto_handoff(outbox);
                     return Ok(None);
                 };
-                if follow_up.later_started {
+                if (is_back && state.parent_session_id.is_none())
+                    || (!is_back && follow_up.later_started)
+                {
                     state.drop_auto_handoff(outbox);
                     return Ok(None);
                 }
-                let halt: Option<HandoffHalt> = state.handoff_stop.or(if session_lines.len() > 1 {
+                let halt: Option<HandoffHalt> = state.handoff_stop.or(if lines.len() > 1 {
                     Some(HandoffHalt::SeveralLines)
-                } else if follow_up.pending_new {
+                } else if !is_back && follow_up.pending_new {
                     Some(HandoffHalt::PendingSession)
                 } else if state.auto_chain >= AUTO_HANDOFF_CHAIN_LIMIT {
                     Some(HandoffHalt::ChainLimit)
@@ -1363,6 +1448,7 @@ impl SessionRegistry {
             projects.remove(&session.project_id);
         }
         drop(projects);
+        self.forget_parent(app, &session);
         {
             let mut viewed = self.viewed.lock().unwrap_or_else(PoisonError::into_inner);
             if viewed.as_deref() == Some(session.id.as_str()) {
@@ -2111,6 +2197,26 @@ fn build_session(
     Ok((session, paused_row))
 }
 
+/// Eine gemerkte Eltern-Session, die unter den geladenen Sessions fehlt, gilt als nicht vorhanden.
+/// Zur Laufzeit räumt `forget_parent` beim Löschen auf; das hier fängt Zeilen aus einem Archiv
+/// oder einem früheren Start ab.
+fn forget_missing_parents(sessions: &[Arc<Session>]) {
+    for session in sessions {
+        let mut state = session.lock();
+        if state
+            .parent_session_id
+            .as_ref()
+            .is_some_and(|parent: &String| {
+                !sessions
+                    .iter()
+                    .any(|other: &Arc<Session>| other.id == *parent)
+            })
+        {
+            state.parent_session_id = None;
+        }
+    }
+}
+
 fn write_paused(database: &Database, rows: &[SessionRow]) -> Result<(), CommandError> {
     if rows.is_empty() {
         return Ok(());
@@ -2187,6 +2293,7 @@ impl SessionState {
             auto_handoff: None,
             auto_handoff_token: 0,
             auto_chain: 0,
+            parent_session_id: None,
             seen_at: now,
             is_viewed: false,
             running_ms: 0.0,
@@ -2257,6 +2364,7 @@ impl SessionState {
         state.context_window = row.context_window;
         state.prompt_cache = row.prompt_cache.clone();
         state.name_auto = row.name_auto;
+        state.parent_session_id = row.parent_session_id.clone();
         state.has_agent_history = row.has_agent_history;
         state.chrome = row.chrome;
         state.codex_model = row.codex_model.clone();
@@ -3549,6 +3657,7 @@ fn row_of(session: &Session, state: &SessionState) -> SessionRow {
         id: session.id.clone(),
         name: state.name.clone(),
         name_auto: state.name_auto,
+        parent_session_id: state.parent_session_id.clone(),
         status: state.status,
         model: state.model,
         codex_model: state.codex_model.clone(),
@@ -3650,6 +3759,7 @@ fn summarize(session: &Session, state: &SessionState) -> SessionSummary {
         mcp_problems: state.mcp_problem_count(),
         last_activity_at: state.last_activity_at,
         unread: state.last_activity_at > state.seen_at,
+        parent_session_id: state.parent_session_id.clone(),
         handoff_lines: state.handoff_lines.clone(),
         auto_handoff: state.auto_handoff.clone(),
         awaited_script: state.awaited_script(),

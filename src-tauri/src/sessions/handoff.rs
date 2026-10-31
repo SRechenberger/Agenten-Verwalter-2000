@@ -9,7 +9,9 @@ use crate::sessions::model::{HandoffHalt, HandoffKind, HandoffLine};
 
 const HANDOFF_PREFIX: &str = "Weiter:";
 const PROJECT_PREFIX: &str = "Neues Vorhaben";
+const BACK_PREFIX: &str = "Zurück an";
 const PROJECT_LABEL_MAX: usize = 80;
+const BACK_NAME_MAX: usize = 80;
 const HANDOFF_WINDOW: usize = 5;
 const CODE_FENCE: &str = "```";
 const RED: char = '🔴';
@@ -80,20 +82,31 @@ fn has_red(text: &str) -> bool {
     false
 }
 
-/// Erkennt eine bereinigte Zeile als „Weiter: …“ oder „Neues Vorhaben … : …“.
+/// Erkennt eine bereinigte Zeile als „Weiter: …“, „Neues Vorhaben … : …“ oder „Zurück an … : …“,
+/// in dieser Reihenfolge. Der Text einer Zurück-Zeile wird nie als Modellwahl gelesen.
 pub fn parse_line(cleaned: &str) -> Option<HandoffLine> {
-    let kind: HandoffKind = if is_session_line(cleaned) {
-        HandoffKind::Session
+    let (kind, model) = if is_session_line(cleaned) {
+        (HandoffKind::Session, model_of(cleaned))
     } else if is_project_line(cleaned) {
-        HandoffKind::Project
+        (HandoffKind::Project, model_of(cleaned))
+    } else if is_back_line(cleaned) {
+        (HandoffKind::Back, None)
     } else {
         return None;
     };
     Some(HandoffLine {
         kind,
         text: cleaned.to_owned(),
-        model: model_of(cleaned),
+        model,
     })
+}
+
+/// Der Text einer Zurück-Zeile hinter dem ersten Doppelpunkt, der als Nachricht an die
+/// Eltern-Session geht; leer für andere Zeilen.
+pub fn back_text(line: &HandoffLine) -> &str {
+    line.text
+        .find(':')
+        .map_or("", |colon: usize| line.text[colon + 1..].trim())
 }
 
 /// Die Zeilen für die Spalte `handoff_line`, durch Zeilenumbruch getrennt; `None` ohne Zeilen.
@@ -127,6 +140,24 @@ fn is_project_line(cleaned: &str) -> bool {
         return false;
     };
     rest[..colon].chars().count() <= PROJECT_LABEL_MAX && !rest[colon + 1..].trim().is_empty()
+}
+
+/// „Zurück an <Name>: <Text>“ — der Name ist nicht leer, höchstens 80 Zeichen lang und enthält
+/// keinen Doppelpunkt (der erste beendet ihn), der Text ist nicht leer.
+fn is_back_line(cleaned: &str) -> bool {
+    let Some(rest) = cleaned.strip_prefix(BACK_PREFIX) else {
+        return false;
+    };
+    if !rest.starts_with(char::is_whitespace) {
+        return false;
+    }
+    let Some(colon) = rest.find(':') else {
+        return false;
+    };
+    let name: &str = rest[..colon].trim();
+    !name.is_empty()
+        && name.chars().count() <= BACK_NAME_MAX
+        && !rest[colon + 1..].trim().is_empty()
 }
 
 fn model_of(line: &str) -> Option<ModelId> {

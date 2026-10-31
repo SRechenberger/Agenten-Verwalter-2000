@@ -3,4 +3,4 @@
 /**
  * Art einer Einstiegszeile (ADR 040).
  */
-export type HandoffKind = "session" | "project";
+export type HandoffKind = "session" | "project" | "back";

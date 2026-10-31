@@ -3,4 +3,4 @@
 /**
  * Warum eine Einstiegszeile nicht automatisch gesendet wird (ADR 040).
  */
-export type HandoffHalt = "red" | "question" | "merge" | "severalLines" | "pendingSession" | "chainLimit" | "cancelled";
+export type HandoffHalt = "red" | "question" | "merge" | "severalLines" | "pendingSession" | "chainLimit" | "cancelled" | "parentBusy";

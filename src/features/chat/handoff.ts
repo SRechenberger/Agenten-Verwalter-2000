@@ -20,6 +20,8 @@ export const HALT_TEXT: Record<HandoffHalt, string> = {
   pendingSession: 'Nicht automatisch weiter: im Vorhaben wartet schon eine neue Session.',
   chainLimit:
     'Nicht automatisch weiter: 6 automatische Starts in Folge — schick eine Nachricht oder starte von Hand.',
+  parentBusy:
+    'Nicht automatisch weiter: die Session, an die zurückgemeldet wird, arbeitet oder wartet auf dich.',
   cancelled: 'Automatisch weiter abgebrochen.',
 };
 
