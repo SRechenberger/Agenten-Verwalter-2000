@@ -18,9 +18,8 @@ use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Manager};
 
 use crate::error::CommandError;
-use dictation::base_prompt;
 use model::{VoiceModelEvent, VoiceModelState};
-use model_file::{MODEL_BYTES, download, is_model_ready, model_path};
+use model_file::{download, is_model_ready, model_dir, total_bytes};
 use recorder::Recorder;
 use silence::SILENT_PEAK;
 use transcribe::Transcriber;
@@ -80,13 +79,8 @@ impl VoiceService {
     }
 
     /// Startet Aufnahme und Erkennungs-Thread und kehrt zurück, sobald das Mikrofon läuft.
-    pub fn start(
-        &self,
-        app: AppHandle,
-        repository_names: Vec<String>,
-        language: Option<String>,
-    ) -> Result<(), CommandError> {
-        let path = model_path(&app)?;
+    pub fn start(&self, app: AppHandle) -> Result<(), CommandError> {
+        let dir = model_dir(&app)?;
         let mut inner = self.lock();
         // Eine abgebrochene Erkennung läuft womöglich noch aus (das Modell lässt sich mitten im Rechnen
         // nicht sofort anhalten); sie sendet nichts mehr und darf ein neues Diktat nicht sperren.
@@ -94,7 +88,7 @@ impl VoiceService {
         if inner.recorder.is_some() || is_stopping {
             return Err(CommandError::VoiceBusy);
         }
-        if !is_model_ready(&path) {
+        if !is_model_ready(&dir) {
             return Err(CommandError::VoiceModelMissing);
         }
         inner.is_transcribing = false;
@@ -107,20 +101,9 @@ impl VoiceService {
         let (segment_sender, segment_receiver) = mpsc::channel();
         let recorder = Recorder::start(app.clone(), segment_sender)?;
         let (channels, rate) = (recorder.channels, recorder.rate);
-        let prompt = base_prompt(&repository_names);
         let spawned = thread::Builder::new()
             .name("voice-transcribe".to_owned())
-            .spawn(move || {
-                dictation::run(
-                    app,
-                    segment_receiver,
-                    channels,
-                    rate,
-                    prompt,
-                    language,
-                    cancel,
-                )
-            });
+            .spawn(move || dictation::run(app, segment_receiver, channels, rate, cancel));
         match spawned {
             Ok(worker) => {
                 inner.recorder = Some(recorder);
@@ -204,7 +187,7 @@ impl VoiceService {
             return Ok(Arc::clone(transcriber));
         }
         let started = Instant::now();
-        let transcriber = Arc::new(Transcriber::load(&model_path(app)?)?);
+        let transcriber = Arc::new(Transcriber::load(&model_dir(app)?)?);
         if cfg!(debug_assertions) {
             eprintln!(
                 "voice: Sprachmodell geladen in {} ms",
@@ -222,7 +205,7 @@ impl VoiceService {
                 download.total_bytes,
             ));
         }
-        if is_model_ready(&model_path(app)?) {
+        if is_model_ready(&model_dir(app)?) {
             Ok(VoiceModelState::Ready)
         } else {
             Ok(VoiceModelState::Missing)
@@ -232,23 +215,23 @@ impl VoiceService {
     /// Startet den Download im Hintergrund und kehrt sofort zurück. Läuft schon einer oder liegt das
     /// Modell fertig da, passiert nichts.
     pub fn start_download(&self, app: &AppHandle) -> Result<(), CommandError> {
-        let path = model_path(app)?;
+        let dir = model_dir(app)?;
         let cancel = Arc::new(AtomicBool::new(false));
         {
             let mut inner = self.lock();
-            if inner.download.is_some() || is_model_ready(&path) {
+            if inner.download.is_some() || is_model_ready(&dir) {
                 return Ok(());
             }
             inner.download = Some(DownloadHandle {
                 cancel: Arc::clone(&cancel),
                 received_bytes: 0,
-                total_bytes: MODEL_BYTES,
+                total_bytes: total_bytes(),
             });
         }
         let worker_app = app.clone();
         let spawned = thread::Builder::new()
             .name("voice-download".to_owned())
-            .spawn(move || run_download(&worker_app, &path, &cancel));
+            .spawn(move || run_download(&worker_app, &dir, &cancel));
         if let Err(error) = spawned {
             self.lock().download = None;
             return Err(CommandError::VoiceDownload(format!(
@@ -293,11 +276,11 @@ impl Drop for TranscribingGuard<'_> {
     }
 }
 
-fn run_download(app: &AppHandle, path: &Path, cancel: &AtomicBool) {
+fn run_download(app: &AppHandle, dir: &Path, cancel: &AtomicBool) {
     let service = app.state::<VoiceService>();
-    emit_model(app, downloading_state(0, MODEL_BYTES), None);
+    emit_model(app, downloading_state(0, total_bytes()), None);
     let mut last_event = Instant::now();
-    let result = download(path, cancel, |received_bytes: u64, total_bytes: u64| {
+    let result = download(dir, cancel, |received_bytes: u64, total_bytes: u64| {
         service.set_progress(received_bytes, total_bytes);
         if last_event.elapsed() >= PROGRESS_EVENT_INTERVAL {
             last_event = Instant::now();

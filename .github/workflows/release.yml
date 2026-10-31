@@ -25,8 +25,9 @@ jobs:
           - os: macos-latest
             bundles: app,dmg
             optional: true
-          # Ältestes verfügbares Ubuntu: das AppImage läuft nur auf Systemen mit mindestens dieser glibc.
-          - os: ubuntu-22.04
+          # Die vorgebaute ONNX-Runtime (Diktieren über parakeet-rs) braucht glibc 2.38+ und linkt auf 22.04 nicht.
+          # Das AppImage läuft nur auf Systemen mit mindestens der glibc dieses Runners.
+          - os: ubuntu-24.04
             bundles: appimage,deb
             optional: true
     steps:
@@ -56,13 +57,11 @@ jobs:
           cargo_version=$(sed -n 's/^version = "\(.*\)"/\1/p' src-tauri/Cargo.toml | head -n 1)
           echo "Tag: $version | package.json: $package_version | tauri.conf.json: $tauri_version | Cargo.toml: $cargo_version"
           test "$package_version" = "$version" && test "$tauri_version" = "$version" && test "$cargo_version" = "$version" || { echo "Version im Tag und in den drei Dateien weichen ab - Tag löschen, Versionen angleichen, neu taggen"; exit 1; }
-      # .cargo/config.toml setzt MSVC-Flags für whisper.cpp; ein schon gesetzter Wert hat Vorrang vor [env].
-      - name: Compiler-Flags für whisper.cpp
-        if: runner.os != 'Windows'
+      # Die vorgebaute ONNX-Runtime ruft __isPlatformVersionAtLeast aus der Clang-Laufzeit auf; rustc linkt sie nicht von selbst.
+      - name: Clang-Laufzeit für ONNX-Runtime
+        if: runner.os == 'macOS'
         shell: bash
-        run: |
-          echo "CMAKE_C_FLAGS_RELEASE=-O3 -DNDEBUG" >> "$GITHUB_ENV"
-          echo "CMAKE_CXX_FLAGS_RELEASE=-O3 -DNDEBUG" >> "$GITHUB_ENV"
+        run: echo "RUSTFLAGS=-C link-arg=$(clang --print-resource-dir)/lib/darwin/libclang_rt.osx.a" >> "$GITHUB_ENV"
       - run: pnpm tauri build --bundles ${{ matrix.bundles }}
       # Die Namen `*-setup.exe` und `*_x64-portable.exe` liest die Update-Funktion des Verwalters
       # (ADR 041) — nicht ändern, ohne `app_update/releases.rs` anzupassen.

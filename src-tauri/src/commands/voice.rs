@@ -1,15 +1,8 @@
-use std::path::PathBuf;
-use std::sync::Arc;
-
 use tauri::Manager;
 
-use crate::db::Database;
 use crate::error::CommandError;
-use crate::sessions::registry::SessionRegistry;
-use crate::settings;
 use crate::voice::VoiceService;
 use crate::voice::model::VoiceModelState;
-use crate::worktrees::SessionRepository;
 
 // `async`, damit der Dateizugriff nicht auf dem Haupt-Thread läuft.
 
@@ -43,23 +36,8 @@ pub async fn voice_model_cancel_download(
 pub async fn voice_start(
     app: tauri::AppHandle,
     voice: tauri::State<'_, VoiceService>,
-    registry: tauri::State<'_, SessionRegistry>,
-    database: tauri::State<'_, Arc<Database>>,
-    session_id: Option<String>,
 ) -> Result<(), CommandError> {
-    // Je Diktat gelesen: eine geänderte Sprache gilt ab dem nächsten Diktat.
-    let language: Option<String> = settings::load(&database)?.voice_language;
-    // Eine unbekannte Session kostet nur den Wortschatz-Hinweis, nicht das Diktat.
-    let repository_names: Vec<String> = session_id
-        .and_then(|id: String| registry.repositories_of(&id).ok())
-        .map(|(_, repositories): (PathBuf, Vec<SessionRepository>)| {
-            repositories
-                .into_iter()
-                .map(|repository: SessionRepository| repository.name)
-                .collect()
-        })
-        .unwrap_or_default();
-    voice.start(app, repository_names, language)
+    voice.start(app)
 }
 
 /// Kehrt erst zurück, wenn auch der letzte Abschnitt erkannt ist; liefert den gesamten Text.

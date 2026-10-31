@@ -1,0 +1,754 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="claude:viewport-fit-sides" content="cover">
+<title>Rückfrage-Kasten</title>
+<style>
+/* Layout: eine Lesespalte. Oben der Befund, in der Mitte der klickbare Entwurf in einem nachgebauten Chat, unten die Bausteine mit Aufwand.
+   Farben, Schrift und Abstände sind die semantischen Tokens der App (src/styles/theme.css), hell und dunkel. */
+:root {
+  --bg-page: #f8f8f8;
+  --bg-base: #ffffff;
+  --bg-surface: #ffffff;
+  --bg-hover: #f0f0f0;
+  --border-subtle: #e5e5e5;
+  --border: #cecece;
+  --fg: #3c3c3c;
+  --fg-2: #555555;
+  --fg-muted: #6e6e6e;
+  --accent: #c4572f;
+  --on-accent: #ffffff;
+  --accent-subtle: color-mix(in srgb, #c4572f 10%, transparent);
+  --accent-text: #a8461f;
+  --waiting: #a86a00;
+  --done: #16803c;
+  --font-sans: 'Segoe UI Variable Text', 'Segoe UI', system-ui, -apple-system, sans-serif;
+  --font-mono: 'Cascadia Code', 'Cascadia Mono', Consolas, ui-monospace, monospace;
+  --fs-2xs: 11px; --fs-xs: 12px; --fs-sm: 12.5px; --fs-md: 13px; --fs-lg: 13.5px;
+  --r-sm: 4px; --r-md: 6px; --r-lg: 8px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg-page: #181818; --bg-base: #1f1f1f; --bg-surface: #252526; --bg-hover: #2e2e30;
+    --border-subtle: #2b2b2b; --border: #3c3c3c;
+    --fg: #d4d4d4; --fg-2: #b0b0b0; --fg-muted: #8f8f8f;
+    --accent: #e0825c; --on-accent: #1d130e; --accent-subtle: color-mix(in srgb, #e0825c 16%, transparent); --accent-text: #eea283;
+    --waiting: #f2b33d; --done: #4cc38a;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg-page: #181818; --bg-base: #1f1f1f; --bg-surface: #252526; --bg-hover: #2e2e30;
+  --border-subtle: #2b2b2b; --border: #3c3c3c;
+  --fg: #d4d4d4; --fg-2: #b0b0b0; --fg-muted: #8f8f8f;
+  --accent: #e0825c; --on-accent: #1d130e; --accent-subtle: color-mix(in srgb, #e0825c 16%, transparent); --accent-text: #eea283;
+  --waiting: #f2b33d; --done: #4cc38a;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--bg-page);
+  color: var(--fg);
+  font-family: var(--font-sans);
+  font-size: var(--fs-md);
+  line-height: 1.5;
+}
+.page {
+  max-width: 920px;
+  margin: 0 auto;
+  padding-block: 32px 64px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  display: flex;
+  flex-direction: column;
+  gap: 40px;
+}
+.intro { display: flex; flex-direction: column; gap: 6px; max-width: 68ch; }
+.eyebrow { margin: 0; color: var(--fg-muted); font-size: var(--fs-xs); letter-spacing: 0.02em; }
+h1 { margin: 0; font-size: 24px; font-weight: 650; letter-spacing: -0.01em; text-wrap: balance; }
+h2 { margin: 0; font-size: 16px; font-weight: 600; text-wrap: balance; }
+.lede { margin: 0; color: var(--fg-2); font-size: var(--fs-lg); }
+section.block { display: flex; flex-direction: column; gap: 14px; }
+.block > p { margin: 0; color: var(--fg-2); max-width: 70ch; }
+
+/* Befund */
+.findings { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: 1fr; gap: 10px 28px; }
+@media (min-width: 760px) { .findings { grid-template-columns: 1fr 1fr; } }
+.findings li { display: grid; grid-template-columns: 8px 1fr; gap: 10px; align-items: baseline; color: var(--fg-2); min-width: 0; }
+.findings li::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--waiting); transform: translateY(-1px); }
+.findings b { color: var(--fg); font-weight: 600; }
+
+/* Steuerung des Entwurfs */
+.controls { display: flex; flex-wrap: wrap; gap: 10px 20px; align-items: center; }
+.seg-label { color: var(--fg-muted); font-size: var(--fs-xs); margin-right: 6px; }
+.seg { display: inline-flex; padding: 2px; border: 1px solid var(--border); border-radius: var(--r-md); background: var(--bg-base); }
+.seg button {
+  height: 26px; padding: 0 10px; border: 0; border-radius: var(--r-sm); background: transparent;
+  color: var(--fg-2); font: inherit; font-size: var(--fs-xs); cursor: pointer;
+}
+.seg button:hover { background: var(--bg-hover); }
+.seg button[aria-pressed="true"] { background: var(--accent-subtle); color: var(--accent-text); font-weight: 600; }
+.seg button:focus-visible, button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.variant-note { margin: 0; color: var(--fg-2); font-size: var(--fs-sm); max-width: 72ch; min-height: 1.5em; }
+
+/* Nachgebauter Chat */
+.chat {
+  display: flex; flex-direction: column; gap: 14px;
+  padding: 18px; border: 1px solid var(--border-subtle); border-radius: var(--r-lg); background: var(--bg-base);
+  min-width: 0;
+}
+.chat__msg { margin: 0; max-width: 72ch; color: var(--fg); }
+.composer {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--r-lg); background: var(--bg-surface);
+  color: var(--fg-muted); font-size: var(--fs-sm);
+}
+.composer kbd { font-family: var(--font-mono); font-size: var(--fs-2xs); }
+.caption { margin: 0; color: var(--fg-muted); font-size: var(--fs-xs); }
+
+/* ---------- Vorschlag: Rückfrage-Kasten ---------- */
+.qb {
+  max-width: 760px; display: flex; flex-direction: column; gap: 12px;
+  padding: 12px; border: 1px solid var(--waiting); border-radius: var(--r-lg); background: var(--bg-surface);
+  min-width: 0;
+}
+.qb--done { border-color: var(--border); gap: 10px; }
+.qb__head { display: flex; align-items: center; gap: 8px; color: var(--waiting); font-size: var(--fs-xs); font-weight: 600; }
+.qb__head--done { color: var(--fg-muted); }
+.qb__head svg { flex-shrink: 0; }
+.qb__count { margin-left: auto; color: var(--fg-muted); font-weight: 400; font-variant-numeric: tabular-nums; }
+.qb__body { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+
+.q { display: flex; flex-direction: column; gap: 8px; padding: 10px 0 4px; border-top: 1px solid var(--border-subtle); min-width: 0; }
+.q:first-child { border-top: 0; padding-top: 0; }
+.q__head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.q__meta { color: var(--fg-muted); font-size: var(--fs-xs); font-variant-numeric: tabular-nums; }
+.q__keys { margin-left: auto; color: var(--accent-text); font-size: var(--fs-2xs); font-weight: 600; letter-spacing: 0.02em; }
+.q__text { margin: 0; max-width: 72ch; font-size: var(--fs-lg); font-weight: 500; color: var(--fg-2); overflow-wrap: anywhere; }
+.q--active .q__text { color: var(--fg); }
+
+.chip {
+  display: inline-flex; align-items: center; height: 20px; padding: 0 8px; flex-shrink: 0;
+  border-radius: 999px; background: var(--bg-hover); color: var(--fg-2);
+  font-size: var(--fs-2xs); font-weight: 600; letter-spacing: 0.02em; white-space: nowrap;
+}
+.q--active .chip { background: var(--accent-subtle); color: var(--accent-text); }
+
+.opts { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.opt-wrap { display: flex; flex-direction: column; gap: 6px; }
+.opt-row { display: flex; gap: 6px; align-items: stretch; }
+.opt {
+  flex: 1; min-width: 0;
+  display: grid; grid-template-columns: 16px minmax(0, 1fr) auto; align-items: start; gap: 10px;
+  padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--r-md); background: var(--bg-base);
+  color: var(--fg); font: inherit; text-align: left; cursor: pointer;
+  transition: background-color 100ms, border-color 100ms;
+}
+.opt:hover:not(:disabled) { background: var(--bg-hover); }
+.opt.is-sel { border-color: var(--accent); background: var(--accent-subtle); }
+.opt:disabled { cursor: default; color: var(--fg-2); }
+.opt:disabled.is-sel { color: var(--fg); }
+.opt__text { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.opt__name { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-weight: 500; }
+.opt__hint { max-width: 72ch; color: var(--fg-muted); font-size: var(--fs-xs); }
+.badge {
+  display: inline-flex; align-items: center; height: 17px; padding: 0 6px; border-radius: var(--r-sm);
+  border: 1px solid color-mix(in srgb, var(--done) 45%, transparent); color: var(--done);
+  font-size: 10.5px; font-weight: 600; letter-spacing: 0.03em;
+}
+.key {
+  align-self: center; min-width: 20px; padding: 0 5px; border: 1px solid var(--border); border-radius: var(--r-sm);
+  color: var(--fg-muted); font-family: var(--font-mono); font-size: var(--fs-2xs); line-height: 18px; text-align: center;
+}
+.opt.is-sel .key { border-color: var(--accent); color: var(--accent-text); }
+
+.mark { width: 16px; height: 16px; margin-top: 2px; border: 1.5px solid var(--fg-muted); background: var(--bg-base); position: relative; }
+.mark--radio { border-radius: 50%; }
+.mark--check { border-radius: 4px; }
+.opt.is-sel .mark { border-color: var(--accent); }
+.opt.is-sel .mark--radio::after { content: ""; position: absolute; inset: 3px; border-radius: 50%; background: var(--accent); }
+.opt.is-sel .mark--check { background: var(--accent); }
+.opt.is-sel .mark--check::after {
+  content: ""; position: absolute; left: 4.5px; top: 1px; width: 4px; height: 8px;
+  border: solid var(--on-accent); border-width: 0 2px 2px 0; transform: rotate(45deg);
+}
+
+.note-btn {
+  width: 34px; flex-shrink: 0; display: grid; place-items: center;
+  border: 1px solid var(--border); border-radius: var(--r-md); background: var(--bg-base); color: var(--fg-muted);
+  cursor: pointer; opacity: 0.6; transition: opacity 100ms, background-color 100ms;
+}
+.opt-row:hover .note-btn, .note-btn:focus-visible, .note-btn.is-open { opacity: 1; }
+.note-btn:hover { background: var(--bg-hover); color: var(--fg); }
+.note-btn.is-open { border-color: var(--accent); color: var(--accent-text); }
+
+.note-input {
+  width: calc(100% - 40px); margin-left: 26px; height: 30px; padding: 0 10px;
+  border: 1px solid var(--border); border-radius: var(--r-md); background: var(--bg-base); color: var(--fg);
+  font: inherit; font-size: var(--fs-xs);
+}
+.note-input::placeholder { color: var(--fg-muted); }
+.opt--custom {
+  display: flex; align-items: center; gap: 10px; color: var(--fg-muted); border-style: dashed; background: transparent;
+}
+.opt--custom svg { flex-shrink: 0; }
+.custom { display: flex; gap: 8px; align-items: center; }
+.custom .note-input { margin-left: 0; width: auto; flex: 1; min-width: 0; }
+
+.link {
+  align-self: flex-start; padding: 0; border: 0; background: transparent; color: var(--accent-text);
+  font: inherit; font-size: var(--fs-xs); cursor: pointer;
+}
+.link:hover { text-decoration: underline; }
+
+/* Ziehharmonika: zugeklappte Frage */
+.q-row {
+  display: grid; grid-template-columns: 16px auto minmax(0, 1fr) auto; align-items: center; gap: 10px;
+  width: 100%; padding: 8px 10px; border: 1px solid var(--border-subtle); border-radius: var(--r-md);
+  background: transparent; color: var(--fg-muted); font: inherit; font-size: var(--fs-sm); text-align: left; cursor: pointer;
+}
+.q-row:hover { background: var(--bg-hover); }
+.q-row.is-done { color: var(--fg); }
+.q-row__icon { display: grid; place-items: center; color: var(--fg-muted); }
+.q-row.is-done .q-row__icon { color: var(--done); }
+.q-row__text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.q-row__act { color: var(--accent-text); font-size: var(--fs-xs); }
+
+/* Reiter */
+.tabs { display: flex; flex-wrap: wrap; gap: 6px; padding-bottom: 4px; }
+.tab {
+  display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px;
+  border: 1px solid var(--border); border-radius: 999px; background: var(--bg-base);
+  color: var(--fg-2); font: inherit; font-size: var(--fs-xs); cursor: pointer;
+}
+.tab:hover { background: var(--bg-hover); }
+.tab.is-active { border-color: var(--accent); background: var(--accent-subtle); color: var(--accent-text); font-weight: 600; }
+.tab.is-done svg { color: var(--done); }
+.tab__n { font-family: var(--font-mono); font-size: var(--fs-2xs); color: var(--fg-muted); }
+
+/* Fuß */
+.qb__foot { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; padding-top: 10px; border-top: 1px solid var(--border-subtle); }
+.progress { display: inline-flex; align-items: center; gap: 8px; color: var(--fg-2); font-size: var(--fs-xs); font-variant-numeric: tabular-nums; }
+.dots { display: inline-flex; gap: 4px; }
+.dot { width: 7px; height: 7px; border-radius: 50%; border: 1.5px solid var(--fg-muted); }
+.dot.is-done { border-color: var(--accent); background: var(--accent); }
+.qb__hint { color: var(--fg-muted); font-size: var(--fs-xs); margin-left: auto; }
+.submit {
+  height: 28px; padding: 0 14px; border: 0; border-radius: var(--r-md); background: var(--accent); color: var(--on-accent);
+  font: inherit; font-size: var(--fs-xs); font-weight: 600; cursor: pointer;
+}
+.submit:disabled { opacity: 0.45; cursor: default; }
+
+/* Beantwortet, kompakt */
+.ans-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.ans { display: grid; grid-template-columns: 92px minmax(0, 1fr); gap: 10px; align-items: start; }
+.ans .chip { justify-self: start; }
+.ans__body { display: flex; flex-direction: column; min-width: 0; }
+.ans__q { color: var(--fg-muted); font-size: var(--fs-xs); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ans__a { color: var(--fg); font-size: var(--fs-sm); overflow-wrap: anywhere; }
+.ans__a b { font-weight: 600; }
+.ans__note { color: var(--fg-2); }
+
+/* ---------- Heute: Nachbau des Bestands ---------- */
+.tb { display: flex; flex-direction: column; gap: 10px; padding: 12px; border: 1px solid var(--waiting); border-radius: var(--r-lg); background: var(--bg-surface); min-width: 0; }
+.tb--done { border-color: var(--border); }
+.t-q { display: flex; flex-direction: column; gap: 10px; }
+.t-q__text { margin: 0; font-size: var(--fs-lg); font-weight: 500; overflow-wrap: anywhere; }
+.t-opts { display: flex; flex-direction: column; gap: 6px; }
+.t-opt {
+  display: flex; align-items: center; gap: 10px; padding: 9px 12px; border: 1px solid var(--border); border-radius: var(--r-md);
+  background: var(--bg-base); color: var(--fg); font: inherit; text-align: left; cursor: pointer; min-width: 0;
+}
+.t-opt:hover:not(:disabled) { background: var(--bg-hover); }
+.t-opt.is-sel { border-color: var(--accent); }
+.t-opt:disabled { cursor: default; color: var(--fg-2); }
+.t-opt:disabled.is-sel { background: var(--accent-subtle); color: var(--fg); }
+.t-key { flex-shrink: 0; width: 18px; height: 18px; border-radius: var(--r-sm); background: var(--bg-hover); color: var(--fg-2); font-size: var(--fs-2xs); line-height: 18px; text-align: center; }
+.t-label { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.t-name { font-weight: 500; }
+.t-hint { color: var(--fg-muted); font-size: var(--fs-xs); }
+.t-foot { color: var(--fg-muted); font-size: var(--fs-xs); overflow-wrap: anywhere; }
+.t-submit-row { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+
+/* Bausteine */
+.table-wrap { overflow-x: auto; border: 1px solid var(--border-subtle); border-radius: var(--r-lg); background: var(--bg-base); }
+table { width: 100%; min-width: 680px; border-collapse: collapse; font-size: var(--fs-sm); }
+th, td { padding: 9px 12px; text-align: left; vertical-align: top; border-top: 1px solid var(--border-subtle); }
+thead th { border-top: 0; color: var(--fg-muted); font-size: var(--fs-xs); font-weight: 600; letter-spacing: 0.02em; background: var(--bg-surface); }
+td:first-child { font-weight: 600; white-space: nowrap; color: var(--fg); }
+td { color: var(--fg-2); }
+.pill { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; font-size: var(--fs-xs); color: var(--fg); }
+.pill::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--fg-muted); }
+.pill--klein::before { background: var(--done); }
+.pill--mittel::before { background: var(--waiting); }
+.pill--gross::before { background: var(--accent); }
+.yes { color: var(--done); font-weight: 600; white-space: nowrap; }
+.opt-tag { color: var(--fg-muted); white-space: nowrap; }
+
+.recommend { display: flex; flex-direction: column; gap: 8px; padding: 14px 16px; border: 1px solid var(--border); border-radius: var(--r-lg); background: var(--bg-surface); max-width: 760px; }
+.recommend p { margin: 0; color: var(--fg-2); }
+.recommend b { color: var(--fg); }
+
+@media (max-width: 520px) {
+  .ans { grid-template-columns: 1fr; gap: 2px; }
+  .q__keys { margin-left: 0; }
+  .note-input { width: 100%; margin-left: 0; }
+}
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body>
+<main class="page">
+  <header class="intro">
+    <p class="eyebrow">Agenten Verwalter 2000 · Entwurf zum Plan „Rückfrage-Kasten“ · Variante Ziehharmonika freigegeben am 30.10.2026</p>
+    <h1>Rückfrage-Kasten</h1>
+    <p class="lede">Vorschläge, wie die Rückfragen des Agenten im Chat lesbarer und sicherer zu bedienen werden. Der Entwurf ist klickbar und nutzt die Farben und Abstände der App. Inhalt ist die Rückfrage aus deinem Screenshot.</p>
+  </header>
+
+  <section class="block" aria-labelledby="h-befund">
+    <h2 id="h-befund">Was heute hakt</h2>
+    <ul class="findings">
+      <li><span><b>Eine Wand.</b> Vier Fragen stehen ohne Trennung untereinander. Wie viele schon beantwortet sind, sieht man nicht.</span></li>
+      <li><span><b>Zu lange Zeilen.</b> Die Erklärungen laufen über die volle Fensterbreite. Eine Zeile aus dem Screenshot hat über 200 Zeichen.</span></li>
+      <li><span><b>Wahl kaum sichtbar.</b> Gewählt erkennt man nur am Rahmen. Ob eine Frage mehrere Antworten erlaubt, zeigt der Kasten nicht.</span></li>
+      <li><span><b>Ein Fehlklick sendet.</b> Ohne Mehrfachauswahl schickt der letzte fehlende Klick sofort ab, auch bei vier Fragen.</span></li>
+      <li><span><b>Ziffern ohne Ziel.</b> Jede Frage zeigt 1–3. Welche Frage eine Zifferntaste trifft, verrät der Kasten nicht.</span></li>
+      <li><span><b>Freitext trifft alles.</b> Ein Text im Eingabefeld beantwortet alle Fragen mit demselben Text.</span></li>
+      <li><span><b>Kurzname und Vorschau fehlen.</b> Claude schickt je Frage einen Kurznamen und je Option eine Vorschau mit. Beides geht beim Einlesen verloren.</span></li>
+      <li><span><b>Beantwortet bleibt groß.</b> Der fertige Kasten steht in voller Höhe im Verlauf. „(Recommended)“ erscheint als Rohtext im Namen der Option.</span></li>
+    </ul>
+  </section>
+
+  <section class="block" aria-labelledby="h-entwurf">
+    <h2 id="h-entwurf">Entwurf zum Ausprobieren</h2>
+    <div class="controls">
+      <div><span class="seg-label">Variante</span>
+        <span class="seg" role="group" aria-label="Variante">
+          <button type="button" data-seg="variant" data-val="heute">Heute</button>
+          <button type="button" data-seg="variant" data-val="liste">Liste</button>
+          <button type="button" data-seg="variant" data-val="harmonika">Ziehharmonika</button>
+          <button type="button" data-seg="variant" data-val="reiter">Reiter</button>
+        </span>
+      </div>
+      <div><span class="seg-label">Zustand</span>
+        <span class="seg" role="group" aria-label="Zustand">
+          <button type="button" data-seg="phase" data-val="open">Offen</button>
+          <button type="button" data-seg="phase" data-val="answered">Beantwortet</button>
+        </span>
+      </div>
+    </div>
+    <p class="variant-note" id="variant-note"></p>
+    <div class="chat">
+      <p class="chat__msg">Die ersten drei Punkte sind geklärt. Für die Migration auf JetPack 7 brauche ich noch vier Entscheidungen von dir.</p>
+      <div id="mock"></div>
+      <div class="composer"><span>Nachricht an Claude …</span><span><kbd>1</kbd>–<kbd>3</kbd> wählen · <kbd>Enter</kbd> sendet</span></div>
+    </div>
+    <p class="caption">Ziffern, ✎ und „Eigene Antwort“ funktionieren. Frage 4 ist im Screenshot abgeschnitten: Ihre Optionen sind Beispiele, um die Mehrfachauswahl zu zeigen.</p>
+  </section>
+
+  <section class="block" aria-labelledby="h-bausteine">
+    <h2 id="h-bausteine">Bausteine</h2>
+    <p>Jeder Baustein lässt sich einzeln in den Plan nehmen. „Core“ heißt: der Rust-Teil muss mehr von Claudes Rückfrage einlesen als heute.</p>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Baustein</th><th>Was es bringt</th><th>Aufwand</th><th>Schicht</th><th>Empfehlung</th></tr></thead>
+        <tbody>
+          <tr><td>Auswahl-Marker</td><td>Kreis für eine Antwort, Kästchen für mehrere. Gewählt ist gefüllt, nicht nur umrandet.</td><td><span class="pill pill--klein">klein</span></td><td>Oberfläche</td><td><span class="yes">drin</span></td></tr>
+          <tr><td>Lesebreite</td><td>Kasten höchstens 760 px breit, Erklärungen brechen nach etwa 72 Zeichen um.</td><td><span class="pill pill--klein">klein</span></td><td>Oberfläche</td><td><span class="yes">drin</span></td></tr>
+          <tr><td>Kopf je Frage</td><td>Kurzname als Plakette und „Frage 2 von 4“, bei Mehrfachauswahl „mehrere möglich“. Ältere Verläufe ohne Kurzname zeigen „Frage 2“.</td><td><span class="pill pill--mittel">mittel</span></td><td>Core + Oberfläche</td><td><span class="yes">drin</span></td></tr>
+          <tr><td>Aktive Frage</td><td>Ziffern stehen nur an der Frage, auf die die Tasten wirken. Nach einer Wahl wandert die Markierung zur nächsten offenen Frage.</td><td><span class="pill pill--klein">klein</span></td><td>Oberfläche</td><td><span class="yes">drin</span></td></tr>
+          <tr><td>Senden mit Absicht</td><td>Ab zwei Fragen sendet nur „Antworten“ oder Enter. Fortschritt „2 von 4 beantwortet“. Eine einzelne Frage mit einer Antwort sendet weiter beim Klick.</td><td><span class="pill pill--klein">klein</span></td><td>Oberfläche</td><td><span class="yes">drin</span></td></tr>
+          <tr><td>„Empfohlen“</td><td>„(Recommended)“ oder „(Empfohlen)“ am Ende des Namens wird zur Plakette.</td><td><span class="pill pill--klein">klein</span></td><td>Oberfläche</td><td><span class="yes">drin</span></td></tr>
+          <tr><td>Eigene Antwort je Frage</td><td>Letzte Zeile jeder Frage öffnet ein Feld. Freitext gilt dann nur für diese Frage. Das Eingabefeld unten beantwortet weiter alles.</td><td><span class="pill pill--mittel">mittel</span></td><td>Oberfläche</td><td><span class="yes">drin</span></td></tr>
+          <tr><td>Notiz je Option</td><td>✎ neben jeder Option, wie bereits geplant.</td><td><span class="pill pill--mittel">geplant</span></td><td>Oberfläche</td><td><span class="yes">drin</span></td></tr>
+          <tr><td>Ziehharmonika</td><td>Beantwortete Fragen klappen auf eine Zeile mit der Antwort zusammen, die nächste offene geht auf.</td><td><span class="pill pill--mittel">mittel</span></td><td>Oberfläche</td><td><span class="yes">drin</span></td></tr>
+          <tr><td>Kompakt beantwortet</td><td>Im Verlauf eine Zeile je Frage: Kurzname, Antwort, Notiz. „Ganze Rückfrage zeigen“ klappt auf.</td><td><span class="pill pill--klein">klein</span></td><td>Oberfläche</td><td><span class="yes">drin</span></td></tr>
+          <tr><td>Hinweis am Eingabefeld</td><td>Ist der Kasten aus dem Bild gescrollt, steht über dem Eingabefeld „Claude wartet auf deine Entscheidung“. Ein Klick springt hin.</td><td><span class="pill pill--mittel">mittel</span></td><td>Oberfläche</td><td><span class="opt-tag">optional</span></td></tr>
+          <tr><td>Vorschau je Option</td><td>Claudes Vorschau (Code, Skizze) neben den Optionen zeigen, sobald man eine Option ansteuert.</td><td><span class="pill pill--gross">groß</span></td><td>Core + Oberfläche</td><td><span class="opt-tag">später</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="block" aria-labelledby="h-empfehlung">
+    <h2 id="h-empfehlung">Empfehlung</h2>
+    <div class="recommend">
+      <p><b>Ziehharmonika mit allen Bausteinen, die oben „drin“ tragen.</b> Sie löst die Wand, ohne den Überblick zu verstecken. Jede beantwortete Frage bleibt als Zeile mit Antwort sichtbar und ist mit einem Klick wieder offen.</p>
+      <p>Die <b>Liste</b> ist der kleinste Schritt, bleibt bei vier Fragen aber lang. <b>Reiter</b> sind am kompaktesten, zeigen die anderen Antworten aber nur als Haken.</p>
+      <p>Der Hinweis am Eingabefeld ist ein eigener kleiner Schritt. Die Vorschau braucht mehr Arbeit im Core und gehört in einen späteren Plan.</p>
+    </div>
+  </section>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  const RAW = [
+    {
+      header: 'Migration',
+      question: 'Punkt 4 von 4, Migration JetPack 6 → 7: Wie kommen die Bestandsgeräte rüber? Ein Update per apt geht nicht (Bootloader lässt sich auf Seeed-Boards nicht per apt erneuern); es braucht einen Neuflash.',
+      options: [
+        { label: 'Gerätetausch', hint: 'Neues Gerät mit JetPack 7 wird im Labor/an der Station vorbereitet, verschickt und vor Ort getauscht, mit Datenübernahme wie beim Cutover. Rückweg: altes Gerät wieder anschließen. Kostet ein Gerät je Standort als Umlauf.' },
+        { label: 'Neuflash vor Ort', hint: 'Daten sichern, Gerät am Standort per USB neu flashen, Daten zurückspielen. Braucht Techniker mit Rechner vor Ort; Rückweg nur über erneuten Flash.' },
+        { label: 'Image-OTA prüfen', hint: 'Erst eine Machbarkeitsphase für NVIDIAs Image-OTA von L4T 36 auf 39 auf dem J401. Kein Besuch vor Ort, aber ungeprüft und riskant (Seeed-Boards, Bootloader).' },
+      ],
+    },
+    {
+      header: 'Parallel',
+      question: 'Wie lange läuft die App parallel für JetPack 6 und 7?',
+      options: [
+        { label: 'Zwei Images bis Migrationsende (Recommended)', hint: 'CI baut je Release ein JetPack-6-Image (Python 3.10, cu126) und ein JetPack-7-Image (3.12, cu130); das Fleet-Overlay je Standort wählt das passende.' },
+        { label: 'Ein Image für beide', hint: 'Versuchen, ein Image zu bauen, das auf beiden JetPacks läuft (z. B. Python 3.12 auf JP6). Ungeklärt, ob onnxruntime-gpu für cu126 + cp312 existiert.' },
+        { label: 'Release-Stopp für JP6', hint: 'JetPack-6-Standorte bekommen ab Migrationsstart nur noch Fixes auf einem eingefrorenen Stand.' },
+      ],
+    },
+    {
+      header: 'Wheels',
+      question: 'Wer migriert die App und die Plattform-Wheels (collectivemind) auf Python 3.12?',
+      options: [
+        { label: 'Wir im GymID-Team', hint: 'App und Wheels-Bau liegen bei uns.' },
+        { label: 'Plattform-Team baut Wheels', hint: 'collectivemind/collectivemind_server für cp312/aarch64 kommen vom Plattform-Team, wir migrieren die App.' },
+        { label: 'Noch klären', hint: 'Zuständigkeit für die Wheels ist offen und wird erst geklärt.' },
+      ],
+    },
+    {
+      header: 'Einstieg',
+      question: 'Wo steigen wir ein?',
+      multi: true,
+      options: [
+        { label: 'Labor zuerst', hint: 'Ein J401 im Labor komplett migrieren, bevor ein Standort drankommt.' },
+        { label: 'Pilot-Standort', hint: 'Ein Standort mit kurzer Anfahrt zuerst; dort wird auch der Rückweg geübt.' },
+        { label: 'Wheels zuerst', hint: 'collectivemind für cp312 bauen lassen, bevor die App migriert wird.' },
+      ],
+    },
+  ];
+
+  const REC = /\s*\((Recommended|Empfohlen)\)\s*$/i;
+  const Q = RAW.map((q) => ({
+    header: q.header,
+    question: q.question,
+    multi: q.multi === true,
+    options: q.options.map((o) => ({ label: o.label.replace(REC, ''), raw: o.label, hint: o.hint, rec: REC.test(o.label) })),
+  }));
+
+  const NOTES = {
+    heute: 'So sieht der Kasten heute aus. Alle Fragen offen, Ziffern an jeder Frage, Freitext nur über das Eingabefeld.',
+    liste: 'Alle Fragen bleiben offen. Ziffern wirken auf die markierte Frage, nach einer Wahl springt die Markierung weiter. Bei vier Fragen bleibt der Kasten lang.',
+    harmonika: 'Empfohlen. Beantwortete Fragen klappen auf eine Zeile mit der Antwort zusammen, die nächste offene Frage geht auf. Ein Klick auf eine Zeile öffnet sie wieder.',
+    reiter: 'Eine Frage pro Ansicht, oben Reiter mit Kurznamen. Kompakt, aber die anderen Antworten sieht man nur als Haken.',
+  };
+
+  const ICON = {
+    wait: '<svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><circle cx="6" cy="6" r="4.4" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="6" cy="6" r="1.6" fill="currentColor"/></svg>',
+    check: '<svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="M2.4 6.3 4.9 8.7 9.6 3.6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+    circle: '<svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><circle cx="6" cy="6" r="4.3" fill="none" stroke="currentColor" stroke-width="1.4"/></svg>',
+    pen: '<svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><path d="M9.6 2.2 11.8 4.4 5.1 11.1 2.4 11.6 2.9 8.9Z" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/><path d="M8.3 3.5 10.5 5.7" stroke="currentColor" stroke-width="1.3"/></svg>',
+    plus: '<svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3.5v9M3.5 8h9" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" fill="none"/></svg>',
+  };
+
+  const state = {
+    variant: 'harmonika',
+    phase: 'open',
+    showFull: false,
+    active: 2,
+    picks: [['Gerätetausch'], ['Zwei Images bis Migrationsende'], [], []],
+    notes: [{ 'Gerätetausch': 'erst nach dem Labortest im Dezember' }, {}, {}, {}],
+    custom: [null, null, null, null],
+    focus: null,
+  };
+
+  const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const done = (i) => state.picks[i].length > 0 || (state.custom[i] ?? '').trim() !== '';
+  const doneCount = () => Q.filter((_, i) => done(i)).length;
+  const complete = () => doneCount() === Q.length;
+
+  function nextOpen(from) {
+    for (let k = 1; k <= Q.length; k++) {
+      const i = (from + k) % Q.length;
+      if (!done(i)) return i;
+    }
+    return -1;
+  }
+
+  function answerText(i) {
+    const parts = state.picks[i].map((label) => {
+      const note = (state.notes[i][label] ?? '').trim();
+      return note ? `${label} (Notiz: ${note})` : label;
+    });
+    const custom = (state.custom[i] ?? '').trim();
+    if (custom) parts.push(custom);
+    return parts.join(', ');
+  }
+
+  function answerHtml(i) {
+    const parts = state.picks[i].map((label) => {
+      const note = (state.notes[i][label] ?? '').trim();
+      return `<b>${esc(label)}</b>${note ? ` <span class="ans__note">· Notiz: ${esc(note)}</span>` : ''}`;
+    });
+    const custom = (state.custom[i] ?? '').trim();
+    if (custom) parts.push(`„${esc(custom)}“`);
+    return parts.length ? parts.join(', ') : '—';
+  }
+
+  /* ---------- Bausteine des Kastens ---------- */
+
+  function boxHead(answered) {
+    return `<div class="qb__head${answered ? ' qb__head--done' : ''}">${answered ? ICON.check : ICON.wait}<span>${answered ? 'Claude hat gefragt' : 'Claude wartet auf deine Entscheidung'}</span><span class="qb__count">${Q.length} Fragen</span></div>`;
+  }
+
+  function qHead(i, locked) {
+    const q = Q[i];
+    const active = !locked && i === state.active;
+    return `<div class="q__head"><span class="chip">${esc(q.header)}</span><span class="q__meta">Frage ${i + 1} von ${Q.length}${q.multi ? ' · mehrere möglich' : ''}</span>${active ? `<span class="q__keys">Tasten 1–${q.options.length}</span>` : ''}</div><p class="q__text">${esc(q.question)}</p>`;
+  }
+
+  function qBody(i, locked) {
+    const q = Q[i];
+    const active = !locked && i === state.active;
+    const options = q.options.map((o, j) => {
+      const sel = state.picks[i].includes(o.label);
+      const noteOpen = Object.prototype.hasOwnProperty.call(state.notes[i], o.label);
+      const role = q.multi ? 'checkbox' : 'radio';
+      const noteBtn = locked ? '' : `<button type="button" class="note-btn${noteOpen ? ' is-open' : ''}" data-act="note" data-q="${i}" data-l="${esc(o.label)}" title="Notiz zu „${esc(o.label)}“" aria-label="Notiz zu „${esc(o.label)}“" aria-expanded="${noteOpen}">${ICON.pen}</button>`;
+      const noteField = noteOpen && !locked
+        ? `<input id="note-${i}-${j}" class="note-input" type="text" maxlength="500" placeholder="Notiz für Claude …  Enter sendet · Esc schließt" aria-label="Notiz zu „${esc(o.label)}“" data-act="note-input" data-q="${i}" data-l="${esc(o.label)}" data-focus="note:${i}:${esc(o.label)}" value="${esc(state.notes[i][o.label])}">`
+        : '';
+      return `<div class="opt-wrap"><div class="opt-row"><button type="button" class="opt${sel ? ' is-sel' : ''}" role="${role}" aria-checked="${sel}" data-act="pick" data-q="${i}" data-l="${esc(o.label)}"${locked ? ' disabled' : ''}><span class="mark mark--${q.multi ? 'check' : 'radio'}" aria-hidden="true"></span><span class="opt__text"><span class="opt__name">${esc(o.label)}${o.rec ? '<span class="badge">Empfohlen</span>' : ''}</span><span class="opt__hint">${esc(o.hint)}</span></span>${active ? `<kbd class="key">${j + 1}</kbd>` : ''}</button>${noteBtn}</div>${noteField}</div>`;
+    }).join('');
+    let custom = '';
+    if (!locked) {
+      custom = state.custom[i] === null
+        ? `<button type="button" class="opt opt--custom" data-act="custom" data-q="${i}">${ICON.plus}<span>Eigene Antwort …</span></button>`
+        : `<div class="custom"><input id="custom-${i}" class="note-input" type="text" maxlength="2000" placeholder="Eigene Antwort auf diese Frage …" aria-label="Eigene Antwort auf „${esc(q.header)}“" data-act="custom-input" data-q="${i}" data-focus="custom:${i}:" value="${esc(state.custom[i])}"><button type="button" class="link" data-act="custom" data-q="${i}">Verwerfen</button></div>`;
+    }
+    return `<div class="opts" role="${q.multi ? 'group' : 'radiogroup'}" aria-label="${esc(q.header)}">${options}${custom}</div>`;
+  }
+
+  function qSection(i, locked) {
+    const active = !locked && i === state.active;
+    return `<section class="q${active ? ' q--active' : ''}">${qHead(i, locked)}${qBody(i, locked)}</section>`;
+  }
+
+  function qRow(i) {
+    const d = done(i);
+    return `<button type="button" class="q-row${d ? ' is-done' : ''}" data-act="open" data-q="${i}"><span class="q-row__icon">${d ? ICON.check : ICON.circle}</span><span class="chip">${esc(Q[i].header)}</span><span class="q-row__text">${esc(d ? answerText(i) : Q[i].question)}</span><span class="q-row__act">${d ? 'ändern' : 'öffnen'}</span></button>`;
+  }
+
+  function tabs() {
+    return `<div class="tabs" role="tablist" aria-label="Fragen">${Q.map((q, i) => `<button type="button" role="tab" aria-selected="${i === state.active}" class="tab${i === state.active ? ' is-active' : ''}${done(i) ? ' is-done' : ''}" data-act="open" data-q="${i}">${done(i) ? ICON.check : `<span class="tab__n">${i + 1}</span>`}${esc(q.header)}</button>`).join('')}</div>`;
+  }
+
+  function footer() {
+    const dots = Q.map((_, i) => `<span class="dot${done(i) ? ' is-done' : ''}"></span>`).join('');
+    return `<div class="qb__foot"><span class="progress"><span class="dots" aria-hidden="true">${dots}</span>${doneCount()} von ${Q.length} beantwortet</span><span class="qb__hint">${complete() ? 'Enter sendet' : 'Ziffern wählen in der markierten Frage'}</span><button type="button" class="submit" data-act="submit"${complete() ? '' : ' disabled'}>Antworten</button></div>`;
+  }
+
+  function renderOpen() {
+    if (state.variant === 'heute') return renderToday(false);
+    let body = '';
+    if (state.variant === 'liste') body = Q.map((_, i) => qSection(i, false)).join('');
+    if (state.variant === 'harmonika') body = Q.map((_, i) => (i === state.active ? qSection(i, false) : qRow(i))).join('');
+    if (state.variant === 'reiter') body = tabs() + qSection(state.active, false);
+    return `<div class="qb" role="group" aria-label="Rückfrage des Agenten">${boxHead(false)}<div class="qb__body">${body}</div>${footer()}</div>`;
+  }
+
+  function renderAnswered() {
+    if (state.variant === 'heute') return renderToday(true);
+    const rows = Q.map((q, i) => `<li class="ans"><span class="chip">${esc(q.header)}</span><div class="ans__body"><span class="ans__q" title="${esc(q.question)}">${esc(q.question)}</span><span class="ans__a">${answerHtml(i)}</span></div></li>`).join('');
+    const full = state.showFull ? `<div class="qb__body">${Q.map((_, i) => qSection(i, true)).join('')}</div>` : '';
+    return `<div class="qb qb--done" role="group" aria-label="Beantwortete Rückfrage">${boxHead(true)}<ul class="ans-list">${rows}</ul><button type="button" class="link" data-act="full" aria-expanded="${state.showFull}">${state.showFull ? 'Fragen ausblenden' : 'Ganze Rückfrage zeigen'}</button>${full}</div>`;
+  }
+
+  function renderToday(answered) {
+    const questions = Q.map((q, i) => `<div class="t-q"><p class="t-q__text">${esc(q.question)}</p><div class="t-opts">${q.options.map((o, j) => {
+      const sel = state.picks[i].includes(o.label);
+      return `<button type="button" class="t-opt${sel ? ' is-sel' : ''}" data-act="pick" data-q="${i}" data-l="${esc(o.label)}"${answered ? ' disabled' : ''}><span class="t-key">${j + 1}</span><span class="t-label"><span class="t-name">${esc(o.raw)}</span><span class="t-hint">${esc(o.hint)}</span></span></button>`;
+    }).join('')}</div></div>`).join('');
+    const foot = answered
+      ? `<div class="t-foot">Antwort: ${esc(Q.map((_, i) => state.picks[i].join(', ')).join(' · '))}</div>`
+      : `<div class="t-submit-row"><button type="button" class="submit" data-act="submit"${complete() ? '' : ' disabled'}>Antworten</button><span class="t-foot">Oder schreib unten eine eigene Antwort.</span></div>`;
+    return `<div class="tb${answered ? ' tb--done' : ''}" role="group" aria-label="Rückfrage des Agenten">${boxHead(answered).replace('<span class="qb__count">4 Fragen</span>', '')}${questions}${foot}</div>`;
+  }
+
+  /* ---------- Zustand ändern ---------- */
+
+  function pick(i, label) {
+    const q = Q[i];
+    const current = state.picks[i];
+    if (q.multi) {
+      state.picks[i] = current.includes(label) ? current.filter((l) => l !== label) : [...current, label];
+    } else {
+      state.picks[i] = [label];
+      state.custom[i] = null;
+      if (state.variant !== 'heute') {
+        const next = nextOpen(i);
+        if (next !== -1) state.active = next;
+      }
+    }
+    render();
+  }
+
+  function toggleNote(i, label) {
+    if (Object.prototype.hasOwnProperty.call(state.notes[i], label)) {
+      delete state.notes[i][label];
+      state.focus = null;
+    } else {
+      state.notes[i][label] = '';
+      state.focus = { kind: 'note', q: i, label };
+    }
+    render();
+  }
+
+  function editNote(i, label, value, caret) {
+    state.notes[i][label] = value;
+    if (value.trim() !== '' && !state.picks[i].includes(label)) {
+      if (Q[i].multi) {
+        state.picks[i] = [...state.picks[i], label];
+      } else {
+        state.picks[i] = [label];
+        state.custom[i] = null;
+      }
+    }
+    state.focus = { kind: 'note', q: i, label, caret };
+    render();
+  }
+
+  function toggleCustom(i) {
+    if (state.custom[i] === null) {
+      state.custom[i] = '';
+      state.focus = { kind: 'custom', q: i };
+    } else {
+      state.custom[i] = null;
+      state.focus = null;
+    }
+    render();
+  }
+
+  function editCustom(i, value, caret) {
+    state.custom[i] = value;
+    if (value.trim() !== '' && !Q[i].multi) state.picks[i] = [];
+    state.focus = { kind: 'custom', q: i, caret };
+    render();
+  }
+
+  function submit() {
+    if (!complete()) return;
+    state.phase = 'answered';
+    state.focus = null;
+    render();
+  }
+
+  function fillForDemo() {
+    Q.forEach((q, i) => {
+      if (!done(i)) state.picks[i] = q.multi ? [q.options[0].label, q.options[2].label] : [q.options[1].label];
+    });
+  }
+
+  /* ---------- Darstellung ---------- */
+
+  function syncSegments() {
+    document.querySelectorAll('[data-seg]').forEach((button) => {
+      const value = button.dataset.seg === 'variant' ? state.variant : state.phase;
+      button.setAttribute('aria-pressed', String(button.dataset.val === value));
+    });
+  }
+
+  function restoreFocus() {
+    const f = state.focus;
+    if (f === null) return;
+    const key = `${f.kind}:${f.q}:${f.label ?? ''}`;
+    const element = Array.from(document.querySelectorAll('#mock [data-focus]')).find((el) => el.dataset.focus === key);
+    if (!element) return;
+    element.focus();
+    const caret = typeof f.caret === 'number' ? f.caret : element.value.length;
+    element.setSelectionRange(caret, caret);
+  }
+
+  function render() {
+    document.getElementById('mock').innerHTML = state.phase === 'answered' ? renderAnswered() : renderOpen();
+    document.getElementById('variant-note').textContent = NOTES[state.variant];
+    syncSegments();
+    restoreFocus();
+  }
+
+  /* ---------- Ereignisse ---------- */
+
+  document.querySelector('.controls').addEventListener('click', (event) => {
+    const button = event.target.closest('[data-seg]');
+    if (!button) return;
+    if (button.dataset.seg === 'variant') state.variant = button.dataset.val;
+    if (button.dataset.seg === 'phase') {
+      state.phase = button.dataset.val;
+      if (state.phase === 'answered') fillForDemo();
+    }
+    state.focus = null;
+    render();
+  });
+
+  const mock = document.getElementById('mock');
+
+  mock.addEventListener('click', (event) => {
+    const target = event.target.closest('[data-act]');
+    if (!target || target.disabled) return;
+    const i = Number(target.dataset.q);
+    const label = target.dataset.l;
+    switch (target.dataset.act) {
+      case 'pick': state.focus = null; pick(i, label); break;
+      case 'note': toggleNote(i, label); break;
+      case 'custom': toggleCustom(i); break;
+      case 'open': state.focus = null; state.active = i; render(); break;
+      case 'submit': submit(); break;
+      case 'full': state.showFull = !state.showFull; render(); break;
+      default: break;
+    }
+  });
+
+  mock.addEventListener('input', (event) => {
+    const input = event.target;
+    if (!(input instanceof HTMLInputElement)) return;
+    const i = Number(input.dataset.q);
+    if (input.dataset.act === 'note-input') editNote(i, input.dataset.l, input.value, input.selectionStart);
+    if (input.dataset.act === 'custom-input') editCustom(i, input.value, input.selectionStart);
+  });
+
+  document.addEventListener('keydown', (event) => {
+    if (state.phase !== 'open' || event.ctrlKey || event.altKey || event.metaKey) return;
+    const target = event.target;
+    if (target instanceof HTMLInputElement && target.closest('#mock')) {
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        submit();
+      } else if (event.key === 'Escape') {
+        event.preventDefault();
+        const i = Number(target.dataset.q);
+        if (target.dataset.act === 'note-input') toggleNote(i, target.dataset.l);
+        else toggleCustom(i);
+      }
+      return;
+    }
+    if (target instanceof HTMLElement && target.closest('input, textarea, [contenteditable]')) return;
+    if (event.key === 'Enter' && complete() && target === document.body) {
+      event.preventDefault();
+      submit();
+      return;
+    }
+    if (state.variant === 'heute') return;
+    const digit = Number(event.key);
+    if (!Number.isInteger(digit) || digit < 1) return;
+    const option = Q[state.active] && Q[state.active].options[digit - 1];
+    if (!option) return;
+    event.preventDefault();
+    state.focus = null;
+    pick(state.active, option.label);
+  });
+
+  render();
+})();
+</script>
+</body>
+</html>

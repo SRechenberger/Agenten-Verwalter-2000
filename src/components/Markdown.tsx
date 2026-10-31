@@ -10,6 +10,7 @@ import { CodeBlock } from '@/components/CodeBlock';
 import { ExternalLink } from '@/components/ExternalLink';
 import { FileLink } from '@/components/FileLink';
 import { FileLinkSessionContext } from '@/components/FileLinkSessionContext';
+import { remarkBreakTags } from '@/components/remarkBreakTags';
 import { rehypeUnsourced } from '@/features/sourcing/rehypeUnsourced';
 import { filePathOf } from '@/lib/fileLinks';
 import '@/features/sourcing/Unsourced.css';
@@ -39,7 +40,7 @@ interface MarkdownLinkProps {
 const WINDOWS_PATH_URL = /^[a-z]:(?:[\\/]|%5c)/i;
 const FILE_URL = /^file:\/\/\//i;
 
-const REMARK_PLUGINS: NonNullable<Options['remarkPlugins']> = [remarkGfm];
+const REMARK_PLUGINS: NonNullable<Options['remarkPlugins']> = [remarkGfm, remarkBreakTags];
 
 // `common` kennt kein PowerShell; `detect: false`, damit nur Blöcke mit Sprachangabe gefärbt werden.
 const REHYPE_PLUGINS: NonNullable<Options['rehypePlugins']> = [

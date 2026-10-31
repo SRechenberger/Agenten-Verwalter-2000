@@ -75,7 +75,7 @@ Reihenfolge nach Entwicklungsrisiko (Konzept, Abschnitt 67) — das Riskanteste 
 5. **Changes & Diff:** Diffs über mehrere Repositories zusammenfassen, committed/uncommitted, lazy Diff-Ansicht.
 3b. **Vorhaben und Sessions, mit TL;DR:** das Vorhaben als zentrale Einheit, mehrere Sessions darin, Übersicht, Repository nachträglich anhängen, TL;DR von Sessions und Vorhaben ([ADR 011](decisions/011-vorhaben-und-sessions.md)) — gebaut am 2026-09-30.
 6. **UI auf Zielbild:** restliche Tafeln des Entwurfs (Einstellungen, Hellmodus), virtuelle Listen, Zustände konsistent über alle Ansichten → MVP — gebaut am 2026-10-01. Die Einstellungsseite speichert Farbschema (Dunkel, Hell, System; wirkt sofort und ohne Aufblitzen beim Start) sowie Standardmodell und Standard-Modus samt Denkaufwand für neue Vorhaben ([ADR 012](decisions/012-einstellungen-farbschema-und-listen.md)); Sidebar, Hintergrund-Listen und Scratchpad-Baum rendern nur das Sichtbare; Lade- und Aktionsfehler erscheinen als Satz statt nur in der Konsole.
-6b. **Sprachdiktat:** Mikrofon-Knopf in der Eingabeleiste (Session und „Neues Vorhaben“), Erkennung lokal mit Whisper, Text erscheint satzweise schon während des Sprechens; das Sprachmodell (190 MB) wird einmalig auf Klick geladen ([ADR 009](decisions/009-sprachdiktat-lokal.md)) — gebaut am 2026-10-01.
+6b. **Sprachdiktat:** Mikrofon-Knopf in der Eingabeleiste (Session und „Neues Vorhaben“), Erkennung lokal mit Parakeet (bis v0.38.0 Whisper), Text erscheint satzweise schon während des Sprechens; das Sprachmodell (rund 670 MB) wird einmalig auf Klick geladen ([ADR 009](decisions/009-sprachdiktat-lokal.md), Erkennung seit [ADR 049](decisions/049-sprachdiktat-parakeet.md)) — gebaut am 2026-10-01.
 
 ## Offene Fragen
 

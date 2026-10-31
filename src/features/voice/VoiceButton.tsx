@@ -15,7 +15,6 @@ const DOT_NUMBERS = [1, 2, 3] as const;
 interface VoiceButtonProps {
   /** Schlüssel der Eingabe: Session-ID bzw. `NEW_SESSION_OWNER`. */
   owner: string;
-  sessionId: string | null;
   inputRef: RefObject<HTMLTextAreaElement | null>;
   getValue: () => string;
   setValue: (next: string) => void;
@@ -29,7 +28,6 @@ interface VoiceButtonProps {
  *  bei fehlendem Sprachmodell das Einrichten. `Strg+M` im Textfeld schaltet dasselbe um. */
 export function VoiceButton({
   owner,
-  sessionId,
   inputRef,
   getValue,
   setValue,
@@ -41,7 +39,6 @@ export function VoiceButton({
   const modelState: VoiceModelState | null = useVoiceStore((state) => state.modelState);
   const dictation: DictationControl = useDictation({
     owner,
-    sessionId,
     inputRef,
     getValue,
     setValue,

@@ -10,7 +10,7 @@ pub const PAUSE_TICKS: u32 = 12;
 pub const MIN_SPEECH_TICKS: u32 = 4;
 /// So viel Stille vor dem ersten Wort bleibt erhalten, damit der Wortanfang nicht abgeschnitten wird.
 pub const LEAD_IN_MS: u32 = 300;
-/// Zwangsschnitt für Dauerredner, unterhalb von Whispers 30-s-Fenster.
+/// Zwangsschnitt für Dauerredner, damit der Zwischentext nicht ausbleibt.
 pub const MAX_SEGMENT_SECS: u32 = 25;
 
 pub struct Segmenter {

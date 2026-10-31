@@ -1,6 +1,6 @@
 # 009 — Sprachdiktat lokal mit Whisper
 
-**Status:** angenommen · **Datum:** 2026-10-01
+**Status:** abgelöst durch [049](049-sprachdiktat-parakeet.md) für die Erkennung; Aufnahme, Pausen-Schnitt und Ein-Aufnahme-Regel gelten weiter · **Datum:** 2026-10-01
 
 ## Kontext
 

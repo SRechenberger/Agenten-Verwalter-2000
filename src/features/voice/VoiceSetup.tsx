@@ -9,7 +9,7 @@ import { useVoiceStore } from '@/stores/voice';
 import './VoiceSetup.css';
 
 const SETUP_WIDTH = 300;
-const MODEL_SIZE_LABEL = '190 MB';
+const MODEL_SIZE_LABEL = '670 MB';
 
 interface VoiceSetupProps {
   placement: 'above' | 'below';

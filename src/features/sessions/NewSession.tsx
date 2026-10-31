@@ -244,7 +244,6 @@ export function NewSession({ onCreated, onCancel }: NewSessionProps): ReactEleme
               />
               <VoiceButton
                 owner={NEW_SESSION_OWNER}
-                sessionId={null}
                 inputRef={inputRef}
                 getValue={(): string => text}
                 setValue={setText}

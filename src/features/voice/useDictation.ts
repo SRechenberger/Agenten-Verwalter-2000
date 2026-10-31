@@ -22,7 +22,6 @@ const MAX_DICTATION_MS = 120_000;
 interface UseDictationOptions {
   /** Schlüssel der Eingabe: Session-ID bzw. `NEW_SESSION_OWNER`. */
   owner: string;
-  sessionId: string | null;
   inputRef: RefObject<HTMLTextAreaElement | null>;
   /** Aktueller Text des Felds zum Zeitpunkt des Aufrufs, nicht des Renderns. */
   getValue: () => string;
@@ -44,7 +43,6 @@ export interface DictationControl {
  *  einsetzen. Zeigt der Core `voiceModelMissing`, ruft sie `onNeedsSetup`. */
 export function useDictation({
   owner,
-  sessionId,
   inputRef,
   getValue,
   setValue,
@@ -175,7 +173,7 @@ export function useDictation({
       end: element?.selectionEnd ?? value.length,
     };
     isStartingRef.current = true;
-    startDictation(sessionId)
+    startDictation()
       .then(() => {
         if (!isMountedRef.current) {
           // Die Eingabe ist während des Starts verschwunden: niemand würde die Aufnahme je beenden.

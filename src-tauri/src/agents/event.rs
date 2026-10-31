@@ -143,6 +143,9 @@ pub struct QuestionOption {
 #[serde(rename_all = "camelCase")]
 pub struct Question {
     pub question: String,
+    /// Kurzname der Frage aus Claudes AskUserQuestion (`header`); leer, wenn keiner kam (ADR 045).
+    #[serde(default)]
+    pub header: String,
     pub options: Vec<QuestionOption>,
     pub multi_select: bool,
 }

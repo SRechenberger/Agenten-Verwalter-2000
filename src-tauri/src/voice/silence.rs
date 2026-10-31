@@ -5,7 +5,7 @@
 pub const SILENT_PEAK: f32 = 0.001;
 /// RMS, ab dem ein Fenster als laut genug für Sprache gilt.
 pub const SPEECH_RMS: f32 = 0.01;
-/// Anteil lauter Fenster, ab dem ein Stück an Whisper geht — darunter erfindet Whisper eher Text.
+/// Anteil lauter Fenster, ab dem ein Stück an die Erkennung geht — darunter lohnt ein Durchlauf nicht.
 pub const SPEECH_SHARE: f32 = 0.05;
 /// 30 ms bei 16 kHz.
 pub const WINDOW: usize = 480;

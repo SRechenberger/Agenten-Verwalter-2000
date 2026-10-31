@@ -39,8 +39,6 @@ pub struct Settings {
     pub local_model: Option<String>,
     /// Modell für neue Vorhaben in der Betriebsart Codex; `None` = Standardmodell von Codex.
     pub default_codex_model: Option<String>,
-    /// Sprachcode für die Spracheingabe (z. B. `de`); `None` = Whisper erkennt die Sprache selbst.
-    pub voice_language: Option<String>,
     /// Ob der Verlauf Angaben ohne Fundstelle unterstreicht (ADR 036); der Core ermittelt sie immer.
     pub mark_unsourced: bool,
 }
@@ -85,10 +83,6 @@ pub enum SettingsChange {
     },
     /// `None` setzt zurück auf das Standardmodell von Codex.
     DefaultCodexModel {
-        value: Option<String>,
-    },
-    /// `None` setzt zurück auf automatische Erkennung.
-    VoiceLanguage {
         value: Option<String>,
     },
     MarkUnsourced {

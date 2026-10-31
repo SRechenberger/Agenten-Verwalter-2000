@@ -8,7 +8,7 @@
 > | Styling | Tailwind v4 Tokens + BEM, siehe [tailwind.md](tailwind.md) |
 > | State | Zustand (nur flüchtiger UI-Zustand) |
 > | Listen | virtualisiert mit `@tanstack/react-virtual`, siehe [ADR 002](../decisions/002-typgenerierung-und-listen.md) |
-> | Markdown | `react-markdown` + `remark-gfm` + `rehype-highlight`, kein rohes HTML |
+> | Markdown | `react-markdown` + `remark-gfm` + `rehype-highlight`, kein rohes HTML außer `<br>` (wird Zeilenumbruch) |
 > | Diff | eigene Diff-Zeilen aus dem Core, virtualisiert ([ADR 006](../decisions/006-changes-und-diff.md)) |
 >
 > Projektentscheidungen in dieser Datei haben Vorrang vor allgemeinen Gewohnheiten.

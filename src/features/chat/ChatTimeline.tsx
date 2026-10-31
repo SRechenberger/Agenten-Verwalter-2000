@@ -14,8 +14,10 @@ import { NoticeBlock } from '@/features/notices/NoticeBlock';
 import { SelectionMenu } from '@/features/side/SelectionMenu';
 import { selectedChatText } from '@/features/side/selectionText';
 import {
-  digitQuestionIndex,
+  draftAnswer,
   emptyDraft,
+  isComplete,
+  needsSubmit,
   pickOption,
   type PickResult,
   type QuestionDraft,
@@ -61,6 +63,7 @@ function toolKey(toolUseId: string): string {
 /** Solange der Agent arbeitet oder die Session leer ist, steht unter der Antwort kein „Weiter“-Knopf. */
 const HANDOFF_HIDDEN_STATUSES: readonly SessionStatus[] = ['starting', 'running', 'new'];
 const DIGIT_KEYS: readonly string[] = ['1', '2', '3', '4', '5', '6', '7', '8', '9'];
+const ENTER_KEY = 'Enter';
 
 interface ChatTimelineProps {
   session: SessionSummary;
@@ -224,13 +227,30 @@ export function ChatTimeline({
     if (isTextTarget(event.target) || oldestOpenQuestion === null) {
       return;
     }
-    const optionIndex: number = DIGIT_KEYS.indexOf(event.key);
-    if (optionIndex === -1 || sendingIds.has(oldestOpenQuestion.requestId)) {
+    if (sendingIds.has(oldestOpenQuestion.requestId)) {
       return;
     }
     const draft: QuestionDraft = draftFor(oldestOpenQuestion);
+    if (event.key === ENTER_KEY) {
+      // Auf einem Knopf oder Link löst Enter dessen Klick aus, nicht das Senden.
+      if (
+        event.shiftKey ||
+        isControlTarget(event.target) ||
+        !needsSubmit(oldestOpenQuestion, draft) ||
+        !isComplete(oldestOpenQuestion, draft)
+      ) {
+        return;
+      }
+      event.preventDefault();
+      submit(oldestOpenQuestion, draftAnswer(draft));
+      return;
+    }
+    const optionIndex: number = DIGIT_KEYS.indexOf(event.key);
+    if (optionIndex === -1) {
+      return;
+    }
     event.preventDefault();
-    pick(oldestOpenQuestion, digitQuestionIndex(oldestOpenQuestion, draft), optionIndex);
+    pick(oldestOpenQuestion, draft.active, optionIndex);
   });
 
   useEffect(() => {
@@ -351,8 +371,12 @@ export function ChatTimeline({
       submit(entry, result.answer);
       return;
     }
+    storeDraft(entry, result.draft);
+  }
+
+  function storeDraft(entry: QuestionEntry, draft: QuestionDraft): void {
     setDrafts((current: ReadonlyMap<string, QuestionDraft>) =>
-      new Map<string, QuestionDraft>(current).set(entry.requestId, result.draft),
+      new Map<string, QuestionDraft>(current).set(entry.requestId, draft),
     );
   }
 
@@ -424,6 +448,9 @@ export function ChatTimeline({
             }}
             onSubmit={(answer: QuestionAnswer): void => {
               submit(entry, answer);
+            }}
+            onDraft={(next: QuestionDraft): void => {
+              storeDraft(entry, next);
             }}
           />
         );
@@ -577,6 +604,10 @@ function isTextTarget(target: EventTarget | null): boolean {
   return (
     target.closest('input, textarea, [contenteditable]:not([contenteditable="false"])') !== null
   );
+}
+
+function isControlTarget(target: EventTarget | null): boolean {
+  return target instanceof HTMLElement && target.closest('button, a, [role="button"]') !== null;
 }
 
 function isLinkTarget(target: EventTarget | null): boolean {

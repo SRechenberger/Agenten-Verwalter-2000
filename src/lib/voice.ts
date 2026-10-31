@@ -34,11 +34,10 @@ export function onVoiceModel(callback: (event: VoiceModelEvent) => void): Promis
   });
 }
 
-/** Startet ein Diktat vom Standard-Mikrofon; kehrt zurück, sobald die Aufnahme läuft. Die Repository-Namen
- *  der Session gehen als Erkennungshilfe mit (`null` = ohne Session).
+/** Startet ein Diktat vom Standard-Mikrofon; kehrt zurück, sobald die Aufnahme läuft.
  *  @throws {import('@/lib/bindings/CommandError').CommandError} `voiceModelMissing`, `voiceBusy`, `microphone` */
-export async function startDictation(sessionId: string | null): Promise<void> {
-  await invoke('voice_start', { sessionId });
+export async function startDictation(): Promise<void> {
+  await invoke('voice_start');
 }
 
 /** Beendet die Aufnahme und liefert den gesamten erkannten Text, sobald auch der letzte Abschnitt erkannt ist.

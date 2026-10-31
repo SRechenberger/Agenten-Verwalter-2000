@@ -367,7 +367,6 @@ export function Composer({ session, onSessionCreated }: ComposerProps): ReactEle
           />
           <VoiceButton
             owner={session.id}
-            sessionId={session.id}
             inputRef={inputRef}
             getValue={(): string => useChatStore.getState().drafts[session.id] ?? ''}
             setValue={(next: string): void => {

@@ -25,8 +25,6 @@ jobs:
       - run: pnpm format:check
       - run: pnpm build
       - run: pnpm rust:fmt
-      - run: cmake --version
-      - run: clang --version
       - run: pnpm rust:clippy
       - name: Bindings sind aktuell
         shell: bash

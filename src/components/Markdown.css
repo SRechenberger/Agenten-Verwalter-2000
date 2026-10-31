@@ -84,6 +84,9 @@
     padding: var(--space-xs) var(--space-md);
     border: 1px solid var(--color-border-subtle);
     text-align: left;
+    /* `anywhere` drückt die Mindestbreite einer Spalte auf ein Zeichen, schmale Spalten
+       zerfallen dann zu einem Buchstaben je Zeile; `break-word` bricht nur Überlanges. */
+    overflow-wrap: break-word;
   }
 
   th {

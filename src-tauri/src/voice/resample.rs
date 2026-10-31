@@ -1,4 +1,4 @@
-//! Umrechnung der Aufnahme auf das Format, das Whisper erwartet: 16 kHz mono.
+//! Umrechnung der Aufnahme auf das Format, das die Erkennung erwartet: 16 kHz mono.
 
 pub const TARGET_RATE: u32 = 16_000;
 

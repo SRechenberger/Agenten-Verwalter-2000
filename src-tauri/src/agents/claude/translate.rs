@@ -702,6 +702,7 @@ fn ask_user_questions(input: &Value) -> Vec<Question> {
         .iter()
         .map(|question: &Value| Question {
             question: string_field(question, "question"),
+            header: string_field(question, "header"),
             options: question_options(question),
             multi_select: question
                 .get("multiSelect")
@@ -738,6 +739,7 @@ fn permission_question(tool: &str, input: &Value) -> Question {
     };
     Question {
         question,
+        header: String::new(),
         options: vec![
             QuestionOption {
                 label: "Erlauben".to_owned(),

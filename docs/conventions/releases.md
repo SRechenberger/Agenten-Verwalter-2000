@@ -1,6 +1,6 @@
 # Release Conventions — verwalter
 
-> Ein Versions-Tag `vX.Y.Z` löst [.github/workflows/release.yml](../../.github/workflows/release.yml) aus: Windows baut den NSIS-Installer und die lose `verwalter.exe`, macOS (Apple Silicon) ein `.dmg`, Ubuntu 22.04 ein `.AppImage` und ein `.deb`; ein letzter Job legt das GitHub-Release an und hängt alle Dateien an. Schlägt nur macOS oder Linux fehl, erscheint das Release ohne deren Dateien; schlägt Windows fehl, erscheint keins. „Run workflow" auf der Actions-Seite baut alle Plattformen als Probe, ohne Release. Projektentscheidungen in dieser Datei haben Vorrang.
+> Ein Versions-Tag `vX.Y.Z` löst [.github/workflows/release.yml](../../.github/workflows/release.yml) aus: Windows baut den NSIS-Installer und die lose `verwalter.exe`, macOS (Apple Silicon, ab macOS 13.4) ein `.dmg`, Ubuntu 24.04 ein `.AppImage` und ein `.deb`; ein letzter Job legt das GitHub-Release an und hängt alle Dateien an. Schlägt nur macOS oder Linux fehl, erscheint das Release ohne deren Dateien; schlägt Windows fehl, erscheint keins. „Run workflow" auf der Actions-Seite baut alle Plattformen als Probe, ohne Release. Projektentscheidungen in dieser Datei haben Vorrang.
 
 ## Wann getaggt wird
 

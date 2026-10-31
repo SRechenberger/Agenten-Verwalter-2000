@@ -9,4 +9,4 @@ import type { OperatingMode } from "./OperatingMode";
  * Eine Änderung aus der Einstellungsseite. Modus und Denkaufwand ändern sich gemeinsam, weil sie
  * im selben Menü stehen.
  */
-export type SettingsChange = { "kind": "colorScheme", value: ColorScheme, } | { "kind": "defaultModel", value: ModelId, } | { "kind": "defaultMode", mode: Mode, effort: Effort, } | { "kind": "operatingMode", value: OperatingMode, } | { "kind": "localModel", value: string, } | { "kind": "defaultCodexModel", value: string | null, } | { "kind": "voiceLanguage", value: string | null, } | { "kind": "markUnsourced", value: boolean, };
+export type SettingsChange = { "kind": "colorScheme", value: ColorScheme, } | { "kind": "defaultModel", value: ModelId, } | { "kind": "defaultMode", mode: Mode, effort: Effort, } | { "kind": "operatingMode", value: OperatingMode, } | { "kind": "localModel", value: string, } | { "kind": "defaultCodexModel", value: string | null, } | { "kind": "markUnsourced", value: boolean, };
