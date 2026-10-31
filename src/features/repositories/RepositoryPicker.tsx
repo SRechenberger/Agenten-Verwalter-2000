@@ -72,17 +72,28 @@ export function RepositoryPicker({ selectedIds, onChange }: RepositoryPickerProp
           </span>
           {renderTrailing(repository)}
         </label>
-        {repository.isMissing && (
-          <button
-            type="button"
-            className="repository-picker__remove"
-            onClick={(): void => {
-              handleRemove(repository.id);
-            }}
+        <button
+          type="button"
+          className="repository-picker__remove"
+          aria-label={`${repository.name} aus der Liste entfernen`}
+          title="Nur aus der Liste entfernen, der Ordner bleibt"
+          onClick={(): void => {
+            handleRemove(repository.id);
+          }}
+        >
+          <svg
+            width="12"
+            height="12"
+            viewBox="0 0 14 14"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.4"
+            strokeLinecap="round"
+            aria-hidden="true"
           >
-            Entfernen
-          </button>
-        )}
+            <path d="M3.5 3.5l7 7M10.5 3.5l-7 7" />
+          </svg>
+        </button>
       </li>
     );
   }
