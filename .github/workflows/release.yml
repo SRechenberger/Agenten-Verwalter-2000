@@ -2,7 +2,7 @@ name: release
 
 on:
   push:
-    tags: ['v*.*.*']
+    branches: [main]
   # Probelauf über "Run workflow": baut alle Plattformen, legt kein Release an.
   workflow_dispatch:
 
@@ -10,7 +10,33 @@ permissions:
   contents: write
 
 jobs:
+  gate:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.gate.outputs.version }}
+      build: ${{ steps.gate.outputs.build }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - id: gate
+        shell: bash
+        run: |
+          node scripts/version.ts check
+          version=$(node scripts/version.ts get)
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          tag=$(git ls-remote --tags origin "refs/tags/v$version")
+          if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ] || [ -z "$tag" ]; then
+            echo "build=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Den Tag v$version gibt es schon, kein Release."
+            echo "build=false" >> "$GITHUB_OUTPUT"
+          fi
+
   build:
+    needs: gate
+    if: needs.gate.outputs.build == 'true'
     name: build (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     # macOS und Linux sind Zusatz: ein Fehlschlag dort hält das Windows-Release nicht auf.
@@ -47,16 +73,6 @@ jobs:
         with:
           workspaces: src-tauri
       - run: pnpm install --frozen-lockfile
-      - name: Tag und Versionen stimmen überein
-        if: github.ref_type == 'tag'
-        shell: bash
-        run: |
-          version="${GITHUB_REF_NAME#v}"
-          package_version=$(node -p "require('./package.json').version")
-          tauri_version=$(node -p "require('./src-tauri/tauri.conf.json').version")
-          cargo_version=$(sed -n 's/^version = "\(.*\)"/\1/p' src-tauri/Cargo.toml | head -n 1)
-          echo "Tag: $version | package.json: $package_version | tauri.conf.json: $tauri_version | Cargo.toml: $cargo_version"
-          test "$package_version" = "$version" && test "$tauri_version" = "$version" && test "$cargo_version" = "$version" || { echo "Version im Tag und in den drei Dateien weichen ab - Tag löschen, Versionen angleichen, neu taggen"; exit 1; }
       # Die vorgebaute ONNX-Runtime ruft __isPlatformVersionAtLeast aus der Clang-Laufzeit auf; rustc linkt sie nicht von selbst.
       - name: Clang-Laufzeit für ONNX-Runtime
         if: runner.os == 'macOS'
@@ -91,8 +107,8 @@ jobs:
           if-no-files-found: error
 
   release:
-    needs: build
-    if: github.ref_type == 'tag'
+    needs: [gate, build]
+    if: github.event_name == 'push' && needs.gate.outputs.build == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
@@ -103,6 +119,7 @@ jobs:
       - name: Release anlegen
         env:
           GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.gate.outputs.version }}
         run: |
           ls -l out
-          gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --title "$GITHUB_REF_NAME" --generate-notes out/*
+          gh release create "v$VERSION" --repo "$GITHUB_REPOSITORY" --title "v$VERSION" --target "$GITHUB_SHA" --generate-notes out/*

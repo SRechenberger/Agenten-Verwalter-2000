@@ -69,7 +69,7 @@ pnpm tauri build --no-bundle  # nur die lose exe
 
 Es gibt keine automatisierten Tests; abgesichert wird über strenge Typen, Lint, Build und eine manuelle Abnahme-Checkliste pro Plan.
 
-Fertige Installer liegen bei den [GitHub-Releases](https://github.com/Aalphones/Agenten-Verwalter-2000/releases). Ein Versions-Tag `vX.Y.Z` löst die Release-Pipeline aus (Windows-Installer, dazu `.dmg`, `.AppImage` und `.deb` als Zusatz).
+Fertige Installer liegen bei den [GitHub-Releases](https://github.com/SRechenberger/Agenten-Verwalter-2000/releases). Jeder Merge auf `main` mit neuer Version baut ein Release (Windows-Installer, dazu `.dmg`, `.AppImage` und `.deb` als Zusatz).
 
 ### Umgebungsvariablen (optional)
 

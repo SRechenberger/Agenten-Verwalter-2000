@@ -12,9 +12,10 @@
 
 ## Prüfkette
 
-Lint, Typecheck und Build sind die Qualitätsschranke dieses Projekts — es gibt keine automatisierten Tests. `pnpm check` fährt die Kette lokal, [.github/workflows/check.yml](../../.github/workflows/check.yml) identisch in GitHub Actions (plus die Bindings-Prüfung, siehe unten):
+Lint, Typecheck und Build sind die Qualitätsschranke dieses Projekts — es gibt keine automatisierten Tests. `pnpm check` fährt die Kette lokal, [.github/workflows/check.yml](../../.github/workflows/check.yml) identisch in GitHub Actions (plus die Bindings-Prüfung und der Job `version-bump`, siehe unten):
 
 ```text
+pnpm version:check Abgleich der vier Versionsstellen
 pnpm lint          ESLint
 pnpm typecheck     tsc für App und Vite-Konfiguration
 pnpm format:check  Prettier
@@ -25,7 +26,7 @@ pnpm rust:clippy   cargo clippy --all-targets -- -D warnings
 
 `pnpm build` steht vor Clippy, weil ein Release-Build des Tauri-Kerns `dist/` erwartet; im Debug-Profil (Clippy, `pnpm bindings`) ist das nicht nötig — die Reihenfolge ist Vorsicht, keine Pflicht.
 
-In CI folgt als letzter Schritt `pnpm bindings` und die Prüfung, dass `src/lib/bindings/` dadurch unverändert bleibt — ein Typ im Core ohne nachgezogene Bindings lässt den Lauf rot werden.
+In CI folgt als letzter Schritt `pnpm bindings` und die Prüfung, dass `src/lib/bindings/` dadurch unverändert bleibt — ein Typ im Core ohne nachgezogene Bindings lässt den Lauf rot werden. Bei einem PR prüft zusätzlich der Job `version-bump`, dass die Version über der von `main` liegt ([releases.md](releases.md)).
 
 ## Voraussetzungen
 

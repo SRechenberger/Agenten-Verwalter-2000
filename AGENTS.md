@@ -35,14 +35,15 @@ Begründungen: [docs/decisions/001-stack-und-plattform.md](docs/decisions/001-st
 | Rust | [docs/conventions/rust.md](docs/conventions/rust.md) |
 | Linting / Prüfkette | [docs/conventions/linting.md](docs/conventions/linting.md) |
 | Commits | [docs/conventions/commits.md](docs/conventions/commits.md) |
-| Releases / Versions-Tags | [docs/conventions/releases.md](docs/conventions/releases.md) |
+| Releases / Versionen | [docs/conventions/releases.md](docs/conventions/releases.md) |
 
 ## Befehle
 
 | Befehl | Wirkung |
 |---|---|
 | `pnpm tauri dev` | App im Entwicklungsmodus |
-| `pnpm check` | gesamte Prüfkette (Lint, Typecheck, Format, Build, rustfmt, Clippy) — vor jedem Commit grün |
+| `pnpm check` | gesamte Prüfkette (Abgleich der Versionsstellen, Lint, Typecheck, Format, Build, rustfmt, Clippy) — vor jedem Commit grün |
+| `pnpm bump <X.Y.Z>` | setzt die Version an allen vier Stellen (`package.json`, `src-tauri/tauri.conf.json`, `src-tauri/Cargo.toml`, `src-tauri/Cargo.lock`) |
 | `pnpm bindings` | TS-Typen aus Rust neu erzeugen — nach jeder Änderung an Typen, die die Tauri-Grenze überqueren |
 | `pnpm tauri icon src-tauri/icons/icon.svg -o <Ordner>` | erzeugt aus der SVG-Quelle des App-Icons alle Größen in `<Ordner>`; von dort die Desktop-Dateien (`32x32.png`, `128x128.png`, `128x128@2x.png`, `Square*.png`, `StoreLogo.png`, `icon.png`, `icon.icns`, `icon.ico`) nach `src-tauri/icons/` kopieren, `android/` und `ios/` verwerfen; danach `src-tauri/build.rs` anfassen (oder `cargo clean -p verwalter`), sonst behält die exe das alte Icon |
 | `pnpm format` | Prettier schreibt `src/` neu |
@@ -88,4 +89,4 @@ Nach Code-Änderungen: Code-Map, Glossar und betroffene Konventionen im selben C
 3. **Persistentes gehört in SQLite, nicht in den UI-State** — der Speicherbedarf der UI wächst mit dem Sichtbaren, nicht mit der Zahl der Sessions oder Events.
 4. **Sessions überleben die UI** — ein Fenster-Absturz verliert keine Session und keinen Worktree; der Agent wird mit der nächsten Nachricht wieder gestartet.
 5. **Der Workspace des Vorhabens ist die Sicherheitsgrenze** — Agenten bekommen den Ordner des Vorhabens (alle seine Sessions teilen ihn) als Arbeitsverzeichnis, je Repository den Haupt-Checkout bzw. den Ordner ohne Git per `--add-dir` und Lese-/Schreibfreigabe für dessen Ticket-Worktrees `<repo>-wt-*` (Sessions vor ADR 010: ihre App-Worktrees), nicht das Benutzerverzeichnis.
-6. **Ein vollständig abgeschlossener Plan endet mit einem Versions-Tag** — beim Archivieren Version in den drei Dateien anheben, `chore(release)`-Commit, Tag `vX.Y.Z` setzen und pushen; der Tag baut das Release. Ablauf und Versionsregel: [docs/conventions/releases.md](docs/conventions/releases.md).
+6. **Jeder PR hebt die Version in seinem eigenen Diff, jeder Merge auf `main` erzeugt ein Release** — `pnpm bump <X.Y.Z>` setzt sie. Ablauf und Versionsregel: [docs/conventions/releases.md](docs/conventions/releases.md).
