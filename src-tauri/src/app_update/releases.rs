@@ -8,10 +8,10 @@ use super::model::{InstallKind, ReleaseInfo};
 use crate::cli_update::compare_versions;
 
 const RELEASES_URL: &str =
-    "https://api.github.com/repos/Aalphones/Agenten-Verwalter-2000/releases?per_page=10";
+    "https://api.github.com/repos/SRechenberger/Agenten-Verwalter-2000/releases?per_page=10";
 /// Nur Dateien unter dieser Adresse werden geladen; eine fremde Adresse im Release ist ein Fehler.
 pub const DOWNLOAD_PREFIX: &str =
-    "https://github.com/Aalphones/Agenten-Verwalter-2000/releases/download/";
+    "https://github.com/SRechenberger/Agenten-Verwalter-2000/releases/download/";
 const FETCH_TIMEOUT: Duration = Duration::from_secs(10);
 const DIGEST_PREFIX: &str = "sha256:";
 // Vertrag mit dem Schritt „Dateien einsammeln“ in `.github/workflows/release.yml` (ADR 041).

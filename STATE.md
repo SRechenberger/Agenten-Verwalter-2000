@@ -7,7 +7,7 @@
 
 **Geparkt seit 2026-10-22 (je mit Entwurf unter `artifacts/`):** `2026-10-22_parallele-sessions` (ADR 037), `2026-10-22_umgebung` (ADR 038). Reserviert: ADR 034 für `mitgelieferte-befehle`; keiner braucht eine Migration. **Geparkt seit 2026-10-30:** `2026-10-30_umsetzung` (ADR 048, Migration 17; Entwurf unter `artifacts/`; startet erst nach Phase 1 von `2026-10-30_artefakte-dateitypen`, ADR 046; letzte Phase ändert die Skills im Master `G:\Meine Ablage\U104_Agents`, nicht das Repo).
 
-**Außerdem offen:** Plan `mitgelieferte-befehle` (ungetrackt in `docs/planning/`) übernehmen oder verwerfen; seine README verweist noch auf `../2026-10-21_warnhinweise/` (jetzt im Archiv). Kommt dort eine neue Herkunft dazu, braucht `skillUseKey` (`src/features/skills/skillUses.ts`) und `db/skill_uses.rs` einen eigenen Fall. Dessen generiertes `codex-probe.cjs` ist gezielt aus ESLint ausgeschlossen; `pnpm check` bleibt grün. Keine Smoke-Checklisten mehr: getestet wird im laufenden Betrieb, Releases folgen dem Plan-Abschluss ohne Abnahme.
+**Außerdem offen:** Plan `mitgelieferte-befehle` (ungetrackt in `docs/planning/`) übernehmen oder verwerfen; seine README verweist noch auf `../2026-10-21_warnhinweise/` (jetzt im Archiv). Kommt dort eine neue Herkunft dazu, braucht `skillUseKey` (`src/features/skills/skillUses.ts`) und `db/skill_uses.rs` einen eigenen Fall. Dessen generiertes `codex-probe.cjs` ist gezielt aus ESLint ausgeschlossen; `pnpm check` bleibt grün. Keine Smoke-Checklisten mehr: getestet wird im laufenden Betrieb, Releases folgen jedem Merge mit neuer Version.
 **Linux-Laufzeitnachweis offen:** `linux-pfade` ist nur per Prüfkette belegt, nicht auf Linux/macOS gelaufen.
 
 ## Reihenfolge der geparkten Pläne in `docs/planning/`

@@ -1,7 +1,7 @@
 {
   "name": "verwalter",
   "private": true,
-  "version": "0.40.1",
+  "version": "0.44.0",
   "packageManager": "pnpm@12.6.0",
   "type": "module",
   "scripts": {
@@ -14,7 +14,9 @@
     "bindings": "cargo run --manifest-path src-tauri/Cargo.toml --example gen-bindings",
     "rust:fmt": "cargo fmt --manifest-path src-tauri/Cargo.toml --check",
     "rust:clippy": "cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings",
-    "check": "pnpm lint && pnpm typecheck && pnpm format:check && pnpm build && pnpm rust:fmt && pnpm rust:clippy",
+    "bump": "node scripts/version.ts bump",
+    "version:check": "node scripts/version.ts check",
+    "check": "pnpm version:check && pnpm lint && pnpm typecheck && pnpm format:check && pnpm build && pnpm rust:fmt && pnpm rust:clippy",
     "tauri": "tauri"
   },
   "dependencies": {

@@ -20,6 +20,7 @@ jobs:
         with:
           workspaces: src-tauri
       - run: pnpm install --frozen-lockfile
+      - run: pnpm version:check
       - run: pnpm lint
       - run: pnpm typecheck
       - run: pnpm format:check
@@ -31,6 +32,21 @@ jobs:
         run: |
           pnpm bindings
           test -z "$(git status --porcelain -- src/lib/bindings)" || { git status --porcelain -- src/lib/bindings; echo "src/lib/bindings ist veraltet - pnpm bindings ausführen und committen"; exit 1; }
+
+  version-bump:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - name: Version liegt über der von main
+        shell: bash
+        run: |
+          git fetch --depth=1 origin main
+          base=$(git show FETCH_HEAD:package.json | node -p "JSON.parse(require('fs').readFileSync(0, 'utf8')).version")
+          node scripts/version.ts newer-than "$base"
 
   # Nur Kompilier-Check: zeigt, was auf macOS/Linux bricht. Die App ist Windows-first und wird dort nicht ausgeliefert.
   compile:
