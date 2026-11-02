@@ -41,7 +41,7 @@ Leitsatz: **Chat first, Changes second.** Was dem Agent-Workflow nicht aktiv hil
 - Visual Studio 2022 Build Tools mit dem Workload „Desktopentwicklung mit C++“ (MSVC x64 und Windows SDK); eine Visual-Studio-Installation ohne diesen Workload reicht nicht
 - CMake im PATH — liegt den Build Tools bei (`…\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin`) oder `winget install Kitware.CMake`
 - [LLVM](https://llvm.org/) per `winget install LLVM.LLVM`, dazu `C:\Program Files\LLVM\bin` im PATH (winget trägt es nicht ein); `whisper-rs-sys` erzeugt seine Bindings per bindgen
-- Node.js ≥ 22 und [pnpm](https://pnpm.io/) — pnpm per `npm install -g pnpm` installieren, Node 25+ bringt kein Corepack mehr mit
+- Node.js ≥ 22.18 und [pnpm](https://pnpm.io/) — pnpm per `npm install -g pnpm` installieren, Node 25+ bringt kein Corepack mehr mit
 - Git
 - [Claude Code](https://docs.anthropic.com/en/docs/claude-code), angemeldet (nur für die Betriebsarten mit Claude)
 

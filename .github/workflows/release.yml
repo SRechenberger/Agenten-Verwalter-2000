@@ -29,9 +29,12 @@ jobs:
           tag=$(git ls-remote --tags origin "refs/tags/v$version")
           if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ] || [ -z "$tag" ]; then
             echo "build=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "Den Tag v$version gibt es schon, kein Release."
+          elif [ "${tag%%[[:space:]]*}" = "$GITHUB_SHA" ]; then
+            echo "Den Tag v$version gibt es auf diesem Commit schon, kein Release."
             echo "build=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "Der Tag v$version zeigt auf einen anderen Commit: Dieser Stand hat die Version nicht angehoben und bekommt kein Release. Der nächste PR hebt an."
+            exit 1
           fi
 
   build:

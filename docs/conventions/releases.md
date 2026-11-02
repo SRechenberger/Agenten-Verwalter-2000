@@ -6,7 +6,7 @@
 
 **Jeder PR hebt die Version in seinem eigenen Diff.** Solange die App unter 1.0 ist, ist eine Fehlerbehebung ein Patch (`0.2.0` → `0.2.1`), alles andere ein Minor (`0.2.0` → `0.3.0`). Den Sprung auf `1.0.0` entscheidet der User ausdrücklich.
 
-**Parallele PRs:** Haben zwei offene PRs angehoben, setzt der später gemergte auf `main` auf und hebt von der Version an, die `main` dann trägt. Dieselbe Nummer gibt es nie zweimal.
+**Parallele PRs:** Haben zwei offene PRs angehoben, setzt der später gemergte auf `main` auf und hebt von der Version an, die `main` dann trägt. Dieselbe Nummer gibt es nie zweimal. Heben zwei offene PRs auf dieselbe neue Nummer, mergen sie ohne Konflikt, denn beide Seiten ändern die Zeilen gleich, und der zweite bleibt grün, weil `pull_request` bei einer Änderung am Basis-Branch nicht neu läuft. Vor dem Merge also prüfen, ob die Nummer noch frei ist.
 
 Die Version steht an **vier Stellen**, `pnpm bump <X.Y.Z>` setzt sie, `pnpm check` und [.github/workflows/check.yml](../../.github/workflows/check.yml) prüfen sie. Ein eigener `chore(release)`-Commit entfällt.
 
@@ -17,7 +17,7 @@ Die Version steht an **vier Stellen**, `pnpm bump <X.Y.Z>` setzt sie, `pnpm chec
 
 ## Wenn etwas schiefgeht
 
-- **Merge ohne Anhebung:** `check.yml` lässt den PR scheitern. Wird er trotzdem gemergt, entsteht kein Release.
+- **Merge ohne Anhebung:** `check.yml` lässt den PR scheitern. Wird er trotzdem gemergt, entsteht kein Release, und der Lauf von `release.yml` auf `main` wird rot, weil der Tag auf einen anderen Commit zeigt. Der nächste PR hebt an und nimmt den Stand mit.
 - **Fehlgeschlagener Lauf:** Der Tag entsteht erst mit dem Release, also lässt sich der Lauf wiederholen.
 
 ## Regeln
