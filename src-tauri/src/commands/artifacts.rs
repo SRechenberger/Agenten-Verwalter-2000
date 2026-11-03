@@ -32,8 +32,8 @@ pub async fn artifacts_list(
 
 /// Öffnet ein Artefakt mit dem Standardprogramm, einen Ordner im Explorer, eine Website über ihre
 /// `index.html`. `file` kommt aus der
-/// Oberfläche: nur ein Name direkt im Ordner, und `artifacts::resolve_entry` prüft die Grenze,
-/// bevor etwas geöffnet wird.
+/// Oberfläche: nur ein Name direkt im Ordner, und `artifacts::open_target` prüft Grenze und
+/// Endung, bevor etwas geöffnet wird.
 #[tauri::command]
 pub async fn artifact_open_default(
     app: tauri::AppHandle,
@@ -41,14 +41,8 @@ pub async fn artifact_open_default(
     session_id: String,
     file: String,
 ) -> Result<(), CommandError> {
-    let target = checked_target(&registry, &session_id, &file)?;
-    // Eine Website gehört in den Browser: ihr Ordner im Explorer wäre nur die Dateiliste.
-    let index_page = target.join(artifacts::INDEX_PAGE);
-    let target = if index_page.is_file() {
-        index_page
-    } else {
-        target
-    };
+    let dir = checked_dir(&registry, &session_id, &file)?;
+    let target = artifacts::open_target(&dir, &file)?;
     app.opener()
         .open_path(target.to_string_lossy(), None::<&str>)
         .map_err(|error| CommandError::Io(error.to_string()))
@@ -62,13 +56,15 @@ pub async fn artifact_reveal(
     session_id: String,
     file: String,
 ) -> Result<(), CommandError> {
-    let target = checked_target(&registry, &session_id, &file)?;
+    let dir = checked_dir(&registry, &session_id, &file)?;
+    let target = artifacts::resolve_entry(&dir, &file)?;
     app.opener()
         .reveal_item_in_dir(&target)
         .map_err(|error| CommandError::Io(error.to_string()))
 }
 
-fn checked_target(
+/// Der Artefakte-Ordner der Session, wenn `file` ein Name direkt darin ist.
+fn checked_dir(
     registry: &SessionRegistry,
     session_id: &str,
     file: &str,
@@ -78,6 +74,5 @@ fn checked_target(
             "Kein Artefakt: {file}"
         )));
     }
-    let dir = registry.artifacts_dir(session_id)?;
-    artifacts::resolve_entry(&dir, file)
+    registry.artifacts_dir(session_id)
 }

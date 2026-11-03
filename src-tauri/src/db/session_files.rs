@@ -52,7 +52,8 @@ pub fn load_for(
     Ok(files)
 }
 
-/// Pfad → (letzte, erste Uhrzeit) einer Session; die erste fehlt bei Einträgen vor Migration 17.
+/// Pfad → (letzte, erste Uhrzeit) einer Session; bei Einträgen vor Migration 17 ist die erste die
+/// damals letzte.
 pub fn load_with_first(
     connection: &Connection,
     session_id: &str,

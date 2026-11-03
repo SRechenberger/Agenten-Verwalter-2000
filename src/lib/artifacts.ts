@@ -34,7 +34,7 @@ export async function listArtifacts(sessionId: string): Promise<ArtifactList> {
 /** Öffnet das Artefakt mit dem Standardprogramm, eine Website über ihre `index.html` im Browser,
  *  einen Ordner ohne `index.html` im Explorer.
  *  @throws {import('@/lib/bindings/CommandError').CommandError} `sessionNotFound`, `fileNotFound`,
- *    `fileNotAllowed` (kein Artefakt), `io` (Öffnen gescheitert) */
+ *    `fileNotAllowed` (kein Artefakt, oder der Dateityp könnte ein Programm starten), `io` (Öffnen gescheitert) */
 export async function openArtifactDefault(sessionId: string, file: string): Promise<void> {
   await invoke('artifact_open_default', { sessionId, file });
 }

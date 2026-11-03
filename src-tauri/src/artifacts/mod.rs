@@ -28,6 +28,15 @@ const MAX_PAGE_BYTES: u64 = 1024 * 1024;
 /// Höchstens so viele Einträge eines Ordners werden für Größe und Anzahl gezählt.
 const MAX_FOLDER_ENTRIES: u32 = 1000;
 pub const INDEX_PAGE: &str = "index.html";
+/// Endungen, die „Mit Standardprogramm öffnen“ startet: Dokumente und Medien. Nie etwas, dessen
+/// Standardprogramm es ausführen könnte, auch keine Skripte (`sh`, `py`, `bat` …): Code zeigt der
+/// Betrachter der App.
+const OPENABLE_EXTENSIONS: &[&str] = &[
+    "html", "htm", "md", "markdown", "json", "jsonl", "ndjson", "yaml", "yml", "toml", "ini",
+    "env", "xml", "csv", "tsv", "txt", "log", "diff", "patch", "mmd", "mermaid", "png", "jpg",
+    "jpeg", "gif", "webp", "avif", "svg", "ico", "mp4", "webm", "mp3", "wav", "ogg", "m4a", "pdf",
+    "docx", "xlsx", "pptx", "odt", "ods", "odp",
+];
 const HTML_ENTITIES: [(&str, &str); 6] = [
     ("&lt;", "<"),
     ("&gt;", ">"),
@@ -202,6 +211,34 @@ pub fn resolve_entry(dir: &Path, relative: &str) -> Result<PathBuf, CommandError
         fs::canonicalize(&joined).map_err(|_| CommandError::FileNotFound(relative.to_owned()))?;
     if !target.starts_with(&root) || target == root {
         return Err(not_allowed(relative));
+    }
+    Ok(target)
+}
+
+/// Was „Mit Standardprogramm öffnen“ für den Eintrag `relative` startet: eine Website über ihre
+/// `index.html`, einen Ordner im Explorer, sonst die Datei. Grenze und Endung gelten für das
+/// kanonische Ziel, denn der Name eines Symlinks sagt nichts darüber, was am Ende startet.
+pub fn open_target(dir: &Path, relative: &str) -> Result<PathBuf, CommandError> {
+    let entry = resolve_entry(dir, relative)?;
+    let index_page = format!("{relative}/{INDEX_PAGE}");
+    let target = if entry.is_dir() && dir.join(&index_page).is_file() {
+        resolve(dir, &index_page)?
+    } else {
+        entry
+    };
+    let extension = target.extension().map_or_else(String::new, |extension| {
+        extension.to_string_lossy().to_ascii_lowercase()
+    });
+    // Ein Ordner öffnet im Explorer; nur ein Programm-Bündel von macOS (`.app`) startete etwas.
+    let is_allowed = if target.is_dir() {
+        extension != "app"
+    } else {
+        OPENABLE_EXTENSIONS.contains(&extension.as_str())
+    };
+    if !is_allowed {
+        return Err(CommandError::FileNotAllowed(format!(
+            "{relative} könnte ein Programm starten und wird nicht geöffnet; „Im Explorer zeigen“ findet es"
+        )));
     }
     Ok(target)
 }
@@ -399,8 +436,8 @@ struct Touch<'a> {
 }
 
 /// Setzt anlegende und zuletzt schreibende Session. Anlegend ist die mit der kleinsten ersten
-/// Uhrzeit; hat keine eine (Einträge vor Migration 17), gilt die zuletzt schreibende. Bei Ordnern
-/// zählt jede Datei darin.
+/// Uhrzeit (Einträge vor Migration 17 tragen dort ihre damals letzte); hat keine eine, gilt die
+/// zuletzt schreibende. Bei Ordnern zählt jede Datei darin.
 fn with_owners(
     mut item: Artifact,
     path: &Path,

@@ -4,6 +4,8 @@
 //! Je Artefakt Name, Typ, Größe, Betrachter ja/nein, anlegende und letzte Session; danach die
 //! Einträge des Ordners, die nicht in der Liste stehen (Zubehör, versteckt). Nie gegen
 //! `%USERPROFILE%\.verwalter\verwalter.db` — `Database::open` führt Migrationen aus.
+//! `artifacts-probe --open <Ordner> <Name>` zeigt ohne Datenbank, was „Mit Standardprogramm öffnen“
+//! starten würde (`OK <Pfad>` oder `FEHLER <Text>`), und öffnet nichts.
 use std::collections::HashSet;
 use std::env;
 use std::fs;
@@ -15,10 +17,20 @@ use verwalter_lib::db::sessions;
 use verwalter_lib::db::{Database, session_files};
 use verwalter_lib::error::CommandError;
 
-const USAGE: &str = "Aufruf: artifacts-probe <Datenbank-Kopie> <Session-ID>";
+const USAGE: &str =
+    "Aufruf: artifacts-probe <Datenbank-Kopie> <Session-ID> | --open <Ordner> <Name>";
 
 fn main() -> Result<ExitCode, Box<dyn std::error::Error>> {
     let arguments: Vec<String> = env::args().skip(1).collect();
+    if let [flag, dir, name] = arguments.as_slice()
+        && flag == "--open"
+    {
+        match artifacts::open_target(Path::new(dir), name) {
+            Ok(target) => println!("OK {}", target.display()),
+            Err(error) => println!("FEHLER {error}"),
+        }
+        return Ok(ExitCode::SUCCESS);
+    }
     let (Some(database_path), Some(session_id)) = (arguments.first(), arguments.get(1)) else {
         eprintln!("{USAGE}");
         return Ok(ExitCode::from(2));
