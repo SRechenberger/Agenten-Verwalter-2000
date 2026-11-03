@@ -37,6 +37,8 @@
     whiteSpace: 'nowrap',
   });
 
+  // Ein Betrachter markiert Blöcke mit `data-anchor`: der Klick auf gefärbten Text darin gilt dem Block.
+  const targetOf = (element) => element.closest('[data-anchor]') || element;
   const compact = (value, limit) => value.replace(/\s+/g, ' ').trim().slice(0, limit);
   const tagName = (element) => element.tagName.toLowerCase();
 
@@ -118,7 +120,7 @@
 
   window.addEventListener('mouseover', (event) => {
     if (!on || !(event.target instanceof Element)) return;
-    hovered = event.target;
+    hovered = targetOf(event.target);
     positionOutline();
   }, true);
   window.addEventListener('mouseout', (event) => {
@@ -129,7 +131,7 @@
     if (!on || !(event.target instanceof Element)) return;
     event.preventDefault();
     event.stopPropagation();
-    const element = event.target;
+    const element = targetOf(event.target);
     const rect = element.getBoundingClientRect();
     window.parent.postMessage({
       verwalter: 1, type: 'pick', selector: selectorOf(element),

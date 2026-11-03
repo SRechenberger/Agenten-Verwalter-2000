@@ -1,0 +1,17 @@
+flowchart TD
+    Start([Anfrage kommt an]) --> Pruefen{Pfad erlaubt?}
+    Pruefen -- ja --> Typ{Dateityp}
+    Pruefen -- nein --> Abweisen[403 Nicht erlaubt]
+    Typ -- HTML --> Direkt[Seite direkt ausliefern]
+    Typ -- PDF --> Pdf[PDF-Betrachter]
+    Typ -- Ordner --> Baum[Dateibaum mit Vorschau]
+    Typ -- sonst --> Rest[Rest-Karte]
+    subgraph Betrachter
+        Pdf
+        Baum
+    end
+    Direkt --> Ende([Antwort])
+    Pdf --> Ende
+    Baum --> Ende
+    Rest --> Ende
+    Abweisen --> Ende

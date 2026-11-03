@@ -1,6 +1,6 @@
 # 026 — Artefakte: HTML-Seiten des Agenten im Verwalter zeigen
 
-**Status:** angenommen · **Datum:** 2026-10-06
+**Status:** angenommen · **Datum:** 2026-10-06 · ergänzt durch [ADR 047](047-artefakte-alle-dateitypen.md) (alle Dateitypen, Betrachter, anlegende Session)
 
 ## Kontext
 

@@ -3,11 +3,15 @@ import type { ChangeEvent, FocusEvent, KeyboardEvent, MouseEvent, ReactElement }
 import { SessionDeleteDialog } from '@/app/SessionDeleteDialog';
 import { Popover } from '@/components/Popover';
 import { StatusIcon } from '@/components/StatusIcon';
+import { TwinFoldersIcon } from '@/components/TwinFoldersIcon';
 import { formatDuration } from '@/features/background/backgroundLabels';
 import { useNow } from '@/features/background/useNow';
 import type { DisplayStatus } from '@/features/sessions/sessionStatus';
 import type { SessionSummary } from '@/lib/bindings/SessionSummary';
+import { useOverlapStore } from '@/stores/overlaps';
 import './SidebarItem.css';
+
+const OVERLAP_ICON_SIZE = 14;
 
 interface SidebarItemProps {
   session: SessionSummary;
@@ -40,6 +44,7 @@ export function SidebarItem({
 }: SidebarItemProps): ReactElement {
   const [isMenuOpen, setIsMenuOpen] = useState<boolean>(false);
   const [isConfirmingDelete, setIsConfirmingDelete] = useState<boolean>(false);
+  const hasOverlap: boolean = useOverlapStore((state) => session.id in state.overlaps);
   const now: number = useNow(status === 'script');
 
   if (isRenaming) {
@@ -80,6 +85,16 @@ export function SidebarItem({
         {status === 'script' && session.awaitedScript !== null && (
           <span className="sidebar-item__clock" title={session.awaitedScript.title}>
             {formatDuration(now - session.awaitedScript.startedAt)}
+          </span>
+        )}
+        {hasOverlap && (
+          <span
+            className="sidebar-item__overlap"
+            role="img"
+            aria-label="Arbeitet im selben Ordner wie eine andere Session"
+            title="Arbeitet im selben Ordner wie eine andere Session"
+          >
+            <TwinFoldersIcon size={OVERLAP_ICON_SIZE} />
           </span>
         )}
         {session.unread && (

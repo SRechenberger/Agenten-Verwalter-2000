@@ -1,0 +1,12 @@
+{
+  "name": "Artefakt-Typen",
+  "version": 3,
+  "aktiv": true,
+  "notiz": null,
+  "typen": [
+    { "endung": "json", "betrachter": "Baum", "gruppe": "Daten" },
+    { "endung": "csv", "betrachter": "Tabelle", "gruppe": "Daten" },
+    { "endung": "md", "betrachter": "Dokument", "gruppe": "Text" }
+  ],
+  "grenzen": { "maxBytes": 5242880, "maxZeilen": 5000, "schlüssel mit 'Sonderzeichen'": "ja" }
+}

@@ -1,0 +1,7 @@
+{"zeit":"2026-11-03T08:00:01Z","stufe":"info","text":"Start","dauer":12}
+{"zeit":"2026-11-03T08:00:02Z","stufe":"warn","text":"Langsam","dauer":480,"extra":{"worker":2,"tags":["a","b"]}}
+{"zeit":"2026-11-03T08:00:03Z","stufe":"error","text":"Abbruch","dauer":null}
+
+das ist kein json
+42
+{"zeit":"2026-11-03T08:00:05Z","stufe":"info","text":"Ende","dauer":7}

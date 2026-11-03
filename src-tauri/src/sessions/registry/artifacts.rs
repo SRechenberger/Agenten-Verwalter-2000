@@ -14,6 +14,11 @@ impl SessionRegistry {
         Ok(artifacts::dir(&self.get(session_id)?.workspace))
     }
 
+    /// Das Vorhaben, zu dem die Session gehört.
+    pub fn project_of(&self, session_id: &str) -> Result<String, CommandError> {
+        Ok(self.get(session_id)?.project_id.clone())
+    }
+
     /// Workspace der Session und je Session des Vorhabens die Dateien, die ihr Agent schrieb.
     pub fn artifact_scope(
         &self,
@@ -29,9 +34,9 @@ impl SessionRegistry {
         // Erst ohne jede Session-Sperre an die Datenbank.
         let mut owners: Vec<ArtifactOwner> = Vec::with_capacity(members.len());
         for (member, name) in members.iter().zip(names) {
-            let touched = self.database.with(|connection| {
-                session_files::load_for(connection, std::slice::from_ref(&member.id))
-            })?;
+            let touched = self
+                .database
+                .with(|connection| session_files::load_with_first(connection, &member.id))?;
             owners.push(ArtifactOwner {
                 session_id: member.id.clone(),
                 number: member.number,

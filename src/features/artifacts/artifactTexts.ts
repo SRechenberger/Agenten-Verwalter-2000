@@ -1,20 +1,41 @@
 import { formatClock } from '@/features/context/formatTokens';
 import type { Artifact } from '@/lib/bindings/Artifact';
+import type { ArtifactKind } from '@/lib/bindings/ArtifactKind';
 
-export const ARTIFACTS_HEADING = 'Artefakte des Vorhabens, neueste zuerst';
+export const ARTIFACTS_HEADING = 'Artefakte des Vorhabens';
 export const ARTIFACTS_INFO =
-  'Seiten, die ein Agent dieses Vorhabens als HTML abgelegt hat – Bericht, Präsentation, Entwurf. Sie liegen im Ordner .artefakte des Vorhabens und aktualisieren sich, sobald der Agent sie neu speichert.';
+  'Dateien und Ordner, die ein Agent dieses Vorhabens zum Ansehen abgelegt hat – Bericht, Dokument, Bild, Diagramm, Video, Ton, Daten. Sie liegen im Ordner .artefakte des Vorhabens, stehen unter der Session, die sie angelegt hat, und aktualisieren sich, sobald der Agent sie neu speichert. Unterordner, deren Name mit _ beginnt, sind Zubehör einer Seite und erscheinen nicht.';
 export const JUST_UPDATED = 'gerade aktualisiert';
+export const OWN_SESSION = 'diese Session';
+export const UNASSIGNED = 'Ohne Zuordnung';
 
-/** „diese Session“, „#N Name“ oder `null`, wenn keine Session die Datei zuletzt angefasst hat. */
-export function ownerLabel(item: Artifact, currentSessionId: string | null): string | null {
-  if (item.sessionId === null) {
-    return null;
-  }
-  if (item.sessionId === currentSessionId) {
-    return 'diese Session';
-  }
-  return `#${String(item.sessionNumber ?? '')} ${item.sessionName ?? ''}`.trim();
+/** Kurztext im Typ-Abzeichen. */
+export const KIND_LABELS: Record<ArtifactKind, string> = {
+  html: 'HTML',
+  site: 'SITE',
+  folder: 'DIR',
+  markdown: 'MD',
+  json: 'JSON',
+  'json-lines': 'JSONL',
+  yaml: 'YAML',
+  config: 'CONF',
+  xml: 'XML',
+  csv: 'CSV',
+  code: 'CODE',
+  text: 'TXT',
+  log: 'LOG',
+  diff: 'DIFF',
+  image: 'BILD',
+  video: 'VIDEO',
+  audio: 'TON',
+  pdf: 'PDF',
+  mermaid: 'MMD',
+  other: 'DATEI',
+};
+
+/** HTML öffnet im Browser, alles andere im zugeordneten Programm, Ordner im Explorer. */
+export function openLabel(kind: ArtifactKind): string {
+  return kind === 'html' ? 'Im Browser öffnen' : 'Mit Standardprogramm öffnen';
 }
 
 /** Uhrzeit der letzten Änderung; liegt sie nicht am heutigen Tag, steht das Datum davor. */
@@ -30,9 +51,21 @@ export function clockLabel(modifiedAt: number): string {
   return `${date} ${clock}`;
 }
 
-export function metaLine(item: Artifact, currentSessionId: string | null): string {
-  const owner: string | null = ownerLabel(item, currentSessionId);
-  const parts: string[] = owner === null ? [] : [owner];
-  parts.push(clockLabel(item.modifiedAt));
+export function sizeLabel(bytes: number): string {
+  if (bytes < 1024) return `${String(bytes)} B`;
+  const kilobytes: number = bytes / 1024;
+  if (kilobytes < 1024) return `${kilobytes.toFixed(1).replace('.', ',')} KB`;
+  return `${(kilobytes / 1024).toFixed(1).replace('.', ',')} MB`;
+}
+
+/** Dateiname (bei Ordnern die Zahl der Dateien) · Uhrzeit · ggf. die Session, die zuletzt schrieb. */
+export function metaLine(item: Artifact): string {
+  const parts: string[] = [
+    item.entries === null ? item.file : `${String(item.entries)} Dateien`,
+    clockLabel(item.modifiedAt),
+  ];
+  if (item.lastSessionNumber !== null) {
+    parts.push(`zuletzt #${String(item.lastSessionNumber)}`);
+  }
   return parts.join(' · ');
 }

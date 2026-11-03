@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<katalog stand="2026-11-03">
+  <typ id="json" gruppe="daten">
+    <betrachter>Baum</betrachter>
+    <endung>json</endung>
+    <endung>jsonl</endung>
+  </typ>
+  <typ id="csv" gruppe="daten">
+    <betrachter>Tabelle</betrachter>
+  </typ>
+  <hinweis>Nur eine <b>Probe</b>.</hinweis>
+</katalog>

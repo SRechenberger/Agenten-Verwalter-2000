@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MCP-Sicherheitsprobe</title>
+<style>
+  :root { --bg: #ffffff; --fg: #1d1d1f; --muted: #6e6e73; --line: #d2d2d7; --ok: #1a7f37; --bad: #c62828; }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) { --bg: #161618; --fg: #f2f2f2; --muted: #a1a1a6; --line: #3a3a3c; --ok: #4ac26b; --bad: #ff6b6b; }
+  }
+  :root[data-theme="dark"] { --bg: #161618; --fg: #f2f2f2; --muted: #a1a1a6; --line: #3a3a3c; --ok: #4ac26b; --bad: #ff6b6b; }
+  body { margin: 0; padding: 24px 16px; background: var(--bg); color: var(--fg); font: 15px/1.5 system-ui, sans-serif; }
+  main { max-width: 720px; margin: 0 auto; }
+  p { color: var(--muted); }
+  label { display: block; margin: 12px 0 4px; }
+  input { width: 100%; box-sizing: border-box; padding: 8px; border: 1px solid var(--line); border-radius: 6px; background: transparent; color: inherit; font: inherit; }
+  button { margin-top: 16px; padding: 8px 16px; border: 1px solid var(--line); border-radius: 6px; background: transparent; color: inherit; font: inherit; cursor: pointer; }
+  ol { padding-left: 20px; }
+  li { margin: 8px 0; }
+  .ok { color: var(--ok); }
+  .bad { color: var(--bad); }
+  code { font-size: 13px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>MCP-Sicherheitsprobe</h1>
+  <p>Versucht aus dieser Seite heraus den MCP-Zugang des Verwalters zu erreichen. Erwartet: jeder Versuch scheitert — an der CSP der Artefakt-Seite oder daran, dass der Browser die Antwort ohne <code>Access-Control-*</code>-Kopf nicht herausgibt. Port und Schlüssel stehen in <code>%USERPROFILE%\.verwalter\mcp\&lt;session-id&gt;.json</code>.</p>
+  <label for="port">Port des MCP-Zugangs</label>
+  <input id="port" inputmode="numeric" placeholder="z. B. 51234">
+  <label for="key">Schlüssel (32 Hex-Zeichen)</label>
+  <input id="key" placeholder="aus der Konfigurationsdatei">
+  <button id="run" type="button">Probe starten</button>
+  <ol id="results"></ol>
+</main>
+<script>
+  const ping = JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' });
+  const cases = [
+    { label: 'POST mit Schlüssel', withKey: true },
+    { label: 'POST ohne Schlüssel', withKey: false },
+  ];
+
+  function show(label, blocked, detail) {
+    const item = document.createElement('li');
+    item.className = blocked ? 'ok' : 'bad';
+    item.textContent = `${blocked ? 'Blockiert' : 'DURCHGEKOMMEN'} — ${label}: ${detail}`;
+    document.getElementById('results').append(item);
+  }
+
+  async function probe(port, key, { label, withKey }) {
+    const headers = { 'Content-Type': 'application/json' };
+    if (withKey) {
+      headers.Authorization = `Bearer ${key}`;
+    }
+    try {
+      const response = await fetch(`http://127.0.0.1:${port}/mcp`, { method: 'POST', headers, body: ping });
+      const text = await response.text();
+      show(label, false, `Status ${response.status}, ${text.slice(0, 120)}`);
+    } catch (error) {
+      show(label, true, String(error));
+    }
+  }
+
+  document.getElementById('run').addEventListener('click', async () => {
+    document.getElementById('results').replaceChildren();
+    const port = document.getElementById('port').value.trim();
+    const key = document.getElementById('key').value.trim();
+    for (const entry of cases) {
+      await probe(port, key, entry);
+    }
+  });
+</script>
+</body>
+</html>

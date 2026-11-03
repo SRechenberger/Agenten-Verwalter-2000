@@ -4,6 +4,7 @@ import type { Effort } from '@/lib/bindings/Effort';
 import type { HandoffStartedEvent } from '@/lib/bindings/HandoffStartedEvent';
 import type { Mode } from '@/lib/bindings/Mode';
 import type { ModelId } from '@/lib/bindings/ModelId';
+import type { SessionOverlap } from '@/lib/bindings/SessionOverlap';
 import type { SessionSummary } from '@/lib/bindings/SessionSummary';
 
 const SESSION_CHANGED_EVENT = 'session://changed';
@@ -13,6 +14,12 @@ const HANDOFF_STARTED_EVENT = 'session://handoff-started';
  *  @throws {import('@/lib/bindings/CommandError').CommandError} wenn der Core ablehnt */
 export function listSessions(): Promise<SessionSummary[]> {
   return invoke<SessionSummary[]>('session_list');
+}
+
+/** Laufende Sessions, die im selben Schreib-Ordner arbeiten wie eine andere (ADR 037); ein Eintrag je betroffener Session.
+ *  @throws {import('@/lib/bindings/CommandError').CommandError} `database` */
+export function loadSessionOverlaps(): Promise<SessionOverlap[]> {
+  return invoke<SessionOverlap[]>('session_overlaps');
 }
 
 /** Legt im Vorhaben eine Session im Status „Neu“ an, ohne Agent; gibt es schon eine, kommt diese zurück.

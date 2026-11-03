@@ -1,9 +1,16 @@
 use crate::agents::event::{Effort, Mode, ModelId};
 use crate::error::CommandError;
-use crate::sessions::model::SessionSummary;
+use crate::sessions::model::{SessionOverlap, SessionSummary};
 use crate::sessions::registry::SessionRegistry;
 
 // Die Commands sind `async`, damit der Prozessstart nicht auf dem Haupt-Thread läuft.
+
+#[tauri::command]
+pub async fn session_overlaps(
+    registry: tauri::State<'_, SessionRegistry>,
+) -> Result<Vec<SessionOverlap>, CommandError> {
+    registry.overlaps()
+}
 
 #[tauri::command]
 pub async fn session_list(

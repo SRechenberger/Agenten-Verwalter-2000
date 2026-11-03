@@ -23,7 +23,7 @@ use crate::standalone::tools::INTERRUPTED;
 
 /// Letzte Fassung mit `initialize`-Handschlag (Spezifikation 2025-11-25).
 pub const PROTOCOL_VERSION: &str = "2025-11-25";
-const JSON_RPC_VERSION: &str = "2.0";
+pub(crate) const JSON_RPC_VERSION: &str = "2.0";
 const CLIENT_NAME: &str = "verwalter";
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(30);

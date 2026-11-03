@@ -88,6 +88,9 @@ fn main() -> Result<ExitCode, Box<dyn std::error::Error>> {
         artifacts: artifacts::prepare(&workspace).ok(),
         chrome: row.chrome,
         codex_exe: None,
+        // Ohne laufende App gibt es keinen MCP-Zugang; die Werkzeugliste weicht dann von der des
+        // Hauptprozesses ab.
+        verwalter_mcp: None,
     };
     let request = SideRequest {
         options,

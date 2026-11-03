@@ -2,6 +2,9 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { ReactElement } from 'react';
 import { ArtifactFrame } from '@/features/artifacts/ArtifactFrame';
 import { ArtifactFullscreen } from '@/features/artifacts/ArtifactFullscreen';
+import { ArtifactGroupHeader } from '@/features/artifacts/ArtifactGroupHeader';
+import { ArtifactKindBadge } from '@/features/artifacts/ArtifactKindBadge';
+import { ArtifactOtherCard } from '@/features/artifacts/ArtifactOtherCard';
 import type { ArtifactMark, ArtifactPick } from '@/features/artifacts/artifactBridge';
 import { useArtifactPicker } from '@/features/artifacts/useArtifactPicker';
 import {
@@ -10,9 +13,12 @@ import {
   JUST_UPDATED,
   clockLabel,
   metaLine,
+  openLabel,
 } from '@/features/artifacts/artifactTexts';
+import { groupArtifacts } from '@/features/artifacts/groupArtifacts';
+import type { ArtifactGroup } from '@/features/artifacts/groupArtifacts';
 import { mentionInChat } from '@/features/background/mention';
-import { openArtifactInBrowser } from '@/lib/artifacts';
+import { openArtifactDefault, revealArtifact } from '@/lib/artifacts';
 import type { Artifact } from '@/lib/bindings/Artifact';
 import type { ArtifactList } from '@/lib/bindings/ArtifactList';
 import { commandErrorText } from '@/lib/errors';
@@ -52,6 +58,10 @@ export function ArtifactsView({
   const select = useArtifactsStore((state) => state.select);
   const isFullscreen: boolean = useArtifactsStore((state) => state.fullscreen);
   const setFullscreen = useArtifactsStore((state) => state.setFullscreen);
+  const collapsed: Record<string, boolean> | undefined = useArtifactsStore(
+    (state) => state.collapsed[projectId],
+  );
+  const toggleGroup = useArtifactsStore((state) => state.toggleGroup);
   const reportSessionError = useSessionErrorsStore((state) => state.report);
   const clearSessionError = useSessionErrorsStore((state) => state.clear);
   const collected =
@@ -67,6 +77,7 @@ export function ArtifactsView({
     list.items.find((item: Artifact) => item.file === selectedFile) ?? list.items[0];
   const selectedKey: string | undefined = selected?.file;
   const selectedModifiedAt: number | undefined = selected?.modifiedAt;
+  const groups: ArtifactGroup[] = groupArtifacts(list.items, currentSessionId);
   const artifactComments = collected.filter(
     (entry) =>
       entry.comment.target.kind === 'artifact' && entry.comment.target.file === selectedKey,
@@ -170,8 +181,8 @@ export function ArtifactsView({
     return null;
   }
 
-  function openInBrowser(item: Artifact): void {
-    openArtifactInBrowser(sessionId, item.file)
+  function runOnFile(action: (id: string, file: string) => Promise<void>, item: Artifact): void {
+    action(sessionId, item.file)
       .then(() => {
         clearSessionError(sessionId);
       })
@@ -179,6 +190,50 @@ export function ArtifactsView({
         console.error('Artefakt nicht geöffnet', reason);
         reportSessionError(sessionId, `Artefakt nicht geöffnet: ${commandErrorText(reason)}`);
       });
+  }
+
+  function renderEntry(item: Artifact): ReactElement {
+    const isSelected: boolean = item.file === selected?.file;
+    return (
+      <button
+        key={item.file}
+        type="button"
+        className={`artifacts__entry${isSelected ? ' artifacts__entry--selected' : ''}`}
+        aria-current={isSelected ? 'true' : undefined}
+        onClick={(): void => {
+          setIsCommenting(false);
+          setPick(null);
+          if (currentSessionId !== null) closeBox(currentSessionId);
+          select(projectId, item.file);
+        }}
+      >
+        <ArtifactKindBadge kind={item.kind} />
+        <span className="artifacts__entry-text">
+          <span className="artifacts__entry-title">{item.title}</span>
+          <span className="artifacts__entry-meta">{metaLine(item)}</span>
+        </span>
+      </button>
+    );
+  }
+
+  function renderGroup(group: ArtifactGroup): ReactElement {
+    const isOpen: boolean = collapsed?.[group.key] !== true;
+    const itemsId: string = `artifacts-group-${group.key === '' ? 'none' : group.key}`;
+    return (
+      <div key={group.key} className="artifacts__group">
+        <ArtifactGroupHeader
+          group={group}
+          isOpen={isOpen}
+          controls={itemsId}
+          onToggle={(): void => {
+            toggleGroup(projectId, group.key);
+          }}
+        />
+        <div id={itemsId} className="artifacts__group-items" hidden={!isOpen}>
+          {group.items.map(renderEntry)}
+        </div>
+      </div>
+    );
   }
 
   function renderDiscussButton(item: Artifact): ReactElement | null {
@@ -202,50 +257,14 @@ export function ArtifactsView({
     <div className="artifacts">
       <nav className="artifacts__list" aria-label="Artefakte">
         <div className="artifacts__heading">
-          <span>{ARTIFACTS_HEADING}</span>
+          <span>
+            {ARTIFACTS_HEADING} · {list.items.length}
+          </span>
           <span className="artifacts__info" title={ARTIFACTS_INFO}>
             ?
           </span>
         </div>
-        {list.items.map((item: Artifact) => (
-          <button
-            key={item.file}
-            type="button"
-            className={`artifacts__entry${item.file === selected.file ? ' artifacts__entry--selected' : ''}`}
-            aria-current={item.file === selected.file ? 'true' : undefined}
-            onClick={(): void => {
-              setIsCommenting(false);
-              setPick(null);
-              if (currentSessionId !== null) closeBox(currentSessionId);
-              select(projectId, item.file);
-            }}
-          >
-            <span className="artifacts__entry-icon">
-              <svg
-                width="14"
-                height="14"
-                viewBox="0 0 14 14"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.3"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                aria-hidden="true"
-              >
-                <rect x="1.5" y="2" width="11" height="10" rx="1.5" />
-                <path d="M1.5 5h11M4 7.5h3M4 9.5h5" />
-              </svg>
-            </span>
-            <span className="artifacts__entry-text">
-              <span className="artifacts__entry-title">{item.title}</span>
-              <span
-                className={`artifacts__entry-meta${item.sessionId !== null && item.sessionId === currentSessionId ? ' artifacts__entry-meta--own' : ''}`}
-              >
-                {metaLine(item, currentSessionId)}
-              </span>
-            </span>
-          </button>
-        ))}
+        {groups.map(renderGroup)}
       </nav>
       <section className="artifacts__preview" aria-label="Vorschau">
         <header className="artifacts__head">
@@ -287,30 +306,32 @@ export function ArtifactsView({
                 <path d="M13 2.5V5h-2.5" />
               </svg>
             </button>
-            <button
-              type="button"
-              className="artifacts__button artifacts__button--icon"
-              title="Vollbild"
-              aria-label="Vollbild"
-              onClick={(): void => {
-                setFullscreen(true);
-              }}
-            >
-              <svg
-                width="14"
-                height="14"
-                viewBox="0 0 16 16"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.5"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                aria-hidden="true"
+            {selected.viewable ? (
+              <button
+                type="button"
+                className="artifacts__button artifacts__button--icon"
+                title="Vollbild"
+                aria-label="Vollbild"
+                onClick={(): void => {
+                  setFullscreen(true);
+                }}
               >
-                <path d="M2.5 6V2.5H6M10 2.5h3.5V6M13.5 10v3.5H10M6 13.5H2.5V10" />
-              </svg>
-            </button>
-            {currentSessionId !== null ? (
+                <svg
+                  width="14"
+                  height="14"
+                  viewBox="0 0 16 16"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d="M2.5 6V2.5H6M10 2.5h3.5V6M13.5 10v3.5H10M6 13.5H2.5V10" />
+                </svg>
+              </button>
+            ) : null}
+            {currentSessionId !== null && selected.viewable ? (
               <button
                 type="button"
                 className={`artifacts__button${isCommenting ? ' artifacts__button--commenting' : ''}`}
@@ -342,10 +363,10 @@ export function ArtifactsView({
               type="button"
               className="artifacts__button"
               onClick={(): void => {
-                openInBrowser(selected);
+                runOnFile(openArtifactDefault, selected);
               }}
             >
-              Im Browser öffnen
+              {openLabel(selected.kind)}
               <svg
                 width="11"
                 height="11"
@@ -376,12 +397,24 @@ export function ArtifactsView({
           </div>
         ) : null}
         <div ref={stageRef} className="artifacts__stage">
-          <ArtifactFrame
-            baseUrl={list.baseUrl}
-            item={selected}
-            reloadToken={reloadToken}
-            frameRef={frameRef}
-          />
+          {selected.viewable ? (
+            <ArtifactFrame
+              baseUrl={list.baseUrl}
+              item={selected}
+              reloadToken={reloadToken}
+              frameRef={frameRef}
+            />
+          ) : (
+            <ArtifactOtherCard
+              item={selected}
+              onOpen={(): void => {
+                runOnFile(openArtifactDefault, selected);
+              }}
+              onReveal={(): void => {
+                runOnFile(revealArtifact, selected);
+              }}
+            />
+          )}
           {currentSessionId !== null && pick !== null && box !== null ? (
             <div ref={commentRef} className="artifacts__comment" style={{ left: pick.rect.x }}>
               <CommentBox
@@ -422,7 +455,7 @@ export function ArtifactsView({
           ) : null}
         </div>
       </section>
-      {isFullscreen ? (
+      {isFullscreen && selected.viewable ? (
         <ArtifactFullscreen
           baseUrl={list.baseUrl}
           item={selected}

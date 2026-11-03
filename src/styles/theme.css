@@ -132,6 +132,7 @@
   --color-voice: var(--color-blue-600);
   --color-voice-subtle: color-mix(in srgb, var(--color-blue-600) 16%, transparent);
   --color-status-waiting: var(--color-amber-700);
+  --color-status-waiting-subtle: color-mix(in srgb, var(--color-amber-700) 10%, transparent);
   --color-status-error: var(--color-red-600);
   --color-status-error-subtle: var(--color-red-50);
   --color-scrim: rgb(0 0 0 / 0.28);
@@ -190,6 +191,7 @@
     --color-voice: var(--color-blue-400);
     --color-voice-subtle: color-mix(in srgb, var(--color-blue-400) 16%, transparent);
     --color-status-waiting: var(--color-amber-400);
+    --color-status-waiting-subtle: color-mix(in srgb, var(--color-amber-400) 11%, transparent);
     --color-status-error: var(--color-red-400);
     --color-status-error-subtle: color-mix(in srgb, var(--color-red-400) 11%, transparent);
     --color-scrim: rgb(0 0 0 / 0.55);
@@ -246,6 +248,7 @@
   --color-voice: var(--color-blue-400);
   --color-voice-subtle: color-mix(in srgb, var(--color-blue-400) 16%, transparent);
   --color-status-waiting: var(--color-amber-400);
+  --color-status-waiting-subtle: color-mix(in srgb, var(--color-amber-400) 11%, transparent);
   --color-status-error: var(--color-red-400);
   --color-status-error-subtle: color-mix(in srgb, var(--color-red-400) 11%, transparent);
   --color-scrim: rgb(0 0 0 / 0.55);

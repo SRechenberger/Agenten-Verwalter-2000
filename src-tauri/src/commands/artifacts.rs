@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use tauri::Manager;
 use tauri_plugin_opener::OpenerExt;
 
@@ -28,23 +30,54 @@ pub async fn artifacts_list(
     })
 }
 
-/// Öffnet ein Artefakt mit dem Standardprogramm. `file` kommt aus der Oberfläche: nur ein Name
-/// direkt im Ordner, und `artifacts::resolve` prüft die Grenze, bevor etwas geöffnet wird.
+/// Öffnet ein Artefakt mit dem Standardprogramm, einen Ordner im Explorer, eine Website über ihre
+/// `index.html`. `file` kommt aus der
+/// Oberfläche: nur ein Name direkt im Ordner, und `artifacts::resolve_entry` prüft die Grenze,
+/// bevor etwas geöffnet wird.
 #[tauri::command]
-pub async fn artifact_open_in_browser(
+pub async fn artifact_open_default(
     app: tauri::AppHandle,
     registry: tauri::State<'_, SessionRegistry>,
     session_id: String,
     file: String,
 ) -> Result<(), CommandError> {
-    if !artifacts::is_artifact_file(&file) {
+    let target = checked_target(&registry, &session_id, &file)?;
+    // Eine Website gehört in den Browser: ihr Ordner im Explorer wäre nur die Dateiliste.
+    let index_page = target.join(artifacts::INDEX_PAGE);
+    let target = if index_page.is_file() {
+        index_page
+    } else {
+        target
+    };
+    app.opener()
+        .open_path(target.to_string_lossy(), None::<&str>)
+        .map_err(|error| CommandError::Io(error.to_string()))
+}
+
+/// Zeigt ein Artefakt im Explorer, markiert in seinem Ordner.
+#[tauri::command]
+pub async fn artifact_reveal(
+    app: tauri::AppHandle,
+    registry: tauri::State<'_, SessionRegistry>,
+    session_id: String,
+    file: String,
+) -> Result<(), CommandError> {
+    let target = checked_target(&registry, &session_id, &file)?;
+    app.opener()
+        .reveal_item_in_dir(&target)
+        .map_err(|error| CommandError::Io(error.to_string()))
+}
+
+fn checked_target(
+    registry: &SessionRegistry,
+    session_id: &str,
+    file: &str,
+) -> Result<PathBuf, CommandError> {
+    if !artifacts::is_plain_name(file) {
         return Err(CommandError::FileNotAllowed(format!(
             "Kein Artefakt: {file}"
         )));
     }
-    let dir = registry.artifacts_dir(&session_id)?;
-    let target = artifacts::resolve(&dir, &file)?;
-    app.opener()
-        .open_path(target.to_string_lossy(), None::<&str>)
-        .map_err(|error| CommandError::Io(error.to_string()))
+    let dir = registry.artifacts_dir(session_id)?;
+    artifacts::resolve_entry(&dir, file)
 }

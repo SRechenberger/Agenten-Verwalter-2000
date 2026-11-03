@@ -8,7 +8,7 @@ Kontext für jeden Umsetzer: [AGENTS.md](../../../AGENTS.md), [docs/code-map.md]
 
 | # | Phase | Rating | Wave | Aufwand | Status |
 |---|---|---|---|---|---|
-| 1 | [Core: Datenmodell, Werkzeuge anlegen/lesen/beschreiben, Zeile in der Sidebar, Lagebericht als Text; ADR 048, Migration 17](phase-1-core-und-werkzeuge.md) | heikel | 1 | L | pending |
+| 1 | [Core: Datenmodell, Werkzeuge anlegen/lesen/beschreiben, Zeile in der Sidebar, Lagebericht als Text; ADR 048, Migration 18](phase-1-core-und-werkzeuge.md) | heikel | 1 | L | pending |
 | 2 | [Ansicht: Zeitleiste mit gekoppelter Kartei, Kopfzeile, Reiter Changes](phase-2-zeitleiste-und-kartei.md) | standard | 2 | L | pending |
 | 3 | [Stationen starten: Fertigmeldung, Nachfolger, erste Nachricht, Countdown, Fix-Runde, Fehler](phase-3-stationen-starten.md) | heikel | 3 | L | pending |
 | 4 | [Wellen (parallele Phasen) und Plan-Änderung mit Karte „Plan ändern?“](phase-4-wellen-und-plan-aenderung.md) | heikel | 4 | L | pending |
@@ -22,7 +22,7 @@ Rein sequenziell: jede Phase 2–5 erweitert dieselben Dateien (`src-tauri/src/i
 
 **Voraussetzung:** Phase 1 des Plans `2026-10-30_artefakte-dateitypen` (MCP-Zugang, `src-tauri/src/mcp_access/`, ADR 046) ist auf `main` gemergt — dieser Plan startet erst danach. Ist dort der `ToolSet`-Vertrag anders ausgefallen als in dessen README beschrieben, gilt der Code; Abweichungen in `FINDINGS.md` für Phase 1 festhalten und `tools.rs` daran anpassen.
 
-**Nummern:** ADR 048 (Umsetzung, Phase 1), Migration 17 (Phase 1). Belegt bzw. reserviert und nicht zu verwenden: ADR 034, 037, 038 (geparkte Pläne), 045 (Notiz pro Option), 046 und 047 sowie Migration 16 (Artefakte aller Dateitypen).
+**Nummern:** ADR 048 (Umsetzung, Phase 1), Migration 18 (Phase 1). Belegt bzw. reserviert und nicht zu verwenden: ADR 034, 037, 038 (geparkte Pläne), 045 (Notiz pro Option), 046 und 047 sowie Migration 16 (Eltern-Session, ADR 050) und 17 (Artefakte aller Dateitypen).
 
 **Nicht drin:** Kanban, Burn-up, Drag and Drop; Stationen in anderen Betriebsarten als Claude, Claude + LM Studio und Autark (Codex nur, wenn ADR 046 den Zugang dort belegt — sonst ist eine Codex-Station ein Fehler beim Start, Satz „In der Betriebsart Codex gibt es die Werkzeuge des Verwalters nicht.“); Haiku-Kurzfassung des Lageberichts (Backlog); Kopplung an den geparkten Plan `2026-10-22_parallele-sessions` (dessen Leiste wäre bei einer Welle sichtbar und richtig — keine Sonderbehandlung).
 
@@ -121,7 +121,7 @@ pub struct ImplementationChangedEvent { pub implementation: ImplementationView }
 
 Ereignis `implementation://changed` mit `ImplementationChangedEvent` nach jeder Änderung an Aufbau, Texten, Automatik, Countdown und nach jedem Start; Zustandswechsel der Stations-Sessions kommen weiter über `session://changed` — die Oberfläche lädt die Liste neu, wenn `session://changed` eine Session meldet, die als `session_id` in einer Station steht.
 
-### Datenbank (Migration 17, `src-tauri/src/db/migrations/017_implementations.sql`, Zugriffe `src-tauri/src/db/implementations.rs`)
+### Datenbank (Migration 18, `src-tauri/src/db/migrations/018_implementations.sql`, Zugriffe `src-tauri/src/db/implementations.rs`)
 
 ```sql
 CREATE TABLE implementations (
