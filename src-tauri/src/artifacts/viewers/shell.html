@@ -1,0 +1,280 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <style>
+      :root {
+        --bg: #ffffff;
+        --bg-bar: #f8f8f8;
+        --fg: #3c3c3c;
+        --fg-muted: #6e6e6e;
+        --border: #e5e5e5;
+        --accent: #c4572f;
+        --font-sans: 'Segoe UI Variable Text', 'Segoe UI', system-ui, sans-serif;
+        --font-mono: 'Cascadia Code', 'Cascadia Mono', Consolas, ui-monospace, monospace;
+        --code-keyword: #0000ff;
+        --code-string: #a31515;
+        --code-comment: #008000;
+        --code-number: #098658;
+        --code-function: #795e26;
+        --code-type: #267f99;
+        --code-variable: #001080;
+        --diff-add-fg: #16803c;
+        --diff-del-fg: #d23b33;
+        --diff-add-bg: #e8f6ee;
+        --diff-del-bg: #fdeceb;
+        --warn: #9a6700;
+        color-scheme: light;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #1f1f1f;
+          --bg-bar: #252526;
+          --fg: #d4d4d4;
+          --fg-muted: #8f8f8f;
+          --border: #2b2b2b;
+          --accent: #e0825c;
+          --code-keyword: #569cd6;
+          --code-string: #ce9178;
+          --code-comment: #6a9955;
+          --code-number: #b5cea8;
+          --code-function: #dcdcaa;
+          --code-type: #4ec9b0;
+          --code-variable: #9cdcfe;
+          --diff-add-fg: #4cc38a;
+          --diff-del-fg: #f47067;
+          --diff-add-bg: rgba(76, 195, 138, 0.11);
+          --diff-del-bg: rgba(244, 112, 103, 0.11);
+          --warn: #e5c07b;
+          color-scheme: dark;
+        }
+      }
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        height: 100%;
+        margin: 0;
+      }
+      body {
+        display: flex;
+        flex-direction: column;
+        background: var(--bg);
+        color: var(--fg);
+        font: 13px/1.4 var(--font-sans);
+      }
+      .viewer-bar {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 8px;
+        padding: 6px 12px;
+        border-bottom: 1px solid var(--border);
+        background: var(--bg-bar);
+      }
+      .viewer-bar__kind {
+        padding: 0 4px;
+        border: 1px solid var(--border);
+        border-radius: 3px;
+        color: var(--fg-muted);
+        font: 10px/16px var(--font-mono);
+        text-transform: uppercase;
+      }
+      .viewer-bar__file {
+        font-weight: 600;
+        overflow-wrap: anywhere;
+      }
+      .viewer-bar__meta {
+        color: var(--fg-muted);
+      }
+      .viewer-bar__tools {
+        display: flex;
+        gap: 4px;
+        margin-left: auto;
+      }
+      .viewer-bar__tools button {
+        padding: 2px 8px;
+        border: 1px solid var(--border);
+        border-radius: 4px;
+        background: var(--bg);
+        color: var(--fg);
+        font: inherit;
+        cursor: pointer;
+      }
+      .viewer-bar__tools button[aria-pressed='true'] {
+        border-color: var(--accent);
+        color: var(--accent);
+      }
+      .viewer-stage {
+        flex: 1;
+        min-height: 0;
+        overflow: auto;
+      }
+      .viewer-raw {
+        margin: 0;
+        padding: 12px;
+        font: 12px/1.5 var(--font-mono);
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+      }
+      .viewer-note {
+        padding: 24px;
+        color: var(--fg-muted);
+      }
+      .lines {
+        padding: 8px 0;
+        font: 12px/1.5 var(--font-mono);
+        tab-size: 4;
+      }
+      .line {
+        position: relative;
+        min-height: 1.5em;
+        padding: 0 12px 0 var(--gutter);
+        white-space: pre;
+      }
+      /* Große Dateien: außerhalb des Fensters wird nichts gelayoutet (55 000 Zeilen kosten sonst über eine Sekunde). */
+      .lines--big .line {
+        content-visibility: auto;
+        contain-intrinsic-size: auto 18px;
+      }
+      .lines--wrap .line {
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+      }
+      .line::before {
+        content: attr(data-n);
+        position: absolute;
+        left: 0;
+        width: calc(var(--gutter) - 12px);
+        color: var(--fg-muted);
+        text-align: right;
+        user-select: none;
+      }
+      .cap-notice {
+        padding: 6px 12px;
+        border-bottom: 1px solid var(--border);
+        background: var(--bg-bar);
+        color: var(--fg-muted);
+      }
+      .hljs-keyword,
+      .hljs-literal,
+      .hljs-built_in,
+      .hljs-tag,
+      .hljs-name,
+      .hljs-selector-tag,
+      .hljs-bullet {
+        color: var(--code-keyword);
+      }
+      .hljs-string,
+      .hljs-regexp,
+      .hljs-link {
+        color: var(--code-string);
+      }
+      .hljs-comment,
+      .hljs-quote,
+      .hljs-meta {
+        color: var(--code-comment);
+      }
+      .hljs-number {
+        color: var(--code-number);
+      }
+      .hljs-title,
+      .hljs-title.function_,
+      .hljs-selector-class,
+      .hljs-selector-id,
+      .hljs-section {
+        color: var(--code-function);
+      }
+      .hljs-type,
+      .hljs-title.class_ {
+        color: var(--code-type);
+      }
+      .hljs-variable,
+      .hljs-attr,
+      .hljs-attribute,
+      .hljs-property,
+      .hljs-params {
+        color: var(--code-variable);
+      }
+      .hljs-addition {
+        color: var(--diff-add-fg);
+      }
+      .hljs-deletion {
+        color: var(--diff-del-fg);
+      }
+      .hljs-emphasis {
+        font-style: italic;
+      }
+      .hljs-strong {
+        font-weight: 600;
+      }
+    </style>
+  </head>
+  <body>
+    <header class="viewer-bar">
+      <span class="viewer-bar__kind" id="viewer-kind"></span>
+      <span class="viewer-bar__file" id="viewer-file"></span>
+      <span class="viewer-bar__meta" id="viewer-meta"></span>
+      <span class="viewer-bar__tools" id="viewer-tools"></span>
+    </header>
+    <main class="viewer-stage" id="viewer-stage"></main>
+    <script>
+      // Grundgerüst der Betrachter (ADR 047). Die Datei kommt per `fetch` aus demselben Ordner.
+      const viewer = {
+        kind: __KIND__,
+        file: __FILE__,
+        stage: document.getElementById('viewer-stage'),
+        url() {
+          return encodeURIComponent(viewer.file);
+        },
+        setMeta(text) {
+          document.getElementById('viewer-meta').textContent = text;
+        },
+        addTool(label, onClick, pressed) {
+          const button = document.createElement('button');
+          button.type = 'button';
+          button.textContent = label;
+          if (pressed !== undefined) button.setAttribute('aria-pressed', String(pressed));
+          button.addEventListener('click', () => onClick(button));
+          document.getElementById('viewer-tools').append(button);
+          return button;
+        },
+        formatSize(bytes) {
+          if (bytes < 1024) return `${bytes} B`;
+          if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1).replace('.', ',')} KB`;
+          return `${(bytes / 1024 / 1024).toFixed(1).replace('.', ',')} MB`;
+        },
+        /** Rückfall, wenn der Betrachter nicht kann: der Rohtext, sonst ein Hinweis. */
+        async showRaw(reason) {
+          viewer.stage.replaceChildren();
+          try {
+            const response = await fetch(viewer.url());
+            const pre = document.createElement('pre');
+            pre.className = 'viewer-raw';
+            pre.textContent = await response.text();
+            viewer.stage.append(pre);
+          } catch {
+            viewer.showNote(reason);
+          }
+        },
+        showNote(text) {
+          const note = document.createElement('p');
+          note.className = 'viewer-note';
+          note.textContent = text;
+          viewer.stage.replaceChildren(note);
+        },
+      };
+      document.title = viewer.file;
+      document.getElementById('viewer-kind').textContent = viewer.kind;
+      document.getElementById('viewer-file').textContent = viewer.file;
+    </script>
+    <script>
+__COMMON__
+    </script>
+    <script>
+__SCRIPT__
+    </script>
+  </body>
+</html>

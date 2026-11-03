@@ -1,0 +1,43 @@
+artifacts-probe gegen eine Kopie der Datenbank (2026-10-30)
+
+== Schema vorher (user_version 15) ==
+CREATE TABLE session_files (session_id TEXT NOT NULL ..., path TEXT NOT NULL, touched_at REAL NOT NULL, PRIMARY KEY (session_id, path)) WITHOUT ROWID
+
+== Schema nachher ==
+user_version 16
+CREATE TABLE session_files (
+  session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+  path       TEXT NOT NULL,
+  touched_at REAL NOT NULL, first_touched_at REAL,
+  PRIMARY KEY (session_id, path)
+) WITHOUT ROWID
+Zeilen ohne first_touched_at: 3307
+Zeilen mit first_touched_at: 0 (vor den Testzeilen)
+
+== Upsert dreimal (500, 900, 700) ==
+touched_at, first_touched_at: (900.0, 500.0)
+
+== Vorhaben mit den Plan-Entwürfen (048870b0) ==
+Ordner: C:\Users\smick\.verwalter\workspaces\048870b0\.artefakte
+7 Artefakte
+rueckfrage-kasten.html                   html            43585 B  Ansicht  „Rückfrage-Kasten“  angelegt #10 Freitext-Eingabe pro Option
+artefakte-alle-dateitypen.html           html            18193 B  Ansicht  „Artefakte für alle Dateitypen“  angelegt #11 Artefakte für Videos, Bilder und PDFs
+entwurf-umsetzung.html                   html            54261 B  Ansicht  „Entwurf Umsetzung“  angelegt #4 Frische Sessions pro Phase planen
+ansichten-im-vergleich.html              html            28331 B  Ansicht  „Ansichten im Vergleich“  angelegt #4 Frische Sessions pro Phase planen
+ablauf-recherche.html                    html            38942 B  Ansicht  „Ablauf übersichtlich“  angelegt #4 Frische Sessions pro Phase planen
+btw-nebenfrage-entwuerfe.html            html            30784 B  Ansicht  „Nebenfrage /btw – Entwürfe“  angelegt #2 Nebenfragen PLAN
+changes-ganze-datei.html                 html            15761 B  Ansicht  „Changes: Unveränderte Zeilen aufklappen“  angelegt #1 Changes: Ganze Datei anzeigen
+Nicht gelistet (Zubehör oder versteckt): ablauf-recherche, entwurf-umsetzung, phasen-und-rollen
+
+== Testordner mit allen Fällen (zwei Test-Sessions: Anleger schrieb notiz.md zuerst, Bearbeiter danach; daten.json nur Altbestand ohne erste Uhrzeit) ==
+Ordner: <Testordner>\.artefakte
+8 Artefakte
+logs                                     folder              6 B, 3 Dateien  Rest-Karte  „logs“  angelegt #1 Anleger
+tabelle.xlsx                             other               2 B  Rest-Karte  „tabelle“  angelegt ohne Zuordnung
+prototyp                                 site               24 B, 1 Dateien  Ansicht  „Prototyp“  angelegt ohne Zuordnung
+.env                                     config              4 B  Rest-Karte  „.env“  angelegt ohne Zuordnung
+daten.json                               json                8 B  Rest-Karte  „daten“  angelegt #2 Bearbeiter
+seite.html                               html               54 B  Ansicht  „Seite & Co“  angelegt ohne Zuordnung
+bild.png                                 image               8 B  Ansicht  „bild“  angelegt ohne Zuordnung
+notiz.md                                 markdown           25 B  Rest-Karte  „Notiz zum Plan“  angelegt #1 Anleger · zuletzt #2 Bearbeiter
+Nicht gelistet (Zubehör oder versteckt): .hidden, _assets, bilder, seite

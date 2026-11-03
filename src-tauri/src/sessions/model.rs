@@ -131,6 +131,23 @@ pub struct HandoffStartedEvent {
     pub to_session_id: String,
 }
 
+/// Eine laufende Session, die im selben Schreib-Ordner arbeitet wie eine andere (ADR 037).
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionOverlap {
+    pub session_id: String,
+    /// Gemeinsamer Ordner, wie er angezeigt wird (nicht normalisiert).
+    pub folder: String,
+    pub other_session_id: String,
+    pub other_number: u32,
+    pub other_name: String,
+    pub other_project_name: String,
+    /// Weitere Sessions im selben Ordner außer `other_*`.
+    pub more: u32,
+    /// Schlüssel fürs Ausblenden und für den Satz an den Agenten.
+    pub key: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct AwaitedScript {

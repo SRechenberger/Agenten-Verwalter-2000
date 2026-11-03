@@ -1,0 +1,13 @@
+# Konfiguration
+titel = "Verwalter"
+
+[server]
+port = 8080
+hosts = ["a", "b"]
+
+[datenbank]
+url = "postgres://localhost/verwalter"
+pool = 5
+
+[[nutzer]]
+name = "sascha"

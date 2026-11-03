@@ -10,7 +10,7 @@ use verwalter_lib::{
         AppUpdateProgress, AppUpdateStatus, InstallKind, InstallPhase, ReleaseInfo,
     },
     archive::model::{ArchivePage, ArchiveSnippet, ArchivedProject, ProjectRestored},
-    artifacts::model::{Artifact, ArtifactList},
+    artifacts::model::{Artifact, ArtifactKind, ArtifactList, ArtifactShowEvent},
     background::model::{
         BackgroundChangedEvent, BackgroundItem, BackgroundKind, BackgroundState, ScratchpadEntry,
         ScratchpadListing, SessionBackground, SubagentStep, TextPreview,
@@ -42,7 +42,8 @@ use verwalter_lib::{
     retro::model::{RetroExport, RetroProgress},
     review::model::{CommentTarget, ReviewComment},
     sessions::model::{
-        AwaitedScript, ChatEntryEvent, ChatPage, HandoffStartedEvent, SessionStatus, SessionSummary,
+        AwaitedScript, ChatEntryEvent, ChatPage, HandoffStartedEvent, SessionOverlap,
+        SessionStatus, SessionSummary,
     },
     settings::model::{ColorScheme, OperatingMode, Settings, SettingsChange, SettingsOverview},
     side::model::{SideChangedEvent, SideQuestion, SideState, SideUsage},
@@ -89,6 +90,7 @@ fn main() -> Result<(), ts_rs::ExportError> {
     AwaitedScript::export_all(&cfg)?;
     PromptCache::export_all(&cfg)?;
     SessionSummary::export_all(&cfg)?;
+    SessionOverlap::export_all(&cfg)?;
     ChatPage::export_all(&cfg)?;
     ChatEntryEvent::export_all(&cfg)?;
     HandoffStartedEvent::export_all(&cfg)?;
@@ -172,7 +174,9 @@ fn main() -> Result<(), ts_rs::ExportError> {
     VoiceLevelEvent::export_all(&cfg)?;
     VoicePartialEvent::export_all(&cfg)?;
     Artifact::export_all(&cfg)?;
+    ArtifactKind::export_all(&cfg)?;
     ArtifactList::export_all(&cfg)?;
+    ArtifactShowEvent::export_all(&cfg)?;
     GitOperation::export_all(&cfg)?;
     GitBusySession::export_all(&cfg)?;
     GitForeignFile::export_all(&cfg)?;

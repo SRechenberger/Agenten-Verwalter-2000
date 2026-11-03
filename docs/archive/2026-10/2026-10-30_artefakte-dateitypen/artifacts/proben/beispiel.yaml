@@ -1,0 +1,17 @@
+# Erstes Dokument
+name: verwalter
+dienste:
+  web:
+    port: 8080
+    umgebung:
+      - DEBUG=1
+      - MODE=dev
+  db:
+    port: 5432
+
+    passwort: geheim
+---
+# Zweites Dokument
+- eins
+- zwei:
+    drei: 3

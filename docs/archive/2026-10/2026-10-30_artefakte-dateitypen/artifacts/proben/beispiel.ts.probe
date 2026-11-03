@@ -1,0 +1,12 @@
+/* Mehrzeiliger
+   Kommentar */
+export interface Artifact {
+  file: string;
+  size: number;
+}
+
+export function describe(item: Artifact): string {
+  // Zeile 9 für den Kommentar-Test
+  const label = `${item.file} (${item.size} B)`;
+  return label;
+}

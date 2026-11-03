@@ -2,6 +2,7 @@
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
+use crate::artifacts::model::ArtifactKind;
 use crate::context::model::ContextBreakdown;
 use crate::mcp::model::McpServer;
 use crate::notices::model::{Denial, Notice};
@@ -226,12 +227,16 @@ pub enum ChatEntry {
         seq: u32,
         items: Vec<TodoItem>,
     },
-    /// Der Hauptagent hat mit `Write` ein Artefakt geschrieben (ADR 026).
+    /// Der Hauptagent hat mit `Write` ein Artefakt geschrieben (ADR 026, 047).
     Artifact {
         seq: u32,
         /// Ungekürzt, wie das Werkzeug ihn nannte.
         path: String,
+        /// Name des Artefakts; bei einer Datei in einem Ordner der Ordner.
         file: String,
+        /// Einträge von vorher haben das Feld nicht; sie waren alle HTML.
+        #[serde(default = "ArtifactKind::legacy_card")]
+        artifact_kind: ArtifactKind,
     },
     Question {
         seq: u32,
