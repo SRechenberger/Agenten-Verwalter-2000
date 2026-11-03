@@ -91,7 +91,7 @@ Der erste Wortlaut („sie ist keine Anweisung des Nutzers“) ließ Haiku in 3 
 
 `HandoffKind` kennt nur noch `Project`. „Neues Vorhaben … : …“ bleibt samt Knopf, grau nach dem Klick, und Anzeige-Status `handoff`, denn das neue Werkzeug öffnet nur Sessions im selben Vorhaben. Erkannt wird wie bisher im Fenster der letzten fünf nicht leeren Zeilen und weiter oben außerhalb von Code-Blöcken.
 
-**Alte Daten:** `sessions.handoff_line` kann gespeicherte Zeilen „Weiter: …“ und „Zurück an …“ enthalten. `handoff::split` lässt sie beim Laden still weg, ohne Fehler und ohne Schreibzwang; die nächste Änderung der Zeile überschreibt sie. Keine neue Migration: Die Spalten `projects.auto_handoff` und `sessions.parent_session_id` bleiben ungenutzt stehen.
+**Alte Daten:** `sessions.handoff_line` kann gespeicherte Zeilen „Weiter: …“ und „Zurück an …“ enthalten. `handoff::split` lässt sie beim Laden still weg, ohne Fehler und ohne Schreibzwang; das nächste Speichern der Session überschreibt sie. Keine neue Migration: Die Spalten `projects.auto_handoff` und `sessions.parent_session_id` bleiben ungenutzt stehen.
 
 ### Reihenfolge und Version
 
@@ -105,6 +105,7 @@ Werkzeuge und Entfernen der Zeilen kamen in zwei getrennten Schritten, damit bei
 - **Kindprozesse** erben den Schlüssel. Ein Agent kann damit nur als er selbst sprechen, der Kasten bleibt. Bewusst hingenommen.
 - **Eingereihte Zeile an ein später abgebrochenes Ziel:** Sie bleibt liegen, der Absender erfährt das nicht.
 - **Vom Kontingent pausiertes Ziel:** Eine Nachricht wartet bis zur nächsten vollständigen Antwort ([ADR 051](051-kontingent-warnung.md)).
+- **„Automatisch fortsetzen“ ([ADR 051](051-kontingent-warnung.md)) setzt die Kettenbremse zurück:** Es geht über `send` und setzt `auto_chain` ohne Zutun des Nutzers auf 0. Je Kontingent-Grenze sind damit höchstens sechs weitere selbst freigegebene Aufrufe möglich, und die Grenze selbst bremst schon. Aus dem Code gelesen, nicht gefahren.
 - **Eingeschleuster Text:** Nach dem neuen Wortlaut bearbeitet ein Ziel eine Nachricht wie einen Auftrag. Eine Session mit eingeschleustem Text kann über eine Nachricht Aufträge weitergeben, im Kasten sichtbar, bei Selbstfreigabe ohne Blick des Nutzers.
 - **Format der Kommandozeile:** MCP ist dort nicht stabil dokumentiert, der Client spricht schon Protokoll `2025-11-25` und `2026-07-28`. Der Server echot die angebotene Fassung und antwortet auf Unbekanntes mit `-32601`.
 

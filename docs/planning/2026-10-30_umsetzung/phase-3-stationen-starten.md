@@ -8,7 +8,7 @@ Rating **heikel** · Wave 3 · Aufwand L · Status: pending
 - `src-tauri/src/sessions/registry/session_tools.rs` (`schedule_inbox_delivery`: eigener Thread am Haken `turn_completed`, Fehler über `log_line`) — das Muster für `implementation/start.rs`, die Marke je Countdown kommt dazu; `sessions/registry.rs`: `create_in_project` (Zeilen ab „let number = latest.number + 1“ — daraus `create_fresh_in_project` ausgliedern), `rename`, `set_model`, `send(app, session_id, text, &[], &[])`, `update` (Stelle `if outbox.turn_completed { session_tools::schedule_inbox_delivery(app, session); }`), `SessionState.pending` (erste offene Rückfrage), `set_status`-Zweige für `Error`.
 - `src-tauri/src/sessions/model.rs` (`SessionStatus`), `agents/event.rs` (`ModelId`).
 - `src-tauri/src/mcp_access/tools.rs` (`ToolCall.app`, `ToolCall.session_id`), Phase-1-Dateien `implementation/mod.rs`, `tools.rs`, `schedule.rs`, `db/implementations.rs`, `registry/implementation.rs`.
-- Oberfläche: `src/features/chat/useSecondsUntil.ts` (Sekunden der Countdown-Anzeige; die Zeile mit „Abbrechen“ entsteht neu), Phase-2-Dateien `StationCard.tsx`, `ImplementationHeader.tsx`, `src/lib/implementation.ts`.
+- Oberfläche: `src/features/chat/useSecondsUntil.ts` (neu anlegen: Sekunden der Countdown-Anzeige; die Zeile mit „Abbrechen“ entsteht ebenfalls neu), Phase-2-Dateien `StationCard.tsx`, `ImplementationHeader.tsx`, `src/lib/implementation.ts`.
 - Sperrregeln: Kopf von `src-tauri/src/db/mod.rs`, Kommentare an `SessionRegistry` und `update` in `registry.rs` — **die Werkzeuge laufen im Thread des MCP-Servers, nicht im Tauri-Thread.**
 - [docs/conventions/rust.md](../../conventions/rust.md). Fehlerklassen (Vault): keine einschlägig.
 
@@ -32,7 +32,7 @@ Rating **heikel** · Wave 3 · Aufwand L · Status: pending
 - [ ] `tools.rs`: `implementation_complete_station` nach Kontrakt (Station über `station_of_session(ToolCall.session_id)`), `text` aus `CompleteOutcome`.
 - [ ] `commands/implementation.rs`: `implementation_set_auto_start`, `implementation_set_stop_after_current`, `implementation_start_station` (laufenden Countdown entwerten, `start_now`), `implementation_cancel_countdown`, `implementation_complete_station` (nur `by_user`, sonst `Err("Diese Station meldet der Agent selbst.")`); registrieren; Wrapper in `src/lib/implementation.ts`.
 - [ ] `StationView.state` in `registry/implementation.rs` um `Countdown` (Marke im `ImplementationService`, `starts_at`) und `Ready` (`schedule::may_start` und keine Session) erweitern.
-- [ ] Oberfläche: `StationCard.tsx` — Countdown-Zeile mit `useSecondsUntil(startsAt)` und „Abbrechen“, ▶ „Jetzt starten“ bei `ready`, „Erledigt“ bei `by_user`; `ImplementationHeader.tsx` — Schalter und Knopf verdrahten; Fehler als Satz über `commandErrorText` in die Fehlerleiste der Ansicht (eigene Zeile `implementation-view__error`, Muster `SessionActionError`).
+- [ ] Oberfläche: `StationCard.tsx` — `useSecondsUntil.ts` neu anlegen; Countdown-Zeile mit `useSecondsUntil(startsAt)` und „Abbrechen“, ▶ „Jetzt starten“ bei `ready`, „Erledigt“ bei `by_user`; `ImplementationHeader.tsx` — Schalter und Knopf verdrahten; Fehler als Satz über `commandErrorText` in die Fehlerleiste der Ansicht (eigene Zeile `implementation-view__error`, Muster `SessionActionError`).
 - [ ] `implementation-probe.rs`: Aufruf `complete` (AK 9), nutzt `db::implementations` + `schedule::ready_stations`.
 - [ ] `pnpm check` grün, Commit `feat(implementation): Stationen starten, Fertigmeldung und Fix-Runden`.
 

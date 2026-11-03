@@ -56,3 +56,5 @@ Das Format ist nur halb bekannt. Belegt sind lokale Transkripte der Kommandozeil
 - Eine zweite Kontingent-Antwort nach dem Fortsetzen beginnt wieder mit `auto_resume: false`: neue Karte, kein zweiter Zeitgeber, keine Schleife.
 
 **Nachtrag 2026-11-03:** „Nachricht“ meint in diesem ADR die des Nutzers. Die Nachricht einer anderen Session ([ADR 052](052-session-werkzeuge.md)) setzt eine pausierte Session nicht fort und wartet bis zur nächsten vollständigen Antwort.
+
+**Nachtrag 2026-11-03:** „Automatisch fortsetzen“ geht über `send` und setzt die Kettenbremse aus [ADR 052](052-session-werkzeuge.md) ohne Nutzer auf 0. Je Kontingent-Grenze sind damit höchstens sechs weitere selbst freigegebene Aufrufe möglich, und die Grenze selbst bremst schon. Aus dem Code gelesen, nicht gefahren.
