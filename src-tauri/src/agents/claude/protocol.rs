@@ -142,6 +142,16 @@ pub struct MessageLine<M> {
     /// Von der Kommandozeile selbst erzeugte `user`-Zeile, z.B. die Zusammenfassung nach `compact_boundary`.
     #[serde(rename = "isSynthetic", default)]
     pub is_synthetic: bool,
+    /// Ab hier: die synthetische `assistant`-Zeile bei aufgebrauchtem Kontingent (ADR 051). Belegt
+    /// nur aus den Transkripten der Kommandozeile, im Stream nie gemessen.
+    #[serde(default, deserialize_with = "lenient")]
+    pub error: Option<String>,
+    #[serde(default, deserialize_with = "lenient", rename = "apiError")]
+    pub api_error: Option<String>,
+    #[serde(default, deserialize_with = "lenient", rename = "apiErrorParams")]
+    pub api_error_params: Option<RateLimitLine>,
+    #[serde(default, deserialize_with = "lenient", rename = "quotaLimits")]
+    pub quota_limits: Option<RateLimitInfoLine>,
 }
 
 #[derive(Debug, Deserialize)]

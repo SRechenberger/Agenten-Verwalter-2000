@@ -42,6 +42,12 @@ pub fn parse(text: &str, now_secs: i64) -> Option<i64> {
         .map(Timestamp::as_second)
 }
 
+/// Rücksetzzeit einer Kontingent-Antwort in Epoch-Sekunden: der strukturierte Wert vor dem Text
+/// (ADR 051). Die Registry und `quota-probe` rufen beide diese Stelle.
+pub fn resolve(structured: Option<i64>, text: &str, now_secs: i64) -> Option<i64> {
+    structured.or_else(|| parse(text, now_secs))
+}
+
 /// Für die Probe: `<ISO-UTC> <Wanduhr in der Zone des Textes>` zu einem Ergebnis von [`parse`].
 pub fn describe(text: &str, epoch_secs: i64) -> Option<String> {
     let captures = RESET_PATTERN.captures(text)?;

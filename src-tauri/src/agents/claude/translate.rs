@@ -1,13 +1,15 @@
 //! Übersetzt Zeilen der Claude-Kommandozeile in anbieterneutrale `AgentEvent`s.
 use std::collections::{HashMap, HashSet};
+use std::sync::LazyLock;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+use regex::Regex;
 use serde_json::{Map, Value};
 
 use super::protocol::{
     AssistantMessage, CacheCreation, ContentBlock, ControlRequestLine, ControlResponseLine,
-    Incoming, MessageLine, ModelUsage, PermissionDenialLine, RateLimitLine, ResultLine, SystemLine,
-    Usage, UserContent, UserMessage, WindowLine,
+    Incoming, MessageLine, ModelUsage, PermissionDenialLine, RateLimitInfoLine, RateLimitLine,
+    ResultLine, SystemLine, Usage, UserContent, UserMessage, WindowLine,
 };
 use super::{mcp, stats};
 use crate::agents::event::{
@@ -31,6 +33,15 @@ const OUTPUT_FILE_MARKER: &str = "Output is being written to: ";
 const EXIT_CODE_PREFIX: &str = "Exit code ";
 const RESOLVED_MODEL_FIELD: &str = "resolvedModel";
 const TEXT_BLOCK_TYPE: &str = "text";
+const QUOTA_REJECTED_STATUS: &str = "rejected";
+const QUOTA_ERROR: &str = "rate_limit";
+const QUOTA_API_ERROR: &str = "usage_limit_reached";
+const QUOTA_FALLBACK_TEXT: &str = "Das Kontingent ist aufgebraucht.";
+
+static QUOTA_RESULT_TEXT: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?is)^You've hit your.*limit")
+        .expect("feste, gültige Regex für den Text einer Kontingent-Meldung")
+});
 
 const USED_PATH_FIELDS: [&str; 4] = ["file_path", "notebook_path", "path", "command"];
 
@@ -68,6 +79,9 @@ pub struct Translator {
     shell_calls: HashSet<String>,
     /// Nach `compact_boundary`: die nächste synthetische `user`-Zeile ist die Zusammenfassung.
     awaiting_compact_summary: bool,
+    /// Kontingent-Signale der laufenden Antwort; die `result`-Zeile räumt sie ab (ADR 051).
+    quota: QuotaSignals,
+    last_quota_source: Option<QuotaSource>,
 }
 
 #[derive(Debug)]
@@ -76,7 +90,76 @@ struct BashCall {
     background: bool,
 }
 
+/// Was eine Antwort bisher über das Kontingent verraten hat. Stream nie gemessen, die Felder
+/// stammen aus den Transkripten der Kommandozeile (ADR 051).
+#[derive(Debug, Default)]
+struct QuotaSignals {
+    /// `rate_limit_event` mit `rejected`.
+    rejected: bool,
+    /// `assistant`-Zeile des Hauptagenten mit Kontingent-Fehler.
+    assistant_error: bool,
+    /// Sekunden seit 1970, der erste strukturierte Wert aus einem der beiden Signale.
+    resets_at: Option<i64>,
+    /// Text der `assistant`-Zeile.
+    text: Option<String>,
+}
+
+/// Welches Signal einen Kontingent-Fall belegt: das erste in dieser Reihenfolge, das vorlag.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum QuotaSource {
+    RateLimitEvent,
+    AssistantError,
+    ResultText,
+}
+
+impl QuotaSignals {
+    /// Kontingent-Fall, wenn die `assistant`-Zeile oder der `result`-Text ihn belegen (auch ohne
+    /// `is_error`: die synthetische Meldung kann eine erfolgreiche Antwort beenden), oder bei
+    /// `rejected` in einer gescheiterten Antwort. Ein `rejected` allein bei Erfolg (etwa mit
+    /// Überziehung) zählt nicht, ein Abbruch hat immer Vorrang.
+    ///
+    /// Obergrenze: Eine Antwort des Modells, die selbst mit „You've hit your … limit“ beginnt,
+    /// zählt ebenfalls; der `result`-Text ist von der Meldung nicht zu unterscheiden.
+    fn verdict(self, result: &ResultLine) -> Option<(QuotaSource, TurnEnd)> {
+        if result.terminal_reason.as_deref() == Some(ABORTED_REASON) {
+            return None;
+        }
+        let result_text = result
+            .result
+            .as_deref()
+            .filter(|text: &&str| !text.trim().is_empty());
+        let has_result_text =
+            result_text.is_some_and(|text: &str| QUOTA_RESULT_TEXT.is_match(text));
+        let source =
+            if self.rejected && (result.is_error || self.assistant_error || has_result_text) {
+                QuotaSource::RateLimitEvent
+            } else if self.assistant_error {
+                QuotaSource::AssistantError
+            } else if has_result_text {
+                QuotaSource::ResultText
+            } else {
+                return None;
+            };
+        let text = self
+            .text
+            .or_else(|| result_text.map(str::to_owned))
+            .unwrap_or_else(|| QUOTA_FALLBACK_TEXT.to_owned());
+        Some((
+            source,
+            TurnEnd::QuotaExhausted {
+                text,
+                resets_at: self.resets_at,
+            },
+        ))
+    }
+}
+
 impl Translator {
+    /// Für `quota-probe`: das Signal, das die letzte Antwort zum Kontingent-Fall gemacht hat.
+    pub fn last_quota_source(&self) -> Option<QuotaSource> {
+        self.last_quota_source
+    }
+
     pub fn handle_line(&mut self, line: &str) -> Vec<AgentEvent> {
         let Ok(incoming) = serde_json::from_str::<Incoming>(line) else {
             return vec![AgentEvent::Unknown(line.to_owned())];
@@ -86,11 +169,62 @@ impl Translator {
             Incoming::Assistant(assistant) => self.handle_assistant(assistant),
             Incoming::User(user) => self.handle_user(user),
             Incoming::ControlRequest(request) => handle_control_request(request, line),
-            Incoming::Result(result) => vec![turn_ended(result)],
+            Incoming::Result(result) => {
+                let verdict = std::mem::take(&mut self.quota).verdict(&result);
+                let (source, quota_end) = verdict.unzip();
+                self.last_quota_source = source;
+                vec![turn_ended(result, quota_end)]
+            }
             Incoming::ControlResponse(line) => control_answered(line),
-            Incoming::RateLimitEvent(line) => rate_limit(line).into_iter().collect(),
+            Incoming::RateLimitEvent(line) => {
+                self.note_rejected(&line);
+                rate_limit(line).into_iter().collect()
+            }
             Incoming::Other => Vec::new(),
         }
+    }
+
+    fn note_rejected(&mut self, line: &RateLimitLine) {
+        let Some(info) = &line.rate_limit_info else {
+            return;
+        };
+        if info.status.as_deref() == Some(QUOTA_REJECTED_STATUS) {
+            self.quota.rejected = true;
+            self.quota.resets_at = self.quota.resets_at.or(info.resets_at);
+        }
+    }
+
+    /// Merkt sich die synthetische Meldung am Kontingent; `true`, wenn die Zeile eine ist. Sie wird
+    /// nicht weiter übersetzt: ihr Text käme sonst doppelt in den Chat, ihre leere `usage` setzte
+    /// den Kontext auf null.
+    fn note_quota_line(&mut self, line: &MessageLine<AssistantMessage>) -> bool {
+        if line.error.as_deref() != Some(QUOTA_ERROR)
+            && line.api_error.as_deref() != Some(QUOTA_API_ERROR)
+        {
+            return false;
+        }
+        let resets_at = line
+            .api_error_params
+            .as_ref()
+            .and_then(|params: &RateLimitLine| params.rate_limit_info.as_ref())
+            .and_then(|info: &RateLimitInfoLine| info.resets_at)
+            .or_else(|| {
+                line.quota_limits
+                    .as_ref()
+                    .and_then(|info: &RateLimitInfoLine| info.resets_at)
+            });
+        let text = line
+            .message
+            .content
+            .iter()
+            .find_map(|block: &ContentBlock| match block {
+                ContentBlock::Text { text } if !text.trim().is_empty() => Some(text.clone()),
+                _ => None,
+            });
+        self.quota.assistant_error = true;
+        self.quota.resets_at = self.quota.resets_at.or(resets_at);
+        self.quota.text = self.quota.text.take().or(text);
+        true
     }
 
     fn handle_system(&mut self, system: SystemLine) -> Vec<AgentEvent> {
@@ -193,6 +327,9 @@ impl Translator {
         // Die `usage` eines Subagenten gilt seinem eigenen Kontext, nicht dem Balken der Session.
         if let Some(parent) = line.parent_tool_use_id {
             return subagent_events(&parent, line.message.content);
+        }
+        if self.note_quota_line(&line) {
+            return Vec::new();
         }
         let mut events: Vec<AgentEvent> = Vec::new();
         if let Some(usage) = line.message.usage {
@@ -754,7 +891,7 @@ fn permission_question(tool: &str, input: &Value) -> Question {
     }
 }
 
-fn turn_ended(result: ResultLine) -> AgentEvent {
+fn turn_ended(result: ResultLine, quota_end: Option<TurnEnd>) -> AgentEvent {
     // Größtes Fenster statt „erster Eintrag“: `modelUsage` ist eine Map ohne Reihenfolge und
     // listet neben dem Hauptmodell auch Hilfsmodelle, deren Fenster kleiner sein kann.
     let context_window = result.model_usage.as_ref().and_then(|usage_by_model| {
@@ -765,6 +902,8 @@ fn turn_ended(result: ResultLine) -> AgentEvent {
     });
     let end = if result.terminal_reason.as_deref() == Some(ABORTED_REASON) {
         TurnEnd::Aborted
+    } else if let Some(end) = quota_end {
+        end
     } else if result.is_error {
         let message = result
             .result

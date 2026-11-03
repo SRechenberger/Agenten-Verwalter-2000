@@ -9,6 +9,7 @@ use crate::db::projects::{self as project_rows, ArchivedRow};
 use crate::db::sessions as session_rows;
 use crate::db::{Database, chat_entries, session_repositories};
 use crate::error::CommandError;
+use crate::notices::model::Notice;
 use crate::worktrees::SessionRepository;
 
 /// Vorhaben je Aufruf; die Oberfläche lädt weitere Seiten über `offset` nach.
@@ -126,7 +127,11 @@ fn searchable_text(entry: &ChatEntry) -> Option<&str> {
     match entry {
         ChatEntry::User { text, .. }
         | ChatEntry::Text { text, .. }
-        | ChatEntry::Error { text, .. } => Some(text),
+        | ChatEntry::Error { text, .. }
+        | ChatEntry::Notice {
+            notice: Notice::QuotaExhausted { text, .. },
+            ..
+        } => Some(text),
         ChatEntry::Question { answer, .. } => answer.as_deref(),
         ChatEntry::Thinking { .. }
         | ChatEntry::Tool { .. }

@@ -106,6 +106,7 @@ export function NoticeBlock({
       );
     }
     case 'info':
+    case 'quotaExhausted':
       return (
         <NoticeLine
           variant="info"
