@@ -1,6 +1,6 @@
 [package]
 name = "verwalter"
-version = "0.45.0"
+version = "0.46.0"
 description = "A Tauri App"
 authors = ["you"]
 edition = "2024"
@@ -37,6 +37,7 @@ regex = "1"
 globset = "0.4"
 ignore = "0.4"
 html2text = "0.17.1"
+jiff = "0.2"
 
 [dev-dependencies]
 hound = "3"

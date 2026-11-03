@@ -1,6 +1,7 @@
 //! Kontingent des Abos der Betriebsart (Claude oder Codex): Zwischenspeicher und Abruf über einen
 //! Hilfsprozess.
 pub mod model;
+pub mod reset_text;
 
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::thread;
