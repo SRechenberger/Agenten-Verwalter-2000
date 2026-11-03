@@ -26,6 +26,7 @@ pub mod prompt_cache;
 pub mod repositories;
 pub mod retro;
 pub mod review;
+pub mod session_tools;
 pub mod sessions;
 pub mod settings;
 pub mod side;
@@ -94,6 +95,14 @@ pub fn run() {
                 }
                 Err(error) => eprintln!("MCP-Zugang nicht gestartet: {error}"),
             }
+            // Ohne Server starten die Agenten ohne Session-Werkzeuge.
+            match session_tools::tools::start(app.handle().clone()) {
+                Ok(server) => {
+                    app.manage(server);
+                }
+                Err(error) => eprintln!("Server für Session-Werkzeuge nicht gestartet: {error}"),
+            }
+            SessionRegistry::deliver_inbox_on_start(app.handle().clone());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -102,6 +111,7 @@ pub fn run() {
             commands::projects::project_create,
             commands::projects::project_rename,
             commands::projects::project_set_auto_handoff,
+            commands::projects::project_set_self_release,
             commands::projects::project_add_repository,
             commands::projects::project_archive,
             commands::archive::archive_search,

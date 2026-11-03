@@ -3,6 +3,7 @@
 //! gibt es nur im Speicher, das Ergebnis auch in der Datenbank.
 use std::sync::Arc;
 use std::thread;
+use std::time::{Duration, Instant};
 
 use serde::de::DeserializeOwned;
 use tauri::{AppHandle, Emitter, Manager};
@@ -11,7 +12,10 @@ use super::{
     Outbox, PROJECT_CHANGED_EVENT, ProjectState, Session, SessionRegistry, SessionState, now_ms,
     project_not_found, update,
 };
-use crate::agents::claude::print::{HaikuRequest, PrintProgram, ask_haiku, print_program};
+use crate::agents::claude::print::{
+    HaikuRequest, PrintProgram, ask_haiku, ask_model, print_program,
+};
+use crate::agents::event::ModelId;
 use crate::db::projects as project_rows;
 use crate::db::tldr as tldr_rows;
 use crate::error::CommandError;
@@ -28,7 +32,8 @@ use crate::tldr::prompt::{
 use crate::tldr::transcript::{project_input, session_transcript};
 
 const TLDR_CHANGED_EVENT: &str = "tldr://changed";
-const NO_SESSION_HISTORY: &str = "Diese Session hat noch keinen Verlauf.";
+pub(super) const NO_SESSION_HISTORY: &str = "Diese Session hat noch keinen Verlauf.";
+const WAIT_POLL_INTERVAL: Duration = Duration::from_millis(250);
 const NO_PROJECT_HISTORY: &str = "Noch keine Session mit Verlauf.";
 
 impl SessionRegistry {
@@ -102,7 +107,14 @@ impl SessionRegistry {
         let spawned = thread::Builder::new()
             .name("tldr-session".to_owned())
             .spawn(move || {
-                run_session_tldr(&thread_app, &thread_session_id, &program, &transcript, seq);
+                run_session_tldr(
+                    &thread_app,
+                    &thread_session_id,
+                    &program,
+                    ModelId::Haiku,
+                    &transcript,
+                    seq,
+                );
             });
         if let Err(error) = spawned {
             let message = format!("TL;DR startet nicht: {error}");
@@ -115,6 +127,52 @@ impl SessionRegistry {
             return Err(CommandError::Internal(message));
         }
         Ok(())
+    }
+
+    /// Für ein Session-Werkzeug: blockiert bis zum Ergebnis. Ohne neue Einträge bleibt es beim
+    /// vorhandenen TL;DR (`true`). Sonst zählt der eigene oder der abgewartete Lauf (`false`), und
+    /// sein Scheitern ist ein Fehler.
+    pub(super) fn session_tldr_now(
+        &self,
+        app: &AppHandle,
+        session: &Arc<Session>,
+        model: ModelId,
+    ) -> Result<(SessionTldr, bool), String> {
+        let program = print_program(app).map_err(|error: CommandError| error.to_string())?;
+        let begun = {
+            let mut state = session
+                .lock_loaded()
+                .map_err(|error: CommandError| error.to_string())?;
+            if state.tldr_running {
+                None
+            } else {
+                if state.tldr_seq as usize == state.entries.len()
+                    && let Some(tldr) = &state.tldr
+                {
+                    return Ok((tldr.clone(), true));
+                }
+                Some(
+                    state
+                        .begin_tldr()
+                        .ok_or_else(|| NO_SESSION_HISTORY.to_owned())?,
+                )
+            }
+        };
+        if let Some((transcript, seq)) = begun {
+            emit_tldr_changed(app, &session.project_id, Some(&session.id));
+            run_session_tldr(app, &session.id, &program, model, &transcript, seq);
+        } else {
+            wait_for_tldr(session)?;
+        }
+        let state = session.lock();
+        if let Some(error) = state.tldr_error.clone() {
+            return Err(error);
+        }
+        let tldr = state
+            .tldr
+            .clone()
+            .ok_or_else(|| NO_SESSION_HISTORY.to_owned())?;
+        Ok((tldr, false))
     }
 
     /// Kehrt sofort zurück; erstellt im Hintergrund erst die fehlenden Session-TL;DRs, dann das
@@ -291,12 +349,14 @@ fn run_session_tldr(
     app: &AppHandle,
     session_id: &str,
     program: &PrintProgram,
+    model: ModelId,
     transcript: &str,
     seq: u32,
 ) {
     let outcome: Result<SessionTldr, String> = ask_tldr(
         app,
         program,
+        model,
         SESSION_SYSTEM_PROMPT,
         SESSION_SCHEMA,
         transcript,
@@ -337,6 +397,22 @@ fn run_session_tldr(
     emit_tldr_changed(app, &session.project_id, Some(&session.id));
 }
 
+/// Wartet höchstens `TLDR_TIMEOUT` auf den Lauf eines anderen Threads.
+/// ponytail: fragt alle 250 ms ab; ein Condvar an der Session lohnt erst, wenn viele warten.
+fn wait_for_tldr(session: &Session) -> Result<(), String> {
+    let started = Instant::now();
+    while session.lock().tldr_running {
+        if started.elapsed() >= TLDR_TIMEOUT {
+            return Err(format!(
+                "Das TL;DR kam nicht innerhalb von {} s.",
+                TLDR_TIMEOUT.as_secs()
+            ));
+        }
+        thread::sleep(WAIT_POLL_INTERVAL);
+    }
+    Ok(())
+}
+
 /// Nur ein automatisch entstandener Name wird ersetzt; ein Fehler beim Schreiben lässt den alten.
 fn retitle_session(app: &AppHandle, session: &Arc<Session>, title: &str) {
     let _ = update(
@@ -368,7 +444,7 @@ fn run_project_tldr(app: &AppHandle, project_id: &str, program: &PrintProgram) {
             continue;
         };
         emit_tldr_changed(app, project_id, Some(&member.id));
-        run_session_tldr(app, &member.id, program, &transcript, seq);
+        run_session_tldr(app, &member.id, program, ModelId::Haiku, &transcript, seq);
     }
     let sources: Vec<(u32, String, SessionStatus, SessionTldr)> = members
         .iter()
@@ -386,6 +462,7 @@ fn run_project_tldr(app: &AppHandle, project_id: &str, program: &PrintProgram) {
         ask_tldr(
             app,
             program,
+            ModelId::Haiku,
             PROJECT_SYSTEM_PROMPT,
             PROJECT_SCHEMA,
             &project_input(&sources),
@@ -418,10 +495,11 @@ fn begin_missing_tldr(app: &AppHandle, session: &Session) -> Option<(String, u32
     state.begin_tldr()
 }
 
-/// Der Einmal-Aufruf von Haiku für ein TL;DR.
+/// Der Einmal-Aufruf für ein TL;DR.
 fn ask_tldr<T: DeserializeOwned>(
     app: &AppHandle,
     program: &PrintProgram,
+    model: ModelId,
     system_prompt: &str,
     json_schema: &str,
     input: &str,
@@ -432,7 +510,7 @@ fn ask_tldr<T: DeserializeOwned>(
         input,
         timeout: TLDR_TIMEOUT,
     };
-    ask_haiku(app, program, &request)
+    ask_model(app, program, model, &request)
 }
 
 fn tldr_json<T: serde::Serialize>(tldr: &T) -> Result<String, CommandError> {

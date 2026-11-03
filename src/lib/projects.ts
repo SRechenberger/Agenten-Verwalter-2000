@@ -5,6 +5,7 @@ import type { Mode } from '@/lib/bindings/Mode';
 import type { ModelId } from '@/lib/bindings/ModelId';
 import type { ProjectCreated } from '@/lib/bindings/ProjectCreated';
 import type { ProjectSummary } from '@/lib/bindings/ProjectSummary';
+import type { SelfRelease } from '@/lib/bindings/SelfRelease';
 
 const PROJECT_CHANGED_EVENT = 'project://changed';
 
@@ -49,6 +50,15 @@ export async function renameProject(projectId: string, name: string): Promise<vo
  *  @throws {import('@/lib/bindings/CommandError').CommandError} `internal` (unbekanntes Vorhaben) */
 export async function setProjectAutoHandoff(projectId: string, enabled: boolean): Promise<void> {
   await invoke('project_set_auto_handoff', { projectId, enabled });
+}
+
+/** Speichert die Selbstfreigabe des Vorhabens; gilt ab dem nächsten Aufruf eines Session-Werkzeugs.
+ *  @throws {import('@/lib/bindings/CommandError').CommandError} `internal` (unbekanntes Vorhaben) */
+export function setProjectSelfRelease(
+  projectId: string,
+  value: SelfRelease,
+): Promise<ProjectSummary> {
+  return invoke<ProjectSummary>('project_set_self_release', { projectId, value });
 }
 
 /** Hängt ein bekanntes Repository an alle Sessions des Vorhabens (Haupt-Checkout, Basis = letzter Commit vor dem

@@ -5,8 +5,10 @@ import type { Notice } from "./Notice";
 import type { Question } from "./Question";
 import type { QuestionKind } from "./QuestionKind";
 import type { ReviewComment } from "./ReviewComment";
+import type { SessionRef } from "./SessionRef";
 import type { SkillRef } from "./SkillRef";
 import type { TodoItem } from "./TodoItem";
+import type { ToolRequest } from "./ToolRequest";
 import type { ToolState } from "./ToolState";
 
 /**
@@ -42,4 +44,12 @@ file: string,
 /**
  * Einträge von vorher haben das Feld nicht; sie waren alle HTML.
  */
-artifactKind: ArtifactKind, } | { "kind": "question", seq: number, requestId: string, questionKind: QuestionKind, questions: Array<Question>, answer: string | null, } | { "kind": "error", seq: number, title: string, text: string, } | { "kind": "notice", seq: number, notice: Notice, };
+artifactKind: ArtifactKind, } | { "kind": "question", seq: number, requestId: string, questionKind: QuestionKind, questions: Array<Question>, answer: string | null, 
+/**
+ * Nur bei `QuestionKind::SessionTool`; Einträge von vorher haben das Feld nicht.
+ */
+toolRequest: ToolRequest | null, 
+/**
+ * Allein die Kettenbremse hat den Kasten erzwungen; Einträge von vorher haben das Feld nicht.
+ */
+chainLimited: boolean, } | { "kind": "sessionMessage", seq: number, text: string, sentAt: number, sender: SessionRef, } | { "kind": "error", seq: number, title: string, text: string, } | { "kind": "notice", seq: number, notice: Notice, };

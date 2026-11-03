@@ -40,6 +40,8 @@ interface SessionsState {
   /** Vorhaben-ID → alle Sessions gezeigt statt nur der zuletzt aktiven; fehlt ein Eintrag, kürzt die Sidebar. */
   showAllSessions: Record<string, boolean>;
   selectSession: (sessionId: string) => void;
+  /** Merkt sich die gezeigte Session; anders als `selectSession` bleibt eine offene Seite offen. */
+  holdSession: (sessionId: string) => void;
   selectProject: (projectId: string) => void;
   showView: (view: SessionView) => void;
   showProjectView: (view: ProjectView) => void;
@@ -73,6 +75,9 @@ export const useSessionsStore = create<SessionsState>((set) => ({
       showSettings: false,
       showProjectOverview: false,
     });
+  },
+  holdSession: (sessionId: string): void => {
+    set({ activeSessionId: sessionId });
   },
   selectProject: (projectId: string): void => {
     set({

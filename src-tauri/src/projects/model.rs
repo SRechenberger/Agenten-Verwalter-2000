@@ -2,6 +2,7 @@
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
+use crate::session_tools::model::SelfRelease;
 use crate::sessions::model::SessionSummary;
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
@@ -14,6 +15,7 @@ pub struct ProjectSummary {
     pub repository_names: Vec<String>,
     /// „Automatisch weiter“ ist an (ADR 040).
     pub auto_handoff: bool,
+    pub self_release: SelfRelease,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]

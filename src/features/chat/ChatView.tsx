@@ -9,6 +9,7 @@ import { SessionTldrCard } from '@/features/tldr/SessionTldrCard';
 import type { ArtifactList } from '@/lib/bindings/ArtifactList';
 import type { BackgroundItem } from '@/lib/bindings/BackgroundItem';
 import type { ChatEntry } from '@/lib/bindings/ChatEntry';
+import type { SelfRelease } from '@/lib/bindings/SelfRelease';
 import type { SessionStatus } from '@/lib/bindings/SessionStatus';
 import type { SessionSummary } from '@/lib/bindings/SessionSummary';
 import { commandErrorText } from '@/lib/errors';
@@ -28,6 +29,10 @@ interface ChatViewProps {
   onSessionCreated: (created: SessionSummary) => void;
   /** „Automatisch weiter“ des Vorhabens (ADR 040). */
   autoHandoff: boolean;
+  /** Selbstfreigabe des Vorhabens; `null`, solange es nicht geladen ist. */
+  selfRelease: SelfRelease | null;
+  /** Alle Sessions; der Absender einer Session-Nachricht kann fehlen. */
+  sessions: readonly SessionSummary[];
   /** Name der Eltern-Session von `session`; `null`, wenn es keine gibt. */
   parentName: string | null;
 }
@@ -48,6 +53,8 @@ export function ChatView({
   artifacts,
   onSessionCreated,
   autoHandoff,
+  selfRelease,
+  sessions,
   parentName,
 }: ChatViewProps): ReactElement {
   const { entries, hasMore, loadingOlder, loadError, olderError, loadOlder } = useChatEntries(
@@ -144,6 +151,8 @@ export function ChatView({
         onLoadOlder={loadOlder}
         onSessionCreated={onSessionCreated}
         autoHandoff={autoHandoff}
+        selfRelease={selfRelease}
+        sessions={sessions}
         parentName={parentName}
         topInset={topInset}
         bottomInset={bottomInset}

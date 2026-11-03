@@ -4,6 +4,7 @@ import type { Effort } from "./Effort";
 import type { Mode } from "./Mode";
 import type { ModelId } from "./ModelId";
 import type { OperatingMode } from "./OperatingMode";
+import type { SelfRelease } from "./SelfRelease";
 
 /**
  * Werte, die für die ganze App gelten. Modell, Modus und Denkaufwand gelten für die erste Session
@@ -21,4 +22,8 @@ defaultCodexModel: string | null,
 /**
  * Ob der Verlauf Angaben ohne Fundstelle unterstreicht (ADR 036); der Core ermittelt sie immer.
  */
-markUnsourced: boolean, };
+markUnsourced: boolean, 
+/**
+ * Selbstfreigabe, die ein neues Vorhaben übernimmt; bestehende bleiben unverändert.
+ */
+defaultSelfRelease: SelfRelease, };

@@ -4,6 +4,7 @@
 use serde_json::Value;
 
 use crate::mcp::model::{McpServer, McpServerStatus};
+use crate::session_tools::server::SERVER_NAME;
 
 /// Antwort auf `mcp_authenticate`.
 pub struct McpAuthAnswer {
@@ -32,9 +33,13 @@ pub fn mcp_servers(body: &Value) -> Option<Vec<McpServer>> {
     Some(servers.iter().filter_map(server).collect())
 }
 
-/// Ein Eintrag ohne `name` fällt weg.
+/// Ein Eintrag ohne `name` fällt weg, der Server des Verwalters selbst auch: Er ist kein Server des
+/// Nutzers und lässt sich dort weder anmelden noch abschalten.
 fn server(raw: &Value) -> Option<McpServer> {
     let name = raw.get("name")?.as_str()?.to_owned();
+    if name == SERVER_NAME {
+        return None;
+    }
     let status = raw
         .get("status")
         .and_then(Value::as_str)

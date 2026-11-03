@@ -13,6 +13,7 @@ use crate::agents::claude::side::{SideAnswer, SideRequest, run_side};
 use crate::background::scratchpad;
 use crate::error::CommandError;
 use crate::mcp_access::McpAccess;
+use crate::session_tools::server::{ProcessKind, ToolServer};
 use crate::settings::model::OperatingMode;
 use crate::side::model::{SideChangedEvent, SideQuestion, SideState, SideUsage};
 use crate::side::{MAX_QUESTIONS, MAX_RUNNING, TIMEOUT_CLAUDE, TIMEOUT_LOCAL, clip_quote, prompt};
@@ -125,6 +126,9 @@ impl SessionRegistry {
                     chrome,
                     codex_exe: None,
                     verwalter_mcp,
+                    tool_access: app
+                        .try_state::<ToolServer>()
+                        .map(|server| server.access(&session.id, ProcessKind::Side)),
                 },
                 prompt: prompt(question, quote.as_deref()),
                 timeout,

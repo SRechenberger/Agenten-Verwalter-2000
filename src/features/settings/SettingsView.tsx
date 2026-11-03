@@ -21,6 +21,7 @@ import { ColorSchemeSegment } from '@/features/settings/ColorSchemeSegment';
 import { LocalModelMenu } from '@/features/settings/LocalModelMenu';
 import { OperatingModeSegment } from '@/features/settings/OperatingModeSegment';
 import { SelectButton } from '@/features/settings/SelectButton';
+import { SelfReleaseSettings } from '@/features/settings/SelfReleaseSettings';
 import { SettingRow } from '@/features/settings/SettingRow';
 import { useLocalModels } from '@/features/settings/useLocalModels';
 import { useSettingsUpdate } from '@/features/settings/useSettingsUpdate';
@@ -30,6 +31,7 @@ import type { KnownRepository } from '@/lib/bindings/KnownRepository';
 import type { Mode } from '@/lib/bindings/Mode';
 import type { ModelId } from '@/lib/bindings/ModelId';
 import type { OperatingMode } from '@/lib/bindings/OperatingMode';
+import type { SelfRelease } from '@/lib/bindings/SelfRelease';
 import type { SessionSummary } from '@/lib/bindings/SessionSummary';
 import type { Settings } from '@/lib/bindings/Settings';
 import type { SettingsOverview } from '@/lib/bindings/SettingsOverview';
@@ -42,6 +44,7 @@ import {
   modeOption,
   modelName,
 } from '@/lib/labels';
+import { updateSettings } from '@/lib/settings';
 import { useSettingsStore } from '@/stores/settings';
 import './SettingsView.css';
 
@@ -66,6 +69,7 @@ export function SettingsView({
   const [openMenu, setOpenMenu] = useState<OpenMenu>(null);
   const [revealError, setRevealError] = useState<string | null>(null);
   const storedSettings: Settings | null = useSettingsStore((state) => state.settings);
+  const setSettings = useSettingsStore((state) => state.setSettings);
   const { repositories, isLoading: areRepositoriesLoading } = useKnownRepositories();
   const { save, error: saveError } = useSettingsUpdate();
 
@@ -327,6 +331,20 @@ export function SettingsView({
               }}
             />
           </SettingRow>
+        </section>
+        <section className="settings-view__section">
+          <h2 className="settings-view__section-title">Selbstfreigabe</h2>
+          <p className="settings-view__note">
+            Diese Werte gelten für neue Vorhaben; bestehende behalten ihre eigenen in der Übersicht.
+          </p>
+          <SelfReleaseSettings
+            value={current.defaultSelfRelease}
+            onSave={(next: SelfRelease): Promise<void> =>
+              // Ohne `save`: Der Fehler soll hier am Ort stehen, nicht oben auf der Seite.
+              updateSettings({ kind: 'defaultSelfRelease', value: next }).then(setSettings)
+            }
+            modelNote="Gilt für neue Vorhaben."
+          />
         </section>
         <section className="settings-view__section">
           <h2 className="settings-view__section-title">Skills</h2>

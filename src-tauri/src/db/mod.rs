@@ -10,6 +10,7 @@ pub mod projects;
 pub mod repositories;
 pub mod session_commits;
 pub mod session_files;
+pub mod session_inbox;
 pub mod session_repositories;
 pub mod session_ticket_worktrees;
 pub mod sessions;

@@ -127,6 +127,11 @@
     padding: var(--space-sm) var(--space-md);
     border: 1px solid var(--color-border-subtle);
     border-radius: var(--radius-lg);
+
+    /* Bedienelemente am rechten Rand wie beim Schalter darüber; in den Einstellungen bleibt das Raster. */
+    & .setting-row {
+      grid-template-columns: minmax(0, 1fr) auto;
+    }
   }
 
   &__error {

@@ -127,6 +127,7 @@ fn searchable_text(entry: &ChatEntry) -> Option<&str> {
     match entry {
         ChatEntry::User { text, .. }
         | ChatEntry::Text { text, .. }
+        | ChatEntry::SessionMessage { text, .. }
         | ChatEntry::Error { text, .. }
         | ChatEntry::Notice {
             notice: Notice::QuotaExhausted { text, .. },

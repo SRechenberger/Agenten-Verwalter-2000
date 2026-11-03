@@ -1,7 +1,13 @@
 //! Tabelle `projects`: eine Zeile je Vorhaben; seine Sessions verweisen über `sessions.project_id`.
-use rusqlite::{Connection, OptionalExtension, params};
+use rusqlite::{Connection, OptionalExtension, Row, params};
 
+use crate::agents::event::ModelId;
+use crate::db::{enum_from_text, enum_to_text};
 use crate::error::CommandError;
+use crate::session_tools::model::SelfRelease;
+
+const COLUMNS: &str = "id, name, created_at, tldr, tldr_at, tldr_sources, name_auto, auto_handoff, \
+     self_release_messages, self_release_tldr, self_release_open_session, self_release_tldr_model";
 
 #[derive(Debug, Clone)]
 pub struct ProjectRow {
@@ -16,35 +22,56 @@ pub struct ProjectRow {
     pub name_auto: bool,
     /// „Automatisch weiter“ ist an (ADR 040).
     pub auto_handoff: bool,
+    pub self_release: SelfRelease,
 }
 
 pub fn insert(connection: &Connection, row: &ProjectRow) -> Result<(), CommandError> {
     connection.execute(
-        "INSERT INTO projects (id, name, created_at, name_auto) VALUES (?1, ?2, ?3, ?4)",
-        params![row.id, row.name, row.created_at, row.name_auto],
+        "INSERT INTO projects (id, name, created_at, name_auto, self_release_messages, \
+         self_release_tldr, self_release_open_session, self_release_tldr_model) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+        params![
+            row.id,
+            row.name,
+            row.created_at,
+            row.name_auto,
+            row.self_release.messages,
+            row.self_release.tldr,
+            row.self_release.open_session,
+            enum_to_text(&row.self_release.tldr_model)?,
+        ],
     )?;
     Ok(())
 }
 
+/// Ein unlesbares Modell gilt als Standard.
+fn read_row(row: &Row<'_>) -> rusqlite::Result<ProjectRow> {
+    let tldr_model: String = row.get(11)?;
+    Ok(ProjectRow {
+        id: row.get(0)?,
+        name: row.get(1)?,
+        created_at: row.get(2)?,
+        tldr: row.get(3)?,
+        tldr_at: row.get(4)?,
+        tldr_sources: row.get(5)?,
+        name_auto: row.get(6)?,
+        auto_handoff: row.get(7)?,
+        self_release: SelfRelease {
+            messages: row.get(8)?,
+            tldr: row.get(9)?,
+            open_session: row.get(10)?,
+            tldr_model: enum_from_text::<ModelId>(&tldr_model).unwrap_or(ModelId::Haiku),
+        },
+    })
+}
+
 /// Alle nicht archivierten Vorhaben, neueste zuerst.
 pub fn load_active(connection: &Connection) -> Result<Vec<ProjectRow>, CommandError> {
-    let mut statement = connection.prepare(
-        "SELECT id, name, created_at, tldr, tldr_at, tldr_sources, name_auto, auto_handoff \
-         FROM projects WHERE archived_at IS NULL ORDER BY created_at DESC",
-    )?;
+    let mut statement = connection.prepare(&format!(
+        "SELECT {COLUMNS} FROM projects WHERE archived_at IS NULL ORDER BY created_at DESC"
+    ))?;
     let rows = statement
-        .query_map([], |row| {
-            Ok(ProjectRow {
-                id: row.get(0)?,
-                name: row.get(1)?,
-                created_at: row.get(2)?,
-                tldr: row.get(3)?,
-                tldr_at: row.get(4)?,
-                tldr_sources: row.get(5)?,
-                name_auto: row.get(6)?,
-                auto_handoff: row.get(7)?,
-            })
-        })?
+        .query_map([], read_row)?
         .collect::<rusqlite::Result<Vec<ProjectRow>>>()?;
     Ok(rows)
 }
@@ -53,21 +80,9 @@ pub fn load_active(connection: &Connection) -> Result<Vec<ProjectRow>, CommandEr
 pub fn load_one(connection: &Connection, id: &str) -> Result<Option<ProjectRow>, CommandError> {
     let row = connection
         .query_row(
-            "SELECT id, name, created_at, tldr, tldr_at, tldr_sources, name_auto, auto_handoff \
-             FROM projects WHERE id = ?1",
+            &format!("SELECT {COLUMNS} FROM projects WHERE id = ?1"),
             params![id],
-            |row| {
-                Ok(ProjectRow {
-                    id: row.get(0)?,
-                    name: row.get(1)?,
-                    created_at: row.get(2)?,
-                    tldr: row.get(3)?,
-                    tldr_at: row.get(4)?,
-                    tldr_sources: row.get(5)?,
-                    name_auto: row.get(6)?,
-                    auto_handoff: row.get(7)?,
-                })
-            },
+            read_row,
         )
         .optional()?;
     Ok(row)
@@ -124,6 +139,25 @@ pub fn set_auto_handoff(
     connection.execute(
         "UPDATE projects SET auto_handoff = ?2 WHERE id = ?1",
         params![id, enabled],
+    )?;
+    Ok(())
+}
+
+pub fn set_self_release(
+    connection: &Connection,
+    id: &str,
+    value: &SelfRelease,
+) -> Result<(), CommandError> {
+    connection.execute(
+        "UPDATE projects SET self_release_messages = ?2, self_release_tldr = ?3, \
+         self_release_open_session = ?4, self_release_tldr_model = ?5 WHERE id = ?1",
+        params![
+            id,
+            value.messages,
+            value.tldr,
+            value.open_session,
+            enum_to_text(&value.tldr_model)?,
+        ],
     )?;
     Ok(())
 }

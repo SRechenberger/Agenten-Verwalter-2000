@@ -4,7 +4,7 @@
 //! Oberfläche und Zeilen an den Prozess gehen erst nach dem Freigeben der Sperre hinaus. Ein
 //! Schreiben in die Pipe unter der Sperre könnte sich mit dem Lese-Thread verklemmen — der
 //! Agent blockiert auf einer vollen Ausgabe-Pipe, der Lese-Thread wartet auf die Sperre.
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError, RwLock};
@@ -26,7 +26,8 @@ use crate::agents::claude::translate::Translator;
 use crate::agents::codex::{self, find_codex};
 use crate::agents::event::{
     AgentEvent, Attachment, ChatEntry, Effort, Mode, ModelId, Question, QuestionAnswer,
-    QuestionKind, RateLimitInfo, TaskEnd, TaskKind, TodoItem, ToolDetail, ToolState, TurnEnd,
+    QuestionKind, RateLimitInfo, SessionRef, TaskEnd, TaskKind, TodoItem, ToolDetail, ToolState,
+    TurnEnd,
 };
 use crate::agents::standalone;
 use crate::attachments;
@@ -64,6 +65,8 @@ use crate::review::{
     self,
     model::{CommentTarget, ReviewComment},
 };
+use crate::session_tools::model::SelfRelease;
+use crate::session_tools::server::{ProcessKind, ToolServer};
 use crate::sessions::auto_handoff::{
     self, AUTO_HANDOFF_CHAIN_LIMIT, AUTO_HANDOFF_DELAY, FollowUp, ScheduledHandoff,
 };
@@ -88,6 +91,7 @@ mod mcp;
 mod overlaps;
 mod restore;
 mod retro;
+mod session_tools;
 mod side;
 mod tldr;
 
@@ -134,6 +138,7 @@ struct ProjectState {
     name_auto: bool,
     /// „Automatisch weiter“ ist an (ADR 040).
     auto_handoff: bool,
+    self_release: SelfRelease,
     created_at: f64,
     tldr: Option<ProjectTldr>,
     tldr_at: Option<f64>,
@@ -152,6 +157,7 @@ impl ProjectState {
             name,
             name_auto: false,
             auto_handoff: false,
+            self_release: SelfRelease::OFF,
             created_at,
             tldr: None,
             tldr_at: None,
@@ -167,6 +173,7 @@ impl ProjectState {
         let mut state = ProjectState::new(row.name.clone(), row.created_at);
         state.name_auto = row.name_auto;
         state.auto_handoff = row.auto_handoff;
+        state.self_release = row.self_release;
         state.tldr = row
             .tldr
             .as_deref()
@@ -199,6 +206,8 @@ struct PendingRequest {
     /// Die Eingabe des Werkzeugs: die Antwort schickt sie als `updatedInput` zurück.
     input: Value,
     seq: u32,
+    /// Nur bei `QuestionKind::SessionTool`; die Antwort geht über dessen Kanal statt an den Agenten.
+    tool: Option<session_tools::PendingTool>,
 }
 
 struct SessionState {
@@ -249,6 +258,8 @@ struct SessionState {
     auto_chain: u32,
     /// Begründung von `Paused` (ADR 051); nur im Speicher, gesetzt nur zusammen mit `Paused`.
     pause_reason: Option<PauseReason>,
+    /// `tool_use`-IDs der Session-Werkzeuge, die `gate` schon gesehen hat. Nur im Speicher.
+    seen_tool_uses: HashSet<String>,
     /// Eltern-Session im selben Vorhaben, an die „Zurück an …“ sendet; gespeichert, ohne
     /// Fremdschlüssel. Nur `create_in_project` setzt sie.
     parent_session_id: Option<String>,
@@ -349,6 +360,29 @@ pub struct NewSession<'a> {
     pub codex_model: Option<String>,
     pub effort: Effort,
     pub mode: Mode,
+}
+
+/// Was `start_turn` vor der Session-Sperre braucht (`prepare_turn`).
+struct TurnInput {
+    /// Als Text, weil eine offene Rückfrage sich auch ohne LM Studio beantworten lässt.
+    backend: Result<(OperatingMode, Option<LocalBackend>), String>,
+    /// Die Nachricht mit dem Stand des Vorhabens.
+    carried: Option<String>,
+    overlap: Option<SessionOverlap>,
+}
+
+/// Wer eine Antwort des Agenten auslöst. Eine Nachricht einer Session lässt `seen_at` und
+/// `auto_chain` stehen und hat weder Anhänge noch Kommentare.
+enum TurnOrigin<'a> {
+    User {
+        attachment_ids: &'a [String],
+        comments: &'a [ReviewComment],
+        folders: &'a [Option<PathBuf>],
+        skill: Option<SkillRef>,
+    },
+    Session {
+        sender: &'a SessionRef,
+    },
 }
 
 /// Was nach dem Freigeben der Sperre hinausgeht.
@@ -483,6 +517,7 @@ impl SessionRegistry {
         } = request;
         // Vor dem Workspace: ein Fehler (LM Studio aus) lässt nichts zurück.
         let (operating_mode, backend) = self.agent_backend()?;
+        let default_self_release = settings::load(&self.database)?.default_self_release;
         if operating_mode == OperatingMode::Codex {
             find_codex().ok_or(CommandError::CodexNotFound)?;
         } else if !is_standalone(backend.as_ref()) {
@@ -520,6 +555,7 @@ impl SessionRegistry {
         state.ticket_roots = worktrees::ticket_roots(&repositories);
         let mut project = ProjectState::new(name, state.created_at);
         project.name_auto = true;
+        project.self_release = default_self_release;
         let session = Arc::new(Session {
             id: id.clone(),
             project_id: project_id.clone(),
@@ -540,6 +576,7 @@ impl SessionRegistry {
             tldr_sources: None,
             name_auto: true,
             auto_handoff: false,
+            self_release: default_self_release,
         };
         let saved = self.database.with(|connection| {
             project_rows::insert(connection, &project_row)?;
@@ -645,17 +682,36 @@ impl SessionRegistry {
                 state.mode,
             )
         };
-        let number = latest.number + 1;
-        let id = uuid::Uuid::new_v4().to_string();
-        let mut state = SessionState::new(format!("Session {number}"), model, effort, mode);
-        state.codex_model = codex_model;
-        state.status = SessionStatus::New;
-        state.parent_session_id = parent;
+        let session = self.insert_new_session(project_id, |number: u32| {
+            let mut state = SessionState::new(format!("Session {number}"), model, effort, mode);
+            state.codex_model = codex_model;
+            state.status = SessionStatus::New;
+            state.parent_session_id = parent;
+            state
+        })?;
+        let summary = summarize(&session, &session.lock());
+        Ok(summary)
+    }
+
+    /// Legt eine Session im Vorhaben an, mit Workspace und Repositories der Session mit der höchsten
+    /// Nummer; `build` bekommt ihre Nummer. Zwei gleichzeitige Aufrufe bekommen verschiedene Nummern.
+    fn insert_new_session(
+        &self,
+        project_id: &str,
+        build: impl FnOnce(u32) -> SessionState,
+    ) -> Result<Arc<Session>, CommandError> {
         // Die Vorhaben-Sperre hält ein gleichzeitiges `add_repository` an, bis die neue Session in
         // der Map steht — sonst verpasste sie das angehängte Repository. Die Sperre der neuen
         // Session (`row_of`) darunter kann sich nicht verklemmen: solange sie in keiner Map steht,
         // kennt sie niemand sonst.
         let projects = self.lock_projects();
+        let members = self.project_members(project_id);
+        let Some(latest) = members.last() else {
+            return Err(project_not_found(project_id));
+        };
+        let number = latest.number + 1;
+        let id = uuid::Uuid::new_v4().to_string();
+        let mut state = build(number);
         let repositories = latest.repositories();
         state.ticket_roots = worktrees::ticket_roots(&repositories);
         let session = Arc::new(Session {
@@ -681,8 +737,7 @@ impl SessionRegistry {
         }
         self.lock_sessions().insert(id, Arc::clone(&session));
         drop(projects);
-        let summary = summarize(&session, &session.lock());
-        Ok(summary)
+        Ok(session)
     }
 
     /// Rückbau eines Vorhabens, dessen Anlegen gescheitert ist. Die Zeilen einer nie gestarteten
@@ -700,7 +755,7 @@ impl SessionRegistry {
 
     /// Unbekanntes Vorhaben → Fehler.
     pub fn project_summary(&self, project_id: &str) -> Result<ProjectSummary, CommandError> {
-        let (name, created_at, auto_handoff) = {
+        let (name, created_at, auto_handoff, self_release) = {
             let projects = self.lock_projects();
             let project = projects
                 .get(project_id)
@@ -709,6 +764,7 @@ impl SessionRegistry {
                 project.name.clone(),
                 project.created_at,
                 project.auto_handoff,
+                project.self_release,
             )
         };
         Ok(ProjectSummary {
@@ -717,6 +773,7 @@ impl SessionRegistry {
             created_at,
             repository_names: self.project_repository_names(project_id),
             auto_handoff,
+            self_release,
         })
     }
 
@@ -819,12 +876,7 @@ impl SessionRegistry {
         let parent: Arc<Session> = self.get(&parent_id).ok()?;
         let rests: bool = parent
             .lock_loaded()
-            .is_ok_and(|state: MutexGuard<'_, SessionState>| {
-                state.status == SessionStatus::Completed
-                    && state.pending.is_empty()
-                    && !state.is_awaiting_subagent()
-                    && state.awaited_script().is_none()
-            });
+            .is_ok_and(|state: MutexGuard<'_, SessionState>| state.rests());
         Some((parent_id, rests))
     }
 
@@ -1190,25 +1242,14 @@ impl SessionRegistry {
         comments: &[ReviewComment],
     ) -> Result<(), CommandError> {
         let session = self.get(session_id)?;
-        // Vor `update`: die Abfrage bei LM Studio gehört nicht unter die Session-Sperre.
-        let backend_result: Result<(OperatingMode, Option<LocalBackend>), String> = self
-            .agent_backend()
-            .map_err(|error: CommandError| error.to_string());
         review::validate(comments)?;
+        let input = self.prepare_turn(&session, text);
         // Dateizugriffe gehören nicht unter die Session-Sperre.
         let skill: Option<SkillRef> = skills::match_invocation(
             text,
-            &skills::collect(&home_dir(app)?, &self.skill_roots(session_id)?),
+            &skills::collect(&home_dir(app)?, &self.skill_roots(&session.id)?),
         );
         let folders: Vec<Option<PathBuf>> = self.comment_folders(session_id, comments);
-        // Vor `update` gelesen: Vorhaben- und Session-Sperre nie zugleich.
-        let carried: Option<String> = self
-            .lock_projects()
-            .get(&session.project_id)
-            .and_then(|project: &ProjectState| project.tldr.as_ref())
-            .map(|tldr: &ProjectTldr| with_project_tldr(text, tldr));
-        // Vor `update`: liest Sessions und Datenbank, beides nie unter der Session-Sperre.
-        let overlap: Option<SessionOverlap> = self.overlap_of(session_id);
         // Gesetzt, wenn dieses Senden der Session ihren ersten Namen gibt.
         let mut titled = false;
         let sent = update(
@@ -1235,109 +1276,47 @@ impl SessionRegistry {
                     state.push_user(outbox, text, Vec::new(), skill, Vec::new());
                     return Ok(());
                 }
-                // Erst nach dem Zweig für Rückfragen: eine offene Rückfrage lässt sich auch dann
-                // beantworten, wenn LM Studio gerade aus ist.
-                let (operating_mode, backend) = backend_result
-                    .clone()
-                    .map_err(CommandError::LocalModelUnavailable)?;
-                // Ohne Prozess (wiederhergestellte oder neue Session) startet der Agent hier, mit dem
-                // bisherigen Verlauf. Ein angehängtes Repository, ein Wechsel der Betriebsart oder
-                // ein umgelegter Browser-Zugriff startet ihn nur neu, wenn er ruht — ein arbeitender
-                // Agent wird nie unterbrochen.
-                let has_new_repository =
-                    session.repositories().len() != state.process_repository_count;
-                let has_new_backend =
-                    state.process_backend != backend || state.process_mode != operating_mode;
-                let has_new_chrome = state.chrome != state.process_chrome;
-                if state.process.is_none()
-                    || state.effort != state.process_effort
-                    || ((has_new_repository || has_new_backend || has_new_chrome)
-                        && state.is_resting())
-                {
-                    start_process(
-                        app,
-                        &session,
-                        state,
-                        outbox,
-                        operating_mode,
-                        backend.as_ref(),
-                    )?;
-                }
-                // Unter der Session-Sperre zulässig: verschiebt nur lokale Dateien, schreibt nicht in die Pipe.
-                let sent_attachments =
-                    attachments::take_for_workspace(app, attachment_ids, &session.workspace)?;
-                let mut comments = comments.to_vec();
-                let mut extra_attachments: Vec<Attachment> = Vec::new();
-                for comment in &mut comments {
-                    let CommentTarget::Image {
-                        attachment_id,
-                        path,
-                        ..
-                    } = &mut comment.target
-                    else {
-                        continue;
-                    };
-                    if let Some(attachment) = sent_attachments
-                        .iter()
-                        .find(|attachment: &&Attachment| attachment.id == *attachment_id)
-                    {
-                        *path = attachment.path.clone();
-                        continue;
-                    }
-                    let attachment = attachments::reattach(Path::new(path), &session.workspace)?;
-                    *path = attachment.path.clone();
-                    if !sent_attachments
-                        .iter()
-                        .chain(extra_attachments.iter())
-                        .any(|existing: &Attachment| existing.path == attachment.path)
-                    {
-                        extra_attachments.push(attachment);
-                    }
-                }
-                let mut agent_attachments = sent_attachments.clone();
-                agent_attachments.extend(extra_attachments);
-                // Der Chat zeigt die Nachricht so, wie sie an den Agenten geht.
-                let sent_text: &str = match &carried {
-                    Some(with_tldr)
-                        if state.status == SessionStatus::New && state.carries_project_tldr =>
-                    {
-                        with_tldr
-                    }
-                    _ => text,
-                };
-                let mut agent_text = review::agent_text(sent_text, &comments, &folders);
-                // Der Satz geht nur an den Agenten, nicht in den Chat, und nur bei neuer Lage.
-                if let Some(found) = overlap.as_ref().filter(|found: &&SessionOverlap| {
-                    state.last_overlap_key.as_deref() != Some(found.key.as_str())
-                }) {
-                    agent_text.push_str("\n\n");
-                    agent_text.push_str(&overlaps::overlap_hint(found));
-                }
-                let line = message_line(&agent_text, &agent_attachments)?;
-                state.last_overlap_key = overlap
-                    .as_ref()
-                    .map(|found: &SessionOverlap| found.key.clone());
-                // Erst nach allen Schritten, die scheitern können: ein Fehlstart lässt den Namen
-                // stehen. Der Name kommt aus dem getippten Text, nicht aus dem Stand des Vorhabens.
-                if state.status == SessionStatus::New
-                    && state.name == format!("Session {}", session.number)
-                {
-                    state.name = name_from_task(text);
-                    state.name_auto = true;
-                    titled = true;
-                    outbox.summary_dirty = true;
-                }
-                state.begin_sourcing(&agent_text);
-                state.push_user(outbox, sent_text, sent_attachments, skill, comments);
-                state.pause_reason = None;
-                state.set_status(outbox, SessionStatus::Running);
-                outbox.write(state, line)
+                titled = start_turn(
+                    app,
+                    &session,
+                    state,
+                    outbox,
+                    input,
+                    text,
+                    TurnOrigin::User {
+                        attachment_ids,
+                        comments,
+                        folders: &folders,
+                        skill,
+                    },
+                )?;
+                Ok(())
             },
         );
         if titled && sent.is_ok() {
             self.start_auto_title(app, session_id, text);
         }
         sent
+    }
+
+    /// Alles für `start_turn`, was nicht unter die Session-Sperre gehört: die Abfrage bei LM Studio,
+    /// (Vorhaben- und Session-Sperre nie zugleich) das TL;DR des Vorhabens und die Überschneidung, die
+    /// Sessions und Datenbank liest.
+    fn prepare_turn(&self, session: &Session, text: &str) -> TurnInput {
+        let backend = self
+            .agent_backend()
+            .map_err(|error: CommandError| error.to_string());
+        let carried: Option<String> = self
+            .lock_projects()
+            .get(&session.project_id)
+            .and_then(|project: &ProjectState| project.tldr.as_ref())
+            .map(|tldr: &ProjectTldr| with_project_tldr(text, tldr));
+        let overlap: Option<SessionOverlap> = self.overlap_of(&session.id);
+        TurnInput {
+            backend,
+            carried,
+            overlap,
+        }
     }
 
     pub fn answer(
@@ -2311,6 +2290,7 @@ impl SessionState {
             auto_handoff_token: 0,
             auto_chain: 0,
             pause_reason: None,
+            seen_tool_uses: HashSet::new(),
             parent_session_id: None,
             seen_at: now,
             is_viewed: false,
@@ -2700,6 +2680,15 @@ impl SessionState {
         })
     }
 
+    /// Abgeschlossen, ohne offene Rückfrage, ohne laufenden Subagent oder Skript: Eine neue Eingabe
+    /// unterbricht nichts und beantwortet nichts.
+    fn rests(&self) -> bool {
+        self.status == SessionStatus::Completed
+            && self.pending.is_empty()
+            && !self.is_awaiting_subagent()
+            && self.awaited_script().is_none()
+    }
+
     fn has_running_background(&self) -> bool {
         self.background.iter().any(BackgroundItem::is_running)
     }
@@ -2836,14 +2825,60 @@ impl SessionState {
             skill,
             comments,
         });
+        self.note_input(outbox);
+        self.auto_chain = 0;
+        // Wer sendet, hat die Session gesehen.
+        self.seen_at = self.last_activity_at;
+    }
+
+    /// Ohne die Folgen für `seen_at` und `auto_chain`: Das Ziel bleibt ungelesen, die Kettenbremse
+    /// zählt weiter.
+    fn push_session_message(&mut self, outbox: &mut Outbox, text: &str, sender: &SessionRef) {
+        let sent_at = now_ms();
+        self.push_entry(outbox, |seq: u32| ChatEntry::SessionMessage {
+            seq,
+            text: text.to_owned(),
+            sent_at,
+            sender: sender.clone(),
+        });
+        self.note_input(outbox);
+    }
+
+    /// Eine neue Eingabe ist da: Einstiegszeilen und Automatik der letzten Antwort gelten nicht mehr.
+    fn note_input(&mut self, outbox: &mut Outbox) {
         self.touch_activity(outbox);
         self.handoff_lines.clear();
         self.handoff_window.clear();
         self.handoff_stop = None;
         self.drop_auto_handoff(outbox);
-        self.auto_chain = 0;
-        // Wer sendet, hat die Session gesehen.
-        self.seen_at = self.last_activity_at;
+    }
+
+    /// Eine Rückfrage ist beantwortet; ist sie die letzte, arbeitet der Agent weiter.
+    fn resume_after_answer(&mut self, outbox: &mut Outbox) {
+        if self.pending.is_empty() && self.status == SessionStatus::Waiting {
+            self.set_status(outbox, SessionStatus::Running);
+        }
+    }
+
+    /// Eine neue Antwort beginnt, nach allen Schritten, die scheitern können: Ein Fehlstart lässt
+    /// den Namen stehen. Der Name kommt aus dem geschriebenen Text, nicht aus dem Stand des
+    /// Vorhabens. `true`, wenn die Session damit ihren ersten Namen bekommt.
+    fn begin_turn(
+        &mut self,
+        outbox: &mut Outbox,
+        session: &Session,
+        text: &str,
+        agent_text: &str,
+    ) -> bool {
+        let titled =
+            self.status == SessionStatus::New && self.name == format!("Session {}", session.number);
+        if titled {
+            self.name = name_from_task(text);
+            self.name_auto = true;
+            outbox.summary_dirty = true;
+        }
+        self.begin_sourcing(agent_text);
+        titled
     }
 
     /// Entwertet einen laufenden Zeitgeber und nimmt den Stand der Automatik weg.
@@ -2931,7 +2966,8 @@ impl SessionState {
         }
     }
 
-    /// Antworten, die nie mehr kommen: die Fragen bleiben sichtbar, aber nicht mehr offen.
+    /// Antworten, die nie mehr kommen: die Fragen bleiben sichtbar, aber nicht mehr offen. Ein
+    /// offener Aufruf eines Session-Werkzeugs endet mit seinem Kanal als Fehler.
     fn abandon_pending(&mut self, outbox: &mut Outbox, label: &str) {
         for (_, request) in std::mem::take(&mut self.pending) {
             self.set_question_answer(outbox, request.seq, label.to_owned());
@@ -3047,7 +3083,11 @@ impl SessionState {
                 question_kind,
                 questions,
                 input,
-            } => self.ask(outbox, request_id, question_kind, questions, input),
+            } => self.ask(outbox, request_id, question_kind, questions, input, None),
+            AgentEvent::SessionToolPermission { request_id, input } => {
+                // Ohne Prozess gibt es niemanden, der auf die Antwort wartet.
+                let _ = outbox.write(self, allow(&request_id, input));
+            }
             AgentEvent::ContextUsed(used) => {
                 if self.context_used != used {
                     self.context_used = used;
@@ -3378,15 +3418,24 @@ impl SessionState {
         question_kind: QuestionKind,
         questions: Vec<Question>,
         input: Value,
+        tool: Option<session_tools::PendingTool>,
     ) {
         let entry_request_id = request_id.clone();
         let entry_questions = questions.clone();
+        let tool_request = tool
+            .as_ref()
+            .map(|tool: &session_tools::PendingTool| tool.request.clone());
+        let chain_limited = tool
+            .as_ref()
+            .is_some_and(|tool: &session_tools::PendingTool| tool.chain_limited);
         let seq = self.push_entry(outbox, |seq: u32| ChatEntry::Question {
             seq,
             request_id: entry_request_id,
             question_kind,
             questions: entry_questions,
             answer: None,
+            tool_request,
+            chain_limited,
         });
         self.pending.push((
             request_id,
@@ -3395,6 +3444,7 @@ impl SessionState {
                 questions,
                 input,
                 seq,
+                tool,
             },
         ));
         self.set_status(outbox, SessionStatus::Waiting);
@@ -3688,8 +3738,10 @@ fn update<R>(
     if !windows.is_empty() {
         commit_scan::schedule(Arc::clone(session), windows);
     }
-    // Die Session-Sperre ist hier frei: `consider` nimmt Vorhaben- und Session-Sperren selbst.
+    // Die Session-Sperre ist hier frei: `consider` nimmt Vorhaben- und Session-Sperren selbst, der
+    // Thread der Warteschlange ebenso. Eine zugestellte Nachricht entwertet einen Countdown.
     if outbox.turn_completed {
+        session_tools::schedule_inbox_delivery(app, session);
         auto_handoff::consider(app, session);
     }
     let value = result?;
@@ -3833,6 +3885,135 @@ fn now_ms() -> f64 {
         .map_or(0.0, |elapsed: Duration| elapsed.as_secs_f64() * 1000.0)
 }
 
+/// Der gemeinsame Weg einer Eingabe, die eine Antwort auslöst, ob vom Nutzer oder von einer Session:
+/// startet den Agenten bei Bedarf, trägt die Nachricht ein und schickt sie ab. `true`, wenn die
+/// Session damit ihren ersten Namen bekommt (der Aufrufer startet dann `start_auto_title`).
+fn start_turn(
+    app: &AppHandle,
+    session: &Arc<Session>,
+    state: &mut SessionState,
+    outbox: &mut Outbox,
+    input: TurnInput,
+    text: &str,
+    origin: TurnOrigin<'_>,
+) -> Result<bool, CommandError> {
+    // Erst hier, nach dem Zweig für Rückfragen in `send`: eine offene Rückfrage lässt sich auch dann
+    // beantworten, wenn LM Studio gerade aus ist.
+    let (operating_mode, backend) = input.backend.map_err(CommandError::LocalModelUnavailable)?;
+    // Ohne Prozess (wiederhergestellte oder neue Session) startet der Agent hier, mit dem
+    // bisherigen Verlauf. Ein angehängtes Repository, ein Wechsel der Betriebsart oder
+    // ein umgelegter Browser-Zugriff startet ihn nur neu, wenn er ruht — ein arbeitender
+    // Agent wird nie unterbrochen.
+    let has_new_repository = session.repositories().len() != state.process_repository_count;
+    let has_new_backend = state.process_backend != backend || state.process_mode != operating_mode;
+    let has_new_chrome = state.chrome != state.process_chrome;
+    if state.process.is_none()
+        || state.effort != state.process_effort
+        || ((has_new_repository || has_new_backend || has_new_chrome) && state.is_resting())
+    {
+        start_process(
+            app,
+            session,
+            state,
+            outbox,
+            operating_mode,
+            backend.as_ref(),
+        )?;
+    }
+    // Der Chat zeigt die Nachricht so, wie sie an den Agenten geht.
+    let sent_text: &str = match &input.carried {
+        Some(with_tldr) if state.status == SessionStatus::New && state.carries_project_tldr => {
+            with_tldr
+        }
+        _ => text,
+    };
+    let (titled, line) = match origin {
+        TurnOrigin::User {
+            attachment_ids,
+            comments,
+            folders,
+            skill,
+        } => {
+            // Unter der Session-Sperre zulässig: verschiebt nur lokale Dateien, schreibt nicht in die Pipe.
+            let sent_attachments =
+                attachments::take_for_workspace(app, attachment_ids, &session.workspace)?;
+            let mut comments = comments.to_vec();
+            let mut extra_attachments: Vec<Attachment> = Vec::new();
+            for comment in &mut comments {
+                let CommentTarget::Image {
+                    attachment_id,
+                    path,
+                    ..
+                } = &mut comment.target
+                else {
+                    continue;
+                };
+                if let Some(attachment) = sent_attachments
+                    .iter()
+                    .find(|attachment: &&Attachment| attachment.id == *attachment_id)
+                {
+                    *path = attachment.path.clone();
+                    continue;
+                }
+                let attachment = attachments::reattach(Path::new(path), &session.workspace)?;
+                *path = attachment.path.clone();
+                if !sent_attachments
+                    .iter()
+                    .chain(extra_attachments.iter())
+                    .any(|existing: &Attachment| existing.path == attachment.path)
+                {
+                    extra_attachments.push(attachment);
+                }
+            }
+            let mut agent_attachments = sent_attachments.clone();
+            agent_attachments.extend(extra_attachments);
+            let agent_text = with_overlap_hint(
+                review::agent_text(sent_text, &comments, folders),
+                state,
+                input.overlap.as_ref(),
+            );
+            let line = message_line(&agent_text, &agent_attachments)?;
+            let titled = state.begin_turn(outbox, session, text, &agent_text);
+            state.push_user(outbox, sent_text, sent_attachments, skill, comments);
+            (titled, line)
+        }
+        TurnOrigin::Session { sender } => {
+            let agent_text = with_overlap_hint(
+                session_tools::session_message_text(sender, sent_text),
+                state,
+                input.overlap.as_ref(),
+            );
+            let line = user_message(&agent_text);
+            let titled = state.begin_turn(outbox, session, text, &agent_text);
+            state.push_session_message(outbox, sent_text, sender);
+            (titled, line)
+        }
+    };
+    state.last_overlap_key = input
+        .overlap
+        .as_ref()
+        .map(|found: &SessionOverlap| found.key.clone());
+    state.pause_reason = None;
+    state.set_status(outbox, SessionStatus::Running);
+    outbox.write(state, line)?;
+    Ok(titled)
+}
+
+/// Der Satz geht nur an den Agenten, nicht in den Chat, und nur bei neuer Lage.
+fn with_overlap_hint(
+    mut agent_text: String,
+    state: &SessionState,
+    overlap: Option<&SessionOverlap>,
+) -> String {
+    if let Some(found) = overlap.filter(|found: &&SessionOverlap| {
+        state.last_overlap_key.as_deref() != Some(found.key.as_str())
+    }) {
+        agent_text.push_str("\n\n");
+        agent_text.push_str(&overlaps::overlap_hint(found));
+    }
+    agent_text
+}
+
 /// Startet den Agenten neu und ersetzt einen noch laufenden Prozess. Kennt das zu startende Programm
 /// die Session schon (`has_agent_history` und ein Transkript von ihm), setzt der Start sie mit ihrem
 /// Verlauf fort (`--resume`), sonst legt er sie unter der Session-ID an (`--session-id`). Die
@@ -3934,6 +4115,9 @@ fn start_process(
             chrome: state.chrome,
             codex_exe,
             verwalter_mcp,
+            tool_access: app
+                .try_state::<ToolServer>()
+                .map(|server| server.access(&session.id, ProcessKind::Main)),
         },
         move |output: ProcessOutput| {
             handle_output(&callback_app, &callback_session, generation, output);
@@ -4017,6 +4201,8 @@ fn retire_idle_process(state: &mut SessionState, outbox: &mut Outbox) {
     state.process = None;
     state.forget_mcp(outbox);
     state.interrupt_background(outbox);
+    // Ein losgelöstes Skript kann noch einen Kasten offen haben; danach darf nichts mehr zugestellt werden.
+    state.abandon_pending(outbox, "Nicht beantwortet");
     state.idle_since = None;
 }
 
@@ -4087,7 +4273,10 @@ fn interrupt_agent(
     answer_label: &str,
 ) -> Result<(), CommandError> {
     for (request_id, request) in std::mem::take(&mut state.pending) {
-        outbox.write(state, deny(&request_id, deny_message))?;
+        // Ein Session-Werkzeug wartet nicht auf eine Zeile, sondern auf seinen Kanal, der hier wegfällt.
+        if request.tool.is_none() {
+            outbox.write(state, deny(&request_id, deny_message))?;
+        }
         state.set_question_answer(outbox, request.seq, answer_label.to_owned());
     }
     if state.status == SessionStatus::Waiting {
@@ -4109,7 +4298,7 @@ fn answer_oldest_with_text(
         QuestionKind::AskUser => QuestionAnswer::Options {
             answers: vec![text.to_owned(); request.questions.len()],
         },
-        QuestionKind::Permission => QuestionAnswer::Deny {
+        QuestionKind::Permission | QuestionKind::SessionTool => QuestionAnswer::Deny {
             message: text.to_owned(),
         },
     };
@@ -4130,6 +4319,9 @@ fn apply_answer(
     else {
         return Err(CommandError::Internal("Rückfrage nicht offen".to_owned()));
     };
+    if state.pending[position].1.tool.is_some() {
+        return session_tools::apply_tool_answer(state, outbox, position, answer);
+    }
     let (line, label, seq) = {
         let (_, request) = &state.pending[position];
         let (line, label) = answer_line(request_id, request, answer)?;
@@ -4138,9 +4330,7 @@ fn apply_answer(
     outbox.write(state, line)?;
     state.pending.remove(position);
     state.set_question_answer(outbox, seq, label);
-    if state.pending.is_empty() && state.status == SessionStatus::Waiting {
-        state.set_status(outbox, SessionStatus::Running);
-    }
+    state.resume_after_answer(outbox);
     Ok(())
 }
 
@@ -4183,5 +4373,9 @@ fn answer_line(
         QuestionAnswer::Deny { message } => {
             Ok((deny(request_id, message), format!("Abgelehnt: {message}")))
         }
+        // `apply_answer` schickt Antworten auf einen Kasten vorher an `apply_tool_answer`.
+        QuestionAnswer::Edit { .. } => Err(CommandError::Internal(
+            "Antwort passt nicht zur Rückfrage".to_owned(),
+        )),
     }
 }

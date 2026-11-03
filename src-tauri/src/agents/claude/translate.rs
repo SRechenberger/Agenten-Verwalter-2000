@@ -19,6 +19,7 @@ use crate::agents::event::{
 use crate::background::output::{head_text, tail_text};
 use crate::db::tool_details::{MAX_TOOL_INPUT_BYTES, MAX_TOOL_OUTPUT_BYTES};
 use crate::notices::model::Denial;
+use crate::session_tools::server::TOOL_PREFIX;
 
 const ASK_USER_TOOL: &str = "AskUserQuestion";
 const TODO_TOOL: &str = "TodoWrite";
@@ -784,6 +785,9 @@ fn handle_control_request(request: ControlRequestLine, line: &str) -> Vec<AgentE
     }
     let input = body.input.unwrap_or_else(|| Value::Object(Map::new()));
     let tool = body.tool_name.unwrap_or_default();
+    if tool.starts_with(TOOL_PREFIX) {
+        return vec![AgentEvent::SessionToolPermission { request_id, input }];
+    }
     let (question_kind, questions) = if tool == ASK_USER_TOOL {
         (QuestionKind::AskUser, ask_user_questions(&input))
     } else {

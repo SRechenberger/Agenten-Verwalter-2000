@@ -122,6 +122,12 @@
     color: var(--color-fg-secondary);
   }
 
+  &__note {
+    margin: 0 0 var(--space-sm);
+    font-size: var(--font-size-xs);
+    color: var(--color-fg-muted);
+  }
+
   &__extra {
     font-size: var(--font-size-xs);
     color: var(--color-fg-muted);

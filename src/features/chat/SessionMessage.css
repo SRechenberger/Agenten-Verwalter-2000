@@ -1,0 +1,33 @@
+.session-message {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  margin-top: var(--space-sm);
+
+  &__from {
+    align-self: flex-start;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--color-fg-muted);
+    font: inherit;
+    font-size: var(--font-size-xs);
+    font-weight: 600;
+    text-align: left;
+    overflow-wrap: anywhere;
+
+    &--link {
+      color: var(--color-accent-text);
+      cursor: pointer;
+
+      &:hover {
+        text-decoration: underline;
+      }
+
+      &:focus-visible {
+        outline: 2px solid var(--color-accent);
+        outline-offset: 2px;
+      }
+    }
+  }
+}

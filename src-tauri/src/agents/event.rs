@@ -156,6 +156,39 @@ pub struct Question {
 pub enum QuestionKind {
     AskUser,
     Permission,
+    /// Ein Aufruf eines Session-Werkzeugs; der Agent wartet auf den Werkzeug-Aufruf, nicht auf eine Zeile.
+    SessionTool,
+}
+
+/// Eine Session als Absender oder Ziel eines Session-Werkzeugs.
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionRef {
+    pub id: String,
+    pub number: u32,
+    pub title: String,
+}
+
+/// Worum ein Agent im Kasten bittet.
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+pub enum ToolRequest {
+    SendMessage {
+        recipients: Vec<SessionRef>,
+        message: String,
+    },
+    GetTldr {
+        target: SessionRef,
+    },
+    OpenSession {
+        message: String,
+        model: ModelId,
+        effort: Effort,
+    },
 }
 
 /// `Image` richtet sich nur nach der Endung — ob ein Bild als Inhalt oder als Pfad an den
@@ -244,6 +277,19 @@ pub enum ChatEntry {
         question_kind: QuestionKind,
         questions: Vec<Question>,
         answer: Option<String>,
+        /// Nur bei `QuestionKind::SessionTool`; Einträge von vorher haben das Feld nicht.
+        #[serde(default)]
+        tool_request: Option<ToolRequest>,
+        /// Allein die Kettenbremse hat den Kasten erzwungen; Einträge von vorher haben das Feld nicht.
+        #[serde(default)]
+        chain_limited: bool,
+    },
+    /// Nachricht einer anderen Session; löst eine Antwort des Agenten aus wie eine Nutzernachricht.
+    SessionMessage {
+        seq: u32,
+        text: String,
+        sent_at: f64,
+        sender: SessionRef,
     },
     Error {
         seq: u32,
@@ -267,6 +313,7 @@ impl ChatEntry {
             | ChatEntry::Todos { seq, .. }
             | ChatEntry::Artifact { seq, .. }
             | ChatEntry::Question { seq, .. }
+            | ChatEntry::SessionMessage { seq, .. }
             | ChatEntry::Error { seq, .. }
             | ChatEntry::Notice { seq, .. } => *seq,
         }
@@ -300,6 +347,14 @@ pub enum QuestionAnswer {
     Allow,
     Deny {
         message: String,
+    },
+    /// Nur im Kasten eines Session-Werkzeugs. Modell und Denkaufwand nur bei einer neuen Session.
+    Edit {
+        message: String,
+        #[serde(default)]
+        model: Option<ModelId>,
+        #[serde(default)]
+        effort: Option<Effort>,
     },
 }
 
@@ -385,6 +440,12 @@ pub enum AgentEvent {
         request_id: String,
         question_kind: QuestionKind,
         questions: Vec<Question>,
+        input: serde_json::Value,
+    },
+    /// `can_use_tool` für ein Session-Werkzeug (kommt im Modus `plan` trotz `--allowedTools`); der
+    /// Core erlaubt es ohne Kasten, der Server des Verwalters fragt selbst.
+    SessionToolPermission {
+        request_id: String,
         input: serde_json::Value,
     },
     ContextUsed(u32),

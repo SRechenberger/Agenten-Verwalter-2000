@@ -1,0 +1,113 @@
+.session-tool {
+  &__sessions {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  &__session {
+    display: flex;
+    align-items: center;
+    gap: var(--space-md);
+    min-width: 0;
+  }
+
+  &__title {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
+  &__message {
+    margin: 0;
+    padding: var(--space-md) var(--space-lg);
+    border: 1px solid var(--color-border-subtle);
+    border-radius: var(--radius-md);
+    background: var(--color-bg-base);
+    line-height: 1.6;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+
+  &__meta {
+    margin: 0;
+    color: var(--color-fg-secondary);
+    font-size: var(--font-size-xs);
+  }
+
+  &__edit {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-md);
+    min-width: 0;
+  }
+
+  &__input {
+    box-sizing: border-box;
+    width: 100%;
+    padding: var(--space-md) var(--space-lg);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    background: var(--color-bg-base);
+    color: var(--color-fg-primary);
+    font: inherit;
+    line-height: 1.6;
+    resize: vertical;
+
+    &:focus-visible {
+      outline: 2px solid var(--color-accent);
+      outline-offset: 2px;
+    }
+
+    &:disabled {
+      color: var(--color-fg-secondary);
+    }
+  }
+
+  &__edit-values {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-md) var(--space-2xl);
+  }
+
+  &__edit-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--space-xl);
+  }
+
+  &__release {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+  }
+
+  &__switch {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-md);
+    color: var(--color-fg-secondary);
+    font-size: var(--font-size-sm);
+  }
+
+  &__brake {
+    margin: 0;
+    color: var(--color-status-waiting);
+    font-size: var(--font-size-xs);
+  }
+
+  &__error {
+    margin: 0;
+    color: var(--color-status-error);
+    font-size: var(--font-size-xs);
+  }
+
+  /* Die Antwort kann den geänderten Text mit Zeilenumbrüchen tragen. */
+  &__footer {
+    white-space: pre-wrap;
+  }
+}

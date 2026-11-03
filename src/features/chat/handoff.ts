@@ -26,11 +26,11 @@ export const HALT_TEXT: Record<HandoffHalt, string> = {
   cancelled: 'Automatisch weiter abgebrochen.',
 };
 
-/** `seq` der letzten Textantwort, wenn nach ihr keine Nutzernachricht steht; sonst `null`. */
+/** `seq` der letzten Textantwort, wenn nach ihr keine Nutzer- oder Session-Nachricht steht; sonst `null`. */
 export function lastAnswerSeq(entries: readonly ChatEntry[]): number | null {
   for (let index = entries.length - 1; index >= 0; index -= 1) {
     const entry: ChatEntry | undefined = entries[index];
-    if (entry?.kind === 'user') {
+    if (entry?.kind === 'user' || entry?.kind === 'sessionMessage') {
       return null;
     }
     if (entry?.kind === 'text') {

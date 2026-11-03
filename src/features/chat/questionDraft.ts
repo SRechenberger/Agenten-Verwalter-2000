@@ -19,6 +19,16 @@ export interface QuestionDraft {
 export type PickResult =
   { kind: 'draft'; draft: QuestionDraft } | { kind: 'answer'; answer: QuestionAnswer };
 
+export type ToolEdit = Extract<QuestionAnswer, { kind: 'edit' }>;
+
+/** Halbe Eingaben im Kasten eines Session-Werkzeugs; leben wie `QuestionDraft` in `ChatTimeline`. */
+export interface ToolDraft {
+  /** `null` = Textfeld zu. */
+  readonly edit: ToolEdit | null;
+}
+
+export const EMPTY_TOOL_DRAFT: ToolDraft = { edit: null };
+
 export interface OptionName {
   name: string;
   recommended: boolean;
@@ -229,7 +239,14 @@ export function pickOption(
   questionIndex: number,
   optionIndex: number,
 ): PickResult | null {
-  if (entry.questionKind === 'permission') {
+  // Im Kasten gelten nur die Ziffern seiner Knöpfe; eine andere ist keine Ablehnung.
+  if (
+    entry.questionKind === 'sessionTool' &&
+    entry.questions[questionIndex]?.options[optionIndex] === undefined
+  ) {
+    return null;
+  }
+  if (entry.questionKind !== 'askUser') {
     if (optionIndex === ALLOW_INDEX) {
       return { kind: 'answer', answer: { kind: 'allow' } };
     }
