@@ -5,6 +5,7 @@ import type { Effort } from "./Effort";
 import type { HandoffLine } from "./HandoffLine";
 import type { Mode } from "./Mode";
 import type { ModelId } from "./ModelId";
+import type { PauseReason } from "./PauseReason";
 import type { PromptCache } from "./PromptCache";
 import type { SessionStatus } from "./SessionStatus";
 
@@ -74,4 +75,8 @@ autoHandoff: AutoHandoff | null,
 /**
  * Antwort abgegeben, ein Hintergrund-Befehl ohne lokale Adresse läuft noch (ADR 032); `status` bleibt `Completed`.
  */
-awaitedScript: AwaitedScript | null, };
+awaitedScript: AwaitedScript | null, 
+/**
+ * Warum die Session pausiert ist (ADR 051); nur im Speicher, `None` bei jeder anderen Pause.
+ */
+pauseReason: PauseReason | null, };

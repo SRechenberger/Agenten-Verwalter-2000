@@ -68,8 +68,8 @@ use crate::sessions::auto_handoff::{
     self, AUTO_HANDOFF_CHAIN_LIMIT, AUTO_HANDOFF_DELAY, FollowUp, ScheduledHandoff,
 };
 use crate::sessions::model::{
-    AutoHandoff, AwaitedScript, ChatEntryEvent, ChatPage, HandoffHalt, HandoffLine, SessionOverlap,
-    SessionStatus, SessionSummary,
+    AutoHandoff, AwaitedScript, ChatEntryEvent, ChatPage, HandoffHalt, HandoffLine, PauseReason,
+    SessionOverlap, SessionStatus, SessionSummary,
 };
 use crate::sessions::{MAX_NAME_CHARS, handoff, name_from_task};
 use crate::settings;
@@ -79,7 +79,7 @@ use crate::skills::{self, model::SkillRef};
 use crate::sourcing::{self, Sources};
 use crate::tldr::model::{ProjectTldr, SessionTldr};
 use crate::tldr::transcript::with_project_tldr;
-use crate::usage::UsageService;
+use crate::usage::{UsageService, reset_text};
 use crate::worktrees::{self, SessionRepository, TicketRoot, WorktreeCheck};
 
 mod artifacts;
@@ -97,6 +97,7 @@ const CHAT_ENTRY_EVENT: &str = "chat://entry";
 const BACKGROUND_CHANGED_EVENT: &str = "background://changed";
 const CONTEXT_CHANGED_EVENT: &str = "context://changed";
 const MAX_SUBAGENT_STEPS: usize = 200;
+const MS_PER_SECOND: f64 = 1000.0;
 /// Werkzeuge, mit denen der Agent Dateien schreibt (ADR 014).
 const WRITING_TOOLS: [&str; 4] = ["Edit", "Write", "MultiEdit", "NotebookEdit"];
 const KILL_GRACE: Duration = Duration::from_secs(5);
@@ -246,6 +247,8 @@ struct SessionState {
     auto_handoff_token: u64,
     /// Der wievielte automatische Start in Folge diese Session ist; 0 = von dir gestartet. Nur im Speicher.
     auto_chain: u32,
+    /// Begründung von `Paused` (ADR 051); nur im Speicher, gesetzt nur zusammen mit `Paused`.
+    pause_reason: Option<PauseReason>,
     /// Eltern-Session im selben Vorhaben, an die „Zurück an …“ sendet; gespeichert, ohne
     /// Fremdschlüssel. Nur `create_in_project` setzt sie.
     parent_session_id: Option<String>,
@@ -1326,6 +1329,7 @@ impl SessionRegistry {
                 }
                 state.begin_sourcing(&agent_text);
                 state.push_user(outbox, sent_text, sent_attachments, skill, comments);
+                state.pause_reason = None;
                 state.set_status(outbox, SessionStatus::Running);
                 outbox.write(state, line)
             },
@@ -2306,6 +2310,7 @@ impl SessionState {
             auto_handoff: None,
             auto_handoff_token: 0,
             auto_chain: 0,
+            pause_reason: None,
             parent_session_id: None,
             seen_at: now,
             is_viewed: false,
@@ -2793,6 +2798,9 @@ impl SessionState {
         self.idle_since =
             matches!(status, SessionStatus::Completed | SessionStatus::Paused).then_some(now);
         self.status = status;
+        if status != SessionStatus::Paused {
+            self.pause_reason = None;
+        }
         outbox.summary_dirty = true;
         if matches!(
             status,
@@ -3418,8 +3426,12 @@ impl SessionState {
         let _ = self.send_control(outbox, mcp_status());
         match end {
             TurnEnd::Aborted => self.pause_after_interrupt(outbox),
+            TurnEnd::QuotaExhausted { text, resets_at } if self.is_claude_process() => {
+                self.pause_for_quota(outbox, text, resets_at);
+            }
             _ if self.pause_requested => self.pause_after_interrupt(outbox),
-            TurnEnd::Failed(text) => {
+            // Das Kontingent gibt es nur im Claude-Prozess; anderswo ist die Meldung ein Fehler.
+            TurnEnd::Failed(text) | TurnEnd::QuotaExhausted { text, .. } => {
                 self.interrupt_running_tools(outbox);
                 self.abandon_pending(outbox, "Nicht beantwortet");
                 self.push_entry(outbox, |seq: u32| ChatEntry::Error {
@@ -3514,13 +3526,38 @@ impl SessionState {
         self.pause_requested = false;
     }
 
+    /// Warnung im Verlauf statt Fehlerkarte, Session pausiert mit Begründung (ADR 051). Der Prozess
+    /// bleibt offen; endet er, startet `send` ihn neu.
+    fn pause_for_quota(&mut self, outbox: &mut Outbox, text: String, resets_at: Option<i64>) {
+        let now_secs = (now_ms() / MS_PER_SECOND) as i64;
+        let resets_at: Option<f64> = reset_text::resolve(resets_at, &text, now_secs)
+            .map(|seconds: i64| seconds as f64 * MS_PER_SECOND);
+        self.interrupt_running_tools(outbox);
+        self.abandon_pending(outbox, "Nicht beantwortet");
+        self.push_entry(outbox, |seq: u32| ChatEntry::Notice {
+            seq,
+            notice: Notice::QuotaExhausted { text, resets_at },
+        });
+        self.pause_after_interrupt(outbox);
+        self.pause_reason = Some(PauseReason::Quota {
+            resets_at,
+            auto_resume: false,
+        });
+        // Wie beim Fehler: der Agent hat abgegeben, die Sidebar soll es zeigen.
+        self.touch_activity(outbox);
+    }
+
     fn process_exited(&mut self, outbox: &mut Outbox, exit_code: Option<i32>) {
         self.process = None;
         self.forget_mcp(outbox);
         // Vor der frühen Rückkehr: auch nach einem Fehler vom Agenten stünden laufende Einträge
         // sonst bis zum nächsten App-Start auf „läuft“.
         self.interrupt_background(outbox);
-        if self.cancel_requested || self.status == SessionStatus::Error {
+        // Endet der Prozess nach einer Kontingent-Antwort (ungemessen), bleibt die Warnung stehen.
+        if self.cancel_requested
+            || self.status == SessionStatus::Error
+            || self.pause_reason.is_some()
+        {
             return;
         }
         self.interrupt_running_tools(outbox);
@@ -3782,6 +3819,7 @@ fn summarize(session: &Session, state: &SessionState) -> SessionSummary {
         handoff_lines: state.handoff_lines.clone(),
         auto_handoff: state.auto_handoff.clone(),
         awaited_script: state.awaited_script(),
+        pause_reason: state.pause_reason.clone(),
     }
 }
 
@@ -3921,6 +3959,9 @@ fn start_process(
     state.cache_message_id = None;
     // Ein neuer Prozess läuft mit dem Modell der Session und zählt seine Kosten von null an.
     if state.fallback_model.take().is_some() {
+        outbox.summary_dirty = true;
+    }
+    if state.pause_reason.take().is_some() {
         outbox.summary_dirty = true;
     }
     state.last_total_cost = 0.0;

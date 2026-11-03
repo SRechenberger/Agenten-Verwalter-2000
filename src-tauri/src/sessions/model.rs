@@ -67,6 +67,25 @@ pub struct SessionSummary {
     pub auto_handoff: Option<AutoHandoff>,
     /// Antwort abgegeben, ein Hintergrund-Befehl ohne lokale Adresse läuft noch (ADR 032); `status` bleibt `Completed`.
     pub awaited_script: Option<AwaitedScript>,
+    /// Warum die Session pausiert ist (ADR 051); nur im Speicher, `None` bei jeder anderen Pause.
+    pub pause_reason: Option<PauseReason>,
+}
+
+/// Begründung des Status `Paused` (ADR 051). Gelöscht bei jeder neuen Nachricht, jedem Status außer
+/// `Paused` und jedem Neustart des Prozesses.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+pub enum PauseReason {
+    /// Die letzte Antwort endete am aufgebrauchten Kontingent. `resets_at` in Millisekunden seit
+    /// Epoche, `None` wenn unbekannt. `auto_resume` beginnt immer `false`.
+    Quota {
+        resets_at: Option<f64>,
+        auto_resume: bool,
+    },
 }
 
 /// Art einer Einstiegszeile (ADR 040).

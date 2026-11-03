@@ -50,6 +50,12 @@ pub enum Notice {
     },
     /// Allgemeiner Hinweis der Kommandozeile.
     Info { text: String },
+    /// Die Antwort endete am aufgebrauchten Kontingent (ADR 051). `text` ist die Meldung der
+    /// Kommandozeile unverändert; `resets_at` in Millisekunden seit Epoche, `None` wenn unbekannt.
+    QuotaExhausted {
+        text: String,
+        resets_at: Option<f64>,
+    },
     /// Der Modus der Session hat sich ohne Zutun des Users geändert, etwa durch einen
     /// angenommenen Plan.
     ModeChanged { from: Mode, to: Mode },

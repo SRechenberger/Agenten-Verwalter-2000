@@ -323,6 +323,12 @@ pub enum TurnEnd {
     Completed,
     Aborted,
     Failed(String),
+    /// Die Antwort endete am aufgebrauchten Kontingent (ADR 051). `resets_at` in Sekunden seit 1970,
+    /// nur der strukturierte Wert; den Text wertet erst die Registry aus.
+    QuotaExhausted {
+        text: String,
+        resets_at: Option<i64>,
+    },
 }
 
 /// Was im Hintergrund läuft: ein Prozess (Bash mit `run_in_background`) oder ein Subagent.
