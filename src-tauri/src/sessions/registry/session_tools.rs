@@ -21,9 +21,10 @@ use crate::agents::event::{
 use crate::db::projects as project_rows;
 use crate::db::session_inbox::{self, InboxRow};
 use crate::error::CommandError;
+use crate::mcp_access::tools::ToolCall;
 use crate::projects::model::ProjectSummary;
 use crate::session_tools::model::SelfRelease;
-use crate::session_tools::server::{ToolCall, ToolReply};
+use crate::session_tools::tools::ToolReply;
 use crate::sessions::auto_handoff::AUTO_HANDOFF_CHAIN_LIMIT;
 use crate::sessions::model::SessionStatus;
 
@@ -95,7 +96,7 @@ impl SessionRegistry {
         session_ids: &[String],
         message: &str,
     ) -> ToolReply {
-        let caller = self.get(&call.caller.session_id).map_err(text_of)?;
+        let caller = self.get(call.session_id).map_err(text_of)?;
         if session_ids.is_empty() {
             return Err(NO_RECIPIENTS.to_owned());
         }
@@ -153,7 +154,7 @@ impl SessionRegistry {
     }
 
     pub fn tool_get_tldr(&self, app: &AppHandle, call: &ToolCall, session_id: &str) -> ToolReply {
-        let caller = self.get(&call.caller.session_id).map_err(text_of)?;
+        let caller = self.get(call.session_id).map_err(text_of)?;
         let target = self.tool_target(&caller, session_id)?;
         let has_history = {
             let state = target.lock_loaded().map_err(text_of)?;
@@ -191,7 +192,7 @@ impl SessionRegistry {
         message: &str,
         model: Option<ModelId>,
     ) -> ToolReply {
-        let caller = self.get(&call.caller.session_id).map_err(text_of)?;
+        let caller = self.get(call.session_id).map_err(text_of)?;
         if message.trim().is_empty() {
             return Err(EMPTY_MESSAGE.to_owned());
         }
@@ -373,8 +374,7 @@ impl SessionRegistry {
         // Ein Aufruf ist eine kurze ID, begrenzen lohnt erst bei sehr langen Sessions.
         let is_repeated = call
             .tool_use_id
-            .as_ref()
-            .is_some_and(|id: &String| !caller.lock().seen_tool_uses.insert(id.clone()));
+            .is_some_and(|id: &str| !caller.lock().seen_tool_uses.insert(id.to_owned()));
         if is_repeated {
             return Err(REPEATED_CALL.to_owned());
         }
@@ -405,7 +405,7 @@ impl SessionRegistry {
                     Value::Null,
                     Some(PendingTool {
                         reply,
-                        call_id: call.call_id.clone(),
+                        call_id: call.call_id.to_owned(),
                         request,
                         chain_limited,
                     }),

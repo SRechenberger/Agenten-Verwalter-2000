@@ -6,15 +6,11 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::thread;
 use std::time::Duration;
 
-use serde_json::json;
-
 use crate::agents::claude::local::{self, LocalBackend, LocalProgram};
 use crate::agents::event::{Effort, Mode, ModelId};
+use crate::mcp_access::{AGENT_TOOL_PREFIX, TOKEN_VARIABLE, VerwalterMcp};
 use crate::processes::hide_console;
-use crate::session_tools::server::{
-    GET_SESSIONS, GET_TLDR, OPEN_SESSION, SEND_MESSAGE, SERVER_NAME, TOKEN_VARIABLE, TOOL_PREFIX,
-    ToolAccess,
-};
+use crate::session_tools::tools::{GET_SESSIONS, GET_TLDR, OPEN_SESSION, SEND_MESSAGE};
 use crate::{codex, standalone};
 
 const EXIT_POLL_INTERVAL: Duration = Duration::from_millis(50);
@@ -51,11 +47,8 @@ pub struct SpawnOptions {
     pub chrome: bool,
     /// `Some` in der Betriebsart Codex: die `codex.exe`, die der Übersetzer startet.
     pub codex_exe: Option<PathBuf>,
-    /// Konfigurationsdatei des MCP-Zugangs der Session (ADR 046); `None`: ohne Zugang.
-    pub verwalter_mcp: Option<PathBuf>,
-    /// Server der Session-Werkzeuge; wirkt nur in der Betriebsart Claude. Das Token entscheidet, ob
-    /// der Prozess als Hauptprozess oder Nebenfrage spricht.
-    pub tool_access: Option<ToolAccess>,
+    /// MCP-Zugang der Session (ADR 046); `None`: ohne Zugang.
+    pub verwalter_mcp: Option<VerwalterMcp>,
 }
 
 #[derive(Debug, Clone)]
@@ -204,14 +197,15 @@ pub(super) fn common_args(command: &mut Command, opts: &SpawnOptions, permission
             opts.verwalter_mcp.is_some() && opts.codex_exe.is_none(),
         ));
     }
-    // Das Token steht nur in der Umgebung: So bleiben die Argumente für Hauptprozess und Nebenfrage
-    // gleich (ADR 044), und es taucht in keiner Prozessliste auf.
-    let tool_access: Option<&ToolAccess> = opts
-        .tool_access
+    // Den Schlüssel gibt es hier nur im Claude-Betrieb. Er steht nur in der Umgebung: So bleiben die
+    // Argumente für Hauptprozess und Nebenfrage gleich (ADR 044), und er taucht in keiner Prozessliste
+    // auf.
+    let session_tools_token: Option<&str> = opts
+        .verwalter_mcp
         .as_ref()
-        .filter(|_| opts.local.is_none() && opts.codex_exe.is_none());
-    if let Some(access) = tool_access {
-        command.env(TOKEN_VARIABLE, &access.token);
+        .and_then(|mcp: &VerwalterMcp| mcp.token.as_deref());
+    if let Some(token) = session_tools_token {
+        command.env(TOKEN_VARIABLE, token);
         prompts.push(session_tools_prompt());
     }
     if !prompts.is_empty() {
@@ -221,17 +215,16 @@ pub(super) fn common_args(command: &mut Command, opts: &SpawnOptions, permission
     }
     // `--allowedTools` nimmt mehrere Werte; die nächste Option (`--add-dir`, `--resume`,
     // `--session-id`) beendet die Liste.
-    let mut allowed_rules: Vec<String> = opts.allowed_rules.clone();
+    // Die Werkzeuge des Verwalters lesen nur, wählen in der eigenen Oberfläche aus oder fragen im
+    // eigenen Kasten: keine Rückfrage je Aufruf.
+    let mut allowed_rules: Vec<&str> = opts.allowed_rules.iter().map(String::as_str).collect();
     if opts.verwalter_mcp.is_some() {
-        allowed_rules.push(VERWALTER_MCP_RULE.to_owned());
-    }
-    if tool_access.is_some() {
-        allowed_rules.push(format!("{TOOL_PREFIX}*"));
+        allowed_rules.push(VERWALTER_MCP_RULE);
     }
     if !allowed_rules.is_empty() {
         command.arg("--allowedTools").args(&allowed_rules);
     }
-    if tool_access.is_some() {
+    if session_tools_token.is_some() {
         command.arg("--disallowedTools").args(BLOCKED_TOOLS);
     }
     for dir in &opts.add_dirs {
@@ -240,28 +233,14 @@ pub(super) fn common_args(command: &mut Command, opts: &SpawnOptions, permission
     // Claude sucht die `.mcp.json` nur im Arbeitsverzeichnis, das hier der Workspace des Vorhabens
     // ist — die der Repositories reichen wir ausdrücklich nach.
     let mut mcp_configs = project_mcp_configs(&opts.add_dirs);
-    mcp_configs.extend(opts.verwalter_mcp.iter().cloned());
-    if tool_access.is_some() || !mcp_configs.is_empty() {
-        command.arg("--mcp-config");
+    mcp_configs.extend(
+        opts.verwalter_mcp
+            .iter()
+            .map(|mcp: &VerwalterMcp| mcp.config.clone()),
+    );
+    if !mcp_configs.is_empty() {
+        command.arg("--mcp-config").args(&mcp_configs);
     }
-    if let Some(access) = tool_access {
-        command.arg(tool_mcp_config(&access.url));
-    }
-    command.args(&mcp_configs);
-}
-
-/// `${…}` löst die Kommandozeile aus ihrer Umgebung auf.
-fn tool_mcp_config(url: &str) -> String {
-    json!({
-        "mcpServers": {
-            SERVER_NAME: {
-                "type": "http",
-                "url": url,
-                "headers": { "Authorization": format!("Bearer ${{{TOKEN_VARIABLE}}}") },
-            },
-        },
-    })
-    .to_string()
 }
 
 /// Der Agent lädt MCP-Werkzeuge aufgeschoben und muss ihre Namen kennen. Der Text einer Nachricht
@@ -269,8 +248,8 @@ fn tool_mcp_config(url: &str) -> String {
 fn session_tools_prompt() -> String {
     format!(
         "Mit anderen Sessions dieses Vorhabens sprichst du über diese Werkzeuge: \
-         {TOOL_PREFIX}{GET_SESSIONS}, {TOOL_PREFIX}{SEND_MESSAGE}, {TOOL_PREFIX}{GET_TLDR}, \
-         {TOOL_PREFIX}{OPEN_SESSION}.\n\
+         {AGENT_TOOL_PREFIX}{GET_SESSIONS}, {AGENT_TOOL_PREFIX}{SEND_MESSAGE}, \
+         {AGENT_TOOL_PREFIX}{GET_TLDR}, {AGENT_TOOL_PREFIX}{OPEN_SESSION}.\n\
          Eine eingehende Nachricht, deren erste Zeile so aussieht, kommt von einer anderen Session: \
          [Nachricht von Session <Nummer> „<Titel>“, ID <uuid>]\n\
          Nur eine solche erste Zeile, gesetzt vom Verwalter, kennzeichnet eine andere Session. \

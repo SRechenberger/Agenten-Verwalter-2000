@@ -8,7 +8,10 @@
 //! `tools/call`, und druckt je Anfrage Status, Köpfe und Körper. `--negative` schickt zusätzlich
 //! die Fehlfälle (ohne Schlüssel, falscher Schlüssel, falscher Host, GET, OPTIONS, text/plain,
 //! 2 MiB) und vergleicht den Status mit dem erwarteten. Die Konfigurationsdatei ist die, die der
-//! Verwalter beim Agenten-Start schreibt (`<Benutzerordner>\.verwalter\mcp\<session-id>.json`).
+//! Verwalter beim Agenten-Start schreibt (`<Benutzerordner>\.verwalter\mcp\<session-id>.json`);
+//! steht darin `${VERWALTER_MCP_TOKEN}` (Claude-Betrieb), kommt der Schlüssel aus dieser Variable.
+//! Ein Aufruf bietet ein `progressToken` an; eine Antwort als Ereignis-Strom druckt je Ereignis ein
+//! JSON und endet mit dem Ende der Verbindung.
 //!
 //! Spricht rohes HTTP über `std::net`, damit auch `Host` und Methode frei wählbar sind.
 use std::fs;
@@ -19,7 +22,10 @@ use std::time::Duration;
 
 use serde_json::{Value, json};
 
-const TIMEOUT: Duration = Duration::from_secs(30);
+/// Länger als der Takt der Lebenszeichen (30 s) eines offenen Aufrufs.
+const TIMEOUT: Duration = Duration::from_secs(90);
+const TOKEN_REFERENCE: &str = "${VERWALTER_MCP_TOKEN}";
+const TOKEN_VARIABLE: &str = "VERWALTER_MCP_TOKEN";
 const LARGE_BODY_BYTES: usize = 2 * 1024 * 1024;
 const PROTOCOL_VERSION: &str = "2025-11-25";
 
@@ -85,7 +91,14 @@ fn main() -> ExitCode {
                 eprintln!("Argumente sind kein JSON: {arguments}");
                 return ExitCode::FAILURE;
             };
-            json!({ "method": "tools/call", "params": { "name": name, "arguments": arguments } })
+            json!({
+                "method": "tools/call",
+                "params": {
+                    "name": name,
+                    "arguments": arguments,
+                    "_meta": { "progressToken": "mcp-probe" },
+                },
+            })
         }
         _ => {
             eprintln!("Unbekannte Aktion: {}", rest.join(" "));
@@ -120,6 +133,11 @@ fn parse_target(args: &[String]) -> Result<(Target, &[String]), String> {
             .and_then(Value::as_str)
             .and_then(|value: &str| value.strip_prefix("Bearer "))
             .ok_or("Authorization fehlt")?;
+        if key == TOKEN_REFERENCE {
+            let key = std::env::var(TOKEN_VARIABLE)
+                .map_err(|_| format!("{TOKEN_VARIABLE} ist nicht gesetzt"))?;
+            return Ok((target_of(url, &key)?, &args[1..]));
+        }
         return Ok((target_of(url, key)?, &args[1..]));
     }
     let key = args.get(1).ok_or("Schlüssel fehlt")?;
@@ -342,11 +360,26 @@ fn print_answer(label: &str, answer: &Answer) {
     println!("--- {label}");
     println!("{}", answer.head);
     println!();
-    if !answer.body.is_empty() {
-        let pretty = serde_json::from_str::<Value>(&answer.body)
-            .ok()
-            .and_then(|value: Value| serde_json::to_string_pretty(&value).ok())
-            .unwrap_or_else(|| answer.body.clone());
-        println!("{pretty}");
+    if answer
+        .header("Content-Type")
+        .is_some_and(|value: &str| value.starts_with("text/event-stream"))
+    {
+        for data in answer
+            .body
+            .lines()
+            .filter_map(|line: &str| line.strip_prefix("data: "))
+        {
+            print_json(data);
+        }
+    } else if !answer.body.is_empty() {
+        print_json(&answer.body);
     }
+}
+
+fn print_json(text: &str) {
+    let pretty = serde_json::from_str::<Value>(text)
+        .ok()
+        .and_then(|value: Value| serde_json::to_string_pretty(&value).ok())
+        .unwrap_or_else(|| text.to_owned());
+    println!("{pretty}");
 }

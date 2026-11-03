@@ -56,7 +56,7 @@ use crate::error::CommandError;
 use crate::filesystem::workspace::{home_dir, new_session_workspace, stored_session_workspace};
 use crate::git::model::GitBusySession;
 use crate::mcp::model::{McpAction, McpActionError, McpAuthWait, McpChangedEvent, McpServer};
-use crate::mcp_access::McpAccess;
+use crate::mcp_access::{McpAccess, ProcessKind};
 use crate::notices::model::{Denial, Notice};
 use crate::projects::model::{ProjectCreated, ProjectSummary};
 use crate::prompt_cache::model::PromptCache;
@@ -66,7 +66,6 @@ use crate::review::{
     model::{CommentTarget, ReviewComment},
 };
 use crate::session_tools::model::SelfRelease;
-use crate::session_tools::server::{ProcessKind, ToolServer};
 use crate::sessions::auto_handoff::{
     self, AUTO_HANDOFF_CHAIN_LIMIT, AUTO_HANDOFF_DELAY, FollowUp, ScheduledHandoff,
 };
@@ -4089,9 +4088,10 @@ fn start_process(
     state.forget_mcp(outbox);
     let scratchpad_dir = use_scratchpad(session, state, outbox);
     let artifacts_dir = use_artifacts(session, state);
+    let session_tools = backend.is_none() && codex_exe.is_none();
     let verwalter_mcp = app
         .try_state::<Arc<McpAccess>>()
-        .and_then(|access| access.config_for(&session.id));
+        .and_then(|access| access.config_for(&session.id, ProcessKind::Main, session_tools));
     state.generation += 1;
     let generation = state.generation;
     let callback_app = app.clone();
@@ -4115,9 +4115,6 @@ fn start_process(
             chrome: state.chrome,
             codex_exe,
             verwalter_mcp,
-            tool_access: app
-                .try_state::<ToolServer>()
-                .map(|server| server.access(&session.id, ProcessKind::Main)),
         },
         move |output: ProcessOutput| {
             handle_output(&callback_app, &callback_session, generation, output);

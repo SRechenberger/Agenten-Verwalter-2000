@@ -4,7 +4,7 @@
 use serde_json::Value;
 
 use crate::mcp::model::{McpServer, McpServerStatus};
-use crate::session_tools::server::SERVER_NAME;
+use crate::mcp_access::SERVER_NAME;
 
 /// Antwort auf `mcp_authenticate`.
 pub struct McpAuthAnswer {
