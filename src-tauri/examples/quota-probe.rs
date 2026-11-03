@@ -4,14 +4,17 @@
 //! → je Antwort `TURN <Art> resets_at=<Sekunden|none> quelle=<rate_limit_event|assistant-error|ergebnistext|keine> text=<erste 60 Zeichen>`.
 //! Mit `--selftest` je Fall `PASS <name>` oder `FAIL <name>: erwartet <x>, erhalten <y>`; Exit 1, wenn
 //! ein Fall fehlschlägt. Die Zeilen der Fälle sind aus Transkripten der Kommandozeile abgeleitet, im
-//! Stream der App nie gemessen.
+//! Stream der App nie gemessen. Dazu prüft `--selftest` das Warten von „Automatisch fortsetzen“
+//! (`wait_until`) mit einer falschen Uhr.
+use std::cell::Cell;
 use std::env;
 use std::fs;
 use std::process::ExitCode;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use verwalter_lib::agents::claude::translate::{QuotaSource, Translator};
 use verwalter_lib::agents::event::{AgentEvent, TurnEnd};
+use verwalter_lib::sessions::auto_resume::{WaitEnd, wait_until};
 use verwalter_lib::usage::reset_text;
 
 const TEXT_CHARS: usize = 60;
@@ -226,8 +229,85 @@ fn text_entries(line: &str) -> usize {
         .count()
 }
 
+/// `wait_until` mit falscher Uhr ab 0: jeder Schlaf rückt sie vor, nach dem ersten Schlaf um
+/// `jump_ms` mehr (Ruhezustand). Die Marke gilt für `valid_checks` Abfragen. → Ende, Uhr, Schlafzeiten.
+fn wait_case(due_ms: f64, jump_ms: f64, valid_checks: u32) -> (WaitEnd, f64, Vec<Duration>) {
+    let clock = Cell::new(0.0_f64);
+    let checks = Cell::new(0_u32);
+    let mut sleeps: Vec<Duration> = Vec::new();
+    let end = wait_until(
+        due_ms,
+        || clock.get(),
+        || {
+            checks.set(checks.get() + 1);
+            checks.get() <= valid_checks
+        },
+        |step: Duration| {
+            let jump = if sleeps.is_empty() { jump_ms } else { 0.0 };
+            sleeps.push(step);
+            clock.set(clock.get() + step.as_secs_f64() * 1000.0 + jump);
+        },
+    );
+    (end, clock.get(), sleeps)
+}
+
+fn wait_selftest(failed: &mut bool) {
+    const MINUTE: f64 = 60_000.0;
+    const STEP: Duration = Duration::from_secs(15);
+    let (end, clock, sleeps) = wait_case(MINUTE, 0.0, u32::MAX);
+    check(
+        "w1-puenktlich-faellig",
+        end == WaitEnd::Due && clock == MINUTE && sleeps.len() == 4,
+        "Due bei 60000 nach 4 Schritten",
+        &format!("{end:?} bei {clock} nach {} Schritten", sleeps.len()),
+        failed,
+    );
+    let (end, _, sleeps) = wait_case(-MINUTE, 0.0, u32::MAX);
+    check(
+        "w2-ziel-in-der-vergangenheit-sofort",
+        end == WaitEnd::Due && sleeps.is_empty(),
+        "Due ohne Schlaf",
+        &format!("{end:?} nach {} Schritten", sleeps.len()),
+        failed,
+    );
+    let (end, _, sleeps) = wait_case(60.0 * MINUTE, 120.0 * MINUTE, u32::MAX);
+    check(
+        "w3-ruhezustand-faellig-im-naechsten-schritt",
+        end == WaitEnd::Due && sleeps.len() == 1,
+        "Due nach 1 Schritt",
+        &format!("{end:?} nach {} Schritten", sleeps.len()),
+        failed,
+    );
+    let (end, _, sleeps) = wait_case(60.0 * MINUTE, 0.0, 3);
+    check(
+        "w4-marke-ungueltig-bricht-ab",
+        end == WaitEnd::Cancelled && sleeps.len() == 3,
+        "Cancelled nach 3 Schritten",
+        &format!("{end:?} nach {} Schritten", sleeps.len()),
+        failed,
+    );
+    let (end, _, _) = wait_case(-MINUTE, 0.0, 0);
+    check(
+        "w5-marke-ungueltig-schlaegt-faelligkeit",
+        end == WaitEnd::Cancelled,
+        "Cancelled",
+        &format!("{end:?}"),
+        failed,
+    );
+    let (_, _, sleeps) = wait_case(60.0 * MINUTE, 0.0, u32::MAX);
+    let longest = sleeps.iter().max().copied().unwrap_or_default();
+    check(
+        "w6-schritt-nie-laenger-als-15-s",
+        longest == STEP && sleeps.len() == 240,
+        "15 s, 240 Schritte",
+        &format!("{longest:?}, {} Schritte", sleeps.len()),
+        failed,
+    );
+}
+
 fn selftest() -> ExitCode {
     let mut failed = false;
+    wait_selftest(&mut failed);
     for (name, lines, expected) in CASES {
         let mut actual: Vec<Turn> = Vec::new();
         run(lines, |end: &TurnEnd, source: Option<QuotaSource>| {

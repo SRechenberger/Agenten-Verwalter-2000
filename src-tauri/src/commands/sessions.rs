@@ -113,6 +113,17 @@ pub async fn session_cancel_auto_handoff(
     registry.cancel_auto_handoff(&app, &session_id)
 }
 
+/// Schaltet „Automatisch fortsetzen“ einer Session, die auf das Kontingent wartet (ADR 051).
+#[tauri::command]
+pub async fn session_set_auto_resume(
+    app: tauri::AppHandle,
+    registry: tauri::State<'_, SessionRegistry>,
+    session_id: String,
+    enabled: bool,
+) -> Result<(), CommandError> {
+    registry.set_auto_resume(&app, &session_id, enabled)
+}
+
 #[tauri::command]
 pub async fn session_set_mode(
     app: tauri::AppHandle,
