@@ -33,3 +33,7 @@ Der Nutzer will eine Frage zur laufenden Session stellen, die Claude aus dem bis
 - Nur die Betriebsarten Claude und Claude + LM Studio; Autark und Codex lehnen mit „Nebenfragen gibt es in dieser Betriebsart noch nicht.“ ab, bevor ein Prozess startet.
 - Die letzte, noch nicht geschriebene Antwort des Agenten fehlt dem Fork (wie bei `/btw`).
 - Code: `src-tauri/src/side/`, `agents/claude/side.rs`, `sessions/registry/side.rs`, `commands/side.rs`, `examples/side-probe.rs`.
+
+## Nachtrag 2026-11-03: `dontAsk` sperrt nicht
+
+Oben steht, Werkzeuge seien nur durch `--permission-mode dontAsk` gesperrt. Das stimmt nicht: `dontAsk` lehnt nur ab, was nicht freigegeben ist; was `--allowedTools` freigibt, läuft auch dort (gemessen, siehe [ADR 046](046-mcp-zugang.md)). Eine Nebenfrage kann also freigegebene Werkzeuge aufrufen. Dass sie es nicht tut, sagt nur die Anweisung im Prompt. Die Sperre der Session-Werkzeuge liegt am eigenen Schlüssel der Nebenfrage.

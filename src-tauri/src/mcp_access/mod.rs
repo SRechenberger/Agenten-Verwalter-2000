@@ -147,8 +147,6 @@ impl McpAccess {
         self.config_dir.join(format!("{session_id}.json"))
     }
 
-    /// Ein Wechsel der Betriebsart ersetzt den Schlüssel, denn der alte kann in der Datei gestanden
-    /// haben.
     fn key_for(&self, caller: Caller) -> String {
         let mut keys = self.lock_keys();
         let existing = keys
@@ -156,9 +154,6 @@ impl McpAccess {
             .find(|(_, owner): &(&String, &Caller)| **owner == caller)
             .map(|(key, _): (&String, &Caller)| key.clone());
         existing.unwrap_or_else(|| {
-            keys.retain(|_, owner: &mut Caller| {
-                owner.session_id != caller.session_id || owner.kind != caller.kind
-            });
             let key = uuid::Uuid::new_v4().simple().to_string();
             keys.insert(key.clone(), caller);
             key
