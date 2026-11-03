@@ -17,6 +17,8 @@ interface NoticeLineProps {
   /** Kleiner Zusatz unter der Zeile. */
   detail?: string | undefined;
   action?: NoticeLineAction | undefined;
+  /** Bedienelement rechts in der Zeile, wenn ein Knopf nicht reicht. */
+  control?: ReactNode;
 }
 
 export function NoticeLine({
@@ -26,6 +28,7 @@ export function NoticeLine({
   text,
   detail,
   action,
+  control,
 }: NoticeLineProps): ReactElement {
   return (
     <div className={`notice-line notice-line--${variant}`} role="note">
@@ -41,6 +44,7 @@ export function NoticeLine({
           {action.label}
         </button>
       )}
+      {control}
     </div>
   );
 }

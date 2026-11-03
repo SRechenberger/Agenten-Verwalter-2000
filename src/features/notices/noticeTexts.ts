@@ -1,4 +1,5 @@
 import { formatThousands } from '@/features/context/formatTokens';
+import { formatResetAt } from '@/features/usage/usageTexts';
 import type { Mode } from '@/lib/bindings/Mode';
 import type { ModelId } from '@/lib/bindings/ModelId';
 import { modeOption, modelName } from '@/lib/labels';
@@ -17,6 +18,10 @@ export const FALLBACK_LEAD = 'Sicherheitsfilter hat eine Nachricht markiert.';
 export const FALLBACK_REVERT_LEAD = 'Zurück beim ursprünglichen Modell.';
 export const INFO_LEAD = 'Hinweis von Claude Code:';
 export const MODE_CHANGED_LEAD = 'Modus geändert:';
+export const QUOTA_LEAD = 'Kontingent aufgebraucht.';
+export const QUOTA_RESUME_LABEL = 'Automatisch fortsetzen';
+export const QUOTA_RESUME_TITLE =
+  'Schickt dem Agenten kurz nach dem Zurücksetzen die Aufforderung weiterzumachen. Gilt nur, solange die App läuft.';
 export const REPORT_UPDATED_LEAD = 'Lagebericht aktualisiert angehängt';
 
 /** „Stand 14:05 · Phase 2 · Test fertig“. */
@@ -89,6 +94,16 @@ export function modelFallbackActionLabel(originalName: string): string {
 
 export function modeChangedText(from: Mode, to: Mode): string {
   return `von ${modeOption(from).label} auf ${modeOption(to).label}.`;
+}
+
+/** „Es setzt sich um 15:30 Uhr zurück.“; `null`, wenn die Zeit unbekannt, unlesbar oder vorbei ist. */
+export function quotaResetText(resetsAt: number | null, now: number): string | null {
+  // `toISOString` wirft bei einem Wert außerhalb des Datumsbereichs; die Zahl kommt von der Kommandozeile.
+  if (resetsAt === null || Number.isNaN(new Date(resetsAt).getTime())) {
+    return null;
+  }
+  const resetText: string | null = formatResetAt(new Date(resetsAt).toISOString(), now);
+  return resetText === null ? null : `Es setzt sich ${resetText} zurück.`;
 }
 
 export function deniedCallsText(count: number): string {

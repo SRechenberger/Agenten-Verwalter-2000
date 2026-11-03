@@ -99,6 +99,12 @@ export async function setSessionChrome(sessionId: string, enabled: boolean): Pro
   await invoke('session_set_chrome', { sessionId, enabled });
 }
 
+/** Schaltet „Automatisch fortsetzen“ einer wegen des Kontingents pausierten Session (ADR 051); den
+ *  neuen Stand meldet `session://changed`. Ohne Begründung oder ohne Rücksetzzeit ein Fehler. */
+export async function setSessionAutoResume(sessionId: string, enabled: boolean): Promise<void> {
+  await invoke('session_set_auto_resume', { sessionId, enabled });
+}
+
 /** Die letzten Zeilen der Fehlerausgabe und unverstandene Zeilen des Agenten (höchstens 300).
  *  @throws {import('@/lib/bindings/CommandError').CommandError} `sessionNotFound` */
 export function getSessionLog(sessionId: string): Promise<string[]> {

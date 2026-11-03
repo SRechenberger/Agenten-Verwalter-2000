@@ -161,7 +161,18 @@ export function ChatTimeline({
   // Wenig Inhalt klebt unten: alle Blöcke rücken um den freien Platz nach unten.
   const bottomOffset: number = Math.max(0, containerHeight - totalSize);
 
-  const lastErrorSeq: number | null = useMemo(() => findLastErrorSeq(entries), [entries]);
+  const lastErrorSeq: number | null = useMemo(
+    () => findLastSeq(entries, (entry: ChatEntry) => entry.kind === 'error'),
+    [entries],
+  );
+  const lastQuotaSeq: number | null = useMemo(
+    () =>
+      findLastSeq(
+        entries,
+        (entry: ChatEntry) => entry.kind === 'notice' && entry.notice.kind === 'quotaExhausted',
+      ),
+    [entries],
+  );
   const answerSeq: number | null = useMemo(() => lastAnswerSeq(entries), [entries]);
   const showsHandoff: boolean =
     session.handoffLines.length > 0 && !HANDOFF_HIDDEN_STATUSES.includes(session.status);
@@ -502,6 +513,8 @@ export function ChatTimeline({
             }}
             isClaude={isClaude}
             isFallbackActive={session.fallbackModel !== null}
+            isLatestQuotaNotice={entry.seq === lastQuotaSeq}
+            pauseReason={session.pauseReason}
             onJumpToEntry={jumpToEntry}
             countUnsourced={countUnsourced}
           />
@@ -660,10 +673,13 @@ function findArtifact(artifacts: ArtifactList | null, file: string): Artifact | 
   return artifacts?.items.find((item: Artifact) => item.file.toLowerCase() === wanted);
 }
 
-function findLastErrorSeq(entries: readonly ChatEntry[]): number | null {
+function findLastSeq(
+  entries: readonly ChatEntry[],
+  matches: (entry: ChatEntry) => boolean,
+): number | null {
   for (let index = entries.length - 1; index >= 0; index -= 1) {
     const entry: ChatEntry | undefined = entries[index];
-    if (entry?.kind === 'error') {
+    if (entry !== undefined && matches(entry)) {
       return entry.seq;
     }
   }

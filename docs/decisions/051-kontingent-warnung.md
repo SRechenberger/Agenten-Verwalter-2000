@@ -32,7 +32,7 @@ Das Format ist nur halb bekannt. Belegt sind lokale Transkripte der Kommandozeil
 - **Wochen-Fenster:** Das Textformat ist nicht belegt. Ohne strukturiertes `resetsAt` bleibt die Rücksetzzeit dann `None`; die Warnung und die Pause gelten trotzdem.
 - **Fehlalarme:** Eine Antwort des Modells, die selbst mit „You've hit your … limit“ beginnt, gilt als Kontingent-Fall; der `result`-Text ist von der Meldung nicht zu unterscheiden. Die nächste Nachricht setzt die Session normal fort. Auch ein vorübergehender Fehler mit `error: "rate_limit"` zählt, falls die Kommandozeile ihn so meldet (nicht gemessen).
 - **Außerhalb des Claude-Prozesses** (LM Studio, Autark, Codex) wird ein Text, der die Regel (3) trifft, zur Fehlerkarte, auch bei einer erfolgreichen Antwort; `TurnEnd::QuotaExhausted` sagt nicht, ob `is_error` gesetzt war.
-- **Warnkarte folgt:** bis dahin zeigt `NoticeBlock` die Meldung wie einen `Info`-Hinweis, und nichts in der Oberfläche ruft `session_set_auto_resume`.
+- **Warnkarte und Schalter:** `NoticeBlock` zeigt die Meldung als Warnkarte, der Schalter ruft `session_set_auto_resume` (siehe Nachtrag „Oberfläche“).
 - Die Archiv-Suche findet den Text der Meldung; TL;DR und Retro lassen ihn weg wie jeden anderen Hinweis.
 
 ## Nachtrag: Automatisch fortsetzen
@@ -58,3 +58,11 @@ Das Format ist nur halb bekannt. Belegt sind lokale Transkripte der Kommandozeil
 **Nachtrag 2026-11-03:** „Nachricht“ meint in diesem ADR die des Nutzers. Die Nachricht einer anderen Session ([ADR 052](052-session-werkzeuge.md)) setzt eine pausierte Session nicht fort und wartet bis zur nächsten vollständigen Antwort.
 
 **Nachtrag 2026-11-03:** „Automatisch fortsetzen“ geht über `send` und setzt die Kettenbremse aus [ADR 052](052-session-werkzeuge.md) ohne Nutzer auf 0. Je Kontingent-Grenze sind damit höchstens sechs weitere selbst freigegebene Aufrufe möglich, und die Grenze selbst bremst schon. Aus dem Code gelesen, nicht gefahren.
+
+## Nachtrag: Oberfläche
+
+- **Warnkarte:** `Notice::QuotaExhausted` ist eine `NoticeLine` mit `variant="warn"`, Warnsymbol und fettem Anfang „Kontingent aufgebraucht.“, darunter der Satz zur Rücksetzzeit, solange sie bekannt ist und in der Zukunft liegt. Kein Rot, kein `role="alert"`. Die Karte ist ein Verlaufs-Eintrag und bleibt nach dem Fortsetzen stehen.
+- **Schalter „Automatisch fortsetzen“:** nur auf der jüngsten Kontingent-Karte der Session und nur, solange `pauseReason` steht und eine Rücksetzzeit hat. Sein Stand kommt aus `pauseReason.autoResume`; die Oberfläche hält nur „sendet gerade“. Fehlschläge erscheinen als Meldung unter der Kopfzeile.
+- **Begründung des Pausiert-Zustands:** `isQuotaPause` entscheidet für Meta-Zeile („wartet auf Kontingent“), Kopfzeile („Pausiert · Kontingent“) und Platzhalter der Eingabeleiste. Die Eingabeleiste bleibt frei. Jede andere Pause zeigt alles wie zuvor.
+- **Die Meta-Zeile nennt keine Uhrzeit:** Ob „zurück um HH:MM“ noch stimmt (vorbei, anderer Tag), lässt sich nur mit der aktuellen Zeit sagen, und `metaLine` bekommt keine zweite Signatur dafür. Die Zeit steht auf der Karte.
+- **Verworfen:** eine Leiste statt der Karte (ein dauerhaftes Element mehr, und die Kontingent-Leiste gilt dem Konto, nicht der Session); ein eigener Status (siehe oben).
