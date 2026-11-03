@@ -10,7 +10,7 @@ Leitsatz: **Chat first, Changes second.** Was dem Agent-Workflow nicht aktiv hil
 
 ## Was die App kann
 
-- **Vorhaben und Sessions:** Sidebar als Baum, das zuletzt aktive Vorhaben oben, Ungelesen-Punkt bei Neuem. Neues Vorhaben in drei Schritten (Aufgabe mit Anhängen, Repositories, Agent). Übersicht je Vorhaben, Umbenennen, Archivieren, Repositories nachträglich anhängen. Eine neue Session lässt sich mit einem Klick aus der Einstiegszeile der letzten weiterführen.
+- **Vorhaben und Sessions:** Sidebar als Baum, das zuletzt aktive Vorhaben oben, Ungelesen-Punkt bei Neuem. Neues Vorhaben in drei Schritten (Aufgabe mit Anhängen, Repositories, Agent). Übersicht je Vorhaben, Umbenennen, Archivieren, Repositories nachträglich anhängen. Sessions eines Vorhabens sprechen über Werkzeuge miteinander (Betriebsart Claude); du bestätigst jeden Aufruf im Chat oder gibst ihn je Vorhaben frei. Eine Zeile „Neues Vorhaben …“ in einer Antwort öffnet per Klick ein vorbelegtes neues Vorhaben.
 - **TL;DR:** Kurzfassung von Session und Vorhaben, auf Knopfdruck im Hintergrund erstellt.
 - **Chat:** Markdown mit Syntaxfarben und Kopieren-Knopf, eingeklappte Tool-Aktivität und Gedankengang, Aufgabenliste, Rückfragen direkt beantworten, Unterbrechen und Fortsetzen. Pfade in Antworten öffnen sich per Klick.
 - **Eingabe:** Bilder und Dateien anhängen (Knopf, Hineinziehen, Einfügen), Skills und Befehle über `/`, Modell, Denkaufwand und Modus während der Session wechseln, Diktat per Mikrofon (`Strg+M`) mit lokaler Parakeet-Erkennung.

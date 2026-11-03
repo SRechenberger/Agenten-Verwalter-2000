@@ -6,7 +6,7 @@ use crate::db::{enum_from_text, enum_to_text};
 use crate::error::CommandError;
 use crate::session_tools::model::SelfRelease;
 
-const COLUMNS: &str = "id, name, created_at, tldr, tldr_at, tldr_sources, name_auto, auto_handoff, \
+const COLUMNS: &str = "id, name, created_at, tldr, tldr_at, tldr_sources, name_auto, \
      self_release_messages, self_release_tldr, self_release_open_session, self_release_tldr_model";
 
 #[derive(Debug, Clone)]
@@ -20,8 +20,6 @@ pub struct ProjectRow {
     pub tldr_sources: Option<u32>,
     /// Der Name ist automatisch entstanden und darf nachgezogen werden; von Hand gesetzt = `false`.
     pub name_auto: bool,
-    /// „Automatisch weiter“ ist an (ADR 040).
-    pub auto_handoff: bool,
     pub self_release: SelfRelease,
 }
 
@@ -46,7 +44,7 @@ pub fn insert(connection: &Connection, row: &ProjectRow) -> Result<(), CommandEr
 
 /// Ein unlesbares Modell gilt als Standard.
 fn read_row(row: &Row<'_>) -> rusqlite::Result<ProjectRow> {
-    let tldr_model: String = row.get(11)?;
+    let tldr_model: String = row.get(10)?;
     Ok(ProjectRow {
         id: row.get(0)?,
         name: row.get(1)?,
@@ -55,11 +53,10 @@ fn read_row(row: &Row<'_>) -> rusqlite::Result<ProjectRow> {
         tldr_at: row.get(4)?,
         tldr_sources: row.get(5)?,
         name_auto: row.get(6)?,
-        auto_handoff: row.get(7)?,
         self_release: SelfRelease {
-            messages: row.get(8)?,
-            tldr: row.get(9)?,
-            open_session: row.get(10)?,
+            messages: row.get(7)?,
+            tldr: row.get(8)?,
+            open_session: row.get(9)?,
             tldr_model: enum_from_text::<ModelId>(&tldr_model).unwrap_or(ModelId::Haiku),
         },
     })
@@ -127,18 +124,6 @@ pub fn rename(
     connection.execute(
         "UPDATE projects SET name = ?2, name_auto = ?3 WHERE id = ?1",
         params![id, name, auto],
-    )?;
-    Ok(())
-}
-
-pub fn set_auto_handoff(
-    connection: &Connection,
-    id: &str,
-    enabled: bool,
-) -> Result<(), CommandError> {
-    connection.execute(
-        "UPDATE projects SET auto_handoff = ?2 WHERE id = ?1",
-        params![id, enabled],
     )?;
     Ok(())
 }

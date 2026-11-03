@@ -25,16 +25,12 @@ interface ChatViewProps {
   backgroundByToolUseId: ReadonlyMap<string, BackgroundItem>;
   /** Artefakte des Vorhabens; `null`, bis die erste Abfrage antwortet. */
   artifacts: ArtifactList | null;
-  /** Nimmt eine aus der Einstiegszeile angelegte Session in die Liste auf und wählt sie aus. */
+  /** Nimmt eine angelegte Session in die Liste auf und wählt sie aus. */
   onSessionCreated: (created: SessionSummary) => void;
-  /** „Automatisch weiter“ des Vorhabens (ADR 040). */
-  autoHandoff: boolean;
   /** Selbstfreigabe des Vorhabens; `null`, solange es nicht geladen ist. */
   selfRelease: SelfRelease | null;
   /** Alle Sessions; der Absender einer Session-Nachricht kann fehlen. */
   sessions: readonly SessionSummary[];
-  /** Name der Eltern-Session von `session`; `null`, wenn es keine gibt. */
-  parentName: string | null;
 }
 
 /** Die Einträge einer Session sind ab 0 durchnummeriert; der letzte geladene trägt die höchste `seq`. */
@@ -52,10 +48,8 @@ export function ChatView({
   backgroundByToolUseId,
   artifacts,
   onSessionCreated,
-  autoHandoff,
   selfRelease,
   sessions,
-  parentName,
 }: ChatViewProps): ReactElement {
   const { entries, hasMore, loadingOlder, loadError, olderError, loadOlder } = useChatEntries(
     session.id,
@@ -149,11 +143,8 @@ export function ChatView({
         loadingOlder={loadingOlder}
         olderError={olderError}
         onLoadOlder={loadOlder}
-        onSessionCreated={onSessionCreated}
-        autoHandoff={autoHandoff}
         selfRelease={selfRelease}
         sessions={sessions}
-        parentName={parentName}
         topInset={topInset}
         bottomInset={bottomInset}
       />

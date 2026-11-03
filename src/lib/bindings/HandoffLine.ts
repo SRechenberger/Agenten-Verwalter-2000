@@ -3,11 +3,11 @@ import type { HandoffKind } from "./HandoffKind";
 import type { ModelId } from "./ModelId";
 
 /**
- * Eine Einstiegszeile am Ende einer Antwort (ADR 027, ADR 040).
+ * Eine Einstiegszeile in einer Antwort (ADR 027, ADR 052).
  */
 export type HandoffLine = { kind: HandoffKind, 
 /**
- * Die bereinigte Zeile, wie sie gesendet bzw. als Auftrag übernommen wird.
+ * Die bereinigte Zeile, wie sie als Auftrag übernommen wird.
  */
 text: string, 
 /**

@@ -66,13 +66,10 @@ use crate::review::{
     model::{CommentTarget, ReviewComment},
 };
 use crate::session_tools::model::SelfRelease;
-use crate::sessions::auto_handoff::{
-    self, AUTO_HANDOFF_CHAIN_LIMIT, AUTO_HANDOFF_DELAY, FollowUp, ScheduledHandoff,
-};
 use crate::sessions::auto_resume::{self, ArmedResume};
 use crate::sessions::model::{
-    AutoHandoff, AwaitedScript, ChatEntryEvent, ChatPage, HandoffHalt, HandoffLine, PauseReason,
-    SessionOverlap, SessionStatus, SessionSummary,
+    AwaitedScript, ChatEntryEvent, ChatPage, HandoffLine, PauseReason, SessionOverlap,
+    SessionStatus, SessionSummary,
 };
 use crate::sessions::{MAX_NAME_CHARS, handoff, name_from_task};
 use crate::settings;
@@ -136,8 +133,6 @@ struct ProjectState {
     name: String,
     /// Der Name ist automatisch entstanden und darf nachgezogen werden; von Hand gesetzt = `false`.
     name_auto: bool,
-    /// „Automatisch weiter“ ist an (ADR 040).
-    auto_handoff: bool,
     self_release: SelfRelease,
     created_at: f64,
     tldr: Option<ProjectTldr>,
@@ -156,7 +151,6 @@ impl ProjectState {
         ProjectState {
             name,
             name_auto: false,
-            auto_handoff: false,
             self_release: SelfRelease::OFF,
             created_at,
             tldr: None,
@@ -172,7 +166,6 @@ impl ProjectState {
     fn restored(row: &ProjectRow) -> Self {
         let mut state = ProjectState::new(row.name.clone(), row.created_at);
         state.name_auto = row.name_auto;
-        state.auto_handoff = row.auto_handoff;
         state.self_release = row.self_release;
         state.tldr = row
             .tldr
@@ -242,19 +235,11 @@ struct SessionState {
     created_at: f64,
     /// Letztes Senden oder Abgeben des Agenten.
     last_activity_at: f64,
-    /// Einstiegszeilen der letzten Antwort (ADR 027, ADR 040); eine Nutzernachricht löscht sie.
+    /// Einstiegszeilen „Neues Vorhaben …“ der letzten Antwort (ADR 027, ADR 052); eine
+    /// Nutzernachricht löscht sie.
     handoff_lines: Vec<HandoffLine>,
-    /// Davon die Zeilen im Fenster am Ende der Antwort; nur sie darf die Automatik starten. Nur im
-    /// Speicher, nach einem Neustart beim Laden des Verlaufs neu bestimmt.
-    handoff_window: Vec<HandoffLine>,
-    /// Haltegrund aus dem Text der letzten Antwort (ADR 040); nur im Speicher, nach einem Neustart
-    /// beim Laden des Verlaufs neu bestimmt.
-    handoff_stop: Option<HandoffHalt>,
-    /// Stand der Automatik unter der letzten Antwort; nur im Speicher.
-    auto_handoff: Option<AutoHandoff>,
-    /// Marke des Countdowns: jede Änderung erhöht sie, der Zeitgeber vergleicht sie beim Ablauf.
-    auto_handoff_token: u64,
-    /// Der wievielte automatische Start in Folge diese Session ist; 0 = von dir gestartet. Nur im Speicher.
+    /// Stand der Kettenbremse (ADR 052): selbst freigegebene Aufrufe in Folge; 0 = von dir gestartet.
+    /// Nur im Speicher.
     auto_chain: u32,
     /// Begründung von `Paused` (ADR 051); nur im Speicher, gesetzt nur zusammen mit `Paused`.
     pause_reason: Option<PauseReason>,
@@ -263,9 +248,6 @@ struct SessionState {
     /// Marke von „Automatisch fortsetzen“: jedes Umlegen erhöht sie, der Zeitgeber vergleicht sie. Nur
     /// im Speicher.
     auto_resume_token: u64,
-    /// Eltern-Session im selben Vorhaben, an die „Zurück an …“ sendet; gespeichert, ohne
-    /// Fremdschlüssel. Nur `create_in_project` setzt sie.
-    parent_session_id: Option<String>,
     /// Wann der User die Session zuletzt gesehen hat.
     seen_at: f64,
     /// Die Oberfläche zeigt die Session gerade (`set_viewed`); nur im Speicher.
@@ -420,8 +402,8 @@ struct Outbox {
     open_urls: Vec<String>,
     /// Jüngster Kontingent-Stand aus einer Antwort des Claude-Abos.
     rate_limit: Option<RateLimitInfo>,
-    /// Die Antwort endete als abgeschlossen; nach dem Freigeben der Sperre prüft „Automatisch
-    /// weiter“ die Einstiegszeile (ADR 040).
+    /// Die Antwort endete als abgeschlossen; nach dem Freigeben der Sperre prüft die Warteschlange
+    /// der Session-Nachrichten, ob sie zustellt (ADR 052).
     turn_completed: bool,
 }
 
@@ -482,7 +464,6 @@ impl SessionRegistry {
             built.push(session);
             interrupted.extend(paused_row);
         }
-        forget_missing_parents(&built);
         {
             let mut sessions = registry.lock_sessions();
             for session in built {
@@ -578,7 +559,6 @@ impl SessionRegistry {
             tldr_at: None,
             tldr_sources: None,
             name_auto: true,
-            auto_handoff: false,
             self_release: default_self_release,
         };
         let saved = self.database.with(|connection| {
@@ -632,15 +612,7 @@ impl SessionRegistry {
     /// Legt im Vorhaben eine Session im Status „Neu“ an: kein Agent, kein Verlauf. Modell,
     /// Denkaufwand, Modus, Workspace und Repositories kommen von der Session mit der höchsten
     /// Nummer. Gibt es schon eine nicht gestartete Session, kommt diese zurück.
-    ///
-    /// `parent_session_id` wird als Eltern-Session der zurückgegebenen Session gemerkt, wenn sie im
-    /// selben Vorhaben liegt und nicht die Session selbst ist; sonst wird sie ignoriert. Ohne Wert
-    /// bleibt eine schon gemerkte Eltern-Session stehen.
-    pub fn create_in_project(
-        &self,
-        project_id: &str,
-        parent_session_id: Option<&str>,
-    ) -> Result<SessionSummary, CommandError> {
+    pub fn create_in_project(&self, project_id: &str) -> Result<SessionSummary, CommandError> {
         let mut members: Vec<Arc<Session>> = self
             .lock_sessions()
             .values()
@@ -651,28 +623,9 @@ impl SessionRegistry {
         let Some(latest) = members.last().cloned() else {
             return Err(project_not_found(project_id));
         };
-        let parent: Option<String> = parent_session_id
-            .filter(|parent: &&str| {
-                members
-                    .iter()
-                    .any(|member: &Arc<Session>| member.id == *parent)
-            })
-            .map(str::to_owned);
         for member in &members {
-            let mut state = member.lock();
+            let state = member.lock();
             if state.status == SessionStatus::New {
-                if let Some(parent) = parent.filter(|parent: &String| *parent != member.id)
-                    && state.parent_session_id.as_ref() != Some(&parent)
-                {
-                    let previous = state.parent_session_id.replace(parent);
-                    let saved = self.database.with(|connection| {
-                        session_rows::upsert(connection, &row_of(member, &state))
-                    });
-                    if let Err(error) = saved {
-                        state.parent_session_id = previous;
-                        return Err(error);
-                    }
-                }
                 return Ok(summarize(member, &state));
             }
         }
@@ -689,7 +642,6 @@ impl SessionRegistry {
             let mut state = SessionState::new(format!("Session {number}"), model, effort, mode);
             state.codex_model = codex_model;
             state.status = SessionStatus::New;
-            state.parent_session_id = parent;
             state
         })?;
         let summary = summarize(&session, &session.lock());
@@ -758,7 +710,7 @@ impl SessionRegistry {
 
     /// Unbekanntes Vorhaben → Fehler.
     pub fn project_summary(&self, project_id: &str) -> Result<ProjectSummary, CommandError> {
-        let (name, created_at, auto_handoff, self_release) = {
+        let (name, created_at, self_release) = {
             let projects = self.lock_projects();
             let project = projects
                 .get(project_id)
@@ -766,7 +718,6 @@ impl SessionRegistry {
             (
                 project.name.clone(),
                 project.created_at,
-                project.auto_handoff,
                 project.self_release,
             )
         };
@@ -775,239 +726,8 @@ impl SessionRegistry {
             name,
             created_at,
             repository_names: self.project_repository_names(project_id),
-            auto_handoff,
             self_release,
         })
-    }
-
-    /// `false` für ein unbekanntes Vorhaben.
-    pub fn project_auto_handoff(&self, project_id: &str) -> bool {
-        self.lock_projects()
-            .get(project_id)
-            .is_some_and(|project: &ProjectState| project.auto_handoff)
-    }
-
-    /// Schaltet „Automatisch weiter“ für das Vorhaben (ADR 040).
-    pub fn set_project_auto_handoff(
-        &self,
-        app: &AppHandle,
-        project_id: &str,
-        enabled: bool,
-    ) -> Result<(), CommandError> {
-        if !self.lock_projects().contains_key(project_id) {
-            return Err(project_not_found(project_id));
-        }
-        self.database
-            .with(|connection| project_rows::set_auto_handoff(connection, project_id, enabled))?;
-        if let Some(project) = self.lock_projects().get_mut(project_id) {
-            project.auto_handoff = enabled;
-        }
-        let _ = app.emit(PROJECT_CHANGED_EVENT, self.project_summary(project_id)?);
-        // Ohne gehaltene Sperre: `consider` bzw. `update` sperrt jede Session einzeln.
-        for member in self.project_sessions(project_id) {
-            if enabled {
-                auto_handoff::consider(app, &member);
-            } else {
-                let _ = update(
-                    app,
-                    &member,
-                    |state: &mut SessionState, outbox: &mut Outbox| {
-                        state.drop_auto_handoff(outbox);
-                        Ok(())
-                    },
-                );
-            }
-        }
-        Ok(())
-    }
-
-    /// Die Sessions eines Vorhabens (für Schalter an/aus).
-    pub(crate) fn project_sessions(&self, project_id: &str) -> Vec<Arc<Session>> {
-        self.lock_sessions()
-            .values()
-            .filter(|session: &&Arc<Session>| session.project_id == project_id)
-            .cloned()
-            .collect()
-    }
-
-    /// Spätere oder wartende Sessions im Vorhaben; sperrt jede andere Session einzeln und kurz.
-    pub(crate) fn follow_up(&self, session: &Session) -> FollowUp {
-        let mut follow_up = FollowUp::default();
-        for member in self.project_sessions(&session.project_id) {
-            if member.id == session.id {
-                continue;
-            }
-            let status: SessionStatus = member.lock().status;
-            if status == SessionStatus::New {
-                follow_up.pending_new = true;
-            } else if member.number > session.number {
-                follow_up.later_started = true;
-            }
-        }
-        follow_up
-    }
-
-    /// Nach dem Löschen von `deleted`: Kinder, die auf sie zeigen, vergessen die Eltern-Session
-    /// (im Speicher; die Datenbankzeile schreibt `update` mit, `forget_missing_parents` räumt sonst
-    /// beim Laden auf). Die Sessions-Map wird nur kopiert, jede Session-Sperre einzeln genommen.
-    fn forget_parent(&self, app: &AppHandle, deleted: &Session) {
-        let siblings: Vec<Arc<Session>> = self.lock_sessions().values().cloned().collect();
-        for child in siblings {
-            if child.project_id != deleted.project_id
-                || child.lock().parent_session_id.as_deref() != Some(deleted.id.as_str())
-            {
-                continue;
-            }
-            // Scheitert das Laden des Verlaufs, bleibt die ID bis zum nächsten Start stehen.
-            let _ = update(
-                app,
-                &child,
-                |state: &mut SessionState, outbox: &mut Outbox| {
-                    state.parent_session_id = None;
-                    outbox.summary_dirty = true;
-                    Ok(())
-                },
-            );
-        }
-    }
-
-    /// Die gemerkte Eltern-Session von `session` und ob sie ruht: abgeschlossen, ohne offene
-    /// Rückfrage, ohne laufenden Subagent oder Skript. `None` ohne (noch existierende) Eltern-Session.
-    /// Sperrt nur die Eltern-Session, kurz; das Senden danach läuft ohne Sperre.
-    pub(crate) fn parent_rest(&self, session: &Session) -> Option<(String, bool)> {
-        let parent_id: String = session.lock().parent_session_id.clone()?;
-        let parent: Arc<Session> = self.get(&parent_id).ok()?;
-        let rests: bool = parent
-            .lock_loaded()
-            .is_ok_and(|state: MutexGuard<'_, SessionState>| state.rests());
-        Some((parent_id, rests))
-    }
-
-    /// Entscheidet unter der Sperre der Session, ob ein Countdown beginnt.
-    pub(crate) fn schedule_auto_handoff(
-        &self,
-        app: &AppHandle,
-        session: &Arc<Session>,
-        follow_up: FollowUp,
-    ) -> Option<ScheduledHandoff> {
-        update(
-            app,
-            session,
-            |state: &mut SessionState, outbox: &mut Outbox| {
-                // Der Agent setzt selbst fort: erst die abschließende Antwort danach zählt.
-                if state.status != SessionStatus::Completed
-                    || state.is_awaiting_subagent()
-                    || state.awaited_script().is_some()
-                {
-                    return Ok(None);
-                }
-                let (lines, is_back, above) =
-                    handoff::auto_candidates(&state.handoff_lines, &state.handoff_window);
-                // Ohne Zeile, mit veralteter Zeile oder ohne Eltern-Session: still, wie der
-                // Anzeige-Status „Wiedereinstieg“.
-                let Some(line) = lines.first().cloned() else {
-                    state.drop_auto_handoff(outbox);
-                    return Ok(None);
-                };
-                if (is_back && state.parent_session_id.is_none())
-                    || (!is_back && follow_up.later_started)
-                {
-                    state.drop_auto_handoff(outbox);
-                    return Ok(None);
-                }
-                let halt: Option<HandoffHalt> =
-                    state.handoff_stop.or(if lines.len() > 1 || above {
-                        Some(HandoffHalt::SeveralLines)
-                    } else if !is_back && follow_up.pending_new {
-                        Some(HandoffHalt::PendingSession)
-                    } else if state.auto_chain >= AUTO_HANDOFF_CHAIN_LIMIT {
-                        Some(HandoffHalt::ChainLimit)
-                    } else {
-                        None
-                    });
-                if let Some(reason) = halt {
-                    state.set_auto_handoff(outbox, AutoHandoff::Halted { reason });
-                    return Ok(None);
-                }
-                let token: u64 = state.set_auto_handoff(
-                    outbox,
-                    AutoHandoff::Countdown {
-                        starts_at: now_ms() + AUTO_HANDOFF_DELAY.as_millis() as f64,
-                        model: line.model,
-                    },
-                );
-                Ok(Some(ScheduledHandoff {
-                    token,
-                    line,
-                    chain: state.auto_chain,
-                }))
-            },
-        )
-        .ok()
-        .flatten()
-    }
-
-    /// Löst den Countdown ein: `true` nur, wenn `token` noch gilt und ein Countdown steht; setzt dann `None`.
-    pub(crate) fn take_auto_handoff(
-        &self,
-        app: &AppHandle,
-        session: &Arc<Session>,
-        token: u64,
-    ) -> bool {
-        update(
-            app,
-            session,
-            |state: &mut SessionState, outbox: &mut Outbox| {
-                let is_current: bool = state.auto_handoff_token == token
-                    && matches!(state.auto_handoff, Some(AutoHandoff::Countdown { .. }));
-                if is_current {
-                    state.drop_auto_handoff(outbox);
-                }
-                // Der Agent kann ohne neuen Text wieder angelaufen sein (Subagent, Skript fertig).
-                Ok(is_current
-                    && state.status == SessionStatus::Completed
-                    && !state.is_awaiting_subagent()
-                    && state.awaited_script().is_none())
-            },
-        )
-        .unwrap_or(false)
-    }
-
-    /// Setzt `Halted { reason }`, wenn `token` noch gilt.
-    pub(crate) fn halt_auto_handoff(
-        &self,
-        app: &AppHandle,
-        session: &Arc<Session>,
-        token: u64,
-        reason: HandoffHalt,
-    ) {
-        let _ = update(
-            app,
-            session,
-            |state: &mut SessionState, outbox: &mut Outbox| {
-                if state.auto_handoff_token == token {
-                    state.set_auto_handoff(outbox, AutoHandoff::Halted { reason });
-                }
-                Ok(())
-            },
-        );
-    }
-
-    /// Setzt `Failed { message }` (nach `take_auto_handoff`, ohne Marke).
-    pub(crate) fn fail_auto_handoff(
-        &self,
-        app: &AppHandle,
-        session: &Arc<Session>,
-        message: String,
-    ) {
-        let _ = update(
-            app,
-            session,
-            |state: &mut SessionState, outbox: &mut Outbox| {
-                state.set_auto_handoff(outbox, AutoHandoff::Failed { message });
-                Ok(())
-            },
-        );
     }
 
     /// Legt den Schalter „Automatisch fortsetzen“ um (ADR 051); `true` startet den Zeitgeber.
@@ -1053,37 +773,6 @@ impl SessionRegistry {
                 Ok(())
             },
         );
-    }
-
-    /// Merkt sich an der neuen Session, der wievielte automatische Start in Folge sie ist.
-    pub(crate) fn set_auto_chain(&self, session_id: &str, chain: u32) {
-        if let Ok(session) = self.get(session_id) {
-            session.lock().auto_chain = chain;
-        }
-    }
-
-    /// Bricht einen laufenden Countdown ab: `Halted { Cancelled }`; ohne Countdown nichts.
-    pub fn cancel_auto_handoff(
-        &self,
-        app: &AppHandle,
-        session_id: &str,
-    ) -> Result<(), CommandError> {
-        let session = self.get(session_id)?;
-        update(
-            app,
-            &session,
-            |state: &mut SessionState, outbox: &mut Outbox| {
-                if matches!(state.auto_handoff, Some(AutoHandoff::Countdown { .. })) {
-                    state.set_auto_handoff(
-                        outbox,
-                        AutoHandoff::Halted {
-                            reason: HandoffHalt::Cancelled,
-                        },
-                    );
-                }
-                Ok(())
-            },
-        )
     }
 
     /// Die Repositories der Session mit der kleinsten Nummer — alle Sessions teilen dieselben.
@@ -1491,7 +1180,6 @@ impl SessionRegistry {
             access.forget(&session.id);
         }
         drop(projects);
-        self.forget_parent(app, &session);
         {
             let mut viewed = self.viewed.lock().unwrap_or_else(PoisonError::into_inner);
             if viewed.as_deref() == Some(session.id.as_str()) {
@@ -2240,26 +1928,6 @@ fn build_session(
     Ok((session, paused_row))
 }
 
-/// Eine gemerkte Eltern-Session, die unter den geladenen Sessions fehlt, gilt als nicht vorhanden.
-/// Zur Laufzeit räumt `forget_parent` beim Löschen auf; das hier fängt Zeilen aus einem Archiv
-/// oder einem früheren Start ab.
-fn forget_missing_parents(sessions: &[Arc<Session>]) {
-    for session in sessions {
-        let mut state = session.lock();
-        if state
-            .parent_session_id
-            .as_ref()
-            .is_some_and(|parent: &String| {
-                !sessions
-                    .iter()
-                    .any(|other: &Arc<Session>| other.id == *parent)
-            })
-        {
-            state.parent_session_id = None;
-        }
-    }
-}
-
 fn write_paused(database: &Database, rows: &[SessionRow]) -> Result<(), CommandError> {
     if rows.is_empty() {
         return Ok(());
@@ -2285,10 +1953,6 @@ impl Session {
             state.load_entries(self)?;
         }
         Ok(state)
-    }
-
-    pub(crate) fn project_id(&self) -> &str {
-        &self.project_id
     }
 
     pub(crate) fn log_line(&self, line: String) {
@@ -2332,15 +1996,10 @@ impl SessionState {
             created_at: now,
             last_activity_at: now,
             handoff_lines: Vec::new(),
-            handoff_window: Vec::new(),
-            handoff_stop: None,
-            auto_handoff: None,
-            auto_handoff_token: 0,
             auto_chain: 0,
             pause_reason: None,
             seen_tool_uses: HashSet::new(),
             auto_resume_token: 0,
-            parent_session_id: None,
             seen_at: now,
             is_viewed: false,
             running_ms: 0.0,
@@ -2412,7 +2071,6 @@ impl SessionState {
         state.context_window = row.context_window;
         state.prompt_cache = row.prompt_cache.clone();
         state.name_auto = row.name_auto;
-        state.parent_session_id = row.parent_session_id.clone();
         state.has_agent_history = row.has_agent_history;
         state.chrome = row.chrome;
         state.codex_model = row.codex_model.clone();
@@ -2445,18 +2103,6 @@ impl SessionState {
         self.entries = entries;
         self.background = background;
         self.entries_loaded = true;
-        if !self.handoff_lines.is_empty() {
-            let last_text: Option<&str> =
-                self.entries
-                    .iter()
-                    .rev()
-                    .find_map(|entry: &ChatEntry| match entry {
-                        ChatEntry::Text { text, .. } => Some(text.as_str()),
-                        _ => None,
-                    });
-            self.handoff_stop = last_text.and_then(handoff::stop_reason);
-            self.handoff_window = last_text.map_or_else(Vec::new, handoff::window_lines);
-        }
         self.settle_background_after_restart(session);
         if self.needs_settling {
             let mut outbox = Outbox::default();
@@ -2893,13 +2539,10 @@ impl SessionState {
         self.note_input(outbox);
     }
 
-    /// Eine neue Eingabe ist da: Einstiegszeilen und Automatik der letzten Antwort gelten nicht mehr.
+    /// Eine neue Eingabe ist da: Die Einstiegszeilen der letzten Antwort gelten nicht mehr.
     fn note_input(&mut self, outbox: &mut Outbox) {
         self.touch_activity(outbox);
         self.handoff_lines.clear();
-        self.handoff_window.clear();
-        self.handoff_stop = None;
-        self.drop_auto_handoff(outbox);
     }
 
     /// Eine Rückfrage ist beantwortet; ist sie die letzte, arbeitet der Agent weiter.
@@ -2928,23 +2571,6 @@ impl SessionState {
         }
         self.begin_sourcing(agent_text);
         titled
-    }
-
-    /// Entwertet einen laufenden Zeitgeber und nimmt den Stand der Automatik weg.
-    fn drop_auto_handoff(&mut self, outbox: &mut Outbox) {
-        self.auto_handoff_token += 1;
-        if self.auto_handoff.is_some() {
-            self.auto_handoff = None;
-            outbox.summary_dirty = true;
-        }
-    }
-
-    /// Setzt den Stand der Automatik unter einer neuen Marke.
-    fn set_auto_handoff(&mut self, outbox: &mut Outbox, value: AutoHandoff) -> u64 {
-        self.auto_handoff_token += 1;
-        self.auto_handoff = Some(value);
-        outbox.summary_dirty = true;
-        self.auto_handoff_token
     }
 
     fn replace_entry(&mut self, outbox: &mut Outbox, entry: ChatEntry) {
@@ -3061,9 +2687,6 @@ impl SessionState {
                     self.handoff_lines = lines;
                     outbox.summary_dirty = true;
                 }
-                self.handoff_window = handoff::window_lines(&text);
-                self.handoff_stop = handoff::stop_reason(&text);
-                self.drop_auto_handoff(outbox);
                 let seq: u32 = self.push_entry(outbox, |seq: u32| ChatEntry::Text {
                     seq,
                     text,
@@ -3848,11 +3471,9 @@ fn update<R>(
     if !windows.is_empty() {
         commit_scan::schedule(Arc::clone(session), windows);
     }
-    // Die Session-Sperre ist hier frei: `consider` nimmt Vorhaben- und Session-Sperren selbst, der
-    // Thread der Warteschlange ebenso. Eine zugestellte Nachricht entwertet einen Countdown.
+    // Die Session-Sperre ist hier frei: Der Thread der Warteschlange nimmt seine Sperren selbst.
     if outbox.turn_completed {
         session_tools::schedule_inbox_delivery(app, session);
-        auto_handoff::consider(app, session);
     }
     let value = result?;
     outbox.deliver(session)?;
@@ -3875,7 +3496,6 @@ fn row_of(session: &Session, state: &SessionState) -> SessionRow {
         id: session.id.clone(),
         name: state.name.clone(),
         name_auto: state.name_auto,
-        parent_session_id: state.parent_session_id.clone(),
         status: state.status,
         model: state.model,
         codex_model: state.codex_model.clone(),
@@ -3977,9 +3597,7 @@ fn summarize(session: &Session, state: &SessionState) -> SessionSummary {
         mcp_problems: state.mcp_problem_count(),
         last_activity_at: state.last_activity_at,
         unread: state.last_activity_at > state.seen_at,
-        parent_session_id: state.parent_session_id.clone(),
         handoff_lines: state.handoff_lines.clone(),
-        auto_handoff: state.auto_handoff.clone(),
         awaited_script: state.awaited_script(),
         pause_reason: state.pause_reason.clone(),
     }

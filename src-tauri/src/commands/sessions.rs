@@ -23,9 +23,8 @@ pub async fn session_list(
 pub async fn session_create_in_project(
     registry: tauri::State<'_, SessionRegistry>,
     project_id: String,
-    parent_session_id: Option<String>,
 ) -> Result<SessionSummary, CommandError> {
-    registry.create_in_project(&project_id, parent_session_id.as_deref())
+    registry.create_in_project(&project_id)
 }
 
 #[tauri::command]
@@ -101,16 +100,6 @@ pub async fn session_set_model(
     model: ModelId,
 ) -> Result<(), CommandError> {
     registry.set_model(&app, &session_id, model)
-}
-
-/// Bricht den Countdown von „Automatisch weiter“ ab (ADR 040).
-#[tauri::command]
-pub async fn session_cancel_auto_handoff(
-    app: tauri::AppHandle,
-    registry: tauri::State<'_, SessionRegistry>,
-    session_id: String,
-) -> Result<(), CommandError> {
-    registry.cancel_auto_handoff(&app, &session_id)
 }
 
 /// Schaltet „Automatisch fortsetzen“ einer Session, die auf das Kontingent wartet (ADR 051).

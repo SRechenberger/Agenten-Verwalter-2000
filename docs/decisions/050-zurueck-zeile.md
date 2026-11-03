@@ -1,6 +1,6 @@
 # 050 — Einstiegszeile „Zurück an …“
 
-**Status:** angenommen · **Datum:** 2026-10-31
+**Status:** abgelöst durch [ADR 052](052-session-werkzeuge.md) · **Datum:** 2026-10-31
 
 ## Kontext
 

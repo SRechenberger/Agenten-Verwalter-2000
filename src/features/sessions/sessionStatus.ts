@@ -1,6 +1,5 @@
 import { formatDuration } from '@/features/background/backgroundLabels';
 import type { AwaitedScript } from '@/lib/bindings/AwaitedScript';
-import type { HandoffLine } from '@/lib/bindings/HandoffLine';
 import type { SessionStatus } from '@/lib/bindings/SessionStatus';
 import type { SessionSummary } from '@/lib/bindings/SessionSummary';
 import { modelName, repositoryCountLabel } from '@/lib/labels';
@@ -17,7 +16,7 @@ export const STATUS_LABEL: Record<SessionStatus, string> = {
 };
 
 /**
- * Status, wie die Sidebar ihn zeigt: `handoff` = abgeschlossen mit Einstiegszeile, Folgesession noch nicht gestartet (ADR 027);
+ * Status, wie die Sidebar ihn zeigt: `handoff` = abgeschlossen mit Einstiegszeile „Neues Vorhaben“, Folgesession noch nicht gestartet (ADR 027, ADR 052);
  * `script` = abgeschlossen, aber ein Hintergrund-Befehl läuft noch (ADR 032).
  */
 export type DisplayStatus = SessionStatus | 'handoff' | 'script';
@@ -33,10 +32,7 @@ export function displayStatus(
   if (session.awaitedScript !== null) {
     return 'script';
   }
-  if (
-    session.status !== 'completed' ||
-    !session.handoffLines.some((line: HandoffLine) => line.kind !== 'back')
-  ) {
+  if (session.status !== 'completed' || session.handoffLines.length === 0) {
     return session.status;
   }
   const hasFollowUp: boolean = sessions.some(

@@ -52,16 +52,6 @@ pub async fn project_rename(
 }
 
 #[tauri::command]
-pub async fn project_set_auto_handoff(
-    app: tauri::AppHandle,
-    registry: tauri::State<'_, SessionRegistry>,
-    project_id: String,
-    enabled: bool,
-) -> Result<(), CommandError> {
-    registry.set_project_auto_handoff(&app, &project_id, enabled)
-}
-
-#[tauri::command]
 pub async fn project_set_self_release(
     app: tauri::AppHandle,
     registry: tauri::State<'_, SessionRegistry>,

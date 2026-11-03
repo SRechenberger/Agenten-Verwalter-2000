@@ -14,7 +14,7 @@ export interface RenameTarget {
   id: string;
 }
 
-/** Vorbelegung für „Neues Vorhaben“ aus einer Einstiegszeile (ADR 040). */
+/** Vorbelegung für „Neues Vorhaben“ aus einer Einstiegszeile (ADR 052). */
 export interface NewSessionPrefill {
   task: string;
   model: ModelId | null;

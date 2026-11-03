@@ -1,6 +1,6 @@
 # 040 — Automatisch weiter und mehrere Einstiegszeilen
 
-**Status:** angenommen · **Datum:** 2026-10-26 · ergänzt durch [ADR 050](050-zurueck-zeile.md) (Zeilenart „Zurück an …“)
+**Status:** teilweise abgelöst durch [ADR 052](052-session-werkzeuge.md) · **Datum:** 2026-10-26. Es gilt noch: mehrere Einstiegszeilen je Antwort, Modell im Core und der Knopf, der nach dem Klick grau wird, nur noch für „Neues Vorhaben …“; die Kettenbremse lebt in den Session-Werkzeugen weiter.
 
 ## Kontext
 
