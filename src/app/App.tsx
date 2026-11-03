@@ -14,6 +14,9 @@ import { ArtifactsView } from '@/features/artifacts/ArtifactsView';
 import { useProjectArtifacts } from '@/features/artifacts/useProjectArtifacts';
 import { ChatView } from '@/features/chat/ChatView';
 import { useGitStatus } from '@/features/git/useGitStatus';
+import { ImplementationView as ImplementationMain } from '@/features/implementation/ImplementationView';
+import { useInquiry } from '@/features/implementation/useInquiry';
+import { useImplementations } from '@/features/implementation/useImplementations';
 import { countChangedFiles } from '@/features/changes/changesScope';
 import { ChangesView } from '@/features/changes/ChangesView';
 import { useSessionChanges } from '@/features/changes/useSessionChanges';
@@ -37,6 +40,7 @@ import type { ArtifactList } from '@/lib/bindings/ArtifactList';
 import type { ArtifactShowEvent } from '@/lib/bindings/ArtifactShowEvent';
 import type { BackgroundItem } from '@/lib/bindings/BackgroundItem';
 import type { ChangesReach } from '@/lib/bindings/ChangesReach';
+import type { ImplementationView } from '@/lib/bindings/ImplementationView';
 import type { OperatingMode } from '@/lib/bindings/OperatingMode';
 import type { ProjectCreated } from '@/lib/bindings/ProjectCreated';
 import type { ProjectRestored } from '@/lib/bindings/ProjectRestored';
@@ -44,14 +48,33 @@ import type { ProjectSummary } from '@/lib/bindings/ProjectSummary';
 import type { SessionSummary } from '@/lib/bindings/SessionSummary';
 import { useArtifactsStore } from '@/stores/artifacts';
 import { useBackgroundStore } from '@/stores/background';
-import { useSessionsStore, type ProjectView, type SessionView } from '@/stores/sessions';
+import {
+  useSessionsStore,
+  type ImplementationViewKind,
+  type ProjectView,
+  type SessionView,
+} from '@/stores/sessions';
 import { useSettingsStore } from '@/stores/settings';
 import './App.css';
 
 export function App(): ReactElement {
   const { sessions, upsertSession, removeSession, error: sessionsError } = useSessionSummaries();
   const { projects, upsertProject, removeProject, error: projectsError } = useProjectSummaries();
+  const {
+    implementations,
+    reload: reloadImplementations,
+    error: implementationsError,
+  } = useImplementations();
   const activeSessionId: string | null = useSessionsStore((state) => state.activeSessionId);
+  const activeImplementationId: string | null = useSessionsStore(
+    (state) => state.activeImplementationId,
+  );
+  const showImplementation: boolean = useSessionsStore((state) => state.showImplementation);
+  const implementationView: ImplementationViewKind = useSessionsStore(
+    (state) => state.implementationView,
+  );
+  const selectImplementation = useSessionsStore((state) => state.selectImplementation);
+  const showImplementationView = useSessionsStore((state) => state.showImplementationView);
   const activeProjectId: string | null = useSessionsStore((state) => state.activeProjectId);
   const showProjectOverview: boolean = useSessionsStore((state) => state.showProjectOverview);
   const showNewSession: boolean = useSessionsStore((state) => state.showNewSession);
@@ -94,7 +117,7 @@ export function App(): ReactElement {
     onArtifactShow((event: ArtifactShowEvent) => {
       useArtifactsStore.getState().select(event.projectId, event.file);
       const state = useSessionsStore.getState();
-      if (state.showNewSession || state.showSettings) {
+      if (state.showNewSession || state.showSettings || state.showImplementation) {
         return;
       }
       if (state.showProjectOverview) {
@@ -145,15 +168,28 @@ export function App(): ReactElement {
   // steht sonst der Leerzustand vor einer vollen Sidebar.
   // Die Übersicht eines Vorhabens gilt nur, solange das Vorhaben da ist (archiviert → bisherige Auswahl); ihre
   // Changes und Zähler liest der Core über die Session mit der höchsten Nummer.
-  const overviewProject: ProjectSummary | undefined =
-    showProjectOverview && !isMainReplaced && activeProjectId !== null
-      ? projects.find((project: ProjectSummary) => project.id === activeProjectId)
+  // Eine Umsetzung (ADR 048) zeigt sich wie die Übersicht in der Reichweite ihres Vorhabens: Changes
+  // und Artefakte liest der Core über dessen Session mit der höchsten Nummer.
+  const shownImplementation: ImplementationView | undefined =
+    showImplementation && !isMainReplaced && activeImplementationId !== null
+      ? implementations.find(
+          (implementation: ImplementationView) => implementation.id === activeImplementationId,
+        )
       : undefined;
+  const overviewProjectId: string | null =
+    shownImplementation?.projectId ??
+    (showProjectOverview && !isMainReplaced ? activeProjectId : null);
+  const overviewProject: ProjectSummary | undefined =
+    overviewProjectId === null
+      ? undefined
+      : projects.find((project: ProjectSummary) => project.id === overviewProjectId);
   const overviewSessions: SessionSummary[] =
     overviewProject === undefined ? [] : sessionsOf(overviewProject.id, sessions);
   const isOverview: boolean = overviewProject !== undefined && overviewSessions.length > 0;
   const chosenSession: SessionSummary | undefined =
     sessions.find((session: SessionSummary) => session.id === activeSessionId) ?? sessions[0];
+  const isImplementation: boolean = isOverview && shownImplementation !== undefined;
+  const hasProjectRepositories: boolean = (overviewProject?.repositoryNames.length ?? 0) > 0;
   const currentSession: SessionSummary | undefined = isOverview
     ? overviewSessions[overviewSessions.length - 1]
     : chosenSession;
@@ -168,7 +204,7 @@ export function App(): ReactElement {
 
   // Der gewählte Reiter bleibt beim Session-Wechsel stehen; ohne Repository gibt es keine Changes.
   const isChangesView: boolean = isOverview
-    ? projectView === 'changes' && (overviewProject?.repositoryNames.length ?? 0) > 0
+    ? (isImplementation ? implementationView : projectView) === 'changes' && hasProjectRepositories
     : !isMainReplaced &&
       activeView === 'changes' &&
       currentSession !== undefined &&
@@ -181,7 +217,7 @@ export function App(): ReactElement {
   const artifactCount: number = artifacts?.items.length ?? 0;
   // Ohne Artefakt fällt die Ansicht auf Chat bzw. Übersicht zurück.
   const isArtifactsView: boolean = isOverview
-    ? projectView === 'artifacts' && artifactCount > 0
+    ? !isImplementation && projectView === 'artifacts' && artifactCount > 0
     : !isMainReplaced && activeView === 'artifacts' && artifactCount > 0;
   const changesReach: ChangesReach = isOverview ? 'project' : 'session';
   const {
@@ -251,10 +287,12 @@ export function App(): ReactElement {
     for (const session of restored.sessions) {
       upsertSession(session);
     }
+    reloadImplementations();
   }
 
   function handleArchived(projectId: string): void {
     removeProject(projectId);
+    reloadImplementations();
     for (const session of sessions) {
       if (session.projectId === projectId) {
         removeSession(session.id);
@@ -282,6 +320,8 @@ export function App(): ReactElement {
     selectSession(created.id);
   }
 
+  const startInquiry = useInquiry(handleSessionCreated);
+
   function renderOverview(project: ProjectSummary, latestSession: SessionSummary): ReactElement {
     // Ein Schlüssel für die ganze Ansicht, nicht je Kind: gleiche Schlüssel an Geschwistern lassen React beim
     // Wechsel Kopfzeilen duplizieren statt ersetzen.
@@ -296,6 +336,40 @@ export function App(): ReactElement {
           onShowView={showProjectView}
         />
         {renderOverviewBody(project, latestSession)}
+      </Fragment>
+    );
+  }
+
+  function renderImplementation(
+    implementation: ImplementationView,
+    project: ProjectSummary,
+    latestSession: SessionSummary,
+  ): ReactElement {
+    return (
+      <Fragment key={implementation.id}>
+        <ImplementationMain
+          implementation={implementation}
+          projectName={project.name}
+          activeView={isChangesView ? 'changes' : 'flow'}
+          hasChanges={hasProjectRepositories}
+          changesCount={changes === null ? null : countChangedFiles(changes)}
+          changes={
+            <ChangesView
+              key={latestSession.id}
+              session={latestSession}
+              changes={changes}
+              error={changesError}
+              reach="project"
+              git={null}
+              onChanged={reloadChanges}
+            />
+          }
+          onNewInquiry={startInquiry}
+          onShowView={showImplementationView}
+          onOpenProject={(): void => {
+            selectProject(project.id);
+          }}
+        />
       </Fragment>
     );
   }
@@ -406,6 +480,14 @@ export function App(): ReactElement {
     if (showNewSession) {
       return <NewSession onCreated={handleCreated} onCancel={closeNewSession} />;
     }
+    if (
+      shownImplementation !== undefined &&
+      overviewProject !== undefined &&
+      isImplementation &&
+      currentSession !== undefined
+    ) {
+      return renderImplementation(shownImplementation, overviewProject, currentSession);
+    }
     if (overviewProject !== undefined && isOverview && currentSession !== undefined) {
       return renderOverview(overviewProject, currentSession);
     }
@@ -431,7 +513,7 @@ export function App(): ReactElement {
           />
           <SessionActionError sessionId={currentSession.id} />
           {isClaude && <UsageAlertBar />}
-          <OverlapBar sessionId={currentSession.id} />
+          <OverlapBar sessionId={currentSession.id} projectId={currentSession.projectId} />
           {renderSessionBody(currentSession)}
         </Fragment>
       );
@@ -444,13 +526,17 @@ export function App(): ReactElement {
       <Sidebar
         projects={projects}
         sessions={sessions}
+        implementations={implementations}
         activeSessionId={isMainReplaced || isOverview ? null : (currentSession?.id ?? null)}
         activeProjectId={activeProjectId}
-        showProjectOverview={isOverview}
+        activeImplementationId={isImplementation ? (shownImplementation?.id ?? null) : null}
+        showProjectOverview={isOverview && !isImplementation}
         isSettingsOpen={showSettings}
-        loadError={projectsError ?? sessionsError}
+        loadError={projectsError ?? sessionsError ?? implementationsError}
         onSelectSession={selectSession}
         onSelectProject={selectProject}
+        onSelectImplementation={selectImplementation}
+        onNewInquiry={startInquiry}
         onNew={openNewSession}
         onOpenSettings={openSettings}
         onOpenArchive={(): void => {

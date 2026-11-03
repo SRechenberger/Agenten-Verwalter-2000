@@ -1,6 +1,6 @@
 # Phase 6 — Doku-Abschluss: Code-Map, Glossar, AGENTS.md, Prüfprogramm
 
-Rating **mechanisch** · Wave 6 · Aufwand S · Status: pending
+Rating **mechanisch** · Wave 6 · Aufwand S · Status: complete
 
 ## Kontext
 
@@ -19,10 +19,10 @@ Rating **mechanisch** · Wave 6 · Aufwand S · Status: pending
 
 ## Checkliste
 
-- [ ] Code-Map nach AK 1.
-- [ ] Glossar nach AK 2.
-- [ ] AGENTS.md nach AK 3.
-- [ ] PROJECT.md nach AK 4.
+- [x] Code-Map nach AK 1.
+- [x] Glossar nach AK 2.
+- [x] AGENTS.md nach AK 3.
+- [x] PROJECT.md nach AK 4 (führt keine Meilensteine nach 6b, nichts zu ergänzen).
 - [ ] `pnpm check` grün (Prettier über Markdown läuft nicht, trotzdem einmal), Commit `docs(implementation): Code-Map, Glossar und Prüfprogramm zur Umsetzung`.
 
 ## Definition of Done
@@ -31,3 +31,5 @@ Rating **mechanisch** · Wave 6 · Aufwand S · Status: pending
 - Seven-Goals-Check (ein Satz zu Wartbarkeit reicht).
 
 ## Report-Back
+
+Die Zeile „Umsetzung“ in der Code-Map stand schon (aus Phase 2–5); ergänzt wurden Stand-Halbsatz, Feature-Liste, Migration 19, `station_of`/`inquiry_of`, `ReportUpdated`, `start.rs`, die Eingriffe in `auto_handoff::consider` und `send` sowie der Zweig in `App.tsx`. Glossar: sieben neue Einträge, „Einstiegszeile“ und „Automatisch weiter“ um den Satz zu Stationen erweitert (zusätzlich eine Abgrenzung „Rückfrage (Umsetzung)“ ↔ Rückfrage des Agenten). AGENTS.md: Zeile `implementation-probe` mit dem tatsächlichen Aufruf (JSON-Datei statt JSON-Text), Regel 4 ergänzt. PROJECT.md führt keine Meilensteine nach 6b — unverändert. `chrono` steht in keiner Abhängigkeitsliste der Docs, daher kein Eintrag.

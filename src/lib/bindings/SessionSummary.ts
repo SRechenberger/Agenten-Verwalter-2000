@@ -69,4 +69,12 @@ awaitedScript: AwaitedScript | null,
 /**
  * Warum die Session pausiert ist (ADR 051); nur im Speicher, `None` bei jeder anderen Pause.
  */
-pauseReason: PauseReason | null, };
+pauseReason: PauseReason | null, 
+/**
+ * Umsetzung, deren Station diese Session ist (ADR 048); die Sidebar zeigt sie nicht als Zeile.
+ */
+stationOf: string | null, 
+/**
+ * Umsetzung, zu der diese Session eine Rückfrage ist (ADR 048).
+ */
+inquiryOf: string | null, };

@@ -1,6 +1,6 @@
 [package]
 name = "verwalter"
-version = "0.50.0"
+version = "0.51.0"
 description = "A Tauri App"
 authors = ["you"]
 edition = "2024"
@@ -38,6 +38,7 @@ globset = "0.4"
 ignore = "0.4"
 html2text = "0.17.1"
 jiff = "0.2"
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
 
 [dev-dependencies]
 hound = "3"

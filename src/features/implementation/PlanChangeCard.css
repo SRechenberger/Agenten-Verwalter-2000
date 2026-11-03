@@ -1,0 +1,25 @@
+.plan-change-card {
+  border-left-color: var(--color-accent);
+
+  &--proposal {
+    border-color: var(--color-accent);
+  }
+
+  &__list {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: var(--space-xs) var(--space-lg);
+    margin: 0;
+
+    & > dt {
+      color: var(--color-fg-muted);
+      font-size: var(--font-size-xs);
+    }
+
+    & > dd {
+      margin: 0;
+      color: var(--color-fg-primary);
+      overflow-wrap: anywhere;
+    }
+  }
+}

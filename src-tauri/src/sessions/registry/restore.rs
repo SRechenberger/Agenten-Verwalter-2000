@@ -11,7 +11,9 @@ use super::{
 use crate::archive::model::ProjectRestored;
 use crate::db::projects::{self as project_rows, ProjectRow};
 use crate::db::sessions::{self as session_rows, SessionRow};
-use crate::db::{session_repositories, session_ticket_worktrees};
+use crate::db::{
+    implementations as implementation_rows, session_repositories, session_ticket_worktrees,
+};
 use crate::error::CommandError;
 use crate::sessions::model::SessionSummary;
 
@@ -34,7 +36,11 @@ impl SessionRegistry {
                     .map(|row: SessionRow| {
                         let repositories = session_repositories::load(connection, &row.id)?;
                         let ticket_worktrees = session_ticket_worktrees::load(connection, &row.id)?;
+                        let station_of =
+                            implementation_rows::station_of_session(connection, &row.id)?
+                                .map(|(implementation_id, _): (String, String)| implementation_id);
                         Ok(StoredSession {
+                            station_of,
                             row,
                             repositories,
                             ticket_worktrees,

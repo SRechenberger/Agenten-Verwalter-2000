@@ -7,6 +7,9 @@ export type SessionView = (typeof SESSION_VIEWS)[number];
 export const PROJECT_VIEWS = ['overview', 'changes', 'artifacts'] as const;
 export type ProjectView = (typeof PROJECT_VIEWS)[number];
 
+export const IMPLEMENTATION_VIEWS = ['flow', 'changes'] as const;
+export type ImplementationViewKind = (typeof IMPLEMENTATION_VIEWS)[number];
+
 export type RenameKind = 'session' | 'project';
 
 export interface RenameTarget {
@@ -33,6 +36,10 @@ interface SessionsState {
   /** `true`: die Übersicht des Vorhabens `activeProjectId` statt einer Session. */
   showProjectOverview: boolean;
   projectView: ProjectView;
+  activeImplementationId: string | null;
+  /** `true`: die Umsetzung `activeImplementationId` statt Session, Übersicht oder Einstellungen (ADR 048). */
+  showImplementation: boolean;
+  implementationView: ImplementationViewKind;
   /** Session oder Vorhaben, dessen Name in der Sidebar gerade bearbeitet wird. */
   renaming: RenameTarget | null;
   /** Vorhaben-ID → aufgeklappt; fehlt ein Eintrag, entscheidet die Sidebar nach ihrem Standard. */
@@ -45,6 +52,8 @@ interface SessionsState {
   selectProject: (projectId: string) => void;
   showView: (view: SessionView) => void;
   showProjectView: (view: ProjectView) => void;
+  selectImplementation: (implementationId: string) => void;
+  showImplementationView: (view: ImplementationViewKind) => void;
   openNewSession: () => void;
   openNewSessionWith: (prefill: NewSessionPrefill) => void;
   closeNewSession: () => void;
@@ -64,7 +73,10 @@ export const useSessionsStore = create<SessionsState>((set) => ({
   showSettings: false,
   activeProjectId: null,
   showProjectOverview: false,
+  showImplementation: false,
   projectView: 'overview',
+  activeImplementationId: null,
+  implementationView: 'flow',
   renaming: null,
   expanded: {},
   showAllSessions: {},
@@ -74,6 +86,7 @@ export const useSessionsStore = create<SessionsState>((set) => ({
       showNewSession: false,
       showSettings: false,
       showProjectOverview: false,
+      showImplementation: false,
     });
   },
   holdSession: (sessionId: string): void => {
@@ -83,6 +96,7 @@ export const useSessionsStore = create<SessionsState>((set) => ({
     set({
       activeProjectId: projectId,
       showProjectOverview: true,
+      showImplementation: false,
       projectView: 'overview',
       showNewSession: false,
       showSettings: false,
@@ -94,12 +108,26 @@ export const useSessionsStore = create<SessionsState>((set) => ({
   showProjectView: (view: ProjectView): void => {
     set({ projectView: view });
   },
+  selectImplementation: (implementationId: string): void => {
+    set({
+      activeImplementationId: implementationId,
+      showImplementation: true,
+      implementationView: 'flow',
+      showProjectOverview: false,
+      showSettings: false,
+      showNewSession: false,
+    });
+  },
+  showImplementationView: (view: ImplementationViewKind): void => {
+    set({ implementationView: view });
+  },
   openNewSession: (): void => {
     set({
       showNewSession: true,
       newSessionPrefill: null,
       showSettings: false,
       showProjectOverview: false,
+      showImplementation: false,
     });
   },
   openNewSessionWith: (prefill: NewSessionPrefill): void => {
@@ -108,13 +136,19 @@ export const useSessionsStore = create<SessionsState>((set) => ({
       newSessionPrefill: prefill,
       showSettings: false,
       showProjectOverview: false,
+      showImplementation: false,
     });
   },
   closeNewSession: (): void => {
     set({ showNewSession: false, newSessionPrefill: null });
   },
   openSettings: (): void => {
-    set({ showSettings: true, showNewSession: false, showProjectOverview: false });
+    set({
+      showSettings: true,
+      showNewSession: false,
+      showProjectOverview: false,
+      showImplementation: false,
+    });
   },
   closeSettings: (): void => {
     set({ showSettings: false });

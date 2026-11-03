@@ -24,6 +24,7 @@ use tauri::AppHandle;
 
 use crate::artifacts::tools::ArtifactTools;
 use crate::filesystem::workspace::data_dir;
+use crate::implementation::tools::ImplementationTools;
 use crate::session_tools::tools::SessionTools;
 use http::{BodyError, Head, Reply};
 use rpc::{OpenCall, Outcome};
@@ -48,7 +49,11 @@ const BEARER: &str = "Bearer ";
 
 /// Alle Werkzeug-Sätze; ein neues Feature hängt hier eine Zeile an.
 pub fn tool_sets() -> Vec<Box<dyn ToolSet>> {
-    vec![Box::new(ArtifactTools), Box::new(SessionTools)]
+    vec![
+        Box::new(ArtifactTools),
+        Box::new(SessionTools),
+        Box::new(ImplementationTools),
+    ]
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

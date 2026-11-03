@@ -1,6 +1,6 @@
 # Phase 2 — Ansicht: Zeitleiste mit gekoppelter Kartei
 
-Rating **standard** · Wave 2 · Aufwand L · Status: pending
+Rating **standard** · Wave 2 · Aufwand L · Status: complete
 
 ## Kontext
 
@@ -25,14 +25,14 @@ Abweichung vom Entwurf, bewusst: Fragen werden **im Chat** beantwortet (Knopf au
 
 ## Checkliste
 
-- [ ] `implementationOrder.ts`: `flatStations(view): StationRef[]` (Plan-Reihenfolge mit Phase), `autoFocus(view): string | null`, `neighbors(view, focusedId, count = 3)`; reine Funktionen, ohne React.
-- [ ] `Timeline.tsx` + `Timeline.css` (BEM `timeline__phase`, `timeline__station`, `timeline__dot`, `timeline__line`), `StationDot.tsx` (Zustand → Klasse + Zeichen, `role="img"`, `aria-label` = Zustandstext).
-- [ ] `CardStack.tsx` + `.css` (`card-stack__previous`, `card-stack__current`, `card-stack__next`), `StationCard.tsx` + `.css` (`station-card__*`), Texte in `implementationTexts.ts` (`stateText(station, now)`, `durationText`).
-- [ ] `ImplementationView.tsx`: Layout zwei Spalten (`implementation-view__timeline`, `implementation-view__cards`), Tasten-Handler, Reiter-Weiche (Ablauf/Changes); `ReportPanel` aus Phase 1 bleibt als Panel hinter dem Knopf „Lagebericht“ in der Kopfzeile (Phase 5 füllt den Knopf; hier den Knopf anlegen, `disabled`).
-- [ ] `ImplementationHeader.tsx`: Schalter und Knopf nach AK 5 (noch `disabled`), Dateizahl am Reiter Changes aus `useSessionChanges` mit Reichweite Vorhaben (wie `App.tsx` es für die Übersicht macht).
-- [ ] `useNow` (aus `features/background/useNow`) für laufende Dauern, nur wenn eine Station läuft.
-- [ ] Doc: noch nichts (Phase 6).
-- [ ] `pnpm check` grün, Commit `feat(implementation): Zeitleiste und Kartei der Umsetzung`.
+- [x] `implementationOrder.ts`: `flatStations(view): StationRef[]` (Plan-Reihenfolge mit Phase), `autoFocus(view): string | null`, `neighbors(view, focusedId, count = 3)`; reine Funktionen, ohne React.
+- [x] `Timeline.tsx` + `Timeline.css` (BEM `timeline__phase`, `timeline__station`, `timeline__dot`, `timeline__line`), `StationDot.tsx` (Zustand → Klasse + Zeichen, `role="img"`, `aria-label` = Zustandstext).
+- [x] `CardStack.tsx` + `.css` (`card-stack__previous`, `card-stack__current`, `card-stack__next`), `StationCard.tsx` + `.css` (`station-card__*`), Texte in `implementationTexts.ts` (`stateText(station, now)`, `durationText`).
+- [x] `ImplementationView.tsx`: Layout zwei Spalten (`implementation-view__timeline`, `implementation-view__cards`), Tasten-Handler, Reiter-Weiche (Ablauf/Changes); `ReportPanel` aus Phase 1 bleibt als Panel hinter dem Knopf „Lagebericht“ in der Kopfzeile (Phase 5 füllt den Knopf; hier den Knopf anlegen, `disabled`).
+- [x] `ImplementationHeader.tsx`: Schalter und Knopf nach AK 5 (noch `disabled`), Dateizahl am Reiter Changes aus `useSessionChanges` mit Reichweite Vorhaben (wie `App.tsx` es für die Übersicht macht).
+- [x] `useNow` (aus `features/background/useNow`) für laufende Dauern, nur wenn eine Station läuft.
+- [x] Doc: noch nichts (Phase 6).
+- [x] `pnpm check` grün, Commit `feat(implementation): Zeitleiste und Kartei der Umsetzung`.
 
 ## Definition of Done
 
@@ -41,3 +41,7 @@ Abweichung vom Entwurf, bewusst: Fragen werden **im Chat** beantwortet (Knopf au
 - Seven-Goals-Check (je ein Satz).
 
 ## Report-Back
+
+Umgesetzt: `implementationOrder.ts`, `Timeline`, `StationDot`, `CardStack`, `StationCard`, `ImplementationBar` (Fortschritt, Schalter, Knopf) und `ImplementationView` mit Pfeiltasten und Fokus im Store. `pnpm lint`, `typecheck`, `format:check`, `build` und `rust:fmt` grün; `rust:clippy` nicht gelaufen (kein Rust geändert, MSVC-Pfad nicht gefunden).
+
+Abweichungen: „Fragt seit N min“ entfällt (der Core liefert keinen Zeitpunkt des Fragens, nur „fragt dich“). Der Knopf „Lagebericht“ ist schon jetzt ein Umschalter für das Panel (nicht `disabled`), sonst wäre der Text nirgends erreichbar. Kein Screenshot-Artefakt (Live-Lauf entfällt im private-Profil). Übersicht des Vorhabens bleibt unverändert und zeigt Stationen weiter als Sessions.

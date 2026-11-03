@@ -1,6 +1,6 @@
 # Phase 4 — Wellen (parallele Phasen) und Plan-Änderung mit Karte „Plan ändern?“
 
-Rating **heikel** · Wave 4 · Aufwand L · Status: pending
+Rating **heikel** · Wave 4 · Aufwand L · Status: complete
 
 ## Kontext
 
@@ -22,14 +22,14 @@ Rating **heikel** · Wave 4 · Aufwand L · Status: pending
 
 ## Checkliste
 
-- [ ] `schedule.rs`: `groups` nach Entscheidung (aufeinanderfolgende gleiche `wave` → eine Gruppe), `ready_stations` berücksichtigt Gruppen (erste Station jeder Phase einer Gruppe darf starten, wenn alle Stationen aller vorigen Gruppen fertig sind).
-- [ ] `implementation/changes.rs`: `pub fn diff(current_upcoming: &[PhaseView], proposed: &[PhaseInput]) -> Result<ChangeSummary, String>` (neu/vorgezogen/entfallen nach Entscheidung; „vorgezogen“ = Schlüssel, der jetzt vor einem Schlüssel steht, hinter dem er vorher stand), `pub fn apply(...)` (Datenbank: `replace_upcoming_phases` ersetzt alle Phasen ohne gestartete Station, behält `id` bekannter Schlüssel, vergibt neue, setzt `mark`; `insert_change` mit `after_station_id` = letzte fertige Station in Plan-Reihenfolge, `stations_before/after`; `set_pending_change(None)`).
-- [ ] `tools.rs`: `implementation_set_phases` nach Kontrakt (Prüfung über `model::validate`, Schlüssel begonnener Phasen prüfen, dann sofort anwenden oder `pending_change` schreiben); `commands/implementation.rs`: `implementation_apply_change(id, accept)`; Wrapper `applyImplementationChange`.
-- [ ] `mark` löschen beim Start der ersten Station einer Phase (`start::start_now`).
-- [ ] `report.rs`: Zeile „Plan-Änderungen“.
-- [ ] Oberfläche: `Timeline.tsx` Linien je Welle (Spur = Index der Phase in der Gruppe, `min(index, 2)`), Zusammenlauf-Segment, Zeile „Welle …“, Marken „neu“/„vorgezogen“ an der Phasen-Überschrift (`timeline__phase-mark`), `ChangeMarker.tsx` auf der Linie (Zeile wie eine Station, Symbol ⟳, Klick → Fokus auf `change:<id>`); `CardStack.tsx`: Fokus-Ziel kann Station oder Änderung sein (`focused` im Store als `station:<id>` | `change:<id>`), `PlanChangeCard.tsx` für beide Karten (Vorschlag mit Knöpfen, übernommene ohne); `implementationOrder.ts`: `autoFocus` bevorzugt `pending_change`, dann Spuren-Regel aus AK 3; Kopfzeile „<n> Spuren aktiv“.
-- [ ] `implementation-probe.rs`: Aufruf `set-phases` (AK 8, nur `changes::diff`).
-- [ ] `pnpm check` grün, Commit `feat(implementation): Wellen und Plan-Änderung mit Übernehmen`.
+- [x] `schedule.rs`: `groups` nach Entscheidung (aufeinanderfolgende gleiche `wave` → eine Gruppe), `ready_stations` berücksichtigt Gruppen (erste Station jeder Phase einer Gruppe darf starten, wenn alle Stationen aller vorigen Gruppen fertig sind).
+- [x] `implementation/changes.rs`: `pub fn diff(current_upcoming: &[PhaseView], proposed: &[PhaseInput]) -> Result<ChangeSummary, String>` (neu/vorgezogen/entfallen nach Entscheidung; „vorgezogen“ = Schlüssel, der jetzt vor einem Schlüssel steht, hinter dem er vorher stand), `pub fn apply(...)` (Datenbank: `replace_upcoming_phases` ersetzt alle Phasen ohne gestartete Station, behält `id` bekannter Schlüssel, vergibt neue, setzt `mark`; `insert_change` mit `after_station_id` = letzte fertige Station in Plan-Reihenfolge, `stations_before/after`; `set_pending_change(None)`).
+- [x] `tools.rs`: `implementation_set_phases` nach Kontrakt (Prüfung über `model::validate`, Schlüssel begonnener Phasen prüfen, dann sofort anwenden oder `pending_change` schreiben); `commands/implementation.rs`: `implementation_apply_change(id, accept)`; Wrapper `applyImplementationChange`.
+- [x] `mark` löschen beim Start der ersten Station einer Phase (`start::start_now`).
+- [x] `report.rs`: Zeile „Plan-Änderungen“.
+- [x] Oberfläche: `Timeline.tsx` Linien je Welle (Spur = Index der Phase in der Gruppe, `min(index, 2)`), Zusammenlauf-Segment, Zeile „Welle …“, Marken „neu“/„vorgezogen“ an der Phasen-Überschrift (`timeline__phase-mark`), `ChangeMarker.tsx` auf der Linie (Zeile wie eine Station, Symbol ⟳, Klick → Fokus auf `change:<id>`); `CardStack.tsx`: Fokus-Ziel kann Station oder Änderung sein (`focused` im Store als `station:<id>` | `change:<id>`), `PlanChangeCard.tsx` für beide Karten (Vorschlag mit Knöpfen, übernommene ohne); `implementationOrder.ts`: `autoFocus` bevorzugt `pending_change`, dann Spuren-Regel aus AK 3; Kopfzeile „<n> Spuren aktiv“.
+- [x] `implementation-probe.rs`: Aufruf `set-phases` (AK 8, nur `changes::diff`).
+- [x] `pnpm check` grün, Commit `feat(implementation): Wellen und Plan-Änderung mit Übernehmen`.
 
 ## Definition of Done
 
@@ -38,3 +38,11 @@ Rating **heikel** · Wave 4 · Aufwand L · Status: pending
 - Seven-Goals-Check (je ein Satz); Carry-Overs höchstens 2.
 
 ## Report-Back
+
+Alle Checklistenpunkte erledigt, `pnpm check` grün, Probe `set-phases` gegen eine Datenbank-Kopie gelaufen (vor/nach Start, begonnene Phase und doppelter Schlüssel → Fehler).
+
+Abweichungen:
+- `changes::diff(view, proposed)` nimmt die ganze Ansicht statt der kommenden Phasen und prüft selbst auf begonnene Phasen; „begonnen“ = Session oder Fertigmeldung an einer Station der Phase (`changes::is_begun`). „Sofort gültig“ gilt, solange keine Phase begonnen hat.
+- Fokus-Schlüssel: Stationen bleiben unter ihrer bloßen ID, Änderungsmarken `change:<ID>`, offener Vorschlag `plan:pending` (statt `station:<id>`).
+- Die Wellen-Logik im Core (`schedule::groups`, `may_start`) stand seit Phase 3; neu ist nur die Darstellung.
+- Keine Screenshots (private: keine Live-Läufe); Wellen- und Karten-Darstellung ist ungesehen — Wackelstelle: Linienführung der dritten Spur in `Timeline.css`.

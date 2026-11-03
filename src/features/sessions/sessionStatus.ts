@@ -77,7 +77,7 @@ export function metaLine(session: SessionSummary): string | null {
     case 'paused':
       return `pausiert · ${modelAndRepositories(session)}`;
     case 'new':
-      return 'noch nicht gestartet';
+      return session.inquiryOf === null ? 'noch nicht gestartet' : 'Rückfrage zur Umsetzung';
     case 'completed':
     case 'cancelled':
       return null;
