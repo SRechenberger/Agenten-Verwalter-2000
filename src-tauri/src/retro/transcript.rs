@@ -66,14 +66,18 @@ pub fn tool_counts(entries: &[ChatEntry]) -> (u32, u32, u32) {
     (all, failed, interrupted)
 }
 
-/// Ob die erste Nutzernachricht den Skill `session-review` aufruft — solche Sessions gehören
-/// zu einer früheren Retro und gehen nicht in die nächste ein.
+/// Ob die erste Nachricht der Session den Skill `session-review` aufruft — solche Sessions gehören
+/// zu einer früheren Retro und gehen nicht in die nächste ein. Beginnt sie mit der Nachricht einer
+/// anderen Session, ist sie keine Retro-Session.
 pub fn is_retro_session(entries: &[ChatEntry]) -> bool {
-    let first_user = entries
-        .iter()
-        .find(|entry: &&ChatEntry| matches!(entry, ChatEntry::User { .. }));
+    let first_message = entries.iter().find(|entry: &&ChatEntry| {
+        matches!(
+            entry,
+            ChatEntry::User { .. } | ChatEntry::SessionMessage { .. }
+        )
+    });
     matches!(
-        first_user,
+        first_message,
         Some(ChatEntry::User { skill: Some(SkillRef { name, .. }), .. }) if name == RETRO_SKILL
     )
 }

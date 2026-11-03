@@ -1,0 +1,14 @@
+.self-release-settings {
+  display: flex;
+  flex-direction: column;
+
+  & .setting-row:first-child {
+    border-top: 0;
+  }
+
+  &__error {
+    margin: var(--space-sm) 0 0;
+    color: var(--color-status-error);
+    font-size: var(--font-size-xs);
+  }
+}

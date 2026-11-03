@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 use crate::agents::event::{Effort, Mode, ModelId};
+use crate::session_tools::model::SelfRelease;
 
 /// `System` folgt der Windows-Einstellung für hell oder dunkel.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -41,6 +42,8 @@ pub struct Settings {
     pub default_codex_model: Option<String>,
     /// Ob der Verlauf Angaben ohne Fundstelle unterstreicht (ADR 036); der Core ermittelt sie immer.
     pub mark_unsourced: bool,
+    /// Selbstfreigabe, die ein neues Vorhaben übernimmt; bestehende bleiben unverändert.
+    pub default_self_release: SelfRelease,
 }
 
 /// Was die Einstellungsseite zeigt: die Werte und die Ordner, die sie nur anzeigt.
@@ -87,5 +90,8 @@ pub enum SettingsChange {
     },
     MarkUnsourced {
         value: bool,
+    },
+    DefaultSelfRelease {
+        value: SelfRelease,
     },
 }

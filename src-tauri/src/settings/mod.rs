@@ -12,6 +12,7 @@ use crate::db::settings as setting_rows;
 use crate::db::{Database, enum_from_text, enum_to_text};
 use crate::error::CommandError;
 use crate::filesystem::workspace::{WORKSPACES_DIR, data_dir, home_dir};
+use crate::session_tools::model::SelfRelease;
 use crate::skills::{self, model::SkillKind, model::SkillOrigin};
 use model::{ColorScheme, OperatingMode, Settings, SettingsChange, SettingsOverview};
 
@@ -23,6 +24,7 @@ const KEY_OPERATING_MODE: &str = "operating_mode";
 const KEY_LOCAL_MODEL: &str = "local_model";
 const KEY_DEFAULT_CODEX_MODEL: &str = "default_codex_model";
 const KEY_MARK_UNSOURCED: &str = "mark_unsourced";
+const KEY_DEFAULT_SELF_RELEASE: &str = "default_self_release";
 
 /// „Neues Vorhaben“ startet mit denselben Werten, solange die Einstellungen nicht geladen sind.
 const DEFAULT_SETTINGS: Settings = Settings {
@@ -34,6 +36,7 @@ const DEFAULT_SETTINGS: Settings = Settings {
     local_model: None,
     default_codex_model: None,
     mark_unsourced: true,
+    default_self_release: SelfRelease::OFF,
 };
 
 pub fn load(database: &Database) -> Result<Settings, CommandError> {
@@ -59,6 +62,10 @@ pub fn load(database: &Database) -> Result<Settings, CommandError> {
             .get(KEY_MARK_UNSOURCED)
             .and_then(|text: &String| text.parse::<bool>().ok())
             .unwrap_or(DEFAULT_SETTINGS.mark_unsourced),
+        default_self_release: stored
+            .get(KEY_DEFAULT_SELF_RELEASE)
+            .and_then(|text: &String| serde_json::from_str(text).ok())
+            .unwrap_or(DEFAULT_SETTINGS.default_self_release),
     })
 }
 
@@ -98,6 +105,11 @@ pub fn update(database: &Database, change: SettingsChange) -> Result<Settings, C
             }
             SettingsChange::MarkUnsourced { value } => {
                 setting_rows::write(&transaction, KEY_MARK_UNSOURCED, &value.to_string())?;
+            }
+            SettingsChange::DefaultSelfRelease { value } => {
+                let text = serde_json::to_string(&value)
+                    .map_err(|error| CommandError::Internal(error.to_string()))?;
+                setting_rows::write(&transaction, KEY_DEFAULT_SELF_RELEASE, &text)?;
             }
         }
         transaction.commit()?;

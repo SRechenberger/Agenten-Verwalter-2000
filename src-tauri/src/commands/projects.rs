@@ -1,6 +1,7 @@
 use crate::agents::event::{Effort, Mode, ModelId};
 use crate::error::CommandError;
 use crate::projects::model::{ProjectCreated, ProjectSummary};
+use crate::session_tools::model::SelfRelease;
 use crate::sessions::registry::{NewSession, SessionRegistry};
 
 // Die Commands sind `async`, damit der Prozessstart nicht auf dem Haupt-Thread läuft.
@@ -58,6 +59,16 @@ pub async fn project_set_auto_handoff(
     enabled: bool,
 ) -> Result<(), CommandError> {
     registry.set_project_auto_handoff(&app, &project_id, enabled)
+}
+
+#[tauri::command]
+pub async fn project_set_self_release(
+    app: tauri::AppHandle,
+    registry: tauri::State<'_, SessionRegistry>,
+    project_id: String,
+    value: SelfRelease,
+) -> Result<ProjectSummary, CommandError> {
+    registry.set_project_self_release(&app, &project_id, value)
 }
 
 #[tauri::command]

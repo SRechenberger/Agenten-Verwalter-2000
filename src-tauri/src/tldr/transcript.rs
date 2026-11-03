@@ -75,6 +75,9 @@ pub(crate) fn entry_block(entry: &ChatEntry) -> Option<Block> {
             block
         }
         ChatEntry::Text { text, .. } => format!("Claude: {text}"),
+        ChatEntry::SessionMessage { text, sender, .. } => {
+            format!("Session {} „{}“: {text}", sender.number, sender.title)
+        }
         ChatEntry::Question {
             questions, answer, ..
         } => {
@@ -99,7 +102,11 @@ pub(crate) fn entry_block(entry: &ChatEntry) -> Option<Block> {
     };
     Some(Block {
         text,
-        is_user: matches!(entry, ChatEntry::User { .. }),
+        // Eine Session-Nachricht kann der Auftrag sein: Sie startet die Session über das Werkzeug.
+        is_user: matches!(
+            entry,
+            ChatEntry::User { .. } | ChatEntry::SessionMessage { .. }
+        ),
     })
 }
 

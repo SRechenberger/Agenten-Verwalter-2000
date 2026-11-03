@@ -10,18 +10,22 @@ import { HandoffAnswer } from '@/features/chat/HandoffAnswer';
 import { PinnedUserMessage } from '@/features/chat/PinnedUserMessage';
 import { lastAnswerSeq, visibleHandoffLines } from '@/features/chat/handoff';
 import { QuestionBlock } from '@/features/chat/QuestionBlock';
+import { SessionMessage } from '@/features/chat/SessionMessage';
+import { SessionToolBlock } from '@/features/chat/SessionToolBlock';
 import { NoticeBlock } from '@/features/notices/NoticeBlock';
 import { SelectionMenu } from '@/features/side/SelectionMenu';
 import { selectedChatText } from '@/features/side/selectionText';
 import {
   draftAnswer,
   emptyDraft,
+  EMPTY_TOOL_DRAFT,
   isComplete,
   needsSubmit,
   pickOption,
   type PickResult,
   type QuestionDraft,
   type QuestionEntry,
+  type ToolDraft,
 } from '@/features/chat/questionDraft';
 import { TextBlock } from '@/features/chat/TextBlock';
 import { ThinkingBlock } from '@/features/chat/ThinkingBlock';
@@ -35,6 +39,7 @@ import type { BackgroundItem } from '@/lib/bindings/BackgroundItem';
 import type { ChatEntry } from '@/lib/bindings/ChatEntry';
 import type { OperatingMode } from '@/lib/bindings/OperatingMode';
 import type { QuestionAnswer } from '@/lib/bindings/QuestionAnswer';
+import type { SelfRelease } from '@/lib/bindings/SelfRelease';
 import type { SessionSummary } from '@/lib/bindings/SessionSummary';
 import type { SessionStatus } from '@/lib/bindings/SessionStatus';
 import type { TodoItem } from '@/lib/bindings/TodoItem';
@@ -81,6 +86,10 @@ interface ChatTimelineProps {
   onSessionCreated: (created: SessionSummary) => void;
   /** „Automatisch weiter“ des Vorhabens (ADR 040). */
   autoHandoff: boolean;
+  /** Selbstfreigabe des Vorhabens; `null`, solange es nicht geladen ist. */
+  selfRelease: SelfRelease | null;
+  /** Alle Sessions; der Absender einer Session-Nachricht kann fehlen. */
+  sessions: readonly SessionSummary[];
   /** Name der Eltern-Session (`session.parentSessionId`); `null`, wenn es keine gibt. */
   parentName: string | null;
   /** Höhe der Überlagerung oben (TL;DR) und unten (Eingabe); der Verlauf lässt so viel Platz frei. */
@@ -111,6 +120,8 @@ export function ChatTimeline({
   onLoadOlder,
   onSessionCreated,
   autoHandoff,
+  selfRelease,
+  sessions,
   parentName,
   topInset,
   bottomInset,
@@ -120,6 +131,9 @@ export function ChatTimeline({
   const [expandedKeys, setExpandedKeys] = useState<ReadonlySet<string>>(() => new Set<string>());
   const [drafts, setDrafts] = useState<ReadonlyMap<string, QuestionDraft>>(
     () => new Map<string, QuestionDraft>(),
+  );
+  const [toolDrafts, setToolDrafts] = useState<ReadonlyMap<string, ToolDraft>>(
+    () => new Map<string, ToolDraft>(),
   );
   const [sendingIds, setSendingIds] = useState<ReadonlySet<string>>(() => new Set<string>());
   const [selectionMenu, setSelectionMenu] = useState<SelectionMenuState | null>(null);
@@ -172,7 +186,7 @@ export function ChatTimeline({
   // Sobald die Oberkante der letzten eigenen Nachricht unter die TL;DR rutscht, bleibt eine Kopie dort hängen.
   const pinnedText: string | null =
     lastUserBlock?.kind === 'entry' &&
-    lastUserBlock.entry.kind === 'user' &&
+    (lastUserBlock.entry.kind === 'user' || lastUserBlock.entry.kind === 'sessionMessage') &&
     lastUserStart !== null &&
     lastUserStart + bottomOffset < (virtualizer.scrollOffset ?? 0) + topInset
       ? lastUserBlock.entry.text
@@ -232,6 +246,10 @@ export function ChatTimeline({
       return;
     }
     if (sendingIds.has(oldestOpenQuestion.requestId)) {
+      return;
+    }
+    // Beim Ändern stehen „Erlauben“ und „Ablehnen“ nicht da; eine Ziffer darf den alten Text nicht senden.
+    if ((toolDrafts.get(oldestOpenQuestion.requestId)?.edit ?? null) !== null) {
       return;
     }
     const draft: QuestionDraft = draftFor(oldestOpenQuestion);
@@ -413,6 +431,15 @@ export function ChatTimeline({
         ) : (
           <TextBlock text={entry.text} unsourced={entry.unsourced} />
         );
+      case 'sessionMessage':
+        return (
+          <SessionMessage
+            sessionId={session.id}
+            text={entry.text}
+            sender={entry.sender}
+            canJump={sessions.some((other: SessionSummary) => other.id === entry.sender.id)}
+          />
+        );
       case 'thinking':
         return (
           <ThinkingBlock
@@ -444,7 +471,27 @@ export function ChatTimeline({
         );
       }
       case 'question':
-        return (
+        return entry.toolRequest !== null ? (
+          <SessionToolBlock
+            entry={entry}
+            request={entry.toolRequest}
+            projectId={session.projectId}
+            selfRelease={selfRelease}
+            draft={toolDrafts.get(entry.requestId) ?? EMPTY_TOOL_DRAFT}
+            isSending={sendingIds.has(entry.requestId)}
+            onPick={(optionIndex: number): void => {
+              pick(entry, 0, optionIndex);
+            }}
+            onSubmit={(answer: QuestionAnswer): void => {
+              submit(entry, answer);
+            }}
+            onDraft={(next: ToolDraft): void => {
+              setToolDrafts((current: ReadonlyMap<string, ToolDraft>) =>
+                new Map<string, ToolDraft>(current).set(entry.requestId, next),
+              );
+            }}
+          />
+        ) : (
           <QuestionBlock
             entry={entry}
             draft={draftFor(entry)}
@@ -596,7 +643,10 @@ function focusFirstMark(root: HTMLElement | null, seq: number, attemptsLeft: num
 function findLastUserBlockIndex(blocks: readonly ChatBlock[]): number {
   for (let index = blocks.length - 1; index >= 0; index -= 1) {
     const block: ChatBlock | undefined = blocks[index];
-    if (block?.kind === 'entry' && block.entry.kind === 'user') {
+    if (
+      block?.kind === 'entry' &&
+      (block.entry.kind === 'user' || block.entry.kind === 'sessionMessage')
+    ) {
       return index;
     }
   }

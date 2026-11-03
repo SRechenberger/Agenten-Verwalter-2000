@@ -9,8 +9,9 @@ use crate::agents::claude::print::exchange;
 use crate::agents::claude::process::{SpawnOptions, common_args};
 use crate::processes::hide_console;
 
-/// Werkzeuge sind so gesperrt, ohne die Werkzeugliste zu ändern — eine andere Liste entwertete den
-/// Prompt-Cache, und jede Nebenfrage läse den ganzen Verlauf zum vollen Preis.
+/// Lehnt ab, was `--allowedTools` nicht freigibt, ohne die Werkzeugliste zu ändern — eine andere
+/// Liste entwertete den Prompt-Cache, und jede Nebenfrage läse den ganzen Verlauf zum vollen Preis.
+/// Freigegebene Werkzeuge laufen auch hier; die Session-Werkzeuge sperrt ihr Schlüssel (ADR 046).
 const PERMISSION_MODE: &str = "dontAsk";
 
 pub struct SideRequest {

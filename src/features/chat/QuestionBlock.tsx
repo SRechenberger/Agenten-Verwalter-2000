@@ -215,7 +215,7 @@ export function QuestionBlock({
     );
   }
 
-  if (entry.questionKind === 'permission') {
+  if (entry.questionKind !== 'askUser') {
     return renderPermission();
   }
   if (isAnsweredEntry) {

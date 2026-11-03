@@ -4,6 +4,8 @@
 use std::io::{self, Read, Write};
 use std::net::{Shutdown, TcpStream};
 
+use serde_json::Value;
+
 pub const MAX_BODY_BYTES: usize = 1024 * 1024;
 const MAX_HEAD_BYTES: usize = 16 * 1024;
 /// Obergrenze beim Verwerfen eines abgelehnten Körpers.
@@ -120,6 +122,27 @@ pub fn write_reply(stream: &mut TcpStream, reply: &Reply) -> io::Result<()> {
     head.push_str("\r\n");
     stream.write_all(head.as_bytes())?;
     stream.write_all(&reply.body)?;
+    stream.flush()
+}
+
+/// Kopf einer Antwort als Ereignis-Strom: Ohne `Content-Length` endet sie mit der Verbindung.
+pub fn write_event_head(stream: &mut TcpStream) -> io::Result<()> {
+    stream.write_all(
+        b"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nCache-Control: no-store\r\n\
+          X-Content-Type-Options: nosniff\r\nConnection: close\r\n\r\n",
+    )?;
+    stream.flush()
+}
+
+pub fn write_event(stream: &mut TcpStream, message: &Value) -> io::Result<()> {
+    stream.write_all(format!("event: message\ndata: {message}\n\n").as_bytes())?;
+    stream.flush()
+}
+
+/// Bemerkt nur einen abgerissenen Client; die Kommandozeile zählt Kommentarzeilen nicht als
+/// Lebenszeichen.
+pub fn write_event_comment(stream: &mut TcpStream) -> io::Result<()> {
+    stream.write_all(b": wartet\n\n")?;
     stream.flush()
 }
 

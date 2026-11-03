@@ -63,6 +63,7 @@ export function App(): ReactElement {
   const showView = useSessionsStore((state) => state.showView);
   const showProjectView = useSessionsStore((state) => state.showProjectView);
   const selectSession = useSessionsStore((state) => state.selectSession);
+  const holdSession = useSessionsStore((state) => state.holdSession);
   const selectProject = useSessionsStore((state) => state.selectProject);
   const openNewSession = useSessionsStore((state) => state.openNewSession);
   const closeNewSession = useSessionsStore((state) => state.closeNewSession);
@@ -186,9 +187,19 @@ export function App(): ReactElement {
   const overviewSessions: SessionSummary[] =
     overviewProject === undefined ? [] : sessionsOf(overviewProject.id, sessions);
   const isOverview: boolean = overviewProject !== undefined && overviewSessions.length > 0;
+  const chosenSession: SessionSummary | undefined =
+    sessions.find((session: SessionSummary) => session.id === activeSessionId) ?? sessions[0];
   const currentSession: SessionSummary | undefined = isOverview
     ? overviewSessions[overviewSessions.length - 1]
-    : (sessions.find((session: SessionSummary) => session.id === activeSessionId) ?? sessions[0]);
+    : chosenSession;
+  // Der Rückfall gilt einmal und bleibt dann stehen: `sessions[0]` wechselt mit jeder Aktivität, die Ansicht
+  // spränge sonst ohne Zutun in eine andere Session.
+  const chosenSessionId: string | null = chosenSession?.id ?? null;
+  useEffect(() => {
+    if (chosenSessionId !== null) {
+      holdSession(chosenSessionId);
+    }
+  }, [chosenSessionId, holdSession]);
 
   // Der gewählte Reiter bleibt beim Session-Wechsel stehen; ohne Repository gibt es keine Changes.
   const isChangesView: boolean = isOverview
@@ -411,6 +422,11 @@ export function App(): ReactElement {
           projects.find((project: ProjectSummary) => project.id === session.projectId)
             ?.autoHandoff ?? false
         }
+        selfRelease={
+          projects.find((project: ProjectSummary) => project.id === session.projectId)
+            ?.selfRelease ?? null
+        }
+        sessions={sessions}
         parentName={
           sessions.find((other: SessionSummary) => other.id === session.parentSessionId)?.name ??
           null

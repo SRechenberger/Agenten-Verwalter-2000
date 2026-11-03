@@ -11,15 +11,18 @@ import {
 import { AddRepositoryMenu } from '@/features/projects/AddRepositoryMenu';
 import { ProjectSessionCard } from '@/features/projects/ProjectSessionCard';
 import { RetroButton } from '@/features/retro/RetroButton';
+import { SelfReleaseSettings } from '@/features/settings/SelfReleaseSettings';
 import { ProjectTldrCard } from '@/features/tldr/ProjectTldrCard';
 import { useProjectTldr } from '@/features/tldr/useProjectTldr';
 import type { ProjectSessionTldr } from '@/lib/bindings/ProjectSessionTldr';
 import type { ProjectSummary } from '@/lib/bindings/ProjectSummary';
+import type { SelfRelease } from '@/lib/bindings/SelfRelease';
 import type { SessionChanges } from '@/lib/bindings/SessionChanges';
 import type { SessionStatus } from '@/lib/bindings/SessionStatus';
 import type { SessionSummary } from '@/lib/bindings/SessionSummary';
 import { commandErrorText } from '@/lib/errors';
 import { effortLabel, modeOption, modelName } from '@/lib/labels';
+import { setProjectSelfRelease } from '@/lib/projects';
 import { createSessionInProject } from '@/lib/sessions';
 import './ProjectOverview.css';
 
@@ -183,6 +186,15 @@ export function ProjectOverview({
               enabled={project.autoHandoff}
               label="Einstiegszeilen automatisch senden"
               wide
+            />
+          </div>
+          <div className="project-overview__auto">
+            <SelfReleaseSettings
+              value={project.selfRelease}
+              onSave={(next: SelfRelease): Promise<void> =>
+                setProjectSelfRelease(project.id, next).then(onProjectChanged)
+              }
+              modelNote="Gilt ab dem nächsten Abruf."
             />
           </div>
           {errorMessage !== null && <p className="project-overview__error">{errorMessage}</p>}

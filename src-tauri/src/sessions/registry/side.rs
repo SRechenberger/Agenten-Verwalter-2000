@@ -12,7 +12,7 @@ use crate::agents::claude::process::SpawnOptions;
 use crate::agents::claude::side::{SideAnswer, SideRequest, run_side};
 use crate::background::scratchpad;
 use crate::error::CommandError;
-use crate::mcp_access::McpAccess;
+use crate::mcp_access::{McpAccess, ProcessKind};
 use crate::settings::model::OperatingMode;
 use crate::side::model::{SideChangedEvent, SideQuestion, SideState, SideUsage};
 use crate::side::{MAX_QUESTIONS, MAX_RUNNING, TIMEOUT_CLAUDE, TIMEOUT_LOCAL, clip_quote, prompt};
@@ -61,10 +61,11 @@ impl SessionRegistry {
         let scratchpad_dir = scratchpad::prepare(&session.workspace, &session.id).ok();
         let artifacts_dir = crate::artifacts::prepare(&session.workspace).ok();
         // Dieselbe Werkzeugliste wie der Hauptprozess, sonst verfehlt die Frage dessen Prompt-Cache
-        // (ADR 044). Aufrufen kann sie die Werkzeuge nicht: `dontAsk` lehnt sie ab.
-        let verwalter_mcp = app
-            .try_state::<Arc<McpAccess>>()
-            .and_then(|access| access.config_for(&session.id));
+        // (ADR 044). Aufrufen kann sie die Werkzeuge: `dontAsk` lehnt nicht ab, was `--allowedTools`
+        // freigibt. Ihr eigener Schlüssel lässt nur das Lesende durch.
+        let verwalter_mcp = app.try_state::<Arc<McpAccess>>().and_then(|access| {
+            access.config_for(&session.id, ProcessKind::Side, backend.is_none())
+        });
         let quote = quote
             .filter(|quote: &&str| !quote.trim().is_empty())
             .map(clip_quote);

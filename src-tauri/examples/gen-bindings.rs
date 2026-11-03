@@ -4,7 +4,8 @@ use verwalter_lib::{
     account::model::{AccountInfo, AccountStatus},
     agents::event::{
         Attachment, AttachmentKind, ChatEntry, Effort, Mode, ModelId, Question, QuestionAnswer,
-        QuestionKind, QuestionOption, TodoItem, TodoState, ToolDetail, ToolState,
+        QuestionKind, QuestionOption, SessionRef, TodoItem, TodoState, ToolDetail, ToolRequest,
+        ToolState,
     },
     app_update::model::{
         AppUpdateProgress, AppUpdateStatus, InstallKind, InstallPhase, ReleaseInfo,
@@ -41,6 +42,7 @@ use verwalter_lib::{
     repositories::model::{KnownRepository, RepositoryKind},
     retro::model::{RetroExport, RetroProgress},
     review::model::{CommentTarget, ReviewComment},
+    session_tools::model::SelfRelease,
     sessions::model::{
         AwaitedScript, ChatEntryEvent, ChatPage, HandoffStartedEvent, SessionOverlap,
         SessionStatus, SessionSummary,
@@ -83,6 +85,9 @@ fn main() -> Result<(), ts_rs::ExportError> {
     SkillUse::export_all(&cfg)?;
     Denial::export_all(&cfg)?;
     Notice::export_all(&cfg)?;
+    SessionRef::export_all(&cfg)?;
+    ToolRequest::export_all(&cfg)?;
+    SelfRelease::export_all(&cfg)?;
     ChatEntry::export_all(&cfg)?;
     ToolDetail::export_all(&cfg)?;
     QuestionAnswer::export_all(&cfg)?;
