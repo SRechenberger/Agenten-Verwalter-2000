@@ -25,9 +25,10 @@ use crate::mcp_access::tools::ToolCall;
 use crate::projects::model::ProjectSummary;
 use crate::session_tools::model::SelfRelease;
 use crate::session_tools::tools::ToolReply;
-use crate::sessions::auto_handoff::AUTO_HANDOFF_CHAIN_LIMIT;
 use crate::sessions::model::SessionStatus;
 
+/// Kettenbremse: So viele selbst freigegebene Aufrufe in Folge, danach erscheint der Kasten (ADR 052).
+const CHAIN_LIMIT: u32 = 6;
 const NO_RECIPIENTS: &str = "Die Liste der Empfänger ist leer.";
 const EMPTY_MESSAGE: &str = "Die Nachricht ist leer.";
 const OWN_SESSION: &str = "Das ist die eigene Session.";
@@ -388,7 +389,7 @@ impl SessionRegistry {
                 }
                 match release {
                     Release::Free(true) => return Ok(Some(state.auto_chain)),
-                    Release::Chained(true) if state.auto_chain < AUTO_HANDOFF_CHAIN_LIMIT => {
+                    Release::Chained(true) if state.auto_chain < CHAIN_LIMIT => {
                         state.auto_chain += 1;
                         return Ok(Some(state.auto_chain));
                     }

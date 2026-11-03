@@ -37,13 +37,11 @@ import type { ArtifactList } from '@/lib/bindings/ArtifactList';
 import type { ArtifactShowEvent } from '@/lib/bindings/ArtifactShowEvent';
 import type { BackgroundItem } from '@/lib/bindings/BackgroundItem';
 import type { ChangesReach } from '@/lib/bindings/ChangesReach';
-import type { HandoffStartedEvent } from '@/lib/bindings/HandoffStartedEvent';
 import type { OperatingMode } from '@/lib/bindings/OperatingMode';
 import type { ProjectCreated } from '@/lib/bindings/ProjectCreated';
 import type { ProjectRestored } from '@/lib/bindings/ProjectRestored';
 import type { ProjectSummary } from '@/lib/bindings/ProjectSummary';
 import type { SessionSummary } from '@/lib/bindings/SessionSummary';
-import { onHandoffStarted } from '@/lib/sessions';
 import { useArtifactsStore } from '@/stores/artifacts';
 import { useBackgroundStore } from '@/stores/background';
 import { useSessionsStore, type ProjectView, type SessionView } from '@/stores/sessions';
@@ -88,39 +86,6 @@ export function App(): ReactElement {
   // Die Abfrage beim Start füllt den Store; der Punkt an „Einstellungen“ liest ihn.
   useAppUpdateCheck();
 
-  // „Automatisch weiter“ (ADR 040): wer gerade die alte Session ansieht, landet in der neuen. Die
-  // neue Session selbst kommt über `session://changed` in die Liste.
-  useEffect(() => {
-    const controller = new AbortController();
-    let unlisten: UnlistenFn | null = null;
-    onHandoffStarted((event: HandoffStartedEvent) => {
-      const state = useSessionsStore.getState();
-      if (
-        state.activeSessionId === event.fromSessionId &&
-        !state.showNewSession &&
-        !state.showSettings &&
-        !state.showProjectOverview
-      ) {
-        state.selectSession(event.toSessionId);
-      }
-    })
-      .then((stop: UnlistenFn) => {
-        if (controller.signal.aborted) {
-          stop();
-          return;
-        }
-        unlisten = stop;
-      })
-      .catch((reason: unknown) => {
-        console.error('Automatisch weiter nicht abonnierbar', reason);
-      });
-    return (): void => {
-      controller.abort();
-      if (unlisten !== null) {
-        unlisten();
-      }
-    };
-  }, []);
   // MCP-Zugang (ADR 046): der Agent wählt ein Artefakt aus. Ausgewählt wird immer; die Ansicht
   // springt nur, wenn der Benutzer gerade diese Session oder die Übersicht ihres Vorhabens sieht.
   useEffect(() => {
@@ -418,19 +383,11 @@ export function App(): ReactElement {
         backgroundByToolUseId={backgroundByToolUseId}
         artifacts={artifacts}
         onSessionCreated={handleSessionCreated}
-        autoHandoff={
-          projects.find((project: ProjectSummary) => project.id === session.projectId)
-            ?.autoHandoff ?? false
-        }
         selfRelease={
           projects.find((project: ProjectSummary) => project.id === session.projectId)
             ?.selfRelease ?? null
         }
         sessions={sessions}
-        parentName={
-          sessions.find((other: SessionSummary) => other.id === session.parentSessionId)?.name ??
-          null
-        }
       />
     );
   }

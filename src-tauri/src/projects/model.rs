@@ -13,8 +13,6 @@ pub struct ProjectSummary {
     pub created_at: f64,
     /// Namen der Repositories in Positions-Reihenfolge; für alle Sessions des Vorhabens gleich.
     pub repository_names: Vec<String>,
-    /// „Automatisch weiter“ ist an (ADR 040).
-    pub auto_handoff: bool,
     pub self_release: SelfRelease,
 }
 

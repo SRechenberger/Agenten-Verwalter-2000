@@ -56,15 +56,10 @@ pub struct SessionSummary {
     pub mcp_problems: u32,
     /// Letztes Senden des Users oder Abgeben des Agenten (Rückfrage, fertig, Fehler); beim Anlegen `created_at`.
     pub last_activity_at: f64,
-    /// Eltern-Session, an die eine Zeile „Zurück an …“ ihren Text sendet; `None`, wenn keine gemerkt
-    /// ist oder die Eltern-Session nicht mehr existiert.
-    pub parent_session_id: Option<String>,
     /// Seit dem letzten Blick des Users hat der Agent abgegeben.
     pub unread: bool,
-    /// Einstiegszeilen der letzten Antwort in Antwort-Reihenfolge (ADR 027, ADR 040); leer ohne oder nach einer neueren Nutzernachricht.
+    /// Einstiegszeilen „Neues Vorhaben …“ der letzten Antwort in Antwort-Reihenfolge (ADR 027, ADR 052); leer ohne oder nach einer neueren Nutzernachricht.
     pub handoff_lines: Vec<HandoffLine>,
-    /// Stand der Automatik unter der letzten Antwort (ADR 040); nur im Speicher, `None` ohne.
-    pub auto_handoff: Option<AutoHandoff>,
     /// Antwort abgegeben, ein Hintergrund-Befehl ohne lokale Adresse läuft noch (ADR 032); `status` bleibt `Completed`.
     pub awaited_script: Option<AwaitedScript>,
     /// Warum die Session pausiert ist (ADR 051); nur im Speicher, `None` bei jeder anderen Pause.
@@ -88,66 +83,23 @@ pub enum PauseReason {
     },
 }
 
-/// Art einer Einstiegszeile (ADR 040).
+/// Art einer Einstiegszeile (ADR 052).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub enum HandoffKind {
-    /// „Weiter: …“ — nächste Session im selben Vorhaben.
-    Session,
     /// „Neues Vorhaben … : …“ — Auftrag für ein neues Vorhaben.
     Project,
-    /// „Zurück an <Name>: <Text>“ — Text für die Eltern-Session, von der diese Session ausging.
-    Back,
 }
 
-/// Eine Einstiegszeile am Ende einer Antwort (ADR 027, ADR 040).
+/// Eine Einstiegszeile in einer Antwort (ADR 027, ADR 052).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct HandoffLine {
     pub kind: HandoffKind,
-    /// Die bereinigte Zeile, wie sie gesendet bzw. als Auftrag übernommen wird.
+    /// Die bereinigte Zeile, wie sie als Auftrag übernommen wird.
     pub text: String,
     /// `Modell <name>` aus der Zeile; `None` ohne Angabe.
     pub model: Option<ModelId>,
-}
-
-/// Warum eine Einstiegszeile nicht automatisch gesendet wird (ADR 040).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
-#[serde(rename_all = "camelCase")]
-pub enum HandoffHalt {
-    Red,
-    Question,
-    Merge,
-    SeveralLines,
-    PendingSession,
-    ChainLimit,
-    Cancelled,
-    /// „Zurück an …“: die Eltern-Session arbeitet noch oder wartet auf eine Antwort.
-    ParentBusy,
-}
-
-/// Stand der Automatik unter der letzten Antwort; nur im Speicher.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
-#[serde(tag = "kind", rename_all = "camelCase")]
-pub enum AutoHandoff {
-    /// Startet zum Zeitpunkt `starts_at` (Millisekunden seit Epoche) auf `model` (`None` = übernommen).
-    #[serde(rename_all = "camelCase")]
-    Countdown {
-        starts_at: f64,
-        model: Option<ModelId>,
-    },
-    #[serde(rename_all = "camelCase")]
-    Halted { reason: HandoffHalt },
-    #[serde(rename_all = "camelCase")]
-    Failed { message: String },
-}
-
-/// Gesendet als `session://handoff-started`, nachdem eine Folgesession automatisch gestartet ist.
-#[derive(Debug, Clone, Serialize, Deserialize, TS)]
-#[serde(rename_all = "camelCase")]
-pub struct HandoffStartedEvent {
-    pub from_session_id: String,
-    pub to_session_id: String,
 }
 
 /// Eine laufende Session, die im selben Schreib-Ordner arbeitet wie eine andere (ADR 037).

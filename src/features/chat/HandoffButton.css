@@ -9,7 +9,7 @@
     font-size: var(--font-size-sm);
     cursor: pointer;
 
-    /* Neue Session schon geöffnet: grau, aber lesbar und weiter klickbar (ein Klick legt wieder eine an). */
+    /* Dialog schon geöffnet: grau, aber lesbar und weiter klickbar (ein Klick öffnet ihn wieder). */
     &--opened:not(:disabled) {
       border-color: var(--color-border);
       color: var(--color-fg-secondary);
@@ -25,11 +25,5 @@
       outline: 2px solid var(--color-accent);
       outline-offset: 2px;
     }
-  }
-
-  &__error {
-    margin: var(--space-sm) 0 0;
-    font-size: var(--font-size-xs);
-    color: var(--color-status-error);
   }
 }

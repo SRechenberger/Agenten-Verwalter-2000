@@ -62,7 +62,7 @@ interface NewSessionProps {
 }
 
 export function NewSession({ onCreated, onCancel }: NewSessionProps): ReactElement {
-  // Vorbelegung aus einer Einstiegszeile (ADR 040), einmal je Öffnen des Dialogs gelesen.
+  // Vorbelegung aus einer Einstiegszeile (ADR 052), einmal je Öffnen des Dialogs gelesen.
   const [prefill] = useState<NewSessionPrefill | null>(
     () => useSessionsStore.getState().newSessionPrefill,
   );

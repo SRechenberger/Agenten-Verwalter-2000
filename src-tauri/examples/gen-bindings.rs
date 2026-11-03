@@ -44,8 +44,7 @@ use verwalter_lib::{
     review::model::{CommentTarget, ReviewComment},
     session_tools::model::SelfRelease,
     sessions::model::{
-        AwaitedScript, ChatEntryEvent, ChatPage, HandoffStartedEvent, SessionOverlap,
-        SessionStatus, SessionSummary,
+        AwaitedScript, ChatEntryEvent, ChatPage, SessionOverlap, SessionStatus, SessionSummary,
     },
     settings::model::{ColorScheme, OperatingMode, Settings, SettingsChange, SettingsOverview},
     side::model::{SideChangedEvent, SideQuestion, SideState, SideUsage},
@@ -98,7 +97,6 @@ fn main() -> Result<(), ts_rs::ExportError> {
     SessionOverlap::export_all(&cfg)?;
     ChatPage::export_all(&cfg)?;
     ChatEntryEvent::export_all(&cfg)?;
-    HandoffStartedEvent::export_all(&cfg)?;
     ProjectSummary::export_all(&cfg)?;
     ProjectCreated::export_all(&cfg)?;
     ArchiveSnippet::export_all(&cfg)?;

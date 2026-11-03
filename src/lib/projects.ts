@@ -46,12 +46,6 @@ export async function renameProject(projectId: string, name: string): Promise<vo
   await invoke('project_rename', { projectId, name });
 }
 
-/** Schaltet „Automatisch weiter“ für das Vorhaben; die Änderung kommt als `PROJECT_CHANGED_EVENT` zurück.
- *  @throws {import('@/lib/bindings/CommandError').CommandError} `internal` (unbekanntes Vorhaben) */
-export async function setProjectAutoHandoff(projectId: string, enabled: boolean): Promise<void> {
-  await invoke('project_set_auto_handoff', { projectId, enabled });
-}
-
 /** Speichert die Selbstfreigabe des Vorhabens; gilt ab dem nächsten Aufruf eines Session-Werkzeugs.
  *  @throws {import('@/lib/bindings/CommandError').CommandError} `internal` (unbekanntes Vorhaben) */
 export function setProjectSelfRelease(

@@ -1,6 +1,6 @@
 # 027 — Session-Übergabe über die Einstiegszeile
 
-**Status:** angenommen · **Datum:** 2026-10-06 · teilweise abgelöst durch [ADR 040](040-automatisch-weiter.md) (mehrere Zeilen, Modell im Core, automatisches Senden); dritte Zeilenart „Zurück an …“ in [ADR 050](050-zurueck-zeile.md)
+**Status:** teilweise abgelöst durch [ADR 052](052-session-werkzeuge.md) · **Datum:** 2026-10-06 · davor teilweise abgelöst durch [ADR 040](040-automatisch-weiter.md). Es gilt noch: Der Core erkennt die Zeile und merkt sie je Session, und die Sidebar zeigt „wartet auf Wiedereinstieg“, beides nur noch für „Neues Vorhaben …“.
 
 ## Kontext
 

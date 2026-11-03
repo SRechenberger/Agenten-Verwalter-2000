@@ -70,9 +70,8 @@ pub(crate) fn spawn(app: &AppHandle, session_id: &str, armed: ArmedResume) {
 }
 
 /// Läuft im Thread des Zeitgebers, ohne gehaltene Sperre. Prüfen (unter der Sperre der Session, in
-/// `auto_resume_is_current`) und Senden sind getrennt wie in `auto_handoff::fire_back`: eine Nachricht
-/// des Users genau dazwischen ist akzeptiert, der Agent bekommt den Text dann zusätzlich. Die Prüfung
-/// muss vor `send` liegen, weil `send` eine beendete Session neu startet und dabei die Begründung löscht.
+/// `auto_resume_is_current`) und Senden sind getrennt: eine Nachricht des Users genau dazwischen ist
+/// akzeptiert, der Agent bekommt den Text dann zusätzlich. Die Prüfung muss vor `send` liegen, weil `send` eine beendete Session neu startet und dabei die Begründung löscht.
 fn run(app: &AppHandle, session_id: &str, armed: ArmedResume) {
     let registry = app.state::<SessionRegistry>();
     let end: WaitEnd = wait_until(

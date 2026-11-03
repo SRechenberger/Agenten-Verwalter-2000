@@ -1,14 +1,12 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen, type Event, type UnlistenFn } from '@tauri-apps/api/event';
 import type { Effort } from '@/lib/bindings/Effort';
-import type { HandoffStartedEvent } from '@/lib/bindings/HandoffStartedEvent';
 import type { Mode } from '@/lib/bindings/Mode';
 import type { ModelId } from '@/lib/bindings/ModelId';
 import type { SessionOverlap } from '@/lib/bindings/SessionOverlap';
 import type { SessionSummary } from '@/lib/bindings/SessionSummary';
 
 const SESSION_CHANGED_EVENT = 'session://changed';
-const HANDOFF_STARTED_EVENT = 'session://handoff-started';
 
 /** Alle Sessions, zuletzt aktive zuerst.
  *  @throws {import('@/lib/bindings/CommandError').CommandError} wenn der Core ablehnt */
@@ -24,11 +22,8 @@ export function loadSessionOverlaps(): Promise<SessionOverlap[]> {
 
 /** Legt im Vorhaben eine Session im Status „Neu“ an, ohne Agent; gibt es schon eine, kommt diese zurück.
  *  @throws {import('@/lib/bindings/CommandError').CommandError} `internal`, `database` */
-export function createSessionInProject(
-  projectId: string,
-  parentSessionId?: string,
-): Promise<SessionSummary> {
-  return invoke<SessionSummary>('session_create_in_project', { projectId, parentSessionId });
+export function createSessionInProject(projectId: string): Promise<SessionSummary> {
+  return invoke<SessionSummary>('session_create_in_project', { projectId });
 }
 
 /** Unterbricht die laufende Antwort; die Session wechselt auf „Pausiert“.
@@ -113,21 +108,6 @@ export function getSessionLog(sessionId: string): Promise<string[]> {
 /** Meldet jede Änderung an Status, Modell, Modus, Denkaufwand, Kontext und Laufzeit. */
 export function onSessionChanged(callback: (summary: SessionSummary) => void): Promise<UnlistenFn> {
   return listen<SessionSummary>(SESSION_CHANGED_EVENT, (event: Event<SessionSummary>) => {
-    callback(event.payload);
-  });
-}
-
-/** Bricht den Countdown von „Automatisch weiter“ ab (ADR 040); ohne Countdown passiert nichts.
- *  @throws {import('@/lib/bindings/CommandError').CommandError} wenn der Core ablehnt */
-export async function cancelAutoHandoff(sessionId: string): Promise<void> {
-  await invoke('session_cancel_auto_handoff', { sessionId });
-}
-
-/** Meldet, dass „Automatisch weiter“ eine Folgesession gestartet hat. */
-export function onHandoffStarted(
-  callback: (event: HandoffStartedEvent) => void,
-): Promise<UnlistenFn> {
-  return listen<HandoffStartedEvent>(HANDOFF_STARTED_EVENT, (event: Event<HandoffStartedEvent>) => {
     callback(event.payload);
   });
 }

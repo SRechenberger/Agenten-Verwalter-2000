@@ -6,7 +6,7 @@ export function handoffKey(sessionId: string, lineText: string): string {
 }
 
 interface HandoffOpenedState {
-  /** Schlüssel (`handoffKey`) der Zeilen, deren neue Session schon geöffnet wurde; nur im Speicher (ADR 040). */
+  /** Schlüssel (`handoffKey`) der Zeilen, deren Dialog schon geöffnet wurde; nur im Speicher (ADR 052). */
   opened: Record<string, true>;
   markOpened: (key: string) => void;
 }

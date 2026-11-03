@@ -54,3 +54,5 @@ Das Format ist nur halb bekannt. Belegt sind lokale Transkripte der Kommandozeil
 - Prüfung und Senden sind getrennt wie bei `auto_handoff::fire_back`: eine Nachricht des Users genau dazwischen ist akzeptiert, der Agent bekommt den Fortsetz-Text dann zusätzlich.
 - Scheitert erst das Schreiben an den neu gestarteten Prozess, ist die Begründung schon gelöscht und der Status `running`, wie bei jeder Nachricht in diesem Fall; das Ende des Prozesses setzt `error`. Die Karte steht trotzdem im Verlauf.
 - Eine zweite Kontingent-Antwort nach dem Fortsetzen beginnt wieder mit `auto_resume: false`: neue Karte, kein zweiter Zeitgeber, keine Schleife.
+
+**Nachtrag 2026-11-03:** „Nachricht“ meint in diesem ADR die des Nutzers. Die Nachricht einer anderen Session ([ADR 052](052-session-werkzeuge.md)) setzt eine pausierte Session nicht fort und wartet bis zur nächsten vollständigen Antwort.

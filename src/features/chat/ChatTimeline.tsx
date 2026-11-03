@@ -8,7 +8,7 @@ import { buildBlocks, type ChatBlock } from '@/features/chat/buildBlocks';
 import { ErrorBlock } from '@/features/chat/ErrorBlock';
 import { HandoffAnswer } from '@/features/chat/HandoffAnswer';
 import { PinnedUserMessage } from '@/features/chat/PinnedUserMessage';
-import { lastAnswerSeq, visibleHandoffLines } from '@/features/chat/handoff';
+import { lastAnswerSeq } from '@/features/chat/handoff';
 import { QuestionBlock } from '@/features/chat/QuestionBlock';
 import { SessionMessage } from '@/features/chat/SessionMessage';
 import { SessionToolBlock } from '@/features/chat/SessionToolBlock';
@@ -82,16 +82,10 @@ interface ChatTimelineProps {
   /** Satz zum gescheiterten Nachladen; steht über dem ältesten geladenen Eintrag. */
   olderError: string | null;
   onLoadOlder: () => void;
-  /** Nimmt eine aus der Einstiegszeile angelegte Session in die Liste auf und wählt sie aus. */
-  onSessionCreated: (created: SessionSummary) => void;
-  /** „Automatisch weiter“ des Vorhabens (ADR 040). */
-  autoHandoff: boolean;
   /** Selbstfreigabe des Vorhabens; `null`, solange es nicht geladen ist. */
   selfRelease: SelfRelease | null;
   /** Alle Sessions; der Absender einer Session-Nachricht kann fehlen. */
   sessions: readonly SessionSummary[];
-  /** Name der Eltern-Session (`session.parentSessionId`); `null`, wenn es keine gibt. */
-  parentName: string | null;
   /** Höhe der Überlagerung oben (TL;DR) und unten (Eingabe); der Verlauf lässt so viel Platz frei. */
   topInset: number;
   bottomInset: number;
@@ -118,11 +112,8 @@ export function ChatTimeline({
   loadingOlder,
   olderError,
   onLoadOlder,
-  onSessionCreated,
-  autoHandoff,
   selfRelease,
   sessions,
-  parentName,
   topInset,
   bottomInset,
 }: ChatTimelineProps): ReactElement {
@@ -173,8 +164,7 @@ export function ChatTimeline({
   const lastErrorSeq: number | null = useMemo(() => findLastErrorSeq(entries), [entries]);
   const answerSeq: number | null = useMemo(() => lastAnswerSeq(entries), [entries]);
   const showsHandoff: boolean =
-    visibleHandoffLines(session.handoffLines, session.parentSessionId).length > 0 &&
-    !HANDOFF_HIDDEN_STATUSES.includes(session.status);
+    session.handoffLines.length > 0 && !HANDOFF_HIDDEN_STATUSES.includes(session.status);
   const workingLabel: string = useMemo(() => findActiveTodoLabel(entries), [entries]);
   const oldestOpenQuestion: QuestionEntry | null = useMemo(
     () => findOldestOpenQuestion(entries),
@@ -419,14 +409,8 @@ export function ChatTimeline({
           <HandoffAnswer
             text={entry.text}
             unsourced={entry.unsourced}
-            projectId={session.projectId}
             sessionId={session.id}
             lines={session.handoffLines}
-            parentSessionId={session.parentSessionId}
-            parentName={parentName}
-            onSessionCreated={onSessionCreated}
-            autoHandoff={autoHandoff}
-            autoState={session.autoHandoff}
           />
         ) : (
           <TextBlock text={entry.text} unsourced={entry.unsourced} />
