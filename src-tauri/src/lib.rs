@@ -121,6 +121,7 @@ pub fn run() {
             commands::sessions::session_restart,
             commands::sessions::session_set_model,
             commands::sessions::session_cancel_auto_handoff,
+            commands::sessions::session_set_auto_resume,
             commands::sessions::session_set_mode,
             commands::sessions::session_set_effort,
             commands::sessions::session_set_chrome,

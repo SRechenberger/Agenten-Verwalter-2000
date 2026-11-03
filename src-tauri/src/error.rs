@@ -58,6 +58,8 @@ pub enum CommandError {
     FileNotAllowed(String),
     #[error("{0}")]
     AppUpdate(String),
+    #[error("{0}")]
+    AutoResumeUnavailable(String),
 }
 
 impl From<rusqlite::Error> for CommandError {

@@ -1,4 +1,5 @@
 pub mod auto_handoff;
+pub mod auto_resume;
 pub mod handoff;
 pub mod model;
 pub mod registry;

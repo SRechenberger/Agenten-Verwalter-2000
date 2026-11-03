@@ -69,6 +69,7 @@ use crate::session_tools::model::SelfRelease;
 use crate::sessions::auto_handoff::{
     self, AUTO_HANDOFF_CHAIN_LIMIT, AUTO_HANDOFF_DELAY, FollowUp, ScheduledHandoff,
 };
+use crate::sessions::auto_resume::{self, ArmedResume};
 use crate::sessions::model::{
     AutoHandoff, AwaitedScript, ChatEntryEvent, ChatPage, HandoffHalt, HandoffLine, PauseReason,
     SessionOverlap, SessionStatus, SessionSummary,
@@ -259,6 +260,9 @@ struct SessionState {
     pause_reason: Option<PauseReason>,
     /// `tool_use`-IDs der Session-Werkzeuge, die `gate` schon gesehen hat. Nur im Speicher.
     seen_tool_uses: HashSet<String>,
+    /// Marke von „Automatisch fortsetzen“: jedes Umlegen erhöht sie, der Zeitgeber vergleicht sie. Nur
+    /// im Speicher.
+    auto_resume_token: u64,
     /// Eltern-Session im selben Vorhaben, an die „Zurück an …“ sendet; gespeichert, ohne
     /// Fremdschlüssel. Nur `create_in_project` setzt sie.
     parent_session_id: Option<String>,
@@ -1001,6 +1005,51 @@ impl SessionRegistry {
             session,
             |state: &mut SessionState, outbox: &mut Outbox| {
                 state.set_auto_handoff(outbox, AutoHandoff::Failed { message });
+                Ok(())
+            },
+        );
+    }
+
+    /// Legt den Schalter „Automatisch fortsetzen“ um (ADR 051); `true` startet den Zeitgeber.
+    pub fn set_auto_resume(
+        &self,
+        app: &AppHandle,
+        session_id: &str,
+        enabled: bool,
+    ) -> Result<(), CommandError> {
+        let session = self.get(session_id)?;
+        let armed: Option<ArmedResume> = update(
+            app,
+            &session,
+            |state: &mut SessionState, outbox: &mut Outbox| state.set_auto_resume(outbox, enabled),
+        )?;
+        if let Some(armed) = armed {
+            auto_resume::spawn(app, session_id, armed);
+        }
+        Ok(())
+    }
+
+    /// `false` auch, wenn die Session verschwunden ist.
+    pub(crate) fn auto_resume_is_current(&self, session_id: &str, armed: ArmedResume) -> bool {
+        self.get(session_id)
+            .is_ok_and(|session: Arc<Session>| session.lock().auto_resume_is_current(armed))
+    }
+
+    /// Das Senden ist gescheitert: Karte im Verlauf, Schalter aus, kein Wiederholen. Die Session bleibt
+    /// pausiert, außer `send` kam schon bis zum Schreiben an den Prozess: dann steht sie wie bei jeder
+    /// Nachricht auf `Running`, und das Ende des Prozesses setzt `Error`.
+    pub(crate) fn fail_auto_resume(&self, app: &AppHandle, session_id: &str, message: String) {
+        let Ok(session) = self.get(session_id) else {
+            return;
+        };
+        session.log_line(format!(
+            "Automatisches Fortsetzen fehlgeschlagen: {message}"
+        ));
+        let _ = update(
+            app,
+            &session,
+            |state: &mut SessionState, outbox: &mut Outbox| {
+                state.auto_resume_failed(outbox, message);
                 Ok(())
             },
         );
@@ -2290,6 +2339,7 @@ impl SessionState {
             auto_chain: 0,
             pause_reason: None,
             seen_tool_uses: HashSet::new(),
+            auto_resume_token: 0,
             parent_session_id: None,
             seen_at: now,
             is_viewed: false,
@@ -3596,6 +3646,67 @@ impl SessionState {
         self.touch_activity(outbox);
     }
 
+    /// `Some` nur, wenn der Zeitgeber neu starten muss: doppelt `true` lässt den laufenden stehen.
+    fn set_auto_resume(
+        &mut self,
+        outbox: &mut Outbox,
+        enabled: bool,
+    ) -> Result<Option<ArmedResume>, CommandError> {
+        let not_waiting = || {
+            CommandError::AutoResumeUnavailable(
+                "Die Session wartet nicht auf das Kontingent".to_owned(),
+            )
+        };
+        if self.status != SessionStatus::Paused {
+            return Err(not_waiting());
+        }
+        let Some(PauseReason::Quota {
+            resets_at,
+            auto_resume,
+        }) = &mut self.pause_reason
+        else {
+            return Err(not_waiting());
+        };
+        let Some(resets_at) = *resets_at else {
+            return Err(CommandError::AutoResumeUnavailable(
+                "Die Rücksetzzeit des Kontingents ist unbekannt".to_owned(),
+            ));
+        };
+        if enabled && *auto_resume {
+            return Ok(None);
+        }
+        *auto_resume = enabled;
+        self.auto_resume_token += 1;
+        outbox.summary_dirty = true;
+        Ok(enabled.then_some(ArmedResume {
+            token: self.auto_resume_token,
+            resets_at,
+        }))
+    }
+
+    fn auto_resume_is_current(&self, armed: ArmedResume) -> bool {
+        self.auto_resume_token == armed.token
+            && self.status == SessionStatus::Paused
+            && self.pause_reason
+                == Some(PauseReason::Quota {
+                    resets_at: Some(armed.resets_at),
+                    auto_resume: true,
+                })
+    }
+
+    fn auto_resume_failed(&mut self, outbox: &mut Outbox, message: String) {
+        self.auto_resume_token += 1;
+        if let Some(PauseReason::Quota { auto_resume, .. }) = &mut self.pause_reason {
+            *auto_resume = false;
+            outbox.summary_dirty = true;
+        }
+        self.push_entry(outbox, |seq: u32| ChatEntry::Error {
+            seq,
+            title: "Automatisches Fortsetzen fehlgeschlagen".to_owned(),
+            text: message,
+        });
+    }
+
     fn process_exited(&mut self, outbox: &mut Outbox, exit_code: Option<i32>) {
         self.process = None;
         self.forget_mcp(outbox);
@@ -3878,7 +3989,7 @@ fn is_standalone(backend: Option<&LocalBackend>) -> bool {
     backend.is_some_and(|local: &LocalBackend| local.program == LocalProgram::Standalone)
 }
 
-fn now_ms() -> f64 {
+pub(crate) fn now_ms() -> f64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_or(0.0, |elapsed: Duration| elapsed.as_secs_f64() * 1000.0)
