@@ -5,4 +5,8 @@ export type ProjectSummary = { id: string, name: string, createdAt: number,
 /**
  * Namen der Repositories in Positions-Reihenfolge; für alle Sessions des Vorhabens gleich.
  */
-repositoryNames: Array<string>, selfRelease: SelfRelease, };
+repositoryNames: Array<string>, selfRelease: SelfRelease, 
+/**
+ * Gruppe in der Leiste; `None` = ohne Gruppe.
+ */
+groupId: string | null, };

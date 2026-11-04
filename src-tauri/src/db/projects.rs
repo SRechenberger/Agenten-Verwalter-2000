@@ -2,12 +2,13 @@
 use rusqlite::{Connection, OptionalExtension, Row, params};
 
 use crate::agents::event::ModelId;
-use crate::db::{enum_from_text, enum_to_text};
+use crate::db::{enum_from_text, enum_to_text, project_groups};
 use crate::error::CommandError;
 use crate::session_tools::model::SelfRelease;
 
 const COLUMNS: &str = "id, name, created_at, tldr, tldr_at, tldr_sources, name_auto, \
-     self_release_messages, self_release_tldr, self_release_open_session, self_release_tldr_model";
+     self_release_messages, self_release_tldr, self_release_open_session, self_release_tldr_model, \
+     group_id";
 
 #[derive(Debug, Clone)]
 pub struct ProjectRow {
@@ -21,13 +22,15 @@ pub struct ProjectRow {
     /// Der Name ist automatisch entstanden und darf nachgezogen werden; von Hand gesetzt = `false`.
     pub name_auto: bool,
     pub self_release: SelfRelease,
+    /// Gruppe in der Leiste; archivierte Vorhaben behalten sie.
+    pub group_id: Option<String>,
 }
 
 pub fn insert(connection: &Connection, row: &ProjectRow) -> Result<(), CommandError> {
     connection.execute(
         "INSERT INTO projects (id, name, created_at, name_auto, self_release_messages, \
-         self_release_tldr, self_release_open_session, self_release_tldr_model) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+         self_release_tldr, self_release_open_session, self_release_tldr_model, group_id) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
         params![
             row.id,
             row.name,
@@ -37,6 +40,7 @@ pub fn insert(connection: &Connection, row: &ProjectRow) -> Result<(), CommandEr
             row.self_release.tldr,
             row.self_release.open_session,
             enum_to_text(&row.self_release.tldr_model)?,
+            row.group_id,
         ],
     )?;
     Ok(())
@@ -59,6 +63,7 @@ fn read_row(row: &Row<'_>) -> rusqlite::Result<ProjectRow> {
             open_session: row.get(9)?,
             tldr_model: enum_from_text::<ModelId>(&tldr_model).unwrap_or(ModelId::Haiku),
         },
+        group_id: row.get(11)?,
     })
 }
 
@@ -125,6 +130,28 @@ pub fn rename(
         "UPDATE projects SET name = ?2, name_auto = ?3 WHERE id = ?1",
         params![id, name, auto],
     )?;
+    Ok(())
+}
+
+/// `None` nimmt das Vorhaben aus seiner Gruppe. Eine unbekannte Gruppe oder ein unbekanntes
+/// Vorhaben ist ein Fehler, ohne dass sich etwas ändert.
+pub fn set_group(
+    connection: &Connection,
+    id: &str,
+    group_id: Option<&str>,
+) -> Result<(), CommandError> {
+    if let Some(group_id) = group_id {
+        project_groups::require(connection, group_id)?;
+    }
+    let changed = connection.execute(
+        "UPDATE projects SET group_id = ?2 WHERE id = ?1",
+        params![id, group_id],
+    )?;
+    if changed == 0 {
+        return Err(CommandError::Internal(format!(
+            "Vorhaben nicht gefunden: {id}"
+        )));
+    }
     Ok(())
 }
 

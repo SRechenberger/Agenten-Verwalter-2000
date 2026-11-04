@@ -46,6 +46,7 @@ use crate::changes::model::ChangesReach;
 use crate::changes::sources;
 use crate::context::model::{ContextBreakdown, ContextChangedEvent, SessionContext};
 use crate::db::implementations as implementation_rows;
+use crate::db::project_groups as group_rows;
 use crate::db::projects::{self as project_rows, ProjectRow};
 use crate::db::sessions::{self as session_rows, SessionRow};
 use crate::db::{
@@ -60,7 +61,7 @@ use crate::implementation::Countdowns;
 use crate::mcp::model::{McpAction, McpActionError, McpAuthWait, McpChangedEvent, McpServer};
 use crate::mcp_access::{McpAccess, ProcessKind};
 use crate::notices::model::{Denial, Notice};
-use crate::projects::model::{ProjectCreated, ProjectSummary};
+use crate::projects::model::{ProjectCreated, ProjectGroup, ProjectSummary};
 use crate::prompt_cache::model::PromptCache;
 use crate::prompt_cache::{TTL_1H_MS, TTL_5M_MS};
 use crate::review::{
@@ -100,6 +101,7 @@ use self::implementation::ReportUpdate;
 
 const SESSION_CHANGED_EVENT: &str = "session://changed";
 const PROJECT_CHANGED_EVENT: &str = "project://changed";
+const PROJECT_GROUP_CHANGED_EVENT: &str = "project-group://changed";
 const CHAT_ENTRY_EVENT: &str = "chat://entry";
 const BACKGROUND_CHANGED_EVENT: &str = "background://changed";
 const CONTEXT_CHANGED_EVENT: &str = "context://changed";
@@ -142,6 +144,7 @@ struct ProjectState {
     /// Der Name ist automatisch entstanden und darf nachgezogen werden; von Hand gesetzt = `false`.
     name_auto: bool,
     self_release: SelfRelease,
+    group_id: Option<String>,
     created_at: f64,
     tldr: Option<ProjectTldr>,
     tldr_at: Option<f64>,
@@ -160,6 +163,7 @@ impl ProjectState {
             name,
             name_auto: false,
             self_release: SelfRelease::OFF,
+            group_id: None,
             created_at,
             tldr: None,
             tldr_at: None,
@@ -175,6 +179,7 @@ impl ProjectState {
         let mut state = ProjectState::new(row.name.clone(), row.created_at);
         state.name_auto = row.name_auto;
         state.self_release = row.self_release;
+        state.group_id = row.group_id.clone();
         state.tldr = row
             .tldr
             .as_deref()
@@ -362,6 +367,8 @@ pub struct NewSession<'a> {
     pub codex_model: Option<String>,
     pub effort: Effort,
     pub mode: Mode,
+    /// Gruppe, in der das Vorhaben startet; `None` = ohne Gruppe.
+    pub group_id: Option<String>,
 }
 
 /// Was `start_turn` vor der Session-Sperre braucht (`prepare_turn`).
@@ -522,7 +529,13 @@ impl SessionRegistry {
             codex_model,
             effort,
             mode,
+            group_id,
         } = request;
+        // Vor allem anderen: eine unbekannte Gruppe lässt nichts zurück.
+        if let Some(group_id) = &group_id {
+            self.database
+                .with(|connection| group_rows::require(connection, group_id))?;
+        }
         // Vor dem Workspace: ein Fehler (LM Studio aus) lässt nichts zurück.
         let (operating_mode, backend) = self.agent_backend()?;
         let default_self_release = settings::load(&self.database)?.default_self_release;
@@ -564,6 +577,7 @@ impl SessionRegistry {
         let mut project = ProjectState::new(name, state.created_at);
         project.name_auto = true;
         project.self_release = default_self_release;
+        project.group_id.clone_from(&group_id);
         let session = Arc::new(Session {
             id: id.clone(),
             project_id: project_id.clone(),
@@ -584,6 +598,7 @@ impl SessionRegistry {
             tldr_sources: None,
             name_auto: true,
             self_release: default_self_release,
+            group_id,
         };
         let saved = self.database.with(|connection| {
             project_rows::insert(connection, &project_row)?;
@@ -740,7 +755,7 @@ impl SessionRegistry {
 
     /// Unbekanntes Vorhaben → Fehler.
     pub fn project_summary(&self, project_id: &str) -> Result<ProjectSummary, CommandError> {
-        let (name, created_at, self_release) = {
+        let (name, created_at, self_release, group_id) = {
             let projects = self.lock_projects();
             let project = projects
                 .get(project_id)
@@ -749,6 +764,7 @@ impl SessionRegistry {
                 project.name.clone(),
                 project.created_at,
                 project.self_release,
+                project.group_id.clone(),
             )
         };
         Ok(ProjectSummary {
@@ -757,6 +773,7 @@ impl SessionRegistry {
             created_at,
             repository_names: self.project_repository_names(project_id),
             self_release,
+            group_id,
         })
     }
 
@@ -856,6 +873,110 @@ impl SessionRegistry {
         }
         // Wie die übrigen Ereignisse ohne Session-Protokoll: ein Sendefehler ändert nichts am Namen.
         let _ = app.emit(PROJECT_CHANGED_EVENT, self.project_summary(project_id)?);
+        Ok(())
+    }
+
+    pub fn list_project_groups(&self) -> Result<Vec<ProjectGroup>, CommandError> {
+        self.database
+            .with(|connection| group_rows::list(connection))
+    }
+
+    pub fn create_project_group(
+        &self,
+        app: &AppHandle,
+        name: &str,
+    ) -> Result<ProjectGroup, CommandError> {
+        let group = ProjectGroup {
+            id: uuid::Uuid::new_v4().to_string(),
+            name: trimmed_name(name)?,
+            collapsed: false,
+        };
+        self.database
+            .with(|connection| group_rows::insert(connection, &group, now_ms()))?;
+        self.emit_project_groups(app)?;
+        Ok(group)
+    }
+
+    pub fn rename_project_group(
+        &self,
+        app: &AppHandle,
+        group_id: &str,
+        name: &str,
+    ) -> Result<(), CommandError> {
+        let name = trimmed_name(name)?;
+        self.database
+            .with(|connection| group_rows::rename(connection, group_id, &name))?;
+        self.emit_project_groups(app)
+    }
+
+    /// Die Vorhaben der Gruppe bleiben; sie stehen danach ohne Gruppe in der Liste.
+    pub fn delete_project_group(
+        &self,
+        app: &AppHandle,
+        group_id: &str,
+    ) -> Result<(), CommandError> {
+        let members = {
+            // Bis der Speicher nachgeführt ist gehalten: ein gleichzeitiges `set_project_group`
+            // könnte sonst die gelöschte Gruppe wieder eintragen.
+            let mut projects = self.lock_projects();
+            let members = self
+                .database
+                .with(|connection| group_rows::delete(connection, group_id))?;
+            for id in &members {
+                // Archivierte Mitglieder stehen nicht in der Map; ihre Zeile ist schon zurückgesetzt.
+                if let Some(project) = projects.get_mut(id) {
+                    project.group_id = None;
+                }
+            }
+            members
+        };
+        // Erst die Mitglieder, dann die Liste: so zeigt kein Vorhaben auf eine Gruppe, die die
+        // Oberfläche nicht mehr kennt. Ohne `?`: die Gruppe ist schon gelöscht, und ein inzwischen
+        // archiviertes Vorhaben darf die Ereignisse der übrigen nicht verhindern.
+        for id in &members {
+            if let Ok(summary) = self.project_summary(id) {
+                let _ = app.emit(PROJECT_CHANGED_EVENT, summary);
+            }
+        }
+        self.emit_project_groups(app)
+    }
+
+    pub fn set_project_group_collapsed(
+        &self,
+        app: &AppHandle,
+        group_id: &str,
+        collapsed: bool,
+    ) -> Result<(), CommandError> {
+        self.database
+            .with(|connection| group_rows::set_collapsed(connection, group_id, collapsed))?;
+        self.emit_project_groups(app)
+    }
+
+    /// `None` nimmt das Vorhaben aus seiner Gruppe. Unbekannte Gruppe, unbekanntes oder archiviertes
+    /// Vorhaben (steht nicht in der Map) → Fehler, ohne dass sich etwas ändert.
+    pub fn set_project_group(
+        &self,
+        app: &AppHandle,
+        project_id: &str,
+        group_id: Option<&str>,
+    ) -> Result<(), CommandError> {
+        {
+            // Über das Schreiben gehalten, siehe `delete_project_group`.
+            let mut projects = self.lock_projects();
+            let project = projects
+                .get_mut(project_id)
+                .ok_or_else(|| project_not_found(project_id))?;
+            self.database
+                .with(|connection| project_rows::set_group(connection, project_id, group_id))?;
+            project.group_id = group_id.map(str::to_owned);
+        }
+        let _ = app.emit(PROJECT_CHANGED_EVENT, self.project_summary(project_id)?);
+        Ok(())
+    }
+
+    /// Immer die volle Liste: die Oberfläche ersetzt ihre Gruppen, statt Änderungen einzuarbeiten.
+    fn emit_project_groups(&self, app: &AppHandle) -> Result<(), CommandError> {
+        let _ = app.emit(PROJECT_GROUP_CHANGED_EVENT, self.list_project_groups()?);
         Ok(())
     }
 

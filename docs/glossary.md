@@ -5,6 +5,7 @@ Ein Begriff = eine Bedeutung. Code, Doku und Oberfläche verwenden diese Begriff
 | Begriff | Bedeutung |
 |---|---|
 | **Vorhaben** | Eine Aufgabe (z. B. „Plan XYZ umsetzen“) mit ihren Repositories, ihrem Workspace und ihren Sessions. Die zentrale Einheit der App. Im Code `project` ([ADR 011](decisions/011-vorhaben-und-sessions.md)). |
+| **Gruppe** | Ein benannter Abschnitt der linken Leiste, in den sich Vorhaben einsortieren lassen; ein Vorhaben gehört zu höchstens einer Gruppe. Löschen einer Gruppe löscht kein Vorhaben, ihre Vorhaben stehen danach ohne Gruppe da. Der Ein-/Ausklapp-Zustand überlebt den Neustart. Im Code `ProjectGroup`, Tabelle `project_groups`, Spalte `projects.group_id`. |
 | **Übersicht (Vorhaben)** | Hauptansicht eines Vorhabens: TL;DR, Repositories, Sessions, „Neue Session“; Reiter „Übersicht · Changes“. |
 | **Session** | Eine Claude-Session innerhalb eines Vorhabens, mit eigenem Agenten, Chat, Kontext und Events; im Vorhaben durchnummeriert (#1, #2 …). Ihre ID ist die Session-ID der Claude-Kommandozeile. |
 | **Browser-Zugriff** | Schalter pro Session, der den Agenten mit Claude in Chrome startet (`--chrome`); der Agent bedient dann den echten Chrome des Users mit dessen Anmeldungen. Nur im Claude-Betrieb. Im Code `chrome` ([ADR 030](decisions/030-browser-zugriff.md)). |
