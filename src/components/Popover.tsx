@@ -14,6 +14,8 @@ interface PopoverProps {
   /** Breite in px oder `'anchor'` für die volle Breite des Elements, das das Menü trägt. */
   width: number | 'anchor';
   onClose: () => void;
+  /** Ersetzt für Esc das Schließen (ein Menü mit Unteransicht geht damit zurück); der Fokus bleibt dann beim Menü. */
+  onEscape?: (() => void) | undefined;
   /** `false`: der Fokus bleibt, wo er ist (Menü, das ein Textfeld begleitet). Standard `true`. */
   autoFocus?: boolean;
   className?: string;
@@ -32,6 +34,7 @@ export function Popover({
   align,
   width,
   onClose,
+  onEscape,
   autoFocus = true,
   className,
   detached = false,
@@ -40,12 +43,14 @@ export function Popover({
   const rootRef = useRef<HTMLDivElement>(null);
   const markerRef = useRef<HTMLSpanElement>(null);
   const onCloseRef = useRef<() => void>(onClose);
+  const onEscapeRef = useRef<(() => void) | undefined>(onEscape);
   const shouldTakeFocusRef = useRef<boolean>(autoFocus);
 
   // Der Listener-Effekt läuft nur einmal; über die Ref sieht er stets den aktuellen Callback,
   // ohne dass ein neuer Callback pro Render den Fokus erneut auf das erste Element setzt.
   useEffect(() => {
     onCloseRef.current = onClose;
+    onEscapeRef.current = onEscape;
     shouldTakeFocusRef.current = autoFocus;
   });
 
@@ -66,6 +71,10 @@ export function Popover({
         return;
       }
       event.preventDefault();
+      if (onEscapeRef.current !== undefined) {
+        onEscapeRef.current();
+        return;
+      }
       onCloseRef.current();
       if (shouldTakeFocusRef.current && previouslyFocused instanceof HTMLElement) {
         previouslyFocused.focus();

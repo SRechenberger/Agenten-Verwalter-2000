@@ -11,6 +11,8 @@ export interface ActionError {
   error: string | null;
   /** `prefix` leitet den Fehlersatz ein („Archivieren fehlgeschlagen: …“); leer lässt nur den Grund stehen. */
   run: (action: () => Promise<void>, prefix?: string) => void;
+  /** Meldet einen Fehler, den keine Aktion geworfen hat. */
+  report: (message: string) => void;
 }
 
 /** Führt Aktionen eines Eintrags aus und hält deren Fehler; ein Fehler gilt nur für den Eintrag `scopeKey`,
@@ -30,7 +32,14 @@ export function useActionError(scopeKey: string | null): ActionError {
     [scopeKey],
   );
 
+  const report = useCallback(
+    (message: string): void => {
+      setFailure({ scopeKey, message });
+    },
+    [scopeKey],
+  );
+
   const error: string | null =
     failure !== null && failure.scopeKey === scopeKey ? failure.message : null;
-  return { error, run };
+  return { error, run, report };
 }

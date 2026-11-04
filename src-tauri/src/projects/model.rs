@@ -14,6 +14,18 @@ pub struct ProjectSummary {
     /// Namen der Repositories in Positions-Reihenfolge; für alle Sessions des Vorhabens gleich.
     pub repository_names: Vec<String>,
     pub self_release: SelfRelease,
+    /// Gruppe in der Leiste; `None` = ohne Gruppe.
+    pub group_id: Option<String>,
+}
+
+/// Eine Gruppe von Vorhaben; die Liste kommt in Anlegereihenfolge.
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectGroup {
+    pub id: String,
+    pub name: String,
+    /// Der Kopf ist eingeklappt; bleibt über den Neustart erhalten.
+    pub collapsed: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]

@@ -7,6 +7,7 @@ pub mod background;
 pub mod chat_entries;
 pub mod implementations;
 pub mod migrations;
+pub mod project_groups;
 pub mod projects;
 pub mod repositories;
 pub mod session_commits;

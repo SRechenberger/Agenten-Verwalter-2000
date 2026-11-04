@@ -1,6 +1,6 @@
 use crate::agents::event::{Effort, Mode, ModelId};
 use crate::error::CommandError;
-use crate::projects::model::{ProjectCreated, ProjectSummary};
+use crate::projects::model::{ProjectCreated, ProjectGroup, ProjectSummary};
 use crate::session_tools::model::SelfRelease;
 use crate::sessions::registry::{NewSession, SessionRegistry};
 use crate::terminal::TerminalService;
@@ -27,6 +27,7 @@ pub async fn project_create(
     codex_model: Option<String>,
     effort: Effort,
     mode: Mode,
+    group_id: Option<String>,
 ) -> Result<ProjectCreated, CommandError> {
     registry.create_project(
         &app,
@@ -38,6 +39,7 @@ pub async fn project_create(
             codex_model,
             effort,
             mode,
+            group_id,
         },
     )
 }
@@ -82,4 +84,59 @@ pub async fn project_archive(
     registry.archive_project(&app, &project_id)?;
     terminals.close_project(&app, &project_id);
     Ok(())
+}
+
+#[tauri::command]
+pub async fn project_group_list(
+    registry: tauri::State<'_, SessionRegistry>,
+) -> Result<Vec<ProjectGroup>, CommandError> {
+    registry.list_project_groups()
+}
+
+#[tauri::command]
+pub async fn project_group_create(
+    app: tauri::AppHandle,
+    registry: tauri::State<'_, SessionRegistry>,
+    name: String,
+) -> Result<ProjectGroup, CommandError> {
+    registry.create_project_group(&app, &name)
+}
+
+#[tauri::command]
+pub async fn project_group_rename(
+    app: tauri::AppHandle,
+    registry: tauri::State<'_, SessionRegistry>,
+    id: String,
+    name: String,
+) -> Result<(), CommandError> {
+    registry.rename_project_group(&app, &id, &name)
+}
+
+#[tauri::command]
+pub async fn project_group_delete(
+    app: tauri::AppHandle,
+    registry: tauri::State<'_, SessionRegistry>,
+    id: String,
+) -> Result<(), CommandError> {
+    registry.delete_project_group(&app, &id)
+}
+
+#[tauri::command]
+pub async fn project_group_set_collapsed(
+    app: tauri::AppHandle,
+    registry: tauri::State<'_, SessionRegistry>,
+    id: String,
+    collapsed: bool,
+) -> Result<(), CommandError> {
+    registry.set_project_group_collapsed(&app, &id, collapsed)
+}
+
+#[tauri::command]
+pub async fn project_set_group(
+    app: tauri::AppHandle,
+    registry: tauri::State<'_, SessionRegistry>,
+    project_id: String,
+    group_id: Option<String>,
+) -> Result<(), CommandError> {
+    registry.set_project_group(&app, &project_id, group_id.as_deref())
 }

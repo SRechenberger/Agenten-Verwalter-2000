@@ -147,7 +147,8 @@
   }
 
   &__model,
-  &__mode {
+  &__mode,
+  &__group {
     display: flex;
     align-items: center;
     gap: var(--space-sm);
@@ -182,9 +183,21 @@
     }
   }
 
-  &__mode {
+  &__mode,
+  &__group {
     border-radius: var(--radius-md);
     color: var(--color-fg-secondary);
+  }
+
+  &__group-label {
+    color: var(--color-fg-muted);
+  }
+
+  &__group-name {
+    max-width: 200px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   &__effort {

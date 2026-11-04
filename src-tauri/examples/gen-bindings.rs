@@ -41,7 +41,7 @@ use verwalter_lib::{
         SessionMcp,
     },
     notices::model::{Denial, Notice},
-    projects::model::{ProjectCreated, ProjectSummary},
+    projects::model::{ProjectCreated, ProjectGroup, ProjectSummary},
     prompt_cache::model::PromptCache,
     repositories::model::{KnownRepository, RepositoryKind},
     retro::model::{RetroExport, RetroProgress},
@@ -104,6 +104,7 @@ fn main() -> Result<(), ts_rs::ExportError> {
     ChatEntryEvent::export_all(&cfg)?;
     ProjectSummary::export_all(&cfg)?;
     ProjectCreated::export_all(&cfg)?;
+    ProjectGroup::export_all(&cfg)?;
     ArchiveSnippet::export_all(&cfg)?;
     ArchivedProject::export_all(&cfg)?;
     ArchivePage::export_all(&cfg)?;

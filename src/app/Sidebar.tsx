@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useRef } from 'react';
-import type { ReactElement } from 'react';
+import type { PointerEvent, ReactElement } from 'react';
 import { useVirtualizer, type VirtualItem } from '@tanstack/react-virtual';
 import { buildSidebarRows } from '@/app/buildSidebarRows';
-import type { SidebarProjectEntry, SidebarRow } from '@/app/buildSidebarRows';
+import type { SidebarGroupEntry, SidebarProjectEntry, SidebarRow } from '@/app/buildSidebarRows';
+import { SidebarGroup } from '@/app/SidebarGroup';
 import { SidebarImplementation } from '@/app/SidebarImplementation';
 import { SidebarItem } from '@/app/SidebarItem';
 import { SidebarProject } from '@/app/SidebarProject';
+import { useSidebarDrag } from '@/app/useSidebarDrag';
 import {
   projectActivity,
   sessionsByActivity,
@@ -14,9 +16,17 @@ import {
 import { displayStatus } from '@/features/sessions/sessionStatus';
 import { UsageButton } from '@/features/usage/UsageButton';
 import type { ImplementationView } from '@/lib/bindings/ImplementationView';
+import type { ProjectGroup } from '@/lib/bindings/ProjectGroup';
 import type { ProjectSummary } from '@/lib/bindings/ProjectSummary';
 import type { SessionSummary } from '@/lib/bindings/SessionSummary';
 import { renameImplementation } from '@/lib/implementation';
+import {
+  createProjectGroup,
+  deleteProjectGroup,
+  renameProjectGroup,
+  setProjectGroup,
+  setProjectGroupCollapsed,
+} from '@/lib/projectGroups';
 import { archiveProject, renameProject } from '@/lib/projects';
 import { deleteSession, renameSession } from '@/lib/sessions';
 import { useActionError } from '@/lib/useActionError';
@@ -28,12 +38,18 @@ import './Sidebar.css';
 
 const OVERSCAN = 12;
 const ESTIMATED_HEIGHT: Record<SidebarRow['kind'], number> = {
+  dropNone: 36,
+  group: 32,
   project: 44,
   implementation: 26,
   session: 26,
   more: 30,
 };
 const LAST_SESSION_EXTRA = 4;
+/** Name, unter dem „Neue Gruppe …“ die Gruppe anlegt, bevor der Nutzer sie umbenennt. */
+const NEW_GROUP_NAME = 'Neue Gruppe';
+/** So lange darf die Zeile eines Umbenennens fehlen, bevor es endet. */
+const RENAME_ROW_WAIT_MS = 1000;
 
 interface RankedProject extends SidebarProjectEntry {
   /** Jüngste Aktivität im Vorhaben — bestimmt die Reihenfolge der Vorhaben. */
@@ -42,6 +58,8 @@ interface RankedProject extends SidebarProjectEntry {
 
 interface SidebarProps {
   projects: readonly ProjectSummary[];
+  /** Alle Gruppen in Anlegereihenfolge. */
+  groups: readonly ProjectGroup[];
   sessions: readonly SessionSummary[];
   implementations: readonly ImplementationView[];
   activeSessionId: string | null;
@@ -65,6 +83,7 @@ interface SidebarProps {
 
 export function Sidebar({
   projects,
+  groups,
   sessions,
   implementations,
   activeSessionId,
@@ -97,8 +116,14 @@ export function Sidebar({
     return operatingMode === 'claude' || operatingMode === 'codex';
   });
   const hasAppUpdate: boolean = useAppUpdateStore((state) => state.status?.hasUpdate === true);
-  const { error: actionError, run } = useActionError('sidebar');
+  const { error: actionError, run, report: reportError } = useActionError('sidebar');
   const listRef = useRef<HTMLDivElement>(null);
+  const { dragged, dropTarget, ghostRef, beginDrag } = useSidebarDrag(
+    listRef,
+    groups.length > 0 && renaming === null,
+    moveToGroup,
+  );
+  const isDragging: boolean = dragged !== null;
 
   const rows: SidebarRow[] = useMemo(() => {
     const ranked: RankedProject[] = projects
@@ -134,9 +159,20 @@ export function Sidebar({
         (first: RankedProject, second: RankedProject) =>
           second.activity - first.activity || second.project.createdAt - first.project.createdAt,
       );
-    return buildSidebarRows(ranked);
+    // Ein `groupId` ohne Gruppe in der Liste (Ereignisse sind noch unterwegs) gilt als „ohne Gruppe“.
+    const knownGroupIds = new Set<string>(groups.map((group: ProjectGroup) => group.id));
+    const ungrouped: RankedProject[] = ranked.filter(
+      (entry: RankedProject) =>
+        entry.project.groupId === null || !knownGroupIds.has(entry.project.groupId),
+    );
+    const groupEntries: SidebarGroupEntry[] = groups.map((group: ProjectGroup) => ({
+      group,
+      projects: ranked.filter((entry: RankedProject) => entry.project.groupId === group.id),
+    }));
+    return buildSidebarRows(ungrouped, groupEntries, isDragging);
   }, [
     projects,
+    groups,
     sessions,
     implementations,
     expanded,
@@ -146,6 +182,7 @@ export function Sidebar({
     activeProjectId,
     activeImplementationId,
     showProjectOverview,
+    isDragging,
   ]);
 
   // Die Warnung gilt dem React Compiler, den das Projekt nicht nutzt; die Bibliothek schreibt ADR 002 vor.
@@ -158,19 +195,54 @@ export function Sidebar({
     overscan: OVERSCAN,
   });
 
+  const renameRowIndex: number =
+    renaming === null
+      ? -1
+      : rows.findIndex((row: SidebarRow) => row.key === `${renaming.kind}:${renaming.id}`);
+  const hasRenameRow: boolean = renameRowIndex >= 0;
+  const hidingGroupId: string | null =
+    renaming === null
+      ? null
+      : collapsedGroupOf(renaming, projects, groups, sessions, implementations);
+
   // Eine Zeile außerhalb des gerenderten Bereichs gibt es im DOM nicht — vor dem Umbenennen zu ihr scrollen.
   useEffect(() => {
-    if (renaming === null) {
+    if (hasRenameRow) {
+      virtualizer.scrollToIndex(renameRowIndex, { align: 'auto' });
+    }
+    // Nur der Start des Umbenennens und das Erscheinen der Zeile lösen das Scrollen aus, nicht jede Änderung der Zeilen.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [renaming, hasRenameRow]);
+
+  // Einklappen nimmt die Zeile aus der Liste: Ein Ziel in einer eingeklappten Gruppe braucht erst die offene Gruppe.
+  useEffect(() => {
+    if (hidingGroupId === null) {
       return;
     }
-    const rowKey = `${renaming.kind}:${renaming.id}`;
-    const index: number = rows.findIndex((row: SidebarRow) => row.key === rowKey);
-    if (index >= 0) {
-      virtualizer.scrollToIndex(index, { align: 'auto' });
+    run(
+      () =>
+        setProjectGroupCollapsed(hidingGroupId, false).catch((reason: unknown) => {
+          stopRename();
+          throw reason;
+        }),
+      'Gruppe nicht aufgeklappt',
+    );
+  }, [hidingGroupId, run, stopRename]);
+
+  // Ohne Zeile gibt es kein Feld, das der Nutzer verlassen könnte, und `renaming` hielte das Ziehen still.
+  // Die Frist gilt den Ereignissen, die die Zeile bringen (geöffnete Gruppe, gerade angelegte Gruppe).
+  useEffect(() => {
+    if (renaming === null || hasRenameRow) {
+      return undefined;
     }
-    // Nur der Start des Umbenennens löst das Scrollen aus, nicht jede Änderung der Zeilen.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [renaming]);
+    const timer: number = window.setTimeout(() => {
+      stopRename();
+      reportError('Umbenennen abgebrochen: Die Zeile steht nicht in der Leiste.');
+    }, RENAME_ROW_WAIT_MS);
+    return (): void => {
+      window.clearTimeout(timer);
+    };
+  }, [renaming, hasRenameRow, hidingGroupId, reportError, stopRename]);
 
   // F2 benennt das Vorhaben um, dessen Übersicht offen ist, sonst die aktive Session — außer der Fokus liegt in einem Textfeld.
   useEffect(() => {
@@ -203,11 +275,34 @@ export function Sidebar({
           return renameProject(id, name);
         case 'implementation':
           return renameImplementation(id, name);
+        case 'group':
+          return renameProjectGroup(id, name);
         case 'session':
           return renameSession(id, name);
       }
     }, 'Umbenennen fehlgeschlagen');
     stopRename();
+  }
+
+  function toggleGroup(group: ProjectGroup): void {
+    run(() => setProjectGroupCollapsed(group.id, !group.collapsed), 'Gruppe nicht umgeklappt');
+  }
+
+  function removeGroup(group: ProjectGroup): void {
+    run(() => deleteProjectGroup(group.id), 'Gruppe löschen fehlgeschlagen');
+  }
+
+  function moveToGroup(projectId: string, groupId: string | null): void {
+    run(() => setProjectGroup(projectId, groupId), 'Verschieben fehlgeschlagen');
+  }
+
+  // Der Nutzer tippt den Namen direkt am Kopf; die Gruppe heißt bis dahin „Neue Gruppe“.
+  function moveToNewGroup(projectId: string): void {
+    run(async () => {
+      const group: ProjectGroup = await createProjectGroup(NEW_GROUP_NAME);
+      await setProjectGroup(projectId, group.id);
+      startRename('group', group.id);
+    }, 'Neue Gruppe fehlgeschlagen');
   }
 
   // Archivieren gibt es nur für das ganze Vorhaben — alle seine Sessions verlassen die Liste.
@@ -247,6 +342,14 @@ export function Sidebar({
       return null;
     }
     switch (row.kind) {
+      case 'dropNone':
+        return (
+          <div className="sidebar__drop-none">
+            <div className="sidebar__drop-none-label">Ohne Gruppe — hier ablegen</div>
+          </div>
+        );
+      case 'group':
+        return renderGroup(row);
       case 'project':
         return renderProject(row);
       case 'implementation':
@@ -256,6 +359,31 @@ export function Sidebar({
       case 'more':
         return renderMore(row);
     }
+  }
+
+  function renderGroup(row: Extract<SidebarRow, { kind: 'group' }>): ReactElement {
+    const { group } = row;
+    return (
+      <SidebarGroup
+        group={group}
+        count={row.count}
+        urgentStatus={row.urgentStatus}
+        isRenaming={renaming !== null && renaming.kind === 'group' && renaming.id === group.id}
+        onToggle={(): void => {
+          toggleGroup(group);
+        }}
+        onStartRename={(): void => {
+          startRename('group', group.id);
+        }}
+        onCommitRename={(name: string): void => {
+          commitRename('group', group.id, name);
+        }}
+        onCancelRename={stopRename}
+        onDelete={(): void => {
+          removeGroup(group);
+        }}
+      />
+    );
   }
 
   function renderMore(row: Extract<SidebarRow, { kind: 'more' }>): ReactElement {
@@ -288,6 +416,7 @@ export function Sidebar({
           isOverviewActive={showProjectOverview && activeProjectId === project.id}
           isExpanded={isExpanded}
           renaming={renaming}
+          groups={groups}
           onToggle={(): void => {
             setExpanded(project.id, !isExpanded);
           }}
@@ -299,6 +428,15 @@ export function Sidebar({
           onCancelRename={stopRename}
           onArchive={(): void => {
             archive(project.id);
+          }}
+          onSetGroup={(groupId: string | null): void => {
+            moveToGroup(project.id, groupId);
+          }}
+          onNewGroup={(): void => {
+            moveToNewGroup(project.id);
+          }}
+          onRowPointerDown={(event: PointerEvent<HTMLButtonElement>): void => {
+            beginDrag(event, project);
           }}
         />
       </div>
@@ -367,6 +505,14 @@ export function Sidebar({
     );
   }
 
+  function rowClassName(row: SidebarRow | undefined): string {
+    const isDropTarget: boolean = row !== undefined && row.dropGroup === dropTarget;
+    const isDragged: boolean = dragged !== null && row?.key === `project:${dragged.id}`;
+    return `sidebar__row${isDropTarget ? ' sidebar__row--drop' : ''}${
+      isDragged ? ' sidebar__row--dragged' : ''
+    }`;
+  }
+
   return (
     <nav className="sidebar" aria-label="Vorhaben">
       <div className="sidebar__brand">
@@ -422,7 +568,8 @@ export function Sidebar({
               key={item.key}
               ref={virtualizer.measureElement}
               data-index={item.index}
-              className="sidebar__row"
+              data-drop-group={rows[item.index]?.dropGroup}
+              className={rowClassName(rows[item.index])}
               style={{ transform: `translateY(${String(item.start)}px)` }}
             >
               {renderRow(rows[item.index])}
@@ -434,6 +581,15 @@ export function Sidebar({
         <p className="sidebar__error" role="alert">
           {actionError}
         </p>
+      )}
+      {dragged !== null && (
+        <div
+          ref={ghostRef}
+          className="sidebar__drag-ghost"
+          style={{ left: dragged.startX, top: dragged.startY }}
+        >
+          {dragged.name}
+        </div>
       )}
       <div className="sidebar__footer">
         {hasUsage && <UsageButton />}
@@ -485,6 +641,30 @@ export function Sidebar({
       </div>
     </nav>
   );
+}
+
+/** Die eingeklappte Gruppe, in der das Ziel des Umbenennens steht; `null`, wenn keine es verbirgt. */
+function collapsedGroupOf(
+  target: RenameTarget,
+  projects: readonly ProjectSummary[],
+  groups: readonly ProjectGroup[],
+  sessions: readonly SessionSummary[],
+  implementations: readonly ImplementationView[],
+): string | null {
+  const projectId: string | undefined =
+    target.kind === 'project'
+      ? target.id
+      : target.kind === 'session'
+        ? sessions.find((session: SessionSummary) => session.id === target.id)?.projectId
+        : target.kind === 'implementation'
+          ? implementations.find(
+              (implementation: ImplementationView) => implementation.id === target.id,
+            )?.projectId
+          : undefined;
+  const groupId: string | null | undefined = projects.find(
+    (project: ProjectSummary) => project.id === projectId,
+  )?.groupId;
+  return groups.find((group: ProjectGroup) => group.id === groupId && group.collapsed)?.id ?? null;
 }
 
 function estimateHeight(row: SidebarRow | undefined): number {

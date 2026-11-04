@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import type { MouseEvent, ReactElement } from 'react';
+import type { MouseEvent, PointerEvent, ReactElement } from 'react';
 import { Popover } from '@/components/Popover';
 import { StatusIcon } from '@/components/StatusIcon';
 import { RenameField } from '@/app/SidebarItem';
@@ -10,6 +10,7 @@ import {
   isMetaHighlighted,
   type DisplayStatus,
 } from '@/features/sessions/sessionStatus';
+import type { ProjectGroup } from '@/lib/bindings/ProjectGroup';
 import type { ProjectSummary } from '@/lib/bindings/ProjectSummary';
 import type { SessionSummary } from '@/lib/bindings/SessionSummary';
 import type { RenameKind, RenameTarget } from '@/stores/sessions';
@@ -25,12 +26,20 @@ interface SidebarProjectProps {
   isOverviewActive: boolean;
   isExpanded: boolean;
   renaming: RenameTarget | null;
+  /** Alle Gruppen für den Abschnitt „In Gruppe verschieben“ des Menüs. */
+  groups: readonly ProjectGroup[];
   onToggle: () => void;
   onOpen: () => void;
   onStartRename: (kind: RenameKind, id: string) => void;
   onCommitRename: (kind: RenameKind, id: string, name: string) => void;
   onCancelRename: () => void;
   onArchive: () => void;
+  /** `null`: aus der Gruppe nehmen. */
+  onSetGroup: (groupId: string | null) => void;
+  /** Legt eine Gruppe an, weist das Vorhaben zu und öffnet die Umbenennung ihres Kopfs. */
+  onNewGroup: () => void;
+  /** Tastendruck auf der Hauptzeile: Hier beginnt das Ziehen auf eine Gruppe. */
+  onRowPointerDown: (event: PointerEvent<HTMLButtonElement>) => void;
 }
 
 export function SidebarProject({
@@ -39,12 +48,16 @@ export function SidebarProject({
   isOverviewActive,
   isExpanded,
   renaming,
+  groups,
   onToggle,
   onOpen,
   onStartRename,
   onCommitRename,
   onCancelRename,
   onArchive,
+  onSetGroup,
+  onNewGroup,
+  onRowPointerDown,
 }: SidebarProjectProps): ReactElement {
   const [isMenuOpen, setIsMenuOpen] = useState<boolean>(false);
   const isRenamingProject: boolean =
@@ -53,6 +66,32 @@ export function SidebarProject({
   const urgentStatus: DisplayStatus =
     urgent === null ? 'completed' : displayStatus(urgent, sessions);
   const now: number = useNow(urgentStatus === 'script');
+
+  function renderGroupItem(groupId: string | null, label: string): ReactElement {
+    const isCurrent: boolean = project.groupId === groupId;
+    return (
+      <button
+        key={groupId ?? 'none'}
+        type="button"
+        role="menuitemradio"
+        aria-checked={isCurrent}
+        className="sidebar-project__menu-item"
+        onClick={(): void => {
+          setIsMenuOpen(false);
+          if (!isCurrent) {
+            onSetGroup(groupId);
+          }
+        }}
+      >
+        <span className="sidebar-project__menu-text">{label}</span>
+        {isCurrent && (
+          <span className="sidebar-project__menu-check" aria-hidden="true">
+            ✓
+          </span>
+        )}
+      </button>
+    );
+  }
 
   function renderRow(): ReactElement {
     if (isRenamingProject) {
@@ -105,6 +144,7 @@ export function SidebarProject({
           type="button"
           className={`sidebar-project__button${isOverviewActive ? ' sidebar-project__button--active' : ''}`}
           aria-current={isOverviewActive ? 'page' : undefined}
+          onPointerDown={onRowPointerDown}
           onClick={onOpen}
           onDoubleClick={(): void => {
             onStartRename('project', project.id);
@@ -147,6 +187,21 @@ export function SidebarProject({
               setIsMenuOpen(false);
             }}
           >
+            <div className="sidebar-project__menu-label">In Gruppe verschieben</div>
+            {groups.map((group: ProjectGroup) => renderGroupItem(group.id, group.name))}
+            {renderGroupItem(null, 'Ohne Gruppe')}
+            <button
+              type="button"
+              role="menuitem"
+              className="sidebar-project__menu-item"
+              onClick={(): void => {
+                setIsMenuOpen(false);
+                onNewGroup();
+              }}
+            >
+              Neue Gruppe …
+            </button>
+            <div className="sidebar-project__menu-separator" role="separator" />
             <button
               type="button"
               role="menuitem"

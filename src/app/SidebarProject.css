@@ -150,6 +150,33 @@
     }
   }
 
+  &__menu-label {
+    padding: var(--space-xs) var(--space-lg);
+    font-size: var(--font-size-2xs);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--color-fg-muted);
+  }
+
+  &__menu-text {
+    flex-grow: 1;
+    min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+
+  &__menu-check {
+    flex-shrink: 0;
+    color: var(--color-fg-muted);
+  }
+
+  &__menu-separator {
+    height: 1px;
+    margin: var(--space-xs) 0;
+    background: var(--color-border-subtle);
+  }
+
   &__menu-key {
     font-family: var(--font-mono);
     font-size: var(--font-size-2xs);

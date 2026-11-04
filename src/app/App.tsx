@@ -22,6 +22,7 @@ import { ChangesView } from '@/features/changes/ChangesView';
 import { useSessionChanges } from '@/features/changes/useSessionChanges';
 import { ProjectOverview } from '@/features/projects/ProjectOverview';
 import { sessionsOf } from '@/features/projects/projectStatus';
+import { useProjectGroups } from '@/features/projects/useProjectGroups';
 import { useProjectSummaries } from '@/features/projects/useProjectSummaries';
 import { useRetroProgress } from '@/features/retro/useRetroProgress';
 import { EmptyState } from '@/features/sessions/EmptyState';
@@ -43,9 +44,11 @@ import type { ChangesReach } from '@/lib/bindings/ChangesReach';
 import type { ImplementationView } from '@/lib/bindings/ImplementationView';
 import type { OperatingMode } from '@/lib/bindings/OperatingMode';
 import type { ProjectCreated } from '@/lib/bindings/ProjectCreated';
+import type { ProjectGroup } from '@/lib/bindings/ProjectGroup';
 import type { ProjectRestored } from '@/lib/bindings/ProjectRestored';
 import type { ProjectSummary } from '@/lib/bindings/ProjectSummary';
 import type { SessionSummary } from '@/lib/bindings/SessionSummary';
+import { setProjectGroupCollapsed } from '@/lib/projectGroups';
 import { useArtifactsStore } from '@/stores/artifacts';
 import { useBackgroundStore } from '@/stores/background';
 import {
@@ -60,6 +63,7 @@ import './App.css';
 export function App(): ReactElement {
   const { sessions, upsertSession, removeSession, error: sessionsError } = useSessionSummaries();
   const { projects, upsertProject, removeProject, error: projectsError } = useProjectSummaries();
+  const { groups, error: groupsError } = useProjectGroups();
   const {
     implementations,
     reload: reloadImplementations,
@@ -279,6 +283,15 @@ export function App(): ReactElement {
     upsertProject(created.project);
     upsertSession(created.session);
     selectSession(created.session.id);
+    // Das neue Vorhaben soll in der Leiste stehen; bleibt die Gruppe zu, ist es trotzdem offen.
+    const collapsedGroup: ProjectGroup | undefined = groups.find(
+      (group: ProjectGroup) => group.id === created.project.groupId && group.collapsed,
+    );
+    if (collapsedGroup !== undefined) {
+      setProjectGroupCollapsed(collapsedGroup.id, false).catch((reason: unknown) => {
+        console.error('Gruppe nicht aufgeklappt', reason);
+      });
+    }
   }
 
   // Der Core sendet beim Wiederherstellen keine Änderung — die Rückgabe muss selbst in die Listen; die Auswahl bleibt.
@@ -478,7 +491,7 @@ export function App(): ReactElement {
       );
     }
     if (showNewSession) {
-      return <NewSession onCreated={handleCreated} onCancel={closeNewSession} />;
+      return <NewSession groups={groups} onCreated={handleCreated} onCancel={closeNewSession} />;
     }
     if (
       shownImplementation !== undefined &&
@@ -525,6 +538,7 @@ export function App(): ReactElement {
     <div className="app">
       <Sidebar
         projects={projects}
+        groups={groups}
         sessions={sessions}
         implementations={implementations}
         activeSessionId={isMainReplaced || isOverview ? null : (currentSession?.id ?? null)}
@@ -532,7 +546,7 @@ export function App(): ReactElement {
         activeImplementationId={isImplementation ? (shownImplementation?.id ?? null) : null}
         showProjectOverview={isOverview && !isImplementation}
         isSettingsOpen={showSettings}
-        loadError={projectsError ?? sessionsError ?? implementationsError}
+        loadError={projectsError ?? groupsError ?? sessionsError ?? implementationsError}
         onSelectSession={selectSession}
         onSelectProject={selectProject}
         onSelectImplementation={selectImplementation}
