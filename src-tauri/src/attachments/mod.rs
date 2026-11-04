@@ -98,6 +98,11 @@ pub fn add_bytes(
     stage(app, raw_name, |target: &Path| fs::write(target, &data))
 }
 
+/// Legt einen Text als Datei an, etwa den Lagebericht einer Rückfrage.
+pub fn add_text(app: &AppHandle, name: &str, text: &str) -> Result<Attachment, CommandError> {
+    stage(app, name, |target: &Path| fs::write(target, text))
+}
+
 /// Ein schon verschwundener Anhang ist kein Fehler — das Ziel ist erreicht.
 pub fn discard(app: &AppHandle, id: &str) -> Result<(), CommandError> {
     let id = parse_id(id)?;

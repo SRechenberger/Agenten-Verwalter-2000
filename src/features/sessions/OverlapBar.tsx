@@ -9,16 +9,19 @@ const ICON_SIZE = 14;
 
 interface OverlapBarProps {
   sessionId: string;
+  projectId: string;
 }
 
-/** Leiste unter der Kopfzeile, solange eine andere laufende Session im selben Schreib-Ordner arbeitet (ADR 037). */
-export function OverlapBar({ sessionId }: OverlapBarProps): ReactElement | null {
+/** Leiste unter der Kopfzeile, solange eine andere laufende Session im selben Schreib-Ordner arbeitet (ADR 037). „Ausblenden“ gilt dauerhaft für das ganze Vorhaben. */
+export function OverlapBar({ sessionId, projectId }: OverlapBarProps): ReactElement | null {
   const overlap: SessionOverlap | undefined = useOverlapStore((state) => state.overlaps[sessionId]);
-  const dismissedKey: string | undefined = useOverlapStore((state) => state.dismissed[sessionId]);
-  const dismissOverlap = useOverlapStore((state) => state.dismissOverlap);
+  const dismissed: boolean = useOverlapStore((state) =>
+    state.dismissedProjects.includes(projectId),
+  );
+  const dismissForProject = useOverlapStore((state) => state.dismissForProject);
   const selectSession = useSessionsStore((state) => state.selectSession);
 
-  if (overlap === undefined || overlap.key === dismissedKey) {
+  if (overlap === undefined || dismissed) {
     return null;
   }
   return (
@@ -45,7 +48,7 @@ export function OverlapBar({ sessionId }: OverlapBarProps): ReactElement | null 
         type="button"
         className="overlap-bar__button"
         onClick={(): void => {
-          dismissOverlap(sessionId, overlap.key);
+          dismissForProject(projectId);
         }}
       >
         Ausblenden

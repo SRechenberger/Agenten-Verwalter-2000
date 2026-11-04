@@ -14,7 +14,7 @@ summary: string | null, } | { "kind": "modelSwitched", from: ModelId, to: ModelI
 /**
  * Token, die die nächste Nachricht neu schreibt.
  */
-recacheTokens: number, } | { "kind": "modelFallback", originalModel: string, originalId: ModelId | null, fallbackModel: string, fallbackId: ModelId | null, direction: string, text: string | null, } | { "kind": "info", text: string, } | { "kind": "quotaExhausted", text: string, resetsAt: number | null, } | { "kind": "modeChanged", from: Mode, to: Mode, } | { "kind": "turnSummary", denials: Array<Denial>, 
+recacheTokens: number, } | { "kind": "modelFallback", originalModel: string, originalId: ModelId | null, fallbackModel: string, fallbackId: ModelId | null, direction: string, text: string | null, } | { "kind": "info", text: string, } | { "kind": "quotaExhausted", text: string, resetsAt: number | null, } | { "kind": "modeChanged", from: Mode, to: Mode, } | { "kind": "reportUpdated", at: number, summary: string, } | { "kind": "turnSummary", denials: Array<Denial>, 
 /**
  * Rechenwert dieser Antwort in US-Dollar, nur in der Betriebsart Claude.
  */

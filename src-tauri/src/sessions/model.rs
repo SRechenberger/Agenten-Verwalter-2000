@@ -64,6 +64,10 @@ pub struct SessionSummary {
     pub awaited_script: Option<AwaitedScript>,
     /// Warum die Session pausiert ist (ADR 051); nur im Speicher, `None` bei jeder anderen Pause.
     pub pause_reason: Option<PauseReason>,
+    /// Umsetzung, deren Station diese Session ist (ADR 048); die Sidebar zeigt sie nicht als Zeile.
+    pub station_of: Option<String>,
+    /// Umsetzung, zu der diese Session eine Rückfrage ist (ADR 048).
+    pub inquiry_of: Option<String>,
 }
 
 /// Begründung des Status `Paused` (ADR 051). Gelöscht bei jeder neuen Nachricht, jedem Status außer

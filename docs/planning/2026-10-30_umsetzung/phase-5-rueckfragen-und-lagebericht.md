@@ -1,6 +1,6 @@
 # Phase 5 — Rückfragen mit Lagebericht als Anhang, Knopf „Lagebericht“
 
-Rating **standard** · Wave 5 · Aufwand M · Status: pending
+Rating **standard** · Wave 5 · Aufwand M · Status: complete
 
 ## Kontext
 
@@ -20,15 +20,15 @@ Rating **standard** · Wave 5 · Aufwand M · Status: pending
 
 ## Checkliste
 
-- [ ] `report.rs`: Zeilen „Ziel“ (`fn goal_of(source, roots) -> Option<String>`), „Geänderte Dateien“ (Zahl über `changes_input` Reichweite Vorhaben, Blickwinkel „Alle“; Fehler → Zeile weglassen), „Rückfrage“-Zeile per Parameter; `pub fn stripped(text) -> String` (ohne „Stand“-Zeile, für den Vergleich).
-- [ ] `registry/implementation.rs`: `pub fn new_inquiry(&self, app, implementation_id) -> Result<SessionSummary, CommandError>` (`create_in_project`, `inquiry_of` in Zustand und Datenbank, Bericht als Anhang über `attachments::add_bytes(app, "lagebericht-<HHMM>.md", base64)`, Rückgabe des `Attachment` an die Oberfläche: Command liefert `(SessionSummary, Attachment)` als Struct `InquiryCreated { session, attachment }`, `derive(TS)`, in `gen-bindings.rs`).
-- [ ] `registry.rs` `send`: vor `update`, wenn `state.inquiry_of` gesetzt: Bericht bauen, mit `last_report` vergleichen, ggf. Anhang anlegen und `attachment_ids` erweitern, nach `update` `last_report` setzen und `Notice::ReportUpdated` als Eintrag schreiben (Muster `note_compaction`).
-- [ ] `notices/model.rs`: `Notice::ReportUpdated { at: f64, summary: String }`; Oberfläche `NoticeBlock`/`noticeTexts`: Zeile „Lagebericht aktualisiert angehängt · Stand <HH:MM> · <summary>“.
-- [ ] `commands/implementation.rs`: `implementation_report`, `implementation_new_inquiry`; Wrapper `loadImplementationReport`, `createInquiry`.
-- [ ] Oberfläche: `ImplementationHeader.tsx` Knöpfe „Neue Rückfrage“ und „Lagebericht“; `src/features/implementation/useInquiry.ts` (ruft `createInquiry`, legt den Anhang in `src/stores/attachments.ts` an die neue Session, `selectSession`, Fokus ins Eingabefeld über den bestehenden Weg des `Composer` — nachlesen, wie `NewSessionIntro`/Retro den Fokus setzen); Kontextmenü an `SidebarImplementation.tsx` (Zeile „Neue Rückfrage“; Muster `SidebarProject`); `ReportPanel` als Fenster (`Dialog` aus `src/components`), „Kopieren“ über `navigator.clipboard.writeText`.
-- [ ] `src/features/sessions/sessionStatus.ts` `metaLine`: bei `new` und `inquiryOf !== null` „Rückfrage zur Umsetzung“.
-- [ ] `implementation-probe.rs`: Aufruf `report`.
-- [ ] `pnpm check` grün, Commit `feat(implementation): Rückfragen mit Lagebericht als Anhang`.
+- [x] `report.rs`: Zeilen „Ziel“ (`fn goal_of(source, roots) -> Option<String>`), „Geänderte Dateien“ (Zahl über `changes_input` Reichweite Vorhaben, Blickwinkel „Alle“; Fehler → Zeile weglassen), „Rückfrage“-Zeile per Parameter; `pub fn stripped(text) -> String` (ohne „Stand“-Zeile, für den Vergleich).
+- [x] `registry/implementation.rs`: `pub fn new_inquiry(&self, app, implementation_id) -> Result<SessionSummary, CommandError>` (`create_in_project`, `inquiry_of` in Zustand und Datenbank, Bericht als Anhang über `attachments::add_bytes(app, "lagebericht-<HHMM>.md", base64)`, Rückgabe des `Attachment` an die Oberfläche: Command liefert `(SessionSummary, Attachment)` als Struct `InquiryCreated { session, attachment }`, `derive(TS)`, in `gen-bindings.rs`).
+- [x] `registry.rs` `send`: vor `update`, wenn `state.inquiry_of` gesetzt: Bericht bauen, mit `last_report` vergleichen, ggf. Anhang anlegen und `attachment_ids` erweitern, nach `update` `last_report` setzen und `Notice::ReportUpdated` als Eintrag schreiben (Muster `note_compaction`).
+- [x] `notices/model.rs`: `Notice::ReportUpdated { at: f64, summary: String }`; Oberfläche `NoticeBlock`/`noticeTexts`: Zeile „Lagebericht aktualisiert angehängt · Stand <HH:MM> · <summary>“.
+- [x] `commands/implementation.rs`: `implementation_report`, `implementation_new_inquiry`; Wrapper `loadImplementationReport`, `createInquiry`.
+- [x] Oberfläche: `ImplementationHeader.tsx` Knöpfe „Neue Rückfrage“ und „Lagebericht“; `src/features/implementation/useInquiry.ts` (ruft `createInquiry`, legt den Anhang in `src/stores/attachments.ts` an die neue Session, `selectSession`, Fokus ins Eingabefeld über den bestehenden Weg des `Composer` — nachlesen, wie `NewSessionIntro`/Retro den Fokus setzen); Kontextmenü an `SidebarImplementation.tsx` (Zeile „Neue Rückfrage“; Muster `SidebarProject`); `ReportPanel` als Fenster (`Dialog` aus `src/components`), „Kopieren“ über `navigator.clipboard.writeText`.
+- [x] `src/features/sessions/sessionStatus.ts` `metaLine`: bei `new` und `inquiryOf !== null` „Rückfrage zur Umsetzung“.
+- [x] `implementation-probe.rs`: Aufruf `report`.
+- [x] `pnpm check` grün, Commit `feat(implementation): Rückfragen mit Lagebericht als Anhang`.
 
 ## Definition of Done
 
@@ -37,3 +37,11 @@ Rating **standard** · Wave 5 · Aufwand M · Status: pending
 - Seven-Goals-Check (je ein Satz); Carry-Overs höchstens 2.
 
 ## Report-Back
+
+**Ergebnis:** „Neue Rückfrage“ (Kopfzeile und Kontextmenü der Umsetzungs-Zeile) legt eine frische Session mit `inquiry_of` an und hängt `lagebericht-<HHMM>.md` als ungesendeten Anhang an; beim Senden hängt `send` einen geänderten Bericht neu an und schreibt `Notice::ReportUpdated`. Der Knopf „Lagebericht“ zeigt jetzt ein Fenster (`Dialog`) mit „Kopieren“ und „Schließen“. Der Bericht trägt „Ziel“ und „Geänderte Dateien“ (auch für `implementation_get`).
+
+**Abweichungen:** `create_fresh_in_project` statt `create_in_project` (eine wartende „Neu“-Session mit Entwurf würde sonst zur Rückfrage); `attachments::add_text` statt `add_bytes` mit Base64; Command liefert `InquiryCreated` (Kontrakt in der README nachgezogen); der Probe-Aufruf `report` liest „Ziel“ relativ zum aktuellen Ordner und kennt die Dateizahl nicht (nur die App); Vergleichsschlüssel einer Rückfrage ist der Bericht ohne die Zeile „Lage“.
+
+**Probe-Ausgabe (Kopie der Datenbank, Aufruf aus dem Repo-Root):** Lage/Rückfrage-Zeile/Quelle/Ziel/Stand/Jetzt/Fertig/Offen/Plan-Änderungen stehen wie im Kontrakt.
+
+**Carry-over:** Screenshot `artifacts/phase-5-rueckfrage.png` und Klick-Durchlauf in der echten App stehen aus (private: keine Live-Läufe).

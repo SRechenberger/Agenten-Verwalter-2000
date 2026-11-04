@@ -45,6 +45,12 @@ export function sessionsOf(
     .sort((first: SessionSummary, second: SessionSummary) => first.number - second.number);
 }
 
+/** Sessions mit eigener Zeile: Stationen einer Umsetzung erscheinen nur in deren Ansicht (ADR 048),
+ *  zählen aber in Aktivität und Ungelesen des Vorhabens mit. */
+export function visibleSessions(sessions: readonly SessionSummary[]): SessionSummary[] {
+  return sessions.filter((session: SessionSummary) => session.stationOf === null);
+}
+
 /** Sessions eines Vorhabens, zuletzt aktive zuerst — die Reihenfolge in der Sidebar. */
 export function sessionsByActivity(
   projectId: string,

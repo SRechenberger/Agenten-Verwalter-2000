@@ -8,17 +8,17 @@ Kontext für jeden Umsetzer: [AGENTS.md](../../../AGENTS.md), [docs/code-map.md]
 
 | # | Phase | Rating | Wave | Aufwand | Status |
 |---|---|---|---|---|---|
-| 1 | [Core: Datenmodell, Werkzeuge anlegen/lesen/beschreiben, Zeile in der Sidebar, Lagebericht als Text; ADR 048, Migration 19](phase-1-core-und-werkzeuge.md) | heikel | 1 | L | pending |
-| 2 | [Ansicht: Zeitleiste mit gekoppelter Kartei, Kopfzeile, Reiter Changes](phase-2-zeitleiste-und-kartei.md) | standard | 2 | L | pending |
-| 3 | [Stationen starten: Fertigmeldung, Nachfolger, erste Nachricht, Countdown, Fix-Runde, Fehler](phase-3-stationen-starten.md) | heikel | 3 | L | pending |
-| 4 | [Wellen (parallele Phasen) und Plan-Änderung mit Karte „Plan ändern?“](phase-4-wellen-und-plan-aenderung.md) | heikel | 4 | L | pending |
-| 5 | [Rückfragen mit Lagebericht als Anhang, Knopf „Lagebericht“](phase-5-rueckfragen-und-lagebericht.md) | standard | 5 | M | pending |
-| 6 | [Doku-Abschluss: Code-Map, Glossar, AGENTS.md, Prüfprogramm in AGENTS.md](phase-6-doku-abschluss.md) | mechanisch | 6 | S | pending |
+| 1 | [Core: Datenmodell, Werkzeuge anlegen/lesen/beschreiben, Zeile in der Sidebar, Lagebericht als Text; ADR 048, Migration 19](phase-1-core-und-werkzeuge.md) | heikel | 1 | L | complete |
+| 2 | [Ansicht: Zeitleiste mit gekoppelter Kartei, Kopfzeile, Reiter Changes](phase-2-zeitleiste-und-kartei.md) | standard | 2 | L | complete |
+| 3 | [Stationen starten: Fertigmeldung, Nachfolger, erste Nachricht, Countdown, Fix-Runde, Fehler](phase-3-stationen-starten.md) | heikel | 3 | L | complete |
+| 4 | [Wellen (parallele Phasen) und Plan-Änderung mit Karte „Plan ändern?“](phase-4-wellen-und-plan-aenderung.md) | heikel | 4 | L | complete |
+| 5 | [Rückfragen mit Lagebericht als Anhang, Knopf „Lagebericht“](phase-5-rueckfragen-und-lagebericht.md) | standard | 5 | M | complete |
+| 6 | [Doku-Abschluss: Code-Map, Glossar, AGENTS.md, Prüfprogramm in AGENTS.md](phase-6-doku-abschluss.md) | mechanisch | 6 | S | complete |
 | 7 | [Skills: Planung und Umsetzung auf die Werkzeuge des Verwalters umstellen (Master unter `G:\Meine Ablage\U104_Agents`, dann spiegeln)](phase-7-skills.md) | standard | 7 | M | pending |
 
 Rein sequenziell: jede Phase 2–5 erweitert dieselben Dateien (`src-tauri/src/implementation/mod.rs`, `commands/implementation.rs`, `src/lib/implementation.ts`, `ImplementationView.tsx`); Phase 4 und 5 ließen sich nur mit einem Kontrakt-Split auf Dateiebene parallelisieren, der mehr kostet als eine Session Wartezeit. Phase 1 ist eine Fundament-Phase (Datenmodell + Werkzeuge), ihr sichtbarer Anteil ist die Zeile in der Sidebar und der Lagebericht als Text.
 
-**Rahmen (work-Profil, Datei-Fall):** Feature-Branch `feature/umsetzung`, ein Commit je Phase, Scope `implementation` (Phase 7: kein Commit im Verwalter-Repo, Decision-Log im Master). `pnpm check` grün vor jedem Commit, `cargo` im PATH, Bindings mitcommitten. Keine neuen Abhängigkeiten (`uuid`, `serde_json`, `rusqlite`, `regex` sind da). **Keine automatisierten Tests und keine Smoke-Checkliste** — Projektregel (`STATE.md`: „getestet wird im laufenden Betrieb“), sie schlägt die Test-Pflicht des work-Profils. Prüfbarkeit stattdessen über das Prüfprogramm `src-tauri/examples/implementation-probe.rs` (Phase 1, erweitert in 3 und 4) und `pnpm tauri dev`. Review-Modus: **gebündelt** — ein Gesamt-Review auf dem Branch vor dem Merge, Merge durch den User. Planabschluss mit Versions-Tag (Minor-Version).
+**Rahmen (private-Profil):** direkt auf `main`, kein Feature-Branch, ein Commit je Phase, Scope `implementation` (Phase 7: kein Commit im Verwalter-Repo, Decision-Log im Master). `pnpm check` grün vor jedem Commit, `cargo` im PATH, Bindings mitcommitten. Keine neuen Abhängigkeiten (`uuid`, `serde_json`, `rusqlite`, `regex` sind da). **Keine automatisierten Tests und keine Smoke-Checkliste** — getestet wird im laufenden Betrieb. Prüfbarkeit stattdessen über das Prüfprogramm `src-tauri/examples/implementation-probe.rs` (Phase 1, erweitert in 3 und 4). Kein Review, kein Merge. Planabschluss mit Versions-Tag (Minor-Version).
 
 **Voraussetzung:** Phase 1 des Plans `2026-10-30_artefakte-dateitypen` (MCP-Zugang, `src-tauri/src/mcp_access/`, ADR 046) ist auf `main` gemergt — dieser Plan startet erst danach. Ist dort der `ToolSet`-Vertrag anders ausgefallen als in dessen README beschrieben, gilt der Code; Abweichungen in `FINDINGS.md` für Phase 1 festhalten und `tools.rs` daran anpassen.
 
@@ -117,7 +117,7 @@ pub struct ImplementationChangedEvent { pub implementation: ImplementationView }
 | `implementation_complete_station(id, station_id, result)` („Erledigt“ nur für `by_user`) | `completeStationByUser` | 3 |
 | `implementation_apply_change(id, accept: bool)` | `applyImplementationChange` | 4 |
 | `implementation_report(id) -> String` | `loadImplementationReport` | 5 |
-| `implementation_new_inquiry(id) -> SessionSummary` | `createInquiry` | 5 |
+| `implementation_new_inquiry(id) -> InquiryCreated` (`{ session, attachment }`) | `createInquiry` | 5 |
 
 Ereignis `implementation://changed` mit `ImplementationChangedEvent` nach jeder Änderung an Aufbau, Texten, Automatik, Countdown und nach jedem Start; Zustandswechsel der Stations-Sessions kommen weiter über `session://changed` — die Oberfläche lädt die Liste neu, wenn `session://changed` eine Session meldet, die als `session_id` in einer Station steht.
 

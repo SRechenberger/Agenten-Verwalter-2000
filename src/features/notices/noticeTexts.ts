@@ -17,6 +17,16 @@ export const FALLBACK_LEAD = 'Sicherheitsfilter hat eine Nachricht markiert.';
 export const FALLBACK_REVERT_LEAD = 'Zurück beim ursprünglichen Modell.';
 export const INFO_LEAD = 'Hinweis von Claude Code:';
 export const MODE_CHANGED_LEAD = 'Modus geändert:';
+export const REPORT_UPDATED_LEAD = 'Lagebericht aktualisiert angehängt';
+
+/** „Stand 14:05 · Phase 2 · Test fertig“. */
+export function reportUpdatedText(at: number, summary: string): string {
+  const time: string = new Date(at).toLocaleTimeString('de-DE', {
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+  return `· Stand ${time} · ${summary}`;
+}
 export const COST_TITLE =
   'Rechenwert der Claude-Kommandozeile zum Listenpreis; beim Abo kein echter Betrag.';
 

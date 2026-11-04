@@ -16,6 +16,7 @@ pub mod error;
 pub mod file_links;
 pub mod filesystem;
 pub mod git;
+pub mod implementation;
 pub mod lmstudio;
 pub mod mcp;
 pub mod mcp_access;
@@ -194,6 +195,15 @@ pub fn run() {
             commands::tldr::tldr_project_create,
             commands::tldr::tldr_set_carry,
             commands::retro::retro_run,
+            commands::implementation::implementation_list,
+            commands::implementation::implementation_report,
+            commands::implementation::implementation_new_inquiry,
+            commands::implementation::implementation_set_auto_start,
+            commands::implementation::implementation_set_stop_after_current,
+            commands::implementation::implementation_start_station,
+            commands::implementation::implementation_cancel_countdown,
+            commands::implementation::implementation_apply_change,
+            commands::implementation::implementation_complete_station,
             commands::settings::settings_load,
             commands::settings::settings_update,
             commands::settings::settings_local_models,

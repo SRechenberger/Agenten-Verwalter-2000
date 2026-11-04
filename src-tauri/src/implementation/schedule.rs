@@ -1,0 +1,43 @@
+//! Reihenfolge der Stationen: Gruppen aus Wellen nacheinander, in einer Phase Station für Station.
+use super::is_done;
+use super::model::{PhaseView, StationView};
+
+/// Aufeinanderfolgende Phasen mit derselben `wave` bilden eine Gruppe; eine Phase ohne `wave` ist
+/// eine eigene. Indizes in `phases`, in Plan-Reihenfolge.
+pub fn groups(phases: &[PhaseView]) -> Vec<Vec<usize>> {
+    let mut groups: Vec<Vec<usize>> = Vec::new();
+    let mut current_wave: Option<u32> = None;
+    for (index, phase) in phases.iter().enumerate() {
+        let joins_previous = phase.wave.is_some() && phase.wave == current_wave;
+        match groups.last_mut() {
+            Some(group) if joins_previous => group.push(index),
+            _ => groups.push(vec![index]),
+        }
+        current_wave = phase.wave;
+    }
+    groups
+}
+
+/// Darf die Station starten: alle Stationen aller vorigen Gruppen und alle vorigen Stationen ihrer
+/// Phase sind fertig gemeldet. Eine fertige oder unbekannte Station darf es nicht.
+pub fn may_start(phases: &[PhaseView], station_id: &str) -> bool {
+    for group in groups(phases) {
+        for &phase_index in &group {
+            let stations = &phases[phase_index].stations;
+            let Some(position) = stations
+                .iter()
+                .position(|station: &StationView| station.id == station_id)
+            else {
+                continue;
+            };
+            return !is_done(&stations[position]) && stations[..position].iter().all(is_done);
+        }
+        let is_group_done = group
+            .iter()
+            .all(|&phase_index: &usize| phases[phase_index].stations.iter().all(is_done));
+        if !is_group_done {
+            return false;
+        }
+    }
+    false
+}

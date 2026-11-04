@@ -59,6 +59,10 @@ pub enum Notice {
     /// Der Modus der Session hat sich ohne Zutun des Users geändert, etwa durch einen
     /// angenommenen Plan.
     ModeChanged { from: Mode, to: Mode },
+    /// Eine Rückfrage zur Umsetzung hat beim Senden einen neueren Lagebericht angehängt bekommen
+    /// (ADR 048). `at` ist der Stand des Berichts in Millisekunden seit 1970, `summary` die
+    /// kürzeste Änderung („Phase 2 fertig“).
+    ReportUpdated { at: f64, summary: String },
     /// Ende einer Antwort mit abgelehnten Aufrufen oder Kosten.
     TurnSummary {
         denials: Vec<Denial>,

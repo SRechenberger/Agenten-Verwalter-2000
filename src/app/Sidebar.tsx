@@ -3,11 +3,17 @@ import type { ReactElement } from 'react';
 import { useVirtualizer, type VirtualItem } from '@tanstack/react-virtual';
 import { buildSidebarRows } from '@/app/buildSidebarRows';
 import type { SidebarProjectEntry, SidebarRow } from '@/app/buildSidebarRows';
+import { SidebarImplementation } from '@/app/SidebarImplementation';
 import { SidebarItem } from '@/app/SidebarItem';
 import { SidebarProject } from '@/app/SidebarProject';
-import { projectActivity, sessionsByActivity } from '@/features/projects/projectStatus';
+import {
+  projectActivity,
+  sessionsByActivity,
+  visibleSessions,
+} from '@/features/projects/projectStatus';
 import { displayStatus } from '@/features/sessions/sessionStatus';
 import { UsageButton } from '@/features/usage/UsageButton';
+import type { ImplementationView } from '@/lib/bindings/ImplementationView';
 import type { ProjectSummary } from '@/lib/bindings/ProjectSummary';
 import type { SessionSummary } from '@/lib/bindings/SessionSummary';
 import { archiveProject, renameProject } from '@/lib/projects';
@@ -22,6 +28,7 @@ import './Sidebar.css';
 const OVERSCAN = 12;
 const ESTIMATED_HEIGHT: Record<SidebarRow['kind'], number> = {
   project: 44,
+  implementation: 26,
   session: 26,
   more: 30,
 };
@@ -35,14 +42,20 @@ interface RankedProject extends SidebarProjectEntry {
 interface SidebarProps {
   projects: readonly ProjectSummary[];
   sessions: readonly SessionSummary[];
+  implementations: readonly ImplementationView[];
   activeSessionId: string | null;
   activeProjectId: string | null;
+  /** Die Umsetzung, die die Hauptfläche zeigt; `null` sonst. */
+  activeImplementationId: string | null;
   showProjectOverview: boolean;
   isSettingsOpen: boolean;
   /** Satz zum Lade- oder Abo-Fehler der Listen; `null` ohne Fehler. */
   loadError: string | null;
   onSelectSession: (sessionId: string) => void;
   onSelectProject: (projectId: string) => void;
+  onSelectImplementation: (implementationId: string) => void;
+  /** Legt eine Rückfrage zur Umsetzung an und öffnet sie. */
+  onNewInquiry: (implementationId: string) => Promise<void>;
   onNew: () => void;
   onOpenSettings: () => void;
   onOpenArchive: () => void;
@@ -53,13 +66,17 @@ interface SidebarProps {
 export function Sidebar({
   projects,
   sessions,
+  implementations,
   activeSessionId,
   activeProjectId,
+  activeImplementationId,
   showProjectOverview,
   isSettingsOpen,
   loadError,
   onSelectSession,
   onSelectProject,
+  onSelectImplementation,
+  onNewInquiry,
   onNew,
   onOpenSettings,
   onOpenArchive,
@@ -92,10 +109,19 @@ export function Sidebar({
         const containsActiveSession: boolean = projectSessions.some(
           (session: SessionSummary) => session.id === activeSessionId,
         );
+        const projectImplementations: ImplementationView[] = implementations.filter(
+          (implementation: ImplementationView) => implementation.projectId === project.id,
+        );
+        const containsActiveImplementation: boolean = projectImplementations.some(
+          (implementation: ImplementationView) => implementation.id === activeImplementationId,
+        );
         return {
           project,
           sessions: projectSessions,
-          isExpanded: expanded[project.id] ?? (containsActiveSession || isOverviewActive),
+          implementations: projectImplementations,
+          isExpanded:
+            expanded[project.id] ??
+            (containsActiveSession || isOverviewActive || containsActiveImplementation),
           showAll: showAllSessions[project.id] ?? false,
           pinnedIds: new Set<string>(
             [activeSessionId, renaming?.kind === 'session' ? renaming.id : null].filter(
@@ -113,11 +139,13 @@ export function Sidebar({
   }, [
     projects,
     sessions,
+    implementations,
     expanded,
     showAllSessions,
     renaming,
     activeSessionId,
     activeProjectId,
+    activeImplementationId,
     showProjectOverview,
   ]);
 
@@ -198,8 +226,9 @@ export function Sidebar({
   }
 
   function open(project: ProjectSummary, projectSessions: readonly SessionSummary[]): void {
-    const [only] = projectSessions;
-    if (projectSessions.length === 1 && only !== undefined) {
+    const ownSessions: SessionSummary[] = visibleSessions(projectSessions);
+    const [only] = ownSessions;
+    if (projectSessions.length === 1 && ownSessions.length === 1 && only !== undefined) {
       onSelectSession(only.id);
       return;
     }
@@ -213,6 +242,8 @@ export function Sidebar({
     switch (row.kind) {
       case 'project':
         return renderProject(row);
+      case 'implementation':
+        return renderImplementation(row);
       case 'session':
         return renderSession(row);
       case 'more':
@@ -261,6 +292,26 @@ export function Sidebar({
           onCancelRename={stopRename}
           onArchive={(): void => {
             archive(project.id);
+          }}
+        />
+      </div>
+    );
+  }
+
+  function renderImplementation(
+    row: Extract<SidebarRow, { kind: 'implementation' }>,
+  ): ReactElement {
+    const { implementation } = row;
+    return (
+      <div className={`sidebar__session${row.isLast ? ' sidebar__session--last' : ''}`}>
+        <SidebarImplementation
+          implementation={implementation}
+          isActive={implementation.id === activeImplementationId}
+          onSelect={(): void => {
+            onSelectImplementation(implementation.id);
+          }}
+          onNewInquiry={(): void => {
+            run(() => onNewInquiry(implementation.id), 'Rückfrage nicht angelegt');
           }}
         />
       </div>
@@ -424,7 +475,7 @@ function estimateHeight(row: SidebarRow | undefined): number {
   if (row === undefined) {
     return ESTIMATED_HEIGHT.session;
   }
-  if (row.kind === 'session' && row.isLast) {
+  if ((row.kind === 'session' || row.kind === 'implementation') && row.isLast) {
     return ESTIMATED_HEIGHT.session + LAST_SESSION_EXTRA;
   }
   return ESTIMATED_HEIGHT[row.kind];

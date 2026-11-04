@@ -12,6 +12,8 @@ import {
   modelFallbackLead,
   modelFallbackText,
   modelSwitchedText,
+  REPORT_UPDATED_LEAD,
+  reportUpdatedText,
 } from '@/features/notices/noticeTexts';
 import { TurnSummaryLine } from '@/features/notices/TurnSummaryLine';
 import type { ModelId } from '@/lib/bindings/ModelId';
@@ -122,6 +124,15 @@ export function NoticeBlock({
           icon={<LockIcon size={ICON_SIZE} />}
           lead={MODE_CHANGED_LEAD}
           text={modeChangedText(notice.from, notice.to)}
+        />
+      );
+    case 'reportUpdated':
+      return (
+        <NoticeLine
+          variant="info"
+          icon={<InfoIcon size={ICON_SIZE} />}
+          lead={REPORT_UPDATED_LEAD}
+          text={reportUpdatedText(notice.at, notice.summary)}
         />
       );
     case 'turnSummary': {
