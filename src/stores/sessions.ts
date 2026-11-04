@@ -40,7 +40,7 @@ interface SessionsState {
   /** `true`: die Umsetzung `activeImplementationId` statt Session, Übersicht oder Einstellungen (ADR 048). */
   showImplementation: boolean;
   implementationView: ImplementationViewKind;
-  /** Session, Vorhaben oder Gruppe, deren Name in der Sidebar gerade bearbeitet wird. */
+  /** Session, Vorhaben, Umsetzung oder Gruppe, deren Name in der Sidebar gerade bearbeitet wird. */
   renaming: RenameTarget | null;
   /** Vorhaben-ID → aufgeklappt; fehlt ein Eintrag, entscheidet die Sidebar nach ihrem Standard. */
   expanded: Record<string, boolean>;

@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { ChangeEvent, FocusEvent, KeyboardEvent, MouseEvent, ReactElement } from 'react';
 import { SessionDeleteDialog } from '@/app/SessionDeleteDialog';
 import { Popover } from '@/components/Popover';
@@ -172,6 +172,18 @@ export function RenameField({ name, label, onCommit, onCancel }: RenameFieldProp
   const [text, setText] = useState<string>(name);
   // Enter und das folgende Blur würden sonst beide committen.
   const isDoneRef = useRef<boolean>(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+
+  // Der Fokus zeigt nur das Eingabefeld, und die virtuelle Liste kennt die Höhe der Zeile erst nach dem Messen:
+  // ein Bild später passen Feld und Hinweiszeile sicher in den sichtbaren Bereich.
+  useEffect(() => {
+    const frame: number = requestAnimationFrame(() => {
+      rootRef.current?.scrollIntoView({ block: 'nearest' });
+    });
+    return (): void => {
+      cancelAnimationFrame(frame);
+    };
+  }, []);
 
   function commit(): void {
     if (isDoneRef.current) {
@@ -206,7 +218,7 @@ export function RenameField({ name, label, onCommit, onCancel }: RenameFieldProp
   }
 
   return (
-    <div className="sidebar-item__rename">
+    <div ref={rootRef} className="sidebar-item__rename">
       <input
         type="text"
         aria-label={label}

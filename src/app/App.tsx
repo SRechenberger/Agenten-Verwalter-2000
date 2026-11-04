@@ -44,9 +44,11 @@ import type { ChangesReach } from '@/lib/bindings/ChangesReach';
 import type { ImplementationView } from '@/lib/bindings/ImplementationView';
 import type { OperatingMode } from '@/lib/bindings/OperatingMode';
 import type { ProjectCreated } from '@/lib/bindings/ProjectCreated';
+import type { ProjectGroup } from '@/lib/bindings/ProjectGroup';
 import type { ProjectRestored } from '@/lib/bindings/ProjectRestored';
 import type { ProjectSummary } from '@/lib/bindings/ProjectSummary';
 import type { SessionSummary } from '@/lib/bindings/SessionSummary';
+import { setProjectGroupCollapsed } from '@/lib/projectGroups';
 import { useArtifactsStore } from '@/stores/artifacts';
 import { useBackgroundStore } from '@/stores/background';
 import {
@@ -281,6 +283,15 @@ export function App(): ReactElement {
     upsertProject(created.project);
     upsertSession(created.session);
     selectSession(created.session.id);
+    // Das neue Vorhaben soll in der Leiste stehen; bleibt die Gruppe zu, ist es trotzdem offen.
+    const collapsedGroup: ProjectGroup | undefined = groups.find(
+      (group: ProjectGroup) => group.id === created.project.groupId && group.collapsed,
+    );
+    if (collapsedGroup !== undefined) {
+      setProjectGroupCollapsed(collapsedGroup.id, false).catch((reason: unknown) => {
+        console.error('Gruppe nicht aufgeklappt', reason);
+      });
+    }
   }
 
   // Der Core sendet beim Wiederherstellen keine Änderung — die Rückgabe muss selbst in die Listen; die Auswahl bleibt.

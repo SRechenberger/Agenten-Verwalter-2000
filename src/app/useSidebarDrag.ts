@@ -5,6 +5,9 @@ import type { ProjectSummary } from '@/lib/bindings/ProjectSummary';
 
 /** So viele Pixel Bewegung trennen einen Klick vom Ziehen. */
 const START_DISTANCE = 5;
+/** Näher am Druckpunkt gibt es kein Ziel: Die Fläche „Ohne Gruppe“ schiebt beim Start alle Zeilen um 36 px,
+ *  ein kurzes Anreißen träfe sonst die Zeile darüber. */
+const MIN_DROP_DISTANCE = 16;
 /** Abstand zum oberen oder unteren Rand der Liste, ab dem sie von selbst scrollt. */
 const EDGE_ZONE = 32;
 const MAX_SCROLL_STEP = 14;
@@ -63,6 +66,12 @@ export function useSidebarDrag(
     let phase: 'pressed' | 'dragging' | 'aborted' = 'pressed';
     let frame = 0;
 
+    function targetAt(atX: number, atY: number): string | null {
+      return Math.hypot(atX - startX, atY - startY) < MIN_DROP_DISTANCE
+        ? null
+        : dropGroupAt(atX, atY);
+    }
+
     // Je Bild statt je Bewegung: Beim Rand-Scrollen wandern die Zeilen unter einem ruhenden Zeiger.
     function paint(): void {
       const ghost: HTMLDivElement | null = ghostRef.current;
@@ -73,7 +82,7 @@ export function useSidebarDrag(
       if (list !== null) {
         list.scrollTop += edgeScrollStep(list, x, y);
       }
-      setDropTarget(dropGroupAt(x, y));
+      setDropTarget(targetAt(x, y));
       frame = requestAnimationFrame(paint);
     }
 
@@ -97,7 +106,9 @@ export function useSidebarDrag(
       if (keyEvent.key === 'Escape' && phase === 'dragging') {
         keyEvent.preventDefault();
         keyEvent.stopPropagation();
-        abort();
+        // Das Loslassen bleibt abonniert: Der Klick, der ihm folgt, darf nicht wählen.
+        phase = 'aborted';
+        endDrag();
       }
     }
 
@@ -110,21 +121,22 @@ export function useSidebarDrag(
       window.removeEventListener('keydown', handleKeyDown, { capture: true });
     }
 
-    function abort(): void {
-      phase = 'aborted';
+    // Löst die Sitzung ganz auf und schluckt keinen Klick; das Schlucken entscheidet allein `handleRelease`.
+    function dispose(): void {
       endDrag();
+      window.removeEventListener('pointerup', handleRelease);
+      window.removeEventListener('pointercancel', handleRelease);
+      window.removeEventListener('pointerdown', dispose, { capture: true });
+      abortRef.current = null;
     }
 
     function handleRelease(releaseEvent: PointerEvent): void {
       const target: string | null =
         phase === 'dragging' && releaseEvent.type === 'pointerup'
-          ? dropGroupAt(releaseEvent.clientX, releaseEvent.clientY)
+          ? targetAt(releaseEvent.clientX, releaseEvent.clientY)
           : null;
       const wasDrag: boolean = phase !== 'pressed';
-      endDrag();
-      window.removeEventListener('pointerup', handleRelease);
-      window.removeEventListener('pointercancel', handleRelease);
-      abortRef.current = null;
+      dispose();
       if (wasDrag) {
         swallowNextClick();
       }
@@ -133,11 +145,14 @@ export function useSidebarDrag(
       }
     }
 
-    abortRef.current = abort;
+    abortRef.current = dispose;
     window.addEventListener('pointermove', handleMove);
     window.addEventListener('pointerup', handleRelease);
     window.addEventListener('pointercancel', handleRelease);
     window.addEventListener('keydown', handleKeyDown, { capture: true });
+    // Ein neuer Druck heißt: Das Loslassen dieser Sitzung ging verloren. In der Einfangphase, damit er sie auflöst,
+    // bevor React ihn zustellt; den Druck, der diese Sitzung startet, sieht der Listener nicht mehr.
+    window.addEventListener('pointerdown', dispose, { capture: true });
   }
 
   return { dragged, dropTarget, ghostRef, beginDrag };

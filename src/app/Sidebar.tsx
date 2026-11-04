@@ -48,6 +48,8 @@ const ESTIMATED_HEIGHT: Record<SidebarRow['kind'], number> = {
 const LAST_SESSION_EXTRA = 4;
 /** Name, unter dem „Neue Gruppe …“ die Gruppe anlegt, bevor der Nutzer sie umbenennt. */
 const NEW_GROUP_NAME = 'Neue Gruppe';
+/** So lange darf die Zeile eines Umbenennens fehlen, bevor es endet. */
+const RENAME_ROW_WAIT_MS = 1000;
 
 interface RankedProject extends SidebarProjectEntry {
   /** Jüngste Aktivität im Vorhaben — bestimmt die Reihenfolge der Vorhaben. */
@@ -114,7 +116,7 @@ export function Sidebar({
     return operatingMode === 'claude' || operatingMode === 'codex';
   });
   const hasAppUpdate: boolean = useAppUpdateStore((state) => state.status?.hasUpdate === true);
-  const { error: actionError, run } = useActionError('sidebar');
+  const { error: actionError, run, report: reportError } = useActionError('sidebar');
   const listRef = useRef<HTMLDivElement>(null);
   const { dragged, dropTarget, ghostRef, beginDrag } = useSidebarDrag(
     listRef,
@@ -193,19 +195,54 @@ export function Sidebar({
     overscan: OVERSCAN,
   });
 
+  const renameRowIndex: number =
+    renaming === null
+      ? -1
+      : rows.findIndex((row: SidebarRow) => row.key === `${renaming.kind}:${renaming.id}`);
+  const hasRenameRow: boolean = renameRowIndex >= 0;
+  const hidingGroupId: string | null =
+    renaming === null
+      ? null
+      : collapsedGroupOf(renaming, projects, groups, sessions, implementations);
+
   // Eine Zeile außerhalb des gerenderten Bereichs gibt es im DOM nicht — vor dem Umbenennen zu ihr scrollen.
   useEffect(() => {
-    if (renaming === null) {
+    if (hasRenameRow) {
+      virtualizer.scrollToIndex(renameRowIndex, { align: 'auto' });
+    }
+    // Nur der Start des Umbenennens und das Erscheinen der Zeile lösen das Scrollen aus, nicht jede Änderung der Zeilen.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [renaming, hasRenameRow]);
+
+  // Einklappen nimmt die Zeile aus der Liste: Ein Ziel in einer eingeklappten Gruppe braucht erst die offene Gruppe.
+  useEffect(() => {
+    if (hidingGroupId === null) {
       return;
     }
-    const rowKey = `${renaming.kind}:${renaming.id}`;
-    const index: number = rows.findIndex((row: SidebarRow) => row.key === rowKey);
-    if (index >= 0) {
-      virtualizer.scrollToIndex(index, { align: 'auto' });
+    run(
+      () =>
+        setProjectGroupCollapsed(hidingGroupId, false).catch((reason: unknown) => {
+          stopRename();
+          throw reason;
+        }),
+      'Gruppe nicht aufgeklappt',
+    );
+  }, [hidingGroupId, run, stopRename]);
+
+  // Ohne Zeile gibt es kein Feld, das der Nutzer verlassen könnte, und `renaming` hielte das Ziehen still.
+  // Die Frist gilt den Ereignissen, die die Zeile bringen (geöffnete Gruppe, gerade angelegte Gruppe).
+  useEffect(() => {
+    if (renaming === null || hasRenameRow) {
+      return undefined;
     }
-    // Nur der Start des Umbenennens löst das Scrollen aus, nicht jede Änderung der Zeilen.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [renaming]);
+    const timer: number = window.setTimeout(() => {
+      stopRename();
+      reportError('Umbenennen abgebrochen: Die Zeile steht nicht in der Leiste.');
+    }, RENAME_ROW_WAIT_MS);
+    return (): void => {
+      window.clearTimeout(timer);
+    };
+  }, [renaming, hasRenameRow, hidingGroupId, reportError, stopRename]);
 
   // F2 benennt das Vorhaben um, dessen Übersicht offen ist, sonst die aktive Session — außer der Fokus liegt in einem Textfeld.
   useEffect(() => {
@@ -604,6 +641,30 @@ export function Sidebar({
       </div>
     </nav>
   );
+}
+
+/** Die eingeklappte Gruppe, in der das Ziel des Umbenennens steht; `null`, wenn keine es verbirgt. */
+function collapsedGroupOf(
+  target: RenameTarget,
+  projects: readonly ProjectSummary[],
+  groups: readonly ProjectGroup[],
+  sessions: readonly SessionSummary[],
+  implementations: readonly ImplementationView[],
+): string | null {
+  const projectId: string | undefined =
+    target.kind === 'project'
+      ? target.id
+      : target.kind === 'session'
+        ? sessions.find((session: SessionSummary) => session.id === target.id)?.projectId
+        : target.kind === 'implementation'
+          ? implementations.find(
+              (implementation: ImplementationView) => implementation.id === target.id,
+            )?.projectId
+          : undefined;
+  const groupId: string | null | undefined = projects.find(
+    (project: ProjectSummary) => project.id === projectId,
+  )?.groupId;
+  return groups.find((group: ProjectGroup) => group.id === groupId && group.collapsed)?.id ?? null;
 }
 
 function estimateHeight(row: SidebarRow | undefined): number {

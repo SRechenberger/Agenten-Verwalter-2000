@@ -51,3 +51,6 @@
 - „Neues Vorhaben“, „Neue Gruppe …“ fragt nicht per Eingabefenster: Das Menü zeigt statt seiner Zeilen ein Namensfeld. Enter legt die Gruppe an und wählt sie, Esc führt zu den Zeilen zurück.
 - „Neues Vorhaben“, das Menü ist ein Popover wie bei „Modell“ und „Modus“, mit der Kopfzeile „Gruppe für dieses Vorhaben“; das Feld trägt keinen Pfeil „▾“, weil auch die beiden anderen Felder keinen tragen.
 - „Neues Vorhaben“, die Zusammenfassung unten nennt zusätzlich die gewählte Gruppe.
+- Das Menü eines Vorhabens und das Kopf-Menü haben keine Trennlinie vor „Neue Gruppe …“ bzw. „Gruppe löschen“; das Menü auf „Neues Vorhaben“ hat sie.
+- Bekannte Eigenheit: Die Fläche „Ohne Gruppe“ kommt erst beim Start des Ziehens dazu und verschiebt alle Zeilen um ihre Höhe, die Zeile unter dem Zeiger wechselt also. Damit ein kurzes Anreißen nicht die Zeile darüber trifft, bricht Loslassen näher als 16 px am Druckpunkt ab, und so nah gibt es auch keine Hervorhebung. Beseitigt ist das Verschieben damit nicht: Wer weiter als 16 px zieht, sieht das Ziel hervorgehoben und legt dort ab.
+- Über den Entwurf hinaus: Umbenennen (F2, `/rename`) eines Ziels in einer eingeklappten Gruppe klappt die Gruppe auf und öffnet dann das Feld. Steht die Zeile danach nicht in der Liste, etwa bei einer Session in einem zugeklappten Vorhaben, endet das Umbenennen mit einer Meldung in der Leiste.
