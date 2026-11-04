@@ -53,6 +53,11 @@ export function scriptLabel(script: AwaitedScript, now: number): string {
   return `wartet auf ${String(script.count)} Skripte · ${duration}`;
 }
 
+/** Pausiert, weil das Kontingent aufgebraucht ist (ADR 051); jede andere Pause zeigt nichts davon. */
+export function isQuotaPause(session: SessionSummary): boolean {
+  return session.status === 'paused' && session.pauseReason?.kind === 'quota';
+}
+
 /** Status in der Kopfzeile: wie `displayStatus`, aber ohne `handoff` (dort gilt der Session-Status). */
 export function headerStatus(session: SessionSummary): SessionStatus | 'script' {
   return session.awaitedScript === null ? session.status : 'script';
@@ -61,7 +66,9 @@ export function headerStatus(session: SessionSummary): SessionStatus | 'script' 
 /** Text der Status-Pille in der Kopfzeile, z.B. „Läuft“ oder „Wartet auf Skript · 2:14“. */
 export function headerStatusLabel(session: SessionSummary, now: number): string {
   if (session.awaitedScript === null) {
-    return STATUS_LABEL[session.status];
+    return isQuotaPause(session)
+      ? `${STATUS_LABEL.paused} · Kontingent`
+      : STATUS_LABEL[session.status];
   }
   const label: string = scriptLabel(session.awaitedScript, now);
   return label.charAt(0).toUpperCase() + label.slice(1);
@@ -75,7 +82,9 @@ export function metaLine(session: SessionSummary): string | null {
     case 'error':
       return 'Agent-Prozess beendet';
     case 'paused':
-      return `pausiert · ${modelAndRepositories(session)}`;
+      return isQuotaPause(session)
+        ? 'wartet auf Kontingent'
+        : `pausiert · ${modelAndRepositories(session)}`;
     case 'new':
       return session.inquiryOf === null ? 'noch nicht gestartet' : 'Rückfrage zur Umsetzung';
     case 'completed':

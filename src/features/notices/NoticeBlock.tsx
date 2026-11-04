@@ -1,11 +1,15 @@
 import type { ReactElement } from 'react';
+import { SeverityIcon } from '@/components/SeverityIcon';
+import { useNow } from '@/features/background/useNow';
 import { CompactDivider } from '@/features/notices/CompactDivider';
 import { InfoIcon, LockIcon, ModelSwitchIcon, ShieldIcon } from '@/features/notices/NoticeIcons';
 import { NoticeLine } from '@/features/notices/NoticeLine';
+import { QuotaResumeSwitch } from '@/features/notices/QuotaResumeSwitch';
 import {
   INFO_LEAD,
   MODEL_SWITCH_LEAD,
   MODE_CHANGED_LEAD,
+  QUOTA_LEAD,
   isFallbackRevert,
   modeChangedText,
   modelFallbackActionLabel,
@@ -14,10 +18,12 @@ import {
   modelSwitchedText,
   REPORT_UPDATED_LEAD,
   reportUpdatedText,
+  quotaResetText,
 } from '@/features/notices/noticeTexts';
 import { TurnSummaryLine } from '@/features/notices/TurnSummaryLine';
 import type { ModelId } from '@/lib/bindings/ModelId';
 import type { Notice } from '@/lib/bindings/Notice';
+import type { PauseReason } from '@/lib/bindings/PauseReason';
 import { commandErrorText } from '@/lib/errors';
 import { reportedModelName } from '@/lib/labels';
 import { setSessionModel } from '@/lib/sessions';
@@ -36,6 +42,10 @@ interface NoticeBlockProps {
   isClaude: boolean;
   /** Die Session antwortet gerade mit einem Ersatzmodell; nur dann führt der Knopf zurück. */
   isFallbackActive: boolean;
+  /** Dies ist die jüngste Kontingent-Karte im Verlauf; nur sie trägt den Schalter. */
+  isLatestQuotaNotice: boolean;
+  /** Begründung der aktuellen Pause; `null`, sobald die Session weiterläuft. */
+  pauseReason: PauseReason | null;
   /** Scrollt zum Text mit dieser `seq` und setzt den Fokus auf seine erste Angabe ohne Fundstelle. */
   onJumpToEntry: (seq: number) => void;
   /** Summe der Angaben in den Texten mit diesen `seq`; `null`, wenn einer davon nicht geladen ist. */
@@ -49,6 +59,8 @@ export function NoticeBlock({
   onToggle,
   isClaude,
   isFallbackActive,
+  isLatestQuotaNotice,
+  pauseReason,
   onJumpToEntry,
   countUnsourced,
 }: NoticeBlockProps): ReactElement {
@@ -56,6 +68,8 @@ export function NoticeBlock({
   const marksUnsourced: boolean = useSettingsStore(
     (state) => state.settings?.markUnsourced ?? true,
   );
+  // Tickt, damit der Satz zur Rücksetzzeit verschwindet, sobald sie vorbei ist.
+  const now: number = useNow(notice.kind === 'quotaExhausted' && notice.resetsAt !== null);
 
   switch (notice.kind) {
     case 'compacted':
@@ -108,13 +122,29 @@ export function NoticeBlock({
       );
     }
     case 'info':
-    case 'quotaExhausted':
       return (
         <NoticeLine
           variant="info"
           icon={<InfoIcon size={ICON_SIZE} />}
           lead={INFO_LEAD}
           text={notice.text}
+        />
+      );
+    case 'quotaExhausted':
+      return (
+        <NoticeLine
+          variant="warn"
+          icon={<SeverityIcon severity="caution" size={ICON_SIZE} />}
+          lead={QUOTA_LEAD}
+          text={notice.text}
+          detail={quotaResetText(notice.resetsAt, now) ?? undefined}
+          control={
+            isLatestQuotaNotice &&
+            pauseReason?.kind === 'quota' &&
+            pauseReason.resetsAt !== null ? (
+              <QuotaResumeSwitch sessionId={sessionId} enabled={pauseReason.autoResume} />
+            ) : undefined
+          }
         />
       );
     case 'modeChanged':

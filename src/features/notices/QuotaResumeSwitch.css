@@ -1,0 +1,9 @@
+.quota-resume-switch {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: var(--space-sm);
+  color: var(--color-fg-muted);
+  font-size: var(--font-size-xs);
+  white-space: nowrap;
+}

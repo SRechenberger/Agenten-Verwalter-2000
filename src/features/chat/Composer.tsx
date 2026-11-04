@@ -22,6 +22,7 @@ import { McpProblemChip } from '@/features/mcp/McpProblemChip';
 import { CacheAwareModelMenu } from '@/features/promptcache/CacheAwareModelMenu';
 import { CacheColdHint } from '@/features/promptcache/CacheColdHint';
 import { ReviewCommentList } from '@/features/review/ReviewCommentList';
+import { isQuotaPause } from '@/features/sessions/sessionStatus';
 import { openSide } from '@/features/side/openSide';
 import { SideWindow } from '@/features/side/SideWindow';
 import { VoiceButton } from '@/features/voice/VoiceButton';
@@ -357,7 +358,7 @@ export function Composer({ session, onSessionCreated }: ComposerProps): ReactEle
             rows={2}
             disabled={isLocked}
             readOnly={isDictating}
-            placeholder={placeholderFor(session.status, collected.length > 0)}
+            placeholder={placeholderFor(session, collected.length > 0)}
             value={draft}
             onChange={(event: ChangeEvent<HTMLTextAreaElement>): void => {
               setDraft(session.id, event.target.value);
@@ -551,7 +552,8 @@ export function Composer({ session, onSessionCreated }: ComposerProps): ReactEle
   );
 }
 
-function placeholderFor(status: SessionStatus, hasComments: boolean): string {
+function placeholderFor(session: SessionSummary, hasComments: boolean): string {
+  const { status } = session;
   if (status === 'cancelled') {
     return 'Session abgebrochen – leg eine neue Session an.';
   }
@@ -560,6 +562,9 @@ function placeholderFor(status: SessionStatus, hasComments: boolean): string {
   }
   if (hasComments) {
     return 'Nachricht zu den Kommentaren (optional) …';
+  }
+  if (isQuotaPause(session)) {
+    return 'Pausiert – Kontingent aufgebraucht. Eine Nachricht setzt fort.';
   }
   if (status === 'waiting') {
     return 'Antwort an Claude …';
