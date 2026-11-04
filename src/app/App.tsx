@@ -480,7 +480,7 @@ export function App(): ReactElement {
       );
     }
     if (showNewSession) {
-      return <NewSession onCreated={handleCreated} onCancel={closeNewSession} />;
+      return <NewSession groups={groups} onCreated={handleCreated} onCancel={closeNewSession} />;
     }
     if (
       shownImplementation !== undefined &&

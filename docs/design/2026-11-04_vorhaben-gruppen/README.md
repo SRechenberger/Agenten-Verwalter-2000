@@ -37,8 +37,6 @@
 
 ## Abweichungen vom Entwurf
 
-Stand der Leiste mit Köpfen und Ziehen; die Gruppenwahl auf „Neues Vorhaben“ folgt in einem eigenen Schritt und steht hier noch nicht.
-
 - Die Menüs hängen als Popover am Vorhaben bzw. Kopf (wie das bestehende Vorhaben-Menü) statt an der Mausposition.
 - „Neue Gruppe …“ fragt nicht per Eingabefenster, sondern legt die Gruppe „Neue Gruppe“ an, weist das Vorhaben zu und öffnet die Umbenennung am Kopf (Feld wie bei Vorhaben und Sessions; Enter speichert, Esc behält „Neue Gruppe“). Dasselbe gilt für das Umbenennen einer Gruppe; der Menüpunkt heißt dort „Umbenennen“ statt „Gruppe umbenennen“.
 - Der Hinweis „Vorhaben bleiben erhalten (→ Ohne Gruppe)“ steht nicht als Zeile im Menü, sondern als `title` an „Gruppe löschen“.
@@ -48,3 +46,8 @@ Stand der Leiste mit Köpfen und Ziehen; die Gruppenwahl auf „Neues Vorhaben�
 - Das Ziel ist einfacher hervorgehoben: Akzentton und je eine Linie links und rechts über alle sichtbaren Zeilen der Gruppe, ohne obere und untere Kante und ohne Rundung, weil jede Zeile der virtualisierten Liste für sich liegt und die Gruppe kein gemeinsames Element hat.
 - Vor dem Ziehen bleibt der Cursor der Hand-Cursor der Zeile; der Entwurf zeigt schon beim Überfahren „grab“. Beim Ziehen gilt „grabbing“ im ganzen Fenster.
 - Über den Entwurf hinaus: Die Liste scrollt beim Ziehen am oberen und unteren Rand von selbst, und die Fläche „Ohne Gruppe“ steht als eigene Zeile ganz oben in der Liste, ist bei gescrollter Liste also erst über dieses Scrollen erreichbar.
+- „Neues Vorhaben“, Überschrift von Abschnitt 3: „Agent und Gruppe“ statt „Modell, Modus und Gruppe“, solange das Feld da ist; sonst bleibt sie „Agent“.
+- „Neues Vorhaben“, Feld „Gruppe“ und Hinweissatz erscheinen nur, wenn es mindestens eine Gruppe gibt; ohne Gruppen bleibt die Seite wie zuvor. Die erste Gruppe entsteht über das Menü eines Vorhabens in der Leiste.
+- „Neues Vorhaben“, „Neue Gruppe …“ fragt nicht per Eingabefenster: Das Menü zeigt statt seiner Zeilen ein Namensfeld. Enter legt die Gruppe an und wählt sie, Esc führt zu den Zeilen zurück.
+- „Neues Vorhaben“, das Menü ist ein Popover wie bei „Modell“ und „Modus“, mit der Kopfzeile „Gruppe für dieses Vorhaben“; das Feld trägt keinen Pfeil „▾“, weil auch die beiden anderen Felder keinen tragen.
+- „Neues Vorhaben“, die Zusammenfassung unten nennt zusätzlich die gewählte Gruppe.

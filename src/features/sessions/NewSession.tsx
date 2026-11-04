@@ -5,6 +5,7 @@ import { ModelMenu } from '@/components/ModelMenu';
 import { AttachMenu } from '@/features/attachments/AttachMenu';
 import { AttachmentRow } from '@/features/attachments/AttachmentRow';
 import { useAttachmentInput } from '@/features/attachments/useAttachmentInput';
+import { GroupMenu } from '@/features/sessions/GroupMenu';
 import { CommandMenu } from '@/features/chat/CommandMenu';
 import { applySkillToDraft } from '@/features/chat/commandMenuRows';
 import type { CommandRow } from '@/features/chat/commandMenuRows';
@@ -24,6 +25,7 @@ import type { CommandError } from '@/lib/bindings/CommandError';
 import type { CodexModel } from '@/lib/bindings/CodexModel';
 import type { Effort } from '@/lib/bindings/Effort';
 import type { Mode } from '@/lib/bindings/Mode';
+import type { ProjectGroup } from '@/lib/bindings/ProjectGroup';
 import type { ModelId } from '@/lib/bindings/ModelId';
 import type { ProjectCreated } from '@/lib/bindings/ProjectCreated';
 import { discardAttachment } from '@/lib/attachments';
@@ -54,14 +56,16 @@ const GIT_NOT_FOUND_MESSAGE =
 const NO_ATTACHMENTS: Attachment[] = [];
 const NO_CODEX_MODELS: readonly CodexModel[] = [];
 
-type OpenMenu = 'model' | 'mode' | 'plus' | 'command' | null;
+type OpenMenu = 'model' | 'mode' | 'group' | 'plus' | 'command' | null;
 
 interface NewSessionProps {
+  /** Dieselben Gruppen wie die Leiste; ohne Gruppe erscheint kein Auswahlfeld. */
+  groups: readonly ProjectGroup[];
   onCreated: (created: ProjectCreated) => void;
   onCancel: () => void;
 }
 
-export function NewSession({ onCreated, onCancel }: NewSessionProps): ReactElement {
+export function NewSession({ groups, onCreated, onCancel }: NewSessionProps): ReactElement {
   // Vorbelegung aus einer Einstiegszeile (ADR 052), einmal je Öffnen des Dialogs gelesen.
   const [prefill] = useState<NewSessionPrefill | null>(
     () => useSessionsStore.getState().newSessionPrefill,
@@ -81,10 +85,13 @@ export function NewSession({ onCreated, onCancel }: NewSessionProps): ReactEleme
     () => useSettingsStore.getState().settings?.defaultMode ?? 'auto',
   );
   const [repositoryIds, setRepositoryIds] = useState<string[]>(prefill?.repositoryIds ?? []);
+  // Die Seite startet immer ohne Gruppe, auch aus einer Einstiegszeile.
+  const [groupId, setGroupId] = useState<string | null>(null);
   const [openMenu, setOpenMenu] = useState<OpenMenu>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isStarting, setIsStarting] = useState<boolean>(false);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const groupButtonRef = useRef<HTMLButtonElement>(null);
   const pending: Attachment[] = useAttachmentsStore(
     (state) => state.pending[NEW_SESSION_KEY] ?? NO_ATTACHMENTS,
   );
@@ -111,6 +118,9 @@ export function NewSession({ onCreated, onCancel }: NewSessionProps): ReactEleme
   );
   const canStart: boolean = text.trim() !== '' && !isStarting && !isDictating;
   const currentMode = modeOption(mode);
+  // Eine inzwischen gelöschte Gruppe zählt nicht mehr: das Vorhaben startet dann ohne Gruppe.
+  const group: ProjectGroup | null = groups.find((g: ProjectGroup) => g.id === groupId) ?? null;
+  const hasGroups: boolean = groups.length > 0;
 
   const { openPicker, handlePaste, isDragging } = useAttachmentInput({
     key: NEW_SESSION_KEY,
@@ -131,7 +141,7 @@ export function NewSession({ onCreated, onCancel }: NewSessionProps): ReactEleme
     setOpenMenu(null);
   }
 
-  function toggleMenu(menu: 'model' | 'mode' | 'plus' | 'command'): void {
+  function toggleMenu(menu: Exclude<OpenMenu, null>): void {
     if (menu === 'command' && openMenu !== 'command') {
       commandMenu.resetFilter();
     }
@@ -165,7 +175,16 @@ export function NewSession({ onCreated, onCancel }: NewSessionProps): ReactEleme
     setIsStarting(true);
     setErrorMessage(null);
     const attachmentIds: string[] = pending.map((attachment: Attachment) => attachment.id);
-    createProject(text.trim(), attachmentIds, repositoryIds, model, codexModel, effort, mode)
+    createProject(
+      text.trim(),
+      attachmentIds,
+      repositoryIds,
+      model,
+      codexModel,
+      effort,
+      mode,
+      group?.id ?? null,
+    )
       .then((created: ProjectCreated) => {
         // Die Dateien liegen jetzt im Workspace des Vorhabens.
         useAttachmentsStore.getState().clear(NEW_SESSION_KEY);
@@ -322,7 +341,7 @@ export function NewSession({ onCreated, onCancel }: NewSessionProps): ReactEleme
         <section className="new-session__section">
           <div className="new-session__heading">
             <span className="new-session__step">3</span>
-            Agent
+            {hasGroups ? 'Agent und Gruppe' : 'Agent'}
           </div>
           <div className="new-session__pickers">
             {isLocal ? (
@@ -400,7 +419,43 @@ export function NewSession({ onCreated, onCancel }: NewSessionProps): ReactEleme
                 />
               )}
             </div>
+            {hasGroups && (
+              <div className="new-session__anchor">
+                <button
+                  ref={groupButtonRef}
+                  type="button"
+                  className="new-session__group"
+                  aria-haspopup="dialog"
+                  aria-expanded={openMenu === 'group'}
+                  aria-label={`Gruppe: ${group?.name ?? 'Ohne Gruppe'}`}
+                  onClick={(): void => {
+                    toggleMenu('group');
+                  }}
+                >
+                  <span className="new-session__group-label">Gruppe</span>
+                  <span className="new-session__group-name">{group?.name ?? 'Ohne Gruppe'}</span>
+                </button>
+                {openMenu === 'group' && (
+                  <GroupMenu
+                    groups={groups}
+                    value={group?.id ?? null}
+                    onChange={(id: string | null): void => {
+                      setGroupId(id);
+                      // Anders als bei Modell und Modus schließt die Wahl das Menü; der Fokus fiele sonst auf den `body`.
+                      groupButtonRef.current?.focus();
+                    }}
+                    onClose={closeMenu}
+                    placement="below"
+                  />
+                )}
+              </div>
+            )}
           </div>
+          {hasGroups && (
+            <p className="new-session__note">
+              Die Gruppe ist freiwillig und lässt sich später durch Ziehen in der Leiste ändern.
+            </p>
+          )}
         </section>
         <div className="new-session__footer">
           <button type="submit" className="new-session__start" disabled={!canStart}>
@@ -412,7 +467,7 @@ export function NewSession({ onCreated, onCancel }: NewSessionProps): ReactEleme
           <span className="new-session__summary">
             {isStarting && repositoryIds.length > 0
               ? 'Session wird angelegt …'
-              : `${repositoryCountLabel(repositoryIds.length)} · ${isLocal ? localModelLabel(localModel) : modelText} · ${currentMode.label}`}
+              : `${repositoryCountLabel(repositoryIds.length)} · ${isLocal ? localModelLabel(localModel) : modelText} · ${currentMode.label}${group === null ? '' : ` · ${group.name}`}`}
           </span>
         </div>
         {errorMessage !== null && (
