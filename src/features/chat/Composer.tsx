@@ -446,6 +446,7 @@ export function Composer({ session, onSessionCreated }: ComposerProps): ReactEle
                   onChange={changeModel}
                   onClose={closeMenu}
                   note={modelNote}
+                  effort={{ value: session.effort, onChange: changeEffort }}
                 />
               )}
               {openMenu === 'model' && isCodex && (
@@ -457,6 +458,11 @@ export function Composer({ session, onSessionCreated }: ComposerProps): ReactEle
                   placement="above"
                   note={modelNote}
                   emptyText={codexEmptyText}
+                  effort={{
+                    value: codexEffort(sessionCodexModel, session.effort),
+                    onChange: changeEffort,
+                    efforts: codexEfforts(sessionCodexModel),
+                  }}
                 />
               )}
             </div>
