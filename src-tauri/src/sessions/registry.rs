@@ -93,6 +93,7 @@ mod restore;
 mod retro;
 mod session_tools;
 mod side;
+mod terminal;
 mod tldr;
 
 use self::implementation::ReportUpdate;

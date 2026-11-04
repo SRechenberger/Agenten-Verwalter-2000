@@ -197,6 +197,7 @@ fn now_lines(view: &ImplementationView) -> Vec<String> {
     for (phase, station) in stations(view) {
         let label = match station.state {
             StationState::Starting | StationState::Running => "läuft",
+            StationState::WaitsForScript => "wartet auf einen Hintergrund-Befehl",
             StationState::Asking => "fragt dich:",
             StationState::WaitsForYou => "wartet auf dich",
             StationState::Error => "Fehler",

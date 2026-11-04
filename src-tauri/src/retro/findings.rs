@@ -1,6 +1,7 @@
 //! Die Datei `befunde.md`: die Mini-Retros aller Sessions eines Laufs, je Session ein Abschnitt.
 use crate::agents::event::ModelId;
-use crate::retro::model::{Claim, Correction, Fact, Failure, SessionFindings};
+use crate::retro::model::{Claim, Correction, Effect, Fact, Failure, SessionFindings};
+use crate::retro::traces::HookBlock;
 use crate::sessions::model::SessionStatus;
 use crate::tldr::transcript::status_label;
 
@@ -15,6 +16,9 @@ pub struct SessionResult {
     /// Alle Werkzeug-Aufrufe, davon fehlgeschlagen, davon abgebrochen.
     pub counts: (u32, u32, u32),
     pub truncated: bool,
+    /// Die fertige Zeile aus `traces::skills_line`.
+    pub skills: String,
+    pub hook_blocks: Vec<HookBlock>,
     pub outcome: Result<SessionFindings, String>,
 }
 
@@ -46,13 +50,29 @@ fn push_session(lines: &mut Vec<String>, session: &SessionResult) {
     let (tools, failed, interrupted) = session.counts;
     lines.push(format!("## Session #{} – {}", session.number, session.name));
     lines.push(format!(
-        "Status: {} · Modell: {} · Werkzeug-Aufrufe: {tools}, fehlgeschlagen: {failed}, abgebrochen: {interrupted} · Gekürzt: {} · Verlauf: session-{}.md",
+        "Status: {} · Modell: {} · Werkzeug-Aufrufe: {tools}, fehlgeschlagen: {failed}, abgebrochen: {interrupted} · Hook-Sperren: {} · Gekürzt: {} · Verlauf: session-{}.md",
         status_label(session.status),
         session.model.cli_id(),
+        session.hook_blocks.len(),
         if session.truncated { "ja" } else { "nein" },
         session.number,
     ));
+    lines.push(format!("Skills: {}", session.skills));
     lines.push(String::new());
+    // Steht vor dem Ausgang der Mini-Retro: eine gescheiterte Mini-Retro soll die Sperren nicht verschlucken.
+    push_rubric(
+        lines,
+        "Hook-Sperren",
+        &session.hook_blocks,
+        |item: &HookBlock| {
+            format!(
+                "{} {} — {}",
+                one_line(&item.tool),
+                one_line(&item.target),
+                one_line(&item.reason)
+            )
+        },
+    );
     let findings = match &session.outcome {
         Ok(findings) => findings,
         Err(error) => {
@@ -71,6 +91,12 @@ fn push_session(lines: &mut Vec<String>, session: &SessionResult) {
         "Fehlversuche und Wiederholungen",
         &findings.failures,
         |item: &Failure| format!("{} · „{}“", one_line(&item.what), one_line(&item.quote)),
+    );
+    push_rubric(
+        lines,
+        "Regel hat gewirkt",
+        &findings.effects,
+        |item: &Effect| format!("{} · „{}“", one_line(&item.what), one_line(&item.quote)),
     );
     push_rubric(
         lines,

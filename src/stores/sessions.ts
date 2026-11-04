@@ -10,7 +10,7 @@ export type ProjectView = (typeof PROJECT_VIEWS)[number];
 export const IMPLEMENTATION_VIEWS = ['flow', 'changes'] as const;
 export type ImplementationViewKind = (typeof IMPLEMENTATION_VIEWS)[number];
 
-export type RenameKind = 'session' | 'project';
+export type RenameKind = 'session' | 'project' | 'implementation';
 
 export interface RenameTarget {
   kind: RenameKind;

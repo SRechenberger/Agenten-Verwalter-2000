@@ -14,7 +14,7 @@ Kontext für jeden Umsetzer: [AGENTS.md](../../../AGENTS.md), [docs/code-map.md]
 | 4 | [Wellen (parallele Phasen) und Plan-Änderung mit Karte „Plan ändern?“](phase-4-wellen-und-plan-aenderung.md) | heikel | 4 | L | complete |
 | 5 | [Rückfragen mit Lagebericht als Anhang, Knopf „Lagebericht“](phase-5-rueckfragen-und-lagebericht.md) | standard | 5 | M | complete |
 | 6 | [Doku-Abschluss: Code-Map, Glossar, AGENTS.md, Prüfprogramm in AGENTS.md](phase-6-doku-abschluss.md) | mechanisch | 6 | S | complete |
-| 7 | [Skills: Planung und Umsetzung auf die Werkzeuge des Verwalters umstellen (Master unter `G:\Meine Ablage\U104_Agents`, dann spiegeln)](phase-7-skills.md) | standard | 7 | M | pending |
+| 7 | [Skills: Planung und Umsetzung auf die Werkzeuge des Verwalters umstellen (Master unter `G:\Meine Ablage\U104_Agents`, dann spiegeln)](phase-7-skills.md) | standard | 7 | M | complete |
 
 Rein sequenziell: jede Phase 2–5 erweitert dieselben Dateien (`src-tauri/src/implementation/mod.rs`, `commands/implementation.rs`, `src/lib/implementation.ts`, `ImplementationView.tsx`); Phase 4 und 5 ließen sich nur mit einem Kontrakt-Split auf Dateiebene parallelisieren, der mehr kostet als eine Session Wartezeit. Phase 1 ist eine Fundament-Phase (Datenmodell + Werkzeuge), ihr sichtbarer Anteil ist die Zeile in der Sidebar und der Lagebericht als Text.
 
@@ -202,10 +202,23 @@ ALTER TABLE sessions ADD COLUMN inquiry_of TEXT;
 
 ## Summary
 
+Der Verwalter führt die Umsetzung eines Plans selbst: Eine Planungs-Session legt per `implementation_create` Phasen mit Stationen an, die Zeitleiste mit Kartei zeigt sie, Stationen starten als frische Sessions (Countdown, Automatik, Fertigmeldung, Fix-Runden), Wellen laufen parallel, Planänderungen kommen als Karte „Plan ändern?“, Rückfragen tragen den Lagebericht als Anhang. Die Skills im Master (Planung, Umsetzung, Briefings, Befehle, `CLAUDE.md`) sind auf die Werkzeuge umgestellt. ADR 048, Migration 17.
+
 ## Files touched
+
+`src-tauri/src/implementation/`, `src-tauri/src/commands/implementation.rs`, `src-tauri/src/db/implementations.rs`, `src/features/implementation/`, `src/stores/implementation.ts`, `src/lib/implementation.ts`, Doku (`docs/code-map.md`, Glossar, `AGENTS.md`, ADR 048). Phase 7 außerhalb des Repos: Skills, Befehle und `CLAUDE.md` im Master der eigenen Konfiguration.
 
 ## Commits
 
+`7333336` (Phase 1), `11296b5` (2), `7bf5cef` (3), `7ae07e0` (4), `ece05e3` (5), `242fc11` (6); Phase 7 ohne Commit im Verwalter-Repo, Decision-Log-Eintrag „Umsetzung im Verwalter, ADR 048“ im Master.
+
 ## Deviations from plan
 
+- Werkzeugnamen mit gemeinsamem Präfix `implementation_…` statt `phase_describe`/`station_complete` (Vertrag aus ADR 046).
+- Phase 7: Der Master liegt auf dieser Maschine unter `H:\Meine Ablage\U104_Agents`, die Junction `~/.claude/sync` zeigt ins Leere; `CLAUDE.md` wurde von Hand nach `~/.claude` kopiert. Die letzte private Phase gibt den Abschlussbericht statt einer „Prüfliste“ aus (keine Smoke-Checklisten im private-Profil).
+
 ## Follow-ups
+
+- Laufzeitbelege in der echten App stehen aus: Planungs-Session endet mit „Umsetzung angelegt“, Station startet mit `Station:`-Nachricht und erkennt `/implement` (Wackelstelle Phase 3), Fertigmeldung → Nachfolger, Plan-Änderungs-Karte.
+- Junction `~/.claude/sync` auf dem Privatrechner reparieren.
+- Backlog: `2026-10-22_umgebung` fasst `send` an — wer umsetzt, liest sie neu.

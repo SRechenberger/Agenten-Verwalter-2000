@@ -39,6 +39,25 @@
     align-items: center;
   }
 
+  &__actions {
+    display: inline-flex;
+    flex-wrap: wrap;
+    gap: var(--space-md);
+    align-items: center;
+  }
+
+  &__spinner {
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    margin-right: var(--space-sm);
+    vertical-align: -1px;
+    border: 1.5px solid currentcolor;
+    border-right-color: transparent;
+    border-radius: 50%;
+    animation: implementation-bar-spin 0.9s linear infinite;
+  }
+
   &__button {
     box-sizing: border-box;
     height: 24px;
@@ -72,5 +91,42 @@
       background: var(--color-accent-subtle);
       color: var(--color-accent-text);
     }
+  }
+}
+
+@keyframes implementation-bar-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Schmale Hauptfläche: Fortschritt über die ganze Breite, darunter Schalter und Knöpfe,
+   die sich die Zeile teilen und bei Bedarf umbrechen. */
+@container main (max-width: 700px) {
+  .implementation-bar {
+    padding-inline: var(--space-xl);
+
+    &__progress {
+      flex: 1;
+      min-width: 60px;
+    }
+
+    &__spacer {
+      display: none;
+    }
+
+    &__actions {
+      flex: 1 1 100%;
+    }
+
+    &__button {
+      flex: 1 1 auto;
+    }
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .implementation-bar__spinner {
+    animation: none;
   }
 }

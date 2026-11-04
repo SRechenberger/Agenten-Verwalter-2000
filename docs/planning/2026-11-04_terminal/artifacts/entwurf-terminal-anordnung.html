@@ -1,0 +1,254 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Terminal Anordnung Entwürfe</title>
+<style>
+:root{
+  --bg:#fafaf9;--side:#f5f5f4;--surface:#fff;--hover:#f5f5f4;--line:#e7e5e4;--fg:#44403c;--fg2:#57534e;--muted:#78716c;
+  --accent:#ea580c;--accent-sub:color-mix(in srgb,#ea580c 12%,transparent);--user:#f5f5f4;
+  --term-bg:#fafaf9;--term-fg:#292524;--term-dim:#78716c;--term-ok:#15803d;--term-path:#1d4ed8;
+  --mono:'Cascadia Code','Cascadia Mono',Consolas,ui-monospace,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#1c1917;--side:#0c0a09;--surface:#292524;--hover:#292524;--line:#44403c;--fg:#e7e5e4;--fg2:#d6d3d1;--muted:#a8a29e;
+  --accent:#fb923c;--accent-sub:color-mix(in srgb,#fb923c 14%,transparent);--user:#292524;
+  --term-bg:#1c1917;--term-fg:#e7e5e4;--term-dim:#a8a29e;--term-ok:#4ade80;--term-path:#93c5fd;}}
+:root[data-theme="dark"]{
+  --bg:#1c1917;--side:#0c0a09;--surface:#292524;--hover:#292524;--line:#44403c;--fg:#e7e5e4;--fg2:#d6d3d1;--muted:#a8a29e;
+  --accent:#fb923c;--accent-sub:color-mix(in srgb,#fb923c 14%,transparent);--user:#292524;
+  --term-bg:#1c1917;--term-fg:#e7e5e4;--term-dim:#a8a29e;--term-ok:#4ade80;--term-path:#93c5fd;}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.5 system-ui,'Segoe UI',sans-serif}
+.page{max-width:1240px;margin:0 auto;padding:20px 16px 48px}
+h1{font-size:22px;margin:0 0 4px}
+.sub{color:var(--muted);margin:0 0 16px}
+.picker{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px}
+.picker button{font:inherit;border:1px solid var(--line);background:var(--surface);color:var(--fg);border-radius:8px;padding:7px 12px;cursor:pointer;text-align:left}
+.picker button[aria-pressed="true"]{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
+.picker small{display:block;color:var(--muted);font-size:12px}
+.tools{display:flex;gap:8px;align-items:center;margin:0 0 12px;flex-wrap:wrap;color:var(--muted);font-size:13px}
+.tools button{font:inherit;font-size:13px;border:1px solid var(--line);background:var(--surface);color:var(--fg);border-radius:6px;padding:3px 10px;cursor:pointer}
+.note{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:12px 14px;margin:0 0 14px}
+.note h2{font-size:15px;margin:0 0 6px}
+.note .cols{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.note ul{margin:0;padding-left:18px}.note li{margin:2px 0}
+.pro b{color:var(--term-ok)}.con b{color:var(--accent)}
+.scroll{overflow-x:auto;border-radius:10px;border:1px solid var(--line)}
+
+/* ---------- App-Rahmen ---------- */
+.app{display:grid;grid-template-columns:220px 1fr;height:600px;min-width:980px;background:var(--bg);position:relative;overflow:hidden}
+.sidebar{background:var(--side);border-right:1px solid var(--line);padding:10px 8px;font-size:13px;display:flex;flex-direction:column;gap:2px}
+.sidebar .brand{font-weight:600;padding:4px 8px 10px}
+.sidebar .row{padding:5px 8px;border-radius:6px;display:flex;gap:6px;align-items:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sidebar .row.sel{background:var(--accent-sub)}
+.sidebar .row.sub{padding-left:24px;color:var(--fg2)}
+.dot{width:7px;height:7px;border-radius:50%;background:var(--term-ok);flex:none}
+.dot.idle{background:var(--muted)}
+.main{display:flex;flex-direction:column;min-width:0;min-height:0}
+.header{display:flex;align-items:center;gap:14px;padding:8px 14px;border-bottom:1px solid var(--line);height:44px;flex:none}
+.header h3{margin:0;font-size:14px;font-weight:600;white-space:nowrap}
+.tabs{display:flex;gap:2px}
+.tab{padding:4px 10px;border-radius:6px;color:var(--fg2);font-size:13px;cursor:pointer;border:0;background:none;font-family:inherit}
+.tab.on{background:var(--accent-sub);color:var(--fg)}
+.count{font-size:11px;color:var(--muted);margin-left:4px}
+.htools{margin-left:auto;display:flex;gap:6px;align-items:center}
+.iconbtn{border:1px solid var(--line);background:var(--surface);color:var(--fg);border-radius:6px;height:26px;min-width:30px;padding:0 7px;font:12px var(--mono);cursor:pointer;display:inline-flex;align-items:center;gap:4px}
+.iconbtn.on{border-color:var(--accent);color:var(--accent)}
+.kbd{font:11px var(--mono);color:var(--muted)}
+.body{flex:1;display:flex;min-height:0;position:relative}
+.col{display:flex;flex-direction:column;min-width:0;min-height:0;flex:1}
+
+/* Chat */
+.chat{flex:1;overflow:hidden;padding:14px 18px;display:flex;flex-direction:column;gap:10px;min-height:0}
+.msg{max-width:560px}
+.msg.user{align-self:flex-end;background:var(--user);border:1px solid var(--line);border-radius:10px;padding:7px 11px}
+.msg.agent p{margin:0 0 4px}
+.tool{font:12px var(--mono);color:var(--muted);border-left:2px solid var(--line);padding-left:8px}
+.cmdblock{font:12px var(--mono);background:var(--term-bg);border:1px solid var(--line);border-radius:8px;padding:8px 10px;color:var(--term-fg);white-space:pre-wrap;max-width:620px}
+.cmdblock .h{color:var(--accent)}
+.composer{margin:0 18px 14px;border:1px solid var(--line);background:var(--surface);border-radius:10px;padding:10px 12px;color:var(--muted);flex:none}
+.composer .bar{display:flex;justify-content:space-between;font-size:12px;margin-top:8px}
+.composer.bang{border-color:var(--accent)}
+.composer .bang-hint{color:var(--accent);font:12px var(--mono)}
+
+/* Hintergrund-Panel rechts */
+.bgpanel{width:230px;border-left:1px solid var(--line);background:var(--side);padding:10px;font-size:12px;color:var(--fg2);flex:none}
+.bgpanel h4{margin:0 0 8px;font-size:12px;color:var(--muted);font-weight:600}
+.bgpanel .it{padding:5px 6px;border-radius:6px;background:var(--surface);border:1px solid var(--line);margin-bottom:6px;font-family:var(--mono)}
+
+/* Terminal */
+.term{display:flex;flex-direction:column;background:var(--term-bg);min-height:0;min-width:0}
+.tbar{display:flex;align-items:center;gap:4px;padding:4px 8px;border-bottom:1px solid var(--line);background:var(--side);flex:none;font-size:12px}
+.ttab{display:inline-flex;align-items:center;gap:6px;padding:2px 8px;border-radius:5px;font-family:var(--mono);color:var(--fg2);cursor:pointer}
+.ttab.on{background:var(--surface);color:var(--fg);box-shadow:inset 0 -2px 0 var(--accent)}
+.ttab .x{color:var(--muted)}
+.ttab.dead{color:var(--muted)}
+.tbar .sp{flex:1}
+.tbar .ib{border:0;background:none;color:var(--muted);cursor:pointer;font:13px var(--mono);padding:2px 6px;border-radius:4px}
+.tbar .ib:hover{background:var(--hover);color:var(--fg)}
+.tout{flex:1;padding:8px 10px;font:12.5px/1.45 var(--mono);color:var(--term-fg);white-space:pre-wrap;overflow:hidden}
+.tout .p{color:var(--term-path)}.tout .d{color:var(--term-dim)}.tout .ok{color:var(--term-ok)}
+.cursor{display:inline-block;width:7px;height:14px;background:var(--term-fg);vertical-align:-2px;animation:b 1s steps(1) infinite}
+@keyframes b{50%{opacity:0}}
+.grip-h{height:5px;cursor:row-resize;background:var(--line);flex:none;position:relative}
+.grip-h:hover,.grip-v:hover{background:var(--accent)}
+.grip-v{width:5px;cursor:col-resize;background:var(--line);flex:none}
+
+/* Variante C: Drop-down */
+.dropdown{position:absolute;left:0;right:0;top:0;height:55%;box-shadow:0 12px 30px rgba(0,0,0,.35);border-bottom:2px solid var(--accent);transform:translateY(-105%);transition:transform .18s ease;z-index:5}
+.dropdown.open{transform:none}
+.hidden{display:none!important}
+.callout{position:absolute;background:var(--accent);color:#fff;font-size:11px;padding:2px 7px;border-radius:99px;z-index:6;pointer-events:none;white-space:nowrap}
+@media (max-width:700px){.note .cols{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="page">
+  <h1>Terminal neben dem Chat – vier Entwürfe</h1>
+  <p class="sub">Klickbar: Knöpfe im Entwurf schalten, Kanten lassen sich ziehen. Inhalt ist Platzhalter.</p>
+
+  <div class="picker" role="group" aria-label="Entwurf wählen">
+    <button data-v="a" aria-pressed="true">A · Panel unten<small>deine Präferenz</small></button>
+    <button data-v="b" aria-pressed="false">B · Spalte rechts<small>Seite an Seite</small></button>
+    <button data-v="c" aria-pressed="false">C · Klappt von oben<small>Einblenden auf Taste</small></button>
+    <button data-v="d" aria-pressed="false">D · Befehle im Chat<small>kein eigenes Fenster</small></button>
+  </div>
+  <div class="tools">
+    <button id="theme">Hell/Dunkel wechseln</button>
+    <span>Tastenkürzel im Entwurf: <span class="kbd">Strg+Ö</span> blendet das Terminal ein und aus (A, B, C).</span>
+  </div>
+
+  <div class="note" id="note"></div>
+
+  <div class="scroll">
+  <div class="app" id="app">
+    <aside class="sidebar">
+      <div class="brand">Agenten Verwalter 2000</div>
+      <div class="row sel"><span class="dot"></span>Terminal im Vorhaben</div>
+      <div class="row sub"><span class="dot"></span>#1 Plan erstellen</div>
+      <div class="row sub"><span class="dot idle"></span>#2 Phase 1 Core</div>
+      <div class="row"><span class="dot idle"></span>Photofant Tags</div>
+      <div class="row"><span class="dot idle"></span>Questoria Quiz</div>
+    </aside>
+    <section class="main">
+      <header class="header">
+        <h3>#1 Plan erstellen</h3>
+        <nav class="tabs" id="tabs"></nav>
+        <div class="htools">
+          <button class="iconbtn" id="toggle" title="Terminal ein-/ausblenden (Strg+Ö)">&gt;_ <span id="tcount">2</span></button>
+          <button class="iconbtn" title="Hintergrund-Panel">◧</button>
+        </div>
+      </header>
+      <div class="body" id="body"></div>
+    </section>
+  </div>
+  </div>
+</div>
+
+<template id="t-chat">
+  <div class="col chatcol">
+    <div class="chat">
+      <div class="msg user">Kannst du die Commands für das Terminal anlegen?</div>
+      <div class="msg agent"><p>Lege <code>src-tauri/src/commands/terminal.rs</code> an und trage die sieben Commands ein.</p>
+        <div class="tool">✓ Write terminal.rs · ✓ Edit lib.rs · ✓ PowerShell pnpm check</div></div>
+      <div class="msg agent"><p>Prüfkette ist grün. Willst du es im Terminal selbst ausprobieren?</p></div>
+      <div class="slot-d"></div>
+    </div>
+    <div class="composer"><span class="ph">Nachricht an den Agenten …</span>
+      <div class="bar"><span>Opus · Auto</span><span>⏎ senden</span></div></div>
+  </div>
+</template>
+
+<template id="t-term">
+  <div class="term">
+    <div class="tbar">
+      <span class="ttab on">cmd 1 <span class="x">×</span></span>
+      <span class="ttab">cmd 2 <span class="x">×</span></span>
+      <span class="ttab dead">cmd 3 · beendet <span class="x">×</span></span>
+      <button class="ib" title="Neues Terminal">+</button>
+      <span class="sp"></span>
+      <button class="ib max" title="Maximieren">▢</button>
+      <button class="ib close" title="Ausblenden">⌄</button>
+    </div>
+    <div class="tout"><span class="d">Microsoft Windows [Version 10.0.26300]</span>
+<span class="p">C:\Users\sasch\.verwalter\workspaces\4f67dac9&gt;</span>pnpm check
+<span class="ok">✓ lint  ✓ typecheck  ✓ format  ✓ build  ✓ rustfmt  ✓ clippy</span>
+
+<span class="p">C:\Users\sasch\.verwalter\workspaces\4f67dac9&gt;</span><span class="cursor"></span></div>
+  </div>
+</template>
+
+<template id="t-bg">
+  <aside class="bgpanel"><h4>HINTERGRUND</h4>
+    <div class="it">pnpm tauri dev · läuft</div><div class="it">Subagent · Suche</div></aside>
+</template>
+
+<script>
+const NOTES={
+ a:{t:'A · Panel unten (wie VS Code)',pro:['Chat bleibt in voller Breite lesbar','Gilt für Chat, Changes, Artefakte und Übersicht – ein Ort','Verträgt sich mit dem Hintergrund-Panel rechts','Höhe ziehbar, Maximieren für volle Fläche'],con:['Chat verliert Höhe – bei kleinem Laptop-Bildschirm eng','Lange Ausgaben brauchen das Maximieren']},
+ b:{t:'B · Spalte rechts',pro:['Viele Zeilen Terminal-Ausgabe sichtbar','Gut auf breiten Monitoren'],con:['Chat wird schmal, Code-Blöcke brechen um','Konkurriert mit dem Hintergrund-Panel um die rechte Seite (nur eins zugleich)','Terminal-Zeilen werden kurz, viele Programme brechen hässlich um']},
+ c:{t:'C · Klappt von oben (Quake-Stil)',pro:['Kostet keinen Platz, solange es zu ist','Schnell per Taste rein und raus'],con:['Liegt über dem Chat – nicht wirklich parallel lesbar','Fühlt sich flüchtig an, man vergisst laufende Prozesse']},
+ d:{t:'D · Befehle direkt im Chat',pro:['Kein neues Fenster: „!pnpm check“ in der Eingabeleiste, Ausgabe als Block im Verlauf','Ausgabe kann mit der nächsten Nachricht zum Agenten gehen','Kleinster Umbau der Oberfläche'],con:['Kein interaktives Terminal: kein vim, keine Rückfragen von Programmen, kein Strg+C-Gefühl','Dev-Server und Langläufer passen schlecht in den Verlauf','Ist eher eine Ergänzung zu A als ein Ersatz']}
+};
+const TABS={a:['Chat','Changes','Artefakte'],b:['Chat','Changes','Artefakte'],c:['Chat','Changes','Artefakte'],d:['Chat','Changes','Artefakte']};
+let v='a',open=true,max=false,h=220,w=430;
+const $=s=>document.querySelector(s);
+const tpl=id=>document.getElementById(id).content.firstElementChild.cloneNode(true);
+
+function note(){const n=NOTES[v];$('#note').innerHTML=`<h2>${n.t}</h2><div class="cols"><ul class="pro">${n.pro.map(x=>`<li><b>+</b> ${x}</li>`).join('')}</ul><ul class="con">${n.con.map(x=>`<li><b>−</b> ${x}</li>`).join('')}</ul></div>`}
+function tabs(){$('#tabs').innerHTML=TABS[v].map((t,i)=>`<button class="tab${i===0?' on':''}">${t}${t==='Changes'?'<span class="count">12</span>':''}${t==='Artefakte'?'<span class="count">2</span>':''}</button>`).join('')}
+
+function render(){
+  note();tabs();
+  const body=$('#body');body.innerHTML='';
+  $('#toggle').classList.toggle('on',open&&v!=='d');
+  $('#toggle').classList.toggle('hidden',v==='d');
+  const chat=tpl('t-chat');
+  if(v==='a'){
+    const col=document.createElement('div');col.className='col';
+    if(!max) col.append(chat);
+    if(open){
+      if(!max){const g=document.createElement('div');g.className='grip-h';drag(g,'y');col.append(g)}
+      const t=tpl('t-term');t.style.height=max?'100%':h+'px';t.style.flex=max?'1':'none';wire(t);col.append(t);
+    }
+    body.append(col,tpl('t-bg'));
+  }else if(v==='b'){
+    body.append(chat);
+    if(open){const g=document.createElement('div');g.className='grip-v';drag(g,'x');const t=tpl('t-term');t.style.width=w+'px';t.style.flex='none';wire(t);body.append(g,t)}
+    else body.append(tpl('t-bg'));
+  }else if(v==='c'){
+    body.append(chat,tpl('t-bg'));
+    const t=tpl('t-term');t.classList.add('dropdown');if(open)t.classList.add('open');t.querySelector('.max').remove();wire(t);body.append(t);
+  }else{
+    const slot=chat.querySelector('.slot-d');
+    slot.outerHTML=`<div class="msg user" style="font-family:var(--mono)">!pnpm check</div><div class="cmdblock"><span class="h">$ pnpm check</span> · im Arbeitsordner · 14 s
+✓ lint  ✓ typecheck  ✓ format  ✓ build  ✓ rustfmt  ✓ clippy
+<span style="color:var(--muted)">[ An den Agenten anhängen ]  [ Erneut ausführen ]</span></div>`;
+    const c=chat.querySelector('.composer');c.classList.add('bang');c.querySelector('.ph').outerHTML='<span class="bang-hint">! Befehl im Arbeitsordner ausführen …</span>';
+    body.append(chat,tpl('t-bg'));
+  }
+}
+function wire(t){
+  t.querySelector('.close').onclick=()=>{open=false;max=false;render()};
+  const m=t.querySelector('.max');if(m)m.onclick=()=>{max=!max;render()};
+  t.querySelectorAll('.ttab').forEach(el=>el.onclick=()=>{t.querySelectorAll('.ttab').forEach(x=>x.classList.remove('on'));el.classList.add('on')});
+}
+function drag(g,axis){
+  g.addEventListener('pointerdown',e=>{
+    e.preventDefault();g.setPointerCapture(e.pointerId);
+    const s0=axis==='y'?e.clientY:e.clientX,v0=axis==='y'?h:w;
+    const mv=ev=>{if(axis==='y'){h=Math.min(480,Math.max(90,v0-(ev.clientY-s0)));g.nextElementSibling.style.height=h+'px'}else{w=Math.min(620,Math.max(260,v0-(ev.clientX-s0)));g.nextElementSibling.style.width=w+'px'}};
+    const up=()=>{g.removeEventListener('pointermove',mv);g.removeEventListener('pointerup',up)};
+    g.addEventListener('pointermove',mv);g.addEventListener('pointerup',up);
+  });
+}
+document.querySelectorAll('.picker button').forEach(b=>b.onclick=()=>{document.querySelectorAll('.picker button').forEach(x=>x.setAttribute('aria-pressed','false'));b.setAttribute('aria-pressed','true');v=b.dataset.v;open=v!=='c';max=false;render()});
+$('#toggle').onclick=()=>{open=!open;max=false;render()};
+document.addEventListener('keydown',e=>{if(e.ctrlKey&&(e.key==='ö'||e.key==='Ö'||e.code==='Backquote')&&v!=='d'){e.preventDefault();open=!open;max=false;render()}});
+$('#theme').onclick=()=>{const r=document.documentElement;const dark=r.dataset.theme?r.dataset.theme==='dark':matchMedia('(prefers-color-scheme: dark)').matches;r.dataset.theme=dark?'light':'dark'};
+render();
+</script>
+</body>
+</html>

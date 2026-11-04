@@ -9,7 +9,7 @@ use crate::tldr::model::{ProjectTldr, SessionTldr};
 /// Gemessen an 77 echten Verläufen: Median 16 k, 90 % unter 34 k, Maximum 128 k Zeichen.
 const MAX_TRANSCRIPT_CHARS: usize = 300_000;
 const MAX_FIRST_MESSAGE_CHARS: usize = 20_000;
-const BLOCK_SEPARATOR: &str = "\n\n";
+pub(crate) const BLOCK_SEPARATOR: &str = "\n\n";
 const CARRY_SEPARATOR: &str = "\n\n---\n\n";
 
 pub(crate) struct Block {
@@ -185,7 +185,7 @@ fn omitted_marker(count: usize) -> String {
     format!("[… {count} Beiträge aus der Mitte ausgelassen …]")
 }
 
-fn truncated(text: &str, max_chars: usize) -> String {
+pub(crate) fn truncated(text: &str, max_chars: usize) -> String {
     if text.chars().count() <= max_chars {
         return text.to_owned();
     }

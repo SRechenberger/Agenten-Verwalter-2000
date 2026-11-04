@@ -18,6 +18,7 @@ import {
   applyImplementationChange,
   cancelStationCountdown,
   completeStationByUser,
+  loadImplementationReport,
   setImplementationAutoStart,
   setImplementationStopAfterCurrent,
   startStation,
@@ -69,7 +70,10 @@ export function ImplementationView({
   onShowView,
   onOpenProject,
 }: ImplementationViewProps): ReactElement {
-  const [isReportShown, setIsReportShown] = useState<boolean>(false);
+  // Text des geöffneten Lageberichts; `null`: das Fenster ist zu.
+  const [report, setReport] = useState<string | null>(null);
+  const [isReportBusy, setIsReportBusy] = useState<boolean>(false);
+  const [isInquiryBusy, setIsInquiryBusy] = useState<boolean>(false);
   const storedFocus: string | undefined = useImplementationStore(
     (state) => state.focused[implementation.id],
   );
@@ -81,7 +85,7 @@ export function ImplementationView({
   const stations: StationRef[] = useMemo(() => flatStations(implementation), [implementation]);
   const isFlow: boolean = !(activeView === 'changes' && hasChanges);
   const isTicking: boolean = stations.some((ref: StationRef) =>
-    ['running', 'starting', 'countdown'].includes(ref.station.state),
+    ['running', 'starting', 'waitsForScript', 'countdown'].includes(ref.station.state),
   );
   const now: number = useNow(isTicking);
 
@@ -120,6 +124,33 @@ export function ImplementationView({
       window.removeEventListener('keydown', handleKeyDown);
     };
   }, [isFlow, focusedId, order, implementationId, setFocused]);
+
+  // Der Bericht wird gelesen, bevor das Fenster aufgeht; bis dahin dreht sich der Knopf.
+  function openReport(): void {
+    setIsReportBusy(true);
+    run(
+      () =>
+        loadImplementationReport(implementationId)
+          .then((text: string): void => {
+            setReport(text);
+          })
+          .finally((): void => {
+            setIsReportBusy(false);
+          }),
+      'Lagebericht nicht ladbar',
+    );
+  }
+
+  function startInquiry(): void {
+    setIsInquiryBusy(true);
+    run(
+      () =>
+        onNewInquiry(implementationId).finally((): void => {
+          setIsInquiryBusy(false);
+        }),
+      'Rückfrage nicht angelegt',
+    );
+  }
 
   function openChat(stationId: string): void {
     const sessionId: string | null =
@@ -211,18 +242,16 @@ export function ImplementationView({
         activeView={activeView}
         hasChanges={hasChanges}
         changesCount={changesCount}
-        isReportShown={isReportShown}
-        onToggleReport={(): void => {
-          setIsReportShown((current: boolean) => !current);
-        }}
-        onNewInquiry={(): void => {
-          run(() => onNewInquiry(implementationId), 'Rückfrage nicht angelegt');
-        }}
         onShowView={onShowView}
         onOpenProject={onOpenProject}
       />
       <ImplementationBar
         implementation={implementation}
+        isReportShown={report !== null}
+        isInquiryBusy={isInquiryBusy}
+        isReportBusy={isReportBusy}
+        onNewInquiry={startInquiry}
+        onOpenReport={openReport}
         onSetAutoStart={(enabled: boolean): void => {
           run(() => setImplementationAutoStart(implementationId, enabled));
         }}
@@ -232,11 +261,12 @@ export function ImplementationView({
       />
       {renderActionError()}
       {renderBody()}
-      {isReportShown && (
+      {report !== null && (
         <ReportPanel
           implementation={implementation}
+          initialText={report}
           onClose={(): void => {
-            setIsReportShown(false);
+            setReport(null);
           }}
         />
       )}

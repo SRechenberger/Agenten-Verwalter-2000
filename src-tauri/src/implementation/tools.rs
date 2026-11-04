@@ -214,8 +214,8 @@ fn create(call: &ToolCall, registry: &SessionRegistry) -> Result<ToolResult, Str
         .create_implementation(call.session_id, &arguments.name, &source, &arguments.phases)
         .map_err(|error| error.to_string())?;
     announce(call, &view);
-    // Die erste Station darf sofort starten; die Automatik ist bei einer neuen Umsetzung an.
-    super::start::schedule_ready(call.app, &view.id).map_err(|error| error.to_string())?;
+    // Die erste Station steht bereit (▶): wann die Umsetzung beginnt, entscheidet der Benutzer. Die
+    // Automatik, die danach die Folgestationen startet, ist an.
     Ok(answer(registry, &view))
 }
 

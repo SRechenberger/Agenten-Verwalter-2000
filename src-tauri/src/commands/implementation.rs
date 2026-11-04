@@ -34,6 +34,19 @@ pub async fn implementation_new_inquiry(
     registry.new_inquiry(&app, &id)
 }
 
+/// Benennt die Umsetzung um, wie der Nutzer es will.
+#[tauri::command]
+pub async fn implementation_rename(
+    app: AppHandle,
+    registry: tauri::State<'_, SessionRegistry>,
+    id: String,
+    name: String,
+) -> Result<(), CommandError> {
+    registry.rename_implementation(&id, &name)?;
+    announce(&app, &registry.implementation_view(&id)?);
+    Ok(())
+}
+
 /// Schaltet „Automatisch weiter“. Aus: laufende Countdowns enden. An: Stationen, die starten
 /// dürfen, bekommen einen Countdown.
 #[tauri::command]

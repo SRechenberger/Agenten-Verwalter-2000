@@ -4,11 +4,7 @@ import { formatCount } from '@/features/changes/changesScope';
 import { activeLaneCount } from '@/features/implementation/implementationOrder';
 import {
   implementationTitle,
-  INQUIRY_LABEL,
-  INQUIRY_TITLE,
   lanesActiveText,
-  REPORT_LABEL,
-  REPORT_TITLE,
   VIEW_LABEL,
 } from '@/features/implementation/implementationTexts';
 import { stateIcon, stateLabel } from '@/features/implementation/stationState';
@@ -25,9 +21,6 @@ interface ImplementationHeaderProps {
   hasChanges: boolean;
   /** Dateien unter „Alle“; `null`, solange die Changes nicht gelesen sind. */
   changesCount: number | null;
-  isReportShown: boolean;
-  onToggleReport: () => void;
-  onNewInquiry: () => void;
   onShowView: (view: ImplementationViewKind) => void;
   onOpenProject: () => void;
 }
@@ -39,9 +32,6 @@ export function ImplementationHeader({
   activeView,
   hasChanges,
   changesCount,
-  isReportShown,
-  onToggleReport,
-  onNewInquiry,
   onShowView,
   onOpenProject,
 }: ImplementationHeaderProps): ReactElement {
@@ -103,25 +93,6 @@ export function ImplementationHeader({
             )}
           </button>
         ))}
-      </div>
-      <div className="session-header__tools">
-        <button
-          type="button"
-          className="implementation-bar__button"
-          title={INQUIRY_TITLE}
-          onClick={onNewInquiry}
-        >
-          {INQUIRY_LABEL}
-        </button>
-        <button
-          type="button"
-          className="implementation-bar__button"
-          aria-pressed={isReportShown}
-          title={REPORT_TITLE}
-          onClick={onToggleReport}
-        >
-          {REPORT_LABEL}
-        </button>
       </div>
     </header>
   );

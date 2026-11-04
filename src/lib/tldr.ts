@@ -1,5 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen, type Event, type UnlistenFn } from '@tauri-apps/api/event';
+import type { HandoffBrief } from '@/lib/bindings/HandoffBrief';
 import type { ProjectTldrView } from '@/lib/bindings/ProjectTldrView';
 import type { SessionTldrView } from '@/lib/bindings/SessionTldrView';
 import type { TldrChangedEvent } from '@/lib/bindings/TldrChangedEvent';
@@ -37,6 +38,12 @@ export async function createProjectTldr(projectId: string): Promise<void> {
  *  @throws {import('@/lib/bindings/CommandError').CommandError} `sessionNotFound` */
 export async function setCarryProjectTldr(sessionId: string, carry: boolean): Promise<void> {
   await invoke('tldr_set_carry', { sessionId, carry });
+}
+
+/** Übergabe der Session für den Entwurf einer Folgesession (ADR 054); scheitert Haiku, kommt der Rückfall.
+ *  @throws {import('@/lib/bindings/CommandError').CommandError} `internal` (unbekannte Session, ohne Verlauf) */
+export function createHandoffBrief(sessionId: string): Promise<HandoffBrief> {
+  return invoke<HandoffBrief>('tldr_handoff_brief', { sessionId });
 }
 
 /** Meldet Beginn und Ende jedes TL;DR-Laufs; `sessionId` fehlt beim TL;DR des Vorhabens selbst. */
