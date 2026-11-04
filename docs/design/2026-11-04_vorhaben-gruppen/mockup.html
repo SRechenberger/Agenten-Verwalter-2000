@@ -1,0 +1,368 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mockup: Vorhaben gruppieren (Ticket #11)</title>
+<style>
+:root {
+  --font-sans: 'Segoe UI Variable Text', 'Segoe UI', system-ui, sans-serif;
+  --font-mono: 'Cascadia Code', Consolas, ui-monospace, monospace;
+  --bg-base: #1f1f1f; --bg-sidebar: #181818; --bg-surface: #252526; --bg-popover: #252526;
+  --bg-hover: #2e2e30; --bg-selected: #37373d; --border-subtle: #2b2b2b; --border: #3c3c3c;
+  --fg: #d4d4d4; --fg2: #b0b0b0; --fg-muted: #8f8f8f;
+  --accent: #e0825c; --accent-subtle: color-mix(in srgb, #e0825c 16%, transparent);
+  --running: #5b9dff; --waiting: #f2b33d; --done: #4cc38a; --error: #f47067;
+  --shadow: 0 10px 30px rgb(0 0 0 / .45);
+}
+:root[data-theme="light"] {
+  --bg-base: #fff; --bg-sidebar: #f8f8f8; --bg-surface: #fff; --bg-popover: #fff;
+  --bg-hover: #f0f0f0; --bg-selected: #e4e6f1; --border-subtle: #e5e5e5; --border: #cecece;
+  --fg: #3c3c3c; --fg2: #555; --fg-muted: #6e6e6e;
+  --accent: #c4572f; --accent-subtle: color-mix(in srgb, #c4572f 10%, transparent);
+  --running: #2563eb; --waiting: #a86a00; --done: #16803c; --error: #d23b33;
+  --shadow: 0 10px 30px rgb(0 0 0 / .14);
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg-base); color: var(--fg); font: 13px/1.4 var(--font-sans); }
+button { font: inherit; color: inherit; }
+.page { max-width: 1100px; margin: 0 auto; padding: 24px 16px 48px; }
+h1 { font-size: 18px; margin: 0 0 4px; }
+h2 { font-size: 13px; margin: 20px 0 6px; text-transform: uppercase; letter-spacing: .06em; color: var(--fg-muted); }
+p, li { color: var(--fg2); }
+.lead { margin: 0 0 16px; }
+.bar { display: flex; flex-wrap: wrap; gap: 6px 16px; align-items: center; margin-bottom: 16px; }
+.seg { display: inline-flex; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+.seg button { border: 0; background: transparent; padding: 5px 12px; cursor: pointer; color: var(--fg2); }
+.seg button[aria-pressed="true"] { background: var(--bg-selected); color: var(--fg); }
+.bar label { color: var(--fg-muted); font-size: 12px; }
+.stage { display: grid; grid-template-columns: 256px minmax(0, 1fr); border: 1px solid var(--border-subtle); border-radius: 8px; overflow: hidden; min-height: 560px; }
+.main { padding: 24px; background: var(--bg-base); }
+.main .ph { border: 1px dashed var(--border); border-radius: 8px; padding: 18px; color: var(--fg-muted); margin-bottom: 12px; }
+.main ul { margin: 0; padding-left: 18px; }
+.main li { margin: 4px 0; }
+
+/* ---- Sidebar, Maße wie src/app/Sidebar.css ---- */
+.sb { display: flex; flex-direction: column; width: 256px; background: var(--bg-sidebar); border-right: 1px solid var(--border-subtle); position: relative; }
+.sb__brand { height: 48px; display: flex; align-items: center; gap: 10px; padding: 0 16px; font-weight: 600; }
+.sb__new { margin: 2px 10px 10px; height: 30px; display: flex; align-items: center; gap: 8px; padding: 0 10px; border: 1px solid var(--border); border-radius: 6px; background: transparent; cursor: pointer; }
+.sb__new:hover { background: var(--bg-hover); }
+.sb__new span { flex: 1; text-align: left; }
+.sb__new kbd { font: 11px var(--font-mono); color: var(--fg-muted); }
+.sb__new small { color: var(--fg-muted); font-size: 11px; }
+.sb__list { flex: 1; padding: 2px 10px 10px; overflow-y: auto; }
+.sb__foot { border-top: 1px solid var(--border-subtle); padding: 8px 10px; color: var(--fg-muted); display: flex; gap: 14px; font-size: 12px; }
+
+/* Reiterleiste (Variante A) */
+.tabs { display: flex; align-items: stretch; gap: 2px; margin: 0 10px 6px; border-bottom: 1px solid var(--border-subtle); position: relative; }
+.tabs__strip { display: flex; gap: 2px; flex: 1; min-width: 0; overflow-x: auto; scrollbar-width: none; mask-image: linear-gradient(to right, #000 calc(100% - 14px), transparent); }
+.tabs__strip::-webkit-scrollbar { display: none; }
+.tab { flex-shrink: 0; display: inline-flex; align-items: center; gap: 5px; height: 28px; padding: 0 8px; border: 0; border-bottom: 2px solid transparent; background: transparent; color: var(--fg-muted); cursor: pointer; white-space: nowrap; border-radius: 4px 4px 0 0; }
+.tab:hover { color: var(--fg); background: var(--bg-hover); }
+.tab[aria-selected="true"] { color: var(--fg); border-bottom-color: var(--accent); }
+.tab__n { font-size: 11px; color: var(--fg-muted); }
+.dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+.dot--waiting { background: var(--waiting); }
+.dot--error { background: var(--error); }
+.tabs__btn { width: 30px; flex-shrink: 0; border: 0; background: transparent; color: var(--fg-muted); cursor: pointer; border-radius: 4px; }
+.tabs__btn:hover { background: var(--bg-hover); color: var(--fg); }
+.tabs__edit { height: 24px; align-self: center; width: 92px; border: 1px solid var(--accent); border-radius: 4px; background: var(--bg-base); color: var(--fg); padding: 0 6px; font: inherit; outline: none; }
+
+/* Gruppenkopf (Variante B) */
+.gh { display: flex; align-items: center; gap: 6px; width: 100%; height: 24px; margin-top: 8px; padding: 0 4px; border: 0; border-radius: 4px; background: transparent; color: var(--fg-muted); font-size: 11px; text-transform: uppercase; letter-spacing: .06em; cursor: pointer; }
+.gh:hover { background: var(--bg-hover); color: var(--fg); }
+.gh__name { flex: 1; text-align: left; }
+.gh svg, .chev { transition: transform 160ms; }
+.gh[aria-expanded="true"] svg { transform: rotate(90deg); }
+
+/* Vorhaben-Zeile, wie SidebarProject */
+.pr { display: flex; align-items: flex-start; gap: 10px; width: 100%; padding: 6px 8px 6px 4px; border: 0; border-radius: 6px; background: transparent; text-align: left; cursor: pointer; }
+.pr:hover { background: var(--bg-hover); }
+.pr[aria-current="true"] { background: var(--bg-selected); }
+.pr__st { width: 14px; height: 19px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; margin-left: 20px; }
+.pr__txt { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+.pr__name { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pr__name.done { color: var(--fg2); }
+.pr__meta { font-size: 12px; color: var(--fg-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pr__meta.waiting { color: var(--waiting); }
+.pr__grp { color: var(--fg2); }
+.si { width: 10px; height: 10px; border-radius: 50%; border: 1.5px solid currentColor; }
+.si--running { color: var(--running); border-top-color: transparent; }
+.si--waiting { color: var(--waiting); background: color-mix(in srgb, var(--waiting) 35%, transparent); }
+.si--completed { color: var(--done); background: var(--done); }
+.si--new { color: var(--fg-muted); border-style: dashed; }
+.empty { color: var(--fg-muted); padding: 14px 6px; font-size: 12px; }
+.empty b { color: var(--fg2); font-weight: 500; }
+
+/* Ziehen und Ablegen (Variante B) */
+.sec { border-radius: 6px; border: 1px solid transparent; }
+.sec.drop { border-color: var(--accent); background: var(--accent-subtle); }
+.dz { display: none; height: 28px; margin: 4px 0; align-items: center; justify-content: center; border: 1px dashed var(--border); border-radius: 6px; color: var(--fg-muted); font-size: 12px; }
+.sb.dragging .dz { display: flex; }
+.pr[draggable="true"] { cursor: grab; }
+.pr.drag { opacity: .45; }
+
+/* Seite „Neues Vorhaben“ */
+.nv h1 { font-size: 18px; margin: 0 0 16px; color: var(--fg); }
+.nv section { margin-bottom: 18px; }
+.nv .hd { display: flex; align-items: center; gap: 8px; font-weight: 600; margin-bottom: 8px; color: var(--fg); }
+.nv .step { width: 18px; height: 18px; border-radius: 50%; background: var(--bg-selected); font-size: 11px; display: inline-flex; align-items: center; justify-content: center; }
+.nv textarea { width: 100%; min-height: 72px; resize: vertical; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-surface); color: var(--fg); font: inherit; }
+.nv .chips { display: flex; gap: 6px; flex-wrap: wrap; }
+.chip { padding: 3px 10px; border: 1px solid var(--border); border-radius: 999px; color: var(--fg2); }
+.pickers { display: flex; flex-wrap: wrap; gap: 8px; }
+.pick { display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 10px; border: 1px solid var(--border); border-radius: 6px; background: transparent; cursor: pointer; }
+.pick:hover { background: var(--bg-hover); }
+.pick small { color: var(--fg-muted); }
+.pick.focus { outline: 2px solid var(--accent); outline-offset: 2px; }
+.nv .foot { display: flex; gap: 10px; align-items: center; margin-top: 8px; }
+.nv .go { height: 30px; padding: 0 16px; border: 0; border-radius: 6px; background: var(--accent); color: #1d130e; font-weight: 600; cursor: pointer; }
+:root[data-theme="light"] .nv .go { color: #fff; }
+.nv .cancel { height: 30px; padding: 0 12px; border: 1px solid var(--border); border-radius: 6px; background: transparent; cursor: pointer; }
+
+/* Menü */
+.menu { position: fixed; z-index: 10; min-width: 200px; padding: 4px; background: var(--bg-popover); border: 1px solid var(--border); border-radius: 8px; box-shadow: var(--shadow); }
+.menu button { display: flex; align-items: center; gap: 10px; width: 100%; height: 28px; padding: 0 10px; border: 0; border-radius: 4px; background: transparent; text-align: left; cursor: pointer; }
+.menu button:hover { background: var(--bg-hover); }
+.menu button span:first-child { flex: 1; }
+.menu kbd { font: 11px var(--font-mono); color: var(--fg-muted); }
+.menu hr { border: 0; border-top: 1px solid var(--border-subtle); margin: 4px 0; }
+.menu .lbl { padding: 4px 10px; font-size: 11px; color: var(--fg-muted); text-transform: uppercase; letter-spacing: .06em; }
+.menu .on::after { content: '✓'; color: var(--accent); }
+.menu .danger { color: var(--error); }
+
+.notes { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; }
+.notes > div { background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 4px 16px 12px; }
+.notes h3 { font-size: 13px; margin: 12px 0 4px; color: var(--fg); }
+.notes ul { margin: 0; padding-left: 18px; }
+.notes li { margin: 3px 0; }
+code { font-family: var(--font-mono); font-size: 12px; color: var(--fg); }
+.tag { font-size: 11px; border: 1px solid var(--border); border-radius: 999px; padding: 0 8px; color: var(--fg-muted); }
+</style>
+</head>
+<body>
+<div class="page">
+  <h1>Vorhaben gruppieren <span class="tag">Entwurf · Ticket #11</span></h1>
+  <p class="lead">Klickbarer Entwurf der linken Leiste. Alle Namen und Zahlen sind Beispieldaten. Maße, Farben und Schriften folgen <code>src/styles/theme.css</code> und <code>src/app/Sidebar*.css</code>. Rechtsklick auf ein Vorhaben oder einen Reiter öffnet das Menü.</p>
+
+  <div class="bar">
+    <label>Variante</label>
+    <div class="seg" id="seg-variant">
+      <button data-v="A" aria-pressed="false">A · Reiter (verworfen)</button>
+      <button data-v="B" aria-pressed="true">B · Gruppenköpfe (gewählt)</button>
+    </div>
+    <label>Zustand</label>
+    <div class="seg" id="seg-state">
+      <button data-s="groups" aria-pressed="true">Mit Gruppen</button>
+      <button data-s="none" aria-pressed="false">Ohne Gruppen (heute)</button>
+    </div>
+    <label>Farbschema</label>
+    <div class="seg" id="seg-theme">
+      <button data-t="dark" aria-pressed="true">Dunkel</button>
+      <button data-t="light" aria-pressed="false">Hell</button>
+    </div>
+  </div>
+
+  <div class="stage">
+    <nav class="sb" id="sb" aria-label="Vorhaben"></nav>
+    <div class="main" id="main"></div>
+  </div>
+
+  <h2>Entscheidungen im Entwurf</h2>
+  <div class="notes">
+    <div>
+      <h3>Ohne Gruppen bleibt alles wie heute</h3>
+      <ul>
+        <li>Keine Reiterleiste, keine Köpfe: solange keine Gruppe existiert, sieht die Leiste aus wie jetzt („Chat first“, keine Dauer-Elemente ohne Nutzen).</li>
+        <li>Die erste Gruppe entsteht über das Menü eines Vorhabens: „In Gruppe verschieben ▸ Neue Gruppe …“.</li>
+      </ul>
+      <h3>Zugehörigkeit</h3>
+      <ul>
+        <li>Ein Vorhaben gehört zu höchstens einer Gruppe.</li>
+        <li>Reiter „Alle“ zeigt jedes Vorhaben, gruppierte mit kleiner Gruppen-Marke.</li>
+        <li>Löschen einer Gruppe löscht kein Vorhaben; sie landen in „Ohne Gruppe“.</li>
+      </ul>
+    </div>
+    <div>
+      <h3>Variante A · Reiter — verworfen, nur als Vergleich</h3>
+      <ul>
+        <li>Ein Reiter je Gruppe, vorn „Alle“. Die Leiste scrollt waagerecht; <b>⌄</b> listet alle Gruppen mit Zählern.</li>
+        <li>Ein gelber Punkt am Reiter — und am <b>⌄</b>, falls der Reiter aus dem Bild gescrollt ist — zeigt, dass in einer nicht sichtbaren Gruppe ein Vorhaben auf dich wartet — Gruppen dürfen nichts verstecken, was dich braucht.</li>
+        <li>„Neues Vorhaben“ landet im aktiven Reiter.</li>
+      </ul>
+    </div>
+    <div>
+      <h3>Variante B · Gruppenköpfe — gewählt am 2026-11-04</h3>
+      <ul>
+        <li>Eine Liste, Abschnitte mit einklappbarem Kopf; eingeklappt zeigt der Kopf den dringendsten Status der Gruppe.</li>
+        <li>Zuweisen durch <b>Ziehen</b> (Vorhaben auf Kopf oder Gruppe; beim Ziehen erscheint oben die Fläche „Ohne Gruppe“) und über das Rechtsklick-Menü. Bei Anlage wählt man die Gruppe auf der Seite „Neues Vorhaben“ (Abschnitt 3).</li><li>Ein-/Ausklappen der Köpfe wird gespeichert und überlebt den Neustart.</li>
+        <li>Dafür ist die Liste länger und die Trennung weniger scharf als bei Reitern.</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<script>
+const GROUPS = [
+  { id: 'g1', name: 'Verwalter' }, { id: 'g2', name: 'Agda' },
+  { id: 'g3', name: 'Arbeit' }, { id: 'g4', name: 'Privat' },
+];
+const PROJECTS = [
+  { id: 'p1', name: 'Vorhaben gruppieren', g: 'g1', st: 'running', meta: 'Läuft · 3 Sessions' },
+  { id: 'p2', name: 'Upstream-Umsetzung mergen', g: 'g1', st: 'waiting', meta: 'Wartet auf dich' },
+  { id: 'p3', name: 'Kontingent-Warnung', g: 'g1', st: 'completed', meta: 'Fertig · vor 2 Std.' },
+  { id: 'p4', name: 'Kompositionssatz beweisen', g: 'g2', st: 'running', meta: 'Läuft · 2 Sessions' },
+  { id: 'p5', name: 'Cubical-Lemma Bericht', g: 'g2', st: 'completed', meta: 'Fertig · gestern' },
+  { id: 'p6', name: 'Kundenportal migrieren', g: 'g3', st: 'completed', meta: 'Fertig · gestern' },
+  { id: 'p7', name: 'Release-Pipeline', g: 'g3', st: 'running', meta: 'Läuft · 1 Session' },
+  { id: 'p8', name: 'Steuererklärung 2025', g: 'g4', st: 'completed', meta: 'Fertig · Mo.' },
+  { id: 'p9', name: 'Notizen aufräumen', g: null, st: 'completed', meta: 'Fertig · Mo.' },
+];
+const RANK = { error: 0, waiting: 1, running: 2, new: 3, completed: 4 };
+const S = { variant: 'B', state: 'groups', tab: 'all', open: { g1: true, g2: true, g3: true, g4: true, none: true }, current: 'p1', view: 'over', draft: { task: '', g: null } };
+const $ = (s, r = document) => r.querySelector(s);
+const sb = $('#sb');
+const gName = (id) => (GROUPS.find((g) => g.id === id) || {}).name;
+const urgent = (list) => list.reduce((a, p) => (a === null || RANK[p.st] < RANK[a] ? p.st : a), null);
+const CHEV = '<svg width="11" height="11" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 2.5 8 6l-3.5 3.5"/></svg>';
+
+function projRow(p, showGroup) {
+  return `<button class="pr" draggable="true" data-p="${p.id}" ${p.id === S.current ? 'aria-current="true"' : ''}>
+    <span class="pr__st"><span class="si si--${p.st}"></span></span>
+    <span class="pr__txt"><span class="pr__name ${p.st === 'completed' ? 'done' : ''}">${p.name}</span><span class="pr__meta ${p.st === 'waiting' ? 'waiting' : ''}">${p.meta}${showGroup && p.g ? ` · <span class="pr__grp">${gName(p.g)}</span>` : ''}</span></span>
+  </button>`;
+}
+
+function render() {
+  const grouped = S.state === 'groups';
+  let head = `<div class="sb__brand"><svg width="16" height="16" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="1.5" y="1.5" width="7" height="7" rx="2"/><rect x="5.5" y="5.5" width="7" height="7" rx="2"/></svg>Agenten Verwalter 2000</div>
+    <button class="sb__new"><svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M7 2.5v9M2.5 7h9"/></svg><span>Neues Vorhaben${grouped && S.variant === 'A' && S.tab !== 'all' && S.tab !== 'none' ? ` <small>in „${gName(S.tab)}“</small>` : ''}</span><kbd>Ctrl N</kbd></button>`;
+  let body = '';
+  if (!grouped) {
+    body = PROJECTS.map((p) => projRow(p, false)).join('');
+  } else if (S.variant === 'A') {
+    const attention = (gid) => PROJECTS.some((p) => p.g === gid && p.st === 'waiting') && S.tab !== gid && S.tab !== 'all';
+    const count = (gid) => PROJECTS.filter((p) => (gid === 'all' ? true : gid === 'none' ? !p.g : p.g === gid)).length;
+    const tab = (id, label) => `<button class="tab" role="tab" data-tab="${id}" aria-selected="${S.tab === id}">${label}<span class="tab__n">${count(id)}</span>${attention(id) ? '<span class="dot dot--waiting" title="Ein Vorhaben wartet auf dich"></span>' : ''}</button>`;
+    head += `<div class="tabs" role="tablist" aria-label="Gruppen">
+      <div class="tabs__strip">${tab('all', 'Alle')}${GROUPS.map((g) => tab(g.id, g.name)).join('')}${tab('none', 'Ohne Gruppe')}</div>
+      <button class="tabs__btn" id="tab-list" title="Alle Gruppen" aria-label="Alle Gruppen">⌄${GROUPS.some((g) => attention(g.id)) ? '<span class="dot dot--waiting" style="display:inline-block;margin-left:1px;vertical-align:top"></span>' : ''}</button>
+      <button class="tabs__btn" id="tab-add" title="Neue Gruppe" aria-label="Neue Gruppe">+</button>
+    </div>`;
+    const list = PROJECTS.filter((p) => S.tab === 'all' || (S.tab === 'none' ? !p.g : p.g === S.tab));
+    body = list.length ? list.map((p) => projRow(p, S.tab === 'all')).join('') : '<p class="empty">Diese Gruppe ist leer. <b>Rechtsklick</b> auf ein Vorhaben → „In Gruppe verschieben“.</p>';
+  } else {
+    const sec = (id, label, list) => {
+      const open = S.open[id] !== false;
+      const u = urgent(list);
+      return `<div class="sec" data-drop="${id}"><button class="gh" data-gh="${id}" aria-expanded="${open}">${CHEV}<span class="gh__name">${label}</span>${!open && u && u !== 'completed' ? `<span class="si si--${u}"></span>` : ''}<span>${list.length}</span></button>${open ? list.map((p) => projRow(p, false)).join('') : ''}</div>`;
+    };
+    const none = PROJECTS.filter((p) => !p.g);
+    body = `<div class="sec" data-drop="none"><div class="dz">Ohne Gruppe — hier ablegen</div>${none.map((p) => projRow(p, false)).join('')}</div>` + GROUPS.map((g) => sec(g.id, g.name, PROJECTS.filter((p) => p.g === g.id))).join('');
+  }
+  sb.innerHTML = `${head}<div class="sb__list">${body}</div><div class="sb__foot"><span>Archiv</span><span>Einstellungen</span></div>`;
+  renderMain();
+}
+
+function renderMain() {
+  const m = $('#main');
+  if (S.view === 'new') {
+    const gn = S.draft.g ? gName(S.draft.g) : 'Ohne Gruppe';
+    m.innerHTML = `<div class="nv"><h1>Neues Vorhaben</h1>
+      <section><div class="hd"><span class="step">1</span>Aufgabe</div><textarea id="nv-task" placeholder="Was soll erledigt werden?">${S.draft.task}</textarea></section>
+      <section><div class="hd"><span class="step">2</span>Repositories</div><div class="chips"><span class="chip">Agenten-Verwalter-2000</span><span class="chip">dev-vault</span></div></section>
+      <section><div class="hd"><span class="step">3</span>Modell, Modus und Gruppe</div>
+        <div class="pickers"><button class="pick">Opus <small>hoch</small> ▾</button><button class="pick">Claude Code ▾</button>
+        <button class="pick" id="nv-group" aria-label="Gruppe: ${gn}"><small>Gruppe</small> ${gn} ▾</button></div>
+        <p style="margin:8px 0 0;font-size:12px">Die Gruppe ist freiwillig und lässt sich später durch Ziehen in der Leiste ändern.</p></section>
+      <div class="foot"><button class="go" id="nv-go">Vorhaben starten</button><button class="cancel" id="nv-cancel">Abbrechen</button></div></div>`;
+    return;
+  }
+  m.innerHTML = '<div class="ph">Hauptfläche (Chat / Übersicht) — unverändert.</div><ul id="hints">' + hints() + '</ul>';
+}
+
+function hints() {
+  if (S.state === 'none') return '<li>Heutiger Zustand: eine Liste, keine Gruppen, keine zusätzlichen Elemente.</li><li>Rechtsklick auf ein Vorhaben → „In Gruppe verschieben ▸ Neue Gruppe …“ legt die erste Gruppe an.</li>';
+  if (S.variant === 'A') return '<li>Reiter wechseln filtert die Liste; „Alle“ zeigt jedes Vorhaben mit Gruppen-Marke.</li><li>Gelber Punkt am Reiter „Agda“/„Arbeit“/…: dort wartet etwas auf dich.</li><li><b>+</b> legt eine Gruppe an (Name direkt in der Leiste tippen, Enter), <b>⌄</b> listet alle Gruppen.</li><li>Rechtsklick auf einen Reiter: Umbenennen, Nach links/rechts, Gruppe löschen.</li>';
+  return '<li><b>Ziehen:</b> ein Vorhaben auf eine Gruppe (Kopf oder Liste) ziehen weist es ihr zu; auf „Ohne Gruppe“ (erscheint beim Ziehen oben) nimmt es aus der Gruppe. Gilt auch für eine Gruppe → andere Gruppe.</li><li>Kopf anklicken klappt die Gruppe ein; eingeklappt zeigt er den dringendsten Status. Der Zustand bleibt nach einem Neustart erhalten.</li><li>Vorhaben ohne Gruppe stehen oben ohne Kopf.</li><li>„Neues Vorhaben“ (Knopf oben) startet ohne Gruppe; die Gruppe wählst du auf der Seite des neuen Vorhabens.</li><li>Rechtsklick auf Vorhaben oder Kopf öffnet das Menü (Tastatur-Weg zum Verschieben).</li>';
+}
+
+let menuEl = null;
+function closeMenu() { if (menuEl) { menuEl.remove(); menuEl = null; } }
+function menu(x, y, items) {
+  closeMenu();
+  menuEl = document.createElement('div'); menuEl.className = 'menu'; menuEl.setAttribute('role', 'menu');
+  menuEl.innerHTML = items.map((i, n) => i === '-' ? '<hr>' : i.label ? `<div class="lbl">${i.label}</div>` : `<button role="menuitem" data-i="${n}" class="${i.on ? 'on' : ''} ${i.danger ? 'danger' : ''}"><span>${i.text}</span>${i.key ? `<kbd>${i.key}</kbd>` : ''}</button>`).join('');
+  document.body.appendChild(menuEl);
+  menuEl.style.left = Math.min(x, innerWidth - 220) + 'px'; menuEl.style.top = Math.min(y, innerHeight - menuEl.offsetHeight - 8) + 'px';
+  menuEl.onclick = (e) => { const b = e.target.closest('[data-i]'); if (!b) return; const it = items[+b.dataset.i]; closeMenu(); it.run && it.run(); };
+}
+
+function moveItems(p) {
+  return [{ label: 'In Gruppe verschieben' },
+    ...GROUPS.map((g) => ({ text: g.name, on: p.g === g.id, run: () => { p.g = g.id; render(); } })),
+    { text: 'Ohne Gruppe', on: !p.g, run: () => { p.g = null; render(); } }, '-',
+    { text: 'Neue Gruppe …', run: () => { const name = prompt('Name der neuen Gruppe'); if (name) { const id = 'g' + (GROUPS.length + 1); GROUPS.push({ id, name }); p.g = id; S.state = 'groups'; sync(); render(); } } }];
+}
+
+sb.addEventListener('click', (e) => {
+  if (e.target.closest('.sb__new')) { S.view = 'new'; S.draft = { task: '', g: null }; render(); return; }
+  const t = e.target.closest('[data-tab]'); if (t) { S.tab = t.dataset.tab; render(); return; }
+  const g = e.target.closest('[data-gh]'); if (g) { S.open[g.dataset.gh] = S.open[g.dataset.gh] === false; render(); return; }
+  const p = e.target.closest('[data-p]'); if (p) { S.current = p.dataset.p; S.view = 'over'; render(); return; }
+  if (e.target.closest('#tab-list')) {
+    const r = e.target.closest('#tab-list').getBoundingClientRect();
+    menu(r.left - 150, r.bottom + 4, [{ label: 'Gruppen' }, { text: 'Alle', key: String(PROJECTS.length), on: S.tab === 'all', run: () => { S.tab = 'all'; render(); } },
+      ...GROUPS.map((g) => ({ text: g.name + (PROJECTS.some((p) => p.g === g.id && p.st === 'waiting') ? '  ●' : ''), key: String(PROJECTS.filter((p) => p.g === g.id).length), on: S.tab === g.id, run: () => { S.tab = g.id; render(); } })),
+      { text: 'Ohne Gruppe', key: String(PROJECTS.filter((p) => !p.g).length), on: S.tab === 'none', run: () => { S.tab = 'none'; render(); } }]);
+  }
+  if (e.target.closest('#tab-add')) {
+    const strip = $('.tabs__strip', sb); const inp = document.createElement('input'); inp.className = 'tabs__edit'; inp.placeholder = 'Name der Gruppe'; inp.setAttribute('aria-label', 'Name der neuen Gruppe');
+    strip.appendChild(inp); inp.focus(); strip.scrollLeft = strip.scrollWidth;
+    const done = (ok) => { const v = inp.value.trim(); if (ok && v) { const id = 'g' + (GROUPS.length + 1); GROUPS.push({ id, name: v }); S.tab = id; } render(); };
+    inp.onkeydown = (ev) => { if (ev.key === 'Enter') done(true); if (ev.key === 'Escape') done(false); }; inp.onblur = () => done(false);
+  }
+});
+sb.addEventListener('contextmenu', (e) => {
+  const p = e.target.closest('[data-p]'), t = e.target.closest('[data-tab]'), g = e.target.closest('[data-gh]');
+  const gid = t ? t.dataset.tab : g ? g.dataset.gh : null;
+  if (p) { e.preventDefault(); const pr = PROJECTS.find((x) => x.id === p.dataset.p); menu(e.clientX, e.clientY, [...moveItems(pr), '-', { text: 'Umbenennen', key: 'F2' }, { text: 'Archivieren' }]); }
+  else if (gid && GROUPS.some((x) => x.id === gid)) {
+    e.preventDefault(); const i = GROUPS.findIndex((x) => x.id === gid);
+    menu(e.clientX, e.clientY, [{ text: 'Gruppe umbenennen', run: () => { const n = prompt('Neuer Name', GROUPS[i].name); if (n) { GROUPS[i].name = n; render(); } } },
+      ...(S.variant === 'A' ? [{ text: 'Nach links', run: () => { if (i > 0) { [GROUPS[i - 1], GROUPS[i]] = [GROUPS[i], GROUPS[i - 1]]; render(); } } }, { text: 'Nach rechts', run: () => { if (i < GROUPS.length - 1) { [GROUPS[i + 1], GROUPS[i]] = [GROUPS[i], GROUPS[i + 1]]; render(); } } }] : []),
+      '-', { text: 'Gruppe löschen', danger: true, run: () => { PROJECTS.forEach((x) => { if (x.g === gid) x.g = null; }); GROUPS.splice(i, 1); if (S.tab === gid) S.tab = 'all'; if (!GROUPS.length) S.state = 'none', sync(); render(); } },
+      { label: 'Vorhaben bleiben erhalten (→ Ohne Gruppe)' }]);
+  }
+});
+let dragId = null;
+sb.addEventListener('dragstart', (e) => { const r = e.target.closest('[data-p]'); if (!r) return; dragId = r.dataset.p; e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', dragId); r.classList.add('drag'); sb.classList.add('dragging'); });
+const clearDrop = () => sb.querySelectorAll('.sec.drop').forEach((x) => x.classList.remove('drop'));
+sb.addEventListener('dragover', (e) => { if (!dragId) return; const t = e.target.closest('[data-drop]'); if (!t) return; e.preventDefault(); clearDrop(); t.classList.add('drop'); });
+sb.addEventListener('drop', (e) => { if (!dragId) return; const t = e.target.closest('[data-drop]'); if (!t) return; e.preventDefault(); const pr = PROJECTS.find((x) => x.id === dragId); pr.g = t.dataset.drop === 'none' ? null : t.dataset.drop; dragId = null; render(); });
+sb.addEventListener('dragend', () => { dragId = null; sb.classList.remove('dragging'); clearDrop(); render(); });
+$('#main').addEventListener('click', (e) => {
+  if (e.target.closest('#nv-cancel')) { S.view = 'over'; render(); }
+  if (e.target.closest('#nv-go')) { const id = 'p' + (PROJECTS.length + 1); const t = ($('#nv-task').value || 'Neues Vorhaben').split('\n')[0].slice(0, 40); PROJECTS.unshift({ id, name: t, g: S.draft.g, st: 'running', meta: 'Läuft · 1 Session' }); S.current = id; S.view = 'over'; if (S.draft.g) S.open[S.draft.g] = true; render(); }
+  const b = e.target.closest('#nv-group');
+  if (b) { S.draft.task = $('#nv-task').value; const r = b.getBoundingClientRect(); menu(r.left, r.bottom + 4, [{ label: 'Gruppe' }, ...GROUPS.map((g) => ({ text: g.name, on: S.draft.g === g.id, run: () => { S.draft.g = g.id; render(); } })), { text: 'Ohne Gruppe', on: !S.draft.g, run: () => { S.draft.g = null; render(); } }, '-', { text: 'Neue Gruppe …', run: () => { const n = prompt('Name der neuen Gruppe'); if (n) { const id = 'g' + (GROUPS.length + 1); GROUPS.push({ id, name: n }); S.draft.g = id; S.state = 'groups'; sync(); render(); } } }]); }
+});
+document.addEventListener('click', (e) => { if (menuEl && !menuEl.contains(e.target)) closeMenu(); }, true);
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeMenu(); });
+
+function seg(id, key, attr, apply) {
+  $(id).addEventListener('click', (e) => { const b = e.target.closest('button'); if (!b) return; apply(b.dataset[attr]); sync(); render(); });
+}
+function sync() {
+  document.querySelectorAll('#seg-variant button').forEach((b) => b.setAttribute('aria-pressed', b.dataset.v === S.variant));
+  document.querySelectorAll('#seg-state button').forEach((b) => b.setAttribute('aria-pressed', b.dataset.s === S.state));
+  document.querySelectorAll('#seg-theme button').forEach((b) => b.setAttribute('aria-pressed', b.dataset.t === document.documentElement.dataset.theme));
+}
+seg('#seg-variant', 'v', 'v', (v) => { S.variant = v; if (v === 'B') S.tab = 'all'; });
+seg('#seg-state', 's', 's', (v) => { S.state = v; });
+seg('#seg-theme', 't', 't', (v) => { document.documentElement.dataset.theme = v; });
+document.documentElement.dataset.theme = 'dark';
+render();
+</script>
+</body>
+</html>
