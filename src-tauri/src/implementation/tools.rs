@@ -9,6 +9,7 @@ use super::model::{
     MAX_SOURCE_CHARS, MAX_TITLE_CHARS, PhaseInput, check_length, validate,
 };
 use super::{IMPLEMENTATION_CHANGED_EVENT, changes};
+use crate::mcp_access::ProcessKind;
 use crate::mcp_access::tools::{ToolCall, ToolResult, ToolSet, ToolSpec};
 use crate::sessions::registry::SessionRegistry;
 
@@ -19,6 +20,7 @@ const DESCRIBE_PHASE: &str = "implementation_describe_phase";
 const COMPLETE_STATION: &str = "implementation_complete_station";
 const NO_REGISTRY: &str = "Der Verwalter startet noch";
 const NOT_A_STATION: &str = "Diese Session ist keine Station.";
+const SIDE_FORBIDDEN: &str = "Eine Nebenfrage darf die Umsetzung nur lesen.";
 const MAX_RESULT_CHARS: usize = 200;
 
 pub struct ImplementationTools;
@@ -107,6 +109,11 @@ impl ToolSet for ImplementationTools {
     }
 
     fn call(&self, call: &ToolCall) -> ToolResult {
+        // Vor der Registry: eine Nebenfrage darf nur lesen. Ihr Prozess hat dieselben Argumente wie der
+        // Hauptprozess (ADR 044) und damit auch die Freigabe, nur der Schlüssel unterscheidet sie.
+        if call.kind == ProcessKind::Side && call.name != GET {
+            return ToolResult::Err(SIDE_FORBIDDEN.to_owned());
+        }
         let Some(registry) = call.app.try_state::<SessionRegistry>() else {
             return ToolResult::Err(NO_REGISTRY.to_owned());
         };

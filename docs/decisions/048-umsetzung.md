@@ -18,7 +18,7 @@ Ein freigegebener Plan wird heute Phase für Phase in frischen Sessions umgesetz
 - **Der Zustand einer Station wird nicht gespeichert**, sondern aus ihrer Session abgeleitet (ohne Session wartend bzw. bereit, mit Session nach deren Status, mit Fertigmeldung fertig) — eine Wahrheit, wie beim Git-Zustand (Critical Rule 2). Gespeichert sind nur Aufbau, Texte, Bindung an die Session und die Fertigmeldung.
 - **Eine Umsetzung gehört einem Vorhaben**, je Vorhaben höchstens eine unfertige. Prüfung und Anlegen laufen unter derselben Datenbank-Sperre.
 - **Ein Präfix je Werkzeugsatz:** `implementation_create`, `implementation_get`, `implementation_set_phases`, `implementation_describe_phase`, `implementation_complete_station` — der Vertrag `ToolSet` kennt genau einen Präfix.
-- **Bindung an die aufrufende Session:** ein Werkzeug wirkt auf die Umsetzung, deren Station die Session ist, sonst auf die neueste ihres Vorhabens.
+- **Bindung an die aufrufende Session:** ein Werkzeug wirkt auf die Umsetzung, deren Station die Session ist, sonst auf die neueste ihres Vorhabens. Eine Nebenfrage darf von den Werkzeugen nur `implementation_get` aufrufen; ihr Schlüssel sperrt die übrigen ([ADR 044](044-nebenfragen.md)).
 - **Lagebericht als Text** (`implementation/report.rs`), gleich für Agent und Oberfläche; die Uhrzeit „Stand HH:MM“ ist Ortszeit (über `chrono`, das schon im Abhängigkeitsbaum lag).
 - **Sidebar:** die Umsetzung ist eine Zeile unter ihrem Vorhaben vor den Sessions; Stationen bekommen keine eigene Session-Zeile (`SessionSummary.station_of`), zählen aber in Aktivität und Ungelesen des Vorhabens.
 
