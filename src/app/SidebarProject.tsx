@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import type { MouseEvent, ReactElement } from 'react';
+import type { MouseEvent, PointerEvent, ReactElement } from 'react';
 import { Popover } from '@/components/Popover';
 import { StatusIcon } from '@/components/StatusIcon';
 import { RenameField } from '@/app/SidebarItem';
@@ -38,6 +38,8 @@ interface SidebarProjectProps {
   onSetGroup: (groupId: string | null) => void;
   /** Legt eine Gruppe an, weist das Vorhaben zu und öffnet die Umbenennung ihres Kopfs. */
   onNewGroup: () => void;
+  /** Tastendruck auf der Hauptzeile: Hier beginnt das Ziehen auf eine Gruppe. */
+  onRowPointerDown: (event: PointerEvent<HTMLButtonElement>) => void;
 }
 
 export function SidebarProject({
@@ -55,6 +57,7 @@ export function SidebarProject({
   onArchive,
   onSetGroup,
   onNewGroup,
+  onRowPointerDown,
 }: SidebarProjectProps): ReactElement {
   const [isMenuOpen, setIsMenuOpen] = useState<boolean>(false);
   const isRenamingProject: boolean =
@@ -141,6 +144,7 @@ export function SidebarProject({
           type="button"
           className={`sidebar-project__button${isOverviewActive ? ' sidebar-project__button--active' : ''}`}
           aria-current={isOverviewActive ? 'page' : undefined}
+          onPointerDown={onRowPointerDown}
           onClick={onOpen}
           onDoubleClick={(): void => {
             onStartRename('project', project.id);

@@ -74,6 +74,10 @@ function renderBody(): ReactElement | null {
 - Der Diff kommt vom Core fertig zerlegt (Art, Nummern, Text) und wird wie jede lange Liste virtualisiert; höchstens 20 000 Zeilen je Datei
 - Lange Tool-Ausgaben sind standardmäßig eingeklappt und werden erst beim Aufklappen geladen
 
+## Ziehen in der Oberfläche
+
+Zeiger-Ereignisse statt HTML5-Drag, solange Tauris Datei-Drop des Fensters an ist: Er fängt unter Windows (WebView2) HTML5-Ziehen im Seiteninhalt ab, unter Linux (WebKitGTK) fällt das nicht auf. Den Datei-Drop nicht ausschalten, er trägt die Anhänge. In virtualisierten Listen hängen die Ereignisse während des Ziehens an `window`, nicht per `setPointerCapture` an der Zeile, und das Ziel kommt aus der Position (`elementFromPoint`, `closest`). Beispiel: `src/app/useSidebarDrag.ts`.
+
 ## TypeScript specifics
 
 Children: `ReactNode`. Events explizit typisieren (`React.ChangeEvent<HTMLTextAreaElement>` usw.). Alles Weitere in [typescript.md](typescript.md).

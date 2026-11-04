@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef } from 'react';
-import type { ReactElement } from 'react';
+import type { PointerEvent, ReactElement } from 'react';
 import { useVirtualizer, type VirtualItem } from '@tanstack/react-virtual';
 import { buildSidebarRows } from '@/app/buildSidebarRows';
 import type { SidebarGroupEntry, SidebarProjectEntry, SidebarRow } from '@/app/buildSidebarRows';
@@ -7,6 +7,7 @@ import { SidebarGroup } from '@/app/SidebarGroup';
 import { SidebarImplementation } from '@/app/SidebarImplementation';
 import { SidebarItem } from '@/app/SidebarItem';
 import { SidebarProject } from '@/app/SidebarProject';
+import { useSidebarDrag } from '@/app/useSidebarDrag';
 import {
   projectActivity,
   sessionsByActivity,
@@ -37,6 +38,7 @@ import './Sidebar.css';
 
 const OVERSCAN = 12;
 const ESTIMATED_HEIGHT: Record<SidebarRow['kind'], number> = {
+  dropNone: 36,
   group: 32,
   project: 44,
   implementation: 26,
@@ -114,6 +116,12 @@ export function Sidebar({
   const hasAppUpdate: boolean = useAppUpdateStore((state) => state.status?.hasUpdate === true);
   const { error: actionError, run } = useActionError('sidebar');
   const listRef = useRef<HTMLDivElement>(null);
+  const { dragged, dropTarget, ghostRef, beginDrag } = useSidebarDrag(
+    listRef,
+    groups.length > 0 && renaming === null,
+    moveToGroup,
+  );
+  const isDragging: boolean = dragged !== null;
 
   const rows: SidebarRow[] = useMemo(() => {
     const ranked: RankedProject[] = projects
@@ -159,7 +167,7 @@ export function Sidebar({
       group,
       projects: ranked.filter((entry: RankedProject) => entry.project.groupId === group.id),
     }));
-    return buildSidebarRows(ungrouped, groupEntries);
+    return buildSidebarRows(ungrouped, groupEntries, isDragging);
   }, [
     projects,
     groups,
@@ -172,6 +180,7 @@ export function Sidebar({
     activeProjectId,
     activeImplementationId,
     showProjectOverview,
+    isDragging,
   ]);
 
   // Die Warnung gilt dem React Compiler, den das Projekt nicht nutzt; die Bibliothek schreibt ADR 002 vor.
@@ -296,6 +305,12 @@ export function Sidebar({
       return null;
     }
     switch (row.kind) {
+      case 'dropNone':
+        return (
+          <div className="sidebar__drop-none">
+            <div className="sidebar__drop-none-label">Ohne Gruppe — hier ablegen</div>
+          </div>
+        );
       case 'group':
         return renderGroup(row);
       case 'project':
@@ -383,6 +398,9 @@ export function Sidebar({
           onNewGroup={(): void => {
             moveToNewGroup(project.id);
           }}
+          onRowPointerDown={(event: PointerEvent<HTMLButtonElement>): void => {
+            beginDrag(event, project);
+          }}
         />
       </div>
     );
@@ -450,6 +468,14 @@ export function Sidebar({
     );
   }
 
+  function rowClassName(row: SidebarRow | undefined): string {
+    const isDropTarget: boolean = row !== undefined && row.dropGroup === dropTarget;
+    const isDragged: boolean = dragged !== null && row?.key === `project:${dragged.id}`;
+    return `sidebar__row${isDropTarget ? ' sidebar__row--drop' : ''}${
+      isDragged ? ' sidebar__row--dragged' : ''
+    }`;
+  }
+
   return (
     <nav className="sidebar" aria-label="Vorhaben">
       <div className="sidebar__brand">
@@ -505,7 +531,8 @@ export function Sidebar({
               key={item.key}
               ref={virtualizer.measureElement}
               data-index={item.index}
-              className="sidebar__row"
+              data-drop-group={rows[item.index]?.dropGroup}
+              className={rowClassName(rows[item.index])}
               style={{ transform: `translateY(${String(item.start)}px)` }}
             >
               {renderRow(rows[item.index])}
@@ -517,6 +544,15 @@ export function Sidebar({
         <p className="sidebar__error" role="alert">
           {actionError}
         </p>
+      )}
+      {dragged !== null && (
+        <div
+          ref={ghostRef}
+          className="sidebar__drag-ghost"
+          style={{ left: dragged.startX, top: dragged.startY }}
+        >
+          {dragged.name}
+        </div>
       )}
       <div className="sidebar__footer">
         {hasUsage && <UsageButton />}

@@ -37,10 +37,14 @@
 
 ## Abweichungen vom Entwurf
 
-Stand der Leiste (Lane „Gruppenköpfe“); Ziehen und die Gruppenwahl auf „Neues Vorhaben“ folgen in eigenen Schritten und stehen hier noch nicht.
+Stand der Leiste mit Köpfen und Ziehen; die Gruppenwahl auf „Neues Vorhaben“ folgt in einem eigenen Schritt und steht hier noch nicht.
 
 - Die Menüs hängen als Popover am Vorhaben bzw. Kopf (wie das bestehende Vorhaben-Menü) statt an der Mausposition.
 - „Neue Gruppe …“ fragt nicht per Eingabefenster, sondern legt die Gruppe „Neue Gruppe“ an, weist das Vorhaben zu und öffnet die Umbenennung am Kopf (Feld wie bei Vorhaben und Sessions; Enter speichert, Esc behält „Neue Gruppe“). Dasselbe gilt für das Umbenennen einer Gruppe; der Menüpunkt heißt dort „Umbenennen“ statt „Gruppe umbenennen“.
 - Der Hinweis „Vorhaben bleiben erhalten (→ Ohne Gruppe)“ steht nicht als Zeile im Menü, sondern als `title` an „Gruppe löschen“.
 - Die Vorhaben-Zeilen in einer Gruppe behalten ihren eigenen Chevron zum Auf-/Zuklappen der Sessions; der Entwurf lässt dafür nur Platz (20 px) und zeigt den Chevron nicht.
 - Ein eingeklappter Kopf zeigt den Status nur, wenn er nicht „fertig“ oder „abgebrochen“ ist; der Entwurf nennt „fertig“ ebenso, „abgebrochen“ kennt er nicht.
+- Das Ziehen läuft mit Zeiger-Ereignissen statt HTML5-Ziehen (Begründung in `docs/conventions/react.md`). Das Folgebild ist deshalb ein kleines Schild mit dem Namen des Vorhabens statt des Abbilds der Zeile.
+- Das Ziel ist einfacher hervorgehoben: Akzentton und je eine Linie links und rechts über alle sichtbaren Zeilen der Gruppe, ohne obere und untere Kante und ohne Rundung, weil jede Zeile der virtualisierten Liste für sich liegt und die Gruppe kein gemeinsames Element hat.
+- Vor dem Ziehen bleibt der Cursor der Hand-Cursor der Zeile; der Entwurf zeigt schon beim Überfahren „grab“. Beim Ziehen gilt „grabbing“ im ganzen Fenster.
+- Über den Entwurf hinaus: Die Liste scrollt beim Ziehen am oberen und unteren Rand von selbst, und die Fläche „Ohne Gruppe“ steht als eigene Zeile ganz oben in der Liste, ist bei gescrollter Liste also erst über dieses Scrollen erreichbar.

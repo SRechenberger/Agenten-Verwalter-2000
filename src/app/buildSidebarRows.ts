@@ -9,8 +9,11 @@ import type { SessionSummary } from '@/lib/bindings/SessionSummary';
 export const COLLAPSE_FROM = 5;
 /** So viele der zuletzt aktiven Sessions bleiben im gekürzten Vorhaben sichtbar. */
 export const VISIBLE_COUNT = 3;
+/** Ablegeziel „ohne Gruppe“ neben den Gruppen-IDs in `dropGroup`. */
+export const DROP_NONE = 'none';
 
-export type SidebarRow =
+export type SidebarRow = (
+  | { kind: 'dropNone'; key: string }
   | {
       kind: 'group';
       key: string;
@@ -36,7 +39,11 @@ export type SidebarRow =
       /** Anzahl der ausgeblendeten Sessions; im aufgeklappten Zustand die der eingeklappten Ansicht. */
       hiddenCount: number;
       isShowingAll: boolean;
-    };
+    }
+) & {
+  /** Worauf ein Ablegen auf dieser Zeile zielt: die ID ihrer Gruppe oder `DROP_NONE`. */
+  dropGroup: string;
+};
 
 export interface SidebarProjectEntry {
   project: ProjectSummary;
@@ -59,14 +66,18 @@ export interface SidebarGroupEntry {
 
 /** Die flache Zeilenliste der Sidebar: erst die Vorhaben ohne Gruppe, dann je Gruppe ihr Kopf und, solange er
  *  nicht eingeklappt ist, ihre Vorhaben. Je Vorhaben seine Zeile, bei aufgeklappten darunter ihre Umsetzungen
- *  und Sessions. */
+ *  und Sessions. Mit `showDropNone` (während des Ziehens) steht die Ablegefläche „Ohne Gruppe“ ganz oben. */
 export function buildSidebarRows(
   ungrouped: readonly SidebarProjectEntry[],
   groups: readonly SidebarGroupEntry[],
+  showDropNone: boolean,
 ): SidebarRow[] {
   const rows: SidebarRow[] = [];
+  if (showDropNone) {
+    rows.push({ kind: 'dropNone', key: 'drop-none', dropGroup: DROP_NONE });
+  }
   for (const entry of ungrouped) {
-    pushProjectRows(rows, entry);
+    pushProjectRows(rows, entry, DROP_NONE);
   }
   for (const { group, projects } of groups) {
     rows.push({
@@ -75,10 +86,11 @@ export function buildSidebarRows(
       group,
       count: projects.length,
       urgentStatus: mostUrgentStatus(projects),
+      dropGroup: group.id,
     });
     if (!group.collapsed) {
       for (const entry of projects) {
-        pushProjectRows(rows, entry);
+        pushProjectRows(rows, entry, group.id);
       }
     }
   }
@@ -103,8 +115,16 @@ function mostUrgentStatus(projects: readonly SidebarProjectEntry[]): DisplayStat
 function pushProjectRows(
   rows: SidebarRow[],
   { project, sessions, implementations, isExpanded, showAll, pinnedIds }: SidebarProjectEntry,
+  dropGroup: string,
 ): void {
-  rows.push({ kind: 'project', key: `project:${project.id}`, project, sessions, isExpanded });
+  rows.push({
+    kind: 'project',
+    key: `project:${project.id}`,
+    project,
+    sessions,
+    isExpanded,
+    dropGroup,
+  });
   if (!isExpanded) {
     return;
   }
@@ -115,6 +135,7 @@ function pushProjectRows(
       key: `implementation:${implementation.id}`,
       implementation,
       isLast: ownSessions.length === 0 && index === implementations.length - 1,
+      dropGroup,
     });
   });
   const isLong: boolean = ownSessions.length >= COLLAPSE_FROM;
@@ -133,6 +154,7 @@ function pushProjectRows(
       key: `session:${session.id}`,
       session,
       isLast: !hasMoreRow && index === shown.length - 1,
+      dropGroup,
     });
   });
   if (hasMoreRow) {
@@ -142,6 +164,7 @@ function pushProjectRows(
       projectId: project.id,
       hiddenCount: showAll ? ownSessions.length - VISIBLE_COUNT : hiddenCount,
       isShowingAll: showAll,
+      dropGroup,
     });
   }
 }

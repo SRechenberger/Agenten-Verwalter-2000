@@ -87,6 +87,57 @@
     z-index: 1;
   }
 
+  &__row--dragged {
+    opacity: 0.45;
+  }
+
+  /* Die Zeilen einer Gruppe stoßen aneinander: die seitlichen Linien ergeben zusammen den Rahmen um die Gruppe. */
+  &__row--drop {
+    background: var(--color-accent-subtle);
+    box-shadow:
+      inset 1px 0 0 var(--color-accent),
+      inset -1px 0 0 var(--color-accent);
+  }
+
+  /* Abstand als Padding, weil die Zeile der virtuellen Liste Außenabstände nicht mitmisst. */
+  &__drop-none {
+    padding: var(--space-2xs) 0 var(--space-xs);
+  }
+
+  &__drop-none-label {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 28px;
+    border: 1px dashed var(--color-border);
+    border-radius: var(--radius-md);
+    color: var(--color-fg-muted);
+    font-size: var(--font-size-xs);
+  }
+
+  &__row--drop &__drop-none-label {
+    border-color: var(--color-accent);
+    color: var(--color-accent-text);
+  }
+
+  &__drag-ghost {
+    position: fixed;
+    z-index: var(--z-tooltip);
+    max-width: 200px;
+    margin: var(--space-lg) 0 0 var(--space-lg);
+    padding: var(--space-2xs) var(--space-md);
+    overflow: hidden;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    background: var(--color-bg-popover);
+    box-shadow: var(--shadow-popover);
+    color: var(--color-fg-primary);
+    font-size: var(--font-size-xs);
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    pointer-events: none;
+  }
+
   /* Ein eingeklapptes Vorhaben lässt 1 px bis zur nächsten Zeile; ein aufgeklapptes geht ohne Lücke in seine Sessions über. */
   &__project--collapsed {
     padding-bottom: 1px;
@@ -191,4 +242,11 @@
     font-size: var(--font-size-xs);
     color: var(--color-status-error);
   }
+}
+
+/* Am Wurzelelement, weil der Zeiger die Leiste beim Ziehen verlassen darf. */
+:root.sidebar-dragging,
+:root.sidebar-dragging * {
+  cursor: grabbing;
+  user-select: none;
 }
