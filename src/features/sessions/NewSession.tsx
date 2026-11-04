@@ -353,6 +353,11 @@ export function NewSession({ onCreated, onCancel }: NewSessionProps): ReactEleme
                     placement="below"
                     note="Gilt für den Start dieser Session. Später im Chat änderbar."
                     emptyText={codexEmptyText}
+                    effort={{
+                      value: shownEffort,
+                      onChange: setEffort,
+                      efforts: codexEfforts(chosenCodexModel),
+                    }}
                   />
                 )}
                 {openMenu === 'model' && !isCodex && (
@@ -363,6 +368,7 @@ export function NewSession({ onCreated, onCancel }: NewSessionProps): ReactEleme
                     onClose={closeMenu}
                     placement="below"
                     note="Gilt für den Start dieser Session. Später im Chat änderbar."
+                    effort={{ value: shownEffort, onChange: setEffort }}
                   />
                 )}
               </div>
