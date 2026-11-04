@@ -59,7 +59,9 @@ interface LaneContext {
 }
 
 function laneClass(lane: number): string {
-  return lane === 1 ? '' : ` timeline__lane--${String(lane)}`;
+  // Spur 1 trägt die Klasse ebenfalls: ohne sie erbt eine Durchgangslinie die Verschiebung der Zeile
+  // und landet auf deren Spur statt auf der eigenen.
+  return ` timeline__lane--${String(lane)}`;
 }
 
 function lineClass(kind: 'above' | 'below' | 'full', tone: StationTone, lane?: number): string {

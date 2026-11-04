@@ -17,5 +17,9 @@ pub const TITLE_SYSTEM_PROMPT: &str = "Du vergibst den Titel für eine Arbeitssi
 
 pub const TITLE_SCHEMA: &str = r#"{"type":"object","properties":{"title":{"type":"string"}},"required":["title"],"additionalProperties":false}"#;
 
+pub const HANDOFF_SYSTEM_PROMPT: &str = "Du schreibst die Übergabe einer Arbeitssitzung zwischen einem Entwickler (Nutzer) und einem Coding-Agenten (Claude) an eine neue Sitzung, die ohne diesen Verlauf weitermacht. Du bekommst nur den Gesprächstext, keine Werkzeug-Ausgaben. Antworte auf Deutsch, sachlich, ohne Einleitung; jedes Feld ist leer, wenn der Verlauf nichts dazu enthält. goal: worum es geht, höchstens zwei Sätze. done: was erledigt ist, als Stichpunkte mit „- “ je Zeile. decisions: getroffene Entscheidungen und verworfene Wege samt Grund, als Stichpunkte. current: woran zuletzt gearbeitet wurde und wie weit es ist, höchstens drei Sätze. open: offene Punkte und unbeantwortete Fragen, als Stichpunkte; beginnt mit „Deine Entscheidung:“, wenn der Agent auf den Nutzer wartet. next: der nächste Schritt, ein Satz. references: im Verlauf genannte Dateien, Pläne, Branches, Tickets und Befehle, die die neue Sitzung braucht, als Stichpunkte, wörtlich wie im Verlauf. Erfinde nichts, was nicht im Verlauf steht.";
+
+pub const HANDOFF_SCHEMA: &str = r#"{"type":"object","properties":{"goal":{"type":"string"},"done":{"type":"string"},"decisions":{"type":"string"},"current":{"type":"string"},"open":{"type":"string"},"next":{"type":"string"},"references":{"type":"string"}},"required":["goal","done","decisions","current","open","next","references"],"additionalProperties":false}"#;
+
 /// Die erste Nachricht kann ein langer Einfüge-Text sein; für einen Titel genügt der Anfang.
 pub const TITLE_INPUT_CHARS: usize = 2000;

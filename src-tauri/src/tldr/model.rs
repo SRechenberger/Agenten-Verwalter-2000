@@ -72,6 +72,17 @@ pub struct ProjectTldrView {
     pub sessions: Vec<ProjectSessionTldr>,
 }
 
+/// Text für den Entwurf der Folgesession (ADR 054); nur im Speicher.
+#[derive(Debug, Clone, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct HandoffBrief {
+    pub text: String,
+    /// `true`, wenn Haiku zusammengefasst hat; `false` beim Rückfall.
+    pub summarized: bool,
+    /// Grund des Rückfalls; `None`, wenn Haiku geantwortet hat.
+    pub failure: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct TldrChangedEvent {

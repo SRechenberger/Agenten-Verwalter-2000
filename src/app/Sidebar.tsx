@@ -16,6 +16,7 @@ import { UsageButton } from '@/features/usage/UsageButton';
 import type { ImplementationView } from '@/lib/bindings/ImplementationView';
 import type { ProjectSummary } from '@/lib/bindings/ProjectSummary';
 import type { SessionSummary } from '@/lib/bindings/SessionSummary';
+import { renameImplementation } from '@/lib/implementation';
 import { archiveProject, renameProject } from '@/lib/projects';
 import { deleteSession, renameSession } from '@/lib/sessions';
 import { useActionError } from '@/lib/useActionError';
@@ -55,7 +56,6 @@ interface SidebarProps {
   onSelectProject: (projectId: string) => void;
   onSelectImplementation: (implementationId: string) => void;
   /** Legt eine Rückfrage zur Umsetzung an und öffnet sie. */
-  onNewInquiry: (implementationId: string) => Promise<void>;
   onNew: () => void;
   onOpenSettings: () => void;
   onOpenArchive: () => void;
@@ -76,7 +76,6 @@ export function Sidebar({
   onSelectSession,
   onSelectProject,
   onSelectImplementation,
-  onNewInquiry,
   onNew,
   onOpenSettings,
   onOpenArchive,
@@ -183,7 +182,9 @@ export function Sidebar({
       if (target instanceof HTMLElement && target.closest('input, textarea')) {
         return;
       }
-      if (showProjectOverview && activeProjectId !== null) {
+      if (activeImplementationId !== null) {
+        startRename('implementation', activeImplementationId);
+      } else if (showProjectOverview && activeProjectId !== null) {
         startRename('project', activeProjectId);
       } else if (activeSessionId !== null) {
         startRename('session', activeSessionId);
@@ -193,13 +194,19 @@ export function Sidebar({
     return (): void => {
       window.removeEventListener('keydown', handleKeyDown);
     };
-  }, [activeSessionId, activeProjectId, showProjectOverview, startRename]);
+  }, [activeSessionId, activeProjectId, activeImplementationId, showProjectOverview, startRename]);
 
   function commitRename(kind: RenameKind, id: string, name: string): void {
-    run(
-      () => (kind === 'project' ? renameProject(id, name) : renameSession(id, name)),
-      'Umbenennen fehlgeschlagen',
-    );
+    run((): Promise<void> => {
+      switch (kind) {
+        case 'project':
+          return renameProject(id, name);
+        case 'implementation':
+          return renameImplementation(id, name);
+        case 'session':
+          return renameSession(id, name);
+      }
+    }, 'Umbenennen fehlgeschlagen');
     stopRename();
   }
 
@@ -307,12 +314,21 @@ export function Sidebar({
         <SidebarImplementation
           implementation={implementation}
           isActive={implementation.id === activeImplementationId}
+          isRenaming={
+            renaming !== null &&
+            renaming.kind === 'implementation' &&
+            renaming.id === implementation.id
+          }
           onSelect={(): void => {
             onSelectImplementation(implementation.id);
           }}
-          onNewInquiry={(): void => {
-            run(() => onNewInquiry(implementation.id), 'Rückfrage nicht angelegt');
+          onStartRename={(): void => {
+            startRename('implementation', implementation.id);
           }}
+          onCommitRename={(name: string): void => {
+            commitRename('implementation', implementation.id, name);
+          }}
+          onCancelRename={stopRename}
         />
       </div>
     );

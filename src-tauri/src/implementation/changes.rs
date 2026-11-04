@@ -189,7 +189,14 @@ fn apply(
     registry.store_plan_change(&view.id, &removed_ids, &phases, &stations, change.as_ref())?;
     let fresh = registry.implementation_view(&view.id)?;
     announce(app, &fresh);
-    if fresh.auto_start && !fresh.stop_after_current {
+    // Eine Umsetzung, deren erste Station der Benutzer noch nicht gestartet hat, beginnt auch nach
+    // einer Plan-Änderung nicht von selbst.
+    let has_begun: bool = fresh
+        .phases
+        .iter()
+        .flat_map(|phase: &PhaseView| phase.stations.iter())
+        .any(|station: &StationView| station.session_id.is_some());
+    if has_begun && fresh.auto_start && !fresh.stop_after_current {
         start::schedule_ready(app, &view.id)?;
     }
     Ok(())

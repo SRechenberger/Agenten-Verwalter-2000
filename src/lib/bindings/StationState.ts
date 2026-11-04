@@ -3,4 +3,4 @@
 /**
  * Zustand einer Station, abgeleitet aus ihrer Session; nie gespeichert.
  */
-export type StationState = "pending" | "ready" | "countdown" | "starting" | "running" | "asking" | "waitsForYou" | "done" | "error";
+export type StationState = "pending" | "ready" | "countdown" | "starting" | "running" | "waitsForScript" | "asking" | "waitsForYou" | "done" | "error";

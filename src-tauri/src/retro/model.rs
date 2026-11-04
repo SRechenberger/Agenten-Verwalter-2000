@@ -29,6 +29,7 @@ pub struct SessionFindings {
     pub corrections: Vec<Correction>,
     pub failures: Vec<Failure>,
     pub unbacked_claims: Vec<Claim>,
+    pub effects: Vec<Effect>,
     pub facts: Vec<Fact>,
     pub open: Vec<String>,
 }
@@ -47,6 +48,12 @@ pub struct Failure {
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct Claim {
+    pub quote: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct Effect {
+    pub what: String,
     pub quote: String,
 }
 

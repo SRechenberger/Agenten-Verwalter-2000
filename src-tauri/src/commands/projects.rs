@@ -3,6 +3,7 @@ use crate::error::CommandError;
 use crate::projects::model::{ProjectCreated, ProjectSummary};
 use crate::session_tools::model::SelfRelease;
 use crate::sessions::registry::{NewSession, SessionRegistry};
+use crate::terminal::TerminalService;
 
 // Die Commands sind `async`, damit der Prozessstart nicht auf dem Haupt-Thread läuft.
 
@@ -75,7 +76,10 @@ pub async fn project_add_repository(
 pub async fn project_archive(
     app: tauri::AppHandle,
     registry: tauri::State<'_, SessionRegistry>,
+    terminals: tauri::State<'_, TerminalService>,
     project_id: String,
 ) -> Result<(), CommandError> {
-    registry.archive_project(&app, &project_id)
+    registry.archive_project(&app, &project_id)?;
+    terminals.close_project(&app, &project_id);
+    Ok(())
 }

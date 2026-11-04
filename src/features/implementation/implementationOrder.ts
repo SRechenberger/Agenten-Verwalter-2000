@@ -12,7 +12,13 @@ const CHANGE_PREFIX = 'change:';
 /** Spuren einer Welle; ab der vierten Phase teilt sich eine Phase die dritte Spur. */
 const MAX_LANE = 3;
 /** Zustände, in denen eine Station gerade Arbeit hat oder vom Benutzer braucht. */
-const ACTIVE_STATES: readonly StationState[] = ['running', 'starting', 'asking', 'waitsForYou'];
+const ACTIVE_STATES: readonly StationState[] = [
+  'running',
+  'starting',
+  'waitsForScript',
+  'asking',
+  'waitsForYou',
+];
 const NEEDS_USER_STATES: readonly StationState[] = ['asking', 'waitsForYou'];
 
 export interface StationRef {

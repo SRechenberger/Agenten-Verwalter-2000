@@ -1,6 +1,6 @@
 # Phase 7 — Skills: Planung und Umsetzung auf die Werkzeuge des Verwalters umstellen
 
-Rating **standard** · Wave 7 · Aufwand M · Status: pending
+Rating **standard** · Wave 7 · Aufwand M · Status: complete
 
 **Ort:** nicht das Verwalter-Repo. Geschrieben wird im Master der eigenen Konfiguration, `G:\Meine Ablage\U104_Agents\` (`skills/`, `commands/`, `CLAUDE.md`, `skill-evolution-log.md`), danach gespiegelt nach `~\.claude\skills` und `~\.claude\commands` (`robocopy … /E`). Kein Commit im Verwalter-Repo; der Report-Back dieser Phase ist der Decision-Log-Eintrag. Läuft die Phase als Station im Verwalter, muss der Master-Ordner als „Ordner ohne Git“ am Vorhaben hängen (ADR 018), sonst darf der Agent dort nicht schreiben.
 
@@ -40,3 +40,5 @@ Rating **standard** · Wave 7 · Aufwand M · Status: pending
 - Seven-Goals-Check (je ein Satz; Token-Effizienz: die Skills werden nicht länger als nötig — jede neue Zeile ersetzt eine Startzeilen-Regel oder lenkt um).
 
 ## Report-Back
+
+AK 1–9 erfüllt, AK 10 durch Gegenlesen der neuen Zeilen. Geändert im Master (`H:\Meine Ablage\U104_Agents`): `mode-planning/SKILL.md` + `WORK.md`, `mode-implementing/SKILL.md` + `WORK.md`, `agents/tester|developer|reviewer.md`, `commands/implement.md` + `plan.md`, `CLAUDE.md`; Decision-Log-Eintrag „Umsetzung im Verwalter, ADR 048“; `robocopy` skills (7 Dateien) und commands (2) kopiert, `CLAUDE.md` von Hand. Abweichung: letzte private Phase gibt den Abschlussbericht statt der „Prüfliste“ aus.

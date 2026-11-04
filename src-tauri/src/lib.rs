@@ -34,6 +34,7 @@ pub mod side;
 pub mod skills;
 pub mod sourcing;
 pub mod standalone;
+pub mod terminal;
 pub mod tldr;
 pub mod usage;
 pub mod voice;
@@ -51,6 +52,7 @@ use codex_account::CodexAccountService;
 use db::Database;
 use filesystem::workspace::data_dir;
 use sessions::registry::SessionRegistry;
+use terminal::TerminalService;
 use usage::UsageService;
 use voice::VoiceService;
 
@@ -81,6 +83,7 @@ pub fn run() {
             }
             app.manage(app_update);
             app.manage(VoiceService::new());
+            app.manage(TerminalService::new());
             SessionRegistry::start_reaper(app.handle().clone());
             // Ohne Server fehlen nur die Artefakte; `artifacts_list` meldet das.
             match artifacts::server::start(app.handle().clone()) {
@@ -191,6 +194,7 @@ pub fn run() {
             commands::side::side_dismiss,
             commands::tldr::tldr_session_load,
             commands::tldr::tldr_session_create,
+            commands::tldr::tldr_handoff_brief,
             commands::tldr::tldr_project_load,
             commands::tldr::tldr_project_create,
             commands::tldr::tldr_set_carry,
@@ -198,12 +202,20 @@ pub fn run() {
             commands::implementation::implementation_list,
             commands::implementation::implementation_report,
             commands::implementation::implementation_new_inquiry,
+            commands::implementation::implementation_rename,
             commands::implementation::implementation_set_auto_start,
             commands::implementation::implementation_set_stop_after_current,
             commands::implementation::implementation_start_station,
             commands::implementation::implementation_cancel_countdown,
             commands::implementation::implementation_apply_change,
             commands::implementation::implementation_complete_station,
+            commands::terminal::terminal_list,
+            commands::terminal::terminal_open,
+            commands::terminal::terminal_attach,
+            commands::terminal::terminal_detach,
+            commands::terminal::terminal_write,
+            commands::terminal::terminal_resize,
+            commands::terminal::terminal_close,
             commands::settings::settings_load,
             commands::settings::settings_update,
             commands::settings::settings_local_models,
@@ -217,6 +229,14 @@ pub fn run() {
             commands::voice::voice_stop,
             commands::voice::voice_cancel,
         ])
-        .run(tauri::generate_context!())
-        .expect("Tauri-Laufzeit konnte nicht starten");
+        .build(tauri::generate_context!())
+        .expect("Tauri-Laufzeit konnte nicht starten")
+        .run(|app: &tauri::AppHandle, event: tauri::RunEvent| {
+            // Kein Shell-Prozess überlebt die App.
+            if let tauri::RunEvent::Exit = event
+                && let Some(terminals) = app.try_state::<TerminalService>()
+            {
+                terminals.close_all();
+            }
+        });
 }

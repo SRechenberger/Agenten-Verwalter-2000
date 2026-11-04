@@ -144,6 +144,10 @@
     }
   }
 
+  &__lane--1 {
+    --lane-shift: 0px;
+  }
+
   &__lane--2 {
     --lane-shift: var(--lane-step);
   }

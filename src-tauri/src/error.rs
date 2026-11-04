@@ -63,6 +63,9 @@ pub enum CommandError {
     /// Ein Satz über die Umsetzung (ADR 048), so wie der Agent ihn liest.
     #[error("{0}")]
     Implementation(String),
+    /// Ein Satz über ein Terminal (ADR 055).
+    #[error("{0}")]
+    Terminal(String),
 }
 
 impl From<rusqlite::Error> for CommandError {

@@ -12,7 +12,7 @@
 
 **Types:** `feat`, `fix`, `refactor`, `perf`, `docs`, `style`, `build`, `ci`, `chore`.
 
-**Scopes:** die Feature- und Core-Namen aus der [Code-Map](../code-map.md): `projects`, `sessions`, `tldr`, `chat`, `changes`, `review`, `repositories`, `settings`, `attachments`, `skills`, `background`, `context`, `usage`, `account`, `mcp`, `mcp_access`, `notices`, `voice`, `artifacts`, `implementation`, `agents`, `standalone`, `codex`, `git`, `worktrees`, `processes`, `db`, `ui`, `setup`, `docs`, `release` (Anhebung und Release-Pipeline, siehe [releases.md](releases.md)).
+**Scopes:** die Feature- und Core-Namen aus der [Code-Map](../code-map.md): `projects`, `sessions`, `tldr`, `chat`, `changes`, `review`, `repositories`, `settings`, `attachments`, `skills`, `background`, `context`, `usage`, `account`, `mcp`, `mcp_access`, `notices`, `voice`, `artifacts`, `implementation`, `retro`, `terminal`, `agents`, `standalone`, `codex`, `git`, `worktrees`, `processes`, `db`, `ui`, `setup`, `docs`, `release` (Anhebung und Release-Pipeline, siehe [releases.md](releases.md)).
 
 ## Regeln
 

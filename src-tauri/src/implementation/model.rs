@@ -32,6 +32,9 @@ pub enum StationState {
     Countdown,
     Starting,
     Running,
+    /// Antwort abgegeben, ein Hintergrund-Befehl (etwa der Testlauf) läuft noch; der Agent setzt
+    /// fort, sobald er endet. Der Benutzer muss nichts tun.
+    WaitsForScript,
     Asking,
     WaitsForYou,
     Done,
@@ -46,7 +49,7 @@ impl StationState {
             StationState::WaitsForYou => 6,
             StationState::Error => 5,
             StationState::Countdown => 4,
-            StationState::Running | StationState::Starting => 3,
+            StationState::Running | StationState::WaitsForScript | StationState::Starting => 3,
             StationState::Ready => 2,
             StationState::Pending => 1,
             StationState::Done => 0,

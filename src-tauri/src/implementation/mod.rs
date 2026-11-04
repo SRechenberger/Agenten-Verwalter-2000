@@ -276,6 +276,8 @@ pub struct SessionLive {
     pub question: Option<String>,
     pub last_activity_at: f64,
     pub unread: bool,
+    /// Ein Hintergrund-Befehl läuft nach der abgegebenen Antwort noch (ADR 032).
+    pub awaits_script: bool,
 }
 
 /// Baut die Ansicht aus den Zeilen. `live` enthält die Sessions der Stationen, `numbers` die
@@ -379,7 +381,7 @@ fn station_view(station: &StationRow, live: &HashMap<String, SessionLive>) -> St
         StationState::Done
     } else {
         session.map_or(StationState::Pending, |session: &SessionLive| {
-            state_of(session.status)
+            state_of(session.status, session.awaits_script)
         })
     };
     StationView {
@@ -404,9 +406,11 @@ fn station_view(station: &StationRow, live: &HashMap<String, SessionLive>) -> St
     }
 }
 
-/// Fertig heißt gemeldet: eine Antwort ohne Meldung wartet auf den Benutzer.
-fn state_of(status: SessionStatus) -> StationState {
+/// Fertig heißt gemeldet: eine Antwort ohne Meldung wartet auf den Benutzer — außer ein
+/// Hintergrund-Befehl läuft noch, dann wartet die Station auf den Befehl.
+fn state_of(status: SessionStatus, awaits_script: bool) -> StationState {
     match status {
+        SessionStatus::Completed if awaits_script => StationState::WaitsForScript,
         SessionStatus::Starting | SessionStatus::New => StationState::Starting,
         SessionStatus::Running => StationState::Running,
         SessionStatus::Waiting => StationState::Asking,

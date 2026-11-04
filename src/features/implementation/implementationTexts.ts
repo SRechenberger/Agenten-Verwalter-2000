@@ -132,6 +132,8 @@ export function stateText(station: StationView, now: number): string {
     case 'running':
     case 'starting':
       return `läuft seit ${durationText(runningFor(station, now))}`;
+    case 'waitsForScript':
+      return 'wartet auf einen Hintergrund-Befehl, etwa den Testlauf';
     case 'asking':
       return 'fragt dich';
     case 'waitsForYou':
@@ -156,6 +158,8 @@ export function stationMeta(station: StationView, now: number): string {
     case 'running':
     case 'starting':
       return `läuft ${durationText(runningFor(station, now))}`;
+    case 'waitsForScript':
+      return 'Skript läuft';
     case 'asking':
       return 'fragt';
     case 'waitsForYou':
@@ -183,7 +187,7 @@ export function phaseMeta(phase: PhaseView): string {
   const checks: [StationState[], string][] = [
     [['asking', 'waitsForYou'], 'fragt dich'],
     [['error'], 'Fehler'],
-    [['running', 'starting', 'countdown'], 'läuft'],
+    [['running', 'starting', 'waitsForScript', 'countdown'], 'läuft'],
     [['ready'], 'bereit'],
   ];
   for (const [matching, text] of checks) {

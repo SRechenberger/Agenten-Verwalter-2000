@@ -455,6 +455,18 @@ pub fn set_flags(
     Ok(())
 }
 
+pub fn rename(
+    connection: &Connection,
+    implementation_id: &str,
+    name: &str,
+) -> Result<(), CommandError> {
+    connection.execute(
+        "UPDATE implementations SET name = ?2 WHERE id = ?1",
+        params![implementation_id, name],
+    )?;
+    Ok(())
+}
+
 pub fn set_pending_change(
     connection: &Connection,
     implementation_id: &str,

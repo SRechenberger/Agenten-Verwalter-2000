@@ -1,6 +1,6 @@
 # 033 — Warnhinweise
 
-**Status:** angenommen · **Datum:** 2026-10-21
+**Status:** angenommen · **Datum:** 2026-10-21 · teilweise abgelöst durch [ADR 054](054-uebergabe-bei-kaltem-cache.md) (Knopf im Cache-Hinweis)
 
 ## Kontext
 

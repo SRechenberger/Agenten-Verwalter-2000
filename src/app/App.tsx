@@ -536,7 +536,6 @@ export function App(): ReactElement {
         onSelectSession={selectSession}
         onSelectProject={selectProject}
         onSelectImplementation={selectImplementation}
-        onNewInquiry={startInquiry}
         onNew={openNewSession}
         onOpenSettings={openSettings}
         onOpenArchive={(): void => {

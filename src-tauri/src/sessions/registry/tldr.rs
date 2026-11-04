@@ -21,6 +21,7 @@ use crate::db::tldr as tldr_rows;
 use crate::error::CommandError;
 use crate::sessions::clean_title;
 use crate::sessions::model::SessionStatus;
+use crate::tldr::brief::{BriefInput, fallback_body};
 use crate::tldr::model::{
     ProjectSessionTldr, ProjectTldr, ProjectTldrView, SessionTldr, SessionTldrView,
     TldrChangedEvent,
@@ -206,6 +207,22 @@ impl SessionRegistry {
             return Err(CommandError::Internal(message));
         }
         Ok(())
+    }
+
+    /// Alles für die Übergabe an die Folgesession (ADR 054). Hält die Session-Sperre nur für das
+    /// Bauen der Texte, nicht für den Haiku-Aufruf danach.
+    pub fn handoff_brief_input(&self, session_id: &str) -> Result<BriefInput, CommandError> {
+        let session = self.get(session_id)?;
+        let state = session.lock_loaded()?;
+        if state.status == SessionStatus::New || state.entries.is_empty() {
+            return Err(CommandError::Internal(NO_SESSION_HISTORY.to_owned()));
+        }
+        Ok(BriefInput {
+            number: session.number,
+            name: state.name.clone(),
+            transcript: session_transcript(&state.entries),
+            fallback: fallback_body(&state.entries),
+        })
     }
 
     /// Haken der Einstiegsansicht: ob die erste Nachricht das TL;DR des Vorhabens mitnimmt.

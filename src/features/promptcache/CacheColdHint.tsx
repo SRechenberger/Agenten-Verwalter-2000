@@ -2,6 +2,7 @@ import { useState } from 'react';
 import type { ReactElement } from 'react';
 import { SnowflakeIcon } from '@/components/SnowflakeIcon';
 import { useNow } from '@/features/background/useNow';
+import { focusComposer, setHandoffDraft } from '@/features/chat/composerDraft';
 import { formatThousands } from '@/features/context/formatTokens';
 import {
   COLD_HINT_MIN_TOKENS,
@@ -9,11 +10,13 @@ import {
   promptCacheState,
 } from '@/features/promptcache/promptCacheState';
 import type { PromptCacheState } from '@/features/promptcache/promptCacheState';
+import type { HandoffBrief } from '@/lib/bindings/HandoffBrief';
 import type { PromptCache } from '@/lib/bindings/PromptCache';
 import type { SessionSummary } from '@/lib/bindings/SessionSummary';
 import { commandErrorText } from '@/lib/errors';
 import { modelName } from '@/lib/labels';
 import { createSessionInProject } from '@/lib/sessions';
+import { createHandoffBrief } from '@/lib/tldr';
 import { useSettingsStore } from '@/stores/settings';
 import './CacheColdHint.css';
 
@@ -22,7 +25,15 @@ const ICON_SIZE = 14;
 const EXPLANATION =
   'Claude hält den Verlauf nach jeder Antwort eine Zeit lang bereit (Prompt-Cache). Danach liest er ihn neu ein — das zählt deutlich stärker aufs Kontingent als das Lesen aus dem Cache.';
 const CONTINUE_TITLE =
-  'Legt im Vorhaben eine neue Session an und öffnet sie — sie startet mit kleinem Verlauf.';
+  'Haiku fasst den Gesprächstext dieser Session zusammen (wenige Sekunden, kostet wenig), legt im Vorhaben eine neue Session an und setzt die Zusammenfassung in ihr Eingabefeld. Gesendet wird erst, wenn du auf Senden klickst.';
+
+type ContinuePhase = 'idle' | 'summarizing' | 'creating';
+
+const CONTINUE_LABELS: Record<ContinuePhase, string> = {
+  idle: 'In neuer Session weiter',
+  summarizing: 'Fasse zusammen …',
+  creating: 'Lege Session an …',
+};
 
 interface CacheColdHintProps {
   session: SessionSummary;
@@ -34,7 +45,7 @@ export function CacheColdHint({
   session,
   onSessionCreated,
 }: CacheColdHintProps): ReactElement | null {
-  const [isCreating, setIsCreating] = useState<boolean>(false);
+  const [phase, setPhase] = useState<ContinuePhase>('idle');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   // Cache gibt es nur mit der Claude-Kommandozeile und dem Claude-Abo.
   const hasPromptCache: boolean = useSettingsStore(
@@ -45,18 +56,29 @@ export function CacheColdHint({
   const state: PromptCacheState = promptCacheState(cache, session.model, now);
 
   async function continueInNewSession(): Promise<void> {
-    setIsCreating(true);
+    setPhase('summarizing');
     setErrorMessage(null);
+    let brief: HandoffBrief;
+    try {
+      brief = await createHandoffBrief(session.id);
+    } catch (reason: unknown) {
+      setErrorMessage(commandErrorText(reason));
+      setPhase('idle');
+      return;
+    }
+    setPhase('creating');
     let created: SessionSummary;
     try {
       created = await createSessionInProject(session.projectId);
     } catch (reason: unknown) {
       setErrorMessage(commandErrorText(reason));
-      setIsCreating(false);
+      setPhase('idle');
       return;
     }
     onSessionCreated(created);
-    setIsCreating(false);
+    setHandoffDraft(created.id, brief.text);
+    focusComposer();
+    setPhase('idle');
   }
 
   function renderText(
@@ -103,12 +125,12 @@ export function CacheColdHint({
           type="button"
           className="cache-cold-hint__button"
           title={CONTINUE_TITLE}
-          disabled={isCreating}
+          disabled={phase !== 'idle'}
           onClick={(): void => {
             void continueInNewSession();
           }}
         >
-          {isCreating ? 'Lege Session an …' : 'In neuer Session weiter'}
+          {CONTINUE_LABELS[phase]}
         </button>
       </div>
       {errorMessage !== null && (

@@ -35,6 +35,12 @@ export function onImplementationChanged(
   );
 }
 
+/** Benennt die Umsetzung um.
+ *  @throws {import('@/lib/bindings/CommandError').CommandError} `implementation` (unbekannte Umsetzung), `internal` (leerer Name), `database` */
+export async function renameImplementation(id: string, name: string): Promise<void> {
+  await invoke('implementation_rename', { id, name });
+}
+
 /** Schaltet „Automatisch weiter“; an: Stationen, die starten dürfen, bekommen einen Countdown.
  *  @throws {import('@/lib/bindings/CommandError').CommandError} `implementation`, `database` */
 export async function setImplementationAutoStart(id: string, enabled: boolean): Promise<void> {
