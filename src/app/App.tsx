@@ -22,6 +22,7 @@ import { ChangesView } from '@/features/changes/ChangesView';
 import { useSessionChanges } from '@/features/changes/useSessionChanges';
 import { ProjectOverview } from '@/features/projects/ProjectOverview';
 import { sessionsOf } from '@/features/projects/projectStatus';
+import { useProjectGroups } from '@/features/projects/useProjectGroups';
 import { useProjectSummaries } from '@/features/projects/useProjectSummaries';
 import { useRetroProgress } from '@/features/retro/useRetroProgress';
 import { EmptyState } from '@/features/sessions/EmptyState';
@@ -60,6 +61,7 @@ import './App.css';
 export function App(): ReactElement {
   const { sessions, upsertSession, removeSession, error: sessionsError } = useSessionSummaries();
   const { projects, upsertProject, removeProject, error: projectsError } = useProjectSummaries();
+  const { groups, error: groupsError } = useProjectGroups();
   const {
     implementations,
     reload: reloadImplementations,
@@ -525,6 +527,7 @@ export function App(): ReactElement {
     <div className="app">
       <Sidebar
         projects={projects}
+        groups={groups}
         sessions={sessions}
         implementations={implementations}
         activeSessionId={isMainReplaced || isOverview ? null : (currentSession?.id ?? null)}
@@ -532,7 +535,7 @@ export function App(): ReactElement {
         activeImplementationId={isImplementation ? (shownImplementation?.id ?? null) : null}
         showProjectOverview={isOverview && !isImplementation}
         isSettingsOpen={showSettings}
-        loadError={projectsError ?? sessionsError ?? implementationsError}
+        loadError={projectsError ?? groupsError ?? sessionsError ?? implementationsError}
         onSelectSession={selectSession}
         onSelectProject={selectProject}
         onSelectImplementation={selectImplementation}

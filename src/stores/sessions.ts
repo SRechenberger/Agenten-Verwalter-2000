@@ -10,7 +10,7 @@ export type ProjectView = (typeof PROJECT_VIEWS)[number];
 export const IMPLEMENTATION_VIEWS = ['flow', 'changes'] as const;
 export type ImplementationViewKind = (typeof IMPLEMENTATION_VIEWS)[number];
 
-export type RenameKind = 'session' | 'project' | 'implementation';
+export type RenameKind = 'session' | 'project' | 'implementation' | 'group';
 
 export interface RenameTarget {
   kind: RenameKind;
@@ -40,7 +40,7 @@ interface SessionsState {
   /** `true`: die Umsetzung `activeImplementationId` statt Session, Übersicht oder Einstellungen (ADR 048). */
   showImplementation: boolean;
   implementationView: ImplementationViewKind;
-  /** Session oder Vorhaben, dessen Name in der Sidebar gerade bearbeitet wird. */
+  /** Session, Vorhaben oder Gruppe, deren Name in der Sidebar gerade bearbeitet wird. */
   renaming: RenameTarget | null;
   /** Vorhaben-ID → aufgeklappt; fehlt ein Eintrag, entscheidet die Sidebar nach ihrem Standard. */
   expanded: Record<string, boolean>;

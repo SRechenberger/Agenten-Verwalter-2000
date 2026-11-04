@@ -37,4 +37,10 @@
 
 ## Abweichungen vom Entwurf
 
-- Noch keine.
+Stand der Leiste (Lane „Gruppenköpfe“); Ziehen und die Gruppenwahl auf „Neues Vorhaben“ folgen in eigenen Schritten und stehen hier noch nicht.
+
+- Die Menüs hängen als Popover am Vorhaben bzw. Kopf (wie das bestehende Vorhaben-Menü) statt an der Mausposition.
+- „Neue Gruppe …“ fragt nicht per Eingabefenster, sondern legt die Gruppe „Neue Gruppe“ an, weist das Vorhaben zu und öffnet die Umbenennung am Kopf (Feld wie bei Vorhaben und Sessions; Enter speichert, Esc behält „Neue Gruppe“). Dasselbe gilt für das Umbenennen einer Gruppe; der Menüpunkt heißt dort „Umbenennen“ statt „Gruppe umbenennen“.
+- Der Hinweis „Vorhaben bleiben erhalten (→ Ohne Gruppe)“ steht nicht als Zeile im Menü, sondern als `title` an „Gruppe löschen“.
+- Die Vorhaben-Zeilen in einer Gruppe behalten ihren eigenen Chevron zum Auf-/Zuklappen der Sessions; der Entwurf lässt dafür nur Platz (20 px) und zeigt den Chevron nicht.
+- Ein eingeklappter Kopf zeigt den Status nur, wenn er nicht „fertig“ oder „abgebrochen“ ist; der Entwurf nennt „fertig“ ebenso, „abgebrochen“ kennt er nicht.

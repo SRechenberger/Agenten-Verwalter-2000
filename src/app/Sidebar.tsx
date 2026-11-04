@@ -2,7 +2,8 @@ import { useEffect, useMemo, useRef } from 'react';
 import type { ReactElement } from 'react';
 import { useVirtualizer, type VirtualItem } from '@tanstack/react-virtual';
 import { buildSidebarRows } from '@/app/buildSidebarRows';
-import type { SidebarProjectEntry, SidebarRow } from '@/app/buildSidebarRows';
+import type { SidebarGroupEntry, SidebarProjectEntry, SidebarRow } from '@/app/buildSidebarRows';
+import { SidebarGroup } from '@/app/SidebarGroup';
 import { SidebarImplementation } from '@/app/SidebarImplementation';
 import { SidebarItem } from '@/app/SidebarItem';
 import { SidebarProject } from '@/app/SidebarProject';
@@ -14,9 +15,17 @@ import {
 import { displayStatus } from '@/features/sessions/sessionStatus';
 import { UsageButton } from '@/features/usage/UsageButton';
 import type { ImplementationView } from '@/lib/bindings/ImplementationView';
+import type { ProjectGroup } from '@/lib/bindings/ProjectGroup';
 import type { ProjectSummary } from '@/lib/bindings/ProjectSummary';
 import type { SessionSummary } from '@/lib/bindings/SessionSummary';
 import { renameImplementation } from '@/lib/implementation';
+import {
+  createProjectGroup,
+  deleteProjectGroup,
+  renameProjectGroup,
+  setProjectGroup,
+  setProjectGroupCollapsed,
+} from '@/lib/projectGroups';
 import { archiveProject, renameProject } from '@/lib/projects';
 import { deleteSession, renameSession } from '@/lib/sessions';
 import { useActionError } from '@/lib/useActionError';
@@ -28,12 +37,15 @@ import './Sidebar.css';
 
 const OVERSCAN = 12;
 const ESTIMATED_HEIGHT: Record<SidebarRow['kind'], number> = {
+  group: 32,
   project: 44,
   implementation: 26,
   session: 26,
   more: 30,
 };
 const LAST_SESSION_EXTRA = 4;
+/** Name, unter dem „Neue Gruppe …“ die Gruppe anlegt, bevor der Nutzer sie umbenennt. */
+const NEW_GROUP_NAME = 'Neue Gruppe';
 
 interface RankedProject extends SidebarProjectEntry {
   /** Jüngste Aktivität im Vorhaben — bestimmt die Reihenfolge der Vorhaben. */
@@ -42,6 +54,8 @@ interface RankedProject extends SidebarProjectEntry {
 
 interface SidebarProps {
   projects: readonly ProjectSummary[];
+  /** Alle Gruppen in Anlegereihenfolge. */
+  groups: readonly ProjectGroup[];
   sessions: readonly SessionSummary[];
   implementations: readonly ImplementationView[];
   activeSessionId: string | null;
@@ -65,6 +79,7 @@ interface SidebarProps {
 
 export function Sidebar({
   projects,
+  groups,
   sessions,
   implementations,
   activeSessionId,
@@ -134,9 +149,20 @@ export function Sidebar({
         (first: RankedProject, second: RankedProject) =>
           second.activity - first.activity || second.project.createdAt - first.project.createdAt,
       );
-    return buildSidebarRows(ranked);
+    // Ein `groupId` ohne Gruppe in der Liste (Ereignisse sind noch unterwegs) gilt als „ohne Gruppe“.
+    const knownGroupIds = new Set<string>(groups.map((group: ProjectGroup) => group.id));
+    const ungrouped: RankedProject[] = ranked.filter(
+      (entry: RankedProject) =>
+        entry.project.groupId === null || !knownGroupIds.has(entry.project.groupId),
+    );
+    const groupEntries: SidebarGroupEntry[] = groups.map((group: ProjectGroup) => ({
+      group,
+      projects: ranked.filter((entry: RankedProject) => entry.project.groupId === group.id),
+    }));
+    return buildSidebarRows(ungrouped, groupEntries);
   }, [
     projects,
+    groups,
     sessions,
     implementations,
     expanded,
@@ -203,11 +229,34 @@ export function Sidebar({
           return renameProject(id, name);
         case 'implementation':
           return renameImplementation(id, name);
+        case 'group':
+          return renameProjectGroup(id, name);
         case 'session':
           return renameSession(id, name);
       }
     }, 'Umbenennen fehlgeschlagen');
     stopRename();
+  }
+
+  function toggleGroup(group: ProjectGroup): void {
+    run(() => setProjectGroupCollapsed(group.id, !group.collapsed), 'Gruppe nicht umgeklappt');
+  }
+
+  function removeGroup(group: ProjectGroup): void {
+    run(() => deleteProjectGroup(group.id), 'Gruppe löschen fehlgeschlagen');
+  }
+
+  function moveToGroup(projectId: string, groupId: string | null): void {
+    run(() => setProjectGroup(projectId, groupId), 'Verschieben fehlgeschlagen');
+  }
+
+  // Der Nutzer tippt den Namen direkt am Kopf; die Gruppe heißt bis dahin „Neue Gruppe“.
+  function moveToNewGroup(projectId: string): void {
+    run(async () => {
+      const group: ProjectGroup = await createProjectGroup(NEW_GROUP_NAME);
+      await setProjectGroup(projectId, group.id);
+      startRename('group', group.id);
+    }, 'Neue Gruppe fehlgeschlagen');
   }
 
   // Archivieren gibt es nur für das ganze Vorhaben — alle seine Sessions verlassen die Liste.
@@ -247,6 +296,8 @@ export function Sidebar({
       return null;
     }
     switch (row.kind) {
+      case 'group':
+        return renderGroup(row);
       case 'project':
         return renderProject(row);
       case 'implementation':
@@ -256,6 +307,31 @@ export function Sidebar({
       case 'more':
         return renderMore(row);
     }
+  }
+
+  function renderGroup(row: Extract<SidebarRow, { kind: 'group' }>): ReactElement {
+    const { group } = row;
+    return (
+      <SidebarGroup
+        group={group}
+        count={row.count}
+        urgentStatus={row.urgentStatus}
+        isRenaming={renaming !== null && renaming.kind === 'group' && renaming.id === group.id}
+        onToggle={(): void => {
+          toggleGroup(group);
+        }}
+        onStartRename={(): void => {
+          startRename('group', group.id);
+        }}
+        onCommitRename={(name: string): void => {
+          commitRename('group', group.id, name);
+        }}
+        onCancelRename={stopRename}
+        onDelete={(): void => {
+          removeGroup(group);
+        }}
+      />
+    );
   }
 
   function renderMore(row: Extract<SidebarRow, { kind: 'more' }>): ReactElement {
@@ -288,6 +364,7 @@ export function Sidebar({
           isOverviewActive={showProjectOverview && activeProjectId === project.id}
           isExpanded={isExpanded}
           renaming={renaming}
+          groups={groups}
           onToggle={(): void => {
             setExpanded(project.id, !isExpanded);
           }}
@@ -299,6 +376,12 @@ export function Sidebar({
           onCancelRename={stopRename}
           onArchive={(): void => {
             archive(project.id);
+          }}
+          onSetGroup={(groupId: string | null): void => {
+            moveToGroup(project.id, groupId);
+          }}
+          onNewGroup={(): void => {
+            moveToNewGroup(project.id);
           }}
         />
       </div>
