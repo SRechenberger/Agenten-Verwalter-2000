@@ -9,6 +9,8 @@ import './SettingRow.css';
 interface SettingRowProps {
   /** Name und ⓘ-Text kommen aus dem Katalog. */
   id: SettingId;
+  /** Ersetzt den Namen aus dem Katalog, wenn er vom Zustand abhängt. */
+  label?: string;
   /** Das Bedienelement. */
   children: ReactNode;
 }
@@ -19,8 +21,9 @@ function renderParts(parts: readonly TextPart[]): ReactElement[] {
   );
 }
 
-export function SettingRow({ id, children }: SettingRowProps): ReactElement {
-  const { label, info } = settingEntry(id);
+export function SettingRow({ id, label: labelOverride, children }: SettingRowProps): ReactElement {
+  const { label: catalogLabel, info } = settingEntry(id);
+  const label: string = labelOverride ?? catalogLabel;
   const terms: readonly string[] = useSettingsSearchTerms();
   const found: TextPart[] | null = foundInInfo(label, info, terms);
   return (

@@ -35,6 +35,33 @@
 - Alle Namen, Geräte, Adressen, Zahlen und Zeiten sind Beispieldaten.
 - Knöpfe wirken nur auf den gezeigten Zustand des Entwurfs; es gibt keine Verbindung.
 
+## Umsetzung
+
+Stand: Die Einstellungen stehen (Abschnitt „Fernsteuerung“ in der Kategorie „App“, Host und Gast). Leiste, Übersicht, Eingabeleiste, Kontingent und Terminal folgen in den nächsten Phasen.
+
+Bilder der laufenden App, zwei Instanzen mit getrennten Datenordnern auf einem Rechner, wirklich gekoppelt. Sie liegen in [`umsetzung/`](umsetzung/):
+
+| Entwurf (Rolle · Zustand) | Bild |
+|---|---|
+| Host · Einstellungen · Aus (und Gast · Nicht verbunden, derselbe Stand) | `host-aus.png` |
+| Host · Einstellungen · An | `host-an.png`, hell `host-an-hell.png` |
+| Host · Dialog „Einladung“ | `host-einladung.png` |
+| Host · Einstellungen · An, Gerät gekoppelt | `host-geraet-gekoppelt.png` |
+| Host · Einstellungen · Port belegt | `host-port-belegt.png` |
+| Gast · Einstellungen · Verbunden | `gast-verbunden.png`, hell `gast-verbunden-hell.png` |
+| Gast · Einstellungen · Mehrere Hosts | `gast-zwei-hosts.png` |
+| Gast · Host nicht erreichbar (Port am Host gewechselt) | `gast-host-nicht-erreichbar.png` |
+| Gast · Einstellungen · Abgelehnt (benutzte Einladung) | `gast-abgelehnt.png` |
+| Gast · Gerät am Host gesperrt | `gast-gesperrt.png` |
+| Gast · Zertifikat passt nicht (hell) | `gast-zertifikat-hell.png` |
+
+Nicht gesehen: die Meldung zum anderen Stand des Protokolls (sie lässt sich nur über die Probe erzeugen), die Warnung beim Schließen der App, „steuert „<Vorhaben>““ in der Geräteliste.
+
 ## Abweichungen vom Entwurf
 
-Noch keine: Bisher steht nur das Steuerrecht im Core, nichts davon ist sichtbar.
+- **Gerätename:** Das Feld ist nicht vorbelegt. Der Core kennt den Namen des Rechners, gibt ihn aber über keinen Command heraus; „Verbinden“ bleibt gesperrt, bis ein Name im Feld steht.
+- **Erklärungen:** Der Text unter dem Zeilennamen steht, wie auf der übrigen Einstellungsseite, hinter dem ⓘ ([ADR 057](../../decisions/057-einstellungen-kategorien-und-suche.md)). Unter dem Bedienelement bleiben nur der Hinweis zum Port, die Adressen, der Fingerabdruck und die Fehlersätze.
+- **Geräteliste:** Ein Gerät zeigt „Verbunden“ oder „Zuletzt gesehen …“, noch nicht, welches Vorhaben es steuert; die Zeile `RemoteDevice` kennt das nicht.
+- **Dialog „Einladung“:** Er nennt „10 Minuten und einmal“ wörtlich und lässt sich nach der Kopplung nicht von selbst schließen.
+- **Suche:** Zeilen, die der Stand der Fernsteuerung ausblendet (Port, Status, Geräte ohne laufenden Server; Hosts ohne Kopplung), findet die Suche nicht.
+- **Hosts:** Die Liste ist nach Name und Adresse sortiert; „Getrennt“ erscheint für einen Host, den „Trennen“ beendet hat, ohne Fehler.
