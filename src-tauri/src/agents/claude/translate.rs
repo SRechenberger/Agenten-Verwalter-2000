@@ -233,6 +233,7 @@ impl Translator {
             "init" => {
                 let mut events = vec![AgentEvent::Ready {
                     model: system.model.unwrap_or_default(),
+                    slash_commands: system.slash_commands,
                 }];
                 if let Some(dir) = system.scratchpad_path {
                     events.push(AgentEvent::ScratchpadDir(dir));

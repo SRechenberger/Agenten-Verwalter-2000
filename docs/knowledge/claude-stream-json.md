@@ -103,7 +103,7 @@ Belegt am 2026-09-29 mit Claude Code 2.1.284 (Modell Haiku 4.5), per Probe-Skrip
 
 - Eine Nachricht, deren Text mit `/<skill-name>` beginnt, führt den Skill aus — als String-Inhalt und ebenso als erster Textblock eines Block-Arrays. Geprüft mit einem Skill aus `<repo>\.claude\skills` (per `--add-dir`): `/probe-skill APFEL` → Antwort nach Skill-Anweisung.
 - Die Kommandozeile meldet das Laden eines Skills nicht als eigenes Ereignis; es folgen nur Gedankengang und Antwort.
-- `system/init` → `skills` ist eine Liste von **Namen** ohne Herkunft und Beschreibung, gemischt aus Benutzer-, Repository-, Plugin- und eingebauten Skills (Plugin-Skills mit Präfix, z.B. `anthropic-skills:pdf`). `slash_commands` enthält zusätzlich die Befehle aus `~\.claude\commands` und eingebaute Befehle der Kommandozeile.
+- `system/init` → `skills` ist eine Liste von **Namen** ohne Herkunft und Beschreibung, gemischt aus Benutzer-, Repository-, Plugin- und eingebauten Skills (Plugin-Skills mit Präfix, z.B. `anthropic-skills:pdf`). `slash_commands` enthält zusätzlich die Befehle aus `~\.claude\commands` und eingebaute Befehle der Kommandozeile. Der Verwalter speichert die Liste und zeigt sie im `/`-Menü (ADR 034). Es fehlen die interaktiven Befehle `/permissions`, `/hooks`, `/resume`, `/memory`, `/status` und `/login`; `/permissions` antwortet „isn't available in this environment“. Örtliche Befehle antworten ohne Modell-Lauf mit einer `assistant`-Zeile (`model: "<synthetic>"`) und einem `result` mit `num_turns: 0`; `/doctor` startet dagegen einen Agenten-Lauf. Stand 2.1.293, 2026-10-21.
 
 ## Befehle im Vordergrund (Bash)
 

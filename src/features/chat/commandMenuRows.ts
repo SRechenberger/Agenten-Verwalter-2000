@@ -73,7 +73,9 @@ export function rowKey(row: CommandRow): string {
   switch (row.kind) {
     case 'skill': {
       const origin: string =
-        row.skill.origin.kind === 'user' ? 'user' : `repository:${row.skill.origin.name}`;
+        row.skill.origin.kind === 'repository'
+          ? `repository:${row.skill.origin.name}`
+          : row.skill.origin.kind;
       return `skill:${origin}:${row.skill.kind}:${row.skill.name}`;
     }
     case 'session':
