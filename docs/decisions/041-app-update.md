@@ -4,7 +4,7 @@
 
 ## Kontext
 
-Neue Versionen erscheinen als GitHub-Releases (Workflow `release.yml`, der Tag `v<Version>` entsteht mit dem Release): eine portable exe, ein NSIS-Installer, Pakete für macOS und Linux. Bisher holt man sie von Hand. Die Releases sind nicht signiert, das Repository ist öffentlich.
+Neue Versionen erscheinen als GitHub-Releases (Workflow `release.yml`, ausgelöst vom Tag `v<Version>`): eine portable exe, ein NSIS-Installer, Pakete für macOS und Linux. Bisher holt man sie von Hand. Die Releases sind nicht signiert, das Repository ist öffentlich.
 
 ## Optionen
 
@@ -22,6 +22,8 @@ Neue Versionen erscheinen als GitHub-Releases (Workflow `release.yml`, der Tag `
 - `VERWALTER_APP_VERSION` ersetzt die laufende Version nur in Debug-Läufen.
 
 **2026-11-02:** Die App holt Updates vom Fork statt vom Original, denn sonst ersetzt ein Release des Originals den Stand des Forks. Der Tag löst `release.yml` nicht mehr aus: Merges laufen über die GitHub-Oberfläche, es ist also keine Session da, die danach taggt, und ein über `GITHUB_TOKEN` gesetzter Tag startet keinen weiteren Workflow. Deshalb legt der Workflow den Tag selbst an.
+
+**2026-11-05:** Der Tag löst `release.yml` wieder aus, ein Merge nicht mehr: Ob ein Stand als Update bei den laufenden Verwaltern ankommt, entscheidet ein eigener Schritt. Getaggt wird von Hand per `git push`, der Workflow legt keinen Tag mehr an.
 
 ## Konsequenzen
 
