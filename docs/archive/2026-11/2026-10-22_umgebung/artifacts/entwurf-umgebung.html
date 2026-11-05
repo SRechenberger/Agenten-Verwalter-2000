@@ -9,7 +9,7 @@
 .warnline { display: flex; gap: 8px; align-items: center; color: var(--waiting); }
 .okline { color: var(--ok); }
 .dlist { width: 100%; margin-top: 6px; border: 1px solid var(--border-subtle); border-radius: 7px; overflow: hidden; font-size: 12px; }
-.dlist div { display: grid; grid-template-columns: 70px minmax(0, 1fr) auto; gap: 10px; padding: 5px 10px; border-top: 1px solid var(--border-subtle); align-items: center; }
+.dlist div { display: grid; grid-template-columns: 84px minmax(0, 1fr) auto; gap: 10px; padding: 5px 10px; border-top: 1px solid var(--border-subtle); align-items: center; }
 .dlist div:first-child { border-top: 0; }
 .dlist .k { font-size: 10.5px; font-weight: 600; color: var(--fg2); }
 .dlist .s { color: var(--muted); }
@@ -21,7 +21,7 @@ details summary { cursor: pointer; color: var(--accent-text); font-size: 12px; }
 <header class="intro">
   <span class="eyebrow">Entwurf 4 von 5 · Verwalter</span>
   <h1>Umgebung in den Einstellungen</h1>
-  <p>Neuer Abschnitt „Umgebung“ zwischen „Skills“ und „Ordner“. Er meldet kaputte Verknüpfungen unter <span class="mono">~\.claude</span> und gleicht Skills und Befehle mit einem frei wählbaren Master-Ordner ab. Der Pfad des Master-Ordners liegt nur in der lokalen Datenbank. Gestrichelt umrandet = neu.</p>
+  <p>Neuer Abschnitt „Umgebung“ in der Kategorie „Skills &amp; Umgebung“ nach dem Abschnitt „Skills“. Er meldet kaputte Verknüpfungen unter <span class="mono">~\.claude</span> und gleicht Skills, Befehle, Ausgabestile und die Regeldatei CLAUDE.md mit einem frei wählbaren Master-Ordner ab. Der Pfad des Master-Ordners liegt nur in der lokalen Datenbank. Gestrichelt umrandet = neu.</p>
 </header>
 
 <section class="state">
@@ -36,7 +36,7 @@ details summary { cursor: pointer; color: var(--accent-text); font-size: 12px; }
           <div class="row"><span class="lbl">Benutzer-Skills <span class="info">i</span></span><span class="ctl"><span class="mono">C:\Users\sasch\.claude\skills</span><span>23 Skills</span><span class="btn">Im Explorer zeigen</span></span></div>
         </div>
         <div class="sec new"><h3>Umgebung</h3>
-          <div class="row"><span class="lbl">Verknüpfungen <span class="info" title="Junctions und symbolische Links direkt unter ~\.claude, deren Ziel nicht erreichbar ist.">i</span></span>
+          <div class="row"><span class="lbl">Verknüpfungen <span class="info" title="Junctions und symbolische Links direkt unter ~\.claude und direkt in dessen Unterordnern, deren Ziel nicht erreichbar ist.">i</span></span>
             <span class="ctl" style="display:grid;gap:4px">
               <span class="warnline">⚠ 1 von 4 zeigt ins Leere</span>
               <span class="mono">~\.claude\sync → H:\Meine Ablage\U104_Prompts\Claude</span>
@@ -44,18 +44,21 @@ details summary { cursor: pointer; color: var(--accent-text); font-size: 12px; }
               <span style="display:flex;gap:8px;margin-top:2px"><span class="btn">Erneut prüfen</span></span>
             </span>
           </div>
-          <div class="row"><span class="lbl">Master-Ordner <span class="info" title="Ordner mit den Originalen deiner Skills und Befehle, z. B. auf einem synchronisierten Laufwerk. Erwartet die Unterordner skills und commands.">i</span></span>
+          <div class="row"><span class="lbl">Master-Ordner <span class="info" title="Ordner mit den Originalen deiner Skills, Befehle, Ausgabestile und der Datei CLAUDE.md, z. B. auf einem synchronisierten Laufwerk. Erwartet mindestens einen der Unterordner skills, commands, output-styles oder die Datei CLAUDE.md.">i</span></span>
             <span class="ctl"><span class="mono">H:\Meine Ablage\U104_Agents</span><span class="btn">Ändern …</span><span class="btn">Entfernen</span></span>
           </div>
-          <div class="row"><span class="lbl">Abgleich <span class="info" title="Vergleicht skills und commands im Master-Ordner mit ~\.claude nach Änderungszeit und Größe.">i</span></span>
+          <div class="row"><span class="lbl">Abgleich <span class="info" title="Vergleicht Skills, Befehle, Ausgabestile und CLAUDE.md im Master-Ordner mit ~\.claude nach Inhalt. Die Änderungszeit entscheidet nur, welche Seite neuer ist.">i</span></span>
             <span class="ctl" style="display:grid;gap:6px">
-              <span style="display:flex;gap:10px;align-items:center"><span class="warnline">3 Skills und 1 Befehl weichen ab</span><span class="btn primary">Spiegeln</span></span>
+              <span style="display:flex;gap:10px;align-items:center"><span class="warnline">3 Skills, 1 Befehl, 1 Ausgabestil und die Regeldatei weichen ab</span><span class="btn primary">Spiegeln</span></span>
               <div class="dlist">
                 <div><span class="k">Skill</span><span>mode-implementing</span><span class="s up">im Master neuer · 22.10. 13:58</span></div>
                 <div><span class="k">Skill</span><span>mode-planning</span><span class="s up">im Master neuer · 22.10. 13:58</span></div>
                 <div><span class="k">Skill</span><span>research</span><span class="s up">fehlt lokal</span></div>
                 <div><span class="k">Befehl</span><span>plan</span><span class="s up">im Master neuer · 21.10. 09:12</span></div>
+                <div><span class="k">Ausgabestil</span><span>vera</span><span class="s up">im Master neuer · 22.10. 13:50</span></div>
+                <div><span class="k">Regeldatei</span><span>CLAUDE.md</span><span class="s up">im Master neuer · 22.10. 13:59</span></div>
                 <div><span class="k">Skill</span><span>alt-experiment</span><span class="s">nur lokal · bleibt</span></div>
+                <div><span class="k">Befehl</span><span>mein-befehl</span><span class="s">lokal neuer · bleibt</span></div>
               </div>
             </span>
           </div>
@@ -77,7 +80,15 @@ details summary { cursor: pointer; color: var(--accent-text); font-size: 12px; }
         <div class="sec new"><h3>Umgebung</h3>
           <div class="row"><span class="lbl">Verknüpfungen <span class="info">i</span></span><span class="ctl"><span class="okline">Alle 4 erreichbar</span></span></div>
           <div class="row"><span class="lbl">Master-Ordner <span class="info">i</span></span><span class="ctl"><span class="mono">H:\Meine Ablage\U104_Agents</span><span class="btn">Ändern …</span><span class="btn">Entfernen</span></span></div>
-          <div class="row"><span class="lbl">Abgleich <span class="info">i</span></span><span class="ctl"><span class="okline">Gleich · zuletzt gespiegelt 14:05 (6 Dateien)</span><span class="btn">Erneut prüfen</span></span></div>
+          <div class="row"><span class="lbl">Abgleich <span class="info">i</span></span><span class="ctl" style="display:grid;gap:6px">
+            <span style="display:flex;gap:10px;align-items:center"><span class="okline">Gleich · zuletzt gespiegelt 14:05 (6 Dateien)</span><span class="btn">Erneut prüfen</span></span>
+            <details><summary>2 Hinweise</summary>
+              <div class="dlist">
+                <div><span class="k">Skill</span><span>alt-experiment</span><span class="s">nur lokal · bleibt</span></div>
+                <div><span class="k">Befehl</span><span>mein-befehl</span><span class="s">lokal neuer · bleibt</span></div>
+              </div>
+            </details>
+          </span></div>
         </div>
       </div>
     </div>
@@ -85,7 +96,7 @@ details summary { cursor: pointer; color: var(--accent-text); font-size: 12px; }
 </section>
 
 <ul class="legend">
-  <li><span class="mk">1</span><span><b>Hinweis auch außerhalb der Einstellungen:</b> ist eine Verknüpfung kaputt oder weicht der Abgleich ab, trägt der Knopf „Einstellungen“ unten in der Sidebar einen Punkt. Sonst stört der Abschnitt nirgends.</span></li>
+  <li><span class="mk">1</span><span><b>Hinweis auch außerhalb der Einstellungen:</b> ist eine Verknüpfung kaputt oder weicht der Abgleich ab, trägt der Knopf „Einstellungen“ unten in der Sidebar einen Punkt, neben dem für eine neue App-Version, und die Kategorie „Skills &amp; Umgebung“ in der Leiste ebenfalls. „Lokal neuer“ und „nur lokal“ lösen ihn nicht aus. Sonst stört der Abschnitt nirgends.</span></li>
   <li><span class="mk">2</span><span><b>Geprüft wird</b> beim App-Start und beim Öffnen der Einstellungen, nicht im Hintergrund.</span></li>
   <li><span class="mk">3</span><span><b>Keine Profil-Logik:</b> work/private, Account und eigene Pfade kennt der Verwalter nicht; er sieht nur Ordner.</span></li>
 </ul>

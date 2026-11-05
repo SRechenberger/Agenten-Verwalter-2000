@@ -18,10 +18,10 @@ import './StationCard.css';
 interface StationCardProps {
   stationRef: StationRef;
   now: number;
-  /** Dateien unter „Alle“ im Vorhaben; `null` ohne Changes. */
+  /** Dateien unter „Alle“ in der Session dieser Station; `null` ohne Session oder Changes. */
   changesCount: number | null;
   onOpenChat: (stationId: string) => void;
-  onShowChanges: () => void;
+  onShowChanges: (stationId: string) => void;
   onStart: (stationId: string) => void;
   onCancelCountdown: (stationId: string) => void;
   onCompleteByUser: (stationId: string, result: string) => void;
@@ -124,15 +124,17 @@ export function StationCard({
   }
 
   function renderChangesButton(): ReactElement | null {
-    if (changesCount === null) {
+    if (changesCount === null || station.sessionId === null) {
       return null;
     }
     return (
       <button
         type="button"
         className="station-card__button"
-        title="Zeigt die geänderten Dateien des ganzen Vorhabens"
-        onClick={onShowChanges}
+        title="Zeigt die geänderten Dateien dieser Session"
+        onClick={(): void => {
+          onShowChanges(station.id);
+        }}
       >
         Changes · {String(changesCount)} Dateien
       </button>

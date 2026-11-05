@@ -2,7 +2,7 @@
 
 | Datei | Inhalt | Phasen |
 |---|---|---|
-| [entwurf-umgebung.html](entwurf-umgebung.html) | Zwei Zustände des Abschnitts „Umgebung“: (1) kaputte Verknüpfung und abweichende Skills mit Knopf „Spiegeln“; (2) alles in Ordnung. Vom User am 2026-10-22 freigegeben. | 2 |
+| [entwurf-umgebung.html](entwurf-umgebung.html) | Zwei Zustände des Abschnitts „Umgebung“: (1) kaputte Verknüpfung und abweichende Skills mit Knopf „Spiegeln“; (2) alles in Ordnung. Vom User am 2026-10-22 freigegeben; am 2026-11-04 um Ausgabestil, Regeldatei, „lokal neuer · bleibt“ und die eingeklappten Hinweise bei „Gleich“ ergänzt. | 2 |
 | [entwuerfe/app.css](entwuerfe/app.css) | Gemeinsame App-Attrappe der fünf Entwürfe vom 2026-10-22. | — |
 
 **Ansehen:** die HTML-Datei im Browser öffnen (offline); hell und dunkel folgen dem System.

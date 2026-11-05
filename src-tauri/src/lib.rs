@@ -12,6 +12,7 @@ pub mod codex_account;
 pub mod commands;
 pub mod context;
 pub mod db;
+pub mod environment;
 pub mod error;
 pub mod file_links;
 pub mod filesystem;
@@ -50,6 +51,7 @@ use cli_update::CliUpdateService;
 use codex::models::CodexService;
 use codex_account::CodexAccountService;
 use db::Database;
+use environment::EnvironmentService;
 use filesystem::workspace::data_dir;
 use sessions::registry::SessionRegistry;
 use terminal::TerminalService;
@@ -77,6 +79,7 @@ pub fn run() {
             app.manage(AccountService::new());
             app.manage(CodexAccountService::new());
             app.manage(CliUpdateService::new());
+            app.manage(EnvironmentService::new());
             let app_update = AppUpdateService::new();
             if let Some(exe) = app_update.exe() {
                 app_update::swap::cleanup(exe);
@@ -225,6 +228,8 @@ pub fn run() {
             commands::settings::settings_load,
             commands::settings::settings_update,
             commands::settings::settings_local_models,
+            commands::environment::environment_status,
+            commands::environment::environment_mirror,
             commands::codex::codex_models,
             commands::codex_account::codex_account_load,
             commands::codex_account::codex_account_login,

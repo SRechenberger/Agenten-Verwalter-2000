@@ -4,9 +4,6 @@ import { useCliVersion } from '@/features/cliupdate/useCliVersion';
 import type { CliVersionStatus } from '@/lib/bindings/CliVersionStatus';
 import './CliVersionRow.css';
 
-const CLI_VERSION_INFO =
-  'Die Version der Claude-Kommandozeile, die der Verwalter für seine Agenten startet. „Aktualisieren“ führt claude update aus. Laufende Agenten behalten ihre alte Version bis zu ihrem nächsten Start; ist die Datei dabei gesperrt, schlägt die Aktualisierung fehl — dann die Sessions pausieren und es erneut versuchen.';
-
 export function CliVersionRow(): ReactElement {
   const { status, isLoading, check, update } = useCliVersion();
   const isUpdating: boolean = status?.isUpdating === true;
@@ -101,7 +98,7 @@ export function CliVersionRow(): ReactElement {
   }
 
   return (
-    <SettingRow label="Claude-Version" info={CLI_VERSION_INFO}>
+    <SettingRow id="cliVersion">
       <div className="cli-version-row">
         <div className="cli-version-row__main">
           <span className="cli-version-row__state">{renderState()}</span>

@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import type { ReactElement } from 'react';
 import { AppUpdateDialog } from '@/features/appupdate/AppUpdateDialog';
-import { APP_VERSION_INFO } from '@/features/appupdate/appUpdateTexts';
 import { useAppUpdateCheck } from '@/features/appupdate/useAppUpdate';
 import { SettingRow } from '@/features/settings/SettingRow';
 import type { AppUpdateStatus } from '@/lib/bindings/AppUpdateStatus';
@@ -69,7 +68,7 @@ export function AppVersionRow({ runningSessions }: AppVersionRowProps): ReactEle
   }
 
   return (
-    <SettingRow label="Version" info={APP_VERSION_INFO}>
+    <SettingRow id="appVersion">
       <div className="app-version-row">
         <span className="app-version-row__state">{renderState()}</span>
         {renderActions()}

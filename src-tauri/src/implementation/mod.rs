@@ -6,11 +6,15 @@ pub mod schedule;
 pub mod start;
 pub mod tools;
 
+#[cfg(test)]
+mod tests;
+
 use std::collections::{HashMap, HashSet};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use tauri::{AppHandle, Emitter, Manager};
 
+use crate::agents::event::ModelId;
 use crate::db::implementations::{
     ChangeRow, ImplementationRow, PhaseRow, StationRow, StoredImplementation,
 };
@@ -31,6 +35,13 @@ pub const START_DELAY: Duration = Duration::from_secs(10);
 const FIX_STAGE: &str = "Fix-Runde";
 /// Stufe der Station, deren Modell und Skill die Fix-Runde übernimmt.
 const BUILD_STAGE: &str = "Umsetzung";
+/// Stufe der Station, deren Modell und Skill die Fix-Runde übernimmt, wenn die Phase keine
+/// Umsetzung hat (die Abschluss-Phase nach dem Gesamt-Review).
+const CLOSING_STAGE: &str = "Abschluss";
+/// Modell und Skill der Fix-Runde, wenn die Phase weder Umsetzung noch Abschluss hat: nie die
+/// Review-Stufe der meldenden Station.
+const FALLBACK_FIX_MODEL: ModelId = ModelId::Sonnet;
+const FALLBACK_FIX_SKILL: &str = "implement";
 /// Höchstens so viele Fix-Runden je Phase; danach entscheidet der Benutzer.
 const MAX_FIX_ROUNDS: usize = 2;
 const FIX_BRIEF: &str = "Behebe die Befunde der vorigen Review-Station (siehe Vorgänger).";
@@ -235,32 +246,53 @@ fn fix_rounds(phase: &PhaseView) -> usize {
         .count()
 }
 
-/// Fix-Runde (Modell und Skill der letzten Umsetzungs-Station der Phase, sonst der meldenden) und
-/// danach noch einmal die Stufe der meldenden Station.
+/// Fix-Runde (Modell und Skill der letzten Umsetzungs-Station der Phase, sonst der letzten
+/// Abschluss-Station, sonst `implement` auf Sonnet) und danach noch einmal die Stufe der meldenden
+/// Station.
 fn fix_stations(phase: &PhaseView, reporting: &StationView) -> Vec<StationRow> {
-    let builder: &StationView = phase
-        .stations
-        .iter()
-        .rev()
-        .find(|station: &&StationView| station.stage == BUILD_STAGE)
-        .unwrap_or(reporting);
-    let row = |stage: String, source: &StationView, brief: String| StationRow {
-        id: uuid::Uuid::new_v4().to_string(),
-        phase_id: phase.id.clone(),
-        position: 0,
-        stage,
-        model: source.model,
-        by_user: false,
-        skill: source.skill.clone(),
-        brief,
-        session_id: None,
-        started_at: None,
-        completed_at: None,
-        result: None,
+    let last_of = |stage: &str| {
+        phase
+            .stations
+            .iter()
+            .rev()
+            .find(|station: &&StationView| station.stage == stage)
     };
+    let (fix_model, fix_skill): (Option<ModelId>, Option<String>) =
+        match last_of(BUILD_STAGE).or_else(|| last_of(CLOSING_STAGE)) {
+            Some(source) => (source.model, source.skill.clone()),
+            None => (
+                Some(FALLBACK_FIX_MODEL),
+                Some(FALLBACK_FIX_SKILL.to_owned()),
+            ),
+        };
+    let row =
+        |stage: String, model: Option<ModelId>, skill: Option<String>, brief: String| StationRow {
+            id: uuid::Uuid::new_v4().to_string(),
+            phase_id: phase.id.clone(),
+            position: 0,
+            stage,
+            model,
+            by_user: false,
+            skill,
+            brief,
+            session_id: None,
+            started_at: None,
+            completed_at: None,
+            result: None,
+        };
     vec![
-        row(FIX_STAGE.to_owned(), builder, FIX_BRIEF.to_owned()),
-        row(reporting.stage.clone(), reporting, reporting.brief.clone()),
+        row(
+            FIX_STAGE.to_owned(),
+            fix_model,
+            fix_skill,
+            FIX_BRIEF.to_owned(),
+        ),
+        row(
+            reporting.stage.clone(),
+            reporting.model,
+            reporting.skill.clone(),
+            reporting.brief.clone(),
+        ),
     ]
 }
 

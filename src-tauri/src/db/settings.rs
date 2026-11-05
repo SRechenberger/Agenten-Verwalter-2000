@@ -25,3 +25,8 @@ pub fn write(connection: &Connection, key: &str, value: &str) -> Result<(), Comm
     )?;
     Ok(())
 }
+
+pub fn delete(connection: &Connection, key: &str) -> Result<(), CommandError> {
+    connection.execute("DELETE FROM settings WHERE key = ?1", params![key])?;
+    Ok(())
+}

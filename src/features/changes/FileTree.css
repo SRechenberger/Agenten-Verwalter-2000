@@ -1,9 +1,10 @@
 .file-tree {
   overflow-x: hidden;
   overflow-y: auto;
-  flex-shrink: 0;
+  flex-shrink: 1;
   box-sizing: border-box;
   width: 360px;
+  min-width: 240px;
   padding: var(--space-lg) var(--space-md);
   border-right: 1px solid var(--color-border-subtle);
   /* Die Liste ändert sich alle paar Sekunden; ein Ausgleich des Browsers verschöbe die Ansicht zusätzlich. */

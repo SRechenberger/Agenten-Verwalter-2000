@@ -1,13 +1,13 @@
 import type { ReactElement } from 'react';
 import { SettingRow } from '@/features/settings/SettingRow';
+import type { SettingId } from '@/features/settings/settingsCatalog';
 import type { AccountInfo } from '@/lib/bindings/AccountInfo';
 import type { AccountStatus } from '@/lib/bindings/AccountStatus';
 import { planLabel } from '@/lib/labels';
 import './AccountRow.css';
 
 interface AccountRowViewProps {
-  label: string;
-  info: string;
+  settingId: SettingId;
   /** Steht vor einem Fehler des Kontos, z. B. „Konto nicht lesbar“. */
   errorPrefix: string;
   /** Hinweis unter der Zeile, solange die Anmeldung läuft. */
@@ -19,8 +19,7 @@ interface AccountRowViewProps {
 
 /** Die Zeile eines Kontos in den Einstellungen: Identität und Abo, ein Knopf zum Anmelden. */
 export function AccountRowView({
-  label,
-  info,
+  settingId,
   errorPrefix,
   loginHint,
   status,
@@ -71,7 +70,7 @@ export function AccountRowView({
   }
 
   return (
-    <SettingRow label={label} info={info}>
+    <SettingRow id={settingId}>
       <div className="account-row">
         <div className="account-row__main">
           <span className="account-row__state">{renderState(status)}</span>

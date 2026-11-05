@@ -78,6 +78,8 @@
   &__task {
     flex: 1;
     min-width: 0;
+    max-height: 50vh;
+    field-sizing: content;
     padding: var(--space-lg) 14px;
     border: 0;
     outline: none;

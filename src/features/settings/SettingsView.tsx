@@ -1,5 +1,5 @@
 import { revealItemInDir } from '@tauri-apps/plugin-opener';
-import { useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import type { ReactElement } from 'react';
 import { ModeMenu } from '@/components/ModeMenu';
 import { ModelMenu } from '@/components/ModelMenu';
@@ -16,13 +16,36 @@ import {
   selectedCodexModel,
 } from '@/features/codex/codexModels';
 import { useCodexModels } from '@/features/codex/useCodexModels';
+import { EnvironmentLinksRow } from '@/features/environment/EnvironmentLinksRow';
+import { EnvironmentMirrorRow } from '@/features/environment/EnvironmentMirrorRow';
+import { MasterDirRow } from '@/features/environment/MasterDirRow';
+import { useEnvironmentCheck } from '@/features/environment/useEnvironment';
 import { useKnownRepositories } from '@/features/repositories/useKnownRepositories';
 import { ColorSchemeSegment } from '@/features/settings/ColorSchemeSegment';
+import { TerminalPlacementSegment } from '@/features/settings/TerminalPlacementSegment';
 import { LocalModelMenu } from '@/features/settings/LocalModelMenu';
 import { OperatingModeSegment } from '@/features/settings/OperatingModeSegment';
 import { SelectButton } from '@/features/settings/SelectButton';
-import { SelfReleaseSettings } from '@/features/settings/SelfReleaseSettings';
+import { SelfReleaseRow } from '@/features/settings/SelfReleaseSettings';
+import type { SelfReleaseRowId } from '@/features/settings/SelfReleaseSettings';
 import { SettingRow } from '@/features/settings/SettingRow';
+import { SettingsNav } from '@/features/settings/SettingsNav';
+import { SettingsSearchContext } from '@/features/settings/SettingsSearchContext';
+import { SettingsSearchField } from '@/features/settings/SettingsSearchField';
+import {
+  categoryLabel,
+  groupEntries,
+  initialCategory,
+  shownEntries,
+} from '@/features/settings/settingsCatalog';
+import { countByCategory, searchEntries, searchTerms } from '@/features/settings/settingsSearch';
+import type {
+  SettingEntry,
+  SettingGroup,
+  SettingId,
+  SettingsCategoryId,
+} from '@/features/settings/settingsCatalog';
+import { useCategoryAttention } from '@/features/settings/useCategoryAttention';
 import { useLocalModels } from '@/features/settings/useLocalModels';
 import { useSettingsUpdate } from '@/features/settings/useSettingsUpdate';
 import type { CodexModel } from '@/lib/bindings/CodexModel';
@@ -44,13 +67,13 @@ import {
   modeOption,
   modelName,
 } from '@/lib/labels';
-import { updateSettings } from '@/lib/settings';
 import { useSettingsStore } from '@/stores/settings';
+import { useSettingsNavStore } from '@/stores/settingsNav';
 import './SettingsView.css';
 
 const NO_CODEX_MODELS: readonly CodexModel[] = [];
 
-type OpenMenu = 'model' | 'mode' | 'localModel' | null;
+type OpenMenu = 'model' | 'mode' | 'localModel' | 'selfReleaseModel' | null;
 
 interface SettingsViewProps {
   /** Alle Sessions; ein Update des Verwalters unterbricht die laufenden. */
@@ -68,8 +91,18 @@ export function SettingsView({
 }: SettingsViewProps): ReactElement {
   const [openMenu, setOpenMenu] = useState<OpenMenu>(null);
   const [revealError, setRevealError] = useState<string | null>(null);
+  const [isSavingSelfRelease, setIsSavingSelfRelease] = useState<boolean>(false);
   const storedSettings: Settings | null = useSettingsStore((state) => state.settings);
-  const setSettings = useSettingsStore((state) => state.setSettings);
+  const storedCategory: SettingsCategoryId | null = useSettingsNavStore((state) => state.category);
+  const setStoredCategory = useSettingsNavStore((state) => state.setCategory);
+  // Die Seite wird bei jedem Öffnen der Einstellungen eingehängt: das ist das Prüfen beim Öffnen.
+  useEnvironmentCheck();
+  const attention = useCategoryAttention();
+  const [category, setCategory] = useState<SettingsCategoryId>(() =>
+    initialCategory(attention, storedCategory),
+  );
+  const [query, setQuery] = useState<string>('');
+  const contentRef = useRef<HTMLDivElement>(null);
   const { repositories, isLoading: areRepositoriesLoading } = useKnownRepositories();
   const { save, error: saveError } = useSettingsUpdate();
 
@@ -78,6 +111,15 @@ export function SettingsView({
     settings !== null && isLocalOperatingMode(settings.operatingMode);
   const localModels = useLocalModels(isLocalOperation);
   const codexModels = useCodexModels(settings?.operatingMode === 'codex');
+  const terms: string[] = useMemo(() => searchTerms(query), [query]);
+  const isSearching: boolean = terms.length > 0;
+  const hits: SettingEntry[] = searchEntries(
+    settings === null ? [] : shownEntries(settings),
+    terms,
+  );
+  const hitIds: ReadonlySet<SettingId> = new Set(hits.map((entry: SettingEntry) => entry.id));
+  // Vor dem Laden gibt es keine Zeilen, die ein Ergebnis tragen könnten.
+  const isShowingHits: boolean = isSearching && settings !== null && overview !== null;
 
   function toggleMenu(menu: Exclude<OpenMenu, null>): void {
     setOpenMenu(openMenu === menu ? null : menu);
@@ -85,6 +127,21 @@ export function SettingsView({
 
   function closeMenu(): void {
     setOpenMenu(null);
+  }
+
+  function changeQuery(value: string): void {
+    closeMenu();
+    setQuery(value);
+    contentRef.current?.scrollTo({ top: 0 });
+  }
+
+  function selectCategory(next: SettingsCategoryId): void {
+    // Die Menüs zeichnen per Portal in den body und blieben sonst über einer ausgeblendeten Zeile stehen.
+    closeMenu();
+    setQuery('');
+    setCategory(next);
+    setStoredCategory(next);
+    contentRef.current?.scrollTo({ top: 0 });
   }
 
   function reveal(path: string): void {
@@ -115,6 +172,33 @@ export function SettingsView({
 
   function saveDefaultMode(mode: Mode, effort: Effort): void {
     save({ kind: 'defaultMode', mode, effort }).catch(() => undefined);
+  }
+
+  function saveDefaultSelfRelease(next: SelfRelease): void {
+    // Jede Zeile schreibt den ganzen Wert: Bis das Speichern durch ist, sind alle vier gesperrt.
+    setIsSavingSelfRelease(true);
+    save({ kind: 'defaultSelfRelease', value: next })
+      .catch(() => undefined)
+      .finally(() => {
+        setIsSavingSelfRelease(false);
+      });
+  }
+
+  function renderSelfReleaseRow(id: SelfReleaseRowId, current: Settings): ReactElement {
+    return (
+      <SelfReleaseRow
+        id={id}
+        value={current.defaultSelfRelease}
+        disabled={isSavingSelfRelease}
+        onChange={saveDefaultSelfRelease}
+        isModelMenuOpen={openMenu === 'selfReleaseModel'}
+        onToggleModelMenu={(): void => {
+          toggleMenu('selfReleaseModel');
+        }}
+        onCloseModelMenu={closeMenu}
+        modelNote="Gilt für neue Vorhaben."
+      />
+    );
   }
 
   function projectSkillsText(): string {
@@ -176,7 +260,8 @@ export function SettingsView({
     );
   }
 
-  function renderSections(current: Settings, loaded: SettingsOverview): ReactElement {
+  /** Das Bedienelement einer Zeile; Name und ⓘ-Text stehen im Katalog. */
+  function renderRow(id: SettingId, current: Settings, loaded: SettingsOverview): ReactElement {
     const currentMode = modeOption(current.defaultMode);
     const isCodex: boolean = current.operatingMode === 'codex';
     const codexList: readonly CodexModel[] = codexModels.models?.models ?? NO_CODEX_MODELS;
@@ -188,29 +273,14 @@ export function SettingsView({
       codexModels.models === null
         ? 'Modelle werden geladen …'
         : (codexModels.models.error ?? 'Keine Modelle verfügbar.');
-    return (
-      <>
-        <section className="settings-view__section">
-          <h2 className="settings-view__section-title">Konto</h2>
-          {current.operatingMode !== 'standalone' && <AccountRow />}
-          <CodexAccountRow />
-        </section>
-        <section className="settings-view__section">
-          <h2 className="settings-view__section-title">Agenten Verwalter</h2>
-          <AppVersionRow runningSessions={runningSessionCount(sessions)} />
-        </section>
-        {current.operatingMode !== 'standalone' && (
-          <section className="settings-view__section">
-            <h2 className="settings-view__section-title">Claude Code</h2>
-            <CliVersionRow />
-          </section>
-        )}
-        <section className="settings-view__section">
-          <h2 className="settings-view__section-title">Darstellung</h2>
-          <SettingRow
-            label="Farbschema"
-            info="System folgt der Windows-Einstellung für hell oder dunkel."
-          >
+    switch (id) {
+      case 'claudeAccount':
+        return <AccountRow />;
+      case 'codexAccount':
+        return <CodexAccountRow />;
+      case 'colorScheme':
+        return (
+          <SettingRow id={id}>
             <ColorSchemeSegment
               value={current.colorScheme}
               onChange={(scheme): void => {
@@ -218,43 +288,49 @@ export function SettingsView({
               }}
             />
           </SettingRow>
-        </section>
-        <section className="settings-view__section">
-          <h2 className="settings-view__section-title">Agent</h2>
-          <SettingRow
-            label="Betriebsart"
-            info="Claude: Modellanfragen gehen an dein Claude-Abo. Claude Code + LM Studio: dieselbe Claude-Kommandozeile mit Werkzeugen, Skills und Anweisungen, aber das Modell läuft lokal in LM Studio — für die Zeit, in der das Kontingent aufgebraucht ist. Autark: ohne Claude-Kommandozeile und ohne Anthropic — ein eigener, kleinerer Agent des Verwalters mit dem lokalen Modell. Codex: Sessions arbeiten mit OpenAI Codex und deinem ChatGPT-Konto. Gilt ab der nächsten Nachricht jeder Session."
-          >
+        );
+      case 'terminalPlacement':
+        return (
+          <SettingRow id={id}>
+            <TerminalPlacementSegment
+              value={current.terminalPlacement}
+              onChange={(placement): void => {
+                save({ kind: 'terminalPlacement', value: placement }).catch(() => undefined);
+              }}
+            />
+          </SettingRow>
+        );
+      case 'operatingMode':
+        return (
+          <SettingRow id={id}>
             <OperatingModeSegment value={current.operatingMode} onChange={saveOperatingMode} />
           </SettingRow>
-          {isLocalOperatingMode(current.operatingMode) && (
-            <SettingRow
+        );
+      case 'localModel':
+        return (
+          <SettingRow id={id}>
+            <SelectButton
               label="Lokales Modell"
-              info="Ein in LM Studio geladenes Modell. Die Kontextlänge, mit der es dort geladen ist, gilt als Kontextfenster der Sessions. Adresse des Servers: Umgebungsvariable VERWALTER_LMSTUDIO_URL, sonst http://localhost:1234."
+              value={localModelLabel(current.localModel)}
+              isOpen={openMenu === 'localModel'}
+              onToggle={(): void => {
+                toggleMenu('localModel');
+              }}
             >
-              <SelectButton
-                label="Lokales Modell"
-                value={localModelLabel(current.localModel)}
-                isOpen={openMenu === 'localModel'}
-                onToggle={(): void => {
-                  toggleMenu('localModel');
-                }}
-              >
-                <LocalModelMenu
-                  value={current.localModel}
-                  models={localModels.models}
-                  isLoading={localModels.isLoading}
-                  onChange={saveLocalModel}
-                  onReload={localModels.reload}
-                  onClose={closeMenu}
-                />
-              </SelectButton>
-            </SettingRow>
-          )}
-          <SettingRow
-            label="Standardmodell"
-            info="Mit diesem Modell startet die erste Session eines neuen Vorhabens; weitere Sessions im Vorhaben übernehmen den Stand der letzten. In der Session jederzeit über die Eingabeleiste änderbar."
-          >
+              <LocalModelMenu
+                value={current.localModel}
+                models={localModels.models}
+                isLoading={localModels.isLoading}
+                onChange={saveLocalModel}
+                onReload={localModels.reload}
+                onClose={closeMenu}
+              />
+            </SelectButton>
+          </SettingRow>
+        );
+      case 'defaultModel':
+        return (
+          <SettingRow id={id}>
             <SelectButton
               label="Standardmodell"
               value={
@@ -291,10 +367,10 @@ export function SettingsView({
               )}
             </SelectButton>
           </SettingRow>
-          <SettingRow
-            label="Standard-Modus"
-            info="Wie selbstständig Claude arbeitet und wie gründlich es nachdenkt. Gilt für neue Vorhaben; in der Session mit Umschalt + Tab bzw. über die Eingabeleiste wechselbar."
-          >
+        );
+      case 'defaultMode':
+        return (
+          <SettingRow id={id}>
             <SelectButton
               label="Standard-Modus"
               value={`${currentMode.label} · Denkaufwand ${effortLabel(current.defaultEffort)}`}
@@ -319,10 +395,10 @@ export function SettingsView({
               />
             </SelectButton>
           </SettingRow>
-          <SettingRow
-            label="Angaben ohne Fundstelle"
-            info="Unterstreicht Pfade, Datei:Zeile und Zahlen ab zwei Ziffern, die in keiner Werkzeug-Ausgabe derselben Antwort vorkommen."
-          >
+        );
+      case 'markUnsourced':
+        return (
+          <SettingRow id={id}>
             <Switch
               checked={current.markUnsourced}
               label="markieren"
@@ -331,27 +407,26 @@ export function SettingsView({
               }}
             />
           </SettingRow>
-        </section>
-        <section className="settings-view__section">
-          <h2 className="settings-view__section-title">Selbstfreigabe</h2>
-          <p className="settings-view__note">
-            Diese Werte gelten für neue Vorhaben; bestehende behalten ihre eigenen in der Übersicht.
-          </p>
-          <SelfReleaseSettings
-            value={current.defaultSelfRelease}
-            onSave={(next: SelfRelease): Promise<void> =>
-              // Ohne `save`: Der Fehler soll hier am Ort stehen, nicht oben auf der Seite.
-              updateSettings({ kind: 'defaultSelfRelease', value: next }).then(setSettings)
-            }
-            modelNote="Gilt für neue Vorhaben."
-          />
-        </section>
-        <section className="settings-view__section">
-          <h2 className="settings-view__section-title">Skills</h2>
-          <SettingRow
-            label="Benutzer-Skills"
-            info="Skills aus deinem Benutzerordner stehen in jeder Session zur Verfügung."
-          >
+        );
+      case 'cliVersion':
+        return <CliVersionRow />;
+      case 'selfReleaseMessages':
+        return (
+          <>
+            <p className="settings-view__note">
+              Diese Werte gelten für neue Vorhaben; bestehende behalten ihre eigenen in der
+              Übersicht.
+            </p>
+            {renderSelfReleaseRow(id, current)}
+          </>
+        );
+      case 'selfReleaseTldr':
+      case 'selfReleaseOpenSession':
+      case 'selfReleaseTldrModel':
+        return renderSelfReleaseRow(id, current);
+      case 'userSkills':
+        return (
+          <SettingRow id={id}>
             <span className="settings-view__path-text">
               <span className="settings-view__path" title={loaded.userSkillsDir}>
                 {loaded.userSkillsDir}
@@ -360,10 +435,10 @@ export function SettingsView({
             </span>
             {renderRevealButton(loaded.userSkillsDir)}
           </SettingRow>
-          <SettingRow
-            label="Projekt-Skills"
-            info="Skills aus den .claude\skills-Ordnern der Repositories einer Session. Welche gelten, hängt davon ab, welche Repositories die Session umfasst."
-          >
+        );
+      case 'projectSkills':
+        return (
+          <SettingRow id={id}>
             <span className="settings-view__path-text">
               <span className="settings-view__plain">{projectSkillsText()}</span>
               {!areRepositoriesLoading && hasProjectSkills(repositories) && (
@@ -371,13 +446,23 @@ export function SettingsView({
               )}
             </span>
           </SettingRow>
-        </section>
-        <section className="settings-view__section">
-          <h2 className="settings-view__section-title">Ordner</h2>
-          <SettingRow
-            label="Workspaces"
-            info="Hier legt die App den Workspace jedes Vorhabens an: Arbeitsordner seiner Sessions und Ablage der Anhänge."
-          >
+        );
+      case 'environmentLinks':
+        return <EnvironmentLinksRow />;
+      case 'masterDir':
+        return (
+          <MasterDirRow
+            masterDir={current.masterDir}
+            onSave={(value: string | null): Promise<boolean> => save({ kind: 'masterDir', value })}
+          />
+        );
+      case 'environmentMirror':
+        return <EnvironmentMirrorRow />;
+      case 'appVersion':
+        return <AppVersionRow runningSessions={runningSessionCount(sessions)} />;
+      case 'workspaces':
+        return (
+          <SettingRow id={id}>
             <span className="settings-view__path-text">
               <span className="settings-view__path" title={loaded.workspacesDir}>
                 {loaded.workspacesDir}
@@ -385,18 +470,63 @@ export function SettingsView({
             </span>
             {renderRevealButton(loaded.workspacesDir)}
           </SettingRow>
-        </section>
-        <section className="settings-view__section">
-          <h2 className="settings-view__section-title">Rechte</h2>
-          <SettingRow
-            label="Dateizugriff"
-            info="Ein Agent arbeitet im Workspace seines Vorhabens, in den Haupt-Checkouts von dessen Repositories und in deren Ticket-Worktrees — nicht im übrigen Benutzerverzeichnis."
-          >
+        );
+      case 'fileAccess':
+        return (
+          <SettingRow id={id}>
             <span className="settings-view__plain">Workspace und Repositories des Vorhabens</span>
           </SettingRow>
+        );
+      default:
+        return assertNever(id);
+    }
+  }
+
+  function renderSections(
+    current: Settings,
+    loaded: SettingsOverview,
+    hitIds: ReadonlySet<SettingId>,
+  ): ReactElement[] {
+    const groups: SettingGroup[] = groupEntries(shownEntries(current));
+    // Alle Kategorien bleiben eingehängt (Konto, Version und Claude-Version fragen beim
+    // Einhängen Programme und das Netz ab); die nicht gewählten bzw. nicht getroffenen
+    // sind nur ausgeblendet.
+    return groups.map((group: SettingGroup) => {
+      const hasHit: boolean = group.entries.some((entry: SettingEntry) => hitIds.has(entry.id));
+      return (
+        <section
+          key={`${group.category}/${group.section}`}
+          className="settings-view__section"
+          hidden={isSearching ? !hasHit : group.category !== category}
+        >
+          <h2 className="settings-view__section-title">
+            {isSearching ? (
+              <>
+                {categoryLabel(group.category)}{' '}
+                <span className="settings-view__section-path">
+                  › <b>{group.section}</b>
+                </span>
+              </>
+            ) : (
+              group.section
+            )}
+          </h2>
+          {group.entries.map((entry: SettingEntry) => (
+            <div key={entry.id} hidden={isSearching && !hitIds.has(entry.id)}>
+              {renderRow(entry.id, current, loaded)}
+            </div>
+          ))}
         </section>
-      </>
-    );
+      );
+    });
+  }
+
+  function renderSearchSummary(hitCount: number): ReactElement {
+    const text: string = query.trim();
+    if (hitCount === 0) {
+      return <p className="settings-view__empty">{`Nichts gefunden für „${text}“.`}</p>;
+    }
+    return <p className="settings-view__count">{`${String(hitCount)} Treffer für „${text}“`}</p>;
   }
 
   function renderBody(): ReactElement | null {
@@ -406,22 +536,42 @@ export function SettingsView({
       }
       return <p className="settings-view__loading">Lädt …</p>;
     }
-    return renderSections(settings, overview);
+    return (
+      <>
+        {isSearching && renderSearchSummary(hits.length)}
+        {renderSections(settings, overview, hitIds)}
+      </>
+    );
   }
 
   return (
     <div className="settings-view">
       <header className="settings-view__header">
         <h1 className="settings-view__title">Einstellungen</h1>
+        <SettingsSearchField value={query} onChange={changeQuery} />
       </header>
-      <div className="settings-view__scroll">
-        <div className="settings-view__content">
-          {renderErrors()}
-          {renderBody()}
+      <div className="settings-view__split">
+        <SettingsNav
+          active={isShowingHits ? null : category}
+          attention={attention}
+          counts={isShowingHits ? countByCategory(hits) : null}
+          onSelect={selectCategory}
+        />
+        <div ref={contentRef} className="settings-view__scroll">
+          <SettingsSearchContext.Provider value={terms}>
+            <div className="settings-view__content">
+              {renderErrors()}
+              {renderBody()}
+            </div>
+          </SettingsSearchContext.Provider>
         </div>
       </div>
     </div>
   );
+}
+
+function assertNever(value: never): never {
+  throw new Error(`Zeile ohne Zweig in renderRow: ${String(value)}`);
 }
 
 function skillCountLabel(count: number): string {

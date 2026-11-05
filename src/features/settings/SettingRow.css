@@ -36,4 +36,22 @@
     gap: var(--space-md);
     min-width: 0;
   }
+
+  &__found {
+    grid-column: 2;
+    margin: 0;
+    font-size: var(--font-size-xs);
+    color: var(--color-fg-muted);
+  }
+
+  &__found-text {
+    color: var(--color-fg-secondary);
+  }
+
+  mark {
+    padding: 0 1px;
+    border-radius: 3px;
+    background: var(--color-accent-subtle);
+    color: inherit;
+  }
 }

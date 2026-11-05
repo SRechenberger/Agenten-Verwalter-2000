@@ -2,9 +2,6 @@ import type { AppUpdateProgress } from '@/lib/bindings/AppUpdateProgress';
 import type { InstallKind } from '@/lib/bindings/InstallKind';
 import type { SessionSummary } from '@/lib/bindings/SessionSummary';
 
-export const APP_VERSION_INFO =
-  'Die Version dieses Verwalters. „Erneut prüfen“ fragt die GitHub-Releases ab. Ein Update lädt die neue Datei, prüft ihre Prüfsumme und startet den Verwalter neu; laufende Agenten werden dabei unterbrochen.';
-
 const BYTES_PER_MEGABYTE = 1024 * 1024;
 
 /** Bytes als Megabyte mit einer Nachkommastelle und deutschem Komma, ohne Einheit. */

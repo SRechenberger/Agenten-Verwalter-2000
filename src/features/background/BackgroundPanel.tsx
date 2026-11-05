@@ -24,6 +24,8 @@ const TAB_LABEL: Record<BackgroundTab, string> = {
 const NO_ITEMS: readonly BackgroundItem[] = [];
 
 interface BackgroundPanelProps {
+  /** Gezogene Breite in Pixeln. */
+  width: number;
   session: SessionSummary;
   background: SessionBackground | null;
   /** Fehler beim Laden der Einträge; `null` ohne. */
@@ -31,6 +33,7 @@ interface BackgroundPanelProps {
 }
 
 export function BackgroundPanel({
+  width,
   session,
   background,
   error,
@@ -72,7 +75,7 @@ export function BackgroundPanel({
   }
 
   return (
-    <aside className="background-panel" aria-label="Hintergrund der Session">
+    <aside className="background-panel" aria-label="Hintergrund der Session" style={{ width }}>
       <div className="background-panel__head">
         <div className="background-panel__tabs" role="tablist" aria-label="Hintergrund">
           {BACKGROUND_TABS.map((target: BackgroundTab) => {

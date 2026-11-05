@@ -42,7 +42,7 @@ Begründungen: [docs/decisions/001-stack-und-plattform.md](docs/decisions/001-st
 | Befehl | Wirkung |
 |---|---|
 | `pnpm tauri dev` | App im Entwicklungsmodus |
-| `pnpm check` | gesamte Prüfkette (Abgleich der Versionsstellen, Lint, Typecheck, Format, Build, rustfmt, Clippy) — vor jedem Commit grün |
+| `pnpm check` | gesamte Prüfkette (Abgleich der Versionsstellen, Lint, Typecheck, Format, Build, rustfmt, Clippy) — vor jedem Commit grün; läuft unter Windows direkt aus PowerShell, ohne Visual-Studio-Umgebung (kein `vswhere`/`VsDevCmd`); fehlt `cargo` im `PATH`, vorher `$env:PATH = "$env:USERPROFILE\.cargo\bin;$env:PATH"` |
 | `pnpm bump <X.Y.Z>` | setzt die Version an allen vier Stellen (`package.json`, `src-tauri/tauri.conf.json`, `src-tauri/Cargo.toml`, `src-tauri/Cargo.lock`) |
 | `pnpm bindings` | TS-Typen aus Rust neu erzeugen — nach jeder Änderung an Typen, die die Tauri-Grenze überqueren |
 | `pnpm tauri icon src-tauri/icons/icon.svg -o <Ordner>` | erzeugt aus der SVG-Quelle des App-Icons alle Größen in `<Ordner>`; von dort die Desktop-Dateien (`32x32.png`, `128x128.png`, `128x128@2x.png`, `Square*.png`, `StoreLogo.png`, `icon.png`, `icon.icns`, `icon.ico`) nach `src-tauri/icons/` kopieren, `android/` und `ios/` verwerfen; danach `src-tauri/build.rs` anfassen (oder `cargo clean -p verwalter`), sonst behält die exe das alte Icon |
