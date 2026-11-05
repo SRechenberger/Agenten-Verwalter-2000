@@ -37,7 +37,7 @@ interface CardStackProps {
   onBackToCurrent: () => void;
   onOpenChat: (stationId: string) => void;
   onOpenSession: (sessionId: string) => void;
-  onShowChanges: () => void;
+  onShowChanges: (stationId: string) => void;
   onStart: (stationId: string) => void;
   onCancelCountdown: (stationId: string) => void;
   onCompleteByUser: (stationId: string, result: string) => void;

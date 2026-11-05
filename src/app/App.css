@@ -12,8 +12,20 @@
   &__main {
     display: flex;
     flex-direction: column;
-    flex-grow: 1;
+    flex: 1 1 0;
     min-width: 0;
     container: main / inline-size;
+  }
+
+  /* Der bisherige Inhalt; das Dock steht darunter. Maximiert bleibt er eingehängt und ist nur ausgeblendet. */
+  &__content {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 0;
+    min-height: 0;
+
+    &--hidden {
+      display: none;
+    }
   }
 }

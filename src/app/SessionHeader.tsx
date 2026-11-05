@@ -49,6 +49,10 @@ interface SessionHeaderProps {
   runningBackgroundCount: number;
   isBackgroundOpen: boolean;
   onToggleBackground: () => void;
+  /** Laufende Terminals des Vorhabens. */
+  terminalCount: number;
+  isTerminalOpen: boolean;
+  onToggleTerminal: () => void;
   onShowView: (view: SessionView) => void;
   onOpenProject: () => void;
 }
@@ -64,6 +68,9 @@ export function SessionHeader({
   runningBackgroundCount,
   isBackgroundOpen,
   onToggleBackground,
+  terminalCount,
+  isTerminalOpen,
+  onToggleTerminal,
   onShowView,
   onOpenProject,
 }: SessionHeaderProps): ReactElement {
@@ -291,6 +298,19 @@ export function SessionHeader({
         ))}
       </div>
       <div className="session-header__tools">
+        <button
+          type="button"
+          className={`session-header__background${isTerminalOpen ? ' session-header__background--active' : ''}`}
+          aria-pressed={isTerminalOpen}
+          aria-label="Terminal ein-/ausblenden"
+          title="Terminal ein-/ausblenden (Strg+Ö)"
+          onClick={onToggleTerminal}
+        >
+          <span className="session-header__mono">&gt;_</span>
+          {terminalCount > 0 && (
+            <span className="session-header__background-count">{String(terminalCount)}</span>
+          )}
+        </button>
         <button
           type="button"
           className={`session-header__background${isBackgroundOpen ? ' session-header__background--active' : ''}`}

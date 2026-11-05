@@ -1,9 +1,10 @@
 .background-panel {
   display: flex;
-  flex-shrink: 0;
+  flex-shrink: 1;
   flex-direction: column;
   box-sizing: border-box;
   width: 440px;
+  min-width: 320px;
   min-height: 0;
   overflow: hidden;
   border-left: 1px solid var(--color-border-subtle);

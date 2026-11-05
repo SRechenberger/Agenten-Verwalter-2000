@@ -38,6 +38,8 @@
     min-width: 0;
     box-sizing: border-box;
     min-height: 52px;
+    max-height: 40vh;
+    field-sizing: content;
     padding: 11px 14px var(--space-xs);
     border: 0;
     outline: none;

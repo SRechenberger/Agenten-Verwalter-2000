@@ -1,0 +1,50 @@
+/* Der Griff hat keine eigene Breite: er sitzt auf der Kante zwischen Leiste und Füllfläche, die Trefferfläche
+   ragt je 3 px in beide Nachbarn. */
+.resize-handle {
+  position: relative;
+  flex-shrink: 0;
+  width: 0;
+  outline: none;
+
+  &::before {
+    content: '';
+    position: absolute;
+    inset-block: 0;
+    inset-inline: -3px;
+    z-index: var(--z-sticky);
+    cursor: col-resize;
+  }
+
+  &::after {
+    content: '';
+    position: absolute;
+    inset-block: 0;
+    inset-inline: -1px;
+    z-index: var(--z-sticky);
+    background: var(--color-accent);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity var(--duration-base) var(--ease-out) 300ms;
+  }
+
+  &:hover::after {
+    opacity: 1;
+  }
+
+  &--active::after,
+  &:focus-visible::after {
+    opacity: 1;
+    transition-delay: 0ms;
+  }
+}
+
+/* Während des Ziehens bleibt der Zeiger ein Breitenzeiger, nichts wird markiert, und ein iframe (Artefakte)
+   fängt die Maus nicht ab. */
+:root.resizing {
+  cursor: col-resize;
+  user-select: none;
+
+  & iframe {
+    pointer-events: none;
+  }
+}

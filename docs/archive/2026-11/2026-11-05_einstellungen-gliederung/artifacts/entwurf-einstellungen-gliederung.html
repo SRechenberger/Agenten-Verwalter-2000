@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Entwurf Einstellungen gliedern und durchsuchen</title>
+<link rel="stylesheet" href="entwuerfe/app.css">
+<style>
+.app.tall { min-height: 560px; }
+.sidebar { display: flex; flex-direction: column; }
+.sb-foot { margin-top: auto; padding: 8px 10px 0; border-top: 1px solid var(--border-subtle); }
+.sb-set { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 6px; color: var(--fg2); }
+.sb-set.sel { background: var(--bg-selected); color: var(--fg); }
+.sb-set .sp { flex: 1; }
+.pdot { width: 7px; height: 7px; border-radius: 50%; flex: none; }
+.pdot.upd { background: var(--running); }
+.pdot.env { background: var(--waiting); }
+
+.split { display: grid; grid-template-columns: 216px minmax(0, 1fr); flex: 1; min-height: 0; }
+.snav { border-right: 1px solid var(--border-subtle); padding: 14px 10px; display: grid; gap: 2px; align-content: start; }
+.snav .it { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 8px; align-items: center; padding: 7px 10px; border-radius: 7px; color: var(--fg2); }
+.snav .it b { font-weight: 600; color: var(--fg); }
+.snav .it small { grid-column: 1; color: var(--muted); font-size: 11px; line-height: 1.35; }
+.snav .it.sel { background: var(--bg-selected); }
+.snav .it .tag { grid-column: 2; grid-row: 1; justify-self: end; }
+.snav .it.dim b { color: var(--fg2); font-weight: 500; }
+.badge { font-size: 10.5px; font-weight: 600; padding: 0 6px; border-radius: 999px; background: var(--accent-subtle); color: var(--accent-text); }
+
+.settings { flex: 1; }
+.settings .shead { gap: 16px; }
+.sfind { margin-left: auto; display: flex; align-items: center; gap: 8px; width: 290px; height: 30px; padding: 0 10px; border: 1px solid var(--border); border-radius: 7px; background: var(--bg-surface); color: var(--muted); font-size: 12.5px; font-weight: 400; }
+.sfind.on { border-color: var(--accent); color: var(--fg); }
+.sfind .clr { margin-left: auto; color: var(--muted); }
+.split .content { margin: 0; max-width: 780px; }
+
+.warnline { display: flex; gap: 8px; align-items: center; color: var(--waiting); }
+.dlist { width: 100%; margin-top: 6px; border: 1px solid var(--border-subtle); border-radius: 7px; overflow: hidden; font-size: 12px; }
+.dlist div { display: grid; grid-template-columns: 84px minmax(0, 1fr) auto; gap: 10px; padding: 5px 10px; border-top: 1px solid var(--border-subtle); align-items: center; }
+.dlist div:first-child { border-top: 0; }
+.dlist .k { font-size: 10.5px; font-weight: 600; color: var(--fg2); }
+.dlist .s { color: var(--muted); }
+.dlist .s.up { color: var(--accent-text); }
+
+mark { background: var(--accent-subtle); color: inherit; border-radius: 3px; padding: 0 1px; }
+.count { color: var(--fg2); margin: 0 0 -6px; }
+.grp h3 .path { text-transform: none; letter-spacing: 0; font-weight: 400; }
+.grp h3 .path b { font-weight: 600; color: var(--fg2); }
+.why { grid-column: 2; color: var(--muted); font-size: 11.5px; }
+.why q { quotes: none; color: var(--fg2); }
+.row.hit { grid-template-rows: auto auto; }
+.row.hit .lbl, .row.hit .ctl { grid-row: 1; }
+</style>
+</head>
+<body>
+<header class="intro">
+  <span class="eyebrow">Entwurf · Verwalter</span>
+  <h1>Einstellungen gliedern und durchsuchen</h1>
+  <p>Heute stehen alle Abschnitte in einem langen Scroll: Konto, Agenten Verwalter, Claude Code, Darstellung, Agent, Skills, Ordner, Rechte; mit „Umgebung“ wären es neun. Der Vorschlag teilt sie in vier Kategorien links und legt ein Suchfeld oben darüber. Die Zeilen selbst bleiben, wie sie sind. Gestrichelt umrandet = neu.</p>
+</header>
+
+<section class="state">
+  <h2><span class="mk">1</span>Eine Kategorie offen: „Skills &amp; Umgebung“</h2>
+  <p>Rechts steht nur, was zur gewählten Kategorie gehört. „Umgebung“ aus dem Plan sitzt unter den Skills. Der Punkt an der Kategorie zeigt, wo die Aufmerksamkeit gebraucht wird; derselbe Punkt am Knopf „Einstellungen“ unten in der Sidebar führt beim Klick direkt hierher.</p>
+  <div class="frame"><div class="app tall">
+    <aside class="sidebar">
+      <div class="sb-head">Agenten Verwalter 2000</div>
+      <div class="sb-p">Vorhaben Alpha</div>
+      <div class="sb-s"><span class="dot run"></span><span class="grow">Umsetzung Phase 1</span></div>
+      <div class="sb-s"><span class="dot"></span><span class="grow">Review</span></div>
+      <div class="sb-foot"><div class="sb-set sel"><span>Einstellungen</span><span class="sp"></span><span class="pdot upd"></span><span class="pdot env new"></span></div></div>
+    </aside>
+    <div class="main settings">
+      <div class="shead">Einstellungen
+        <span class="sfind new"><svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="6" cy="6" r="4"/><path d="M9 9l3.5 3.5"/></svg>Einstellungen durchsuchen …</span>
+      </div>
+      <div class="split">
+        <nav class="snav new">
+          <div class="it"><b>Allgemein</b><small>Konto · Darstellung</small></div>
+          <div class="it"><b>Agent</b><small>Betriebsart · Modelle · Modus · Claude Code</small></div>
+          <div class="it sel"><b>Skills &amp; Umgebung</b><small>Skills · Umgebung</small><span class="pdot env tag"></span></div>
+          <div class="it"><b>App</b><small>Version · Ordner · Rechte</small></div>
+        </nav>
+        <div class="content">
+          <div class="sec"><h3>Skills</h3>
+            <div class="row"><span class="lbl">Benutzer-Skills <span class="info">i</span></span><span class="ctl"><span class="mono">C:\Users\sasch\.claude\skills</span><span>23 Skills</span><span class="btn">Im Explorer zeigen</span></span></div>
+            <div class="row"><span class="lbl">Projekt-Skills <span class="info">i</span></span><span class="ctl"><span>Aus den Repositories der Session</span><span style="color:var(--muted)">je Repository</span></span></div>
+          </div>
+          <div class="sec"><h3>Umgebung</h3>
+            <div class="row"><span class="lbl">Verknüpfungen <span class="info">i</span></span>
+              <span class="ctl" style="display:grid;gap:4px">
+                <span class="warnline">⚠ 1 von 13 zeigt ins Leere</span>
+                <span class="mono">~\.claude\knowledge\topics → D:\Wissen\topics</span>
+                <span style="color:var(--muted)">Ziel fehlt · zuletzt geprüft 14:02</span>
+                <span style="display:flex;gap:8px;margin-top:2px"><span class="btn">Erneut prüfen</span></span>
+              </span>
+            </div>
+            <div class="row"><span class="lbl">Master-Ordner <span class="info">i</span></span><span class="ctl"><span class="mono">D:\Konfig\Master</span><span class="btn">Ändern …</span><span class="btn">Entfernen</span></span></div>
+            <div class="row"><span class="lbl">Abgleich <span class="info">i</span></span>
+              <span class="ctl" style="display:grid;gap:6px">
+                <span style="display:flex;gap:10px;align-items:center"><span class="warnline">3 Skills und die Regeldatei weichen ab</span><span class="btn primary">Spiegeln</span></span>
+                <div class="dlist">
+                  <div><span class="k">Skill</span><span>mode-planning</span><span class="s up">im Master neuer · 04.11. 13:51</span></div>
+                  <div><span class="k">Skill</span><span>mode-implementing</span><span class="s up">im Master neuer · 04.11. 13:50</span></div>
+                  <div><span class="k">Skill</span><span>research</span><span class="s up">fehlt lokal</span></div>
+                  <div><span class="k">Regeldatei</span><span>CLAUDE.md</span><span class="s up">im Master neuer · 04.11. 13:59</span></div>
+                  <div><span class="k">Skill</span><span>alt-experiment</span><span class="s">nur lokal · bleibt</span></div>
+                </div>
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div></div>
+</section>
+
+<section class="state">
+  <h2><span class="mk">2</span>Suche: „ordner“</h2>
+  <p>Die Suche durchsucht alle Kategorien auf einmal, nach Zeilenname und nach dem Text hinter dem ⓘ. Die Treffer sind die echten Zeilen mit ihren Bedienelementen, nach Kategorie und Abschnitt gruppiert. Steht der Treffer nur im Hilfetext, zeigt eine graue Zeile die Fundstelle. Die Kategorien links zählen die Treffer.</p>
+  <div class="frame"><div class="app tall">
+    <aside class="sidebar">
+      <div class="sb-head">Agenten Verwalter 2000</div>
+      <div class="sb-p">Vorhaben Alpha</div>
+      <div class="sb-s"><span class="dot run"></span><span class="grow">Umsetzung Phase 1</span></div>
+      <div class="sb-s"><span class="dot"></span><span class="grow">Review</span></div>
+      <div class="sb-foot"><div class="sb-set sel"><span>Einstellungen</span></div></div>
+    </aside>
+    <div class="main settings">
+      <div class="shead">Einstellungen
+        <span class="sfind on new"><svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="6" cy="6" r="4"/><path d="M9 9l3.5 3.5"/></svg>ordner<span class="clr">✕</span></span>
+      </div>
+      <div class="split">
+        <nav class="snav new">
+          <div class="it dim"><b>Allgemein</b><small>Konto · Darstellung</small></div>
+          <div class="it dim"><b>Agent</b><small>Betriebsart · Modelle · Modus · Claude Code</small></div>
+          <div class="it"><b>Skills &amp; Umgebung</b><small>Skills · Umgebung</small><span class="badge tag">3</span></div>
+          <div class="it"><b>App</b><small>Version · Ordner · Rechte</small><span class="badge tag">1</span></div>
+        </nav>
+        <div class="content">
+          <p class="count">4 Treffer für „ordner“</p>
+          <div class="sec grp"><h3>Skills &amp; Umgebung <span class="path">› <b>Umgebung</b></span></h3>
+            <div class="row"><span class="lbl">Master-<mark>Ordner</mark> <span class="info">i</span></span><span class="ctl"><span class="mono">D:\Konfig\Master</span><span class="btn">Ändern …</span><span class="btn">Entfernen</span></span></div>
+          </div>
+          <div class="sec grp"><h3>Skills &amp; Umgebung <span class="path">› <b>Skills</b></span></h3>
+            <div class="row hit"><span class="lbl">Benutzer-Skills <span class="info">i</span></span><span class="ctl"><span class="mono">C:\Users\sasch\.claude\skills</span><span>23 Skills</span><span class="btn">Im Explorer zeigen</span></span>
+              <span class="why">Im Hilfetext: <q>Skills aus deinem Benutzer<mark>ordner</mark> stehen in jeder Session zur Verfügung.</q></span></div>
+            <div class="row hit"><span class="lbl">Projekt-Skills <span class="info">i</span></span><span class="ctl"><span>Aus den Repositories der Session</span><span style="color:var(--muted)">je Repository</span></span>
+              <span class="why">Im Hilfetext: <q>Skills aus den .claude\skills-<mark>Ordner</mark>n der Repositories einer Session.</q></span></div>
+          </div>
+          <div class="sec grp"><h3>App <span class="path">› <b>Ordner</b></span></h3>
+            <div class="row hit"><span class="lbl">Workspaces <span class="info">i</span></span><span class="ctl"><span class="mono">C:\Users\sasch\.verwalter\workspaces</span><span class="btn">Im Explorer zeigen</span></span>
+              <span class="why">Im Hilfetext: <q>… Arbeits<mark>ordner</mark> seiner Sessions und Ablage der Anhänge.</q></span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div></div>
+</section>
+
+<ul class="legend">
+  <li><span class="mk">1</span><span><b>Vier Kategorien statt acht Abschnitte im Scroll:</b> Allgemein (Konto, Darstellung) · Agent (Agent, Claude Code) · Skills &amp; Umgebung (Skills, Umgebung) · App (Agenten Verwalter, Ordner, Rechte). Jede Kategorie passt auf einen Bildschirm; ein neuer Abschnitt landet in seiner Kategorie, nicht hinten dran. Die Zuordnung ist ein Vorschlag.</span></li>
+  <li><span class="mk">2</span><span><b>Beim Öffnen:</b> die zuletzt benutzte Kategorie; kommt man über den Punkt in der Sidebar, die Kategorie mit dem Punkt.</span></li>
+  <li><span class="mk">3</span><span><b>Suche:</b> filtert beim Tippen, Esc oder ✕ leert sie. Ohne Treffer steht ein Satz („Nichts gefunden für „…“.“) statt einer leeren Seite. Abschnittsnamen zählen nicht als Treffer, nur Zeilenname und Hilfetext.</span></li>
+  <li><span class="mk">4</span><span><b>Platzhalter:</b> Farben des Punkts in der Sidebar (Update blau, Umgebung gelb), alle Pfade, Zahlen und Uhrzeiten. Nicht entworfen: Verhalten bei sehr schmalem Fenster.</span></li>
+</ul>
+</body>
+</html>

@@ -3,9 +3,11 @@ import type { ReactElement } from 'react';
 import type { UnlistenFn } from '@tauri-apps/api/event';
 import { ProjectHeader } from '@/app/ProjectHeader';
 import { SessionActionError } from '@/app/SessionActionError';
+import { ResizeHandle } from '@/components/ResizeHandle';
 import { SessionHeader } from '@/app/SessionHeader';
 import { Sidebar } from '@/app/Sidebar';
 import { useAppUpdateCheck } from '@/features/appupdate/useAppUpdate';
+import { useEnvironmentCheck } from '@/features/environment/useEnvironment';
 import { ArchiveDialog } from '@/features/archive/ArchiveDialog';
 import { BackgroundPanel } from '@/features/background/BackgroundPanel';
 import { countRunning, indexByToolUseId } from '@/features/background/backgroundItems';
@@ -31,6 +33,8 @@ import { OverlapBar } from '@/features/sessions/OverlapBar';
 import { useSessionOverlaps } from '@/features/sessions/useSessionOverlaps';
 import { useSessionSummaries } from '@/features/sessions/useSessionSummaries';
 import { openSide } from '@/features/side/openSide';
+import { TerminalDock } from '@/features/terminal/TerminalDock';
+import { useProjectTerminals } from '@/features/terminal/useProjectTerminals';
 import { useViewedSession } from '@/features/sessions/useViewedSession';
 import { SettingsView } from '@/features/settings/SettingsView';
 import { useSettings } from '@/features/settings/useSettings';
@@ -48,7 +52,10 @@ import type { ProjectGroup } from '@/lib/bindings/ProjectGroup';
 import type { ProjectRestored } from '@/lib/bindings/ProjectRestored';
 import type { ProjectSummary } from '@/lib/bindings/ProjectSummary';
 import type { SessionSummary } from '@/lib/bindings/SessionSummary';
+import type { TerminalInfo } from '@/lib/bindings/TerminalInfo';
+import type { TerminalPlacement } from '@/lib/bindings/TerminalPlacement';
 import { setProjectGroupCollapsed } from '@/lib/projectGroups';
+import { usePanelWidth } from '@/lib/usePanelWidth';
 import { useArtifactsStore } from '@/stores/artifacts';
 import { useBackgroundStore } from '@/stores/background';
 import {
@@ -58,6 +65,7 @@ import {
   type SessionView,
 } from '@/stores/sessions';
 import { useSettingsStore } from '@/stores/settings';
+import { useTerminalStore } from '@/stores/terminal';
 import './App.css';
 
 export function App(): ReactElement {
@@ -108,10 +116,14 @@ export function App(): ReactElement {
   const isClaude: boolean = useSettingsStore(
     (state) => (state.settings?.operatingMode ?? 'claude') === 'claude',
   );
+  const sidebarWidth = usePanelWidth('sidebar');
+  const backgroundWidth = usePanelWidth('background');
   useVoiceModel();
   useRetroProgress();
   // Die Abfrage beim Start füllt den Store; der Punkt an „Einstellungen“ liest ihn.
   useAppUpdateCheck();
+  // Dito für die Umgebung: der Punkt an „Einstellungen“ liest den Store.
+  useEnvironmentCheck();
 
   // MCP-Zugang (ADR 046): der Agent wählt ein Artefakt aus. Ausgewählt wird immer; die Ansicht
   // springt nur, wenn der Benutzer gerade diese Session oder die Übersicht ihres Vorhabens sieht.
@@ -258,6 +270,78 @@ export function App(): ReactElement {
     [backgroundItems],
   );
 
+  // Das Terminal-Dock gehört dem sichtbaren Vorhaben (Session oder Übersicht); in „Neues Vorhaben“ und den
+  // Einstellungen gibt es keins.
+  const terminalProjectId: string | null = isMainReplaced
+    ? null
+    : (currentSession?.projectId ?? null);
+  const {
+    terminals,
+    isLoaded: areTerminalsLoaded,
+    error: terminalsError,
+  } = useProjectTerminals(terminalProjectId);
+  const runningTerminalCount: number = terminals.filter(
+    (terminal: TerminalInfo) => terminal.running,
+  ).length;
+  const terminalPlacement: TerminalPlacement = useSettingsStore(
+    (state) => state.settings?.terminalPlacement ?? 'bottom',
+  );
+  const isTerminalOpen: boolean = useTerminalStore((state) => state.isOpen);
+  const isTerminalMaximized: boolean = useTerminalStore((state) => state.isMaximized);
+  const toggleTerminalOpen = useTerminalStore((state) => state.toggle);
+  const closeTerminalDock = useTerminalStore((state) => state.close);
+  const closeBackground = useBackgroundStore((state) => state.close);
+  const isDockShown: boolean = isTerminalOpen && terminalProjectId !== null;
+  const isDockFilling: boolean =
+    isDockShown && isTerminalMaximized && terminalPlacement === 'bottom';
+
+  // Rechts teilen sich Dock und Hintergrund-Panel den Platz: das eine schließt das andere.
+  const handleToggleTerminal = useCallback((): void => {
+    if (!isTerminalOpen && terminalPlacement === 'right') {
+      closeBackground();
+    }
+    toggleTerminalOpen();
+  }, [isTerminalOpen, terminalPlacement, closeBackground, toggleTerminalOpen]);
+
+  function handleToggleBackground(): void {
+    if (!isBackgroundOpen && terminalPlacement === 'right') {
+      closeTerminalDock();
+    }
+    toggleBackground();
+  }
+
+  useEffect(() => {
+    if (terminalProjectId === null) {
+      return undefined;
+    }
+    function handleKeyDown(event: KeyboardEvent): void {
+      if (event.ctrlKey && !event.altKey && event.key.toLowerCase() === 'ö') {
+        event.preventDefault();
+        handleToggleTerminal();
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown);
+    return (): void => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [terminalProjectId, handleToggleTerminal]);
+
+  function renderTerminalDock(): ReactElement | null {
+    if (terminalProjectId === null) {
+      return null;
+    }
+    return (
+      <TerminalDock
+        key={terminalProjectId}
+        projectId={terminalProjectId}
+        terminals={terminals}
+        isLoaded={areTerminalsLoaded}
+        listError={terminalsError}
+        placement={terminalPlacement}
+      />
+    );
+  }
+
   // Strg+; öffnet die Nebenfrage der Session, deren Chat gerade vor der Eingabeleiste steht. Auf deutscher
   // Tastatur liegt das Semikolon auf Umschalt+Komma: `shiftKey` darf die Abfrage nicht ausschließen.
   const chatSessionId: string | null =
@@ -347,6 +431,9 @@ export function App(): ReactElement {
           changesCount={changes === null ? null : countChangedFiles(changes)}
           artifactCount={artifactCount}
           onShowView={showProjectView}
+          terminalCount={runningTerminalCount}
+          isTerminalOpen={isTerminalOpen}
+          onToggleTerminal={handleToggleTerminal}
         />
         {renderOverviewBody(project, latestSession)}
       </Fragment>
@@ -366,6 +453,7 @@ export function App(): ReactElement {
           activeView={isChangesView ? 'changes' : 'flow'}
           hasChanges={hasProjectRepositories}
           changesCount={changes === null ? null : countChangedFiles(changes)}
+          sessions={sessions}
           changes={
             <ChangesView
               key={latestSession.id}
@@ -378,6 +466,9 @@ export function App(): ReactElement {
             />
           }
           onNewInquiry={startInquiry}
+          terminalCount={runningTerminalCount}
+          isTerminalOpen={isTerminalOpen}
+          onToggleTerminal={handleToggleTerminal}
           onShowView={showImplementationView}
           onOpenProject={(): void => {
             selectProject(project.id);
@@ -518,7 +609,10 @@ export function App(): ReactElement {
             artifactCount={artifactCount}
             runningBackgroundCount={countRunning(backgroundItems)}
             isBackgroundOpen={isBackgroundOpen}
-            onToggleBackground={toggleBackground}
+            onToggleBackground={handleToggleBackground}
+            terminalCount={runningTerminalCount}
+            isTerminalOpen={isTerminalOpen}
+            onToggleTerminal={handleToggleTerminal}
             onShowView={showView}
             onOpenProject={(): void => {
               selectProject(currentSession.projectId);
@@ -537,6 +631,7 @@ export function App(): ReactElement {
   return (
     <div className="app">
       <Sidebar
+        width={sidebarWidth.width}
         projects={projects}
         groups={groups}
         sessions={sessions}
@@ -558,14 +653,29 @@ export function App(): ReactElement {
         onArchived={handleArchived}
         onSessionDeleted={handleSessionDeleted}
       />
-      <main className="app__main">{renderMain()}</main>
+      <ResizeHandle edge="end" label="Breite der Seitenleiste" {...sidebarWidth.handleProps} />
+      <main className="app__main" data-resize-fill>
+        <div className={`app__content${isDockFilling ? ' app__content--hidden' : ''}`}>
+          {renderMain()}
+        </div>
+        {isDockShown && terminalPlacement === 'bottom' && renderTerminalDock()}
+      </main>
+      {isDockShown && terminalPlacement === 'right' && renderTerminalDock()}
       {isBackgroundOpen && visibleSession !== null && (
-        <BackgroundPanel
-          key={visibleSession.id}
-          session={visibleSession}
-          background={background}
-          error={backgroundError}
-        />
+        <>
+          <ResizeHandle
+            edge="start"
+            label="Breite des Hintergrunds"
+            {...backgroundWidth.handleProps}
+          />
+          <BackgroundPanel
+            key={visibleSession.id}
+            width={backgroundWidth.width}
+            session={visibleSession}
+            background={background}
+            error={backgroundError}
+          />
+        </>
       )}
       {isArchiveOpen && (
         <ArchiveDialog

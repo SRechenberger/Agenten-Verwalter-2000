@@ -54,6 +54,8 @@ export interface FileTreeGit {
 }
 
 interface FileTreeProps {
+  /** Gezogene Breite in Pixeln. */
+  width: number;
   rows: readonly FileRow[];
   scope: ChangeScope;
   openFile: OpenFile | null;
@@ -63,7 +65,14 @@ interface FileTreeProps {
 
 type FileRowOf<Kind extends FileRow['kind']> = Extract<FileRow, { kind: Kind }>;
 
-export function FileTree({ rows, scope, openFile, onOpen, git }: FileTreeProps): ReactElement {
+export function FileTree({
+  width,
+  rows,
+  scope,
+  openFile,
+  onOpen,
+  git,
+}: FileTreeProps): ReactElement {
   const scrollRef = useRef<HTMLDivElement>(null);
   const sessionId: string | null = git === null ? null : git.sessionId;
   const ui: GitSessionUi | undefined = useGitStore((state) =>
@@ -385,7 +394,7 @@ export function FileTree({ rows, scope, openFile, onOpen, git }: FileTreeProps):
   }
 
   return (
-    <div ref={scrollRef} className="file-tree">
+    <div ref={scrollRef} className="file-tree" style={{ width }}>
       {git !== null && <GitLockHint sessionId={git.sessionId} busy={git.busy} />}
       {rows.length === 0 ? (
         <p className="file-tree__empty">{EMPTY_SCOPE_TEXT[scope]}</p>

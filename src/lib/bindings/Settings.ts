@@ -4,7 +4,9 @@ import type { Effort } from "./Effort";
 import type { Mode } from "./Mode";
 import type { ModelId } from "./ModelId";
 import type { OperatingMode } from "./OperatingMode";
+import type { PanelWidths } from "./PanelWidths";
 import type { SelfRelease } from "./SelfRelease";
+import type { TerminalPlacement } from "./TerminalPlacement";
 
 /**
  * Werte, die für die ganze App gelten. Modell, Modus und Denkaufwand gelten für die erste Session
@@ -20,10 +22,27 @@ localModel: string | null,
  */
 defaultCodexModel: string | null, 
 /**
+ * Ordner mit den Originalen von Skills, Befehlen, Ausgabestilen und `CLAUDE.md`, mit dem die
+ * Umgebung abgeglichen wird (ADR 038); `None`, solange keiner gewählt ist.
+ */
+masterDir: string | null, 
+/**
  * Ob der Verlauf Angaben ohne Fundstelle unterstreicht (ADR 036); der Core ermittelt sie immer.
  */
 markUnsourced: boolean, 
 /**
  * Selbstfreigabe, die ein neues Vorhaben übernimmt; bestehende bleiben unverändert.
  */
-defaultSelfRelease: SelfRelease, };
+defaultSelfRelease: SelfRelease, terminalPlacement: TerminalPlacement, 
+/**
+ * Gezogene Höhe des Terminal-Docks in Pixeln.
+ */
+terminalHeight: number, 
+/**
+ * Gezogene Breite des Terminal-Docks in Pixeln.
+ */
+terminalWidth: number, 
+/**
+ * Breite je Leiste in Pixeln; `None` = Standardbreite der Oberfläche (ADR 056).
+ */
+panelWidths: PanelWidths, };

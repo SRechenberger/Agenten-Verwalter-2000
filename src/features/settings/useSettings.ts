@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import type { SettingsOverview } from '@/lib/bindings/SettingsOverview';
 import { applyColorScheme } from '@/lib/colorScheme';
 import { commandErrorText } from '@/lib/errors';
+import { rememberPanelWidths } from '@/lib/panelWidths';
 import { loadSettings } from '@/lib/settings';
 import { useSettingsStore } from '@/stores/settings';
 
@@ -26,6 +27,7 @@ export function useSettings(): LoadedSettings {
         setSettings(loaded.settings);
         // Die Datenbank gewinnt gegen den Spiegel im Browser.
         applyColorScheme(loaded.settings.colorScheme);
+        rememberPanelWidths(loaded.settings.panelWidths);
       })
       .catch((reason: unknown) => {
         console.error('Einstellungen nicht ladbar', reason);

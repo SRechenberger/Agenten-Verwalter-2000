@@ -26,6 +26,9 @@ use verwalter_lib::{
     context::model::{
         ContextBreakdown, ContextCategory, ContextChangedEvent, ContextFile, SessionContext,
     },
+    environment::model::{
+        BrokenLink, EnvironmentStatus, LinkCheck, MirrorDiff, MirrorKind, MirrorRun, MirrorState,
+    },
     error::CommandError,
     git::model::{
         GitBranch, GitBusySession, GitEntryStatus, GitForeignFile, GitLog, GitLogCommit,
@@ -50,7 +53,10 @@ use verwalter_lib::{
     sessions::model::{
         AwaitedScript, ChatEntryEvent, ChatPage, SessionOverlap, SessionStatus, SessionSummary,
     },
-    settings::model::{ColorScheme, OperatingMode, Settings, SettingsChange, SettingsOverview},
+    settings::model::{
+        ColorScheme, OperatingMode, PanelId, PanelWidths, Settings, SettingsChange,
+        SettingsOverview, TerminalPlacement,
+    },
     side::model::{SideChangedEvent, SideQuestion, SideState, SideUsage},
     skills::model::{SkillInfo, SkillKind, SkillOrigin, SkillRef, SkillUse},
     terminal::model::{TerminalChanged, TerminalInfo, TerminalOutput},
@@ -171,6 +177,9 @@ fn main() -> Result<(), ts_rs::ExportError> {
     SideChangedEvent::export_all(&cfg)?;
     ColorScheme::export_all(&cfg)?;
     OperatingMode::export_all(&cfg)?;
+    TerminalPlacement::export_all(&cfg)?;
+    PanelId::export_all(&cfg)?;
+    PanelWidths::export_all(&cfg)?;
     LocalModelKind::export_all(&cfg)?;
     LocalModel::export_all(&cfg)?;
     LocalModels::export_all(&cfg)?;
@@ -215,5 +224,12 @@ fn main() -> Result<(), ts_rs::ExportError> {
     TerminalInfo::export_all(&cfg)?;
     TerminalOutput::export_all(&cfg)?;
     TerminalChanged::export_all(&cfg)?;
+    BrokenLink::export_all(&cfg)?;
+    LinkCheck::export_all(&cfg)?;
+    MirrorKind::export_all(&cfg)?;
+    MirrorState::export_all(&cfg)?;
+    MirrorDiff::export_all(&cfg)?;
+    MirrorRun::export_all(&cfg)?;
+    EnvironmentStatus::export_all(&cfg)?;
     Ok(())
 }

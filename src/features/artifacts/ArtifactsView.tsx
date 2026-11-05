@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { ReactElement } from 'react';
+import { ResizeHandle } from '@/components/ResizeHandle';
 import { ArtifactFrame } from '@/features/artifacts/ArtifactFrame';
 import { ArtifactFullscreen } from '@/features/artifacts/ArtifactFullscreen';
 import { ArtifactGroupHeader } from '@/features/artifacts/ArtifactGroupHeader';
@@ -22,6 +23,7 @@ import { openArtifactDefault, revealArtifact } from '@/lib/artifacts';
 import type { Artifact } from '@/lib/bindings/Artifact';
 import type { ArtifactList } from '@/lib/bindings/ArtifactList';
 import { commandErrorText } from '@/lib/errors';
+import { usePanelWidth } from '@/lib/usePanelWidth';
 import { CommentBox } from '@/features/review/CommentBox';
 import { selectorTail } from '@/features/review/reviewLabels';
 import { useArtifactsStore } from '@/stores/artifacts';
@@ -46,6 +48,7 @@ export function ArtifactsView({
   currentSessionId,
   list,
 }: ArtifactsViewProps): ReactElement | null {
+  const listWidth = usePanelWidth('artifactsList');
   const [reloadToken, setReloadToken] = useState<number>(0);
   const [isJustUpdated, setIsJustUpdated] = useState<boolean>(false);
   const [isCommenting, setIsCommenting] = useState<boolean>(false);
@@ -255,7 +258,7 @@ export function ArtifactsView({
 
   return (
     <div className="artifacts">
-      <nav className="artifacts__list" aria-label="Artefakte">
+      <nav className="artifacts__list" aria-label="Artefakte" style={{ width: listWidth.width }}>
         <div className="artifacts__heading">
           <span>
             {ARTIFACTS_HEADING} · {list.items.length}
@@ -266,7 +269,8 @@ export function ArtifactsView({
         </div>
         {groups.map(renderGroup)}
       </nav>
-      <section className="artifacts__preview" aria-label="Vorschau">
+      <ResizeHandle edge="end" label="Breite der Artefaktliste" {...listWidth.handleProps} />
+      <section className="artifacts__preview" aria-label="Vorschau" data-resize-fill>
         <header className="artifacts__head">
           <div className="artifacts__head-text">
             <h2 className="artifacts__title">{selected.title}</h2>

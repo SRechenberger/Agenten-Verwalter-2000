@@ -27,6 +27,10 @@ interface ProjectHeaderProps {
   changesCount: number | null;
   /** Artefakte des Vorhabens; „Artefakte“ erscheint erst ab dem ersten. */
   artifactCount: number;
+  /** Laufende Terminals des Vorhabens. */
+  terminalCount: number;
+  isTerminalOpen: boolean;
+  onToggleTerminal: () => void;
   onShowView: (view: ProjectView) => void;
 }
 
@@ -36,6 +40,9 @@ export function ProjectHeader({
   activeView,
   changesCount,
   artifactCount,
+  terminalCount,
+  isTerminalOpen,
+  onToggleTerminal,
   onShowView,
 }: ProjectHeaderProps): ReactElement {
   const [now, setNow] = useState<number>(() => Date.now());
@@ -118,6 +125,19 @@ export function ProjectHeader({
         <span className="session-header__mono" title="Laufzeit aller Sessions des Vorhabens">
           {sessionCountLabel} · {formatRuntime(totalRuntimeMs)}
         </span>
+        <button
+          type="button"
+          className={`session-header__background${isTerminalOpen ? ' session-header__background--active' : ''}`}
+          aria-pressed={isTerminalOpen}
+          aria-label="Terminal ein-/ausblenden"
+          title="Terminal ein-/ausblenden (Strg+Ö)"
+          onClick={onToggleTerminal}
+        >
+          <span className="session-header__mono">&gt;_</span>
+          {terminalCount > 0 && (
+            <span className="session-header__background-count">{String(terminalCount)}</span>
+          )}
+        </button>
       </div>
     </header>
   );

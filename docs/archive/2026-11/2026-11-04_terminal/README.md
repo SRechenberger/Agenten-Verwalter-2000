@@ -7,8 +7,8 @@ Kontext für jeden Umsetzer: [AGENTS.md](../../../AGENTS.md), [docs/code-map.md]
 | # | Phase | Rating | Status |
 |---|---|---|---|
 | 1 | [Core: Pseudo-Terminal je Terminal, Shell je Betriebssystem, Puffer, Commands, Lebensdauer; ADR 055](phase-1-core.md) | heikel | complete |
-| 2 | [Einstellungen „Terminal“ (unten/rechts) und gemerkte Größe in Core und Einstellungsseite](phase-2-einstellung.md) | mechanisch | pending |
-| 3 | [Oberfläche: Terminal-Dock unten/rechts, xterm.js, Knopf und Strg+Ö; Doku-Abschluss](phase-3-dock.md) | standard | pending |
+| 2 | [Einstellungen „Terminal“ (unten/rechts) und gemerkte Größe in Core und Einstellungsseite](phase-2-einstellung.md) | mechanisch | complete |
+| 3 | [Oberfläche: Terminal-Dock unten/rechts, xterm.js, Knopf und Strg+Ö; Doku-Abschluss](phase-3-dock.md) | standard | complete |
 
 **Rahmen:** strikt 1 → 2 → 3, direkt auf `main`, ein Commit pro Phase, Scope `terminal` (Phase 2: `settings`). `pnpm check` grün vor jedem Commit, `%USERPROFILE%\.cargo\bin` im PATH, `pnpm bindings` nach Phase 1 und 2, Bindings mitcommitten. Neue Abhängigkeiten genau diese: `portable-pty = "0.9.0"` (Core), `@xterm/xterm@6.0.0` und `@xterm/addon-fit@0.11.0` (Oberfläche, exakt ohne `^`). Keine Migration (Tabelle `settings` ist Schlüssel/Text). Keine automatisierten Tests, keine Smoke-Checkliste. Planabschluss mit Versions-Tag (Minor-Version). ADR-Nummer 055 (034 und 038 sind von geparkten Plänen reserviert, 054 ist die höchste auf Platte).
 
@@ -90,10 +90,25 @@ Wrapper `src/lib/terminal.ts`: `listTerminals`, `openTerminal`, `attachTerminal`
 
 ## Summary
 
+Jedes Vorhaben hat jetzt echte Terminals: Pseudo-Terminal im Core (`portable-pty`, Shell je Betriebssystem), xterm.js in der Oberfläche. Das Dock blendet sich über den Knopf `>_` und `Strg+Ö` ein, steht unten oder rechts (Einstellung, gemerkte Größe), hat Ziehkanten und unten Maximieren. Die xterm-Instanzen leben in einer Ablage außerhalb von React; Ausblenden, Wechsel und Platzwechsel lassen Inhalt und Vollbild-Programme stehen.
+
 ## Files touched
+
+- Core: `src-tauri/src/terminal/`, `commands/terminal.rs`, `sessions/registry/terminal.rs`, `settings/`, Exit-Hook in `lib.rs` (Phasen 1 und 2).
+- Oberfläche: `src/features/terminal/`, `src/stores/terminal.ts`, `src/lib/terminal.ts`, `src/app/App.tsx`, `App.css`, `SessionHeader.tsx`, `ProjectHeader.tsx`, Einstellungsseite (Phase 2).
+- Doku: ADR 055, `docs/code-map.md`, `docs/glossary.md`.
 
 ## Commits
 
+- `41ce64d` feat(terminal): Pseudo-Terminal je Vorhaben im Core
+- `87449de` feat(settings): Platz und Größe des Terminals speichern
+- `50040a1` feat(terminal): Terminal-Dock unten oder rechts mit xterm.js
+
 ## Deviations from plan
 
+Nur Signaturen der Oberfläche (siehe Report-Back in Phase 3); keine Änderung am Kontrakt.
+
 ## Follow-ups
+
+- Laufzeit nie geprüft: Wackelstellen aus dieser README (Enkelprozesse unter Windows, letzte Ausgabezeilen, Einfügen per `paste`) sowie Auswahlfarbe (`--color-accent-subtle` ist ein `color-mix`-Wert, ob xterm ihn versteht, ist ungeprüft) und Hell/Dunkel-Wechsel.
+- macOS und Linux: Shell-Zweige nur per Code-Blick belegt.

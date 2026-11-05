@@ -6,6 +6,7 @@ import {
   type FileRow,
   type GitRowsInput,
 } from '@/features/changes/buildFileRows';
+import { ResizeHandle } from '@/components/ResizeHandle';
 import { ChangesOverview } from '@/features/changes/ChangesOverview';
 import { ChangesToolbar } from '@/features/changes/ChangesToolbar';
 import { statOf } from '@/features/changes/changesScope';
@@ -22,6 +23,7 @@ import type { LineStat } from '@/lib/bindings/LineStat';
 import type { RepositoryChanges } from '@/lib/bindings/RepositoryChanges';
 import type { SessionChanges } from '@/lib/bindings/SessionChanges';
 import type { SessionSummary } from '@/lib/bindings/SessionSummary';
+import { usePanelWidth } from '@/lib/usePanelWidth';
 import {
   DEFAULT_SELECTION,
   useChangesStore,
@@ -99,6 +101,7 @@ export function ChangesView({
   onChanged,
 }: ChangesViewProps): ReactElement {
   const sessionId: string = session.id;
+  const treeWidth = usePanelWidth('changesTree');
   const selection: ChangesSelection = useChangesStore(
     (state) => state.selections[sessionId] ?? DEFAULT_SELECTION,
   );
@@ -151,6 +154,7 @@ export function ChangesView({
       />
       <div className="changes-view__body">
         <FileTree
+          width={treeWidth.width}
           rows={rows}
           scope={selection.scope}
           openFile={openTarget === null ? null : selection.openFile}
@@ -159,7 +163,8 @@ export function ChangesView({
           }}
           git={gitStatus === null ? null : { sessionId, busy: gitStatus.busy, onChanged }}
         />
-        <div className="changes-view__detail">
+        <ResizeHandle edge="end" label="Breite der Dateiliste" {...treeWidth.handleProps} />
+        <div className="changes-view__detail" data-resize-fill>
           {openTarget === null ? (
             <ChangesOverview
               changes={changes}

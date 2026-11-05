@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { ReactElement, ReactNode } from 'react';
 import { useNow } from '@/features/background/useNow';
+import { countChangedFiles } from '@/features/changes/changesScope';
+import { useSessionChanges } from '@/features/changes/useSessionChanges';
 import { CardStack } from '@/features/implementation/CardStack';
 import { ImplementationBar } from '@/features/implementation/ImplementationBar';
 import { ImplementationHeader } from '@/features/implementation/ImplementationHeader';
@@ -14,6 +16,7 @@ import {
 import { ReportPanel } from '@/features/implementation/ReportPanel';
 import { Timeline } from '@/features/implementation/Timeline';
 import type { ImplementationView as Implementation } from '@/lib/bindings/ImplementationView';
+import type { SessionSummary } from '@/lib/bindings/SessionSummary';
 import {
   applyImplementationChange,
   cancelStationCountdown,
@@ -34,12 +37,18 @@ interface ImplementationViewProps {
   activeView: ImplementationViewKind;
   hasChanges: boolean;
   changesCount: number | null;
+  /** Alle Sessions; die Kachel der Station im Fokus liest daraus die Changes ihrer Session. */
+  sessions: readonly SessionSummary[];
   /** Inhalt des Reiters „Changes“ (Reichweite Vorhaben); gezeigt, wenn er aktiv ist. */
   changes: ReactNode;
   /** Legt eine Rückfrage zur Umsetzung an und öffnet sie (`useInquiry`). */
   onNewInquiry: (implementationId: string) => Promise<void>;
   onShowView: (view: ImplementationViewKind) => void;
   onOpenProject: () => void;
+  /** Laufende Terminals des Vorhabens. */
+  terminalCount: number;
+  isTerminalOpen: boolean;
+  onToggleTerminal: () => void;
 }
 
 function isTextTarget(target: EventTarget | null): boolean {
@@ -65,10 +74,14 @@ export function ImplementationView({
   activeView,
   hasChanges,
   changesCount,
+  sessions,
   changes,
   onNewInquiry,
   onShowView,
   onOpenProject,
+  terminalCount,
+  isTerminalOpen,
+  onToggleTerminal,
 }: ImplementationViewProps): ReactElement {
   // Text des geöffneten Lageberichts; `null`: das Fenster ist zu.
   const [report, setReport] = useState<string | null>(null);
@@ -80,6 +93,7 @@ export function ImplementationView({
   const setFocused = useImplementationStore((state) => state.setFocused);
   const clearFocused = useImplementationStore((state) => state.clearFocused);
   const selectSession = useSessionsStore((state) => state.selectSession);
+  const showSessionView = useSessionsStore((state) => state.showView);
   const { error: actionError, run } = useActionError(implementation.id);
 
   const stations: StationRef[] = useMemo(() => flatStations(implementation), [implementation]);
@@ -97,6 +111,17 @@ export function ImplementationView({
     isStoredValid && storedFocus !== undefined ? storedFocus : automaticId;
   const isManualFocus: boolean = isStoredValid && storedFocus !== automaticId;
   const implementationId: string = implementation.id;
+
+  // Die Kachel der Station im Fokus zählt nur die Changes ihrer eigenen Session (Reichweite Session).
+  const focusedSessionId: string | null =
+    stations.find((ref: StationRef) => ref.station.id === focusedId)?.station.sessionId ?? null;
+  const focusedSession: SessionSummary | null =
+    focusedSessionId === null
+      ? null
+      : (sessions.find((session: SessionSummary) => session.id === focusedSessionId) ?? null);
+  const { changes: stationChanges } = useSessionChanges(focusedSession, 'session', isFlow);
+  const stationChangesCount: number | null =
+    stationChanges === null ? null : countChangedFiles(stationChanges);
 
   useEffect(() => {
     if (!isFlow || focusedId === null) {
@@ -160,6 +185,16 @@ export function ImplementationView({
     }
   }
 
+  // Die Changes einer Station öffnen sich in ihrer Session, nicht in der Reichweite des Vorhabens.
+  function openStationChanges(stationId: string): void {
+    const sessionId: string | null =
+      stations.find((ref: StationRef) => ref.station.id === stationId)?.station.sessionId ?? null;
+    if (sessionId !== null) {
+      selectSession(sessionId);
+      showSessionView('changes');
+    }
+  }
+
   function renderActionError(): ReactElement | null {
     if (actionError === null) {
       return null;
@@ -181,7 +216,7 @@ export function ImplementationView({
         focusedId={focusedId}
         isManualFocus={isManualFocus}
         now={now}
-        changesCount={hasChanges ? changesCount : null}
+        changesCount={hasChanges ? stationChangesCount : null}
         onFocus={(focusId: string): void => {
           setFocused(implementationId, focusId);
         }}
@@ -190,8 +225,8 @@ export function ImplementationView({
         }}
         onOpenChat={openChat}
         onOpenSession={selectSession}
-        onShowChanges={(): void => {
-          onShowView('changes');
+        onShowChanges={(stationId: string): void => {
+          openStationChanges(stationId);
         }}
         onStart={(stationId: string): void => {
           run(() => startStation(implementationId, stationId), 'Start fehlgeschlagen');
@@ -244,6 +279,9 @@ export function ImplementationView({
         changesCount={changesCount}
         onShowView={onShowView}
         onOpenProject={onOpenProject}
+        terminalCount={terminalCount}
+        isTerminalOpen={isTerminalOpen}
+        onToggleTerminal={onToggleTerminal}
       />
       <ImplementationBar
         implementation={implementation}
