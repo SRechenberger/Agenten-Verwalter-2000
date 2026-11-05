@@ -1,0 +1,630 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Entwurf: Remote Sessions</title>
+<style>
+:root {
+  --font-sans: 'Segoe UI Variable Text', 'Segoe UI', system-ui, sans-serif;
+  --font-mono: 'Cascadia Code', Consolas, ui-monospace, monospace;
+  --bg-base: #1f1f1f; --bg-sidebar: #181818; --bg-surface: #252526; --bg-popover: #252526;
+  --bg-hover: #2e2e30; --bg-selected: #37373d; --border-subtle: #2b2b2b; --border: #3c3c3c;
+  --fg: #d4d4d4; --fg2: #b0b0b0; --fg-muted: #8f8f8f;
+  --accent: #e0825c; --accent-subtle: color-mix(in srgb, #e0825c 16%, transparent);
+  --running: #5b9dff; --waiting: #f2b33d; --done: #4cc38a; --error: #f47067;
+  --shadow: 0 10px 30px rgb(0 0 0 / .45);
+}
+:root[data-theme="light"] {
+  --bg-base: #fff; --bg-sidebar: #f8f8f8; --bg-surface: #fff; --bg-popover: #fff;
+  --bg-hover: #f0f0f0; --bg-selected: #e4e6f1; --border-subtle: #e5e5e5; --border: #cecece;
+  --fg: #3c3c3c; --fg2: #555; --fg-muted: #6e6e6e;
+  --accent: #c4572f; --accent-subtle: color-mix(in srgb, #c4572f 10%, transparent);
+  --running: #2563eb; --waiting: #a86a00; --done: #16803c; --error: #d23b33;
+  --shadow: 0 10px 30px rgb(0 0 0 / .14);
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg-base); color: var(--fg); font: 13px/1.4 var(--font-sans); }
+button { font: inherit; color: inherit; }
+.page { max-width: 1100px; margin: 0 auto; padding: 24px 16px 48px; }
+h1 { font-size: 18px; margin: 0 0 4px; }
+h2 { font-size: 13px; margin: 20px 0 6px; text-transform: uppercase; letter-spacing: .06em; color: var(--fg-muted); }
+p, li { color: var(--fg2); }
+.lead { margin: 0 0 16px; }
+.bar { display: flex; flex-wrap: wrap; gap: 6px 16px; align-items: center; margin-bottom: 16px; }
+.seg { display: inline-flex; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+.seg button { border: 0; background: transparent; padding: 5px 12px; cursor: pointer; color: var(--fg2); }
+.seg button[aria-pressed="true"] { background: var(--bg-selected); color: var(--fg); }
+.bar label { color: var(--fg-muted); font-size: 12px; }
+.stage { display: grid; grid-template-columns: 256px minmax(0, 1fr); border: 1px solid var(--border-subtle); border-radius: 8px; overflow: hidden; min-height: 560px; }
+.main { padding: 24px; background: var(--bg-base); }
+.main .ph { border: 1px dashed var(--border); border-radius: 8px; padding: 18px; color: var(--fg-muted); margin-bottom: 12px; }
+.main ul { margin: 0; padding-left: 18px; }
+.main li { margin: 4px 0; }
+
+/* ---- Sidebar, Maße wie src/app/Sidebar.css ---- */
+.sb { display: flex; flex-direction: column; width: 256px; background: var(--bg-sidebar); border-right: 1px solid var(--border-subtle); position: relative; }
+.sb__brand { height: 48px; display: flex; align-items: center; gap: 10px; padding: 0 16px; font-weight: 600; }
+.sb__new { margin: 2px 10px 10px; height: 30px; display: flex; align-items: center; gap: 8px; padding: 0 10px; border: 1px solid var(--border); border-radius: 6px; background: transparent; cursor: pointer; }
+.sb__new:hover { background: var(--bg-hover); }
+.sb__new span { flex: 1; text-align: left; }
+.sb__new kbd { font: 11px var(--font-mono); color: var(--fg-muted); }
+.sb__new small { color: var(--fg-muted); font-size: 11px; }
+.sb__list { flex: 1; padding: 2px 10px 10px; overflow-y: auto; }
+.sb__foot { border-top: 1px solid var(--border-subtle); padding: 8px 10px; color: var(--fg-muted); display: flex; gap: 14px; font-size: 12px; }
+/* Gruppenkopf (Variante B) */
+.gh { display: flex; align-items: center; gap: 6px; width: 100%; height: 24px; margin-top: 8px; padding: 0 4px; border: 0; border-radius: 4px; background: transparent; color: var(--fg-muted); font-size: 11px; text-transform: uppercase; letter-spacing: .06em; cursor: pointer; }
+.gh:hover { background: var(--bg-hover); color: var(--fg); }
+.gh__name { flex: 1; text-align: left; }
+.gh svg, .chev { transition: transform 160ms; }
+.gh[aria-expanded="true"] svg { transform: rotate(90deg); }
+
+/* Vorhaben-Zeile, wie SidebarProject */
+.pr { display: flex; align-items: flex-start; gap: 10px; width: 100%; padding: 6px 8px 6px 4px; border: 0; border-radius: 6px; background: transparent; text-align: left; cursor: pointer; }
+.pr:hover { background: var(--bg-hover); }
+.pr[aria-current="true"] { background: var(--bg-selected); }
+.pr__st { width: 14px; height: 19px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; margin-left: 20px; }
+.pr__txt { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+.pr__name { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pr__name.done { color: var(--fg2); }
+.pr__meta { font-size: 12px; color: var(--fg-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pr__meta.waiting { color: var(--waiting); }
+.pr__grp { color: var(--fg2); }
+.si { width: 10px; height: 10px; border-radius: 50%; border: 1.5px solid currentColor; }
+.si--running { color: var(--running); border-top-color: transparent; }
+.si--waiting { color: var(--waiting); background: color-mix(in srgb, var(--waiting) 35%, transparent); }
+.si--completed { color: var(--done); background: var(--done); }
+.si--new { color: var(--fg-muted); border-style: dashed; }
+.empty { color: var(--fg-muted); padding: 14px 6px; font-size: 12px; }
+.empty b { color: var(--fg2); font-weight: 500; }
+/* Menü */
+.menu { position: fixed; z-index: 10; min-width: 200px; padding: 4px; background: var(--bg-popover); border: 1px solid var(--border); border-radius: 8px; box-shadow: var(--shadow); }
+.menu button { display: flex; align-items: center; gap: 10px; width: 100%; height: 28px; padding: 0 10px; border: 0; border-radius: 4px; background: transparent; text-align: left; cursor: pointer; }
+.menu button:hover { background: var(--bg-hover); }
+.menu button span:first-child { flex: 1; }
+.menu kbd { font: 11px var(--font-mono); color: var(--fg-muted); }
+.menu hr { border: 0; border-top: 1px solid var(--border-subtle); margin: 4px 0; }
+.menu .lbl { padding: 4px 10px; font-size: 11px; color: var(--fg-muted); text-transform: uppercase; letter-spacing: .06em; }
+.menu .on::after { content: '✓'; color: var(--accent); }
+.menu .danger { color: var(--error); }
+
+.notes { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; }
+.notes > div { background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 4px 16px 12px; }
+.notes h3 { font-size: 13px; margin: 12px 0 4px; color: var(--fg); }
+.notes ul { margin: 0; padding-left: 18px; }
+.notes li { margin: 3px 0; }
+code { font-family: var(--font-mono); font-size: 12px; color: var(--fg); }
+.tag { font-size: 11px; border: 1px solid var(--border); border-radius: 999px; padding: 0 8px; color: var(--fg-muted); }
+
+/* ---- Remote Sessions ---- */
+.page { max-width: 1240px; }
+.stage { min-height: 660px; }
+.main { padding: 0; display: flex; flex-direction: column; min-width: 0; position: relative; }
+.bar .seg button[disabled] { opacity: .45; cursor: default; }
+
+.hdr { display: flex; align-items: center; gap: 10px; min-height: 44px; padding: 6px 14px; border-bottom: 1px solid var(--border-subtle); }
+.crumb { color: var(--fg-muted); white-space: nowrap; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.crumb b { color: var(--fg); font-weight: 500; }
+.tm { display: flex; gap: 2px; }
+.tm span { padding: 3px 10px; border-radius: 6px; color: var(--fg-muted); }
+.tm .on { background: var(--bg-selected); color: var(--fg); }
+.sp { flex: 1; }
+.btn { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px; border: 1px solid var(--border); border-radius: 6px; background: transparent; color: var(--fg); cursor: pointer; white-space: nowrap; }
+.btn:hover { background: var(--bg-hover); }
+.btn--small { height: 24px; padding: 0 8px; font-size: 12px; }
+.btn--accent { background: var(--accent); border-color: var(--accent); color: #1d130e; font-weight: 600; }
+.btn--accent:hover { background: var(--accent); filter: brightness(1.08); }
+:root[data-theme="light"] .btn--accent { color: #fff; }
+.btn--danger { color: var(--error); border-color: color-mix(in srgb, var(--error) 45%, var(--border)); }
+.tool { color: var(--fg-muted); font-size: 12px; padding: 0 2px; }
+.chip-host { display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 8px; border: 1px solid var(--border); border-radius: 999px; color: var(--fg2); font-size: 12px; white-space: nowrap; }
+.chip-host b { font-weight: 500; color: var(--fg); }
+.chip-host.off { color: var(--error); border-color: color-mix(in srgb, var(--error) 45%, var(--border)); }
+.chip-host .ok { color: var(--done); }
+.chip-host .warn { color: var(--waiting); }
+
+.banner { display: flex; align-items: center; gap: 10px; padding: 8px 14px; border-bottom: 1px solid var(--border-subtle); background: var(--accent-subtle); color: var(--fg); flex-wrap: wrap; }
+.banner--warn { background: color-mix(in srgb, var(--waiting) 12%, transparent); }
+.banner--off { background: color-mix(in srgb, var(--error) 12%, transparent); }
+.banner small { color: var(--fg2); font-size: 12px; }
+
+.chat { flex: 1; padding: 16px 24px; display: flex; flex-direction: column; gap: 12px; min-height: 280px; }
+.u { align-self: stretch; padding: 8px 12px; border-radius: 8px; background: var(--bg-surface); border: 1px solid var(--border-subtle); }
+.u__from { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--fg-muted); margin-bottom: 2px; }
+.a { color: var(--fg); }
+.a code.link { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; }
+.t { color: var(--fg-muted); font-size: 12px; display: flex; align-items: center; gap: 6px; }
+.q { border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; background: var(--bg-surface); }
+.q__t { font-weight: 500; margin-bottom: 8px; }
+.q__o { display: flex; gap: 8px; flex-wrap: wrap; }
+.q__o .btn[disabled] { opacity: .5; cursor: default; }
+.q small { display: block; margin-top: 8px; color: var(--fg-muted); font-size: 12px; }
+
+.cp { margin: 0 24px 16px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg-surface); }
+.cp__in { padding: 10px 12px; min-height: 44px; color: var(--fg-muted); }
+.cp__f { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-top: 1px solid var(--border-subtle); flex-wrap: wrap; }
+.pill { display: inline-flex; align-items: center; height: 24px; padding: 0 8px; border-radius: 6px; color: var(--fg2); font-size: 12px; }
+.pill.ro { border: 1px dashed var(--border); }
+.cp--off { background: transparent; border-style: dashed; }
+.cp__lock { display: flex; align-items: center; gap: 10px; padding: 12px; flex-wrap: wrap; }
+.cp__lock span { flex: 1; min-width: 220px; color: var(--fg2); }
+.cp__draft { padding: 0 12px 10px; color: var(--fg-muted); font-size: 12px; }
+
+.ov { padding: 20px 24px; display: flex; flex-direction: column; gap: 14px; }
+.ov h1 { color: var(--fg); margin: 0; }
+.ov .chips { display: flex; gap: 6px; flex-wrap: wrap; }
+.chip { padding: 2px 10px; border: 1px solid var(--border); border-radius: 999px; color: var(--fg2); font-size: 12px; }
+.blk { border: 1px solid var(--border-subtle); border-radius: 8px; background: var(--bg-surface); padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; }
+.blk--active { border-color: var(--accent); }
+.blk h2 { margin: 0; color: var(--fg-muted); }
+.blk__row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.blk__row .tx { flex: 1; min-width: 240px; }
+.blk__row .tx small { display: block; color: var(--fg-muted); font-size: 12px; }
+.card { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border: 1px solid var(--border-subtle); border-radius: 8px; }
+.card b { font-weight: 500; }
+.card small { color: var(--fg-muted); font-size: 12px; }
+.sw { position: relative; width: 32px; height: 18px; flex-shrink: 0; border: 0; border-radius: 999px; background: var(--border); cursor: pointer; padding: 0; }
+.sw::after { content: ''; position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 50%; background: var(--fg); transition: left 120ms; }
+.sw[aria-checked="true"] { background: var(--accent); }
+.sw[aria-checked="true"]::after { left: 16px; }
+
+.set { display: grid; grid-template-columns: 176px minmax(0, 1fr); flex: 1; }
+.set__nav { border-right: 1px solid var(--border-subtle); padding: 12px 8px; display: flex; flex-direction: column; gap: 2px; }
+.set__nav div { padding: 6px 8px; border-radius: 6px; color: var(--fg2); }
+.set__nav small { display: block; font-size: 11px; color: var(--fg-muted); }
+.set__nav .on { background: var(--bg-selected); color: var(--fg); }
+.set__body { padding: 16px 24px; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.set__body h1 { color: var(--fg); margin: 0 0 8px; }
+.set__body h2 { margin: 12px 0 4px; color: var(--fg-muted); }
+.row { display: flex; align-items: center; gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--border-subtle); flex-wrap: wrap; }
+.row .tx { flex: 1; min-width: 240px; }
+.row .tx small { display: block; color: var(--fg-muted); font-size: 12px; }
+.mono { font-family: var(--font-mono); font-size: 12px; color: var(--fg2); overflow-wrap: anywhere; }
+.inp { height: 28px; padding: 0 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-base); color: var(--fg); font: inherit; }
+.inp--wide { width: 100%; }
+.err { color: var(--error); font-size: 12px; }
+.dev { display: flex; align-items: center; gap: 10px; padding: 6px 0; border-bottom: 1px solid var(--border-subtle); flex-wrap: wrap; }
+.dev .tx { flex: 1; min-width: 200px; }
+.dev small { color: var(--fg-muted); font-size: 12px; }
+.pt { width: 8px; height: 8px; border-radius: 50%; background: var(--fg-muted); flex-shrink: 0; }
+.pt.on { background: var(--done); }
+
+.emptyv { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; padding: 40px 24px; text-align: center; color: var(--fg2); }
+.emptyv b { color: var(--fg); font-size: 15px; font-weight: 600; }
+
+.pr__mark { display: inline-flex; vertical-align: -2px; margin-left: 5px; color: var(--accent); }
+.pr__meta.acc { color: var(--accent); }
+.usage { flex-basis: 100%; display: flex; flex-direction: column; }
+.ub-head { display: flex; align-items: center; gap: 8px; height: 26px; padding: 0 8px; color: var(--fg2); }
+.ub { display: flex; align-items: center; gap: 8px; width: 100%; height: 30px; padding: 0 8px; border: 0; border-radius: 6px; background: transparent; color: var(--fg2); font: inherit; white-space: nowrap; cursor: pointer; --sev: var(--fg-muted); }
+.ub:hover { background: var(--bg-hover); }
+.ub--sub { height: 24px; padding-left: 30px; }
+.ub__name { flex-grow: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; text-align: left; }
+.ub__sev { flex-shrink: 0; color: var(--sev); }
+.ub__bar { flex-shrink: 0; overflow: hidden; width: 32px; height: 4px; border-radius: 999px; background: var(--bg-hover); }
+.ub__fill { display: block; height: 4px; background: var(--sev); }
+.ub__label { min-width: 34px; font: 11.5px var(--font-mono); text-align: right; color: var(--sev); }
+.ub__off { font-size: 11.5px; color: var(--error); }
+.sev--ok { --sev: var(--done); }
+.sev--caution { --sev: var(--waiting); }
+.sev--critical { --sev: var(--error); }
+.pr__meta.off { color: var(--error); }
+.sb__foot { flex-wrap: wrap; gap: 4px 14px; }
+
+.dlg-w { position: fixed; inset: 0; z-index: 20; display: flex; align-items: center; justify-content: center; padding: 16px; background: rgb(0 0 0 / .45); }
+.dlg { width: min(520px, 100%); border: 1px solid var(--border); border-radius: 10px; background: var(--bg-popover); box-shadow: var(--shadow); padding: 16px 18px; display: flex; flex-direction: column; gap: 10px; }
+.dlg h3 { margin: 0; font-size: 15px; color: var(--fg); }
+.dlg p { margin: 0; }
+.dlg .box { padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-base); }
+.dlg__f { display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap; margin-top: 4px; }
+.chk { display: flex; align-items: center; gap: 8px; color: var(--fg2); }
+.notes { margin-top: 8px; }
+.dock { border-top: 1px solid var(--border); }
+.dock__h { display: flex; align-items: center; gap: 8px; padding: 4px 10px; border-bottom: 1px solid var(--border-subtle); flex-wrap: wrap; }
+.dock__h small { color: var(--fg-muted); font-size: 12px; }
+.dock__b { margin: 0; padding: 8px 12px; min-height: 92px; font: 12px/1.5 var(--font-mono); color: var(--fg); background: var(--bg-sidebar); overflow-x: auto; }
+@media (max-width: 760px) {
+  .hdr { flex-wrap: wrap; }
+  .stage { grid-template-columns: minmax(0, 1fr); }
+  .sb { width: auto; border-right: 0; border-bottom: 1px solid var(--border-subtle); }
+  .set { grid-template-columns: minmax(0, 1fr); }
+  .set__nav { flex-direction: row; flex-wrap: wrap; border-right: 0; border-bottom: 1px solid var(--border-subtle); }
+}
+</style>
+</head>
+<body>
+<div class="page">
+  <h1>Remote Sessions <span class="tag">Entwurf · Taiga #19</span></h1>
+  <p class="lead">Klickbarer Entwurf der neuen Oberfläche, je Rolle und Zustand umschaltbar. Alle Namen und Zahlen sind Beispieldaten. Farben, Schriften und Leiste folgen dem Entwurf der Gruppen und <code>src/styles/theme.css</code>; alles, was hier nicht vorkommt, bleibt wie heute.</p>
+
+  <div class="bar">
+    <label>Rolle</label><div class="seg" id="seg-role"></div>
+    <label>Ansicht</label><div class="seg" id="seg-view"></div>
+    <label>Zustand</label><div class="seg" id="seg-state"></div>
+    <label>Farbschema</label><div class="seg" id="seg-theme"></div>
+  </div>
+
+  <div class="stage">
+    <nav class="sb" id="sb" aria-label="Vorhaben"></nav>
+    <div class="main" id="main"></div>
+  </div>
+
+  <h2>Entscheidungen im Entwurf</h2>
+  <div class="notes">
+    <div>
+      <h3>Am Host</h3>
+      <ul>
+        <li><b>Standardmäßig aus.</b> Ohne den Schalter „Gäste erlauben“ gibt es nur diesen einen Abschnitt in den Einstellungen; in der Übersicht und in der Leiste ändert sich nichts.</li>
+        <li><b>Freigeben ist ein Angebot.</b> Der Host arbeitet weiter. Erst die Übernahme sperrt seine Eingabe.</li>
+        <li><b>Herauswerfen heißt „Freigabe beenden“</b>, wahlweise mit Anhalten der Agenten. Die Freigabe überlebt einen Neustart; nur dieser Knopf nimmt sie zurück.</li>
+        <li><b>Mitlesen bleibt.</b> Während ein Gast steuert, sieht der Host alles live, aber jede schreibende Aktion ist gesperrt.</li>
+      </ul>
+    </div>
+    <div>
+      <h3>Am Gast</h3>
+      <ul>
+        <li><b>Wie eigene Vorhaben, mit Marke.</b> Übernommene Vorhaben sehen aus wie eigene und stehen zwischen ihnen; ⇄ und der Name des Hosts sagen, wo sie laufen. Über Rechtsklick oder Ziehen kommen sie in deine Gruppen; diese Zuordnung liegt nur auf dem Gast.</li>
+        <li><b>Mehrere Hosts.</b> Ein Gast kann mit mehreren Hosts verbunden sein und von jedem Vorhaben übernehmen.</li>
+        <li><b>„Übernehmen“ steht im Hauptfenster.</b> Ein Klick auf ein freies Vorhaben zeigt es dort, über Rechtsklick geht es auch. Die Zeile in der Leiste bleibt so hoch wie jede andere. Ab der Übernahme ist die Eingabe am Host gesperrt, bis du zurückgibst oder er die Freigabe beendet.</li>
+        <li><b>Gleiche Ansichten.</b> Chat, Changes, Artefakte und Umsetzung sehen aus wie lokal. Neu sind nur der Chip mit dem Host und „Zurückgeben“.</li>
+        <li><b>Die Betriebsart des Hosts gilt.</b> Modelle und Modi kommen vom Host, am entfernten Vorhaben sichtbar als „Claude · Host“.</li>
+        <li><b>Kontingent unten in der Leiste.</b> Unter dem eigenen stehen die Kontingente aller verbundenen Hosts, jedes mit dem gewohnten Füllstandsbalken. Ohne verbundenen Host bleibt es die eine Zeile wie heute. Es zählt immer das Abo des Rechners, auf dem der Agent läuft.</li>
+        <li><b>Der Entwurf bleibt erhalten.</b> Endet die Freigabe oder ist der Host weg, bleibt dein getippter Text beim Gast, solange die App läuft.</li>
+      </ul>
+    </div>
+    <div>
+      <h3>Am entfernten Vorhaben nicht da</h3>
+      <ul>
+        <li>Browser-Schalter.</li>
+        <li>Dateiverweise, Ordner zeigen, VS Code öffnen und „Mit Standardprogramm öffnen“: Sie würden am Bildschirm des Hosts aufgehen. Die Artefakt-Vorschau bleibt.</li>
+        <li>MCP-Anmeldung, Session löschen, Vorhaben archivieren, Repository anhängen, „In neuem Vorhaben starten“.</li>
+      </ul>
+      <h3>Terminal</h3>
+      <ul>
+        <li>Der Knopf <code>&gt;_</code> öffnet am Gast ein Terminal auf dem Host, also eine Shell mit dessen Rechten. Während ein Gast steuert, liest der Host mit und kann nicht tippen.</li>
+        <li>Endet die Freigabe, laufen die Shells weiter und stehen am Host zur Verfügung.</li>
+      </ul>
+      <h3>Herkunft im Verlauf</h3>
+      <ul>
+        <li>Nachrichten eines Gastes tragen das Gerät, auch im Verlauf am Host. Der Agent bekommt es nicht zu sehen.</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<script>
+const REMOTE = '<svg width="12" height="12" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1.5 5h10L9 2.5M12.5 9h-10L5 11.5"/></svg>';
+const CHEV = '<svg width="11" height="11" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4.5 2.5 8 6l-3.5 3.5"/></svg>';
+const HOST = 'linux-host', GUEST = 'Laptop Büro', P = 'Kundenportal migrieren';
+const REMOTES = { p: { name: P, host: HOST }, r: { name: 'Release-Pipeline', host: HOST }, d: { name: 'Datenpipeline', host: 'windows-host' } };
+const GAUGE = '<svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><path d="M2 10.5a5 5 0 1 1 10 0"/><path d="M7 10.5 9.2 6.8"/></svg>';
+const SEV_ICON = { ok: '<circle cx="7" cy="7" r="5.5"/><path d="M4.6 7.2 6.3 8.9 9.5 5.3"/>', caution: '<path d="M7 1.8 12.6 11.6H1.4Z"/><path d="M7 5.6v2.8M7 9.9v.1"/>', critical: '<circle cx="7" cy="7" r="5.5"/><path d="M7 4.2v3.4M7 9.6v.1"/>' };
+const severityOf = (percent) => (percent >= 80 ? 'critical' : percent >= 60 ? 'caution' : 'ok');
+function usageRow(name, percent, withGauge) {
+  if (percent === null) return `<button class="ub ub--sub"><span class="ub__name">${name}</span><span class="ub__off">nicht erreichbar</span></button>`;
+  const sev = severityOf(percent);
+  return `<button class="ub sev--${sev} ${withGauge ? '' : 'ub--sub'}" title="Kontingent (5-Stunden-Fenster) · Klick für Details">${withGauge ? GAUGE : ''}<span class="ub__name">${name}</span><svg class="ub__sev" width="12" height="12" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${SEV_ICON[sev]}</svg><span class="ub__bar"><span class="ub__fill" style="width:${percent}%"></span></span><span class="ub__label">${percent} %</span></button>`;
+}
+const guestOffered = (id) => (id === 'p' ? guestState() === 'offered' : !S.taken[id]);
+function takeOver(id) {
+  if (id === 'p') { S.state['guest.overview'] = 'held'; S.state['guest.chat'] = 'held'; } else { S.taken[id] = true; }
+}
+function giveBack(id) {
+  if (id === 'p') { S.state['guest.overview'] = 'offered'; S.state['guest.chat'] = 'offered'; } else { S.taken[id] = false; }
+}
+const INVITE = 'verwalter-remote://192.168.178.20:47800?fp=3fa97c1e…b02d&s=Zk2xQ8…';
+const VIEWS = {
+  host: [['overview', 'Übersicht'], ['chat', 'Chat'], ['settings', 'Einstellungen']],
+  guest: [['chat', 'Chat'], ['overview', 'Übersicht'], ['settings', 'Einstellungen']],
+};
+const ST_HOST = [['free', 'Nicht freigegeben'], ['shared', 'Freigegeben'], ['held', 'Gast steuert'], ['lost', 'Gast getrennt']];
+const ST_GUEST = [['held', 'Übernommen'], ['offered', 'Nur angeboten'], ['offline', 'Host weg'], ['ended', 'Freigabe beendet']];
+const STATES = {
+  host: { overview: ST_HOST, chat: ST_HOST, settings: [['off', 'Aus'], ['on', 'An'], ['error', 'Port belegt']] },
+  guest: { overview: ST_GUEST, chat: ST_GUEST, settings: [['none', 'Nicht verbunden'], ['connected', 'Verbunden'], ['refused', 'Abgelehnt']] },
+};
+const S = { role: 'host', view: 'overview', state: { 'host.overview': 'held', 'host.chat': 'held', 'host.settings': 'on', 'guest.overview': 'held', 'guest.chat': 'held', 'guest.settings': 'connected' }, dialog: null, stopAgents: false, dock: false, remoteGroup: { p: null, r: 'Arbeit', d: null }, taken: {}, selected: 'p' };
+const $ = (s) => document.querySelector(s);
+const st = () => S.state[`${S.role}.${S.view}`];
+const guestState = () => (S.view === 'settings' ? (st() === 'connected' ? 'held' : 'nolink') : st());
+const hostState = () => (S.view === 'settings' ? 'shared' : st());
+
+function row(name, stc, meta, opts = {}) {
+  return `<button class="pr" ${opts.current ? 'aria-current="true"' : ''} ${opts.nav ? `data-nav="${opts.nav}"` : ''} ${opts.remote ? `data-remote="${opts.remote}"` : ''}>
+    <span class="pr__st"><span class="si si--${stc}"></span></span>
+    <span class="pr__txt"><span class="pr__name ${stc === 'completed' ? 'done' : ''}">${name}${opts.mark ? `<span class="pr__mark" title="${opts.markTitle}">${REMOTE}</span>` : ''}</span><span class="pr__meta ${opts.metaClass || ''}">${meta}</span></span>
+  </button>`;
+}
+
+function sidebar() {
+  const brand = `<div class="sb__brand"><svg width="16" height="16" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="1.5" y="1.5" width="7" height="7" rx="2"/><rect x="5.5" y="5.5" width="7" height="7" rx="2"/></svg>Agenten Verwalter 2000</div>
+    <button class="sb__new"><svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M7 2.5v9M2.5 7h9"/></svg><span>Neues Vorhaben</span><kbd>Ctrl N</kbd></button>`;
+  let body = '';
+  if (S.role === 'host') {
+    const hs = hostState();
+    const onChat = S.view !== 'settings';
+    const by = {
+      free: ['running', 'Läuft · 3 Sessions', {}],
+      shared: ['running', 'Läuft · für Gäste freigegeben', { mark: 1, markTitle: 'Für Gäste freigegeben' }],
+      held: ['running', `Gesteuert von ${GUEST}`, { mark: 1, markTitle: 'Ein Gast steuert', metaClass: 'acc' }],
+      lost: ['running', `${GUEST} getrennt · frei in 4:12`, { mark: 1, markTitle: 'Gast getrennt', metaClass: 'acc' }],
+    }[hs];
+    body = row(P, by[0], by[1], { ...by[2], current: onChat, nav: 'overview' })
+      + row('Release-Pipeline', 'running', 'Läuft · 1 Session')
+      + row('Notizen aufräumen', 'completed', 'Fertig · Mo.')
+      + `<div class="sec"><button class="gh" aria-expanded="true">${CHEV}<span class="gh__name">Agda</span><span>1</span></button>${row('Kompositionssatz beweisen', 'waiting', 'Wartet auf dich', { metaClass: 'waiting' })}</div>`;
+  } else {
+    const gs = guestState();
+    const linked = gs !== 'nolink';
+    const onMain = S.view !== 'settings';
+    const remoteRow = (id) => {
+      const { name, host } = REMOTES[id];
+      const off = gs === 'offline' && host === HOST;
+      const offered = guestOffered(id);
+      const meta = off ? `${host} nicht erreichbar` : offered ? `Frei · ${host}` : `Läuft · ${id === 'p' ? '3 Sessions' : '1 Session'} · ${host}`;
+      return row(name, off || offered ? 'new' : 'running', meta, { mark: 1, markTitle: `Läuft auf ${host}`, current: id === S.selected && onMain, remote: id, metaClass: off ? 'off' : '' });
+    };
+    const shown = (id) => linked && !(id === 'p' && gs === 'ended');
+    const inGroup = (g) => Object.keys(REMOTES).filter((id) => shown(id) && S.remoteGroup[id] === g).map(remoteRow);
+    const head = (g, own) => { const list = [...own, ...inGroup(g)]; return `<div class="sec"><button class="gh" aria-expanded="true">${CHEV}<span class="gh__name">${g}</span><span>${list.length}</span></button>${list.join('')}</div>`; };
+    body = inGroup(null).join('') + row('Vortrag vorbereiten', 'completed', 'Fertig · gestern')
+      + head('Privat', [row('Steuererklärung 2025', 'running', 'Läuft · 1 Session')])
+      + head('Arbeit', []);
+  }
+  const linked = S.role === 'guest' && guestState() !== 'nolink';
+  const usage = linked
+    ? `<div class="usage"><div class="ub-head">${GAUGE}<span>Kontingent</span></div>${usageRow('selbst', 18)}${usageRow(HOST, guestState() === 'offline' ? null : 64)}${usageRow('windows-host', 12)}</div>`
+    : `<div class="usage">${usageRow('Kontingent', 18, true)}</div>`;
+  const foot = `<div class="sb__foot">${usage}<span>Archiv</span><span>Einstellungen</span></div>`;
+  return `${brand}<div class="sb__list">${body}</div>${foot}`;
+}
+
+function header(tabs = 'Chat') {
+  const remote = S.role === 'guest';
+  const gs = remote ? guestState() : null;
+  const name = remote ? REMOTES[S.selected].name : P;
+  const host = remote ? REMOTES[S.selected].host : HOST;
+  const off = remote && gs === 'offline' && host === HOST;
+  const tm = ['Chat', 'Changes', 'Artefakte'].map((n) => `<span class="${n === tabs ? 'on' : ''}">${n}</span>`).join('');
+  const hostChip = remote
+    ? (off
+      ? `<span class="chip-host off">${REMOTE}<b>${host}</b> nicht erreichbar</span>`
+      : `<span class="chip-host" title="Dieses Vorhaben läuft auf ${host}">${REMOTE}<b>${host}</b></span>`)
+    : '';
+  const dockBtn = off ? '' : `<button class="btn btn--small" data-act="dock" title="${remote ? 'Terminal auf dem Host' : 'Terminal'}">&gt;_</button>`;
+  const tools = `<span class="tool">Hintergrund</span><span class="tool">◔ 41 %</span>${dockBtn}`;
+  const back = remote && !off ? '<button class="btn btn--small" data-act="give-back">Zurückgeben</button>' : '';
+  return `<div class="hdr"><span class="crumb"><b>${name}</b> › #3 Importer umstellen</span><div class="tm">${tm}</div><span class="sp"></span>${hostChip}${tools}${back}</div>`;
+}
+
+function chatBody(canAnswer) {
+  const from = `<div class="u__from">${REMOTE} von ${GUEST}</div>`;
+  const originShown = S.role === 'guest' || ['held', 'lost'].includes(hostState());
+  const link = S.role === 'guest' ? '<code>src/import/mapper.ts</code>' : '<code class="link">src/import/mapper.ts</code>';
+  return `<div class="chat">
+    <div class="u">${originShown ? from : ''}Stell den Importer auf das neue Schema um und halte die alten Felder als Fallback.</div>
+    <div class="t">▸ 4 Werkzeuge · Read, Grep, Edit, Bash</div>
+    <div class="a">Der Mapper nimmt jetzt beide Schemata an. Geändert ist ${link}; die Tests sind grün.</div>
+    <div class="q"><div class="q__t">Soll der Fallback nach der Migration entfallen?</div>
+      <div class="q__o"><button class="btn" ${canAnswer ? '' : 'disabled'}>1 · Ja, in einem eigenen PR</button><button class="btn" ${canAnswer ? '' : 'disabled'}>2 · Nein, er bleibt</button></div>
+      ${canAnswer ? '' : `<small>${S.role === 'host' ? `Antworten kann gerade nur ${GUEST}.` : 'Antworten geht wieder, sobald der Host erreichbar ist.'}</small>`}
+    </div>
+  </div>`;
+}
+
+function composer(mode) {
+  const remote = S.role === 'guest';
+  if (mode === 'host-locked') {
+    return `<div class="cp cp--off"><div class="cp__lock"><span>${REMOTE} Gesteuert von <b>${GUEST}</b>. Du liest mit.</span><button class="btn" data-act="end">Freigabe beenden</button></div></div>`;
+  }
+  if (mode === 'guest-offline') {
+    return `<div class="cp cp--off"><div class="cp__lock"><span>Host nicht erreichbar. Der Agent läuft dort weiter, und der Verwalter verbindet sich von selbst neu.</span></div><div class="cp__draft">Dein Entwurf bleibt erhalten: „Dann bitte auch die Doku nachziehen …“</div></div>`;
+  }
+  const mode2 = remote ? '<span class="pill ro" title="Betriebsart des Hosts">Claude · Host</span>' : '';
+  const browser = remote ? '' : '<span class="pill">Browser</span>';
+  return `<div class="cp"><div class="cp__in">Nachricht an den Agenten …</div><div class="cp__f"><span class="pill">＋</span><span class="pill">/</span><span class="pill">Opus · hoch</span><span class="pill">Auto</span>${mode2}${browser}<span class="sp"></span><button class="btn btn--small btn--accent">Senden</button></div></div>`;
+}
+
+function dock() {
+  if (!S.dock) return '';
+  const remote = S.role === 'guest';
+  const readOnly = !remote && ['held', 'lost'].includes(hostState());
+  const hint = remote ? `Läuft auf ${HOST}, im Ordner des Vorhabens` : readOnly ? `Du liest mit. Eingabe, Größe und neue Terminals liegen bei ${GUEST}.` : '';
+  const prompt = remote ? 'sascha@linux-host:~/kundenportal$ pnpm test' : 'sascha@linux-host:~/kundenportal$ pnpm test';
+  return `<div class="dock"><div class="dock__h"><span class="tm"><span class="on">1 · bash</span></span>${remote || !readOnly ? '<span class="tool">＋</span>' : ''}<small>${hint}</small><span class="sp"></span><button class="btn btn--small" data-act="dock" aria-label="Terminal schließen">×</button></div><pre class="dock__b">${prompt}\n ✓ import/mapper (12 Tests)\n Fertig in 3,1 s\n${remote || !readOnly ? 'sascha@linux-host:~/kundenportal$ ▌' : 'sascha@linux-host:~/kundenportal$'}</pre></div>`;
+}
+
+function hostChat() {
+  const hs = hostState();
+  const locked = hs === 'held';
+  const banner = hs === 'lost'
+    ? `<div class="banner banner--warn"><span>${REMOTE} Verbindung zu <b>${GUEST}</b> unterbrochen. Reserviert noch 4:12, danach kannst du wieder schreiben.</span><span class="sp"></span><button class="btn btn--small" data-act="end">Freigabe beenden</button></div>`
+    : '';
+  const composerHtml = hs === 'lost' ? composer('host-locked').replace(`Gesteuert von <b>${GUEST}</b>. Du liest mit.`, `Reserviert für <b>${GUEST}</b>. Du liest mit.`) : composer(locked ? 'host-locked' : 'normal');
+  return header() + banner + chatBody(!locked && hs !== 'lost') + composerHtml + dock();
+}
+
+function hostOverview() {
+  const hs = hostState();
+  const on = hs !== 'free';
+  let inner = `<div class="blk__row"><div class="tx">Für Gäste freigeben<small>Ein gekoppeltes Gerät kann dieses Vorhaben dann übernehmen. Bis dahin arbeitest du hier normal weiter.</small></div><button class="sw" role="switch" aria-checked="${on}" data-act="${on ? 'end' : 'share'}" aria-label="Für Gäste freigeben"></button></div>`;
+  if (hs === 'shared') inner += '<div class="blk__row"><span class="pt"></span><div class="tx">Frei, noch kein Gast<small>Die Freigabe bleibt auch nach einem Neustart bestehen.</small></div></div>';
+  if (hs === 'held') inner += `<div class="blk__row"><span class="pt on"></span><div class="tx">Gesteuert von <b>${GUEST}</b> · seit 14:02<small>Du liest mit. Schreibende Aktionen sind hier gesperrt, die Agenten laufen auf diesem Rechner.</small></div><button class="btn" data-act="end">Freigabe beenden</button></div>`;
+  if (hs === 'lost') inner += `<div class="blk__row"><span class="pt"></span><div class="tx"><b>${GUEST}</b> getrennt · reserviert noch 4:12<small>Danach kannst du wieder schreiben. Der Gast kann jederzeit erneut übernehmen, solange die Freigabe besteht.</small></div><button class="btn" data-act="end">Freigabe beenden</button></div>`;
+  return `<div class="hdr"><span class="crumb"><b>${P}</b></span><div class="tm"><span class="on">Übersicht</span><span>Changes</span><span>Artefakte</span></div><span class="sp"></span><span class="tool" title="Terminal">&gt;_</span></div>
+    <div class="ov"><div class="chips"><span class="chip">kundenportal</span><span class="chip">import-tools</span></div>
+      <div class="blk ${['held', 'lost'].includes(hs) ? 'blk--active' : ''}"><h2>Fernsteuerung</h2>${inner}</div>
+      <div class="blk"><h2>Selbstfreigabe</h2><div class="blk__row"><div class="tx">Nachrichten, TL;DR, neue Sessions<small>Unverändert.</small></div></div></div>
+      <div class="card"><span class="si si--running"></span><div><b>#3 Importer umstellen</b><br><small>Läuft · Opus</small></div></div>
+      <div class="card"><span class="si si--completed"></span><div><b>#2 Schema analysieren</b><br><small>Fertig · vor 2 Std.</small></div></div>
+    </div>`;
+}
+
+function hostSettings() {
+  const s = st();
+  const on = s !== 'off';
+  let rows = `<div class="row"><div class="tx">Gäste erlauben<small>Andere Instanzen im lokalen Netz können sich koppeln. Wer steuert, führt über den Agenten Befehle mit deinen Rechten aus.</small></div><button class="sw" role="switch" aria-checked="${on}" aria-label="Gäste erlauben" data-set="${on ? 'off' : 'on'}"></button></div>`;
+  if (on) {
+    rows += `<div class="row"><div class="tx">Port<small>Nur Verbindungen aus LAN und VPN werden angenommen.</small>${s === 'error' ? '<small class="err">Port 47800 ist belegt. Wähle einen anderen.</small>' : ''}</div><input class="inp" style="width:90px" value="47800" aria-label="Port"></div>`;
+  }
+  if (s === 'on') {
+    rows += `<div class="row"><div class="tx">Status<small>Lauscht auf 192.168.178.20 und 100.92.4.7</small><small class="mono">Fingerabdruck 3fa9 7c1e … b02d</small></div><button class="btn" data-act="invite">Einladung erstellen</button></div>
+      <h2>Gekoppelte Geräte</h2>
+      <div class="dev"><span class="pt on"></span><div class="tx">${GUEST}<br><small>Verbunden · steuert „${P}“</small></div><button class="btn btn--small btn--danger">Sperren</button></div>
+      <div class="dev"><span class="pt"></span><div class="tx">Wohnzimmer-PC<br><small>Zuletzt gesehen gestern, 21:40</small></div><button class="btn btn--small btn--danger">Sperren</button></div>
+      <div class="row" style="border:0"><div class="tx"><small>Vorschau: Warnung beim Schließen der App, solange Gäste verbunden sind.</small></div><button class="btn btn--small" data-act="quit">App schließen</button></div>`;
+  }
+  return settingsFrame(rows);
+}
+
+function guestSettings() {
+  const s = st();
+  let rows;
+  if (s === 'connected') {
+    const invite = '<div class="row"><div class="tx">Weiteren Host verbinden<small>Die Einladung erstellst du am jeweiligen Host. Sie gilt zehn Minuten und einmal.</small><div style="margin-top:8px"><input class="inp inp--wide" placeholder="verwalter-remote://…" aria-label="Einladung"></div></div></div><div class="row"><div class="tx"><small>Dieses Gerät heißt am Host und an deinen Nachrichten:</small></div><input class="inp" style="width:180px" value="' + GUEST + '" aria-label="Name dieses Geräts"><button class="btn btn--accent">Verbinden</button></div>';
+    const hostRow = (name, addr, fp) => `<div class="dev"><span class="pt on"></span><div class="tx">${name}<br><small class="mono">${addr} · Fingerabdruck ${fp}</small></div><button class="btn btn--small">Trennen</button><button class="btn btn--small btn--danger">Vergessen</button></div>`;
+    rows = `<h2>Verbundene Hosts</h2>${hostRow(HOST, '192.168.178.20:47800', '3fa9 7c1e … b02d')}${hostRow('windows-host', '100.92.4.7:47800', '81c4 d07a … 66e1')}${invite}`;
+  } else {
+    rows = `<div class="row"><div class="tx">Mit einem Host verbinden<small>Die Einladung erstellst du am Host unter Einstellungen › App › Fernsteuerung. Sie gilt zehn Minuten und einmal.</small>
+        <div style="margin-top:8px"><input class="inp inp--wide" placeholder="verwalter-remote://…" aria-label="Einladung" value="${s === 'refused' ? INVITE : ''}"></div>
+        ${s === 'refused' ? '<div class="err" style="margin-top:6px">Der Host hat abgelehnt: Die Einladung ist abgelaufen oder schon benutzt. Erstelle am Host eine neue.</div>' : ''}
+      </div></div>
+      <div class="row"><div class="tx">Name dieses Geräts</div><input class="inp" style="width:180px" value="${GUEST}" aria-label="Name dieses Geräts"><button class="btn btn--accent">Verbinden</button></div>
+      <p style="font-size:12px;margin:8px 0 0">Weitere Fehlermeldungen: „Anderer Stand des Protokolls: Host 3, dieses Gerät 2. Aktualisiere den älteren Verwalter.“ · „Zertifikat passt nicht zum Fingerabdruck. Es wurde nichts gesendet.“ · „Dieses Gerät ist am Host gesperrt.“</p>`;
+  }
+  return settingsFrame(rows);
+}
+
+function settingsFrame(rows) {
+  const cats = [['Allgemein', 'Konto · Darstellung'], ['Agent', 'Modell · Modus · Betriebsart'], ['Skills & Umgebung', 'Skills · Umgebung'], ['App', 'Version · Ordner · Rechte · Fernsteuerung']];
+  return `<div class="hdr"><span class="crumb"><b>Einstellungen</b></span><span class="sp"></span><input class="inp" placeholder="Einstellungen durchsuchen" aria-label="Einstellungen durchsuchen"></div>
+    <div class="set"><div class="set__nav">${cats.map(([n, d], i) => `<div class="${i === 3 ? 'on' : ''}">${n}<small>${d}</small></div>`).join('')}</div>
+    <div class="set__body"><h1>App</h1><h2>Fernsteuerung</h2>${rows}</div></div>`;
+}
+
+function guestMain() {
+  const gs = guestState();
+  const id = S.selected;
+  const { name, host } = REMOTES[id];
+  const off = gs === 'offline' && host === HOST;
+  if (gs === 'ended' && id === 'p') {
+    return `<div class="emptyv"><b>Der Host hat die Freigabe beendet</b><span>„${name}“ steuerst du nicht mehr. Dein Entwurf bleibt bis zum Beenden der App erhalten.</span></div>`;
+  }
+  if (guestOffered(id)) {
+    if (off) return `<div class="emptyv">${REMOTE}<b>${name}</b><span>${host} ist gerade nicht erreichbar.</span></div>`;
+    return `<div class="emptyv">${REMOTE}<b>${name}</b><span>Liegt auf ${host} und ist frei. Solange du nicht übernimmst, siehst du weder Sessions noch Verlauf.</span><button class="btn btn--accent" data-take="${id}">Übernehmen</button><small style="color:var(--fg-muted);font-size:12px">Ab dann ist die Eingabe am Host gesperrt, bis du zurückgibst oder er die Freigabe beendet.</small></div>`;
+  }
+  if (S.view === 'overview') {
+    const right = off
+      ? `<span class="chip-host off">${REMOTE}<b>${host}</b> nicht erreichbar</span>`
+      : `<span class="chip-host">${REMOTE}<b>${host}</b></span><button class="btn btn--small" data-act="give-back">Zurückgeben</button>`;
+    return `<div class="hdr"><span class="crumb"><b>${name}</b></span><div class="tm"><span class="on">Übersicht</span><span>Changes</span><span>Artefakte</span></div><span class="sp"></span>${right}</div>
+      <div class="ov"><div class="chips"><span class="chip">kundenportal</span><span class="chip">import-tools</span></div>
+        <div class="blk"><h2>Selbstfreigabe</h2><div class="blk__row"><div class="tx">Nachrichten, TL;DR, neue Sessions<small>Gilt für dieses Vorhaben auf dem Host.</small></div></div></div>
+        <div class="card"><span class="si si--running"></span><div><b>#3 Importer umstellen</b><br><small>Läuft · Opus</small></div></div>
+        <div class="card"><span class="si si--completed"></span><div><b>#2 Schema analysieren</b><br><small>Fertig · vor 2 Std.</small></div></div>
+        <div><button class="btn">Neue Session</button></div></div>`;
+  }
+  return header() + chatBody(!off) + composer(off ? 'guest-offline' : 'normal') + dock();
+}
+
+function dialog() {
+  if (S.dialog === 'invite') {
+    return `<div class="dlg-w"><div class="dlg" role="dialog" aria-modal="true" aria-label="Einladung"><h3>Einladung für einen Gast</h3><p>Füge diesen Text am anderen Rechner unter Einstellungen › App › Fernsteuerung ein. Er gilt 10 Minuten und einmal.</p><div class="box mono">${INVITE}</div><p style="font-size:12px;color:var(--fg-muted)">Hat der Rechner mehrere Adressen, lässt sich die Adresse am Gast ändern.</p><div class="dlg__f"><button class="btn" data-act="close">Schließen</button><button class="btn btn--accent">Kopieren</button></div></div></div>`;
+  }
+  if (S.dialog === 'end') {
+    return `<div class="dlg-w"><div class="dlg" role="dialog" aria-modal="true" aria-label="Freigabe beenden"><h3>Freigabe beenden?</h3><p>${GUEST} verliert sofort die Kontrolle über „${P}“ und kann es nicht wieder übernehmen. Offene Rückfragen bleiben offen und gehen an dich, Terminals laufen weiter.</p><label class="chk"><input type="checkbox" ${S.stopAgents ? 'checked' : ''} data-act="toggle-stop"> Laufende Agenten anhalten</label><p style="font-size:12px;color:var(--fg-muted)">Ohne den Haken arbeiten die Agenten weiter. Das Gerät bleibt gekoppelt; sperren kannst du es in den Einstellungen.</p><div class="dlg__f"><button class="btn" data-act="close">Abbrechen</button><button class="btn btn--accent" data-go="free">Freigabe beenden</button></div></div></div>`;
+  }
+  if (S.dialog === 'quit') {
+    return `<div class="dlg-w"><div class="dlg" role="dialog" aria-modal="true" aria-label="App schließen"><h3>App trotzdem schließen?</h3><p>${GUEST} ist verbunden und steuert „${P}“. Beim Schließen enden alle Agenten-Prozesse auf diesem Rechner, und der Gast kann erst nach dem nächsten Start wieder übernehmen.</p><div class="dlg__f"><button class="btn" data-act="close">Abbrechen</button><button class="btn btn--accent" data-act="close">Trotzdem schließen</button></div></div></div>`;
+  }
+  return '';
+}
+
+function segButtons(el, items, active, attr) {
+  el.innerHTML = items.map(([v, l]) => `<button data-${attr}="${v}" aria-pressed="${v === active}">${l}</button>`).join('');
+}
+
+function render() {
+  segButtons($('#seg-role'), [['host', 'Host'], ['guest', 'Gast']], S.role, 'role');
+  segButtons($('#seg-view'), VIEWS[S.role], S.view, 'view');
+  segButtons($('#seg-state'), STATES[S.role][S.view], st(), 'state');
+  segButtons($('#seg-theme'), [['dark', 'Dunkel'], ['light', 'Hell']], document.documentElement.dataset.theme, 'theme');
+  $('#sb').innerHTML = sidebar();
+  let html;
+  if (S.role === 'host') html = S.view === 'settings' ? hostSettings() : S.view === 'chat' ? hostChat() : hostOverview();
+  else html = S.view === 'settings' ? guestSettings() : guestMain();
+  $('#main').innerHTML = html + dialog();
+}
+
+document.addEventListener('click', (e) => {
+  const seg = e.target.closest('.seg button');
+  if (seg) {
+    const d = seg.dataset;
+    if (d.role) { S.role = d.role; S.view = VIEWS[S.role][0][0]; }
+    if (d.view) S.view = d.view;
+    if (d.state) S.state[`${S.role}.${S.view}`] = d.state;
+    if (d.theme) document.documentElement.dataset.theme = d.theme;
+    S.dialog = null;
+    render();
+    return;
+  }
+  const nav = e.target.closest('[data-nav]');
+  if (nav) { S.view = S.view === 'chat' ? 'overview' : 'chat'; render(); return; }
+  const set = e.target.closest('[data-set]');
+  if (set) { S.state['host.settings'] = set.dataset.set; render(); return; }
+  const take = e.target.closest('[data-take]');
+  if (take) { takeOver(take.dataset.take); closeMenu(); render(); return; }
+  const remoteRow = e.target.closest('[data-remote]');
+  if (remoteRow) { S.selected = remoteRow.dataset.remote; if (S.view === 'settings') S.view = 'chat'; render(); return; }
+  const go = e.target.closest('[data-go]');
+  if (go) {
+    if (go.dataset.go === 'free') { S.state['host.overview'] = 'free'; S.state['host.chat'] = 'free'; }
+    if (go.dataset.go === 'held') { S.state['guest.overview'] = 'held'; S.state['guest.chat'] = 'held'; }
+    S.dialog = null; render(); return;
+  }
+  const act = e.target.closest('[data-act]');
+  if (!act) return;
+  const a = act.dataset.act;
+  if (a === 'share') { S.state['host.overview'] = 'shared'; S.state['host.chat'] = 'shared'; }
+  if (a === 'end' || a === 'invite' || a === 'quit') S.dialog = a;
+  if (a === 'close') S.dialog = null;
+  if (a === 'give-back') { giveBack(act.dataset.r || S.selected); closeMenu(); }
+  if (a === 'dock') S.dock = !S.dock;
+  if (a === 'move') { S.remoteGroup[act.dataset.r] = act.dataset.g || null; closeMenu(); }
+  if (a === 'toggle-stop') { S.stopAgents = !S.stopAgents; return; }
+  render();
+});
+let menuEl = null;
+function closeMenu() { if (menuEl) { menuEl.remove(); menuEl = null; } }
+document.addEventListener('contextmenu', (e) => {
+  const r = e.target.closest('[data-remote]');
+  closeMenu();
+  if (!r) return;
+  e.preventDefault();
+  const id = r.dataset.remote;
+  const held = id === 'p' ? guestState() === 'held' : S.taken[id];
+  const groups = [['Ohne Gruppe', ''], ['Privat', 'Privat'], ['Arbeit', 'Arbeit']];
+  const hostName = REMOTES[id].host;
+  menuEl = document.createElement('div');
+  menuEl.className = 'menu';
+  menuEl.innerHTML = `<div class="lbl">In Gruppe verschieben</div>${groups.map(([l, g]) => `<button class="${(S.remoteGroup[id] || '') === g ? 'on' : ''}" data-act="move" data-r="${id}" data-g="${g}"><span>${l}</span></button>`).join('')}<hr>${held ? `<button data-act="give-back" data-r="${id}"><span>Zurückgeben</span></button><button><span>Umbenennen</span><kbd>F2</kbd></button>` : `<button data-take="${id}"><span>Übernehmen</span></button>`}<div class="lbl">Läuft auf ${hostName}. Die Gruppe gilt nur hier.</div>`;
+  document.body.appendChild(menuEl);
+  menuEl.style.left = `${Math.min(e.clientX, innerWidth - 240)}px`;
+  menuEl.style.top = `${Math.min(e.clientY, innerHeight - menuEl.offsetHeight - 8)}px`;
+});
+document.addEventListener('click', (e) => { if (menuEl && !menuEl.contains(e.target)) closeMenu(); }, true);
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && S.dialog) { S.dialog = null; render(); } });
+document.documentElement.dataset.theme = 'dark';
+// Direkter Link auf einen Zustand: #rolle.ansicht.zustand.dialog.farbschema
+const [hRole, hView, hState, hDialog, hTheme] = location.hash.slice(1).split('.');
+if (VIEWS[hRole] && VIEWS[hRole].some(([v]) => v === hView)) {
+  S.role = hRole; S.view = hView;
+  if (hState) S.state[`${hRole}.${hView}`] = hState;
+  if (hDialog && hDialog !== '-') S.dialog = hDialog;
+  if (hTheme) document.documentElement.dataset.theme = hTheme;
+}
+render();
+</script>
+</body>
+</html>

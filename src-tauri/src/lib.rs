@@ -25,6 +25,7 @@ pub mod notices;
 pub mod processes;
 pub mod projects;
 pub mod prompt_cache;
+pub mod remote;
 pub mod repositories;
 pub mod retro;
 pub mod review;
@@ -53,6 +54,7 @@ use codex_account::CodexAccountService;
 use db::Database;
 use environment::EnvironmentService;
 use filesystem::workspace::data_dir;
+use remote::RemoteControl;
 use sessions::registry::SessionRegistry;
 use terminal::TerminalService;
 use usage::UsageService;
@@ -71,8 +73,11 @@ pub fn run() {
                 &data_dir(app.handle())?.join(DATABASE_FILE),
             )?);
             attachments::clear_staging(app.handle());
-            let registry = SessionRegistry::restore(app.handle(), Arc::clone(&database))?;
+            let remote = Arc::new(RemoteControl::restore(&database)?);
+            let registry =
+                SessionRegistry::restore(app.handle(), Arc::clone(&database), Arc::clone(&remote))?;
             app.manage(registry);
+            app.manage(remote);
             app.manage(database);
             app.manage(UsageService::new());
             app.manage(CodexService::new());
@@ -105,7 +110,7 @@ pub fn run() {
             SessionRegistry::deliver_inbox_on_start(app.handle().clone());
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![
+        .invoke_handler(remote::intercept::guarded(tauri::generate_handler![
             commands::app::app_info,
             commands::projects::project_list,
             commands::projects::project_create,
@@ -119,6 +124,7 @@ pub fn run() {
             commands::projects::project_group_delete,
             commands::projects::project_group_set_collapsed,
             commands::projects::project_set_group,
+            commands::remote::remote_share_set,
             commands::archive::archive_search,
             commands::archive::project_restore,
             commands::sessions::session_list,
@@ -239,7 +245,7 @@ pub fn run() {
             commands::voice::voice_start,
             commands::voice::voice_stop,
             commands::voice::voice_cancel,
-        ])
+        ]))
         .build(tauri::generate_context!())
         .expect("Tauri-Laufzeit konnte nicht starten")
         .run(|app: &tauri::AppHandle, event: tauri::RunEvent| {

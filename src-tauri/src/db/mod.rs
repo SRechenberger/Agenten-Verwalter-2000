@@ -9,6 +9,7 @@ pub mod implementations;
 pub mod migrations;
 pub mod project_groups;
 pub mod projects;
+pub mod remote;
 pub mod repositories;
 pub mod session_commits;
 pub mod session_files;

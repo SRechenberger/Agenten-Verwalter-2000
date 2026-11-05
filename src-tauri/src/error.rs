@@ -66,6 +66,12 @@ pub enum CommandError {
     /// Ein Satz über ein Terminal (ADR 055).
     #[error("{0}")]
     Terminal(String),
+    /// Ein Gast steuert das Vorhaben; Inhalt ist der Name seines Geräts (ADR 059).
+    #[error("Gesteuert von {0}")]
+    ControlledBy(String),
+    /// Der Host eines entfernten Vorhabens antwortet nicht; Inhalt ist sein Name (ADR 059).
+    #[error("{0} nicht erreichbar")]
+    HostUnreachable(String),
 }
 
 impl From<rusqlite::Error> for CommandError {

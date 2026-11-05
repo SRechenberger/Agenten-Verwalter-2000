@@ -46,6 +46,7 @@ const FALLBACK_FIX_SKILL: &str = "implement";
 const MAX_FIX_ROUNDS: usize = 2;
 const FIX_BRIEF: &str = "Behebe die Befunde der vorigen Review-Station (siehe Vorgänger).";
 const FIX_LIMIT_HINT: &str = "Zwei Fix-Runden sind durch; frag den Benutzer (🔴).";
+const NOT_IN_IMPLEMENTATION: &str = "Diese Station gehört nicht zur Umsetzung.";
 
 /// Countdowns und Startsperren der Stationen; liegt in der `SessionRegistry` (eigene Sperre, nie
 /// zusammen mit einer anderen gehalten).
@@ -182,8 +183,8 @@ pub fn plan_completion(
     station_id: &str,
     fix_needed: bool,
 ) -> Result<(Vec<StationRow>, Option<String>), String> {
-    let (phase, station) = find_station(view, station_id)
-        .ok_or_else(|| "Diese Station gehört nicht zur Umsetzung.".to_owned())?;
+    let (phase, station) =
+        find_station(view, station_id).ok_or_else(|| NOT_IN_IMPLEMENTATION.to_owned())?;
     if station.state == StationState::Done {
         return Err("Diese Station ist schon fertig gemeldet.".to_owned());
     }
@@ -236,6 +237,16 @@ fn find_station<'a>(
             .find(|station: &&StationView| station.id == station_id)
             .map(|station: &StationView| (phase, station))
     })
+}
+
+/// Phase und Station aus dieser Umsetzung, sonst ein Fehler. Das Steuerrecht prüft nur `id` (ADR 059):
+/// Wer eine `stationId` annimmt, ruft das hier, bevor etwas an der Station wirkt.
+pub fn station_in<'a>(
+    view: &'a ImplementationView,
+    station_id: &str,
+) -> Result<(&'a PhaseView, &'a StationView), CommandError> {
+    find_station(view, station_id)
+        .ok_or_else(|| CommandError::Implementation(NOT_IN_IMPLEMENTATION.to_owned()))
 }
 
 fn fix_rounds(phase: &PhaseView) -> usize {

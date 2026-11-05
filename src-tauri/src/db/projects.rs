@@ -176,6 +176,7 @@ pub fn set_self_release(
 
 /// Archiviert das Vorhaben samt aller seiner Sessions in einer Transaktion — ein halb archiviertes
 /// Vorhaben käme nach einem Neustart ohne seine Sessions oder mit Sessions ohne Vorhaben zurück.
+/// Die Freigabe für Gäste endet damit (ADR 059) und kommt auch beim Wiederherstellen nicht zurück.
 pub fn archive(
     connection: &mut Connection,
     id: &str,
@@ -183,7 +184,7 @@ pub fn archive(
 ) -> Result<(), CommandError> {
     let transaction = connection.transaction()?;
     transaction.execute(
-        "UPDATE projects SET archived_at = ?2 WHERE id = ?1",
+        "UPDATE projects SET archived_at = ?2, remote_shared = 0 WHERE id = ?1",
         params![id, archived_at],
     )?;
     transaction.execute(

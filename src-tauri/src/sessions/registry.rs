@@ -64,6 +64,7 @@ use crate::notices::model::{Denial, Notice};
 use crate::projects::model::{ProjectCreated, ProjectGroup, ProjectSummary};
 use crate::prompt_cache::model::PromptCache;
 use crate::prompt_cache::{TTL_1H_MS, TTL_5M_MS};
+use crate::remote::RemoteControl;
 use crate::review::{
     self,
     model::{CommentTarget, ReviewComment},
@@ -90,6 +91,7 @@ mod commit_scan;
 mod implementation;
 mod mcp;
 mod overlaps;
+mod remote;
 mod restore;
 mod retro;
 mod session_tools;
@@ -136,6 +138,8 @@ pub struct SessionRegistry {
     database: Arc<Database>,
     /// Countdowns der Stationen (ADR 048); wird nie zusammen mit einer anderen Sperre gehalten.
     implementation_countdowns: Mutex<Countdowns>,
+    /// Das Steuerrecht je Vorhaben (ADR 059), geteilt mit dem Tauri-State.
+    remote: Arc<RemoteControl>,
 }
 
 /// Was ein Vorhaben selbst trägt; Workspace und Repositories liegen gleich an jeder seiner Sessions.
@@ -433,13 +437,14 @@ struct Outbox {
 }
 
 impl SessionRegistry {
-    pub fn new(database: Arc<Database>) -> SessionRegistry {
+    pub fn new(database: Arc<Database>, remote: Arc<RemoteControl>) -> SessionRegistry {
         SessionRegistry {
             sessions: Mutex::new(HashMap::new()),
             projects: Mutex::new(HashMap::new()),
             viewed: Mutex::new(None),
             database,
             implementation_countdowns: Mutex::new(Countdowns::default()),
+            remote,
         }
     }
 
@@ -448,6 +453,7 @@ impl SessionRegistry {
     pub fn restore(
         app: &AppHandle,
         database: Arc<Database>,
+        remote: Arc<RemoteControl>,
     ) -> Result<SessionRegistry, CommandError> {
         let (project_list, loaded): (Vec<ProjectRow>, Vec<StoredSession>) =
             database.with(|connection| {
@@ -472,7 +478,7 @@ impl SessionRegistry {
                     .collect::<Result<Vec<StoredSession>, CommandError>>()?;
                 Ok((project_list, loaded))
             })?;
-        let registry = SessionRegistry::new(Arc::clone(&database));
+        let registry = SessionRegistry::new(Arc::clone(&database), remote);
         {
             let mut projects = registry.lock_projects();
             for project in project_list {
@@ -774,6 +780,7 @@ impl SessionRegistry {
             repository_names: self.project_repository_names(project_id),
             self_release,
             group_id,
+            access: self.remote.with(|control| control.access(project_id)),
         })
     }
 
@@ -995,12 +1002,16 @@ impl SessionRegistry {
         if members.is_empty() && !is_known {
             return Err(project_not_found(project_id));
         }
+        // Vor dem ersten Schritt: Solange ein Gast steuert, bleibt das Vorhaben unberührt.
+        self.remote
+            .with(|control| control.may_archive(project_id))?;
         members.sort_by_key(|session: &Arc<Session>| session.number);
         for session in &members {
             self.cancel(app, &session.id)?;
         }
         self.database
             .with(|connection| project_rows::archive(connection, project_id, now_ms()))?;
+        self.remote.with(|control| control.unshare(project_id));
         {
             let mut sessions = self.lock_sessions();
             for session in &members {
@@ -1339,6 +1350,8 @@ impl SessionRegistry {
         self.lock_sessions().remove(&session.id);
         if is_last {
             projects.remove(&session.project_id);
+            self.remote
+                .with(|control| control.forget(&session.project_id));
         }
         if let Some(access) = app.try_state::<Arc<McpAccess>>() {
             access.forget(&session.id);

@@ -105,8 +105,7 @@ pub async fn implementation_cancel_countdown(
     id: String,
     station_id: String,
 ) -> Result<(), CommandError> {
-    let _ = registry.cancel_countdown(&station_id);
-    announce(&app, &registry.implementation_view(&id)?);
+    announce(&app, &registry.cancel_countdown_of(&id, &station_id)?);
     Ok(())
 }
 

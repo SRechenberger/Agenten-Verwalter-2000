@@ -46,6 +46,7 @@ use verwalter_lib::{
     notices::model::{Denial, Notice},
     projects::model::{ProjectCreated, ProjectGroup, ProjectSummary},
     prompt_cache::model::PromptCache,
+    remote::model::{DeviceRef, ProjectAccess},
     repositories::model::{KnownRepository, RepositoryKind},
     retro::model::{RetroExport, RetroProgress},
     review::model::{CommentTarget, ReviewComment},
@@ -108,6 +109,8 @@ fn main() -> Result<(), ts_rs::ExportError> {
     SessionOverlap::export_all(&cfg)?;
     ChatPage::export_all(&cfg)?;
     ChatEntryEvent::export_all(&cfg)?;
+    DeviceRef::export_all(&cfg)?;
+    ProjectAccess::export_all(&cfg)?;
     ProjectSummary::export_all(&cfg)?;
     ProjectCreated::export_all(&cfg)?;
     ProjectGroup::export_all(&cfg)?;

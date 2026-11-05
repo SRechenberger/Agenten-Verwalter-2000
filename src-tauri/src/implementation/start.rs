@@ -5,7 +5,7 @@ use std::thread;
 use tauri::{AppHandle, Manager};
 
 use super::model::{ImplementationView, PhaseView, StationState, StationView};
-use super::{START_DELAY, StationRef, announce, find_station, now_ms, schedule};
+use super::{START_DELAY, StationRef, announce, now_ms, schedule, station_in};
 use crate::agents::event::ModelId;
 use crate::error::CommandError;
 use crate::sessions::model::SessionSummary;
@@ -161,11 +161,7 @@ pub fn start_now(
     station_id: &str,
 ) -> Result<(), CommandError> {
     let registry = app.state::<SessionRegistry>();
-    if !registry.claim_start(station_id) {
-        return Err(CommandError::Implementation(
-            "Die Station startet schon.".to_owned(),
-        ));
-    }
+    registry.claim_start(implementation_id, station_id)?;
     let result = start_claimed(app, &registry, implementation_id, station_id);
     registry.release_start(station_id);
     result
@@ -179,9 +175,7 @@ fn start_claimed(
 ) -> Result<(), CommandError> {
     let _ = registry.cancel_countdown(station_id);
     let view = registry.implementation_view(implementation_id)?;
-    let (phase, station) = find_station(&view, station_id).ok_or_else(|| {
-        CommandError::Implementation("Diese Station gehört nicht zur Umsetzung.".to_owned())
-    })?;
+    let (phase, station) = station_in(&view, station_id)?;
     if station.session_id.is_some() || station.state == StationState::Done {
         return Err(CommandError::Implementation(
             "Die Station hat schon begonnen.".to_owned(),
