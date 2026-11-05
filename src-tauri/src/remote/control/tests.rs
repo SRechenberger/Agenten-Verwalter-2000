@@ -238,7 +238,7 @@ fn revoking_a_device_frees_only_its_projects() {
 }
 
 #[test]
-fn archiving_without_a_holder_ends_the_sharing_only_with_the_step_after_the_database() {
+fn the_archive_check_keeps_the_sharing_and_unshare_ends_it() {
     let mut control = shared_control();
     assert_eq!(control.may_archive(PROJECT), Ok(()));
     assert!(control.is_shared(PROJECT));
