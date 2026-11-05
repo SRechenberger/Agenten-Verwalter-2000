@@ -104,7 +104,8 @@ Was der Vertrag offenlässt, ist so festgelegt:
 - Das Zertifikat ist selbst signiert (`rcgen`, ECDSA P-256). Der Gast prüft nur den SHA-256 des Zertifikats und lässt die Signaturen des Handschlags über `ring` prüfen. Die erste Zeile geht erst nach dem Handschlag hinaus, ein falscher Fingerabdruck verbraucht also keine Einladung.
 - Die erste Zeile (`pair`, `hello`) darf höchstens 64 KiB lang sein; erst nach `welcome` gilt die Obergrenze von 64 MiB.
 - Ein falsches Geheimnis zählt als Fehlversuch für jede offene Einladung, denn es sagt nicht, welche gemeint war.
-- Eine einzelne Zeile über 16 MiB passt in eine leere Warteschlange; sonst käme keine Antwort zwischen 16 und 64 MiB an. Erst eine weitere Zeile darüber trennt.
+- Die Warteschlange hält höchstens 16 MiB, auch für eine einzelne Zeile: Eine Zeile über 16 MiB trennt die Verbindung, auf beiden Seiten. Gelesen werden Zeilen bis 64 MiB.
+- Den Abbruch nach 45 s ohne Zeile erkennt ein eigener Wächter je Verbindung, nicht der Schreib-Thread; der kann im Schreiben hängen, wenn der Gast verschwunden ist.
 - Der Gast verbindet nach einem Abbruch von selbst neu (1 s, dann doppelt so lange bis 30 s). Abgelehnt wegen Protokoll, Token oder Sperre, oder bei falschem Fingerabdruck, versucht er es nicht weiter. „Trennen“ ohne „Vergessen“ gilt bis zum nächsten Start der App.
 
 ## Konsequenzen

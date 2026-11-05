@@ -150,11 +150,12 @@ fn the_contract_limits_are_64_mib_per_line_and_16_mib_per_queue() {
 }
 
 #[test]
-fn a_full_queue_refuses_the_next_line_but_an_empty_one_takes_a_large_line() {
+fn the_queue_holds_at_most_its_limit_even_for_a_single_line() {
     let outbox = Outbox::new(10);
-    assert_eq!(outbox.push(vec![0; 25]), Ok(()));
+    assert_eq!(outbox.push(vec![0; 11]), Err(SendError::Full));
+    assert_eq!(outbox.push(vec![0; 10]), Ok(()));
     assert_eq!(outbox.push(vec![0; 1]), Err(SendError::Full));
-    assert!(matches!(outbox.next(Instant::now()), Next::Line(line) if line.len() == 25));
+    assert!(matches!(outbox.next(Instant::now()), Next::Line(line) if line.len() == 10));
     assert_eq!(outbox.push(vec![0; 6]), Ok(()));
     assert_eq!(outbox.push(vec![0; 4]), Ok(()));
     assert_eq!(outbox.push(vec![0; 1]), Err(SendError::Full));

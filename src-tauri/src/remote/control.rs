@@ -65,6 +65,10 @@ impl Control {
         !self.holders.is_empty()
     }
 
+    pub fn is_revoked(&self, device_id: &str) -> bool {
+        self.revoked.contains(device_id)
+    }
+
     /// Was `ProjectSummary.access` am Host zeigt.
     pub fn access(&self, project_id: &str) -> ProjectAccess {
         if self.is_shared(project_id) {

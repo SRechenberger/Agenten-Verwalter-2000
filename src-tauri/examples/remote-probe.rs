@@ -94,6 +94,7 @@ fn wait_until(limit: Duration, condition: impl Fn() -> bool) -> bool {
 struct Host {
     server: RemoteServer,
     database: Arc<Database>,
+    control: Arc<RemoteControl>,
     port: u16,
     fingerprint: String,
 }
@@ -108,7 +109,7 @@ impl Host {
             host_name: name.to_owned(),
             key_file: folder.join(format!("{name}-key.pem")),
             database: Arc::clone(&database),
-            control,
+            control: Arc::clone(&control),
             dispatch: Arc::new(move |device, command: &str, args: Value| match command {
                 "echo" => Ok(json!({ "host": host_name, "device": device.name, "args": args })),
                 other => Err(CommandError::Internal(format!("unbekannt: {other}"))),
@@ -121,6 +122,7 @@ impl Host {
         Ok(Host {
             server,
             database,
+            control,
             port,
             fingerprint,
         })
@@ -142,10 +144,16 @@ impl Host {
     /// Ein eigenes Gerät für eine rohe Verbindung: Mit dem Gerät des echten Gastes ersetzte sie
     /// dessen Verbindung, und sein Neuverbinden ersetzte wieder ihre.
     fn raw_signed_in(&self) -> Result<Raw, String> {
+        self.raw_signed_in_after(|_| {})
+    }
+
+    /// Wie `raw_signed_in`; `between` läuft nach der Kopplung und vor `hello`.
+    fn raw_signed_in_after(&self, between: impl FnOnce(&str)) -> Result<Raw, String> {
         let (_, reply) = self.raw(&pair_frame(&self.invitation(INVITATION_TTL)?.secret))?;
         let Frame::Paired { device_id, token } = reply else {
             return Err(format!("statt paired: {reply:?}"));
         };
+        between(&device_id);
         let (raw, reply) = self.raw(&Frame::Hello {
             protocol: PROTOCOL,
             device_id,
@@ -217,6 +225,27 @@ impl Raw {
             match self.read()? {
                 Frame::Ping => {}
                 frame => return Ok(frame),
+            }
+        }
+    }
+
+    /// Der Host schließt binnen `limit` ab `start`. Die Frist liegt weit unter 45 s: Ohne sie
+    /// bestünde jeder Fall auch dann, wenn erst der Abbruch die Verbindung beendet.
+    fn ends_within(&mut self, start: Instant, limit: Duration) -> Result<(), String> {
+        loop {
+            let left = limit.saturating_sub(start.elapsed());
+            if left.is_zero() {
+                return Err(format!("nach {:?} noch verbunden", start.elapsed()));
+            }
+            self.stream
+                .sock
+                .set_read_timeout(Some(left))
+                .map_err(text)?;
+            match self.read() {
+                Ok(Frame::Ping) => {}
+                Ok(frame) => return Err(format!("Verbindung lebt noch: {frame:?}")),
+                Err(_) if start.elapsed() < limit => return Ok(()),
+                Err(_) => return Err(format!("nach {:?} noch verbunden", start.elapsed())),
             }
         }
     }
@@ -315,6 +344,11 @@ fn selftest(folder: &Path) -> Result<bool, String> {
     all &= report("ping-abbruch", ping_abort(folder));
     all &= report("zwei hosts zugleich", two_hosts(folder, &host_a));
     all &= report("gesperrtes geraet", revoked(&host_a, &guest, &saved));
+    all &= report(
+        "gesperrt waehrend der anmeldung",
+        revoked_while_signing_in(&host_a),
+    );
+    all &= report("stockender gast", stalled_guest(folder));
 
     host_a.server.stop();
     Ok(all)
@@ -450,11 +484,47 @@ fn line_limit(host: &Host) -> Result<(), String> {
         || format!("nach der Zeile an der Grenze: {reply:?}"),
     )?;
     // Ob das Schreiben noch gelingt, hängt davon ab, wann der Host schließt; zählen tut das Ende.
+    let start = Instant::now();
     let _ = raw.send(&vec![b'x'; MAX_LINE + 1]);
-    match raw.read_reply() {
-        Err(_) => Ok(()),
-        Ok(frame) => Err(format!("Verbindung lebt noch: {frame:?}")),
+    raw.ends_within(start, WAIT * 3)
+}
+
+/// `revoke` zwischen der Prüfung des Tokens und dem Eintrag der Verbindung: Der Host schickt
+/// noch `welcome`, schließt dann aber sofort. Gesperrt ist hier nur im Speicher, wie in dem
+/// Augenblick, bevor `revoke` die Verbindung sucht.
+fn revoked_while_signing_in(host: &Host) -> Result<(), String> {
+    let mut raw = host.raw_signed_in_after(|device_id| {
+        host.control
+            .with(|control| control.revoke_device(device_id));
+    })?;
+    raw.ends_within(Instant::now(), WAIT)
+}
+
+/// Ein Gast, der nichts mehr annimmt und schweigt, wird nach der Frist getrennt, auch wenn der
+/// Host gerade im Schreiben hängt.
+fn stalled_guest(folder: &Path) -> Result<(), String> {
+    let host = Host::start(folder, "host-stau", SHORT)?;
+    let mut raw = host.raw_signed_in()?;
+    // Drei Antworten zu je 4 MiB: mehr, als die Socket-Puffer fassen, weniger als die Warteschlange.
+    let payload = "x".repeat(4 * 1024 * 1024);
+    for id in 1..=3 {
+        raw.send(&wire::encode(&Frame::Call {
+            id,
+            command: "echo".to_owned(),
+            args: json!(payload),
+        }))
+        .map_err(text)?;
     }
+    let start = Instant::now();
+    let online = || {
+        host.server
+            .devices()
+            .is_ok_and(|devices| devices.iter().any(|device| device.online))
+    };
+    let ended = wait_until(SHORT.idle_limit * 4, || !online());
+    let took = start.elapsed();
+    host.server.stop();
+    ensure(ended, || format!("nach {took:?} noch verbunden"))
 }
 
 /// Ein stiller Gast wird nach der Frist getrennt; einer, der `ping` schickt, bleibt.

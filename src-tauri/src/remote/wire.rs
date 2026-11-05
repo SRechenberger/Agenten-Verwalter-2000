@@ -4,13 +4,14 @@
 //! außerhalb jeder Sperre und nimmt erst danach die Sperre um `rustls::Connection`; eine
 //! gemeinsame Sperre um `StreamOwned` würde beim blockierenden Lesen den Schreiber aushungern.
 //! Nur der Schreib-Thread schreibt auf den Socket, deshalb bleiben die TLS-Sätze in Reihenfolge.
-//! Er wacht ohnehin für `ping` auf und erkennt dabei auch den Abbruch; der Lese-Thread liest ohne
-//! Zeitlimit, denn unter Windows ist ein Socket nach einem abgelaufenen `recv` unbestimmt.
+//! Den Abbruch erkennt ein dritter Thread, der Wächter: Der Lese-Thread liest ohne Zeitlimit, denn
+//! unter Windows ist ein Socket nach einem abgelaufenen `recv` unbestimmt, und der Schreib-Thread
+//! kann im Schreiben hängen, wenn die Gegenseite verschwunden ist.
 use std::collections::VecDeque;
 use std::io::{self, Read, Write};
 use std::net::{Shutdown, TcpStream};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Condvar, Mutex, MutexGuard, OnceLock, PoisonError};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -278,8 +279,7 @@ struct OutboxState {
     closed: bool,
 }
 
-/// Die Warteschlange je Verbindung, höchstens `limit` Bytes. Eine einzelne Zeile darf größer
-/// sein, wenn sonst nichts wartet; sonst käme eine Antwort zwischen 16 und 64 MiB nie an.
+/// Die Warteschlange je Verbindung, höchstens `limit` Bytes; eine längere Zeile passt nie hinein.
 struct Outbox {
     state: Mutex<OutboxState>,
     ready: Condvar,
@@ -304,7 +304,7 @@ impl Outbox {
         if state.closed {
             return Err(SendError::Closed);
         }
-        if !state.lines.is_empty() && state.bytes + line.len() > self.limit {
+        if state.bytes + line.len() > self.limit {
             return Err(SendError::Full);
         }
         state.bytes += line.len();
@@ -358,6 +358,8 @@ struct LinkInner {
     idle: AtomicBool,
     /// Wann der Lese-Thread zuletzt eine ganze Zeile bekam.
     last_line: Mutex<Instant>,
+    /// Der Wächter; `close` weckt ihn, damit er nicht bis zur Frist weiterschläft.
+    watcher: OnceLock<thread::Thread>,
 }
 
 /// Eine laufende Verbindung nach `welcome`. Klone teilen dieselbe Verbindung.
@@ -382,6 +384,9 @@ impl Link {
         self.inner.closed.store(true, Ordering::SeqCst);
         self.inner.outbox.close();
         let _ = self.inner.socket.shutdown(Shutdown::Both);
+        if let Some(watcher) = self.inner.watcher.get() {
+            watcher.unpark();
+        }
     }
 
     pub fn is_closed(&self) -> bool {
@@ -429,8 +434,14 @@ pub fn start_link(
             full: AtomicBool::new(false),
             idle: AtomicBool::new(false),
             last_line: Mutex::new(Instant::now()),
+            watcher: OnceLock::new(),
         }),
     };
+    let watcher_link = link.clone();
+    let watcher = thread::Builder::new()
+        .name("remote-watch".to_owned())
+        .spawn(move || watch_loop(&watcher_link, timing.idle_limit))?;
+    let _ = link.inner.watcher.set(watcher.thread().clone());
     let connection = Arc::new(Mutex::new(connection));
 
     let writer_link = link.clone();
@@ -569,23 +580,15 @@ fn write_loop(
     let ping = encode(&Frame::Ping);
     let mut last_sent = Instant::now();
     loop {
-        let idle_deadline = link.last_line() + timing.idle_limit;
-        if Instant::now() >= idle_deadline {
-            link.inner.idle.store(true, Ordering::SeqCst);
-            link.close();
-            return;
-        }
-        let ping_deadline = last_sent + timing.ping_interval;
-        let written = match link.inner.outbox.next(ping_deadline.min(idle_deadline)) {
+        let written = match link.inner.outbox.next(last_sent + timing.ping_interval) {
             Next::Line(line) => {
                 last_sent = Instant::now();
                 write_plain(connection, &mut socket, &line)
             }
-            Next::Quiet if Instant::now() >= ping_deadline => {
+            Next::Quiet => {
                 last_sent = Instant::now();
                 write_plain(connection, &mut socket, &ping)
             }
-            Next::Quiet => Ok(()),
             Next::Flush => write_plain(connection, &mut socket, &[]),
             Next::Closed => {
                 lock(connection).send_close_notify();
@@ -597,6 +600,20 @@ fn write_loop(
             link.close();
             return;
         }
+    }
+}
+
+/// Schließt die Verbindung, wenn `idle_limit` lang keine ganze Zeile kam.
+fn watch_loop(link: &Link, idle_limit: Duration) {
+    while !link.is_closed() {
+        let deadline = link.last_line() + idle_limit;
+        let now = Instant::now();
+        if now >= deadline {
+            link.inner.idle.store(true, Ordering::SeqCst);
+            link.close();
+            return;
+        }
+        thread::park_timeout(deadline - now);
     }
 }
 

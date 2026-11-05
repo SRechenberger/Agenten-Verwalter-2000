@@ -43,6 +43,11 @@ pub async fn remote_server_set(
 ) -> Result<RemoteServerStatus, CommandError> {
     settings::set_remote_server(&database, enabled, port)?;
     if enabled {
+        // Ein anderer Port trennt alle Gäste wie das Ausschalten.
+        if server.port().is_some_and(|current: u16| current != port) {
+            let dropped = server.stop();
+            registry.emit_projects_changed(&app, &dropped);
+        }
         let _ = server.start(port);
     } else {
         let dropped = server.stop();

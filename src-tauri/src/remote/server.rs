@@ -513,31 +513,40 @@ impl Shared {
         if let Some(previous) = previous {
             previous.link.close();
         }
+        // Erst eintragen, dann prüfen: Ein `stop` oder `revoke` seit der Anmeldung hat entweder
+        // diese Verbindung in `online` gefunden und geschlossen, oder sein Stand ist hier sichtbar.
         let running = lock(&self.running).is_some();
-        if !running {
-            lock(&self.online).remove(&device.id);
+        let welcome = running
+            && self.setup.control.with(|control| {
+                let revoked = control.is_revoked(&device.id);
+                if !revoked {
+                    control.reconnected(&device.id);
+                }
+                !revoked
+            });
+        if !welcome {
+            self.forget(&device.id, connection);
             link.close();
             return;
         }
-        self.setup
-            .control
-            .with(|control| control.reconnected(&device.id));
         (self.setup.notify)();
+    }
+
+    /// Trägt die Verbindung aus, wenn sie noch die aktuelle des Geräts ist.
+    fn forget(&self, device_id: &str, connection: u64) -> bool {
+        let mut online = lock(&self.online);
+        let current = online
+            .get(device_id)
+            .is_some_and(|live: &Live| live.connection == connection);
+        if current {
+            online.remove(device_id);
+        }
+        current
     }
 
     /// Das Ende einer Verbindung; eine neuere desselben Geräts bleibt unberührt.
     fn detach(&self, device_id: &str, connection: u64) {
-        let removed = {
-            let mut online = lock(&self.online);
-            let current = online
-                .get(device_id)
-                .is_some_and(|live: &Live| live.connection == connection);
-            if current {
-                online.remove(device_id);
-            }
-            current
-        };
-        if !removed {
+        if !self.forget(device_id, connection) {
             return;
         }
         let now = now_ms();
