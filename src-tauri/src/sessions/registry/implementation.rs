@@ -24,7 +24,7 @@ use crate::implementation::model::{
     ImplementationView, InquiryCreated, PendingChange, PhaseInput, PhaseView,
 };
 use crate::implementation::report::{self, Extras};
-use crate::implementation::{Countdowns, SessionLive, build_view, new_rows};
+use crate::implementation::{Countdowns, SessionLive, build_view, new_rows, station_in};
 use crate::sessions::model::SessionStatus;
 
 const NO_IMPLEMENTATION: &str = "In diesem Vorhaben gibt es keine Umsetzung.";
@@ -299,10 +299,33 @@ impl SessionRegistry {
         self.lock_countdowns().cancel(station_id)
     }
 
+    /// „Abbrechen“ von außen: Eine Station einer fremden Umsetzung läuft weiter. Gibt die Umsetzung
+    /// nach dem Abbruch zurück.
+    pub fn cancel_countdown_of(
+        &self,
+        implementation_id: &str,
+        station_id: &str,
+    ) -> Result<ImplementationView, CommandError> {
+        station_in(&self.implementation_view(implementation_id)?, station_id)?;
+        let _ = self.cancel_countdown(station_id);
+        self.implementation_view(implementation_id)
+    }
+
     /// Hat nur der erste Aufrufer Erfolg, bis `release_start` folgt: schützt vor zwei Sessions für
-    /// dieselbe Station (Zeitgeber und ▶ zugleich).
-    pub fn claim_start(&self, station_id: &str) -> bool {
-        self.lock_countdowns().claim_start(station_id)
+    /// dieselbe Station (Zeitgeber und ▶ zugleich). Eine Station einer fremden Umsetzung bekommt
+    /// keine Marke, sonst scheiterte ihr eigener Start daran.
+    pub fn claim_start(
+        &self,
+        implementation_id: &str,
+        station_id: &str,
+    ) -> Result<(), CommandError> {
+        station_in(&self.implementation_view(implementation_id)?, station_id)?;
+        if !self.lock_countdowns().claim_start(station_id) {
+            return Err(CommandError::Implementation(
+                "Die Station startet schon.".to_owned(),
+            ));
+        }
+        Ok(())
     }
 
     pub fn release_start(&self, station_id: &str) {

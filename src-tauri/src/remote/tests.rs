@@ -1,5 +1,6 @@
 //! Migration 021, Datenbankschicht und die Typen an der Tauri-Grenze der Fernsteuerung (ADR 059).
 use std::path::Path;
+use std::sync::Arc;
 
 use rusqlite::{Connection, params};
 use serde_json::json;
@@ -7,10 +8,14 @@ use serde_json::json;
 use super::RemoteControl;
 use super::control::Refused;
 use super::model::{DeviceRef, ProjectAccess};
+use crate::db::implementations::{
+    self as implementation_rows, ImplementationRow, PhaseRow, StationRow,
+};
 use crate::db::{
     Database, migrations, project_groups, projects as project_rows, remote as remote_rows,
 };
 use crate::projects::model::{ProjectGroup, ProjectSummary};
+use crate::sessions::registry::SessionRegistry;
 
 const PROJECT: &str = "project";
 
@@ -195,6 +200,98 @@ fn a_device_row_round_trips_and_a_revocation_is_kept() {
         remote_rows::revoked_device_ids(&connection).expect("lesbar"),
         vec!["b".to_owned()]
     );
+}
+
+/// Zwei Vorhaben mit je einer Umsetzung (`impl-a`, `impl-b`) und je einer Station (`station-a`,
+/// `station-b`).
+fn registry_with_two_implementations() -> SessionRegistry {
+    let database = Database::open(Path::new(":memory:")).expect("Datenbank im Speicher");
+    database
+        .with(|connection| {
+            for key in ["a", "b"] {
+                let project_id = format!("project-{key}");
+                connection.execute(
+                    "INSERT INTO projects (id, name, created_at) VALUES (?1, 'Vorhaben', 1.0)",
+                    params![project_id],
+                )?;
+                implementation_rows::insert(
+                    connection,
+                    &ImplementationRow {
+                        id: format!("impl-{key}"),
+                        project_id,
+                        name: "Umsetzung".to_owned(),
+                        source: String::new(),
+                        created_by_session_id: None,
+                        created_at: 1.0,
+                        finished_at: None,
+                        auto_start: true,
+                        stop_after_current: false,
+                        pending_change: None,
+                    },
+                    &[PhaseRow {
+                        id: format!("phase-{key}"),
+                        implementation_id: format!("impl-{key}"),
+                        position: 0,
+                        key: "1".to_owned(),
+                        title: "Phase".to_owned(),
+                        description: String::new(),
+                        wave: None,
+                        mark: None,
+                    }],
+                    &[StationRow {
+                        id: format!("station-{key}"),
+                        phase_id: format!("phase-{key}"),
+                        position: 0,
+                        stage: "Umsetzung".to_owned(),
+                        model: None,
+                        by_user: false,
+                        skill: None,
+                        brief: String::new(),
+                        session_id: None,
+                        started_at: None,
+                        completed_at: None,
+                        result: None,
+                    }],
+                )?;
+            }
+            Ok(())
+        })
+        .expect("schreibbar");
+    SessionRegistry::new(Arc::new(database), Arc::new(RemoteControl::default()))
+}
+
+#[test]
+fn cancelling_with_a_station_of_another_implementation_leaves_its_countdown_running() {
+    let registry = registry_with_two_implementations();
+    let token = registry.begin_countdown("station-b", 1.0);
+    assert!(registry.cancel_countdown_of("impl-a", "station-b").is_err());
+    assert!(registry.take_countdown("station-b", token));
+}
+
+#[test]
+fn cancelling_with_the_implementations_own_station_ends_its_countdown() {
+    let registry = registry_with_two_implementations();
+    let token = registry.begin_countdown("station-a", 1.0);
+    assert!(registry.cancel_countdown_of("impl-a", "station-a").is_ok());
+    assert!(!registry.take_countdown("station-a", token));
+}
+
+#[test]
+fn starting_with_a_station_of_another_implementation_neither_claims_it_nor_ends_its_countdown() {
+    let registry = registry_with_two_implementations();
+    let token = registry.begin_countdown("station-b", 1.0);
+    assert!(registry.claim_start("impl-a", "station-b").is_err());
+    assert!(registry.claim_start("impl-b", "station-b").is_ok());
+    assert!(registry.take_countdown("station-b", token));
+}
+
+#[test]
+fn a_station_can_be_claimed_only_once_until_it_is_released() {
+    let registry = registry_with_two_implementations();
+    assert!(registry.claim_start("impl-a", "station-a").is_ok());
+    assert!(registry.claim_start("impl-a", "station-a").is_err());
+    registry.release_start("station-a");
+    assert!(registry.claim_start("impl-a", "station-a").is_ok());
 }
 
 #[test]

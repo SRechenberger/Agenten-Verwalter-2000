@@ -238,16 +238,21 @@ fn revoking_a_device_frees_only_its_projects() {
 }
 
 #[test]
-fn archiving_without_a_holder_ends_the_sharing() {
+fn archiving_without_a_holder_ends_the_sharing_only_with_the_step_after_the_database() {
     let mut control = shared_control();
-    assert_eq!(control.archive(PROJECT), Ok(()));
+    assert_eq!(control.may_archive(PROJECT), Ok(()));
+    assert!(control.is_shared(PROJECT));
+    control.unshare(PROJECT);
     assert!(!control.is_shared(PROJECT));
 }
 
 #[test]
 fn archiving_is_refused_while_a_guest_is_holder() {
-    let mut control = held_by_a();
-    assert_eq!(control.archive(PROJECT), Err(Refused::HeldBy(device("a"))));
+    let control = held_by_a();
+    assert_eq!(
+        control.may_archive(PROJECT),
+        Err(Refused::HeldBy(device("a")))
+    );
     assert!(control.is_shared(PROJECT));
 }
 

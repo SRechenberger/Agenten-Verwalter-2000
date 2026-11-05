@@ -183,13 +183,13 @@ impl Control {
         dropped
     }
 
-    /// Archivieren geht nur ohne Inhaber und beendet die Freigabe.
-    pub fn archive(&mut self, project_id: &str) -> Result<(), Refused> {
-        if let Some(holder) = self.holder(project_id) {
-            return Err(Refused::HeldBy(holder.device.clone()));
+    /// Archivieren geht nur ohne Inhaber. Prüft nur: Die Freigabe endet erst mit `unshare`, wenn die
+    /// Datenbank geschrieben ist.
+    pub fn may_archive(&self, project_id: &str) -> Result<(), Refused> {
+        match self.holder(project_id) {
+            Some(holder) => Err(Refused::HeldBy(holder.device.clone())),
+            None => Ok(()),
         }
-        self.shared.remove(project_id);
-        Ok(())
     }
 
     /// Das Vorhaben ist endgültig gelöscht.

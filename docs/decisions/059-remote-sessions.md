@@ -66,7 +66,7 @@ Je Vorhaben `shared` (SQLite, `projects.remote_shared`) und `holder` aus Gerät 
 
 `access::check` ist eine Funktion für beide Stellen: Für die Oberfläche des Hosts im Wrapper `remote/intercept.rs`, dort sperrt sie nur, solange ein Gast Inhaber ist, und ohne Inhaber bleibt der Aufruf unverändert. Für Gäste im Server vor `on_message`. Ein Aufruf des Servers kommt mit der Kopfzeile `x-verwalter-remote` zurück durch den Wrapper und überspringt ihn.
 
-**Alle IDs zählen.** `ids_of` liest `sessionId`, `projectId` und bei `implementation_*` und `terminal_*` auch `id`. Für einen Gast muss jede davon zu einem Vorhaben führen, das er hält, und ein Befehl mit ID-Pflicht ohne seine ID wird abgelehnt. Für die Oberfläche des Hosts meldet eine unbekannte ID weiter der Command selbst.
+**Alle IDs zählen.** `ids_of` liest `sessionId`, `projectId` und bei `implementation_*` und `terminal_*` auch `id`. Für einen Gast muss jede davon zu einem Vorhaben führen, das er hält, und ein Befehl mit ID-Pflicht ohne seine ID wird abgelehnt. Für die Oberfläche des Hosts meldet eine unbekannte ID weiter der Command selbst. `stationId` führt über `implementation::station_in` zu `id`: Eine Station einer fremden Umsetzung wird abgelehnt, bevor an ihr etwas wirkt.
 
 Die Sperre von `RemoteControl` ist die innerste der App: Unter ihr wird keine andere genommen.
 

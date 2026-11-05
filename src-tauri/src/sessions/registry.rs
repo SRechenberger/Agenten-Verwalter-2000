@@ -1003,13 +1003,15 @@ impl SessionRegistry {
             return Err(project_not_found(project_id));
         }
         // Vor dem ersten Schritt: Solange ein Gast steuert, bleibt das Vorhaben unberührt.
-        self.remote.with(|control| control.archive(project_id))?;
+        self.remote
+            .with(|control| control.may_archive(project_id))?;
         members.sort_by_key(|session: &Arc<Session>| session.number);
         for session in &members {
             self.cancel(app, &session.id)?;
         }
         self.database
             .with(|connection| project_rows::archive(connection, project_id, now_ms()))?;
+        self.remote.with(|control| control.unshare(project_id));
         {
             let mut sessions = self.lock_sessions();
             for session in &members {
