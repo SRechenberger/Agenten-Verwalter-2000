@@ -2,6 +2,7 @@
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
+use crate::remote::model::ProjectAccess;
 use crate::session_tools::model::SelfRelease;
 use crate::sessions::model::SessionSummary;
 
@@ -16,6 +17,9 @@ pub struct ProjectSummary {
     pub self_release: SelfRelease,
     /// Gruppe in der Leiste; `None` = ohne Gruppe.
     pub group_id: Option<String>,
+    /// Wem das Vorhaben aus Sicht dieser Instanz gehört (ADR 059).
+    #[serde(default)]
+    pub access: ProjectAccess,
 }
 
 /// Eine Gruppe von Vorhaben; die Liste kommt in Anlegereihenfolge.

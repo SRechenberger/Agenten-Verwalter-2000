@@ -97,6 +97,13 @@ impl TerminalService {
             .collect()
     }
 
+    /// Das Vorhaben eines Terminals; `None`, wenn es das Terminal nicht gibt.
+    pub fn project_of(&self, id: &str) -> Option<String> {
+        let terminal = self.get(id).ok()?;
+        let project_id = lock(&terminal.info).project_id.clone();
+        Some(project_id)
+    }
+
     pub fn list(&self, project_id: &str) -> Vec<TerminalInfo> {
         let mut infos: Vec<TerminalInfo> = self
             .project_terminals(project_id)

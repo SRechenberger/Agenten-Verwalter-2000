@@ -186,6 +186,18 @@ pub fn load(
         .transpose()
 }
 
+/// Das Vorhaben einer Umsetzung; `None`, wenn es sie nicht gibt.
+pub fn project_of(connection: &Connection, id: &str) -> Result<Option<String>, CommandError> {
+    let project_id = connection
+        .query_row(
+            "SELECT project_id FROM implementations WHERE id = ?1",
+            params![id],
+            |row| row.get(0),
+        )
+        .optional()?;
+    Ok(project_id)
+}
+
 /// Die unfertige Umsetzung des Vorhabens; es gibt höchstens eine.
 pub fn unfinished_of_project(
     connection: &Connection,

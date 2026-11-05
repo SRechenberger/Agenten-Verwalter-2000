@@ -5,7 +5,7 @@ use crate::error::CommandError;
 
 /// Eine neue Migration hängt als neue Datei hinten an und verlängert diese Liste;
 /// eine bestehende wird nie geändert, weil sie auf fremden Rechnern schon gelaufen ist.
-const MIGRATIONS: [&str; 20] = [
+const MIGRATIONS: [&str; 21] = [
     include_str!("migrations/001_sessions_and_chat.sql"),
     include_str!("migrations/002_repositories_and_worktrees.sql"),
     include_str!("migrations/003_background.sql"),
@@ -26,6 +26,7 @@ const MIGRATIONS: [&str; 20] = [
     include_str!("migrations/018_session_tools.sql"),
     include_str!("migrations/019_implementations.sql"),
     include_str!("migrations/020_project_groups.sql"),
+    include_str!("migrations/021_remote.sql"),
 ];
 
 pub fn run(connection: &mut Connection) -> Result<(), CommandError> {

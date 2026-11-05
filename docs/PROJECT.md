@@ -27,6 +27,7 @@ MVP (Version 1):
 - **Agent:** Claude als einziger Provider; Betriebsart Claude Code + LM Studio für ein lokales Modell ([ADR 016](decisions/016-betriebsarten-und-lokales-modell.md)); Betriebsart Autark mit eigenem Agenten ohne Claude-Kommandozeile und ohne Anthropic ([ADR 017](decisions/017-autarker-agent.md))
 - **Persistenz:** SQLite, Session-Wiederherstellung nach App-Neustart
 - **Desktop:** Tauri-App für Windows
+- **Fernsteuerung:** Eine Instanz steuert freigegebene Vorhaben einer anderen laufenden Instanz im lokalen Netz; gearbeitet wird nur am Host ([ADR 059](decisions/059-remote-sessions.md)). Bisher steht das Steuerrecht im Core, die Verbindung folgt.
 
 Danach (Reihenfolge laut Konzept, Abschnitt 66): OpenCode-Provider (der LM-Studio-Provider ist durch ADR 016 und ADR 017 erledigt), feinere Rechte-Oberfläche über die Modi hinaus, Suche, app-weite Command Palette → Multi-Agent, „Ask about this change“, Commit-Automatik → PR-Workflow, Agent-Pipelines, Session-Vorlagen.
 
@@ -56,11 +57,11 @@ Keine IDE, kein VS-Code-Ersatz, kein vollständiger Git-Client, kein Ticket-Syst
 
 - **Plattform:** Windows 11 zuerst — dort wird entwickelt und ausprobiert. macOS und Linux bleiben Ziele, werden vor dem MVP aber nicht geprüft.
 - **Ressourcen:** Zielgerät ist ein Laptop mit rund 16 GB RAM, auf dem die Agenten selbst den Großteil verbrauchen. Der UI-Speicher wächst mit dem sichtbaren Inhalt, nicht mit der Zahl der Sessions oder Events.
-- **Lokal:** kein Server, keine Cloud, kein Docker, kein separater Datenbankdienst. Keine Telemetrie, außer später als Opt-in.
+- **Lokal:** keine Cloud, kein Docker, kein separater Datenbankdienst, kein Vermittler. Einen Server gibt es nur für die Fernsteuerung: standardmäßig aus, nur auf ausdrücklichen Wunsch des Hosts und nur im lokalen Netz oder VPN ([ADR 059](decisions/059-remote-sessions.md)). Keine Telemetrie, außer später als Opt-in.
 - **Sicherheit:** Der Session-Workspace ist die Sicherheitsgrenze; Agenten bekommen nicht standardmäßig das ganze Benutzerverzeichnis.
 - **Absturzfestigkeit:** Ein UI-Absturz darf keine Session und keinen Worktree verlieren; der Agent-Prozess wird danach neu gestartet.
 - **Team:** Einzelentwickler, keine Deadline.
-- **Qualitätssicherung:** automatisierte Tests nur für die Fix-Runden-Auswahl der Umsetzung (`src-tauri/src/implementation/tests.rs`, von Hand mit `cargo test`); sonst abgesichert über strenge Typen, Lint und Build; getestet wird im laufenden Betrieb, ohne Abnahme-Checkliste.
+- **Qualitätssicherung:** automatisierte Tests nur für die Fix-Runden-Auswahl der Umsetzung (`src-tauri/src/implementation/tests.rs`, von Hand mit `cargo test`) und für das Steuerrecht der Fernsteuerung (`src-tauri/src/remote/`, in CI mit `cargo test --lib remote::`); sonst abgesichert über strenge Typen, Lint und Build; getestet wird im laufenden Betrieb, ohne Abnahme-Checkliste.
 
 ## Meilensteine
 

@@ -1,0 +1,62 @@
+//! Freigabe eines Vorhabens für Gäste (ADR 059). Das Steuerrecht selbst steht in `crate::remote`;
+//! hier steht nur, was die Registry beisteuert.
+use tauri::{AppHandle, Emitter};
+
+use super::{PROJECT_CHANGED_EVENT, SessionRegistry, project_not_found};
+use crate::db::remote as remote_rows;
+use crate::error::CommandError;
+use crate::projects::model::ProjectSummary;
+
+const REMOTE_CHANGED_EVENT: &str = "remote://changed";
+
+impl SessionRegistry {
+    /// Schaltet die Freigabe um; Ausschalten wirft einen steuernden Gast sofort hinaus. Erst danach
+    /// hält `stop_agents` die laufenden Sessions an: Scheitert das bei einer, ist die Freigabe
+    /// trotzdem beendet, die übrigen werden noch angehalten und der erste Fehler kommt zurück.
+    pub fn set_project_shared(
+        &self,
+        app: &AppHandle,
+        project_id: &str,
+        shared: bool,
+        stop_agents: bool,
+    ) -> Result<ProjectSummary, CommandError> {
+        if !self.lock_projects().contains_key(project_id) {
+            return Err(project_not_found(project_id));
+        }
+        self.database
+            .with(|connection| remote_rows::set_shared(connection, project_id, shared))?;
+        self.remote.with(|control| {
+            if shared {
+                control.share(project_id);
+            } else {
+                control.unshare(project_id);
+            }
+        });
+        let summary = self.project_summary(project_id)?;
+        // Wie die übrigen Ereignisse ohne Session-Protokoll: ein Sendefehler ändert nichts am Zustand.
+        let _ = app.emit(PROJECT_CHANGED_EVENT, &summary);
+        let _ = app.emit(REMOTE_CHANGED_EVENT, ());
+        if !shared && stop_agents {
+            let mut first_error: Option<CommandError> = None;
+            for session in self.project_members(project_id) {
+                if let Err(error) = self.pause(app, &session.id) {
+                    first_error.get_or_insert(error);
+                }
+            }
+            if let Some(error) = first_error {
+                return Err(error);
+            }
+        }
+        Ok(summary)
+    }
+
+    /// Das Vorhaben einer Umsetzung; `None`, wenn es sie nicht gibt.
+    pub fn project_of_implementation(&self, implementation_id: &str) -> Option<String> {
+        self.database
+            .with(|connection| {
+                crate::db::implementations::project_of(connection, implementation_id)
+            })
+            .ok()
+            .flatten()
+    }
+}

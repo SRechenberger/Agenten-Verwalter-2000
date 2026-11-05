@@ -35,6 +35,10 @@ export function commandErrorText(reason: unknown): string {
       return `Datei nicht gefunden: ${reason.message}`;
     case 'fileNotAllowed':
       return reason.message;
+    case 'controlledBy':
+      return `Gesteuert von ${reason.message}.`;
+    case 'hostUnreachable':
+      return `${reason.message} nicht erreichbar.`;
     default:
       return 'message' in reason ? reason.message : reason.kind;
   }

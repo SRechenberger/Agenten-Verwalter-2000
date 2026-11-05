@@ -77,8 +77,9 @@ pub fn set_collapsed(
 
 /// Löscht die Gruppe und setzt vorher `group_id` aller Mitglieder — auch archivierter — auf `NULL`,
 /// in einer Transaktion. Die Mitglieder werden selbst zurückgesetzt, nicht per `ON DELETE SET NULL`
-/// allein. Gibt die IDs der Mitglieder zurück, damit die Registry sie nachführen kann; eine
-/// unbekannte Gruppe ist ein Fehler.
+/// allein. Dasselbe gilt für entfernte Vorhaben in dieser Gruppe (`remote_project_groups`, ADR 059).
+/// Gibt die IDs der Mitglieder zurück, damit die Registry sie nachführen kann; eine unbekannte
+/// Gruppe ist ein Fehler.
 pub fn delete(connection: &mut Connection, id: &str) -> Result<Vec<String>, CommandError> {
     let transaction = connection.transaction()?;
     let members: Vec<String> = {
@@ -90,6 +91,10 @@ pub fn delete(connection: &mut Connection, id: &str) -> Result<Vec<String>, Comm
     };
     transaction.execute(
         "UPDATE projects SET group_id = NULL WHERE group_id = ?1",
+        params![id],
+    )?;
+    transaction.execute(
+        "DELETE FROM remote_project_groups WHERE group_id = ?1",
         params![id],
     )?;
     let deleted = transaction.execute("DELETE FROM project_groups WHERE id = ?1", params![id])?;

@@ -17,6 +17,7 @@ pub mod git;
 pub mod implementation;
 pub mod mcp;
 pub mod projects;
+pub mod remote;
 pub mod repositories;
 pub mod retro;
 pub mod sessions;
