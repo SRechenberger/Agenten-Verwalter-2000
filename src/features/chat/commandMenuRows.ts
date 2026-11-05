@@ -18,7 +18,7 @@ export type CommandRow =
   | { kind: 'session'; command: SessionCommand };
 
 export interface CommandSection {
-  title: 'Kontext' | 'Modell' | 'Skills' | 'Session';
+  title: 'Kontext' | 'Modell' | 'Skills' | 'Mitgeliefert' | 'Session';
   rows: CommandRow[];
 }
 
@@ -72,16 +72,23 @@ export function rowText(row: CommandRow, session: SessionSummary | null): RowTex
 export function rowKey(row: CommandRow): string {
   switch (row.kind) {
     case 'skill': {
-      const origin: string =
-        row.skill.origin.kind === 'repository'
-          ? `repository:${row.skill.origin.name}`
-          : row.skill.origin.kind;
-      return `skill:${origin}:${row.skill.kind}:${row.skill.name}`;
+      return `skill:${skillOriginKey(row.skill)}:${row.skill.kind}:${row.skill.name}`;
     }
     case 'session':
       return `session:${row.command}`;
     default:
       return row.kind;
+  }
+}
+
+function skillOriginKey(skill: SkillInfo): string {
+  switch (skill.origin.kind) {
+    case 'user':
+      return 'user';
+    case 'builtin':
+      return 'builtin';
+    case 'repository':
+      return `repository:${skill.origin.name}`;
   }
 }
 
@@ -108,7 +115,20 @@ export function buildCommandSections(
   const sections: CommandSection[] = [
     { title: 'Kontext', rows: scope === 'full' ? [{ kind: 'attach' }] : [] },
     { title: 'Modell', rows: scope === 'full' ? [{ kind: 'model' }, { kind: 'effort' }] : [] },
-    { title: 'Skills', rows: skillRows(skills, uses, isUnusedOpen) },
+    {
+      title: 'Skills',
+      rows: skillRows(
+        skills.filter((skill: SkillInfo) => skill.origin.kind !== 'builtin'),
+        uses,
+        isUnusedOpen,
+      ),
+    },
+    {
+      title: 'Mitgeliefert',
+      rows: skills
+        .filter((skill: SkillInfo) => skill.origin.kind === 'builtin')
+        .map((skill: SkillInfo): CommandRow => ({ kind: 'skill', skill, count: null })),
+    },
     { title: 'Session', rows: scope === 'skills' ? [] : sessionRows(session, hasBrowser, hasMcp) },
   ];
 
