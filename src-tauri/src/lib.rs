@@ -44,7 +44,7 @@ pub mod worktrees;
 
 use std::sync::Arc;
 
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 
 use account::AccountService;
 use app_update::AppUpdateService;
@@ -55,12 +55,60 @@ use db::Database;
 use environment::EnvironmentService;
 use filesystem::workspace::data_dir;
 use remote::RemoteControl;
+use remote::client::{ClientHooks, RemoteClients};
+use remote::server::{RemoteServer, ServerSetup};
+use remote::wire::Timing;
 use sessions::registry::SessionRegistry;
 use terminal::TerminalService;
 use usage::UsageService;
 use voice::VoiceService;
 
 const DATABASE_FILE: &str = "verwalter.db";
+
+/// Server am Host und Verbindungen des Gastes (ADR 059). Der Server lauscht nur, wenn „Gäste
+/// erlauben“ an ist; scheitert er, steht der Grund in seinem Status, und die App startet trotzdem.
+fn start_remote(
+    app: &tauri::AppHandle,
+    database: &Arc<Database>,
+    control: &Arc<RemoteControl>,
+) -> Result<(), error::CommandError> {
+    let folder = data_dir(app)?.join(remote::DIR_NAME);
+    let emitter = app.clone();
+    let notify: Arc<dyn Fn() + Send + Sync> = Arc::new(move || {
+        let _ = emitter.emit(remote::CHANGED_EVENT, ());
+    });
+    let server = Arc::new(RemoteServer::new(ServerSetup {
+        host_id: settings::remote_host_id(database)?,
+        host_name: remote::host_name(),
+        key_file: folder.join(remote::HOST_KEY_FILE),
+        database: Arc::clone(database),
+        control: Arc::clone(control),
+        // Die Übernahme über das Netz kommt mit der nächsten Phase; bis dahin ist jeder Aufruf ein Fehler.
+        dispatch: Arc::new(|_, command: &str, _| {
+            Err(error::CommandError::Internal(format!(
+                "{command} ist über das Netz noch nicht erreichbar."
+            )))
+        }),
+        notify: Arc::clone(&notify),
+        timing: Timing::CONTRACT,
+    }));
+    let (enabled, port) = settings::remote_server(database)?;
+    if enabled && let Err(error) = server.start(port) {
+        eprintln!("Server der Fernsteuerung nicht gestartet: {error}");
+    }
+    app.manage(server);
+    let clients = RemoteClients::load(
+        folder.join(remote::HOSTS_FILE),
+        Timing::CONTRACT,
+        ClientHooks {
+            changed: notify,
+            // Ereignisse des Hosts gibt erst die Weitergabe an die Oberfläche weiter.
+            frame: Arc::new(|_, _| {}),
+        },
+    );
+    app.manage(Arc::new(clients));
+    Ok(())
+}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -77,6 +125,7 @@ pub fn run() {
             let registry =
                 SessionRegistry::restore(app.handle(), Arc::clone(&database), Arc::clone(&remote))?;
             app.manage(registry);
+            start_remote(app.handle(), &database, &remote)?;
             app.manage(remote);
             app.manage(database);
             app.manage(UsageService::new());
@@ -125,6 +174,14 @@ pub fn run() {
             commands::projects::project_group_set_collapsed,
             commands::projects::project_set_group,
             commands::remote::remote_share_set,
+            commands::remote::remote_server_status,
+            commands::remote::remote_server_set,
+            commands::remote::remote_invitation_create,
+            commands::remote::remote_devices,
+            commands::remote::remote_device_revoke,
+            commands::remote::remote_connect,
+            commands::remote::remote_hosts,
+            commands::remote::remote_disconnect,
             commands::archive::archive_search,
             commands::archive::project_restore,
             commands::sessions::session_list,

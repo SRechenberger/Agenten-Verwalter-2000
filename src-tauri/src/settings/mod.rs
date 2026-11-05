@@ -12,6 +12,7 @@ use crate::db::settings as setting_rows;
 use crate::db::{Database, enum_from_text, enum_to_text};
 use crate::error::CommandError;
 use crate::filesystem::workspace::{WORKSPACES_DIR, data_dir, home_dir};
+use crate::remote::server::DEFAULT_PORT as DEFAULT_REMOTE_PORT;
 use crate::session_tools::model::SelfRelease;
 use crate::skills::{self, model::SkillKind, model::SkillOrigin};
 use model::{
@@ -32,6 +33,9 @@ const KEY_DEFAULT_SELF_RELEASE: &str = "default_self_release";
 const KEY_TERMINAL_PLACEMENT: &str = "terminal_placement";
 const KEY_TERMINAL_HEIGHT: &str = "terminal_height";
 const KEY_TERMINAL_WIDTH: &str = "terminal_width";
+const KEY_REMOTE_ENABLED: &str = "remote_enabled";
+const KEY_REMOTE_PORT: &str = "remote_port";
+const KEY_REMOTE_HOST_ID: &str = "remote_host_id";
 
 /// Grenzen für die gemerkte Größe des Terminal-Docks in Pixeln.
 const TERMINAL_SIZE_RANGE: std::ops::RangeInclusive<u32> = 100..=10000;
@@ -238,6 +242,56 @@ pub fn overview(app: &AppHandle, database: &Database) -> Result<SettingsOverview
             .join(WORKSPACES_DIR)
             .to_string_lossy()
             .into_owned(),
+    })
+}
+
+/// Schalter „Gäste erlauben“ und Port der Fernsteuerung (ADR 059); ohne Eintrag aus und
+/// `remote::server::DEFAULT_PORT`.
+pub fn remote_server(database: &Database) -> Result<(bool, u16), CommandError> {
+    let stored: HashMap<String, String> =
+        database.with(|connection| setting_rows::read_all(connection))?;
+    let enabled = stored
+        .get(KEY_REMOTE_ENABLED)
+        .and_then(|text: &String| text.parse::<bool>().ok())
+        .unwrap_or(false);
+    let port = stored
+        .get(KEY_REMOTE_PORT)
+        .and_then(|text: &String| text.parse::<u16>().ok())
+        .filter(|port: &u16| *port != 0)
+        .unwrap_or(DEFAULT_REMOTE_PORT);
+    Ok((enabled, port))
+}
+
+pub fn set_remote_server(
+    database: &Database,
+    enabled: bool,
+    port: u16,
+) -> Result<(), CommandError> {
+    if port == 0 {
+        return Err(CommandError::Internal("Port außerhalb 1–65535".to_owned()));
+    }
+    database.with(|connection| {
+        let transaction = connection.transaction()?;
+        setting_rows::write(&transaction, KEY_REMOTE_ENABLED, &enabled.to_string())?;
+        setting_rows::write(&transaction, KEY_REMOTE_PORT, &port.to_string())?;
+        transaction.commit()?;
+        Ok(())
+    })
+}
+
+/// Die ID, unter der Gäste diesen Host kennen; beim ersten Aufruf erzeugt und dann behalten.
+pub fn remote_host_id(database: &Database) -> Result<String, CommandError> {
+    database.with(|connection| {
+        let stored = setting_rows::read_all(connection)?;
+        if let Some(id) = stored
+            .get(KEY_REMOTE_HOST_ID)
+            .filter(|id: &&String| !id.is_empty())
+        {
+            return Ok(id.clone());
+        }
+        let id = uuid::Uuid::new_v4().to_string();
+        setting_rows::write(connection, KEY_REMOTE_HOST_ID, &id)?;
+        Ok(id)
     })
 }
 

@@ -40,6 +40,9 @@ html2text = "0.17.1"
 jiff = "0.2"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 portable-pty = "0.9.0"
+# Fernsteuerung (ADR 059): `ring` statt der Standardwahl `aws-lc-rs`, die unter Windows CMake verlangen kann.
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+rcgen = { version = "0.14", default-features = false, features = ["crypto", "pem", "ring"] }
 
 [dev-dependencies]
 hound = "3"

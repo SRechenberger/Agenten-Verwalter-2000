@@ -1,9 +1,10 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 /// Fehler, den ein Tauri Command an die Oberfläche meldet.
 /// Nutzer-relevante Fälle bekommen eigene Varianten, damit die UI eine passende Aktion anbieten kann.
-#[derive(Debug, thiserror::Error, Serialize, TS)]
+// `Deserialize` braucht der Gast für den Rahmen `result` mit `err` (ADR 059).
+#[derive(Debug, thiserror::Error, Serialize, Deserialize, TS)]
 #[serde(tag = "kind", content = "message", rename_all = "camelCase")]
 pub enum CommandError {
     #[error("interner Fehler: {0}")]

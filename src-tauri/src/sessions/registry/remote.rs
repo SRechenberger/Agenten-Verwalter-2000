@@ -6,8 +6,7 @@ use super::{PROJECT_CHANGED_EVENT, SessionRegistry, project_not_found};
 use crate::db::remote as remote_rows;
 use crate::error::CommandError;
 use crate::projects::model::ProjectSummary;
-
-const REMOTE_CHANGED_EVENT: &str = "remote://changed";
+use crate::remote::CHANGED_EVENT as REMOTE_CHANGED_EVENT;
 
 impl SessionRegistry {
     /// Schaltet die Freigabe um; Ausschalten wirft einen steuernden Gast sofort hinaus. Erst danach
@@ -48,6 +47,15 @@ impl SessionRegistry {
             }
         }
         Ok(summary)
+    }
+
+    /// Meldet Vorhaben, deren Inhaber der Server abgesetzt hat (Gerät gesperrt, Server aus).
+    pub fn emit_projects_changed(&self, app: &AppHandle, project_ids: &[String]) {
+        for project_id in project_ids {
+            if let Ok(summary) = self.project_summary(project_id) {
+                let _ = app.emit(PROJECT_CHANGED_EVENT, &summary);
+            }
+        }
     }
 
     /// Das Vorhaben einer Umsetzung; `None`, wenn es sie nicht gibt.
