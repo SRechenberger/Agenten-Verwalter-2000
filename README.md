@@ -71,6 +71,8 @@ Automatisierte Tests gibt es nur für die Fix-Runden-Auswahl der Umsetzung (`src
 
 Fertige Installer liegen bei den [GitHub-Releases](https://github.com/SRechenberger/Agenten-Verwalter-2000/releases). Ein gepushter Tag `v<Version>` baut ein Release (Windows-Installer, dazu `.dmg`, `.AppImage` und `.deb` als Zusatz).
 
+Das AppImage enthält das App-Icon. Ob ein Dateimanager es an der Datei anzeigt, entscheidet dessen Vorschau-Plugin; Dolphin unter KDE braucht dafür das Paket `libappimage`.
+
 ### Umgebungsvariablen (optional)
 
 | Variable | Wirkung |
