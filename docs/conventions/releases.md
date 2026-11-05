@@ -1,10 +1,20 @@
 # Release Conventions — verwalter
 
-> Ein Push auf `main` löst [.github/workflows/release.yml](../../.github/workflows/release.yml) aus. Gibt es den Tag `v<Version>` noch nicht, wird gebaut, und Release samt Tag entstehen zusammen: Windows baut den NSIS-Installer und die lose `verwalter.exe`, macOS (Apple Silicon, ab macOS 13.4) ein `.dmg`, Ubuntu 24.04 ein `.AppImage` und ein `.deb`; ein letzter Job legt das GitHub-Release an und hängt alle Dateien an. Schlägt nur macOS oder Linux fehl, erscheint das Release ohne deren Dateien; schlägt Windows fehl, erscheint keins. „Run workflow" auf der Actions-Seite baut alle Plattformen als Probe, ohne Release, auch auf einem Branch. Projektentscheidungen in dieser Datei haben Vorrang.
+> Ein gepushter Tag `v<Version>` löst [.github/workflows/release.yml](../../.github/workflows/release.yml) aus, ein Merge auf `main` nicht. Passt der Tag zur Version auf seinem Commit, wird gebaut: Windows baut den NSIS-Installer und die lose `verwalter.exe`, macOS (Apple Silicon, ab macOS 13.4) ein `.dmg`, Ubuntu 24.04 ein `.AppImage` und ein `.deb`; ein letzter Job legt das GitHub-Release zum Tag an und hängt alle Dateien an. Schlägt nur macOS oder Linux fehl, erscheint das Release ohne deren Dateien; schlägt Windows fehl, erscheint keins. „Run workflow" auf der Actions-Seite baut alle Plattformen als Probe, ohne Release, auch auf einem Branch. Projektentscheidungen in dieser Datei haben Vorrang.
+
+## Release anlegen
+
+Den Stand auf `main` taggen, den der Tag ausliefern soll:
+
+```bash
+git switch main && git pull
+version=$(node scripts/version.ts get)
+git tag "v$version" && git push origin "v$version"
+```
 
 ## Versionsnummer
 
-**Jeder PR hebt die Version in seinem eigenen Diff.** Solange die App unter 1.0 ist, ist eine Fehlerbehebung ein Patch (`0.2.0` → `0.2.1`), alles andere ein Minor (`0.2.0` → `0.3.0`). Den Sprung auf `1.0.0` entscheidet der User ausdrücklich.
+**Jeder PR hebt die Version in seinem eigenen Diff**, damit sich jeder Stand von `main` ohne weiteren Commit taggen lässt. Solange die App unter 1.0 ist, ist eine Fehlerbehebung ein Patch (`0.2.0` → `0.2.1`), alles andere ein Minor (`0.2.0` → `0.3.0`). Den Sprung auf `1.0.0` entscheidet der User ausdrücklich.
 
 **Parallele PRs:** Haben zwei offene PRs angehoben, setzt der später gemergte auf `main` auf und hebt von der Version an, die `main` dann trägt. Dieselbe Nummer gibt es nie zweimal. Heben zwei offene PRs auf dieselbe neue Nummer, mergen sie ohne Konflikt, denn beide Seiten ändern die Zeilen gleich, und der zweite bleibt grün, weil `pull_request` bei einer Änderung am Basis-Branch nicht neu läuft. Vor dem Merge also prüfen, ob die Nummer noch frei ist.
 
@@ -17,12 +27,14 @@ Die Version steht an **vier Stellen**, `pnpm bump <X.Y.Z>` setzt sie, `pnpm chec
 
 ## Wenn etwas schiefgeht
 
-- **Merge ohne Anhebung:** `check.yml` lässt den PR scheitern. Wird er trotzdem gemergt, entsteht kein Release, und der Lauf von `release.yml` auf `main` wird rot, weil der Tag auf einen anderen Commit zeigt. Der nächste PR hebt an und nimmt den Stand mit.
-- **Fehlgeschlagener Lauf:** Der Tag entsteht erst mit dem Release, also lässt sich der Lauf wiederholen.
+- **Merge ohne Anhebung:** `check.yml` lässt den PR scheitern. Wird er trotzdem gemergt und ist die Nummer schon getaggt, scheitert `git tag`. Der nächste PR hebt an und nimmt den Stand mit.
+- **Tag passt nicht zur Version:** Der Job `gate` wird rot, es wird nichts gebaut und es entsteht kein Release. Der falsche Tag bleibt stehen, bis der User sein Löschen anweist.
+- **Fehlgeschlagener Lauf:** Das Release entsteht erst im letzten Job, also lässt sich der Lauf über denselben Tag wiederholen.
 
 ## Regeln
 
-- Ein Tag entsteht nur durch den Workflow: Ein von Hand gesetzter Tag `v<Version>` unterdrückt das Release dieser Version.
+- Ein Release entsteht nur durch den Workflow: den Tag per `git push` setzen, nicht über „Draft a new release" auf GitHub.
+- Ein über `GITHUB_TOKEN` gesetzter Tag startet keinen Lauf, ein Workflow kann also kein Release anstoßen.
 - Ein gepushter Tag wird **nie verschoben oder gelöscht** ohne ausdrückliche Anweisung des Users.
 - Ohne eingeschaltete Actions im Repository entsteht kein Release.
 - Das Release ist ohne Code-Signatur: Windows SmartScreen warnt beim Start der heruntergeladenen Datei. macOS meldet die App als „beschädigt"; nach dem Kopieren nach Programme hilft `xattr -dr com.apple.quarantine "/Applications/Agenten Verwalter 2000.app"`. Das ist bekannt und kein Fehler des Laufs.
@@ -32,5 +44,6 @@ Die Version steht an **vier Stellen**, `pnpm bump <X.Y.Z>` setzt sie, `pnpm chec
 
 ## Critical Rules
 
-1. **Jeder Merge auf `main` trägt eine neue Version** — ohne sie entsteht kein Release, und ein Release ist für Dritte sichtbar und gilt als fertiger Stand.
-2. **Die vier Stellen tragen dieselbe Version** — sonst trägt der Installer eine andere Nummer als das Release; gesetzt wird sie nur mit `pnpm bump <X.Y.Z>`.
+1. **Jeder Merge auf `main` trägt eine neue Version** — sonst lässt sich der Stand nicht taggen.
+2. **Ein Tag ist ein Release** — es ist für Dritte sichtbar, gilt als fertiger Stand, und laufende Verwalter bieten es als Update an. Also nur Stände von `main` taggen.
+3. **Die vier Stellen tragen dieselbe Version** — sonst trägt der Installer eine andere Nummer als das Release; gesetzt wird sie nur mit `pnpm bump <X.Y.Z>`.
