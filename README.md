@@ -67,7 +67,7 @@ pnpm tauri build            # NSIS-Installer unter src-tauri/target/release/bund
 pnpm tauri build --no-bundle  # nur die lose exe
 ```
 
-Es gibt keine automatisierten Tests; abgesichert wird über strenge Typen, Lint, Build und eine manuelle Abnahme-Checkliste pro Plan.
+Automatisierte Tests gibt es nur für die Fix-Runden-Auswahl der Umsetzung (`src-tauri/src/implementation/tests.rs`, von Hand mit `cargo test --manifest-path src-tauri/Cargo.toml`); sonst wird über strenge Typen, Lint und Build abgesichert und im laufenden Betrieb getestet.
 
 Fertige Installer liegen bei den [GitHub-Releases](https://github.com/SRechenberger/Agenten-Verwalter-2000/releases). Jeder Merge auf `main` mit neuer Version baut ein Release (Windows-Installer, dazu `.dmg`, `.AppImage` und `.deb` als Zusatz).
 
