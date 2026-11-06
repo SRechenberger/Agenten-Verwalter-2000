@@ -14,6 +14,7 @@ import type { ImplementationViewKind } from '@/stores/sessions';
 export const VIEW_LABEL: Record<ImplementationViewKind, string> = {
   flow: 'Ablauf',
   changes: 'Changes',
+  artifacts: 'Artefakte',
 };
 
 export const REPORT_LABEL = 'Lagebericht';
