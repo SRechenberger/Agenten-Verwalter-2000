@@ -72,7 +72,7 @@ impl Host for Stub {
             .expect("Sperre")
             .push((command.to_owned(), args));
         Ok(match command {
-            "settings_load" => json!({ "operatingMode": "claudeCodeLocal", "theme": "dunkel" }),
+            "settings_load" => settings_overview(),
             "settings_local_models" => {
                 json!({ "baseUrl": "http://localhost:1234", "models": [], "error": null })
             }
@@ -89,6 +89,22 @@ impl Host for Stub {
     fn workspace(&self, _: &str) -> Result<PathBuf, CommandError> {
         Ok(self.workspace.clone())
     }
+}
+
+/// Die Antwort von `settings_load`, aus dem echten Typ serialisiert.
+fn settings_overview() -> Value {
+    use crate::settings::DEFAULT_SETTINGS;
+    use crate::settings::model::{OperatingMode, Settings, SettingsOverview};
+    serde_json::to_value(SettingsOverview {
+        settings: Settings {
+            operating_mode: OperatingMode::ClaudeCodeLocal,
+            ..DEFAULT_SETTINGS
+        },
+        user_skills_dir: "skills".to_owned(),
+        user_skill_count: 0,
+        workspaces_dir: "workspaces".to_owned(),
+    })
+    .expect("SettingsOverview")
 }
 
 fn device(id: &str) -> DeviceRef {

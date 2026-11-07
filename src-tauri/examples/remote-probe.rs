@@ -31,6 +31,8 @@ use verwalter_lib::remote::tls;
 use verwalter_lib::remote::wire::{
     self, Frame, LineBuffer, MAX_LINE, Outcome, PROTOCOL, RefuseReason, Timing,
 };
+use verwalter_lib::settings::DEFAULT_SETTINGS;
+use verwalter_lib::settings::model::{OperatingMode, Settings, SettingsOverview};
 
 const USAGE: &str = "Aufruf: remote-probe --selftest";
 const LOCALHOST: &str = "127.0.0.1";
@@ -60,6 +62,20 @@ fn main() -> ExitCode {
             ExitCode::from(1)
         }
     }
+}
+
+/// Die Antwort von `settings_load`, aus dem echten Typ serialisiert.
+fn settings_overview() -> Value {
+    serde_json::to_value(SettingsOverview {
+        settings: Settings {
+            operating_mode: OperatingMode::ClaudeCodeLocal,
+            ..DEFAULT_SETTINGS
+        },
+        user_skills_dir: "skills".to_owned(),
+        user_skill_count: 0,
+        workspaces_dir: "workspaces".to_owned(),
+    })
+    .expect("SettingsOverview")
 }
 
 fn text(error: impl ToString) -> String {
@@ -697,7 +713,7 @@ impl dispatch::Host for StubHost {
     fn invoke(&self, command: &str, args: Value) -> Result<Value, CommandError> {
         self.invoked.fetch_add(1, Ordering::SeqCst);
         Ok(match command {
-            "settings_load" => json!({ "operatingMode": "claudeCodeLocal" }),
+            "settings_load" => settings_overview(),
             "settings_local_models" => {
                 json!({ "baseUrl": "http://localhost:1234", "models": [], "error": null })
             }

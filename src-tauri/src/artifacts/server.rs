@@ -361,7 +361,8 @@ pub(crate) fn respond(
                 Err(failure) => failure.reply(),
             };
         }
-        // Nur der Name des geprüften Ordners geht in die Seite, nie der Anfragetext.
+        // Lokal geht nur der Name des geprüften Ordners in die Seite. Bei einer entfernten Quelle ist
+        // es der letzte Teil des Pfads; `script_string` maskiert ihn, und die Dateiliste prüft der Host.
         let name = match source.folder_name(folder_relative) {
             Ok(name) => name,
             Err(failure) => return failure.reply(),
@@ -378,7 +379,8 @@ pub(crate) fn respond(
         relative
     };
     let (content_type, body) = if wants_viewer {
-        // Nur der Name des geprüften Ziels geht in die Seite, nie der Anfragetext.
+        // Lokal geht nur der Name des geprüften Ziels in die Seite. Bei einer entfernten Quelle ist
+        // es der letzte Teil des Pfads (maskiert); den Inhalt prüft der Host beim Holen.
         let file = match source.file_name(&relative) {
             Ok(file) => file,
             Err(failure) => return failure.reply(),

@@ -125,9 +125,15 @@ fn surface_of(command: &str, mut args: Value, device: &DeviceRef) -> Value {
 /// Betriebsart und Modelle dieses Hosts, aus denselben Commands wie für die eigene Oberfläche.
 fn host_profile(host: &dyn Host) -> Result<Value, CommandError> {
     let settings = host.invoke("settings_load", Value::Null)?;
-    let operating_mode = settings.get("operatingMode").cloned().ok_or_else(|| {
-        CommandError::Internal("Die Einstellungen des Hosts nennen keine Betriebsart.".to_owned())
-    })?;
+    // `settings_load` liefert `SettingsOverview`: die Betriebsart steht unter `settings`.
+    let operating_mode = settings["settings"]
+        .get("operatingMode")
+        .cloned()
+        .ok_or_else(|| {
+            CommandError::Internal(
+                "Die Einstellungen des Hosts nennen keine Betriebsart.".to_owned(),
+            )
+        })?;
     Ok(json!({
         "operatingMode": operating_mode,
         "localModels": host.invoke("settings_local_models", Value::Null)?,
