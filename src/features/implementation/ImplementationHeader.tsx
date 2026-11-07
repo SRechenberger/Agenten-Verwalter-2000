@@ -8,6 +8,7 @@ import {
   VIEW_LABEL,
 } from '@/features/implementation/implementationTexts';
 import { stateIcon, stateLabel } from '@/features/implementation/stationState';
+import { RemoteGiveBack, RemoteHostBadge } from '@/features/remote/RemoteHeaderTools';
 import type { ImplementationView } from '@/lib/bindings/ImplementationView';
 import { IMPLEMENTATION_VIEWS, type ImplementationViewKind } from '@/stores/sessions';
 import '@/app/SessionHeader.css';
@@ -102,6 +103,7 @@ export function ImplementationHeader({
         ))}
       </div>
       <div className="session-header__tools">
+        <RemoteHostBadge projectId={implementation.projectId} />
         <button
           type="button"
           className={`session-header__background${isTerminalOpen ? ' session-header__background--active' : ''}`}
@@ -115,6 +117,7 @@ export function ImplementationHeader({
             <span className="session-header__background-count">{String(terminalCount)}</span>
           )}
         </button>
+        <RemoteGiveBack projectId={implementation.projectId} />
       </div>
     </header>
   );

@@ -26,7 +26,6 @@ import { RemoteEnabledRow } from '@/features/remote/RemoteEnabledRow';
 import { RemoteHostsRow } from '@/features/remote/RemoteHostsRow';
 import { RemotePortRow } from '@/features/remote/RemotePortRow';
 import { RemoteStatusRow } from '@/features/remote/RemoteStatusRow';
-import { useRemoteSync } from '@/features/remote/useRemoteSync';
 import { useKnownRepositories } from '@/features/repositories/useKnownRepositories';
 import { ColorSchemeSegment } from '@/features/settings/ColorSchemeSegment';
 import { TerminalPlacementSegment } from '@/features/settings/TerminalPlacementSegment';
@@ -114,7 +113,7 @@ export function SettingsView({
   const contentRef = useRef<HTMLDivElement>(null);
   const { repositories, isLoading: areRepositoriesLoading } = useKnownRepositories();
   const { save, error: saveError } = useSettingsUpdate();
-  const remoteError: string | null = useRemoteSync();
+  const remoteError: string | null = useRemoteStore((state) => state.syncError);
   const remoteServer = useRemoteStore((state) => state.server);
   const hasRemoteHosts: boolean = useRemoteStore((state) => state.hosts.length > 0);
   const facts: ShownFacts = {

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
 import type { PointerEvent, ReactElement } from 'react';
 import { useVirtualizer, type VirtualItem } from '@tanstack/react-virtual';
 import { buildSidebarRows } from '@/app/buildSidebarRows';
@@ -13,6 +13,7 @@ import {
   sessionsByActivity,
   visibleSessions,
 } from '@/features/projects/projectStatus';
+import { isLocked, isRemote, LOCKED_TITLE } from '@/features/remote/projectAccess';
 import { displayStatus } from '@/features/sessions/sessionStatus';
 import { UsageButton } from '@/features/usage/UsageButton';
 import type { ImplementationView } from '@/lib/bindings/ImplementationView';
@@ -28,6 +29,7 @@ import {
   setProjectGroupCollapsed,
 } from '@/lib/projectGroups';
 import { archiveProject, renameProject } from '@/lib/projects';
+import { giveBackRemoteProject, takeRemoteProject } from '@/lib/remote';
 import { deleteSession, renameSession } from '@/lib/sessions';
 import { useActionError } from '@/lib/useActionError';
 import { needsAttention } from '@/features/environment/environmentTexts';
@@ -82,6 +84,8 @@ interface SidebarProps {
   onOpenSettings: () => void;
   onOpenArchive: () => void;
   onArchived: (projectId: string) => void;
+  /** Rückgabe des Core nach Übernehmen oder Zurückgeben — schneller als dessen Ereignis. */
+  onProjectChanged: (summary: ProjectSummary) => void;
   onSessionDeleted: (session: SessionSummary, isProjectDeleted: boolean) => void;
 }
 
@@ -104,11 +108,12 @@ export function Sidebar({
   onOpenSettings,
   onOpenArchive,
   onArchived,
+  onProjectChanged,
   onSessionDeleted,
 }: SidebarProps): ReactElement {
   const renaming: RenameTarget | null = useSessionsStore((state) => state.renaming);
   const expanded: Record<string, boolean> = useSessionsStore((state) => state.expanded);
-  const startRename = useSessionsStore((state) => state.startRename);
+  const startRenameRaw = useSessionsStore((state) => state.startRename);
   const stopRename = useSessionsStore((state) => state.stopRename);
   const showAllSessions: Record<string, boolean> = useSessionsStore(
     (state) => state.showAllSessions,
@@ -125,6 +130,39 @@ export function Sidebar({
     needsAttention(state.status),
   );
   const { error: actionError, run, report: reportError } = useActionError('sidebar');
+
+  // Solange ein Gast das Vorhaben steuert oder der Host fehlt, lehnt der Core Umbenennen, Archivieren und
+  // Löschen ab; die Leiste meldet es gleich, statt einen Fehler abzuwarten.
+  function isLockedProject(projectId: string | undefined): boolean {
+    const found: ProjectSummary | undefined = projects.find(
+      (project: ProjectSummary) => project.id === projectId,
+    );
+    return found !== undefined && isLocked(found.access);
+  }
+
+  const startRename = useCallback(
+    (kind: RenameKind, id: string): void => {
+      let projectId: string | undefined;
+      if (kind === 'project') {
+        projectId = id;
+      } else if (kind === 'session') {
+        projectId = sessions.find((session: SessionSummary) => session.id === id)?.projectId;
+      } else if (kind === 'implementation') {
+        projectId = implementations.find(
+          (implementation: ImplementationView) => implementation.id === id,
+        )?.projectId;
+      }
+      const owner: ProjectSummary | undefined = projects.find(
+        (project: ProjectSummary) => project.id === projectId,
+      );
+      if (owner !== undefined && isLocked(owner.access)) {
+        reportError(`Umbenennen nicht möglich. ${LOCKED_TITLE}`);
+        return;
+      }
+      startRenameRaw(kind, id);
+    },
+    [projects, sessions, implementations, reportError, startRenameRaw],
+  );
   const listRef = useRef<HTMLDivElement>(null);
   const { dragged, dropTarget, ghostRef, beginDrag } = useSidebarDrag(
     listRef,
@@ -315,6 +353,10 @@ export function Sidebar({
 
   // Archivieren gibt es nur für das ganze Vorhaben — alle seine Sessions verlassen die Liste.
   function archive(projectId: string): void {
+    if (isLockedProject(projectId)) {
+      reportError(`Archivieren nicht möglich. ${LOCKED_TITLE}`);
+      return;
+    }
     run(
       () =>
         archiveProject(projectId).then(() => {
@@ -324,8 +366,36 @@ export function Sidebar({
     );
   }
 
+  // Übernehmen und Zurückgeben gibt es nur für Vorhaben eines Hosts. Danach zeigt die Hauptfläche die
+  // Übersicht: Beim Übernehmen kommen die Sessions, beim Zurückgeben bleibt das Angebot.
+  function takeOver(projectId: string): void {
+    run(
+      () =>
+        takeRemoteProject(projectId).then((summary: ProjectSummary) => {
+          onProjectChanged(summary);
+          onSelectProject(projectId);
+        }),
+      'Nicht übernommen',
+    );
+  }
+
+  function giveBack(projectId: string): void {
+    run(
+      () =>
+        giveBackRemoteProject(projectId).then((summary: ProjectSummary) => {
+          onProjectChanged(summary);
+          onSelectProject(projectId);
+        }),
+      'Zurückgeben fehlgeschlagen',
+    );
+  }
+
   // Löschen gilt der einzelnen Session; war sie die letzte, meldet der Core das Vorhaben als mit gelöscht.
   function removeSession(session: SessionSummary): void {
+    if (isLockedProject(session.projectId)) {
+      reportError(`Löschen nicht möglich. ${LOCKED_TITLE}`);
+      return;
+    }
     run(
       () =>
         deleteSession(session.id).then((isProjectDeleted: boolean) => {
@@ -437,6 +507,12 @@ export function Sidebar({
           onArchive={(): void => {
             archive(project.id);
           }}
+          onTake={(): void => {
+            takeOver(project.id);
+          }}
+          onGiveBack={(): void => {
+            giveBack(project.id);
+          }}
           onSetGroup={(groupId: string | null): void => {
             moveToGroup(project.id, groupId);
           }}
@@ -508,9 +584,17 @@ export function Sidebar({
           onDelete={(): void => {
             removeSession(session);
           }}
+          canDelete={!isRemoteSession(session)}
         />
       </div>
     );
+  }
+
+  function isRemoteSession(session: SessionSummary): boolean {
+    const owner: ProjectSummary | undefined = projects.find(
+      (project: ProjectSummary) => project.id === session.projectId,
+    );
+    return owner !== undefined && isRemote(owner.access);
   }
 
   function rowClassName(row: SidebarRow | undefined): string {

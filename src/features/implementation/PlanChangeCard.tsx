@@ -25,6 +25,8 @@ interface PlanChangeCardProps {
   stationsAfter: number;
   onApply?: (accept: boolean) => void;
   onOpenChat?: () => void;
+  /** Gesperrt, solange ein anderes Gerät das Vorhaben steuert oder der Host fehlt. */
+  isLocked?: boolean;
 }
 
 /** Die Karte zu einer Plan-Änderung: der Vorschlag „Plan ändern?“ oder die übernommene „Plan geändert“. */
@@ -37,6 +39,7 @@ export function PlanChangeCard({
   stationsAfter,
   onApply,
   onOpenChat,
+  isLocked = false,
 }: PlanChangeCardProps): ReactElement {
   const isProposal: boolean = kind === 'proposal';
   const title: string = isProposal ? PLAN_PROPOSAL_TITLE : PLAN_CHANGED_TITLE;
@@ -49,6 +52,7 @@ export function PlanChangeCard({
             type="button"
             className="station-card__button station-card__button--primary"
             title={APPLY_CHANGE_TITLE}
+            disabled={isLocked}
             onClick={(): void => {
               onApply(true);
             }}
@@ -59,6 +63,7 @@ export function PlanChangeCard({
             type="button"
             className="station-card__button"
             title={DISCARD_CHANGE_TITLE}
+            disabled={isLocked}
             onClick={(): void => {
               onApply(false);
             }}

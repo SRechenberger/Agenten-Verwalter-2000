@@ -8,6 +8,7 @@ import type { ProjectSessionTldr } from '@/lib/bindings/ProjectSessionTldr';
 import type { SessionSummary } from '@/lib/bindings/SessionSummary';
 import { commandErrorText } from '@/lib/errors';
 import { modelName } from '@/lib/labels';
+import { useSessionLocked } from '@/features/remote/useProjectAccess';
 import { createSessionTldr } from '@/lib/tldr';
 import './ProjectSessionCard.css';
 
@@ -27,6 +28,7 @@ export function ProjectSessionCard({
 }: ProjectSessionCardProps): ReactElement {
   const [now, setNow] = useState<number>(() => Date.now());
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const isLocked: boolean = useSessionLocked(session.id);
   const isTicking: boolean = session.runningSince !== null;
 
   useEffect(() => {
@@ -70,7 +72,7 @@ export function ProjectSessionCard({
     return (
       <>
         <span className="project-session-card__hint">Noch kein TL;DR.</span>
-        <TldrButton variant="compact" onClick={create}>
+        <TldrButton variant="compact" disabled={isLocked} onClick={create}>
           <TldrIcon name="listPlus" size={12} />
           TL;DR erstellen
         </TldrButton>

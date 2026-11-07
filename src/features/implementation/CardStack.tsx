@@ -17,6 +17,7 @@ import {
 import { PlanChangeCard } from '@/features/implementation/PlanChangeCard';
 import { StationCard } from '@/features/implementation/StationCard';
 import { StationDot } from '@/features/implementation/StationDot';
+import { useProjectLocked } from '@/features/remote/useProjectAccess';
 import type { ChangeView } from '@/lib/bindings/ChangeView';
 import type { ImplementationView } from '@/lib/bindings/ImplementationView';
 import type { PendingChange } from '@/lib/bindings/PendingChange';
@@ -79,6 +80,8 @@ export function CardStack({
   onCompleteByUser,
   onApplyChange,
 }: CardStackProps): ReactElement | null {
+  // Ein anderes Gerät steuert das Vorhaben, oder der Host fehlt: Die Karten zeigen, die Knöpfe ruhen.
+  const isLocked: boolean = useProjectLocked(implementation.projectId);
   const pending: PendingChange | null = implementation.pendingChange;
   const changeId: string | null = changeIdOf(focusedId);
   const focusedChange: ChangeView | undefined =
@@ -121,6 +124,7 @@ export function CardStack({
           stationsBefore={implementation.stationsTotal}
           stationsAfter={stationsAfterProposal(implementation, pending)}
           onApply={onApplyChange}
+          isLocked={isLocked}
         />
       );
     }
@@ -152,6 +156,7 @@ export function CardStack({
         onStart={onStart}
         onCancelCountdown={onCancelCountdown}
         onCompleteByUser={onCompleteByUser}
+        isLocked={isLocked}
       />
     );
   }

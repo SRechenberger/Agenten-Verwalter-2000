@@ -2,6 +2,8 @@ import { open } from '@tauri-apps/plugin-dialog';
 import { useState } from 'react';
 import type { ReactElement } from 'react';
 import { Popover } from '@/components/Popover';
+import { LOCKED_TITLE } from '@/features/remote/projectAccess';
+import { useProjectLocked } from '@/features/remote/useProjectAccess';
 import { describeAddError } from '@/features/repositories/RepositoryPicker';
 import { useKnownRepositories } from '@/features/repositories/useKnownRepositories';
 import type { KnownRepository } from '@/lib/bindings/KnownRepository';
@@ -28,6 +30,7 @@ export function AddRepositoryMenu({
   onAdded,
 }: AddRepositoryMenuProps): ReactElement {
   const { repositories, add } = useKnownRepositories();
+  const isLocked: boolean = useProjectLocked(project.id);
   const [isOpen, setIsOpen] = useState<boolean>(false);
   const [isBusy, setIsBusy] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -149,8 +152,9 @@ export function AddRepositoryMenu({
       <button
         type="button"
         className="add-repository-menu__trigger"
-        title={TRIGGER_TITLE}
+        title={isLocked ? LOCKED_TITLE : TRIGGER_TITLE}
         aria-expanded={isOpen}
+        disabled={isLocked}
         onClick={toggle}
       >
         + Repository

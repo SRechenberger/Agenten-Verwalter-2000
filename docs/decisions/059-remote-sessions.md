@@ -119,6 +119,13 @@ Was der Vertrag offenlässt, ist so festgelegt:
 - **Gezeigte Session (Klasse B).** Die Registry führt je Oberfläche eine gezeigte Session: `None` ist die eigene, sonst die ID des Gastes, die der Server als `viewer` einträgt und damit überschreibt, was der Gast schickt. Eine Session gilt als gesehen, solange irgendeine Oberfläche sie zeigt. `session_set_viewed` geht beim Gast an beide Seiten: lokal mit der eigenen ID oder `None`, an jeden verbundenen Host mit seiner ID oder `None`; ob ein Host antwortet, ändert nichts an der Ansicht am Gast.
 - **Protokoll.** `PROTOCOL` ist 2: Ein Host mit 1 beantwortet keinen Befehl, der Handschlag sagt das jetzt.
 
+## Oberfläche
+
+- **Sperre in der Oberfläche.** Ein Bedienelement, das ins Vorhaben schreibt (Klassen C und D), sperrt sich über `useProjectLocked(projectId)`: am Host, solange ein Gast steuert, am Gast, solange der Host fehlt. Der Core lehnt ohnehin ab; die Sperre spart den Fehler. Die Eingabeleiste wird zur Sperrzeile, der Entwurf bleibt im Store.
+- **Rechte aus den Listen.** `ProjectSummary.access` genügt: `shared` mit Inhaber am Host, `remote` mit `mine` und `online` am Gast. Die Restzeit der Reservierung liest die Oberfläche aus `RemoteDevice.lastSeenAt`, das der Host beim Abriss der Verbindung schreibt; sie zählt gegen die fünf Minuten des Steuerrechts.
+- **Ende der Freigabe.** Das Vorhaben verschwindet aus den Listen des Gastes. Die offene Ansicht zeigt „Freigabe beendet“, solange der Host verbunden ist (sonst ist es der Zwischenspeicher oder eine vergessene Kopplung). Hält der Gast ein Vorhaben nicht mehr, das noch in der Liste steht (Neustart des Hosts, gesperrtes Gerät), zeigt sie das Angebot statt einer fremden Session.
+- **Nach `remote://changed`** ersetzen die Listen der Vorhaben, Sessions und Umsetzungen die hiesigen, und der Verlauf einer entfernten Session lädt die neueste Seite neu (bei einem Fehler bleibt der Stand stehen). Ereignisse aus der Lücke fehlen sonst.
+
 ## Konsequenzen
 
 - „Lokal: kein Server“ gilt nicht mehr uneingeschränkt: Der Host kann auf ausdrücklichen Wunsch im lokalen Netz lauschen.

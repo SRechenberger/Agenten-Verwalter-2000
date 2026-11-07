@@ -3,6 +3,7 @@ import type { ChangeEvent, ReactElement } from 'react';
 import { useProjectTldr } from '@/features/tldr/useProjectTldr';
 import { useSessionTldr } from '@/features/tldr/useSessionTldr';
 import { commandErrorText } from '@/lib/errors';
+import { useProjectLocked } from '@/features/remote/useProjectAccess';
 import { setCarryProjectTldr } from '@/lib/tldr';
 import './NewSessionIntro.css';
 
@@ -23,6 +24,7 @@ export function NewSessionIntro({
   // `tldr_set_carry` sendet kein Ereignis: nach dem Umschalten gilt der eigene Wert, nicht die geladene Sicht.
   const [chosen, setChosen] = useState<boolean | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const isLocked: boolean = useProjectLocked(projectId);
   const { view: sessionView } = useSessionTldr(sessionId);
   const { view: projectView } = useProjectTldr(projectId);
   const previous: number = number - 1;
@@ -51,6 +53,7 @@ export function NewSessionIntro({
             type="checkbox"
             className="new-session-intro__check"
             checked={carries}
+            disabled={isLocked}
             onChange={handleChange}
           />
           <span className="new-session-intro__carry-title">

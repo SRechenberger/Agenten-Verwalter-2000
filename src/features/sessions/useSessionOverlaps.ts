@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import type { UnlistenFn } from '@tauri-apps/api/event';
+import { onRemoteChanged } from '@/lib/remote';
 import { loadSessionOverlaps, onSessionChanged } from '@/lib/sessions';
 import { useOverlapStore } from '@/stores/overlaps';
 
@@ -13,7 +14,7 @@ export function useSessionOverlaps(): void {
 
   useEffect(() => {
     const controller = new AbortController();
-    let unlisten: UnlistenFn | null = null;
+    const unlisteners: UnlistenFn[] = [];
     let debounceTimer: number | null = null;
 
     function refresh(): void {
@@ -36,16 +37,24 @@ export function useSessionOverlaps(): void {
       debounceTimer = window.setTimeout(refresh, DEBOUNCE_MS);
     }
 
+    function keep(stop: UnlistenFn): void {
+      if (controller.signal.aborted) {
+        stop();
+        return;
+      }
+      unlisteners.push(stop);
+    }
+
     onSessionChanged(refreshSoon)
-      .then((stop: UnlistenFn) => {
-        if (controller.signal.aborted) {
-          stop();
-          return;
-        }
-        unlisten = stop;
-      })
+      .then(keep)
       .catch((reason: unknown) => {
         console.error('Session-Ereignisse nicht abonnierbar', reason);
+      });
+    // Nach einer Übernahme oder dem Ende einer Freigabe ändern sich die Überschneidungen ohne Session-Ereignis.
+    onRemoteChanged(refreshSoon)
+      .then(keep)
+      .catch((reason: unknown) => {
+        console.error('Ereignisse der Fernsteuerung nicht abonnierbar', reason);
       });
 
     refresh();
@@ -57,8 +66,8 @@ export function useSessionOverlaps(): void {
       if (debounceTimer !== null) {
         window.clearTimeout(debounceTimer);
       }
-      if (unlisten !== null) {
-        unlisten();
+      for (const stop of unlisteners) {
+        stop();
       }
     };
   }, [setOverlaps]);

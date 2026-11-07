@@ -26,6 +26,7 @@ import type { Notice } from '@/lib/bindings/Notice';
 import type { PauseReason } from '@/lib/bindings/PauseReason';
 import { commandErrorText } from '@/lib/errors';
 import { reportedModelName } from '@/lib/labels';
+import { useSessionLocked } from '@/features/remote/useProjectAccess';
 import { setSessionModel } from '@/lib/sessions';
 import { useSessionErrorsStore } from '@/stores/sessionErrors';
 import { useSettingsStore } from '@/stores/settings';
@@ -64,6 +65,7 @@ export function NoticeBlock({
   onJumpToEntry,
   countUnsourced,
 }: NoticeBlockProps): ReactElement {
+  const isLocked: boolean = useSessionLocked(sessionId);
   const reportSessionError = useSessionErrorsStore((state) => state.report);
   const marksUnsourced: boolean = useSettingsStore(
     (state) => state.settings?.markUnsourced ?? true,
@@ -106,6 +108,7 @@ export function NoticeBlock({
             returnModel !== null
               ? {
                   label: modelFallbackActionLabel(originalName),
+                  isDisabled: isLocked,
                   onClick: (): void => {
                     setSessionModel(sessionId, returnModel).catch((reason: unknown) => {
                       console.error('Modell nicht gewechselt', reason);

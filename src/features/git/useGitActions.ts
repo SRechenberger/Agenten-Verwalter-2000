@@ -1,5 +1,6 @@
 import { useCallback, useState } from 'react';
 import { COMMIT_CREATED_PREFIX } from '@/features/git/gitTexts';
+import { useSessionLocked } from '@/features/remote/useProjectAccess';
 import { commandErrorText } from '@/lib/errors';
 import { useSessionErrorsStore } from '@/stores/sessionErrors';
 
@@ -8,16 +9,23 @@ export interface GitActions {
    *  `onChanged` den Zustand neu — auch nach einem Fehler, denn ein halb gelungener Befehl (Commit da, Push
    *  gescheitert) hat den Zustand schon geändert. Liefert, ob die Aktion gelang. */
   run: (action: () => Promise<void>, failurePrefix: string) => Promise<boolean>;
+  /** Läuft eine Aktion, oder ist das Vorhaben gesperrt (ein Gast steuert, der Host fehlt)? Beides sperrt die Knöpfe. */
   isRunning: boolean;
+  /** Das Vorhaben ist gesperrt; `run` führt dann nichts aus. */
+  isLocked: boolean;
 }
 
 export function useGitActions(sessionId: string, onChanged: () => void): GitActions {
   const [isRunning, setIsRunning] = useState<boolean>(false);
+  const isLocked: boolean = useSessionLocked(sessionId);
   const reportError = useSessionErrorsStore((state) => state.report);
   const clearError = useSessionErrorsStore((state) => state.clear);
 
   const run = useCallback(
     async (action: () => Promise<void>, failurePrefix: string): Promise<boolean> => {
+      if (isLocked) {
+        return false;
+      }
       setIsRunning(true);
       try {
         await action();
@@ -38,8 +46,8 @@ export function useGitActions(sessionId: string, onChanged: () => void): GitActi
         onChanged();
       }
     },
-    [sessionId, onChanged, reportError, clearError],
+    [sessionId, isLocked, onChanged, reportError, clearError],
   );
 
-  return { run, isRunning };
+  return { run, isRunning: isRunning || isLocked, isLocked };
 }

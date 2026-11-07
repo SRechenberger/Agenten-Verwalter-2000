@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { UnlistenFn } from '@tauri-apps/api/event';
+import { useRemoteChanged } from '@/features/remote/useRemoteChanged';
 import type { ProjectSummary } from '@/lib/bindings/ProjectSummary';
 import { commandErrorText } from '@/lib/errors';
 import { listProjects, onProjectChanged } from '@/lib/projects';
@@ -22,8 +23,11 @@ export function useProjectSummaries(): ProjectSummaries {
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [subscribeError, setSubscribeError] = useState<string | null>(null);
+  // Vorhaben, die seit dem Start der laufenden Abfrage ein Ereignis brachten: Das Ereignis ist neuer.
+  const touchedRef = useRef<Set<string>>(new Set<string>());
 
   const upsertProject = useCallback((summary: ProjectSummary): void => {
+    touchedRef.current.add(summary.id);
     setProjects((current: ProjectSummary[]) => {
       const others: ProjectSummary[] = current.filter(
         (candidate: ProjectSummary) => candidate.id !== summary.id,
@@ -37,6 +41,29 @@ export function useProjectSummaries(): ProjectSummaries {
       current.filter((candidate: ProjectSummary) => candidate.id !== projectId),
     );
   }, []);
+
+  // Nach dem Neuverbinden, einer Übernahme oder dem Ende einer Freigabe fehlen Ereignisse: Die Liste des
+  // Core ersetzt die hiesige, denn ein Vorhaben, das der Host nicht mehr freigibt, steht nicht mehr darin.
+  useRemoteChanged(() => {
+    touchedRef.current = new Set<string>();
+    const touched: Set<string> = touchedRef.current;
+    listProjects()
+      .then((listed: ProjectSummary[]) => {
+        setProjects((current: ProjectSummary[]) =>
+          listed
+            .map(
+              (candidate: ProjectSummary) =>
+                (touched.has(candidate.id)
+                  ? current.find((known: ProjectSummary) => known.id === candidate.id)
+                  : undefined) ?? candidate,
+            )
+            .sort(newestFirst),
+        );
+      })
+      .catch((reason: unknown) => {
+        console.error('Vorhaben nicht neu geladen', reason);
+      });
+  });
 
   useEffect(() => {
     const controller = new AbortController();

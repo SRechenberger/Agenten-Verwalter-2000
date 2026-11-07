@@ -37,7 +37,7 @@
 
 ## Umsetzung
 
-Stand: Die Einstellungen stehen (Abschnitt „Fernsteuerung“ in der Kategorie „App“, Host und Gast). Leiste, Übersicht, Eingabeleiste, Kontingent und Terminal folgen in den nächsten Phasen.
+Stand: Die Einstellungen stehen (Abschnitt „Fernsteuerung“ in der Kategorie „App“, Host und Gast), ebenso Leiste, Übersicht, Chat und Köpfe mit Freigeben, Übernehmen, Zurückgeben, Freigabe beenden und den Offline-Zuständen. Kontingent, Betriebsart des Hosts, Inhalte (Artefakte, Bilder, Anhänge) und Terminal folgen in den nächsten Phasen.
 
 Bilder der laufenden App, zwei Instanzen mit getrennten Datenordnern auf einem Rechner, wirklich gekoppelt. Sie liegen in [`umsetzung/`](umsetzung/):
 
@@ -55,7 +55,30 @@ Bilder der laufenden App, zwei Instanzen mit getrennten Datenordnern auf einem R
 | Gast · Gerät am Host gesperrt | `gast-gesperrt.png` |
 | Gast · Zertifikat passt nicht (hell) | `gast-zertifikat-hell.png` |
 
-Nicht gesehen: die Meldung zum anderen Stand des Protokolls (sie lässt sich nur über die Probe erzeugen), die Warnung beim Schließen der App, „steuert „<Vorhaben>““ in der Geräteliste.
+Leiste, Übersicht und Chat, zwei Instanzen auf einem Rechner, wirklich gekoppelt, `claude` als Attrappe; dunkel und hell:
+
+| Entwurf (Rolle · Zustand) | Bild |
+|---|---|
+| Host · Übersicht · Nicht freigegeben (Block „Fernsteuerung“ nur bei eingeschaltetem Server) | `host-nicht-freigegeben.png` |
+| Host · Übersicht · Freigegeben, noch kein Gast (Marke und „Für Gäste freigegeben“ in der Leiste) | `host-freigegeben-frei.png` |
+| Host · Übersicht · Gast steuert (hell) | `host-gast-steuert-uebersicht-hell.png` |
+| Host · Chat · Gast steuert, Sperrzeile (hell) | `host-gast-steuert-chat-hell.png` |
+| Host · Dialog „Freigabe beenden“ mit Haken | `host-dialog-freigabe-beenden.png` |
+| Host · Chat · Gast getrennt, Band und Restzeit (hell) | `host-gast-getrennt-chat-hell.png` |
+| Host · Übersicht · Gast getrennt, „reserviert noch“ (hell) | `host-gast-getrennt-uebersicht-hell.png` |
+| Host · Umsetzung · Gast steuert, Knöpfe gesperrt (hell) | `host-umsetzung-gesperrt-hell.png` |
+| Gast · Leiste und Hauptfläche · Nur angeboten | `gast-angeboten.png` |
+| Gast · Kontextmenü eines freien Vorhabens | `gast-menue-frei.png` |
+| Gast · Übersicht · Übernommen (Chip mit dem Host, „Zurückgeben“) | `gast-uebernommen-uebersicht.png` |
+| Gast · Chat · Übernommen | `gast-chat-uebernommen.png` |
+| Gast · Chat · Host weg, Entwurf erhalten | `gast-host-weg-entwurf.png`, hell `gast-host-weg-hell.png` |
+| Gast · Freigabe beendet | `gast-freigabe-beendet.png` |
+| Gast · Nach „Zurückgeben“: wieder angeboten | `gast-zurueckgegeben.png` |
+| Gast · Vorhaben eines Hosts per Ziehen in eine eigene Gruppe | `gast-gruppe-gezogen.png` |
+| Gast · Umsetzung, Rückfrage (hell) | `gast-umsetzung-hell.png`, `gast-rueckfrage-hell.png` |
+| Gast · Host neu gestartet: Übernahme verfallen, Angebot statt fremder Session (hell) | `gast-angebot-nach-neustart-hell.png` |
+
+Nicht gesehen: eine offene Rückfrage mit der Zeile „Antworten kann gerade nur …“ (die Attrappe stellt keine), das Terminal am Gast und am Host (Phase 5), Windows, ein zweiter Host, das Neuladen des Verlaufs nach einem Abriss (nur im Quelltext gelesen), die Meldung zum anderen Stand des Protokolls (sie lässt sich nur über die Probe erzeugen), die Warnung beim Schließen der App, „steuert „<Vorhaben>““ in der Geräteliste.
 
 ## Abweichungen vom Entwurf
 
@@ -65,3 +88,8 @@ Nicht gesehen: die Meldung zum anderen Stand des Protokolls (sie lässt sich nur
 - **Dialog „Einladung“:** Er nennt „10 Minuten und einmal“ wörtlich und lässt sich nach der Kopplung nicht von selbst schließen.
 - **Suche:** Zeilen, die der Stand der Fernsteuerung ausblendet (Port, Status, Geräte ohne laufenden Server; Hosts ohne Kopplung), findet die Suche nicht.
 - **Hosts:** Die Liste ist nach Name und Adresse sortiert; „Getrennt“ erscheint für einen Host, den „Trennen“ beendet hat, ohne Fehler.
+- **Meta-Zeile am Host:** Sie zeigt den Zustand der Freigabe statt „Läuft · …“ („Für Gäste freigegeben“, „Gesteuert von <Gerät>“, „<Gerät> getrennt · 4:12“). Die Restzeit steht ohne „frei in“, weil die Zeile sonst abgeschnitten wird; der volle Satz steht im Hinweis.
+- **Meta-Zeile am Gast:** Der Host steht vor den Sessions („<Host> · 2 Sessions · #2 pausiert“), denn die Zeile ist schmaler als im Entwurf und schneidet das Ende ab.
+- **Restzeit der Reservierung:** Der Host kennt den Zeitpunkt des Abrisses nicht als Teil des Vertrags; die Oberfläche liest ihn aus `RemoteDevice.lastSeenAt`, das der Core beim Abriss schreibt. „seit 14:02“ im Block „Fernsteuerung“ fehlt aus demselben Grund.
+- **Terminal-Knopf:** Er bleibt am Gast auch bei fehlendem Host stehen; das Terminal am Gast kommt mit Phase 5.
+- **Herkunft („von <Gerät>“):** Der Verlauf trägt sie noch nicht; `ChatEntry` hat das Feld im Core noch nicht.

@@ -26,6 +26,7 @@ import { useItemOutput } from '@/features/background/useItemOutput';
 import { VirtualPanelList } from '@/features/background/VirtualPanelList';
 import type { BackgroundItem } from '@/lib/bindings/BackgroundItem';
 import type { TextPreview } from '@/lib/bindings/TextPreview';
+import { useSessionLocked } from '@/features/remote/useProjectAccess';
 import { stopBackgroundItem } from '@/lib/background';
 import { useBackgroundStore } from '@/stores/background';
 
@@ -50,6 +51,7 @@ interface ProcessesTabProps {
 }
 
 export function ProcessesTab({ sessionId, items, now }: ProcessesTabProps): ReactElement {
+  const isLocked: boolean = useSessionLocked(sessionId);
   const listRef = useRef<HTMLDivElement>(null);
   const groups: ProcessGroups = splitProcesses(items);
   const selectedId: string | null = useBackgroundStore(
@@ -102,7 +104,7 @@ export function ProcessesTab({ sessionId, items, now }: ProcessesTabProps): Reac
         label: 'Beenden',
         hint: 'Hält den Prozess an. Der Agent erfährt davon.',
         isDanger: true,
-        isDisabled: false,
+        isDisabled: isLocked,
         onClick: (): void => {
           run(() => stopBackgroundItem(sessionId, item.id));
         },

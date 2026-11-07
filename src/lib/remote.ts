@@ -1,6 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import type { UnlistenFn } from '@tauri-apps/api/event';
+import type { ProjectSummary } from '@/lib/bindings/ProjectSummary';
 import type { RemoteDevice } from '@/lib/bindings/RemoteDevice';
 import type { RemoteHostStatus } from '@/lib/bindings/RemoteHostStatus';
 import type { RemoteInvitation } from '@/lib/bindings/RemoteInvitation';
@@ -66,4 +67,28 @@ export function onRemoteChanged(callback: () => void): Promise<UnlistenFn> {
   return listen(REMOTE_CHANGED_EVENT, () => {
     callback();
   });
+}
+
+/** Gibt ein eigenes Vorhaben für Gäste frei oder beendet die Freigabe; mit `stopAgents` hält
+ *  das Beenden die laufenden Sessions an. Am Host.
+ *  @throws {import('@/lib/bindings/CommandError').CommandError} `internal` (unbekanntes Vorhaben) */
+export function setProjectShared(
+  projectId: string,
+  shared: boolean,
+  stopAgents: boolean,
+): Promise<ProjectSummary> {
+  return invoke<ProjectSummary>('remote_share_set', { projectId, shared, stopAgents });
+}
+
+/** Übernimmt ein freigegebenes Vorhaben eines Hosts. Am Gast.
+ *  @throws {import('@/lib/bindings/CommandError').CommandError} `controlledBy` (ein anderes Gerät
+ *    hält es), `hostUnreachable`, `internal` (nicht mehr freigegeben) */
+export function takeRemoteProject(projectId: string): Promise<ProjectSummary> {
+  return invoke<ProjectSummary>('remote_take', { projectId });
+}
+
+/** Gibt das Vorhaben an den Host zurück; die Freigabe bleibt. Am Gast.
+ *  @throws {import('@/lib/bindings/CommandError').CommandError} `hostUnreachable`, `internal` */
+export function giveBackRemoteProject(projectId: string): Promise<ProjectSummary> {
+  return invoke<ProjectSummary>('remote_give_back', { projectId });
 }

@@ -24,6 +24,7 @@ import type { SessionMcp } from '@/lib/bindings/SessionMcp';
 import type { SessionStatus } from '@/lib/bindings/SessionStatus';
 import type { SessionSummary } from '@/lib/bindings/SessionSummary';
 import { commandErrorText } from '@/lib/errors';
+import { useSessionIsRemote } from '@/features/remote/useProjectAccess';
 import { authenticateMcpServer, reconnectMcpServer, toggleMcpServer } from '@/lib/mcp';
 import './McpDialog.css';
 
@@ -41,6 +42,7 @@ export function McpDialog({ session, onClose }: McpDialogProps): ReactElement {
   // Ein abgelehnter Command (die Aktion kam gar nicht beim Agenten an); Fehler der Aktion selbst stehen in `mcp.error`.
   const [actionFailure, setActionFailure] = useState<string | null>(null);
   const mcp: SessionMcp | null = useSessionMcp(session.id, true);
+  const isRemote: boolean = useSessionIsRemote(session.id);
   const servers: McpServer[] | null = mcp?.servers ?? null;
 
   function reconnect(name: string): void {
@@ -177,6 +179,7 @@ export function McpDialog({ session, onClose }: McpDialogProps): ReactElement {
               onAuthenticate={() => {
                 authenticate(server.name);
               }}
+              canLogin={!isRemote}
               onSetEnabled={(enabled: boolean) => {
                 setEnabled(server.name, enabled);
               }}

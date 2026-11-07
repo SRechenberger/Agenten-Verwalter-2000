@@ -26,6 +26,15 @@
     color: var(--color-status-error);
   }
 
+  &__check {
+    display: flex;
+    align-items: center;
+    gap: var(--space-md);
+    color: var(--color-fg-secondary);
+    font-size: var(--font-size-md);
+    cursor: pointer;
+  }
+
   &__box {
     margin: 0;
     padding: var(--space-md) var(--space-lg);

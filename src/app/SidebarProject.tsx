@@ -5,6 +5,9 @@ import { StatusIcon } from '@/components/StatusIcon';
 import { RenameField } from '@/app/SidebarItem';
 import { useNow } from '@/features/background/useNow';
 import { hasUnread, mostUrgent, projectMetaLine } from '@/features/projects/projectStatus';
+import { isOffered, remoteMeta, type RemoteMeta } from '@/features/remote/projectAccess';
+import { RemoteMark } from '@/features/remote/RemoteMark';
+import { useProjectLock, useReservedLeft } from '@/features/remote/useProjectAccess';
 import {
   displayStatus,
   isMetaHighlighted,
@@ -34,6 +37,10 @@ interface SidebarProjectProps {
   onCommitRename: (kind: RenameKind, id: string, name: string) => void;
   onCancelRename: () => void;
   onArchive: () => void;
+  /** Übernimmt ein freies Vorhaben eines Hosts (Menü); die Zeile selbst hat dafür keinen Knopf. */
+  onTake: () => void;
+  /** Gibt ein übernommenes Vorhaben an seinen Host zurück. */
+  onGiveBack: () => void;
   /** `null`: aus der Gruppe nehmen. */
   onSetGroup: (groupId: string | null) => void;
   /** Legt eine Gruppe an, weist das Vorhaben zu und öffnet die Umbenennung ihres Kopfs. */
@@ -55,6 +62,8 @@ export function SidebarProject({
   onCommitRename,
   onCancelRename,
   onArchive,
+  onTake,
+  onGiveBack,
   onSetGroup,
   onNewGroup,
   onRowPointerDown,
@@ -66,6 +75,12 @@ export function SidebarProject({
   const urgentStatus: DisplayStatus =
     urgent === null ? 'completed' : displayStatus(urgent, sessions);
   const now: number = useNow(urgentStatus === 'script');
+  const lock = useProjectLock(project.id);
+  const reservedLeft: number | null = useReservedLeft(lock);
+  const { access } = project;
+  const isRemote: boolean = access.kind === 'remote';
+  const isFree: boolean = isOffered(access);
+  const isHeld: boolean = access.kind === 'remote' && access.mine;
 
   function renderGroupItem(groupId: string | null, label: string): ReactElement {
     const isCurrent: boolean = project.groupId === groupId;
@@ -93,6 +108,18 @@ export function SidebarProject({
     );
   }
 
+  /** Der Hinweis an der Marke ⇄: warum dieses Vorhaben sie trägt. */
+  function markTitleOf(): string | null {
+    switch (access.kind) {
+      case 'own':
+        return null;
+      case 'shared':
+        return access.holder === null ? 'Für Gäste freigegeben' : 'Ein Gast steuert';
+      case 'remote':
+        return `Läuft auf ${access.hostName}`;
+    }
+  }
+
   function renderRow(): ReactElement {
     if (isRenamingProject) {
       return (
@@ -106,20 +133,33 @@ export function SidebarProject({
         />
       );
     }
-    const meta: string | null = projectMetaLine(sessions, now);
-    const isDone: boolean = urgentStatus === 'completed' || urgentStatus === 'cancelled';
+    const remote: RemoteMeta = remoteMeta(
+      access,
+      projectMetaLine(sessions, now),
+      lock,
+      reservedLeft,
+    );
+    const meta: string | null = remote.text;
+    const markTitle: string | null = markTitleOf();
+    const isDone: boolean =
+      !isFree && (urgentStatus === 'completed' || urgentStatus === 'cancelled');
     const isUnread: boolean = hasUnread(sessions);
-    const metaClass = `sidebar-project__meta${
-      urgent !== null && isMetaHighlighted(urgent.status)
-        ? ` sidebar-project__meta--${urgent.status}`
-        : ''
-    }`;
+    const toneClass: string =
+      remote.tone !== null
+        ? ` sidebar-project__meta--${remote.tone}`
+        : urgent !== null && isMetaHighlighted(urgent.status)
+          ? ` sidebar-project__meta--${urgent.status}`
+          : '';
+    const metaClass = `sidebar-project__meta${toneClass}`;
+    // Ein freies Vorhaben eines Hosts hat noch keine Sessions: Es zeigt das Symbol „neu“.
+    const statusIcon: DisplayStatus = isFree ? 'new' : urgentStatus;
     return (
       <div className="sidebar-project__row">
         <button
           type="button"
-          className="sidebar-project__chevron"
+          className={`sidebar-project__chevron${isFree ? ' sidebar-project__chevron--hidden' : ''}`}
           aria-expanded={isExpanded}
+          tabIndex={isFree ? -1 : undefined}
           aria-label={`Sessions von ${project.name} ${isExpanded ? 'einklappen' : 'aufklappen'}`}
           onClick={onToggle}
         >
@@ -147,7 +187,9 @@ export function SidebarProject({
           onPointerDown={onRowPointerDown}
           onClick={onOpen}
           onDoubleClick={(): void => {
-            onStartRename('project', project.id);
+            if (!isFree) {
+              onStartRename('project', project.id);
+            }
           }}
           onContextMenu={(event: MouseEvent<HTMLButtonElement>): void => {
             event.preventDefault();
@@ -155,17 +197,28 @@ export function SidebarProject({
           }}
         >
           <span className="sidebar-project__status">
-            <StatusIcon status={urgentStatus} size={12} />
+            <StatusIcon status={statusIcon} size={12} />
           </span>
           <span className="sidebar-project__text">
-            <span
-              className={`sidebar-project__name${isDone ? ' sidebar-project__name--done' : ''}${
-                isUnread ? ' sidebar-project__name--unread' : ''
-              }`}
-            >
-              {project.name}
+            <span className="sidebar-project__heading">
+              <span
+                className={`sidebar-project__name${isDone ? ' sidebar-project__name--done' : ''}${
+                  isUnread ? ' sidebar-project__name--unread' : ''
+                }`}
+              >
+                {project.name}
+              </span>
+              {markTitle !== null && (
+                <span className="sidebar-project__mark" title={markTitle}>
+                  <RemoteMark />
+                </span>
+              )}
             </span>
-            {meta !== null && <span className={metaClass}>{meta}</span>}
+            {meta !== null && (
+              <span className={metaClass} title={remote.title}>
+                {meta}
+              </span>
+            )}
           </span>
           {isUnread && (
             <span
@@ -202,30 +255,66 @@ export function SidebarProject({
               Neue Gruppe …
             </button>
             <div className="sidebar-project__menu-separator" role="separator" />
-            <button
-              type="button"
-              role="menuitem"
-              className="sidebar-project__menu-item"
-              onClick={(): void => {
-                setIsMenuOpen(false);
-                onStartRename('project', project.id);
-              }}
-            >
-              <span>Umbenennen</span>
-              <kbd className="sidebar-project__menu-key">F2</kbd>
-            </button>
-            <button
-              type="button"
-              role="menuitem"
-              className="sidebar-project__menu-item"
-              title={ARCHIVE_TITLE}
-              onClick={(): void => {
-                setIsMenuOpen(false);
-                onArchive();
-              }}
-            >
-              Archivieren
-            </button>
+            {isFree && access.kind === 'remote' && (
+              <button
+                type="button"
+                role="menuitem"
+                className="sidebar-project__menu-item"
+                disabled={!access.online}
+                onClick={(): void => {
+                  setIsMenuOpen(false);
+                  onTake();
+                }}
+              >
+                Übernehmen
+              </button>
+            )}
+            {isHeld && access.kind === 'remote' && access.online && (
+              <button
+                type="button"
+                role="menuitem"
+                className="sidebar-project__menu-item"
+                onClick={(): void => {
+                  setIsMenuOpen(false);
+                  onGiveBack();
+                }}
+              >
+                Zurückgeben
+              </button>
+            )}
+            {!isFree && (
+              <button
+                type="button"
+                role="menuitem"
+                className="sidebar-project__menu-item"
+                onClick={(): void => {
+                  setIsMenuOpen(false);
+                  onStartRename('project', project.id);
+                }}
+              >
+                <span>Umbenennen</span>
+                <kbd className="sidebar-project__menu-key">F2</kbd>
+              </button>
+            )}
+            {!isRemote && (
+              <button
+                type="button"
+                role="menuitem"
+                className="sidebar-project__menu-item"
+                title={ARCHIVE_TITLE}
+                onClick={(): void => {
+                  setIsMenuOpen(false);
+                  onArchive();
+                }}
+              >
+                Archivieren
+              </button>
+            )}
+            {access.kind === 'remote' && (
+              <div className="sidebar-project__menu-label">
+                Läuft auf {access.hostName}. Die Gruppe gilt nur hier.
+              </div>
+            )}
           </Popover>
         )}
       </div>

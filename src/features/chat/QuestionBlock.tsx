@@ -27,6 +27,8 @@ interface QuestionBlockProps {
   entry: QuestionEntry;
   draft: QuestionDraft;
   isSending: boolean;
+  /** Warum die Frage gerade niemand beantworten kann (ein Gast steuert, der Host fehlt); `null` sonst. */
+  lockNote: string | null;
   onPick: (questionIndex: number, optionIndex: number) => void;
   onSubmit: (answer: QuestionAnswer) => void;
   /** Alles außer Wahl und Senden: aufgeklappte Frage, Notizen, eigene Antworten. */
@@ -37,6 +39,7 @@ export function QuestionBlock({
   entry,
   draft,
   isSending,
+  lockNote,
   onPick,
   onSubmit,
   onDraft,
@@ -92,8 +95,16 @@ export function QuestionBlock({
             ? `Antwort: ${entry.answer ?? ''}`
             : 'Oder schreib unten eine eigene Antwort.'}
         </div>
+        {renderLockNote()}
       </div>
     );
+  }
+
+  function renderLockNote(): ReactElement | null {
+    if (lockNote === null || isAnsweredEntry) {
+      return null;
+    }
+    return <small className="question-block__lock">{lockNote}</small>;
   }
 
   function renderHead(showsCount: boolean): ReactElement {
@@ -240,6 +251,7 @@ export function QuestionBlock({
       {renderHead(questionCount > 1)}
       <div className="question-block__body">{entry.questions.map(renderQuestion)}</div>
       {renderFooter()}
+      {renderLockNote()}
     </div>
   );
 }

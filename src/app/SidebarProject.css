@@ -29,6 +29,10 @@
     }
   }
 
+  &__chevron--hidden {
+    visibility: hidden;
+  }
+
   &__chevron-icon {
     transition: transform var(--duration-base) var(--ease-out);
 
@@ -83,6 +87,19 @@
     min-width: 0;
   }
 
+  &__heading {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    min-width: 0;
+  }
+
+  &__mark {
+    display: inline-flex;
+    flex-shrink: 0;
+    color: var(--color-accent);
+  }
+
   &__name,
   &__meta {
     overflow: hidden;
@@ -125,6 +142,10 @@
     &--error {
       color: var(--color-status-error);
     }
+
+    &--accent {
+      color: var(--color-accent);
+    }
   }
 
   &__menu-item {
@@ -141,8 +162,13 @@
     text-align: left;
     cursor: pointer;
 
-    &:hover {
+    &:hover:not(:disabled) {
       background: var(--color-bg-hover);
+    }
+
+    &:disabled {
+      color: var(--color-fg-muted);
+      cursor: default;
     }
 
     & > span:first-child {

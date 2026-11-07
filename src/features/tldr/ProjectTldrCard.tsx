@@ -9,6 +9,7 @@ import { projectStampText } from '@/features/tldr/tldrTexts';
 import type { ProjectTldr } from '@/lib/bindings/ProjectTldr';
 import type { ProjectTldrView } from '@/lib/bindings/ProjectTldrView';
 import { commandErrorText } from '@/lib/errors';
+import { useProjectLocked } from '@/features/remote/useProjectAccess';
 import { createProjectTldr } from '@/lib/tldr';
 import './ProjectTldrCard.css';
 
@@ -41,6 +42,7 @@ export function ProjectTldrCard({
   sessionsWithHistory,
 }: ProjectTldrCardProps): ReactElement | null {
   const [actionError, setActionError] = useState<string | null>(null);
+  const isLocked: boolean = useProjectLocked(projectId);
 
   function create(): void {
     setActionError(null);
@@ -106,6 +108,7 @@ export function ProjectTldrCard({
               variant="icon"
               ariaLabel="TL;DR neu erstellen"
               title={REFRESH_TITLE}
+              disabled={isLocked}
               onClick={create}
             >
               <TldrIcon name="refresh" size={13} />
@@ -126,7 +129,11 @@ export function ProjectTldrCard({
     }
     if (!current.isRunning) {
       return (
-        <TldrEmptyBar text={EMPTY_TEXT} disabled={sessionsWithHistory === 0} onCreate={create} />
+        <TldrEmptyBar
+          text={EMPTY_TEXT}
+          disabled={sessionsWithHistory === 0 || isLocked}
+          onCreate={create}
+        />
       );
     }
     return (

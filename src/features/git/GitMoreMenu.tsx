@@ -50,7 +50,7 @@ export function GitMoreMenu({
 }: GitMoreMenuProps): ReactElement {
   const [view, setView] = useState<MenuView>('main');
   const [stashes, setStashes] = useState<string[] | null>(null);
-  const { run } = useGitActions(sessionId, onChanged);
+  const { run, isLocked: isProjectLocked } = useGitActions(sessionId, onChanged);
   const { key } = entry;
 
   useEffect(() => {
@@ -89,7 +89,7 @@ export function GitMoreMenu({
       <button
         type="button"
         className="git-menu__item"
-        disabled={isLocked || isDisabled}
+        disabled={isLocked || isDisabled || isProjectLocked}
         title={isLocked ? LOCKED_TITLE : undefined}
         onClick={onClick}
       >

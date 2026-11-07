@@ -3,6 +3,7 @@ import type { ReactElement } from 'react';
 import { Switch } from '@/components/Switch';
 import { QUOTA_RESUME_LABEL, QUOTA_RESUME_TITLE } from '@/features/notices/noticeTexts';
 import { commandErrorText } from '@/lib/errors';
+import { useSessionLocked } from '@/features/remote/useProjectAccess';
 import { setSessionAutoResume } from '@/lib/sessions';
 import { useSessionErrorsStore } from '@/stores/sessionErrors';
 import './QuotaResumeSwitch.css';
@@ -16,6 +17,7 @@ interface QuotaResumeSwitchProps {
 /** Schalter „Automatisch fortsetzen“ auf der jüngsten Kontingent-Karte (ADR 051). */
 export function QuotaResumeSwitch({ sessionId, enabled }: QuotaResumeSwitchProps): ReactElement {
   const [isSending, setIsSending] = useState<boolean>(false);
+  const isLocked: boolean = useSessionLocked(sessionId);
   const reportSessionError = useSessionErrorsStore((state) => state.report);
   const clearSessionError = useSessionErrorsStore((state) => state.clear);
 
@@ -44,7 +46,7 @@ export function QuotaResumeSwitch({ sessionId, enabled }: QuotaResumeSwitchProps
         checked={enabled}
         label={QUOTA_RESUME_LABEL}
         title={QUOTA_RESUME_TITLE}
-        disabled={isSending}
+        disabled={isSending || isLocked}
         onChange={handleChange}
       />
     </div>

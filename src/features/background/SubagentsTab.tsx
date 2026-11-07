@@ -20,6 +20,7 @@ import { useActionError } from '@/lib/useActionError';
 import { VirtualPanelList } from '@/features/background/VirtualPanelList';
 import type { BackgroundItem } from '@/lib/bindings/BackgroundItem';
 import type { SubagentStep } from '@/lib/bindings/SubagentStep';
+import { useSessionLocked } from '@/features/remote/useProjectAccess';
 import { stopBackgroundItem } from '@/lib/background';
 import { useBackgroundStore } from '@/stores/background';
 
@@ -33,6 +34,7 @@ interface SubagentsTabProps {
 }
 
 export function SubagentsTab({ sessionId, items, now }: SubagentsTabProps): ReactElement {
+  const isLocked: boolean = useSessionLocked(sessionId);
   const listRef = useRef<HTMLDivElement>(null);
   const subagents: BackgroundItem[] = selectSubagents(items);
   const selectedId: string | null = useBackgroundStore(
@@ -49,7 +51,7 @@ export function SubagentsTab({ sessionId, items, now }: SubagentsTabProps): Reac
           label: 'Anhalten',
           hint: 'Hält den Subagenten an. Der Agent erfährt davon.',
           isDanger: true,
-          isDisabled: false,
+          isDisabled: isLocked,
           onClick: (): void => {
             run(() => stopBackgroundItem(sessionId, item.id));
           },

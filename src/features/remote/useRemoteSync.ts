@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 import type { UnlistenFn } from '@tauri-apps/api/event';
 import { commandErrorText } from '@/lib/errors';
 import {
@@ -10,9 +10,10 @@ import {
 import { useRemoteStore } from '@/stores/remote';
 
 /** Hält den Store der Fernsteuerung aktuell: lädt beim Einhängen und nach jedem
- *  `remote://changed`. Gibt den Satz zum Lade- oder Abo-Fehler zurück, sonst `null`. */
-export function useRemoteSync(): string | null {
-  const [error, setError] = useState<string | null>(null);
+ *  `remote://changed`. Den Satz zum Lade- oder Abo-Fehler legt er in den Store (`syncError`).
+ *  Einmal in der App: Einstellungen, Leiste und Köpfe lesen den Store. */
+export function useRemoteSync(): void {
+  const setError = useRemoteStore((state) => state.setSyncError);
   const setServer = useRemoteStore((state) => state.setServer);
   const setDevices = useRemoteStore((state) => state.setDevices);
   const setHosts = useRemoteStore((state) => state.setHosts);
@@ -65,7 +66,5 @@ export function useRemoteSync(): string | null {
         unlisten();
       }
     };
-  }, [setServer, setDevices, setHosts]);
-
-  return error;
+  }, [setServer, setDevices, setHosts, setError]);
 }

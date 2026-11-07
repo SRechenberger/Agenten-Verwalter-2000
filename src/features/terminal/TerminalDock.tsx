@@ -6,6 +6,7 @@ import { useSettingsUpdate } from '@/features/settings/useSettingsUpdate';
 import type { TerminalInfo } from '@/lib/bindings/TerminalInfo';
 import type { TerminalPlacement } from '@/lib/bindings/TerminalPlacement';
 import { commandErrorText } from '@/lib/errors';
+import { useProjectLocked } from '@/features/remote/useProjectAccess';
 import { closeTerminal, openTerminal } from '@/lib/terminal';
 import { useSettingsStore } from '@/stores/settings';
 import { useTerminalStore } from '@/stores/terminal';
@@ -50,6 +51,8 @@ export function TerminalDock({
   const dragSizeRef = useRef<number | null>(null);
   const hasAutoOpenedRef = useRef<boolean>(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  // Solange ein Gast steuert, liest der Host nur mit: kein neues Terminal, kein Schließen.
+  const isLocked: boolean = useProjectLocked(projectId);
   const isMaximized: boolean = useTerminalStore((state) => state.isMaximized);
   const dragSize: number | null = useTerminalStore((state) => state.dragSize);
   const selectedId: string | undefined = useTerminalStore((state) => state.selected[projectId]);
@@ -86,12 +89,12 @@ export function TerminalDock({
 
   // Ein Vorhaben ohne Terminal bekommt beim Öffnen des Docks eins; wer das letzte schließt, bekommt kein neues.
   useEffect(() => {
-    if (!isLoaded || terminals.length > 0 || hasAutoOpenedRef.current) {
+    if (!isLoaded || terminals.length > 0 || hasAutoOpenedRef.current || isLocked) {
       return;
     }
     hasAutoOpenedRef.current = true;
     openNew();
-  }, [isLoaded, terminals.length, openNew]);
+  }, [isLoaded, terminals.length, isLocked, openNew]);
 
   function handleClose(terminal: TerminalInfo): void {
     closeTerminal(terminal.id)
@@ -176,6 +179,7 @@ export function TerminalDock({
                 className="terminal-dock__remove"
                 aria-label={`${terminal.label} ${String(terminal.number)} schließen`}
                 title="Terminal schließen und Prozess beenden"
+                disabled={isLocked}
                 onClick={(): void => {
                   handleClose(terminal);
                 }}
@@ -189,6 +193,7 @@ export function TerminalDock({
             className="terminal-dock__button terminal-dock__button--icon"
             title="Neues Terminal im Arbeitsordner des Vorhabens"
             aria-label="Neues Terminal"
+            disabled={isLocked}
             onClick={openNew}
           >
             +

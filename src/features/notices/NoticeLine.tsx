@@ -6,6 +6,8 @@ export type NoticeLineVariant = 'info' | 'warn' | 'model';
 interface NoticeLineAction {
   label: string;
   onClick: () => void;
+  /** Gesperrt, etwa weil ein anderes Gerät das Vorhaben steuert. */
+  isDisabled?: boolean;
 }
 
 interface NoticeLineProps {
@@ -40,7 +42,12 @@ export function NoticeLine({
         {detail !== undefined && <p className="notice-line__detail">{detail}</p>}
       </div>
       {action !== undefined && (
-        <button type="button" className="notice-line__action" onClick={action.onClick}>
+        <button
+          type="button"
+          className="notice-line__action"
+          disabled={action.isDisabled === true}
+          onClick={action.onClick}
+        >
           {action.label}
         </button>
       )}

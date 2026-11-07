@@ -46,8 +46,13 @@
     font-size: var(--font-size-xs);
     cursor: pointer;
 
-    &:hover {
+    &:hover:not(:disabled) {
       background: var(--color-bg-hover);
+    }
+
+    &:disabled {
+      opacity: 0.5;
+      cursor: default;
     }
 
     &:focus-visible {
