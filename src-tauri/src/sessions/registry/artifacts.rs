@@ -14,6 +14,11 @@ impl SessionRegistry {
         Ok(artifacts::dir(&self.get(session_id)?.workspace))
     }
 
+    /// Der Workspace des Vorhabens der Session.
+    pub fn workspace_of(&self, session_id: &str) -> Result<PathBuf, CommandError> {
+        Ok(self.get(session_id)?.workspace.clone())
+    }
+
     /// Das Vorhaben, zu dem die Session gehört.
     pub fn project_of(&self, session_id: &str) -> Result<String, CommandError> {
         Ok(self.get(session_id)?.project_id.clone())

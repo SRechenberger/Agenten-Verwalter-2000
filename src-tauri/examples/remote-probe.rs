@@ -22,6 +22,7 @@ use verwalter_lib::error::CommandError;
 use verwalter_lib::remote::RemoteControl;
 use verwalter_lib::remote::access::{IdKind, TargetId};
 use verwalter_lib::remote::client::{ClientHooks, RemoteClients, SavedHost};
+use verwalter_lib::remote::content::MAX_BYTES;
 use verwalter_lib::remote::dispatch::{self, MERGED_LISTS};
 use verwalter_lib::remote::model::RemoteHostStatus;
 use verwalter_lib::remote::peer::{INVITATION_TTL, Invitation};
@@ -653,6 +654,8 @@ const OTHER_SESSION: &str = "session-nicht-frei";
 struct StubHost {
     control: Arc<RemoteControl>,
     invoked: AtomicUsize,
+    /// Der Workspace beider Vorhaben; darin liegt `.artefakte`.
+    workspace: PathBuf,
 }
 
 impl dispatch::Host for StubHost {
@@ -693,18 +696,41 @@ impl dispatch::Host for StubHost {
 
     fn invoke(&self, command: &str, args: Value) -> Result<Value, CommandError> {
         self.invoked.fetch_add(1, Ordering::SeqCst);
-        Ok(json!({ "ran": command, "args": args }))
+        Ok(match command {
+            "settings_load" => json!({ "operatingMode": "claudeCodeLocal" }),
+            "settings_local_models" => {
+                json!({ "baseUrl": "http://localhost:1234", "models": [], "error": null })
+            }
+            "codex_models" => json!({ "models": [], "error": null }),
+            "skill_uses" => json!([{ "key": "projekt/lernen", "count": 3 }]),
+            _ => json!({ "ran": command, "args": args }),
+        })
+    }
+
+    fn artifacts_dir(&self, _: &str) -> Result<PathBuf, CommandError> {
+        Ok(self.workspace.join(".artefakte"))
+    }
+
+    fn workspace(&self, _: &str) -> Result<PathBuf, CommandError> {
+        Ok(self.workspace.clone())
     }
 }
 
 /// Der Server mit `dispatch::answer` und einem Stub statt `on_message`: Erlaubnisliste, IDs,
 /// Übernahme durch ein zweites Gerät und gefilterte Listen.
 fn dispatched(folder: &Path) -> Result<bool, String> {
+    let workspace = folder.join("stub-workspace");
+    fs::create_dir_all(workspace.join(".artefakte")).map_err(text)?;
+    fs::create_dir_all(workspace.join(".anhaenge/abc")).map_err(text)?;
+    fs::write(workspace.join(".artefakte/seite.html"), "<p>Hallo</p>").map_err(text)?;
+    fs::write(workspace.join(".anhaenge/abc/bild.png"), "png-bytes").map_err(text)?;
+    fs::write(folder.join("stub-fremd.txt"), "nur am Host").map_err(text)?;
     let mut stub: Option<Arc<StubHost>> = None;
     let host = Host::start_with(folder, "host-d", Timing::CONTRACT, |control| {
         let host = Arc::new(StubHost {
             control: Arc::clone(&control),
             invoked: AtomicUsize::new(0),
+            workspace: workspace.clone(),
         });
         stub = Some(Arc::clone(&host));
         Arc::new(move |device, command: &str, args: Value| {
@@ -870,6 +896,158 @@ fn dispatched(folder: &Path) -> Result<bool, String> {
                 format!("session_set_viewed mit {args} lief als {ran}")
             })
         })
+    });
+
+    all &= report("herkunft traegt der server ein", {
+        second
+            .call(
+                &host_id,
+                "chat_send",
+                json!({ "sessionId": SHARED_SESSION, "origin": "gefaelscht" }),
+            )
+            .map_err(text)
+            .and_then(|ran: Value| {
+                ensure(ran["args"]["origin"] == "zweiter", || {
+                    format!("chat_send lief als {ran}")
+                })
+            })
+    });
+
+    all &= report(
+        "dateien ueber die verbindung",
+        (|| {
+            let call = |command: &str, path: String| {
+                second.call(
+                    &host_id,
+                    command,
+                    json!({ "sessionId": SHARED_SESSION, "path": path }),
+                )
+            };
+            let page = call("remote_artifact", "seite.html".to_owned()).map_err(text)?;
+            let image = call(
+                "remote_file",
+                workspace
+                    .join(".anhaenge/abc/bild.png")
+                    .to_string_lossy()
+                    .into_owned(),
+            )
+            .map_err(text)?;
+            ensure(
+                page["contentType"] == "text/html; charset=utf-8"
+                    && image["contentType"] == "image/png",
+                || format!("Artefakt {page}, Bild {image}"),
+            )
+        })(),
+    );
+
+    all &= report("artefakt mit zwei punkten abgelehnt", {
+        ["../stub-fremd.txt", "site/../../stub-fremd.txt"]
+            .iter()
+            .try_for_each(|path: &&str| {
+                match second.call(
+                    &host_id,
+                    "remote_artifact",
+                    json!({ "sessionId": SHARED_SESSION, "path": path }),
+                ) {
+                    Err(CommandError::FileNotAllowed(_)) => Ok(()),
+                    other => Err(format!("remote_artifact {path}: {other:?}")),
+                }
+            })
+    });
+
+    all &= report("datei ausserhalb des workspace abgelehnt", {
+        let outside = folder.join("stub-fremd.txt").to_string_lossy().into_owned();
+        [outside.as_str(), "../stub-fremd.txt"]
+            .iter()
+            .try_for_each(|path: &&str| {
+                match second.call(
+                    &host_id,
+                    "remote_file",
+                    json!({ "sessionId": SHARED_SESSION, "path": path }),
+                ) {
+                    Err(CommandError::FileNotAllowed(_)) => Ok(()),
+                    other => Err(format!("remote_file {path}: {other:?}")),
+                }
+            })
+    });
+
+    all &= report("dateien nur fuer den inhaber", {
+        let args = json!({ "sessionId": SHARED_SESSION, "path": "seite.html" });
+        ["remote_artifact", "remote_file"]
+            .iter()
+            .try_for_each(
+                |command: &&str| match first.call(&host_id, command, args.clone()) {
+                    Err(CommandError::Internal(message))
+                        if message.contains("gehört zu keinem") =>
+                    {
+                        Ok(())
+                    }
+                    other => Err(format!(
+                        "{command} für ein Gerät ohne Steuerrecht: {other:?}"
+                    )),
+                },
+            )
+            .and_then(|()| {
+                match second.call(
+                    &host_id,
+                    "remote_artifact",
+                    json!({ "sessionId": OTHER_SESSION, "path": "seite.html" }),
+                ) {
+                    Err(CommandError::Internal(message))
+                        if message.contains("gehört zu keinem") =>
+                    {
+                        Ok(())
+                    }
+                    other => Err(format!("remote_artifact einer fremden Session: {other:?}")),
+                }
+            })
+    });
+
+    all &= report(
+        "datei an der obergrenze kommt an, eine mehr nicht",
+        (|| {
+            let limit = workspace.join(".anhaenge/gross.bin");
+            let write = |size: u64| {
+                fs::OpenOptions::new()
+                    .write(true)
+                    .create(true)
+                    .truncate(true)
+                    .open(&limit)
+                    .and_then(|file| file.set_len(size))
+                    .map_err(text)
+            };
+            let fetch = || {
+                second.call(
+                    &host_id,
+                    "remote_file",
+                    json!({ "sessionId": SHARED_SESSION, "path": limit.to_string_lossy() }),
+                )
+            };
+            write(MAX_BYTES)?;
+            let at_limit = fetch().map_err(text)?;
+            let size = at_limit["dataBase64"].as_str().map_or(0, str::len);
+            write(MAX_BYTES + 1)?;
+            ensure(size > 0, || "Datei an der Obergrenze leer".to_owned()).and_then(
+                |()| match fetch() {
+                    Err(CommandError::FileNotAllowed(_)) => Ok(()),
+                    other => Err(format!("Datei über der Obergrenze: {other:?}")),
+                },
+            )
+        })(),
+    );
+
+    all &= report("profil des hosts", {
+        second
+            .call(&host_id, "remote_host_profile", Value::Null)
+            .map_err(text)
+            .and_then(|profile: Value| {
+                ensure(
+                    profile["operatingMode"] == "claudeCodeLocal"
+                        && profile["skillUses"][0]["count"] == 3
+                        && profile["localModels"]["baseUrl"] == "http://localhost:1234",
+                    || format!("Profil {profile}"),
+                )
+            })
     });
 
     host.server.stop();

@@ -84,7 +84,7 @@ fn run(app: &AppHandle, session_id: &str, armed: ArmedResume) {
     if end == WaitEnd::Cancelled {
         return;
     }
-    if let Err(error) = registry.send(app, session_id, RESUME_TEXT, &[], &[]) {
+    if let Err(error) = registry.send(app, session_id, RESUME_TEXT, &[], &[], None) {
         registry.fail_auto_resume(app, session_id, error.to_string());
     }
 }

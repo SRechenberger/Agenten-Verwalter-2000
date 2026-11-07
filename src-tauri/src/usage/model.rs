@@ -1,8 +1,8 @@
 //! Typen, die das Kontingent des Claude-Abos über die Tauri-Grenze beschreiben.
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
-#[derive(Debug, Clone, Serialize, TS)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct UsageLimit {
     /// Beobachtet `session` (5-Stunden-Fenster) und `weekly_all` (Woche).
@@ -17,7 +17,7 @@ pub struct UsageLimit {
     pub window_minutes: Option<u32>,
 }
 
-#[derive(Debug, Clone, Serialize, TS)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct UsageShare {
     /// Bei Verhalten der Schlüssel (`long_context`, `cron`, `high_parallel`), bei Skills der Name.
@@ -26,7 +26,7 @@ pub struct UsageShare {
     pub percent: u32,
 }
 
-#[derive(Debug, Clone, Serialize, TS)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct UsageBreakdown {
     pub request_count: u32,
@@ -35,7 +35,7 @@ pub struct UsageBreakdown {
     pub skills: Vec<UsageShare>,
 }
 
-#[derive(Debug, Clone, Serialize, TS)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct UsageSnapshot {
     /// `subscription_type`, z.B. `pro`.
@@ -48,7 +48,7 @@ pub struct UsageSnapshot {
 }
 
 /// Warnung oder Sperre aus dem `rate_limit_event` der letzten Antwort.
-#[derive(Debug, Clone, Serialize, TS)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct UsageAlert {
     /// Wie geliefert, nie `allowed`.
@@ -61,7 +61,7 @@ pub struct UsageAlert {
     pub resets_at: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, TS)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct UsageStatus {
     /// Der letzte erfolgreiche Stand; ein fehlgeschlagener Abruf lässt ihn stehen.

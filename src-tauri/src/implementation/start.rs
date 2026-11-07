@@ -208,7 +208,7 @@ fn start_claimed(
     }
     announce(app, &registry.implementation_view(implementation_id)?);
     let message: String = first_message(&view, phase, station);
-    if let Err(error) = registry.send(app, &created.id, &message, &[], &[]) {
+    if let Err(error) = registry.send(app, &created.id, &message, &[], &[], None) {
         registry.log_session_line(
             &created.id,
             format!("Erste Nachricht nicht gesendet: {error}"),

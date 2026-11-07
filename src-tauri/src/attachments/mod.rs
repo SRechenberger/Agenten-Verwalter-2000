@@ -112,6 +112,33 @@ pub fn discard(app: &AppHandle, id: &str) -> Result<(), CommandError> {
     }
 }
 
+/// Ein Anhang, der noch im Zwischenordner dieses Geräts liegt: Name und Inhalt. `None`, wenn es
+/// ihn hier nicht gibt, etwa weil die ID schon einem Host gehört. Größer als `limit` Bytes ist ein
+/// Fehler.
+pub fn read_staged(
+    app: &AppHandle,
+    id: &str,
+    limit: u64,
+) -> Result<Option<(String, Vec<u8>)>, CommandError> {
+    let Ok(id) = parse_id(id) else {
+        return Ok(None);
+    };
+    let Ok(path) = staged_file(&staging_dir(app)?.join(&id)) else {
+        return Ok(None);
+    };
+    let name = path
+        .file_name()
+        .map(|name: &std::ffi::OsStr| name.to_string_lossy().into_owned())
+        .unwrap_or_else(|| FALLBACK_NAME.to_owned());
+    if fs::metadata(&path)?.len() > limit {
+        return Err(CommandError::Io(format!(
+            "{name} ist zu groß für die Fernsteuerung (höchstens {} MiB)",
+            limit / (1024 * 1024)
+        )));
+    }
+    Ok(Some((name, fs::read(&path)?)))
+}
+
 /// Verschiebt die Anhänge nach `<Workspace>\.anhaenge\<id>\<name>`, in der Reihenfolge von `ids`.
 /// Erst werden alle gefunden, dann verschoben: ein fehlender Anhang lässt so keinen halben
 /// Satz im Workspace zurück.

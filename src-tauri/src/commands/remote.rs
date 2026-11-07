@@ -1,15 +1,19 @@
 use std::sync::Arc;
 
+use crate::artifacts::server::ArtifactServer;
 use crate::db::Database;
 use crate::error::CommandError;
 use crate::projects::model::ProjectSummary;
 use crate::remote::client::RemoteClients;
 use crate::remote::guest;
-use crate::remote::model::{RemoteDevice, RemoteHostStatus, RemoteInvitation, RemoteServerStatus};
+use crate::remote::model::{
+    HostProfile, RemoteDevice, RemoteHostStatus, RemoteInvitation, RemoteServerStatus,
+};
 use crate::remote::peer::{INVITATION_TTL, local_addresses};
 use crate::remote::server::RemoteServer;
 use crate::sessions::registry::SessionRegistry;
 use crate::settings;
+use crate::usage::model::UsageStatus;
 
 #[tauri::command]
 pub async fn remote_share_set(
@@ -157,4 +161,41 @@ pub async fn remote_give_back(
         project_id,
     )
     .await
+}
+
+/// Am Gast: Betriebsart und Modelle des Hosts, solange die Oberfläche ein Vorhaben von ihm zeigt.
+#[tauri::command]
+pub async fn remote_host_profile(
+    clients: tauri::State<'_, Arc<RemoteClients>>,
+    host_id: String,
+) -> Result<HostProfile, CommandError> {
+    guest::host_profile(Arc::clone(&clients), host_id).await
+}
+
+/// Am Gast: das Kontingent des Hosts, wie er es zuletzt gelesen hat.
+#[tauri::command]
+pub async fn remote_usage_load(
+    clients: tauri::State<'_, Arc<RemoteClients>>,
+    host_id: String,
+) -> Result<UsageStatus, CommandError> {
+    guest::usage_load(Arc::clone(&clients), host_id).await
+}
+
+/// Am Gast: lässt den Host sein Kontingent abrufen; das Ergebnis meldet `remote://usage-changed`.
+#[tauri::command]
+pub async fn remote_usage_refresh(
+    clients: tauri::State<'_, Arc<RemoteClients>>,
+    host_id: String,
+    force: bool,
+) -> Result<(), CommandError> {
+    guest::usage_refresh(Arc::clone(&clients), host_id, force).await
+}
+
+/// Am Gast: die Adresse, unter der der Server dieses Geräts Bilder und Anhänge eines Hosts liefert,
+/// mit `/` am Ende. Dahinter folgen die kodierte Session-ID, `/` und der Pfad auf dem Host.
+#[tauri::command]
+pub async fn remote_asset_base(
+    server: tauri::State<'_, ArtifactServer>,
+) -> Result<String, CommandError> {
+    Ok(server.asset_base())
 }

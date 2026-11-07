@@ -285,7 +285,7 @@ impl SessionRegistry {
                 });
                 if let Some(position) = position {
                     let (_, request) = state.pending.remove(position);
-                    state.set_question_answer(outbox, request.seq, "Abgebrochen".to_owned());
+                    state.set_question_answer(outbox, request.seq, "Abgebrochen".to_owned(), None);
                     state.resume_after_answer(outbox);
                 }
                 Ok(())
@@ -604,6 +604,7 @@ pub(super) fn apply_tool_answer(
     outbox: &mut Outbox,
     position: usize,
     answer: &QuestionAnswer,
+    device: Option<&str>,
 ) -> Result<(), CommandError> {
     let Some((
         _,
@@ -623,7 +624,7 @@ pub(super) fn apply_tool_answer(
         // Ist der Aufruf schon weg, gibt es niemanden mehr zu benachrichtigen.
         let _ = tool.reply.send(answer.clone());
     }
-    state.set_question_answer(outbox, request.seq, label);
+    state.set_question_answer(outbox, request.seq, label, device);
     state.resume_after_answer(outbox);
     Ok(())
 }

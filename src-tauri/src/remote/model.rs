@@ -2,6 +2,11 @@
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
+use crate::codex::models::CodexModels;
+use crate::lmstudio::model::LocalModels;
+use crate::settings::model::OperatingMode;
+use crate::skills::model::SkillUse;
+
 /// Ein gekoppeltes Gerät, wie es der Host anzeigt.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
@@ -80,4 +85,15 @@ pub struct RemoteInvitation {
     pub text: String,
     /// Millisekunden seit 1970.
     pub expires_at: f64,
+}
+
+/// Was die Oberfläche eines Gastes über die Betriebsart und die Modelle seines Hosts wissen muss,
+/// solange sie ein Vorhaben des Hosts zeigt: Menüs und Betriebsart gelten dort, nicht lokal.
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct HostProfile {
+    pub operating_mode: OperatingMode,
+    pub local_models: LocalModels,
+    pub codex_models: CodexModels,
+    pub skill_uses: Vec<SkillUse>,
 }

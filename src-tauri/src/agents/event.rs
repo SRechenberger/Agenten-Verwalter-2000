@@ -235,6 +235,10 @@ pub enum ChatEntry {
         /// Review-Kommentare aus der Changes-Ansicht; Einträge von vorher haben das Feld nicht.
         #[serde(default)]
         comments: Vec<ReviewComment>,
+        /// Name des Geräts, von dem ein Gast die Nachricht schickte (ADR 059); `None`: die eigene
+        /// Oberfläche. Der Agent bekommt es nie zu sehen.
+        #[serde(default)]
+        origin: Option<String>,
     },
     Text {
         seq: u32,
@@ -283,6 +287,10 @@ pub enum ChatEntry {
         /// Allein die Kettenbremse hat den Kasten erzwungen; Einträge von vorher haben das Feld nicht.
         #[serde(default)]
         chain_limited: bool,
+        /// Name des Geräts, von dem ein Gast geantwortet hat (ADR 059); `None`: die eigene
+        /// Oberfläche oder niemand. Der Agent bekommt es nie zu sehen.
+        #[serde(default)]
+        origin: Option<String>,
     },
     /// Nachricht einer anderen Session; löst eine Antwort des Agenten aus wie eine Nutzernachricht.
     SessionMessage {

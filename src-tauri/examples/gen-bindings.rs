@@ -47,7 +47,7 @@ use verwalter_lib::{
     projects::model::{ProjectCreated, ProjectGroup, ProjectSummary},
     prompt_cache::model::PromptCache,
     remote::model::{
-        DeviceRef, ProjectAccess, RemoteDevice, RemoteHostStatus, RemoteInvitation,
+        DeviceRef, HostProfile, ProjectAccess, RemoteDevice, RemoteHostStatus, RemoteInvitation,
         RemoteServerStatus,
     },
     repositories::model::{KnownRepository, RepositoryKind},
@@ -113,6 +113,7 @@ fn main() -> Result<(), ts_rs::ExportError> {
     ChatPage::export_all(&cfg)?;
     ChatEntryEvent::export_all(&cfg)?;
     DeviceRef::export_all(&cfg)?;
+    HostProfile::export_all(&cfg)?;
     ProjectAccess::export_all(&cfg)?;
     RemoteServerStatus::export_all(&cfg)?;
     RemoteDevice::export_all(&cfg)?;

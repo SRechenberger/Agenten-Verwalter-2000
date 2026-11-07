@@ -4,16 +4,23 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
+use base64::Engine;
+use base64::engine::general_purpose::STANDARD;
 use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
 use tauri::{AppHandle, Emitter, Manager, Runtime};
 
 use super::CHANGED_EVENT;
 use super::client::{HostInfo, RemoteClients};
-use super::model::ProjectAccess;
+use super::content::MAX_BYTES;
+use super::model::{HostProfile, ProjectAccess};
+use crate::agents::event::Attachment;
+use crate::artifacts::server::ArtifactServer;
+use crate::attachments;
 use crate::db::{Database, remote as remote_rows};
 use crate::error::CommandError;
 use crate::projects::model::ProjectSummary;
+use crate::usage::model::UsageStatus;
 
 /// So lange wartet eine Liste auf einen Host, danach gilt, was er zuletzt geschickt hat.
 pub const LIST_TIMEOUT: Duration = Duration::from_secs(5);
@@ -211,6 +218,118 @@ pub fn remember_result(clients: &RemoteClients, host_id: &str, command: &str, va
     }
 }
 
+/// Betriebsart und Modelle des Hosts.
+pub async fn host_profile(
+    clients: Arc<RemoteClients>,
+    host_id: String,
+) -> Result<HostProfile, CommandError> {
+    let value =
+        blocking(move || clients.call(&host_id, "remote_host_profile", Value::Null)).await??;
+    serde_json::from_value(value).map_err(|error| CommandError::Internal(error.to_string()))
+}
+
+/// Das Kontingent des Hosts, wie er es zuletzt gelesen hat.
+pub async fn usage_load(
+    clients: Arc<RemoteClients>,
+    host_id: String,
+) -> Result<UsageStatus, CommandError> {
+    let value = blocking(move || clients.call(&host_id, "usage_load", Value::Null)).await??;
+    serde_json::from_value(value).map_err(|error| CommandError::Internal(error.to_string()))
+}
+
+/// Lässt den Host sein Kontingent abrufen; das Ergebnis meldet `remote://usage-changed`.
+pub async fn usage_refresh(
+    clients: Arc<RemoteClients>,
+    host_id: String,
+    force: bool,
+) -> Result<(), CommandError> {
+    blocking(move || clients.call(&host_id, "usage_refresh", json!({ "force": force }))).await??;
+    Ok(())
+}
+
+/// Ein Aufruf, den die Weiche zu einem Host führt: mit allem, was der Gast dabei selbst tut. Anhänge
+/// einer Nachricht gehen erst zum Host, `artifacts_list` zeigt auf den Server dieses Geräts, und
+/// jede Antwort, die ein Vorhaben oder eine Session anlegt, merkt der Zwischenspeicher.
+pub fn route(
+    app: &AppHandle,
+    clients: &RemoteClients,
+    host_id: &str,
+    command: &str,
+    args: Value,
+) -> Result<Value, CommandError> {
+    let session_id = args
+        .get("sessionId")
+        .and_then(Value::as_str)
+        .map(str::to_owned);
+    let (args, uploaded) = if command == "chat_send" {
+        upload_attachments(app, clients, host_id, args)?
+    } else {
+        (args, Vec::new())
+    };
+    let mut value = clients.call(host_id, command, args)?;
+    for id in &uploaded {
+        // Der Anhang liegt jetzt am Host; ein Rest hier ist kein Fehler des Sendens.
+        let _ = attachments::discard(app, id);
+    }
+    remember_result(clients, host_id, command, &value);
+    if command == "artifacts_list"
+        && let (Some(server), Some(session_id)) =
+            (app.try_state::<ArtifactServer>(), session_id.as_deref())
+    {
+        value["baseUrl"] = Value::String(server.base_url(session_id));
+    }
+    Ok(result_view(app, clients, host_id, value))
+}
+
+/// Lädt die Anhänge von `chat_send`, die in diesem Gerät liegen, zum Host und ersetzt ihre IDs
+/// durch die dortigen. IDs, die hier unbekannt sind (der Lagebericht einer Rückfrage zur
+/// Umsetzung), gehen unverändert durch. Liefert die hochgeladenen lokalen IDs; gelöscht werden sie
+/// erst, wenn das Senden gelungen ist, damit ein neuer Versuch sie wieder findet.
+fn upload_attachments(
+    app: &AppHandle,
+    clients: &RemoteClients,
+    host_id: &str,
+    args: Value,
+) -> Result<(Value, Vec<String>), CommandError> {
+    replace_attachment_ids(args, |local: &str| {
+        let Some((name, bytes)) = attachments::read_staged(app, local, MAX_BYTES)? else {
+            return Ok(None);
+        };
+        let value = clients.call(
+            host_id,
+            "attachment_add_bytes",
+            json!({ "name": name, "dataBase64": STANDARD.encode(bytes) }),
+        )?;
+        let remote: Attachment = serde_json::from_value(value)
+            .map_err(|error| CommandError::Internal(error.to_string()))?;
+        Ok(Some(remote.id))
+    })
+}
+
+/// Ersetzt in `attachmentIds` jede ID, die `upload` kennt (`Some(neue ID)`), und lässt die übrigen
+/// stehen (`None`). Liefert die Argumente und die ersetzten lokalen IDs; der erste Fehler bricht ab.
+fn replace_attachment_ids(
+    mut args: Value,
+    mut upload: impl FnMut(&str) -> Result<Option<String>, CommandError>,
+) -> Result<(Value, Vec<String>), CommandError> {
+    let Some(ids) = args.get("attachmentIds").and_then(Value::as_array).cloned() else {
+        return Ok((args, Vec::new()));
+    };
+    let mut replaced: Vec<Value> = Vec::with_capacity(ids.len());
+    let mut uploaded: Vec<String> = Vec::new();
+    for id in ids {
+        match id.as_str().map(&mut upload).transpose()?.flatten() {
+            Some(remote) => {
+                uploaded.extend(id.as_str().map(str::to_owned));
+                replaced.push(Value::String(remote));
+            }
+            None => replaced.push(id),
+        }
+    }
+    args["attachmentIds"] = Value::Array(replaced);
+    Ok((args, uploaded))
+}
+
 fn cached_project(
     clients: &RemoteClients,
     database: &Database,
@@ -252,3 +371,6 @@ async fn blocking<T: Send + 'static>(
         .await
         .map_err(|error| CommandError::Internal(error.to_string()))
 }
+
+#[cfg(test)]
+mod tests;

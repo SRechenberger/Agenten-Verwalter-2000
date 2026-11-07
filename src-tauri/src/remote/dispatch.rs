@@ -3,16 +3,18 @@
 //! `access::check` und dann wie von der Oberfläche. Wie er den Befehl ausführt, sagt `Host`: in der
 //! App über `Webview::on_message`, in der Probe ein Stub.
 use std::collections::HashSet;
+use std::path::PathBuf;
 use std::sync::mpsc;
 
 use serde::Serialize;
-use serde_json::Value;
+use serde_json::{Value, json};
 use tauri::http::{HeaderMap, HeaderValue};
 use tauri::ipc::{CallbackFn, InvokeBody, InvokeError, InvokeResponse, InvokeResponseBody};
 use tauri::webview::InvokeRequest;
 use tauri::{AppHandle, Emitter, Manager, Runtime, Webview};
 
 use super::access::{self, Actor, IdKind, TargetId};
+use super::content;
 use super::intercept::REMOTE_HEADER;
 use super::model::DeviceRef;
 use super::{CHANGED_EVENT, RemoteControl};
@@ -40,6 +42,10 @@ pub trait Host: Send + Sync {
     fn list(&self, command: &str) -> Result<Vec<Value>, CommandError>;
     /// Führt den Command aus wie die eigene Oberfläche, mit der Kopfzeile des Servers.
     fn invoke(&self, command: &str, args: Value) -> Result<Value, CommandError>;
+    /// Der Ordner `.artefakte` im Workspace der Session.
+    fn artifacts_dir(&self, session_id: &str) -> Result<PathBuf, CommandError>;
+    /// Der Workspace des Vorhabens der Session.
+    fn workspace(&self, session_id: &str) -> Result<PathBuf, CommandError>;
 }
 
 /// Beantwortet den Aufruf `command` des Geräts `device`.
@@ -61,6 +67,24 @@ pub fn answer(
             control.with(|control| control.give_back(project_id, &device.id))?;
             changed(host, project_id)
         }
+        // Nur im Server, kein Tauri-Command: Dateien für Vorschau und Bilder am Gast.
+        "remote_artifact" | "remote_file" => {
+            let ids = access::resolve(access::ids_of(command, &args), |target: &TargetId| {
+                host.project_of(target)
+            });
+            control
+                .with(|control| access::check_content(&ids, &device.id, control))
+                .map_err(CommandError::from)?;
+            let session_id = text_of(&args, "sessionId")?;
+            let path = text_of(&args, "path")?;
+            let found = if command == "remote_artifact" {
+                content::artifact(&host.artifacts_dir(session_id)?, path)?
+            } else {
+                content::workspace_file(&host.workspace(session_id)?, path)?
+            };
+            to_json(&found)
+        }
+        "remote_host_profile" => host_profile(host),
         // ponytail: Das Terminal am Gast braucht einen eigenen Kanal statt `on_message`.
         "terminal_attach" => Err(CommandError::Terminal(
             "Terminals eines Hosts lassen sich am Gast noch nicht anzeigen.".to_owned(),
@@ -84,15 +108,38 @@ pub fn answer(
 }
 
 /// Was der Server selbst einträgt und damit überschreibt (Vertrag): die Oberfläche des Geräts bei
-/// `session_set_viewed`.
+/// `session_set_viewed` und der Name des Geräts als Herkunft von `chat_send` und `chat_answer`.
 fn surface_of(command: &str, mut args: Value, device: &DeviceRef) -> Value {
-    if command == "session_set_viewed" {
-        if !args.is_object() {
-            args = Value::Object(serde_json::Map::new());
-        }
-        args["viewer"] = Value::String(device.id.clone());
+    let (key, value) = match command {
+        "session_set_viewed" => ("viewer", device.id.as_str()),
+        "chat_send" | "chat_answer" => ("origin", device.name.as_str()),
+        _ => return args,
+    };
+    if !args.is_object() {
+        args = Value::Object(serde_json::Map::new());
     }
+    args[key] = Value::String(value.to_owned());
     args
+}
+
+/// Betriebsart und Modelle dieses Hosts, aus denselben Commands wie für die eigene Oberfläche.
+fn host_profile(host: &dyn Host) -> Result<Value, CommandError> {
+    let settings = host.invoke("settings_load", Value::Null)?;
+    let operating_mode = settings.get("operatingMode").cloned().ok_or_else(|| {
+        CommandError::Internal("Die Einstellungen des Hosts nennen keine Betriebsart.".to_owned())
+    })?;
+    Ok(json!({
+        "operatingMode": operating_mode,
+        "localModels": host.invoke("settings_local_models", Value::Null)?,
+        "codexModels": host.invoke("codex_models", Value::Null)?,
+        "skillUses": host.invoke("skill_uses", Value::Null)?,
+    }))
+}
+
+fn text_of<'a>(args: &'a Value, key: &str) -> Result<&'a str, CommandError> {
+    args.get(key)
+        .and_then(Value::as_str)
+        .ok_or_else(|| CommandError::Internal(format!("Dem Aufruf fehlt {key}.")))
 }
 
 fn project_id_of(args: &Value) -> Result<&str, CommandError> {
@@ -231,6 +278,16 @@ impl Host for AppHost {
             ))),
         }
     }
+
+    fn artifacts_dir(&self, session_id: &str) -> Result<PathBuf, CommandError> {
+        self.app
+            .state::<SessionRegistry>()
+            .artifacts_dir(session_id)
+    }
+
+    fn workspace(&self, session_id: &str) -> Result<PathBuf, CommandError> {
+        self.app.state::<SessionRegistry>().workspace_of(session_id)
+    }
 }
 
 /// Das Vorhaben zu einer ID aus Registry und Terminals; für die Oberfläche des Hosts und für Gäste.
@@ -263,3 +320,6 @@ fn command_error(value: Value) -> CommandError {
         })
     })
 }
+
+#[cfg(test)]
+mod tests;
