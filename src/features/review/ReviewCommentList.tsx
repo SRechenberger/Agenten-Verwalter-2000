@@ -42,6 +42,7 @@ export function ReviewCommentList({ sessionId }: ReviewCommentListProps): ReactE
           <ReviewCommentCard
             key={entry.id}
             comment={entry.comment}
+            sessionId={sessionId}
             onEdit={(text: string): void => {
               updateText(sessionId, entry.id, text);
             }}
