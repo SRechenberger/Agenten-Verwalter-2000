@@ -1,0 +1,139 @@
+.remote-row {
+  &__stack {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    align-items: flex-start;
+    gap: var(--space-xs);
+    min-width: 0;
+  }
+
+  &__line {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: var(--space-md);
+    min-width: 0;
+
+    &--spread {
+      flex: 1;
+      justify-content: space-between;
+      flex-wrap: nowrap;
+    }
+  }
+
+  &__plain {
+    font-size: var(--font-size-md);
+    color: var(--color-fg-primary);
+  }
+
+  &__muted {
+    font-size: var(--font-size-xs);
+    color: var(--color-fg-muted);
+  }
+
+  &__mono {
+    overflow-wrap: anywhere;
+    font-family: var(--font-mono);
+    font-size: var(--font-size-xs);
+    color: var(--color-fg-secondary);
+  }
+
+  &__error {
+    font-size: var(--font-size-xs);
+    color: var(--color-status-error);
+  }
+
+  &__warn {
+    font-size: var(--font-size-xs);
+    color: var(--color-status-waiting);
+  }
+
+  &__input {
+    box-sizing: border-box;
+    width: 100%;
+    height: 30px;
+    padding: 0 var(--space-lg);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    background: var(--color-bg-surface);
+    color: var(--color-fg-primary);
+    font: inherit;
+    font-size: var(--font-size-sm);
+
+    &:focus {
+      border-color: var(--color-accent);
+      outline: none;
+    }
+
+    &:disabled {
+      opacity: 0.6;
+    }
+
+    &::placeholder {
+      color: var(--color-fg-muted);
+    }
+
+    &--port {
+      width: 90px;
+    }
+
+    &--name {
+      width: 180px;
+    }
+  }
+
+  &__list {
+    display: flex;
+    flex-direction: column;
+    align-self: stretch;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  &__item {
+    display: flex;
+    align-items: center;
+    gap: var(--space-lg);
+    padding: var(--space-sm) 0;
+    border-top: 1px solid var(--color-border-subtle);
+
+    &:first-child {
+      border-top: 0;
+    }
+  }
+
+  &__item-text {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    gap: var(--space-2xs);
+    min-width: 0;
+  }
+
+  &__dot {
+    flex-shrink: 0;
+    width: 8px;
+    height: 8px;
+    border-radius: var(--radius-full);
+    background: var(--color-fg-muted);
+
+    &--on {
+      background: var(--color-status-completed);
+    }
+  }
+
+  /* Beide stehen auf `settings-view__button`: gleiche Gewichtung, also zwei Klassen. */
+  &__danger.settings-view__button {
+    color: var(--color-status-error);
+    border-color: color-mix(in srgb, var(--color-status-error) 45%, var(--color-border));
+  }
+
+  &__primary.settings-view__button:not(:disabled) {
+    border-color: var(--color-accent);
+    background: var(--color-accent);
+    color: var(--color-fg-on-accent);
+    font-weight: 600;
+  }
+}

@@ -20,6 +20,13 @@ import { EnvironmentLinksRow } from '@/features/environment/EnvironmentLinksRow'
 import { EnvironmentMirrorRow } from '@/features/environment/EnvironmentMirrorRow';
 import { MasterDirRow } from '@/features/environment/MasterDirRow';
 import { useEnvironmentCheck } from '@/features/environment/useEnvironment';
+import { RemoteConnectRow } from '@/features/remote/RemoteConnectRow';
+import { RemoteDevicesRow } from '@/features/remote/RemoteDevicesRow';
+import { RemoteEnabledRow } from '@/features/remote/RemoteEnabledRow';
+import { RemoteHostsRow } from '@/features/remote/RemoteHostsRow';
+import { RemotePortRow } from '@/features/remote/RemotePortRow';
+import { RemoteStatusRow } from '@/features/remote/RemoteStatusRow';
+import { useRemoteSync } from '@/features/remote/useRemoteSync';
 import { useKnownRepositories } from '@/features/repositories/useKnownRepositories';
 import { ColorSchemeSegment } from '@/features/settings/ColorSchemeSegment';
 import { TerminalPlacementSegment } from '@/features/settings/TerminalPlacementSegment';
@@ -44,6 +51,7 @@ import type {
   SettingGroup,
   SettingId,
   SettingsCategoryId,
+  ShownFacts,
 } from '@/features/settings/settingsCatalog';
 import { useCategoryAttention } from '@/features/settings/useCategoryAttention';
 import { useLocalModels } from '@/features/settings/useLocalModels';
@@ -67,6 +75,7 @@ import {
   modeOption,
   modelName,
 } from '@/lib/labels';
+import { useRemoteStore } from '@/stores/remote';
 import { useSettingsStore } from '@/stores/settings';
 import { useSettingsNavStore } from '@/stores/settingsNav';
 import './SettingsView.css';
@@ -105,6 +114,14 @@ export function SettingsView({
   const contentRef = useRef<HTMLDivElement>(null);
   const { repositories, isLoading: areRepositoriesLoading } = useKnownRepositories();
   const { save, error: saveError } = useSettingsUpdate();
+  const remoteError: string | null = useRemoteSync();
+  const remoteServer = useRemoteStore((state) => state.server);
+  const hasRemoteHosts: boolean = useRemoteStore((state) => state.hosts.length > 0);
+  const facts: ShownFacts = {
+    remoteEnabled: remoteServer?.enabled === true,
+    remoteListening: remoteServer?.listening === true,
+    hasRemoteHosts,
+  };
 
   const settings: Settings | null = storedSettings ?? overview?.settings ?? null;
   const isLocalOperation: boolean =
@@ -114,7 +131,7 @@ export function SettingsView({
   const terms: string[] = useMemo(() => searchTerms(query), [query]);
   const isSearching: boolean = terms.length > 0;
   const hits: SettingEntry[] = searchEntries(
-    settings === null ? [] : shownEntries(settings),
+    settings === null ? [] : shownEntries(settings, facts),
     terms,
   );
   const hitIds: ReadonlySet<SettingId> = new Set(hits.map((entry: SettingEntry) => entry.id));
@@ -237,6 +254,9 @@ export function SettingsView({
     }
     if (saveError !== null) {
       sentences.push(`Nicht gespeichert: ${saveError}`);
+    }
+    if (remoteError !== null) {
+      sentences.push(remoteError);
     }
     if (revealError !== null) {
       sentences.push(revealError);
@@ -477,6 +497,18 @@ export function SettingsView({
             <span className="settings-view__plain">Workspace und Repositories des Vorhabens</span>
           </SettingRow>
         );
+      case 'remoteEnabled':
+        return <RemoteEnabledRow />;
+      case 'remotePort':
+        return <RemotePortRow />;
+      case 'remoteStatus':
+        return <RemoteStatusRow />;
+      case 'remoteDevices':
+        return <RemoteDevicesRow />;
+      case 'remoteHosts':
+        return <RemoteHostsRow />;
+      case 'remoteConnect':
+        return <RemoteConnectRow />;
       default:
         return assertNever(id);
     }
@@ -487,7 +519,7 @@ export function SettingsView({
     loaded: SettingsOverview,
     hitIds: ReadonlySet<SettingId>,
   ): ReactElement[] {
-    const groups: SettingGroup[] = groupEntries(shownEntries(current));
+    const groups: SettingGroup[] = groupEntries(shownEntries(current, facts));
     // Alle Kategorien bleiben eingehängt (Konto, Version und Claude-Version fragen beim
     // Einhängen Programme und das Netz ab); die nicht gewählten bzw. nicht getroffenen
     // sind nur ausgeblendet.

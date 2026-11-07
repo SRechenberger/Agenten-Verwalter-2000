@@ -24,8 +24,18 @@ export const SETTINGS_CATEGORIES: readonly SettingsCategory[] = [
     summary: 'Betriebsart · Modelle · Modus · Claude Code · Selbstfreigabe',
   },
   { id: 'skills', label: 'Skills & Umgebung', summary: 'Skills · Umgebung' },
-  { id: 'app', label: 'App', summary: 'Version · Ordner · Rechte' },
+  { id: 'app', label: 'App', summary: 'Version · Ordner · Rechte · Fernsteuerung' },
 ];
+
+/** Was außer den Einstellungen bestimmt, welche Zeilen da sind: der Stand der Fernsteuerung. */
+export interface ShownFacts {
+  /** Der Schalter „Gäste erlauben“ ist an. */
+  remoteEnabled: boolean;
+  /** Der Server lauscht wirklich (kein belegter Port). */
+  remoteListening: boolean;
+  /** Dieser Gast ist mit mindestens einem Host gekoppelt. */
+  hasRemoteHosts: boolean;
+}
 
 interface EntryData {
   category: SettingsCategoryId;
@@ -34,7 +44,7 @@ interface EntryData {
   /** Die Erklärung hinter dem ⓘ. */
   info: string;
   /** Fehlt `isShown`, steht die Zeile immer da. */
-  isShown?: (settings: Settings) => boolean;
+  isShown?: (settings: Settings, facts: ShownFacts) => boolean;
 }
 
 function isNotStandalone(settings: Settings): boolean {
@@ -47,6 +57,18 @@ function isLocalMode(settings: Settings): boolean {
 
 function hasMasterDir(settings: Settings): boolean {
   return settings.masterDir !== null;
+}
+
+function isRemoteEnabled(_settings: Settings, facts: ShownFacts): boolean {
+  return facts.remoteEnabled;
+}
+
+function isRemoteListening(_settings: Settings, facts: ShownFacts): boolean {
+  return facts.remoteListening;
+}
+
+function hasRemoteHosts(_settings: Settings, facts: ShownFacts): boolean {
+  return facts.hasRemoteHosts;
 }
 
 const CHAIN_BRAKE_INFO =
@@ -190,6 +212,46 @@ const ENTRY_DATA = {
     label: 'Dateizugriff',
     info: 'Ein Agent arbeitet im Workspace seines Vorhabens, in den Haupt-Checkouts von dessen Repositories und in deren Ticket-Worktrees — nicht im übrigen Benutzerverzeichnis.',
   },
+  remoteEnabled: {
+    category: 'app',
+    section: 'Fernsteuerung',
+    label: 'Gäste erlauben',
+    info: 'Andere Instanzen im lokalen Netz können sich mit diesem Verwalter koppeln und Vorhaben übernehmen, die du freigibst. Wer steuert, führt über den Agenten Befehle mit deinen Rechten aus. Ohne den Schalter lauscht der Verwalter auf nichts.',
+  },
+  remotePort: {
+    category: 'app',
+    section: 'Fernsteuerung',
+    label: 'Port',
+    info: 'Auf diesem Port nimmt der Verwalter Verbindungen aus LAN und VPN an; eine Adresse außerhalb des lokalen Netzes trennt er ohne Antwort. Ein anderer Port trennt alle verbundenen Gäste.',
+    isShown: isRemoteEnabled,
+  },
+  remoteStatus: {
+    category: 'app',
+    section: 'Fernsteuerung',
+    label: 'Status',
+    info: 'Unter diesen Adressen ist dieser Verwalter erreichbar. Der Fingerabdruck gehört zu seinem Zertifikat; der Gast prüft ihn beim Verbinden. „Einladung erstellen“ liefert den Text für den Gast, der Adresse, Fingerabdruck und ein Einmal-Geheimnis enthält und zehn Minuten und einmal gilt.',
+    isShown: isRemoteListening,
+  },
+  remoteDevices: {
+    category: 'app',
+    section: 'Fernsteuerung',
+    label: 'Gekoppelte Geräte',
+    info: 'Geräte, die sich mit einer Einladung gekoppelt haben und sich seither selbst anmelden. „Sperren“ trennt das Gerät sofort, beendet seine Übernahmen und macht sein Token ungültig; koppeln kann es sich nur mit einer neuen Einladung.',
+    isShown: isRemoteListening,
+  },
+  remoteHosts: {
+    category: 'app',
+    section: 'Fernsteuerung',
+    label: 'Verbundene Hosts',
+    info: 'Hosts, mit denen dieses Gerät gekoppelt ist. „Trennen“ beendet die Verbindung bis zum nächsten Start der App und behält die Kopplung. „Vergessen“ löscht die Kopplung; ein neuer Host braucht dann wieder eine Einladung.',
+    isShown: hasRemoteHosts,
+  },
+  remoteConnect: {
+    category: 'app',
+    section: 'Fernsteuerung',
+    label: 'Mit einem Host verbinden',
+    info: 'Die Einladung erstellst du am Host unter Einstellungen › App › Fernsteuerung. Sie gilt zehn Minuten und einmal; ist die Adresse darin nicht die richtige, ändere sie im Text. Der Name dieses Geräts steht am Host in der Geräteliste und an deinen Nachrichten. Ein Gast kann mit mehreren Hosts zugleich verbunden sein.',
+  },
 } satisfies Record<string, EntryData>;
 
 export type SettingId = keyof typeof ENTRY_DATA;
@@ -212,9 +274,9 @@ export function settingEntry(id: SettingId): SettingEntry {
 }
 
 /** Die Zeilen, die für diese Einstellungen gelten, in Anzeigereihenfolge. */
-export function shownEntries(settings: Settings): SettingEntry[] {
+export function shownEntries(settings: Settings, facts: ShownFacts): SettingEntry[] {
   return ENTRY_IDS.map((id: SettingId) => settingEntry(id)).filter(
-    (entry: SettingEntry) => entry.isShown === undefined || entry.isShown(settings),
+    (entry: SettingEntry) => entry.isShown === undefined || entry.isShown(settings, facts),
   );
 }
 

@@ -96,6 +96,18 @@ Zur Laufzeit belegt in der echten App mit Tauri 2.12, unter Linux im Dev-Lauf (`
 
 Unter Windows ist das noch nicht gelaufen.
 
+## Verbindung
+
+Was der Vertrag offenlässt, ist so festgelegt:
+
+- Der Host bindet `[::]` und, wo das nur IPv6 ist (Windows), zusätzlich `0.0.0.0`; unter Linux nimmt `[::]` IPv4 als v4-mapped-Adresse an. Standard-Port 47800.
+- Das Zertifikat ist selbst signiert (`rcgen`, ECDSA P-256). Der Gast prüft nur den SHA-256 des Zertifikats und lässt die Signaturen des Handschlags über `ring` prüfen. Die erste Zeile geht erst nach dem Handschlag hinaus, ein falscher Fingerabdruck verbraucht also keine Einladung.
+- Die erste Zeile (`pair`, `hello`) darf höchstens 64 KiB lang sein; erst nach `welcome` gilt die Obergrenze von 64 MiB.
+- Ein falsches Geheimnis zählt als Fehlversuch für jede offene Einladung, denn es sagt nicht, welche gemeint war.
+- Die Warteschlange hält höchstens 16 MiB, auch für eine einzelne Zeile: Eine Zeile über 16 MiB trennt die Verbindung, auf beiden Seiten. Gelesen werden Zeilen bis 64 MiB.
+- Den Abbruch nach 45 s ohne Zeile erkennt ein eigener Wächter je Verbindung, nicht der Schreib-Thread; der kann im Schreiben hängen, wenn der Gast verschwunden ist.
+- Der Gast verbindet nach einem Abbruch von selbst neu (1 s, dann doppelt so lange bis 30 s). Abgelehnt wegen Protokoll, Token oder Sperre, oder bei falschem Fingerabdruck, versucht er es nicht weiter. „Trennen“ ohne „Vergessen“ gilt bis zum nächsten Start der App.
+
 ## Konsequenzen
 
 - „Lokal: kein Server“ gilt nicht mehr uneingeschränkt: Der Host kann auf ausdrücklichen Wunsch im lokalen Netz lauschen.
