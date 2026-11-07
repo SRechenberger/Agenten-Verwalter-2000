@@ -1,17 +1,25 @@
+use std::sync::Arc;
+
 use tauri::AppHandle;
 
 use crate::error::CommandError;
 use crate::implementation::model::{ImplementationView, InquiryCreated, PhaseView, StationView};
 use crate::implementation::{self, announce, changes, now_ms, start};
+use crate::remote::client::RemoteClients;
+use crate::remote::guest;
 use crate::sessions::registry::SessionRegistry;
 
 /// Alle Umsetzungen nicht archivierter Vorhaben, neueste zuerst (ADR 048). `async`, damit die
-/// Datenbank nicht auf dem Haupt-Thread gelesen wird.
+/// Datenbank nicht auf dem Haupt-Thread gelesen wird. Beim Gast kommen die Umsetzungen der Vorhaben
+/// dazu, die er an einem Host hält (ADR 059).
 #[tauri::command]
 pub async fn implementation_list(
     registry: tauri::State<'_, SessionRegistry>,
+    clients: tauri::State<'_, Arc<RemoteClients>>,
 ) -> Result<Vec<ImplementationView>, CommandError> {
-    registry.implementation_views()
+    let mut views = registry.implementation_views()?;
+    views.extend(guest::entries(Arc::clone(&clients), "implementation_list").await?);
+    Ok(views)
 }
 
 /// Der Lagebericht als Text, wie der Agent ihn über `implementation_get` bekommt.

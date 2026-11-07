@@ -272,3 +272,19 @@ fn a_holder_always_implies_shared_whatever_the_order() {
     assert_eq!(control.take(PROJECT, device("a")), Err(Refused::NotShared));
     assert!(!control.has_holder());
 }
+
+#[test]
+fn held_by_lists_only_the_projects_of_that_device_also_while_lost() {
+    let mut control = held_by_a();
+    control.share(OTHER_PROJECT);
+    control
+        .take(OTHER_PROJECT, device("b"))
+        .expect("freigegeben");
+    control.connection_lost("a", 0.0);
+    assert_eq!(control.held_by("a"), HashSet::from([PROJECT.to_owned()]));
+    assert_eq!(
+        control.held_by("b"),
+        HashSet::from([OTHER_PROJECT.to_owned()])
+    );
+    assert!(control.held_by("c").is_empty());
+}

@@ -69,6 +69,15 @@ impl Control {
         self.revoked.contains(device_id)
     }
 
+    /// Die Vorhaben, die dieses Gerät hält, auch während seine Verbindung weg ist.
+    pub fn held_by(&self, device_id: &str) -> HashSet<String> {
+        self.holders
+            .iter()
+            .filter(|(_, holder)| holder.device.id == device_id)
+            .map(|(project_id, _)| project_id.clone())
+            .collect()
+    }
+
     /// Was `ProjectSummary.access` am Host zeigt.
     pub fn access(&self, project_id: &str) -> ProjectAccess {
         if self.is_shared(project_id) {

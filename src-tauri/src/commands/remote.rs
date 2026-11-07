@@ -4,6 +4,7 @@ use crate::db::Database;
 use crate::error::CommandError;
 use crate::projects::model::ProjectSummary;
 use crate::remote::client::RemoteClients;
+use crate::remote::guest;
 use crate::remote::model::{RemoteDevice, RemoteHostStatus, RemoteInvitation, RemoteServerStatus};
 use crate::remote::peer::{INVITATION_TTL, local_addresses};
 use crate::remote::server::RemoteServer;
@@ -106,11 +107,54 @@ pub async fn remote_hosts(
     Ok(clients.hosts())
 }
 
+/// `forget` löscht auch die lokalen Gruppen der Vorhaben, die der Host zuletzt angeboten hat.
 #[tauri::command]
 pub async fn remote_disconnect(
     clients: tauri::State<'_, Arc<RemoteClients>>,
+    database: tauri::State<'_, Arc<Database>>,
     host_id: String,
     forget: bool,
 ) -> Result<(), CommandError> {
-    clients.disconnect(&host_id, forget)
+    let project_ids = clients.project_ids(&host_id);
+    clients.disconnect(&host_id, forget)?;
+    if forget {
+        guest::forget_groups(&database, &project_ids)?;
+    }
+    Ok(())
+}
+
+/// Am Gast: übernimmt ein freigegebenes Vorhaben eines Hosts.
+#[tauri::command]
+pub async fn remote_take(
+    app: tauri::AppHandle,
+    clients: tauri::State<'_, Arc<RemoteClients>>,
+    database: tauri::State<'_, Arc<Database>>,
+    project_id: String,
+) -> Result<ProjectSummary, CommandError> {
+    guest::control(
+        app,
+        Arc::clone(&clients),
+        Arc::clone(&database),
+        "remote_take",
+        project_id,
+    )
+    .await
+}
+
+/// Am Gast: gibt das Vorhaben an den Host zurück; die Freigabe bleibt.
+#[tauri::command]
+pub async fn remote_give_back(
+    app: tauri::AppHandle,
+    clients: tauri::State<'_, Arc<RemoteClients>>,
+    database: tauri::State<'_, Arc<Database>>,
+    project_id: String,
+) -> Result<ProjectSummary, CommandError> {
+    guest::control(
+        app,
+        Arc::clone(&clients),
+        Arc::clone(&database),
+        "remote_give_back",
+        project_id,
+    )
+    .await
 }

@@ -108,10 +108,20 @@ Was der Vertrag offenlässt, ist so festgelegt:
 - Den Abbruch nach 45 s ohne Zeile erkennt ein eigener Wächter je Verbindung, nicht der Schreib-Thread; der kann im Schreiben hängen, wenn der Gast verschwunden ist.
 - Der Gast verbindet nach einem Abbruch von selbst neu (1 s, dann doppelt so lange bis 30 s). Abgelehnt wegen Protokoll, Token oder Sperre, oder bei falschem Fingerabdruck, versucht er es nicht weiter. „Trennen“ ohne „Vergessen“ gilt bis zum nächsten Start der App.
 
+## Übernahme über das Netz
+
+Was der Vertrag offenlässt, ist so festgelegt:
+
+- **Host.** `remote/dispatch.rs` beantwortet jeden Aufruf eines Gastes. `remote_take` und `remote_give_back` ändern das Steuerrecht direkt. `project_list`, `session_list`, `implementation_list` und `session_overlaps` liest der Host aus der Registry statt über `on_message` und filtert sie: freigegebene Vorhaben für jedes Gerät, Sessions, Umsetzungen und Überschneidungen nur für den Inhaber; eine Überschneidung zählt zum Vorhaben ihrer `sessionId`. So führt auch ein Host, der selbst Gast ist, keine Listen eines weiteren Hosts zusammen. Jeder andere Befehl geht durch `access::check` und dann über `Webview::on_message` auf dem Fenster `main`, mit `invoke_key` aus dem Core und der Kopfzeile `x-verwalter-remote`. `terminal_attach` lehnt der Host bis zum Terminal am Gast ab, denn sein Kanal ginge sonst an die Oberfläche des Hosts.
+- **Ereignisse.** Am Host hört `listen_any` die Ereignisse aus dem Vertrag und legt sie in einen eigenen Thread, denn ein `emit` kann unter Sperren der Registry laufen, die die Suche nach dem Vorhaben selbst braucht. Weitergegeben wird nur an einen verbundenen Inhaber, `project://changed` an jedes verbundene Gerät, solange das Vorhaben freigegeben ist. Endet die Freigabe (Ausschalten, Archivieren, Löschen der letzten Session), bekommt jedes verbundene Gerät den Rahmen `access`. Der Gast gibt nur Ereignisse aus dem Vertrag unter ihrem Namen an die Oberfläche; `project://changed` zeigt er als `remote`, `access` wird `remote://changed`.
+- **Frist.** Ein Thread am Host prüft alle fünf Sekunden, ob ein Inhaber seit fünf Minuten keine Verbindung hat.
+- **Weiche.** Der Gast kennt je Host die IDs aus dessen Listen, Antworten und Ereignissen (`id`, `sessionId`, `projectId`, `implementation.id`). Nennt ein Aufruf eine davon, geht er an diesen Host; das gilt für die Klassen A bis E außer `project_set_group`, denn was der Host nie erlaubt, soll er auch ablehnen. Die Listen wartet je Host höchstens fünf Sekunden und nehmen danach, was er zuletzt geschickt hat, mit `online: false`. Der Zwischenspeicher lebt nur im Speicher; „Vergessen“ löscht die Gruppen der Vorhaben, die der Host zuletzt angeboten hat.
+- **Protokoll.** `PROTOCOL` ist 2: Ein Host mit 1 beantwortet keinen Befehl, der Handschlag sagt das jetzt.
+
 ## Konsequenzen
 
 - „Lokal: kein Server“ gilt nicht mehr uneingeschränkt: Der Host kann auf ausdrücklichen Wunsch im lokalen Netz lauschen.
 - Die Klassen sind Teil jedes neuen Commands: Ohne Eintrag wird `cargo test --lib remote::` rot, und `check.yml` führt das auch unter Windows aus.
 - Die Oberfläche des Hosts trägt ab jetzt `ProjectSummary.access`. Alte Daten ohne das Feld gelten als eigenes Vorhaben.
-- Dass der Inhaber nach fünf Minuten abläuft, braucht einen Zeitgeber. Er kommt mit dem Server, denn erst dann kann es einen Inhaber geben.
+- Dass der Inhaber nach fünf Minuten abläuft, braucht einen Zeitgeber; er läuft am Host neben der Weitergabe der Ereignisse.
 - Ein Gast hat über das Terminal und den Agenten eine Shell am Host (E9).

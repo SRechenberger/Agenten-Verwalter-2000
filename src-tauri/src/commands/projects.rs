@@ -1,17 +1,27 @@
+use std::sync::Arc;
+
 use crate::agents::event::{Effort, Mode, ModelId};
+use crate::db::Database;
 use crate::error::CommandError;
 use crate::projects::model::{ProjectCreated, ProjectGroup, ProjectSummary};
+use crate::remote::client::RemoteClients;
+use crate::remote::guest;
 use crate::session_tools::model::SelfRelease;
 use crate::sessions::registry::{NewSession, SessionRegistry};
 use crate::terminal::TerminalService;
 
 // Die Commands sind `async`, damit der Prozessstart nicht auf dem Haupt-Thread läuft.
 
+/// Beim Gast kommen die freigegebenen Vorhaben jedes Hosts dazu (ADR 059).
 #[tauri::command]
 pub async fn project_list(
     registry: tauri::State<'_, SessionRegistry>,
+    clients: tauri::State<'_, Arc<RemoteClients>>,
+    database: tauri::State<'_, Arc<Database>>,
 ) -> Result<Vec<ProjectSummary>, CommandError> {
-    Ok(registry.list_projects())
+    let mut projects = registry.list_projects();
+    projects.extend(guest::projects(Arc::clone(&clients), Arc::clone(&database)).await?);
+    Ok(projects)
 }
 
 // Die Parameter sind die Aufrufform der Oberfläche (`createProject`); zwei davon stellt Tauri selbst.
@@ -131,12 +141,25 @@ pub async fn project_group_set_collapsed(
     registry.set_project_group_collapsed(&app, &id, collapsed)
 }
 
+/// Ein Vorhaben eines Hosts ordnet nur die lokale Tabelle ein, nie der Host (ADR 059).
 #[tauri::command]
 pub async fn project_set_group(
     app: tauri::AppHandle,
     registry: tauri::State<'_, SessionRegistry>,
+    clients: tauri::State<'_, Arc<RemoteClients>>,
+    database: tauri::State<'_, Arc<Database>>,
     project_id: String,
     group_id: Option<String>,
 ) -> Result<(), CommandError> {
-    registry.set_project_group(&app, &project_id, group_id.as_deref())
+    match clients.host_of(&project_id) {
+        Some(host_id) => guest::set_group(
+            &app,
+            &clients,
+            &database,
+            &host_id,
+            &project_id,
+            group_id.as_deref(),
+        ),
+        None => registry.set_project_group(&app, &project_id, group_id.as_deref()),
+    }
 }

@@ -1011,7 +1011,14 @@ impl SessionRegistry {
         }
         self.database
             .with(|connection| project_rows::archive(connection, project_id, now_ms()))?;
-        self.remote.with(|control| control.unshare(project_id));
+        let was_shared = self.remote.with(|control| {
+            let was_shared = control.is_shared(project_id);
+            control.unshare(project_id);
+            was_shared
+        });
+        if was_shared {
+            remote::announce_unshared(app, project_id);
+        }
         {
             let mut sessions = self.lock_sessions();
             for session in &members {
@@ -1348,15 +1355,22 @@ impl SessionRegistry {
             Ok(())
         })?;
         self.lock_sessions().remove(&session.id);
+        let mut was_shared = false;
         if is_last {
             projects.remove(&session.project_id);
-            self.remote
-                .with(|control| control.forget(&session.project_id));
+            was_shared = self.remote.with(|control| {
+                let was_shared = control.is_shared(&session.project_id);
+                control.forget(&session.project_id);
+                was_shared
+            });
         }
         if let Some(access) = app.try_state::<Arc<McpAccess>>() {
             access.forget(&session.id);
         }
         drop(projects);
+        if was_shared {
+            remote::announce_unshared(app, &session.project_id);
+        }
         {
             let mut viewed = self.viewed.lock().unwrap_or_else(PoisonError::into_inner);
             if viewed.as_deref() == Some(session.id.as_str()) {
