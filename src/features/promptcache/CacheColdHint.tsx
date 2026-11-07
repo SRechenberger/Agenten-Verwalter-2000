@@ -10,6 +10,7 @@ import {
   promptCacheState,
 } from '@/features/promptcache/promptCacheState';
 import type { PromptCacheState } from '@/features/promptcache/promptCacheState';
+import { useOperatingMode } from '@/features/remote/useOperatingMode';
 import type { HandoffBrief } from '@/lib/bindings/HandoffBrief';
 import type { PromptCache } from '@/lib/bindings/PromptCache';
 import type { SessionSummary } from '@/lib/bindings/SessionSummary';
@@ -17,7 +18,6 @@ import { commandErrorText } from '@/lib/errors';
 import { modelName } from '@/lib/labels';
 import { createSessionInProject } from '@/lib/sessions';
 import { createHandoffBrief } from '@/lib/tldr';
-import { useSettingsStore } from '@/stores/settings';
 import './CacheColdHint.css';
 
 const ICON_SIZE = 14;
@@ -48,9 +48,7 @@ export function CacheColdHint({
   const [phase, setPhase] = useState<ContinuePhase>('idle');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   // Cache gibt es nur mit der Claude-Kommandozeile und dem Claude-Abo.
-  const hasPromptCache: boolean = useSettingsStore(
-    (state) => (state.settings?.operatingMode ?? 'claude') === 'claude',
-  );
+  const hasPromptCache: boolean = useOperatingMode(session.projectId) === 'claude';
   const now: number = useNow(hasPromptCache && session.promptCache !== null);
   const cache: PromptCache | null = session.promptCache;
   const state: PromptCacheState = promptCacheState(cache, session.model, now);

@@ -5,10 +5,10 @@ import { useNow } from '@/features/background/useNow';
 import { formatThousands } from '@/features/context/formatTokens';
 import { promptCacheState } from '@/features/promptcache/promptCacheState';
 import type { PromptCacheState } from '@/features/promptcache/promptCacheState';
+import { useOperatingMode } from '@/features/remote/useOperatingMode';
 import type { ModelId } from '@/lib/bindings/ModelId';
 import type { SessionSummary } from '@/lib/bindings/SessionSummary';
 import { MODEL_OPTIONS, modelName } from '@/lib/labels';
-import { useSettingsStore } from '@/stores/settings';
 
 interface CacheAwareModelMenuProps {
   session: SessionSummary;
@@ -29,9 +29,7 @@ export function CacheAwareModelMenu({
 }: CacheAwareModelMenuProps): ReactElement {
   // Eine eigene Uhr, die nur läuft, solange das Menü offen ist: die Eingabeleiste rendert nicht jede Sekunde mit.
   const now: number = useNow(true);
-  const hasPromptCache: boolean = useSettingsStore(
-    (state) => (state.settings?.operatingMode ?? 'claude') === 'claude',
-  );
+  const hasPromptCache: boolean = useOperatingMode(session.projectId) === 'claude';
   const state: PromptCacheState = promptCacheState(session.promptCache, session.model, now);
   let warning: ModelMenuWarning | undefined;
   if (hasPromptCache && state.kind === 'warm' && session.promptCache !== null) {

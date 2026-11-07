@@ -146,3 +146,10 @@ export function modeOption(id: Mode): ModeOption {
   }
   return option;
 }
+
+/** Der Name der Betriebsart, wie die Einstellungen ihn zeigen. */
+export function operatingModeLabel(mode: OperatingMode): string {
+  return (
+    OPERATING_MODE_OPTIONS.find((option: OperatingModeOption) => option.id === mode)?.label ?? mode
+  );
+}

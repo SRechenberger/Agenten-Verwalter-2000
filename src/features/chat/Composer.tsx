@@ -22,6 +22,7 @@ import { McpProblemChip } from '@/features/mcp/McpProblemChip';
 import { CacheAwareModelMenu } from '@/features/promptcache/CacheAwareModelMenu';
 import { CacheColdHint } from '@/features/promptcache/CacheColdHint';
 import { LockedComposer } from '@/features/remote/LockedComposer';
+import { useHostProfile, useOperatingMode } from '@/features/remote/useOperatingMode';
 import { useProjectIsRemote, useProjectLock } from '@/features/remote/useProjectAccess';
 import { ReviewCommentList } from '@/features/review/ReviewCommentList';
 import { isQuotaPause } from '@/features/sessions/sessionStatus';
@@ -45,6 +46,7 @@ import {
   localModelLabel,
   modeOption,
   modelName,
+  operatingModeLabel,
   reportedModelName,
 } from '@/lib/labels';
 import type { ModeOption } from '@/lib/labels';
@@ -124,7 +126,7 @@ function ComposerForm({ session, onSessionCreated }: ComposerProps): ReactElemen
   const sideNotice: string | null = useSideStore((state) => state.notices[session.id] ?? null);
   const showView = useSessionsStore((state) => state.showView);
   const startRename = useSessionsStore((state) => state.startRename);
-  const operatingMode = useSettingsStore((state) => state.settings?.operatingMode ?? 'claude');
+  const operatingMode = useOperatingMode(session.projectId);
   const localModel: string | null = useSettingsStore((state) => state.settings?.localModel ?? null);
   const isLocal: boolean = isLocalOperatingMode(operatingMode);
   // Claude in Chrome gibt es nur mit der Claude-Kommandozeile und dem Claude-Abo, und nicht an einem
@@ -134,7 +136,12 @@ function ComposerForm({ session, onSessionCreated }: ComposerProps): ReactElemen
   // Codex nutzt seine eigenen MCP-Server aus `~/.codex/config.toml`; die Hinweise gelten nur für die der Claude-Kommandozeile.
   const hasMcp: boolean = operatingMode !== 'codex';
   const isCodex: boolean = operatingMode === 'codex';
-  const codexModels = useCodexModels(isCodex);
+  // Die Modelle von Codex stehen auf dem Host: Bei seinem Vorhaben gilt sein Profil, nicht die Kommandozeile hier.
+  const hostProfile = useHostProfile(session.projectId);
+  const ownCodexModels = useCodexModels(isCodex && !isRemote);
+  const codexModels = {
+    models: isRemote ? (hostProfile?.codexModels ?? null) : ownCodexModels.models,
+  };
   const codexList: readonly CodexModel[] = codexModels.models?.models ?? NO_CODEX_MODELS;
   const sessionCodexModel: CodexModel | null = selectedCodexModel(codexList, session.codexModel);
 
@@ -480,6 +487,11 @@ function ComposerForm({ session, onSessionCreated }: ComposerProps): ReactElemen
                 />
               )}
             </div>
+          )}
+          {isRemote && (
+            <span className="composer__host-mode" title="Betriebsart des Hosts">
+              {operatingModeLabel(operatingMode)} · Host
+            </span>
           )}
           {hasBrowser && (
             <button

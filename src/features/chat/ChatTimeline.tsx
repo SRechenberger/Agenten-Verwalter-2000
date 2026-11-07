@@ -48,9 +48,9 @@ import { commandErrorText } from '@/lib/errors';
 import { useArtifactsStore } from '@/stores/artifacts';
 import { useSessionErrorsStore } from '@/stores/sessionErrors';
 import { lockNote } from '@/features/remote/projectAccess';
-import { useProjectLock } from '@/features/remote/useProjectAccess';
+import { useOperatingMode } from '@/features/remote/useOperatingMode';
+import { useProjectIsRemote, useProjectLock } from '@/features/remote/useProjectAccess';
 import { useSessionsStore } from '@/stores/sessions';
-import { useSettingsStore } from '@/stores/settings';
 import './ChatTimeline.css';
 
 const ESTIMATED_BLOCK_HEIGHT = 40;
@@ -130,14 +130,14 @@ export function ChatTimeline({
   );
   const [sendingIds, setSendingIds] = useState<ReadonlySet<string>>(() => new Set<string>());
   const [selectionMenu, setSelectionMenu] = useState<SelectionMenuState | null>(null);
-  const operatingMode: OperatingMode = useSettingsStore(
-    (state) => state.settings?.operatingMode ?? 'claude',
-  );
+  const operatingMode: OperatingMode = useOperatingMode(session.projectId);
   const isClaude: boolean = operatingMode === 'claude';
   const reportSessionError = useSessionErrorsStore((state) => state.report);
   const clearSessionError = useSessionErrorsStore((state) => state.clear);
   // Solange ein Gast steuert oder der Host fehlt, bleiben Rückfragen sichtbar, aber unbeantwortbar.
   const lock = useProjectLock(session.projectId);
+  // Ein Dateiverweis öffnete die Datei am Bildschirm des Hosts: Bei dessen Vorhaben bleibt der Pfad Text.
+  const isRemote: boolean = useProjectIsRemote(session.projectId);
   const isLocked: boolean = lock !== null;
   const scrollRef = useRef<HTMLDivElement>(null);
   const stickToBottomRef = useRef<boolean>(true);
@@ -179,8 +179,11 @@ export function ChatTimeline({
     [entries],
   );
   const answerSeq: number | null = useMemo(() => lastAnswerSeq(entries), [entries]);
+  // „In neuem Vorhaben starten“ legte ein Vorhaben auf diesem Gerät an, nicht auf dem Host der Session.
   const showsHandoff: boolean =
-    session.handoffLines.length > 0 && !HANDOFF_HIDDEN_STATUSES.includes(session.status);
+    session.handoffLines.length > 0 &&
+    !HANDOFF_HIDDEN_STATUSES.includes(session.status) &&
+    !isRemote;
   const workingLabel: string = useMemo(() => findActiveTodoLabel(entries), [entries]);
   const oldestOpenQuestion: QuestionEntry | null = useMemo(
     () => findOldestOpenQuestion(entries),
@@ -421,6 +424,7 @@ export function ChatTimeline({
             attachments={entry.attachments}
             skill={entry.skill}
             comments={entry.comments}
+            origin={entry.origin}
           />
         );
       case 'text':
@@ -586,7 +590,7 @@ export function ChatTimeline({
             {olderError}
           </p>
         )}
-        <FileLinkSessionContext.Provider value={session.id}>
+        <FileLinkSessionContext.Provider value={isRemote ? null : session.id}>
           <div
             className="chat-timeline__surface"
             style={{ height: `${String(Math.max(totalSize, containerHeight))}px` }}

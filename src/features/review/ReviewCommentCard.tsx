@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ChangeEvent, KeyboardEvent, ReactElement } from 'react';
-import { convertFileSrc } from '@tauri-apps/api/core';
+import { useAssetUrl } from '@/features/remote/assetUrl';
 import { kindLabel, whereLabel } from '@/features/review/reviewLabels';
 import type { CommentTarget } from '@/lib/bindings/CommentTarget';
 import type { DiffLineKind } from '@/lib/bindings/DiffLineKind';
@@ -11,6 +11,8 @@ import './ReviewCommentCard.css';
 
 interface ReviewCommentCardProps {
   comment: ReviewComment;
+  /** Die Session der gesendeten Nachricht: Das Bild eines Kommentars liegt dann beim Host der Session. Fehlt sie, liegt es auf diesem Gerät. */
+  sessionId?: string | undefined;
   /** Fehlt in der gesendeten Nachricht: dort gibt es weder Stift noch Bearbeiten. */
   onEdit?: (text: string) => void;
   onRemove?: () => void;
@@ -18,6 +20,7 @@ interface ReviewCommentCardProps {
 
 export function ReviewCommentCard({
   comment,
+  sessionId,
   onEdit,
   onRemove,
 }: ReviewCommentCardProps): ReactElement {
@@ -30,6 +33,8 @@ export function ReviewCommentCard({
   );
   const where: string = whereLabel(comment);
   const kind: string = kindLabel(comment.target);
+  const imagePath: string = comment.target.kind === 'image' ? comment.target.path : '';
+  const imageSrc: string = useAssetUrl(imagePath, sessionId ?? '', sessionId !== undefined);
   const isEmpty: boolean = editText.trim() === '';
 
   useEffect(() => {
@@ -128,7 +133,7 @@ export function ReviewCommentCard({
                 height: `${String(imageHeight)}px`,
               }}
             >
-              <img src={convertFileSrc(target.path)} alt="" />
+              <img src={imageSrc} alt="" />
               <span
                 className="review-card__crop-frame"
                 style={{

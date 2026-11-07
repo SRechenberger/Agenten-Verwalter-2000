@@ -5,6 +5,7 @@ import { abortLabel, FAILURE, LOCKED_TITLE, NO_STASH_TEXT } from '@/features/git
 import { GitBranchPickList } from '@/features/git/GitBranchPickList';
 import { FetchIcon } from '@/features/git/GitIcons';
 import { useGitActions } from '@/features/git/useGitActions';
+import { useSessionIsRemote } from '@/features/remote/useProjectAccess';
 import type { GitBranch } from '@/lib/bindings/GitBranch';
 import type { GitEntryStatus } from '@/lib/bindings/GitEntryStatus';
 import {
@@ -51,6 +52,8 @@ export function GitMoreMenu({
   const [view, setView] = useState<MenuView>('main');
   const [stashes, setStashes] = useState<string[] | null>(null);
   const { run, isLocked: isProjectLocked } = useGitActions(sessionId, onChanged);
+  // Explorer und VS Code gingen am Bildschirm des Hosts auf, nicht an diesem.
+  const isRemote: boolean = useSessionIsRemote(sessionId);
   const { key } = entry;
 
   useEffect(() => {
@@ -160,13 +163,17 @@ export function GitMoreMenu({
         {renderItem('Branch löschen …', (): void => {
           setView('delete');
         })}
-        <hr className="git-menu__divider" />
-        {renderItem('Im Explorer öffnen', (): void => {
-          runAndClose(() => gitOpen(sessionId, key, 'explorer'), FAILURE.open);
-        })}
-        {renderItem('In VS Code öffnen', (): void => {
-          runAndClose(() => gitOpen(sessionId, key, 'vsCode'), FAILURE.open);
-        })}
+        {!isRemote && (
+          <>
+            <hr className="git-menu__divider" />
+            {renderItem('Im Explorer öffnen', (): void => {
+              runAndClose(() => gitOpen(sessionId, key, 'explorer'), FAILURE.open);
+            })}
+            {renderItem('In VS Code öffnen', (): void => {
+              runAndClose(() => gitOpen(sessionId, key, 'vsCode'), FAILURE.open);
+            })}
+          </>
+        )}
       </>
     );
   }

@@ -15,7 +15,7 @@ import {
 } from '@/features/projects/projectStatus';
 import { isLocked, isRemote, LOCKED_TITLE } from '@/features/remote/projectAccess';
 import { displayStatus } from '@/features/sessions/sessionStatus';
-import { UsageButton } from '@/features/usage/UsageButton';
+import { UsageSection } from '@/features/usage/UsageSection';
 import type { ImplementationView } from '@/lib/bindings/ImplementationView';
 import type { ProjectGroup } from '@/lib/bindings/ProjectGroup';
 import type { ProjectSummary } from '@/lib/bindings/ProjectSummary';
@@ -684,7 +684,7 @@ export function Sidebar({
         </div>
       )}
       <div className="sidebar__footer">
-        {hasUsage && <UsageButton />}
+        <UsageSection hasOwn={hasUsage} />
         <button type="button" className="sidebar__archive" onClick={onOpenArchive}>
           <svg
             width="14"

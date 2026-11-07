@@ -6,6 +6,8 @@ import './ArtifactOtherCard.css';
 
 interface ArtifactOtherCardProps {
   item: Artifact;
+  /** `false` bei einem Artefakt eines Hosts: Es gibt dort weder ein Standardprogramm noch einen Dateimanager für dieses Gerät. */
+  canOpen: boolean;
   onOpen: () => void;
   onReveal: () => void;
 }
@@ -14,6 +16,7 @@ interface ArtifactOtherCardProps {
  *  der Datei — der läuft ausschließlich im abgeschotteten Rahmen. */
 export function ArtifactOtherCard({
   item,
+  canOpen,
   onOpen,
   onReveal,
 }: ArtifactOtherCardProps): ReactElement {
@@ -28,14 +31,16 @@ export function ArtifactOtherCard({
         <p className="artifact-other-card__file">{item.file}</p>
         <p className="artifact-other-card__facts">{facts.join(' · ')}</p>
         <p className="artifact-other-card__hint">Für diesen Typ gibt es hier noch keine Ansicht.</p>
-        <div className="artifact-other-card__actions">
-          <button type="button" className="artifact-other-card__button" onClick={onOpen}>
-            {openLabel(item.kind)}
-          </button>
-          <button type="button" className="artifact-other-card__button" onClick={onReveal}>
-            Im Explorer zeigen
-          </button>
-        </div>
+        {canOpen && (
+          <div className="artifact-other-card__actions">
+            <button type="button" className="artifact-other-card__button" onClick={onOpen}>
+              {openLabel(item.kind)}
+            </button>
+            <button type="button" className="artifact-other-card__button" onClick={onReveal}>
+              Im Explorer zeigen
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );

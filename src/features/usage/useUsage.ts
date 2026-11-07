@@ -1,23 +1,32 @@
 import { useEffect, useRef, useState } from 'react';
 import type { UnlistenFn } from '@tauri-apps/api/event';
 import type { UsageStatus } from '@/lib/bindings/UsageStatus';
-import { loadUsage, onUsageChanged, refreshUsage } from '@/lib/usage';
+import type { UsageSource } from '@/lib/usage';
 
 const REFRESH_INTERVAL_MS = 300_000;
 
-function requestRefresh(force: boolean): void {
-  refreshUsage(force).catch((reason: unknown) => {
+function requestRefresh(source: UsageSource, force: boolean): void {
+  source.refresh(force).catch((reason: unknown) => {
     console.error('Kontingent nicht abrufbar', reason);
   });
 }
 
-/** Das Kontingent des Abos: beim Einhängen geladen und angefragt, bei jedem `usage://changed`
- *  nachgeladen, beim Öffnen des Fensters und alle 5 Minuten neu angefragt (nur bei sichtbarem Fenster). */
-export function useUsage(isOpen: boolean): UsageStatus | null {
+/** Das Kontingent einer Quelle (das eigene Abo oder das eines Hosts): beim Einhängen geladen und
+ *  angefragt, bei jeder Änderung der Quelle nachgeladen, beim Öffnen des Fensters und alle 5 Minuten
+ *  neu angefragt (nur bei sichtbarem Fenster). `source` muss zwischen den Renderings gleich bleiben;
+ *  `isEnabled` ist `false`, solange die Quelle nicht antworten kann (ein Host ohne Verbindung). */
+export function useUsage(
+  source: UsageSource,
+  isOpen: boolean,
+  isEnabled: boolean = true,
+): UsageStatus | null {
   const [status, setStatus] = useState<UsageStatus | null>(null);
   const requestRef = useRef<number>(0);
 
   useEffect(() => {
+    if (!isEnabled) {
+      return undefined;
+    }
     const controller = new AbortController();
     let unlisten: UnlistenFn | null = null;
 
@@ -25,7 +34,8 @@ export function useUsage(isOpen: boolean): UsageStatus | null {
     function load(): void {
       requestRef.current += 1;
       const request: number = requestRef.current;
-      loadUsage()
+      source
+        .load()
         .then((loaded: UsageStatus) => {
           if (!controller.signal.aborted && requestRef.current === request) {
             setStatus(loaded);
@@ -37,7 +47,8 @@ export function useUsage(isOpen: boolean): UsageStatus | null {
     }
 
     // Erst abonnieren, dann anfragen: das Ende des Abrufs käme sonst womöglich vor dem Abo.
-    onUsageChanged(load)
+    source
+      .onChanged(load)
       .then((stop: UnlistenFn) => {
         if (controller.signal.aborted) {
           stop();
@@ -45,7 +56,7 @@ export function useUsage(isOpen: boolean): UsageStatus | null {
         }
         unlisten = stop;
         load();
-        requestRefresh(false);
+        requestRefresh(source, false);
       })
       .catch((reason: unknown) => {
         console.error('Kontingent-Ereignisse nicht abonnierbar', reason);
@@ -57,24 +68,27 @@ export function useUsage(isOpen: boolean): UsageStatus | null {
         unlisten();
       }
     };
-  }, []);
+  }, [source, isEnabled]);
 
   useEffect(() => {
+    if (!isEnabled) {
+      return undefined;
+    }
     const timer: number = window.setInterval(() => {
       if (document.visibilityState === 'visible') {
-        requestRefresh(false);
+        requestRefresh(source, false);
       }
     }, REFRESH_INTERVAL_MS);
     return (): void => {
       window.clearInterval(timer);
     };
-  }, []);
+  }, [source, isEnabled]);
 
   useEffect(() => {
-    if (isOpen) {
-      requestRefresh(false);
+    if (isOpen && isEnabled) {
+      requestRefresh(source, false);
     }
-  }, [isOpen]);
+  }, [source, isOpen, isEnabled]);
 
   return status;
 }

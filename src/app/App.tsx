@@ -26,9 +26,11 @@ import { ProjectOverview } from '@/features/projects/ProjectOverview';
 import { sessionsOf } from '@/features/projects/projectStatus';
 import { useProjectGroups } from '@/features/projects/useProjectGroups';
 import { useProjectSummaries } from '@/features/projects/useProjectSummaries';
+import { CloseGuard } from '@/features/remote/CloseGuard';
 import { RemoteBanner } from '@/features/remote/RemoteBanner';
 import { RemoteOffer } from '@/features/remote/RemoteOffer';
 import { ShareEnded } from '@/features/remote/ShareEnded';
+import { useOperatingMode } from '@/features/remote/useOperatingMode';
 import { useProjectAccessSync } from '@/features/remote/useProjectAccess';
 import {
   useEndedShares,
@@ -128,9 +130,6 @@ export function App(): ReactElement {
     reload: reloadSettings,
   } = useSettings();
   // Kontingent-Warnungen kommen nur von der Claude-Kommandozeile mit dem Claude-Abo.
-  const operatingMode: OperatingMode = useSettingsStore(
-    (state) => state.settings?.operatingMode ?? 'claude',
-  );
   const isClaude: boolean = useSettingsStore(
     (state) => (state.settings?.operatingMode ?? 'claude') === 'claude',
   );
@@ -407,6 +406,8 @@ export function App(): ReactElement {
   // Tastatur liegt das Semikolon auf Umschalt+Komma: `shiftKey` darf die Abfrage nicht ausschließen.
   const chatSessionId: string | null =
     visibleSession !== null && !isChangesView && !isArtifactsView ? visibleSession.id : null;
+  // Die Nebenfrage fragt die Betriebsart ab, in der die Session läuft: bei einem Host die seine.
+  const chatOperatingMode: OperatingMode = useOperatingMode(visibleSession?.projectId ?? null);
   useEffect(() => {
     if (chatSessionId === null) {
       return undefined;
@@ -414,14 +415,14 @@ export function App(): ReactElement {
     function handleKeyDown(event: KeyboardEvent): void {
       if (event.ctrlKey && !event.altKey && event.key === ';' && chatSessionId !== null) {
         event.preventDefault();
-        openSide(chatSessionId, operatingMode);
+        openSide(chatSessionId, chatOperatingMode);
       }
     }
     window.addEventListener('keydown', handleKeyDown);
     return (): void => {
       window.removeEventListener('keydown', handleKeyDown);
     };
-  }, [chatSessionId, operatingMode]);
+  }, [chatSessionId, chatOperatingMode]);
 
   // Der Core sendet für den Anfangsstatus keine Änderung — die Rückgabe von `createProject` muss selbst in die Liste.
   function handleCreated(created: ProjectCreated): void {
@@ -704,6 +705,7 @@ export function App(): ReactElement {
 
   return (
     <div className="app">
+      <CloseGuard />
       <Sidebar
         width={sidebarWidth.width}
         projects={projects}

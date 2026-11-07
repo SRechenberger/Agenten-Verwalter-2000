@@ -171,3 +171,29 @@ export function remoteMeta(
       return { text: base === null ? access.hostName : `${access.hostName} · ${base}`, tone: null };
   }
 }
+
+/** Ein Gast, der mit diesem Host verbunden ist, samt dem Vorhaben, das er gerade steuert. */
+export interface ConnectedGuest {
+  name: string;
+  /** Der Name des Vorhabens, das der Gast hält; `null`, wenn er keins hält. */
+  projectName: string | null;
+}
+
+/** Die verbundenen Gäste des Hosts: jedes Gerät, das online ist; zu jedem das Vorhaben, das es hält. */
+export function connectedGuests(
+  devices: readonly RemoteDevice[],
+  access: Readonly<Record<string, ProjectAccess>>,
+  names: Readonly<Record<string, string>>,
+): ConnectedGuest[] {
+  return devices
+    .filter((device: RemoteDevice) => device.online)
+    .map((device: RemoteDevice): ConnectedGuest => {
+      const projectId: string | undefined = Object.keys(access).find(
+        (id: string) => holderOf(access[id] ?? OWN_ACCESS)?.id === device.id,
+      );
+      return {
+        name: device.name,
+        projectName: projectId === undefined ? null : (names[projectId] ?? null),
+      };
+    });
+}

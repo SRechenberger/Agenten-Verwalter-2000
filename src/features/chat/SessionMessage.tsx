@@ -37,7 +37,14 @@ export function SessionMessage({
       ) : (
         <span className="session-message__from">{from}</span>
       )}
-      <UserMessage sessionId={sessionId} text={text} attachments={[]} skill={null} comments={[]} />
+      <UserMessage
+        sessionId={sessionId}
+        text={text}
+        attachments={[]}
+        skill={null}
+        comments={[]}
+        origin={null}
+      />
     </div>
   );
 }

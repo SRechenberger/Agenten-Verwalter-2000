@@ -1,6 +1,7 @@
 import type { ReactElement } from 'react';
 import { abortLabel, FAILURE, LOCKED_TITLE, operationText } from '@/features/git/gitTexts';
 import { useGitActions } from '@/features/git/useGitActions';
+import { useSessionIsRemote } from '@/features/remote/useProjectAccess';
 import type { GitEntryStatus } from '@/lib/bindings/GitEntryStatus';
 import { gitAbortOperation, gitOpen } from '@/lib/git';
 import './GitOperationRow.css';
@@ -21,6 +22,8 @@ export function GitOperationRow({
   onChanged,
 }: GitOperationRowProps): ReactElement {
   const { run, isRunning } = useGitActions(sessionId, onChanged);
+  // VS Code ginge am Bildschirm des Hosts auf, nicht an diesem.
+  const isRemote: boolean = useSessionIsRemote(sessionId);
 
   function abort(): void {
     run(() => gitAbortOperation(sessionId, entry.key), FAILURE.abort).catch(() => undefined);
@@ -49,14 +52,16 @@ export function GitOperationRow({
       <div className="git-operation-row__text">
         {operationText(entry.operation, entry.conflicted.length)}
       </div>
-      <button
-        type="button"
-        className="git-operation-row__open"
-        disabled={isRunning}
-        onClick={openInVsCode}
-      >
-        In VS Code öffnen
-      </button>
+      {!isRemote && (
+        <button
+          type="button"
+          className="git-operation-row__open"
+          disabled={isRunning}
+          onClick={openInVsCode}
+        >
+          In VS Code öffnen
+        </button>
+      )}
       <button
         type="button"
         className="git-operation-row__abort"
