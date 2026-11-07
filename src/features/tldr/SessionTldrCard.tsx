@@ -11,6 +11,7 @@ import type { SessionSummary } from '@/lib/bindings/SessionSummary';
 import type { SessionTldr } from '@/lib/bindings/SessionTldr';
 import type { SessionTldrView } from '@/lib/bindings/SessionTldrView';
 import { commandErrorText } from '@/lib/errors';
+import { useSessionLocked } from '@/features/remote/useProjectAccess';
 import { createSessionTldr } from '@/lib/tldr';
 import { useTldrStore } from '@/stores/tldr';
 import './SessionTldrCard.css';
@@ -38,6 +39,7 @@ export function SessionTldrCard({
   entryCount,
 }: SessionTldrCardProps): ReactElement | null {
   const [actionError, setActionError] = useState<string | null>(null);
+  const isLocked: boolean = useSessionLocked(session.id);
   const isCollapsed: boolean = useTldrStore((state) => state.collapsed[session.id] ?? false);
   const toggleCollapsed = useTldrStore((state) => state.toggleCollapsed);
   const { view, error: loadError } = useSessionTldr(session.id);
@@ -62,7 +64,7 @@ export function SessionTldrCard({
     if (tldr === null) {
       if (!current.isRunning) {
         return (
-          <TldrEmptyBar text={EMPTY_TEXT} hint={EMPTY_HINT} disabled={false} onCreate={create} />
+          <TldrEmptyBar text={EMPTY_TEXT} hint={EMPTY_HINT} disabled={isLocked} onCreate={create} />
         );
       }
       return (
@@ -108,7 +110,7 @@ export function SessionTldrCard({
     }
     if (newEntryCount(current, entryCount) > 0) {
       return (
-        <TldrButton variant="compact" onClick={create}>
+        <TldrButton variant="compact" disabled={isLocked} onClick={create}>
           <TldrIcon name="refresh" size={12} />
           Aktualisieren
         </TldrButton>
@@ -119,6 +121,7 @@ export function SessionTldrCard({
         variant="icon"
         ariaLabel="TL;DR neu erstellen"
         title="TL;DR neu erstellen"
+        disabled={isLocked}
         onClick={create}
       >
         <TldrIcon name="refresh" size={13} />

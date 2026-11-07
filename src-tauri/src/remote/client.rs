@@ -1,7 +1,7 @@
 //! Die Verbindungen des Gastes (ADR 059): je Host eine, gespeichert in
 //! `~/.verwalter/remote/hosts.json` (unter Linux 0600). Bricht eine ab, verbindet ein eigener Thread
 //! je Host von selbst neu, bis der Host das Gerät ablehnt oder der Nutzer trennt.
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs;
 use std::io::{self, Write};
 use std::net::{Shutdown, TcpStream, ToSocketAddrs};
@@ -58,6 +58,25 @@ pub struct ClientHooks {
 
 type Pending = HashMap<u64, mpsc::Sender<Result<Value, CommandError>>>;
 
+/// Was ein Host über sich sagt, so wie der Gast seine Vorhaben anzeigt.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HostInfo {
+    pub host_id: String,
+    pub host_name: String,
+    /// Die ID, unter der dieser Gast am Host gekoppelt ist.
+    pub device_id: String,
+    pub online: bool,
+}
+
+/// Was der Gast zuletzt von einem Host gelesen hat: die Listen für einen Host, der gerade weg ist,
+/// und die IDs, über die die Weiche Aufrufe zu ihm führt. Nur im Speicher.
+#[derive(Debug, Default)]
+struct HostCache {
+    /// Je Command aus Klasse F die Einträge der letzten Antwort.
+    lists: HashMap<String, Vec<Value>>,
+    ids: HashSet<String>,
+}
+
 /// Unterbricht das Warten vor dem nächsten Versuch.
 #[derive(Default)]
 struct StopSignal {
@@ -92,6 +111,7 @@ struct HostSlot {
     pending: Mutex<Pending>,
     error: Mutex<Option<String>>,
     stop: StopSignal,
+    cache: Mutex<HostCache>,
 }
 
 impl HostSlot {
@@ -102,6 +122,23 @@ impl HostSlot {
             pending: Mutex::new(HashMap::new()),
             error: Mutex::new(None),
             stop: StopSignal::default(),
+            cache: Mutex::new(HostCache::default()),
+        }
+    }
+
+    fn is_online(&self) -> bool {
+        lock(&self.link)
+            .as_ref()
+            .is_some_and(|link: &Link| !link.is_closed())
+    }
+
+    fn info(&self) -> HostInfo {
+        let saved = lock(&self.saved).clone();
+        HostInfo {
+            host_id: saved.host_id,
+            host_name: saved.host_name,
+            device_id: saved.device_id,
+            online: self.is_online(),
         }
     }
 
@@ -112,9 +149,7 @@ impl HostSlot {
             host_name: saved.host_name,
             address: saved.address,
             fingerprint: saved.fingerprint,
-            online: lock(&self.link)
-                .as_ref()
-                .is_some_and(|link: &Link| !link.is_closed()),
+            online: self.is_online(),
             error: lock(&self.error).clone(),
         }
     }
@@ -265,12 +300,21 @@ impl RemoteClients {
     }
 
     /// Ruft `command` am Host auf und wartet auf das Ergebnis. Ohne Verbindung oder wenn sie
-    /// währenddessen abbricht: `CommandError::HostUnreachable`.
+    /// währenddessen abbricht: `CommandError::HostUnreachable`. Jede ID in der Antwort führt danach
+    /// zu diesem Host.
     pub fn call(&self, host_id: &str, command: &str, args: Value) -> Result<Value, CommandError> {
-        let slot = lock(&self.shared.hosts)
-            .get(host_id)
-            .cloned()
-            .ok_or_else(|| unknown_host(host_id))?;
+        self.call_within(host_id, command, args, None)
+    }
+
+    /// Wie `call`; nach `limit` ohne Antwort gilt der Host als nicht erreichbar.
+    pub fn call_within(
+        &self,
+        host_id: &str,
+        command: &str,
+        args: Value,
+        limit: Option<Duration>,
+    ) -> Result<Value, CommandError> {
+        let slot = self.slot(host_id)?;
         let link = lock(&slot.link).clone().ok_or_else(|| slot.unreachable())?;
         let id = self.shared.next_call.fetch_add(1, Ordering::SeqCst);
         let (sender, receiver) = mpsc::channel();
@@ -284,7 +328,188 @@ impl RemoteClients {
             lock(&slot.pending).remove(&id);
             return Err(slot.unreachable());
         }
-        receiver.recv().unwrap_or_else(|_| Err(slot.unreachable()))
+        let outcome = match limit {
+            Some(limit) => receiver.recv_timeout(limit).map_err(|_| ()),
+            None => receiver.recv().map_err(|_| ()),
+        };
+        // Nach Ablauf der Frist kommt die Antwort ins Leere.
+        lock(&slot.pending).remove(&id);
+        let value = outcome.unwrap_or_else(|()| Err(slot.unreachable()))?;
+        learn_ids(&mut lock(&slot.cache).ids, &value);
+        Ok(value)
+    }
+
+    /// Die Einträge eines Commands aus Klasse F (`project_list`, `session_list`, …) von jedem
+    /// Host; gefiltert hat der Host. Antwortet einer nicht binnen `limit`, gelten seine zuletzt
+    /// gelesenen Einträge, und er steht als nicht erreichbar in der Antwort.
+    pub fn lists(&self, command: &str, limit: Duration) -> Vec<(HostInfo, Vec<Value>)> {
+        let slots: Vec<Arc<HostSlot>> = lock(&self.shared.hosts).values().cloned().collect();
+        // Je Host ein Thread: Ein Host, der hängt, hält die übrigen nicht auf.
+        thread::scope(|scope| {
+            let running: Vec<_> = slots
+                .iter()
+                .map(|slot: &Arc<HostSlot>| scope.spawn(move || self.list_of(slot, command, limit)))
+                .collect();
+            running
+                .into_iter()
+                .filter_map(|handle| handle.join().ok())
+                .collect()
+        })
+    }
+
+    fn list_of(&self, slot: &HostSlot, command: &str, limit: Duration) -> (HostInfo, Vec<Value>) {
+        let mut info = slot.info();
+        let fresh = if info.online {
+            self.call_within(&info.host_id, command, Value::Null, Some(limit))
+        } else {
+            Err(slot.unreachable())
+        };
+        let mut cache = lock(&slot.cache);
+        match fresh {
+            Ok(Value::Array(items)) => {
+                cache.lists.insert(command.to_owned(), items.clone());
+                (info, items)
+            }
+            _ => {
+                info.online = false;
+                (info, cache.lists.get(command).cloned().unwrap_or_default())
+            }
+        }
+    }
+
+    /// Der Host, zu dem die ID gehört; `None` für eine eigene oder unbekannte.
+    pub fn host_of(&self, id: &str) -> Option<String> {
+        lock(&self.shared.hosts)
+            .iter()
+            .find(|(_, slot)| lock(&slot.cache).ids.contains(id))
+            .map(|(host_id, _)| host_id.clone())
+    }
+
+    pub fn host_info(&self, host_id: &str) -> Option<HostInfo> {
+        lock(&self.shared.hosts)
+            .get(host_id)
+            .map(|slot: &Arc<HostSlot>| slot.info())
+    }
+
+    /// Merkt die IDs aus einem Ereignis oder einer Antwort des Hosts.
+    pub fn learn(&self, host_id: &str, value: &Value) {
+        if let Some(slot) = lock(&self.shared.hosts).get(host_id) {
+            learn_ids(&mut lock(&slot.cache).ids, value);
+        }
+    }
+
+    /// Ein Eintrag, wie der Host ihn zuletzt gemeldet hat (`project://changed`, `session://changed`,
+    /// `implementation://changed`, die Antwort von `remote_take` oder `session_create_in_project`),
+    /// ersetzt oder ergänzt den Eintrag mit derselben `id` in der Liste `command`; so stimmen
+    /// Vorhaben, Sessions und Umsetzungen auch, wenn der Host weg ist.
+    pub fn remember(&self, host_id: &str, command: &str, item: &Value) {
+        let Some(slot) = lock(&self.shared.hosts).get(host_id).cloned() else {
+            return;
+        };
+        let mut cache = lock(&slot.cache);
+        replace_or_push(cache.lists.entry(command.to_owned()).or_default(), item);
+    }
+
+    /// Die verbundenen Hosts.
+    pub fn online_host_ids(&self) -> Vec<String> {
+        lock(&self.shared.hosts)
+            .iter()
+            .filter(|(_, slot)| slot.is_online())
+            .map(|(host_id, _)| host_id.clone())
+            .collect()
+    }
+
+    /// Die Freigabe ist zu Ende (Rahmen `access`): Das Vorhaben und seine Sessions, Umsetzungen und
+    /// Überschneidungen verschwinden aus dem Zwischenspeicher.
+    pub fn drop_project(&self, host_id: &str, project_id: &str) {
+        let Some(slot) = lock(&self.shared.hosts).get(host_id).cloned() else {
+            return;
+        };
+        let mut cache = lock(&slot.cache);
+        if let Some(items) = cache.lists.get_mut("project_list") {
+            items.retain(|item: &Value| item.get("id").and_then(Value::as_str) != Some(project_id));
+        }
+        let mut dropped: HashSet<String> = HashSet::new();
+        for command in ["session_list", "implementation_list"] {
+            if let Some(items) = cache.lists.get_mut(command) {
+                items.retain(|item: &Value| {
+                    let inside = item.get("projectId").and_then(Value::as_str) == Some(project_id);
+                    if inside && let Some(id) = item.get("id").and_then(Value::as_str) {
+                        dropped.insert(id.to_owned());
+                    }
+                    !inside
+                });
+            }
+        }
+        if let Some(items) = cache.lists.get_mut("session_overlaps") {
+            items.retain(|item: &Value| {
+                item.get("sessionId")
+                    .and_then(Value::as_str)
+                    .is_none_or(|session_id: &str| !dropped.contains(session_id))
+            });
+        }
+    }
+
+    /// Die zuletzt gelesenen Einträge eines Commands aus Klasse F von diesem Host.
+    pub fn cached(&self, command: &str, host_id: &str) -> Vec<Value> {
+        lock(&self.shared.hosts)
+            .get(host_id)
+            .and_then(|slot: &Arc<HostSlot>| lock(&slot.cache).lists.get(command).cloned())
+            .unwrap_or_default()
+    }
+
+    /// Die Vorhaben, die der Host zuletzt angeboten hat.
+    pub fn project_ids(&self, host_id: &str) -> Vec<String> {
+        self.cached("project_list", host_id)
+            .iter()
+            .filter_map(|item: &Value| item.get("id").and_then(Value::as_str))
+            .map(str::to_owned)
+            .collect()
+    }
+
+    fn slot(&self, host_id: &str) -> Result<Arc<HostSlot>, CommandError> {
+        lock(&self.shared.hosts)
+            .get(host_id)
+            .cloned()
+            .ok_or_else(|| unknown_host(host_id))
+    }
+}
+
+/// Ersetzt den Eintrag mit derselben `id` oder hängt `item` an; ohne `id` bleibt die Liste, wie sie
+/// ist.
+fn replace_or_push(items: &mut Vec<Value>, item: &Value) {
+    let Some(id) = item.get("id").and_then(Value::as_str) else {
+        return;
+    };
+    match items
+        .iter_mut()
+        .find(|entry: &&mut Value| entry.get("id").and_then(Value::as_str) == Some(id))
+    {
+        Some(entry) => *entry = item.clone(),
+        None => items.push(item.clone()),
+    }
+}
+
+/// Jede ID, unter der der Gast ein Objekt des Hosts anspricht: `id`, `sessionId`, `projectId`,
+/// auch in Listen und eine Ebene tiefer (`implementation://changed`).
+fn learn_ids(ids: &mut HashSet<String>, value: &Value) {
+    match value {
+        Value::Array(items) => {
+            for item in items {
+                learn_ids(ids, item);
+            }
+        }
+        Value::Object(fields) => {
+            for key in ["id", "sessionId", "projectId"] {
+                if let Some(id) = fields.get(key).and_then(Value::as_str) {
+                    ids.insert(id.to_owned());
+                }
+            }
+            if let Some(nested @ Value::Object(_)) = fields.get("implementation") {
+                learn_ids(ids, nested);
+            }
+        }
+        _ => {}
     }
 }
 
@@ -562,3 +787,6 @@ fn attach(
     (shared.hooks.changed)();
     Ok(closed)
 }
+
+#[cfg(test)]
+mod tests;

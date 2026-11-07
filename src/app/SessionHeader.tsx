@@ -6,6 +6,8 @@ import { StatusIcon } from '@/components/StatusIcon';
 import { formatCount } from '@/features/changes/changesScope';
 import { GitBranchPill } from '@/features/git/GitBranchPill';
 import { useNow } from '@/features/background/useNow';
+import { RemoteGiveBack, RemoteHostBadge } from '@/features/remote/RemoteHeaderTools';
+import { useProjectLocked } from '@/features/remote/useProjectAccess';
 import { headerStatus, headerStatusLabel } from '@/features/sessions/sessionStatus';
 import type { GitSessionStatus } from '@/lib/bindings/GitSessionStatus';
 import type { SessionChanges } from '@/lib/bindings/SessionChanges';
@@ -78,6 +80,7 @@ export function SessionHeader({
   const [isMoreOpen, setIsMoreOpen] = useState<boolean>(false);
   const reportSessionError = useSessionErrorsStore((state) => state.report);
   const clearSessionError = useSessionErrorsStore((state) => state.clear);
+  const isLocked: boolean = useProjectLocked(session.projectId);
   const reviewCount: number = useReviewStore((state) => state.collected[session.id]?.length ?? 0);
   const scriptNow: number = useNow(session.awaitedScript !== null);
   const isTicking: boolean = session.runningSince !== null;
@@ -141,6 +144,7 @@ export function SessionHeader({
           aria-expanded={isMoreOpen}
           aria-label="Weitere Aktionen"
           title="Weitere Aktionen"
+          disabled={isLocked}
           onClick={(): void => {
             setIsMoreOpen((current: boolean) => !current);
           }}
@@ -192,6 +196,7 @@ export function SessionHeader({
               className="session-header__button session-header__button--icon"
               aria-label="Pause"
               title="Pause"
+              disabled={isLocked}
               onClick={(): void => {
                 runAction(pauseSession);
               }}
@@ -209,6 +214,7 @@ export function SessionHeader({
           <button
             type="button"
             className="session-header__button session-header__button--accent"
+            disabled={isLocked}
             onClick={(): void => {
               runAction(resumeSession);
             }}
@@ -298,6 +304,7 @@ export function SessionHeader({
         ))}
       </div>
       <div className="session-header__tools">
+        <RemoteHostBadge projectId={session.projectId} />
         <button
           type="button"
           className={`session-header__background${isTerminalOpen ? ' session-header__background--active' : ''}`}
@@ -356,6 +363,7 @@ export function SessionHeader({
         </button>
         <SessionGauge session={session} runtime={formatRuntime(runningMs)} />
         {renderControls()}
+        <RemoteGiveBack projectId={session.projectId} />
       </div>
     </header>
   );

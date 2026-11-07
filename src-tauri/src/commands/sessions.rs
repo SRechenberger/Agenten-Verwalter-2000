@@ -1,22 +1,34 @@
+use std::sync::Arc;
+
 use crate::agents::event::{Effort, Mode, ModelId};
 use crate::error::CommandError;
+use crate::remote::client::RemoteClients;
+use crate::remote::guest;
 use crate::sessions::model::{SessionOverlap, SessionSummary};
 use crate::sessions::registry::SessionRegistry;
 
 // Die Commands sind `async`, damit der Prozessstart nicht auf dem Haupt-Thread läuft.
 
+/// Beim Gast kommen die Überschneidungen in Vorhaben dazu, die er an einem Host hält (ADR 059).
 #[tauri::command]
 pub async fn session_overlaps(
     registry: tauri::State<'_, SessionRegistry>,
+    clients: tauri::State<'_, Arc<RemoteClients>>,
 ) -> Result<Vec<SessionOverlap>, CommandError> {
-    registry.overlaps()
+    let mut overlaps = registry.overlaps()?;
+    overlaps.extend(guest::entries(Arc::clone(&clients), "session_overlaps").await?);
+    Ok(overlaps)
 }
 
+/// Beim Gast kommen die Sessions der Vorhaben dazu, die er an einem Host hält (ADR 059).
 #[tauri::command]
 pub async fn session_list(
     registry: tauri::State<'_, SessionRegistry>,
+    clients: tauri::State<'_, Arc<RemoteClients>>,
 ) -> Result<Vec<SessionSummary>, CommandError> {
-    Ok(registry.list())
+    let mut sessions = registry.list();
+    sessions.extend(guest::entries(Arc::clone(&clients), "session_list").await?);
+    Ok(sessions)
 }
 
 #[tauri::command]
@@ -78,9 +90,21 @@ pub async fn session_delete(
 pub async fn session_set_viewed(
     app: tauri::AppHandle,
     registry: tauri::State<'_, SessionRegistry>,
+    clients: tauri::State<'_, Arc<RemoteClients>>,
     session_id: Option<String>,
+    viewer: Option<String>,
 ) -> Result<(), CommandError> {
-    registry.set_viewed(&app, session_id.as_deref())
+    // Je Oberfläche (ADR 059, Klasse B): Die ID eines Hosts wird lokal zu `None`, und die eigene
+    // Oberfläche meldet jedem Host, was sie dort zeigt. `viewer` setzt nur der Server.
+    let host = session_id
+        .as_deref()
+        .and_then(|id: &str| clients.host_of(id));
+    let local = session_id.as_deref().filter(|_| host.is_none());
+    registry.set_viewed(&app, viewer.as_deref(), local)?;
+    if viewer.is_none() {
+        guest::show_on_hosts(Arc::clone(&clients), host, session_id).await?;
+    }
+    Ok(())
 }
 
 #[tauri::command]

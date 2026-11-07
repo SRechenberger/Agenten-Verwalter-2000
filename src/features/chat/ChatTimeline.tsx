@@ -47,6 +47,8 @@ import { answerQuestion } from '@/lib/chat';
 import { commandErrorText } from '@/lib/errors';
 import { useArtifactsStore } from '@/stores/artifacts';
 import { useSessionErrorsStore } from '@/stores/sessionErrors';
+import { lockNote } from '@/features/remote/projectAccess';
+import { useProjectLock } from '@/features/remote/useProjectAccess';
 import { useSessionsStore } from '@/stores/sessions';
 import { useSettingsStore } from '@/stores/settings';
 import './ChatTimeline.css';
@@ -134,6 +136,9 @@ export function ChatTimeline({
   const isClaude: boolean = operatingMode === 'claude';
   const reportSessionError = useSessionErrorsStore((state) => state.report);
   const clearSessionError = useSessionErrorsStore((state) => state.clear);
+  // Solange ein Gast steuert oder der Host fehlt, bleiben Rückfragen sichtbar, aber unbeantwortbar.
+  const lock = useProjectLock(session.projectId);
+  const isLocked: boolean = lock !== null;
   const scrollRef = useRef<HTMLDivElement>(null);
   const stickToBottomRef = useRef<boolean>(true);
   const layoutMarkRef = useRef<LayoutMark>({ firstSeq: null, scrollHeight: 0 });
@@ -246,7 +251,7 @@ export function ChatTimeline({
     if (isTextTarget(event.target) || oldestOpenQuestion === null) {
       return;
     }
-    if (sendingIds.has(oldestOpenQuestion.requestId)) {
+    if (sendingIds.has(oldestOpenQuestion.requestId) || isLocked) {
       return;
     }
     // Beim Ändern stehen „Erlauben“ und „Ablehnen“ nicht da; eine Ziffer darf den alten Text nicht senden.
@@ -361,6 +366,9 @@ export function ChatTimeline({
   }
 
   function submit(entry: QuestionEntry, answer: QuestionAnswer): void {
+    if (isLocked) {
+      return;
+    }
     const requestId: string = entry.requestId;
     setSendingIds((current: ReadonlySet<string>) => new Set<string>(current).add(requestId));
     answerQuestion(session.id, requestId, answer)
@@ -473,7 +481,7 @@ export function ChatTimeline({
             projectId={session.projectId}
             selfRelease={selfRelease}
             draft={toolDrafts.get(entry.requestId) ?? EMPTY_TOOL_DRAFT}
-            isSending={sendingIds.has(entry.requestId)}
+            isSending={sendingIds.has(entry.requestId) || isLocked}
             onPick={(optionIndex: number): void => {
               pick(entry, 0, optionIndex);
             }}
@@ -490,7 +498,8 @@ export function ChatTimeline({
           <QuestionBlock
             entry={entry}
             draft={draftFor(entry)}
-            isSending={sendingIds.has(entry.requestId)}
+            lockNote={lock === null ? null : lockNote(lock)}
+            isSending={sendingIds.has(entry.requestId) || isLocked}
             onPick={(questionIndex: number, optionIndex: number): void => {
               pick(entry, questionIndex, optionIndex);
             }}

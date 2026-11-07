@@ -6,6 +6,7 @@ import { useSideQuestions } from '@/features/side/useSideQuestions';
 import type { SessionSummary } from '@/lib/bindings/SessionSummary';
 import type { SideQuestion } from '@/lib/bindings/SideQuestion';
 import type { SideState } from '@/lib/bindings/SideState';
+import { useSessionLocked } from '@/features/remote/useProjectAccess';
 import { dismissSide } from '@/lib/side';
 import { useBackgroundStore } from '@/stores/background';
 import { useSideStore } from '@/stores/side';
@@ -35,6 +36,7 @@ export function SideTab({ session }: SideTabProps): ReactElement {
   );
   const select = useBackgroundStore((state) => state.select);
   const open = useSideStore((state) => state.open);
+  const isLocked: boolean = useSessionLocked(session.id);
 
   function pick(question: SideQuestion): void {
     select(session.id, 'side', question.id);
@@ -72,6 +74,7 @@ export function SideTab({ session }: SideTabProps): ReactElement {
           type="button"
           className="side-tab__remove"
           aria-label={`Nebenfrage entfernen: ${question.question}`}
+          disabled={isLocked}
           onClick={(): void => {
             remove(question);
           }}

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { UnlistenFn } from '@tauri-apps/api/event';
+import { useRemoteChanged } from '@/features/remote/useRemoteChanged';
 import type { ChatEntry } from '@/lib/bindings/ChatEntry';
 import type { ChatEntryEvent } from '@/lib/bindings/ChatEntryEvent';
 import type { ChatPage } from '@/lib/bindings/ChatPage';
@@ -38,14 +39,19 @@ interface ChatSnapshot extends ChatState {
 interface ChatLoader {
   receive: (entry: ChatEntry) => void;
   loadLatest: () => void;
+  /** Lädt die neueste Seite neu und lässt den Stand bei einem Fehler stehen, denn der Host kann
+   *  gerade weg sein. */
+  reload: () => void;
   loadOlder: () => void;
 }
 
 const NO_ENTRIES: readonly ChatEntry[] = [];
 
 /** Hält einen zusammenhängenden Ausschnitt des Verlaufs einer Session: die neueste Seite, bei Bedarf ältere davor,
- *  und hält ihn über `chat://entry` aktuell. Die Einträge liegen nur hier, nie im Store. */
-export function useChatEntries(sessionId: string): ChatEntries {
+ *  und hält ihn über `chat://entry` aktuell. Die Einträge liegen nur hier, nie im Store.
+ *  Bei einer Session eines Hosts (`isRemote`) lädt `remote://changed` die neueste Seite neu, denn die
+ *  Ereignisse aus der Lücke einer Verbindung fehlen. */
+export function useChatEntries(sessionId: string, isRemote: boolean): ChatEntries {
   const [snapshot, setSnapshot] = useState<ChatSnapshot | null>(null);
   const loaderRef = useRef<ChatLoader | null>(null);
 
@@ -97,6 +103,12 @@ export function useChatEntries(sessionId: string): ChatEntries {
   const loadOlder = useCallback((): void => {
     loaderRef.current?.loadOlder();
   }, []);
+
+  useRemoteChanged(() => {
+    if (isRemote) {
+      loaderRef.current?.reload();
+    }
+  });
 
   // Ein Stand einer anderen Session gilt nicht — so beginnt ein Sessionwechsel leer, ohne Effekt-Reset.
   if (snapshot === null || snapshot.sessionId !== sessionId) {
@@ -159,11 +171,16 @@ function createChatLoader(
     return false;
   }
 
-  function loadLatest(): void {
+  // Nur die jüngste Abfrage zählt: Eine ältere Antwort überholt sonst die neuere.
+  let latestRequest = 0;
+
+  function loadLatest(keepOnError = false): void {
     waiting ??= [];
+    latestRequest += 1;
+    const request: number = latestRequest;
     getChatHistory(sessionId, null, PAGE_SIZE)
       .then((page: ChatPage) => {
-        if (signal.aborted) {
+        if (signal.aborted || request !== latestRequest) {
           return;
         }
         entries = page.entries;
@@ -182,11 +199,21 @@ function createChatLoader(
         emit();
       })
       .catch((reason: unknown) => {
-        if (signal.aborted) {
+        if (signal.aborted || request !== latestRequest) {
+          return;
+        }
+        console.error('Verlauf nicht ladbar', reason);
+        if (keepOnError && waiting !== null) {
+          // Der Stand bleibt, wie er war; was inzwischen eintraf, kommt dazu.
+          const arrived: ChatEntry[] = waiting;
+          waiting = null;
+          for (const entry of arrived) {
+            apply(entry);
+          }
+          emit();
           return;
         }
         waiting = null;
-        console.error('Verlauf nicht ladbar', reason);
         loadError = `Verlauf nicht ladbar: ${commandErrorText(reason)}`;
         emit();
       });
@@ -236,7 +263,11 @@ function createChatLoader(
       });
   }
 
-  return { receive, loadLatest, loadOlder };
+  function reload(): void {
+    loadLatest(true);
+  }
+
+  return { receive, loadLatest, reload, loadOlder };
 }
 
 // Nur im Entwicklungsmodus einstellbar: eine kleine Seitengröße löst das Nachladen schon bei kurzen Verläufen aus.

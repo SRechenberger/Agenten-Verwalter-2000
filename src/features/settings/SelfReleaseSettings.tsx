@@ -104,6 +104,8 @@ interface SelfReleaseSettingsProps {
   onSave: (next: SelfRelease) => Promise<void>;
   /** Sagt im Modell-Menü, wann der Wert gilt. */
   modelNote: string;
+  /** Gesperrt, solange ein anderes Gerät das Vorhaben steuert oder der Host fehlt. */
+  isLocked?: boolean;
 }
 
 /** Selbstfreigabe je Werkzeug und Modell des TL;DR als Block unter der Übersicht eines Vorhabens. */
@@ -111,6 +113,7 @@ export function SelfReleaseSettings({
   value,
   onSave,
   modelNote,
+  isLocked = false,
 }: SelfReleaseSettingsProps): ReactElement {
   const [isSaving, setIsSaving] = useState<boolean>(false);
   const [isModelMenuOpen, setIsModelMenuOpen] = useState<boolean>(false);
@@ -136,7 +139,7 @@ export function SelfReleaseSettings({
           key={id}
           id={id}
           value={value}
-          disabled={isSaving}
+          disabled={isSaving || isLocked}
           onChange={save}
           isModelMenuOpen={isModelMenuOpen}
           onToggleModelMenu={(): void => {

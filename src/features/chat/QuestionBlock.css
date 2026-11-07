@@ -679,3 +679,10 @@
     outline-offset: 2px;
   }
 }
+
+.question-block__lock {
+  display: block;
+  margin-top: var(--space-md);
+  color: var(--color-fg-muted);
+  font-size: var(--font-size-xs);
+}

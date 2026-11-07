@@ -65,7 +65,7 @@ export function GitBranchMenu({
   const [loadError, setLoadError] = useState<string | null>(null);
   const [search, setSearch] = useState<string>('');
   const searchRef = useRef<HTMLInputElement>(null);
-  const { run } = useGitActions(sessionId, onChanged);
+  const { run, isLocked: isProjectLocked } = useGitActions(sessionId, onChanged);
   const { key } = entry;
 
   useEffect(() => {
@@ -146,7 +146,7 @@ export function GitBranchMenu({
         key={`${branch.remote ? 'remote' : 'local'}:${branch.name}`}
         type="button"
         className="git-menu__item"
-        disabled={isLocked(branch, isBusy)}
+        disabled={isLocked(branch, isBusy) || isProjectLocked}
         title={branch.worktree !== null ? BRANCH_IN_WORKTREE_TITLE : undefined}
         onClick={(): void => {
           pick(branch);
@@ -203,7 +203,7 @@ export function GitBranchMenu({
       <button
         type="button"
         className="git-menu__item git-menu__item--add"
-        disabled={isBusy}
+        disabled={isBusy || isProjectLocked}
         onClick={createBranch}
       >
         <span className="git-menu__check">

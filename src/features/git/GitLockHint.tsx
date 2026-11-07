@@ -9,6 +9,7 @@ import {
 import { LockIcon } from '@/features/git/GitIcons';
 import type { GitBusySession } from '@/lib/bindings/GitBusySession';
 import { commandErrorText } from '@/lib/errors';
+import { useSessionLocked } from '@/features/remote/useProjectAccess';
 import { pauseSession } from '@/lib/sessions';
 import { useSessionErrorsStore } from '@/stores/sessionErrors';
 import './GitLockHint.css';
@@ -23,6 +24,7 @@ interface GitLockHintProps {
 export function GitLockHint({ sessionId, busy }: GitLockHintProps): ReactElement | null {
   const reportError = useSessionErrorsStore((state) => state.report);
   const clearError = useSessionErrorsStore((state) => state.clear);
+  const isProjectLocked: boolean = useSessionLocked(sessionId);
   const first: GitBusySession | undefined = busy[0];
   if (first === undefined) {
     return null;
@@ -63,7 +65,12 @@ export function GitLockHint({ sessionId, busy }: GitLockHintProps): ReactElement
         ))}
         {LOCK_HINT_OWN_AFTER}
       </div>
-      <button type="button" className="git-lock-hint__pause" onClick={pause}>
+      <button
+        type="button"
+        className="git-lock-hint__pause"
+        disabled={isProjectLocked}
+        onClick={pause}
+      >
         Pausieren
       </button>
     </div>

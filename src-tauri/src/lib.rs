@@ -56,6 +56,7 @@ use environment::EnvironmentService;
 use filesystem::workspace::data_dir;
 use remote::RemoteControl;
 use remote::client::{ClientHooks, RemoteClients};
+use remote::dispatch::{self as remote_dispatch, AppHost};
 use remote::server::{RemoteServer, ServerSetup};
 use remote::wire::Timing;
 use sessions::registry::SessionRegistry;
@@ -83,12 +84,13 @@ fn start_remote(
         key_file: folder.join(remote::HOST_KEY_FILE),
         database: Arc::clone(database),
         control: Arc::clone(control),
-        // Die Übernahme über das Netz kommt mit der nächsten Phase; bis dahin ist jeder Aufruf ein Fehler.
-        dispatch: Arc::new(|_, command: &str, _| {
-            Err(error::CommandError::Internal(format!(
-                "{command} ist über das Netz noch nicht erreichbar."
-            )))
-        }),
+        dispatch: {
+            let host = AppHost { app: app.clone() };
+            let control = Arc::clone(control);
+            Arc::new(move |device, command: &str, args| {
+                remote_dispatch::answer(&host, &control, device, command, args)
+            })
+        },
         notify: Arc::clone(&notify),
         timing: Timing::CONTRACT,
     }));
@@ -96,14 +98,17 @@ fn start_remote(
     if enabled && let Err(error) = server.start(port) {
         eprintln!("Server der Fernsteuerung nicht gestartet: {error}");
     }
+    remote::forward::start_host(app, Arc::clone(&server), Arc::clone(control));
     app.manage(server);
+    let frames = app.clone();
     let clients = RemoteClients::load(
         folder.join(remote::HOSTS_FILE),
         Timing::CONTRACT,
         ClientHooks {
             changed: notify,
-            // Ereignisse des Hosts gibt erst die Weitergabe an die Oberfläche weiter.
-            frame: Arc::new(|_, _| {}),
+            frame: Arc::new(move |host_id: &str, frame| {
+                remote::forward::on_guest_frame(&frames, host_id, frame);
+            }),
         },
     );
     app.manage(Arc::new(clients));
@@ -182,6 +187,8 @@ pub fn run() {
             commands::remote::remote_connect,
             commands::remote::remote_hosts,
             commands::remote::remote_disconnect,
+            commands::remote::remote_take,
+            commands::remote::remote_give_back,
             commands::archive::archive_search,
             commands::archive::project_restore,
             commands::sessions::session_list,

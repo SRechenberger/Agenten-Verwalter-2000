@@ -12,6 +12,7 @@ import type { SideQuestion } from '@/lib/bindings/SideQuestion';
 import type { SessionSummary } from '@/lib/bindings/SessionSummary';
 import type { SideUsage } from '@/lib/bindings/SideUsage';
 import { commandErrorText } from '@/lib/errors';
+import { useSessionLocked } from '@/features/remote/useProjectAccess';
 import { askSide, dismissSide } from '@/lib/side';
 import { useSettingsStore } from '@/stores/settings';
 import { useSideStore } from '@/stores/side';
@@ -55,6 +56,7 @@ interface SideWindowBodyProps {
 function SideWindowBody({ session, windowState }: SideWindowBodyProps): ReactElement {
   const [draft, setDraft] = useState<string>('');
   const [isSending, setIsSending] = useState<boolean>(false);
+  const isLocked: boolean = useSessionLocked(session.id);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -134,7 +136,7 @@ function SideWindowBody({ session, windowState }: SideWindowBodyProps): ReactEle
           aria-label={PLACEHOLDER}
           placeholder={PLACEHOLDER}
           value={draft}
-          disabled={isSending}
+          disabled={isSending || isLocked}
           onChange={(event: ChangeEvent<HTMLTextAreaElement>): void => {
             setDraft(event.target.value);
           }}
@@ -184,7 +186,7 @@ function SideWindowBody({ session, windowState }: SideWindowBodyProps): ReactEle
             <button
               type="button"
               className="side-window__button"
-              disabled={isSending}
+              disabled={isSending || isLocked}
               onClick={(): void => {
                 ask(question.question, question.quote, question.id);
               }}

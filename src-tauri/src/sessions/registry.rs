@@ -132,9 +132,9 @@ pub struct SessionRegistry {
     sessions: Mutex<HashMap<String, Arc<Session>>>,
     /// Schlüssel = Vorhaben-ID.
     projects: Mutex<HashMap<String, ProjectState>>,
-    /// Die Session, die die Oberfläche gerade zeigt. Nur `set_viewed` nimmt die Sperre, und zwar
-    /// vor der Sessions-Map und der Session-Sperre.
-    viewed: Mutex<Option<String>>,
+    /// Die Session, die jede Oberfläche gerade zeigt (ADR 059: die eigene und je Gast eine).
+    /// `set_viewed` nimmt die Sperre vor der Sessions-Map und der Session-Sperre.
+    viewed: Mutex<remote::Viewed>,
     database: Arc<Database>,
     /// Countdowns der Stationen (ADR 048); wird nie zusammen mit einer anderen Sperre gehalten.
     implementation_countdowns: Mutex<Countdowns>,
@@ -441,7 +441,7 @@ impl SessionRegistry {
         SessionRegistry {
             sessions: Mutex::new(HashMap::new()),
             projects: Mutex::new(HashMap::new()),
-            viewed: Mutex::new(None),
+            viewed: Mutex::new(HashMap::new()),
             database,
             implementation_countdowns: Mutex::new(Countdowns::default()),
             remote,
@@ -1011,7 +1011,14 @@ impl SessionRegistry {
         }
         self.database
             .with(|connection| project_rows::archive(connection, project_id, now_ms()))?;
-        self.remote.with(|control| control.unshare(project_id));
+        let was_shared = self.remote.with(|control| {
+            let was_shared = control.is_shared(project_id);
+            control.unshare(project_id);
+            was_shared
+        });
+        if was_shared {
+            remote::announce_unshared(app, project_id);
+        }
         {
             let mut sessions = self.lock_sessions();
             for session in &members {
@@ -1348,20 +1355,25 @@ impl SessionRegistry {
             Ok(())
         })?;
         self.lock_sessions().remove(&session.id);
+        let mut was_shared = false;
         if is_last {
             projects.remove(&session.project_id);
-            self.remote
-                .with(|control| control.forget(&session.project_id));
+            was_shared = self.remote.with(|control| {
+                let was_shared = control.is_shared(&session.project_id);
+                control.forget(&session.project_id);
+                was_shared
+            });
         }
         if let Some(access) = app.try_state::<Arc<McpAccess>>() {
             access.forget(&session.id);
         }
         drop(projects);
+        if was_shared {
+            remote::announce_unshared(app, &session.project_id);
+        }
         {
             let mut viewed = self.viewed.lock().unwrap_or_else(PoisonError::into_inner);
-            if viewed.as_deref() == Some(session.id.as_str()) {
-                *viewed = None;
-            }
+            viewed.retain(|_, shown: &mut String| *shown != session.id);
         }
         if is_last {
             let repositories = session.repositories();
@@ -1372,16 +1384,17 @@ impl SessionRegistry {
         Ok(is_last)
     }
 
-    /// Setzt die Session, die die Oberfläche zeigt (`None`: keine). Die bisher gezeigte gilt danach
-    /// nicht mehr als gesehen; die neue ist sofort gelesen.
+    /// Setzt die Session, die die Oberfläche `viewer` zeigt (`None`: die eigene; `session_id`
+    /// `None`: keine). Die bisher gezeigte gilt danach nicht mehr als gesehen, sofern keine andere
+    /// Oberfläche sie zeigt; die neue ist sofort gelesen.
     pub fn set_viewed(
         &self,
         app: &AppHandle,
+        viewer: Option<&str>,
         session_id: Option<&str>,
     ) -> Result<(), CommandError> {
         let mut viewed = self.viewed.lock().unwrap_or_else(PoisonError::into_inner);
-        if let Some(previous_id) = viewed.take()
-            && Some(previous_id.as_str()) != session_id
+        if let Some(previous_id) = remote::unviewed_after(&mut viewed, viewer, session_id)
             // Eine inzwischen archivierte Session hat nichts mehr zurückzusetzen.
             && let Ok(previous) = self.get(&previous_id)
         {
@@ -1410,7 +1423,7 @@ impl SessionRegistry {
                 Ok(())
             },
         )?;
-        *viewed = Some(id.to_owned());
+        viewed.insert(viewer.map(str::to_owned), id.to_owned());
         Ok(())
     }
 

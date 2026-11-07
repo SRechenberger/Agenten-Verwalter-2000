@@ -28,6 +28,8 @@ interface McpServerRowProps {
   onToggleExpanded: () => void;
   onReconnect: () => void;
   onAuthenticate: () => void;
+  /** `false` an einem entfernten Vorhaben: Die Anmeldung öffnete einen Browser am Host. */
+  canLogin?: boolean;
   onSetEnabled: (enabled: boolean) => void;
 }
 
@@ -41,6 +43,7 @@ export function McpServerRow({
   onToggleExpanded,
   onReconnect,
   onAuthenticate,
+  canLogin = true,
   onSetEnabled,
 }: McpServerRowProps): ReactElement {
   const isOff: boolean = server.status === 'disabled';
@@ -133,7 +136,7 @@ export function McpServerRow({
         <span className={`mcp-server__status mcp-server__status--${server.status}`}>
           {statusText(server.status)}
         </span>
-        {server.status === 'needsAuth' && (
+        {server.status === 'needsAuth' && canLogin && (
           <button
             type="button"
             className="mcp-server__login"

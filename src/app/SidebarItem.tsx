@@ -27,6 +27,8 @@ interface SidebarItemProps {
   isOnlySession: boolean;
   /** Nach der Bestätigung im Dialog. */
   onDelete: () => void;
+  /** `false` bei einer Session eines Hosts: Löschen ginge nicht, und das Menü zeigt es nicht. */
+  canDelete: boolean;
 }
 
 /** Eine Session im aufgeklappten Baum eines Vorhabens. */
@@ -41,6 +43,7 @@ export function SidebarItem({
   onCancelRename,
   isOnlySession,
   onDelete,
+  canDelete,
 }: SidebarItemProps): ReactElement {
   const [isMenuOpen, setIsMenuOpen] = useState<boolean>(false);
   const [isConfirmingDelete, setIsConfirmingDelete] = useState<boolean>(false);
@@ -129,17 +132,19 @@ export function SidebarItem({
             <span>Umbenennen</span>
             <kbd className="sidebar-item__menu-key">F2</kbd>
           </button>
-          <button
-            type="button"
-            role="menuitem"
-            className="sidebar-item__menu-item sidebar-item__menu-item--danger"
-            onClick={(): void => {
-              setIsMenuOpen(false);
-              setIsConfirmingDelete(true);
-            }}
-          >
-            <span>Löschen</span>
-          </button>
+          {canDelete && (
+            <button
+              type="button"
+              role="menuitem"
+              className="sidebar-item__menu-item sidebar-item__menu-item--danger"
+              onClick={(): void => {
+                setIsMenuOpen(false);
+                setIsConfirmingDelete(true);
+              }}
+            >
+              <span>Löschen</span>
+            </button>
+          )}
         </Popover>
       )}
       {isConfirmingDelete && (

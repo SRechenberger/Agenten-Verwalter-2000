@@ -47,8 +47,13 @@
     font: inherit;
     cursor: pointer;
 
-    &:hover {
+    &:hover:not(:disabled) {
       text-decoration: underline;
+    }
+
+    &:disabled {
+      color: var(--color-fg-muted);
+      cursor: default;
     }
 
     &:focus-visible {

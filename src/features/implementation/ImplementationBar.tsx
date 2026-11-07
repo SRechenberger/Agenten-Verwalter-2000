@@ -20,6 +20,8 @@ interface ImplementationBarProps {
   isReportShown: boolean;
   /** „Neue Rückfrage“ legt gerade die Session an. */
   isInquiryBusy: boolean;
+  /** Gesperrt, solange ein anderes Gerät das Vorhaben steuert oder der Host fehlt. */
+  isLocked: boolean;
   /** Der Lagebericht wird gerade erstellt. */
   isReportBusy: boolean;
   onSetAutoStart: (enabled: boolean) => void;
@@ -33,6 +35,7 @@ export function ImplementationBar({
   implementation,
   isReportShown,
   isInquiryBusy,
+  isLocked,
   isReportBusy,
   onSetAutoStart,
   onSetStopAfterCurrent,
@@ -63,6 +66,7 @@ export function ImplementationBar({
           checked={implementation.autoStart}
           label={AUTO_START_LABEL}
           title={AUTO_START_TITLE}
+          disabled={isLocked}
           onChange={onSetAutoStart}
         />
       </span>
@@ -71,6 +75,7 @@ export function ImplementationBar({
           type="button"
           className="implementation-bar__button"
           aria-pressed={implementation.stopAfterCurrent}
+          disabled={isLocked}
           title={STOP_AFTER_TITLE}
           onClick={(): void => {
             onSetStopAfterCurrent(!implementation.stopAfterCurrent);
@@ -82,7 +87,7 @@ export function ImplementationBar({
           type="button"
           className="implementation-bar__button"
           aria-busy={isInquiryBusy}
-          disabled={isInquiryBusy}
+          disabled={isInquiryBusy || isLocked}
           title={INQUIRY_TITLE}
           onClick={onNewInquiry}
         >

@@ -25,6 +25,8 @@ interface StationCardProps {
   onStart: (stationId: string) => void;
   onCancelCountdown: (stationId: string) => void;
   onCompleteByUser: (stationId: string, result: string) => void;
+  /** Gesperrt, solange ein anderes Gerät das Vorhaben steuert oder der Host fehlt. */
+  isLocked: boolean;
 }
 
 /** Die große Karte der Station im Fokus. Fragen werden im Chat beantwortet, nicht hier. */
@@ -37,6 +39,7 @@ export function StationCard({
   onStart,
   onCancelCountdown,
   onCompleteByUser,
+  isLocked,
 }: StationCardProps): ReactElement {
   const { station, phase } = stationRef;
   const number: string = station.sessionNumber === null ? '' : `#${String(station.sessionNumber)}`;
@@ -82,6 +85,7 @@ export function StationCard({
         type="button"
         className="station-card__button station-card__button--primary"
         title={DONE_BY_USER_TITLE}
+        disabled={isLocked}
         onClick={(): void => {
           onCompleteByUser(station.id, DONE_BY_USER_RESULT);
         }}
@@ -101,6 +105,7 @@ export function StationCard({
           type="button"
           className="station-card__button station-card__button--primary"
           title={START_NOW_TITLE}
+          disabled={isLocked}
           onClick={(): void => {
             onStart(station.id);
           }}
@@ -112,6 +117,7 @@ export function StationCard({
             type="button"
             className="station-card__button"
             title={CANCEL_COUNTDOWN_TITLE}
+            disabled={isLocked}
             onClick={(): void => {
               onCancelCountdown(station.id);
             }}

@@ -5,6 +5,8 @@ import type { RetroExport } from '@/lib/bindings/RetroExport';
 import type { SessionStatus } from '@/lib/bindings/SessionStatus';
 import type { SessionSummary } from '@/lib/bindings/SessionSummary';
 import { commandErrorText } from '@/lib/errors';
+import { LOCKED_TITLE } from '@/features/remote/projectAccess';
+import { useProjectLocked } from '@/features/remote/useProjectAccess';
 import { runRetro } from '@/lib/retro';
 import { createSessionInProject } from '@/lib/sessions';
 import { useRetroStore, type RetroRun } from '@/stores/retro';
@@ -46,6 +48,7 @@ export function RetroButton({
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [noteMessage, setNoteMessage] = useState<string | null>(null);
   const run: RetroRun | undefined = useRetroStore((state) => state.running[projectId]);
+  const isLocked: boolean = useProjectLocked(projectId);
 
   const isWorking: boolean = sessions.some((session: SessionSummary) =>
     WORKING_STATUSES.includes(session.status),
@@ -53,6 +56,9 @@ export function RetroButton({
   const hasHistory: boolean = sessions.some((session: SessionSummary) => session.status !== 'new');
 
   function disabledTitle(): string | null {
+    if (isLocked) {
+      return LOCKED_TITLE;
+    }
     if (run !== undefined) {
       return RUNNING_TITLE;
     }

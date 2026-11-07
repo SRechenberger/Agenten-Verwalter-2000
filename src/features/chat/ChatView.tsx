@@ -5,6 +5,7 @@ import { ChatTimeline } from '@/features/chat/ChatTimeline';
 import { Composer } from '@/features/chat/Composer';
 import { useChatEntries } from '@/features/chat/useChatEntries';
 import { NewSessionIntro } from '@/features/projects/NewSessionIntro';
+import { useProjectIsRemote, useProjectLocked } from '@/features/remote/useProjectAccess';
 import { SessionTldrCard } from '@/features/tldr/SessionTldrCard';
 import type { ArtifactList } from '@/lib/bindings/ArtifactList';
 import type { BackgroundItem } from '@/lib/bindings/BackgroundItem';
@@ -51,12 +52,16 @@ export function ChatView({
   selfRelease,
   sessions,
 }: ChatViewProps): ReactElement {
+  const isRemote: boolean = useProjectIsRemote(session.projectId);
+  const isLocked: boolean = useProjectLocked(session.projectId);
   const { entries, hasMore, loadingOlder, loadError, olderError, loadOlder } = useChatEntries(
     session.id,
+    isRemote,
   );
   const reportSessionError = useSessionErrorsStore((state) => state.report);
   const clearSessionError = useSessionErrorsStore((state) => state.clear);
-  const canInterrupt: boolean = INTERRUPTIBLE_STATUSES.includes(session.status);
+  // Esc pausiert die Session; wo ein anderes Gerät steuert oder der Host fehlt, ginge das nur schief.
+  const canInterrupt: boolean = INTERRUPTIBLE_STATUSES.includes(session.status) && !isLocked;
   const [topInset, setTopInset] = useState<number>(0);
   const [bottomInset, setBottomInset] = useState<number>(0);
   const topRef = useRef<HTMLDivElement>(null);

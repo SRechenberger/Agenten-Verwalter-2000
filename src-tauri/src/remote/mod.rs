@@ -3,6 +3,9 @@
 pub mod access;
 pub mod client;
 pub mod control;
+pub mod dispatch;
+pub mod forward;
+pub mod guest;
 pub mod intercept;
 pub mod model;
 pub mod peer;

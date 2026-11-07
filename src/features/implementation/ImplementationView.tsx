@@ -15,6 +15,7 @@ import {
 } from '@/features/implementation/implementationOrder';
 import { ReportPanel } from '@/features/implementation/ReportPanel';
 import { Timeline } from '@/features/implementation/Timeline';
+import { useProjectLocked } from '@/features/remote/useProjectAccess';
 import type { ImplementationView as Implementation } from '@/lib/bindings/ImplementationView';
 import type { SessionSummary } from '@/lib/bindings/SessionSummary';
 import {
@@ -95,6 +96,7 @@ export function ImplementationView({
   const selectSession = useSessionsStore((state) => state.selectSession);
   const showSessionView = useSessionsStore((state) => state.showView);
   const { error: actionError, run } = useActionError(implementation.id);
+  const isLocked: boolean = useProjectLocked(implementation.projectId);
 
   const stations: StationRef[] = useMemo(() => flatStations(implementation), [implementation]);
   const isFlow: boolean = !(activeView === 'changes' && hasChanges);
@@ -287,6 +289,7 @@ export function ImplementationView({
         implementation={implementation}
         isReportShown={report !== null}
         isInquiryBusy={isInquiryBusy}
+        isLocked={isLocked}
         isReportBusy={isReportBusy}
         onNewInquiry={startInquiry}
         onOpenReport={openReport}

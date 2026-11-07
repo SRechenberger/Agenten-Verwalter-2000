@@ -10,6 +10,7 @@ use std::net::TcpStream;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -19,10 +20,12 @@ use serde_json::{Value, json};
 use verwalter_lib::db::{Database, remote as remote_rows};
 use verwalter_lib::error::CommandError;
 use verwalter_lib::remote::RemoteControl;
+use verwalter_lib::remote::access::{IdKind, TargetId};
 use verwalter_lib::remote::client::{ClientHooks, RemoteClients, SavedHost};
+use verwalter_lib::remote::dispatch::{self, MERGED_LISTS};
 use verwalter_lib::remote::model::RemoteHostStatus;
 use verwalter_lib::remote::peer::{INVITATION_TTL, Invitation};
-use verwalter_lib::remote::server::{RemoteServer, ServerSetup};
+use verwalter_lib::remote::server::{Dispatch, RemoteServer, ServerSetup};
 use verwalter_lib::remote::tls;
 use verwalter_lib::remote::wire::{
     self, Frame, LineBuffer, MAX_LINE, Outcome, PROTOCOL, RefuseReason, Timing,
@@ -101,19 +104,31 @@ struct Host {
 
 impl Host {
     fn start(folder: &Path, name: &str, timing: Timing) -> Result<Host, String> {
+        let host_name = name.to_owned();
+        Host::start_with(folder, name, timing, move |_| {
+            Arc::new(move |device, command: &str, args: Value| match command {
+                "echo" => Ok(json!({ "host": host_name, "device": device.name, "args": args })),
+                other => Err(CommandError::Internal(format!("unbekannt: {other}"))),
+            })
+        })
+    }
+
+    /// Wie `start`; `dispatch` bekommt das Steuerrecht dieses Hosts.
+    fn start_with(
+        folder: &Path,
+        name: &str,
+        timing: Timing,
+        dispatch: impl FnOnce(Arc<RemoteControl>) -> Dispatch,
+    ) -> Result<Host, String> {
         let database = Arc::new(Database::open(&folder.join(format!("{name}.db"))).map_err(text)?);
         let control = Arc::new(RemoteControl::restore(&database).map_err(text)?);
-        let host_name = name.to_owned();
         let server = RemoteServer::new(ServerSetup {
             host_id: format!("id-{name}"),
             host_name: name.to_owned(),
             key_file: folder.join(format!("{name}-key.pem")),
             database: Arc::clone(&database),
             control: Arc::clone(&control),
-            dispatch: Arc::new(move |device, command: &str, args: Value| match command {
-                "echo" => Ok(json!({ "host": host_name, "device": device.name, "args": args })),
-                other => Err(CommandError::Internal(format!("unbekannt: {other}"))),
-            }),
+            dispatch: dispatch(Arc::clone(&control)),
             notify: Arc::new(|| {}),
             timing,
         });
@@ -349,6 +364,7 @@ fn selftest(folder: &Path) -> Result<bool, String> {
         revoked_while_signing_in(&host_a),
     );
     all &= report("stockender gast", stalled_guest(folder));
+    all &= dispatched(folder)?;
 
     host_a.server.stop();
     Ok(all)
@@ -625,4 +641,237 @@ fn revoked(host: &Host, guest: &RemoteClients, saved: &SavedHost) -> Result<(), 
         devices.iter().all(|device| device.id != saved.device_id),
         || "gesperrtes Gerät noch in der Liste".to_owned(),
     )
+}
+
+const SHARED_PROJECT: &str = "projekt-frei";
+const SHARED_SESSION: &str = "session-frei";
+const OTHER_PROJECT: &str = "projekt-nicht-frei";
+const OTHER_SESSION: &str = "session-nicht-frei";
+
+/// Statt der Commands: zählt, was durch die Prüfung kommt, und kennt zwei Vorhaben mit je einer
+/// Session; nur `SHARED_PROJECT` ist freigegeben.
+struct StubHost {
+    control: Arc<RemoteControl>,
+    invoked: AtomicUsize,
+}
+
+impl dispatch::Host for StubHost {
+    fn project_of(&self, target: &TargetId) -> Option<String> {
+        match (target.kind, target.value.as_str()) {
+            (IdKind::Project, project @ (SHARED_PROJECT | OTHER_PROJECT)) => {
+                Some(project.to_owned())
+            }
+            (IdKind::Session, SHARED_SESSION) => Some(SHARED_PROJECT.to_owned()),
+            (IdKind::Session, OTHER_SESSION) => Some(OTHER_PROJECT.to_owned()),
+            _ => None,
+        }
+    }
+
+    fn project(&self, project_id: &str) -> Result<Value, CommandError> {
+        let access = self.control.with(|control| control.access(project_id));
+        Ok(json!({ "id": project_id, "access": access }))
+    }
+
+    fn projects_changed(&self, _: &[String]) {}
+
+    fn list(&self, command: &str) -> Result<Vec<Value>, CommandError> {
+        Ok(match command {
+            "project_list" => vec![
+                json!({ "id": SHARED_PROJECT }),
+                json!({ "id": OTHER_PROJECT }),
+            ],
+            "session_overlaps" => vec![
+                json!({ "sessionId": SHARED_SESSION }),
+                json!({ "sessionId": OTHER_SESSION }),
+            ],
+            _ => vec![
+                json!({ "id": SHARED_SESSION, "projectId": SHARED_PROJECT }),
+                json!({ "id": OTHER_SESSION, "projectId": OTHER_PROJECT }),
+            ],
+        })
+    }
+
+    fn invoke(&self, command: &str, args: Value) -> Result<Value, CommandError> {
+        self.invoked.fetch_add(1, Ordering::SeqCst);
+        Ok(json!({ "ran": command, "args": args }))
+    }
+}
+
+/// Der Server mit `dispatch::answer` und einem Stub statt `on_message`: Erlaubnisliste, IDs,
+/// Übernahme durch ein zweites Gerät und gefilterte Listen.
+fn dispatched(folder: &Path) -> Result<bool, String> {
+    let mut stub: Option<Arc<StubHost>> = None;
+    let host = Host::start_with(folder, "host-d", Timing::CONTRACT, |control| {
+        let host = Arc::new(StubHost {
+            control: Arc::clone(&control),
+            invoked: AtomicUsize::new(0),
+        });
+        stub = Some(Arc::clone(&host));
+        Arc::new(move |device, command: &str, args: Value| {
+            dispatch::answer(host.as_ref(), &control, device, command, args)
+        })
+    })?;
+    let stub = stub.ok_or("Stub fehlt")?;
+    host.control.with(|control| control.share(SHARED_PROJECT));
+    let first = clients(folder.join("stub-erster.json"), Timing::CONTRACT);
+    let second = clients(folder.join("stub-zweiter.json"), Timing::CONTRACT);
+    let host_id = first
+        .connect(&host.invitation(INVITATION_TTL)?.to_text(), "erster")
+        .map_err(text)?
+        .host_id;
+    second
+        .connect(&host.invitation(INVITATION_TTL)?.to_text(), "zweiter")
+        .map_err(text)?;
+    let take = json!({ "projectId": SHARED_PROJECT });
+    let taken = first
+        .call(&host_id, "remote_take", take.clone())
+        .map_err(text)?;
+    let mut all = report("uebernahme", {
+        ensure(taken["access"]["holder"]["name"] == "erster", || {
+            format!("remote_take lieferte {taken}")
+        })
+        .and_then(|()| {
+            first
+                .call(
+                    &host_id,
+                    "chat_send",
+                    json!({ "sessionId": SHARED_SESSION }),
+                )
+                .map_err(text)
+        })
+        .and_then(|ran: Value| {
+            ensure(ran["ran"] == "chat_send", || {
+                format!("chat_send lieferte {ran}")
+            })
+        })
+    });
+
+    all &= report("ablehnung ausserhalb der liste", {
+        let before = stub.invoked.load(Ordering::SeqCst);
+        [
+            "settings_update",
+            "project_archive",
+            "remote_share_set",
+            "gibt_es_nicht",
+        ]
+        .iter()
+        .try_for_each(|command: &&str| {
+            let args = json!({ "sessionId": SHARED_SESSION, "projectId": SHARED_PROJECT });
+            match first.call(&host_id, command, args) {
+                Err(CommandError::Internal(message)) if message.contains("nicht erlaubt") => Ok(()),
+                other => Err(format!("{command} mit gültiger ID: {other:?}")),
+            }
+        })
+        .and_then(|()| {
+            let after = stub.invoked.load(Ordering::SeqCst);
+            ensure(after == before, || {
+                format!("{} Befehle ausgeführt", after - before)
+            })
+        })
+    });
+
+    all &= report("fremde id", {
+        let before = stub.invoked.load(Ordering::SeqCst);
+        [
+            json!({ "sessionId": OTHER_SESSION }),
+            json!({ "sessionId": "unbekannt" }),
+            json!({ "sessionId": SHARED_SESSION, "projectId": OTHER_PROJECT }),
+        ]
+        .into_iter()
+        .try_for_each(
+            |args: Value| match first.call(&host_id, "chat_send", args.clone()) {
+                Err(CommandError::Internal(message)) if message.contains("gehört zu keinem") => {
+                    Ok(())
+                }
+                other => Err(format!("chat_send mit {args}: {other:?}")),
+            },
+        )
+        .and_then(|()| match first.call(&host_id, "chat_send", json!({})) {
+            Err(CommandError::Internal(message)) if message.contains("fehlt die ID") => Ok(()),
+            other => Err(format!("chat_send ohne ID: {other:?}")),
+        })
+        .and_then(|()| {
+            let after = stub.invoked.load(Ordering::SeqCst);
+            ensure(after == before, || {
+                format!("{} Befehle ausgeführt", after - before)
+            })
+        })
+    });
+
+    all &= report("uebernahme durch ein zweites geraet", {
+        match second.call(&host_id, "remote_take", take.clone()) {
+            Err(CommandError::ControlledBy(name)) if name == "erster" => Ok(()),
+            other => Err(format!("zweites Gerät übernahm: {other:?}")),
+        }
+        .and_then(|()| {
+            match second.call(
+                &host_id,
+                "chat_send",
+                json!({ "sessionId": SHARED_SESSION }),
+            ) {
+                Err(CommandError::Internal(message)) if message.contains("gehört zu keinem") => {
+                    Ok(())
+                }
+                other => Err(format!("zweites Gerät sendete: {other:?}")),
+            }
+        })
+        .and_then(|()| {
+            first
+                .call(&host_id, "remote_give_back", take.clone())
+                .map_err(text)?;
+            second
+                .call(&host_id, "remote_take", take.clone())
+                .map_err(text)
+        })
+        .and_then(|taken: Value| {
+            ensure(taken["access"]["holder"]["name"] == "zweiter", || {
+                format!("nach dem Zurückgeben: {taken}")
+            })
+        })
+    });
+
+    all &= report("listen gefiltert", {
+        MERGED_LISTS.iter().try_for_each(|command: &&str| {
+            let seen = |guest: &RemoteClients| guest.call(&host_id, command, Value::Null);
+            let (first_seen, second_seen) =
+                (seen(&first).map_err(text)?, seen(&second).map_err(text)?);
+            let expected_second = match *command {
+                "project_list" => json!([{ "id": SHARED_PROJECT }]),
+                "session_overlaps" => json!([{ "sessionId": SHARED_SESSION }]),
+                _ => json!([{ "id": SHARED_SESSION, "projectId": SHARED_PROJECT }]),
+            };
+            let expected_first = if *command == "project_list" {
+                expected_second.clone()
+            } else {
+                json!([])
+            };
+            ensure(
+                first_seen == expected_first && second_seen == expected_second,
+                || format!("{command}: erster {first_seen}, zweiter {second_seen}"),
+            )
+        })
+    });
+
+    all &= report("ansicht je geraet", {
+        [
+            (
+                &second,
+                json!({ "sessionId": SHARED_SESSION, "viewer": "gefaelscht" }),
+            ),
+            (&first, json!({ "sessionId": null })),
+        ]
+        .into_iter()
+        .try_for_each(|(guest, args): (&RemoteClients, Value)| {
+            let device_id = guest.host_info(&host_id).ok_or("Host unbekannt")?.device_id;
+            let ran = guest
+                .call(&host_id, "session_set_viewed", args.clone())
+                .map_err(text)?;
+            ensure(ran["args"]["viewer"] == device_id.as_str(), || {
+                format!("session_set_viewed mit {args} lief als {ran}")
+            })
+        })
+    });
+
+    host.server.stop();
+    Ok(all)
 }

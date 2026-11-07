@@ -15,6 +15,8 @@ import type { ContextFile } from '@/lib/bindings/ContextFile';
 import type { SessionContext } from '@/lib/bindings/SessionContext';
 import type { SessionStatus } from '@/lib/bindings/SessionStatus';
 import type { SessionSummary } from '@/lib/bindings/SessionSummary';
+import { LOCKED_TITLE } from '@/features/remote/projectAccess';
+import { useSessionLocked } from '@/features/remote/useProjectAccess';
 import { sendMessage } from '@/lib/chat';
 import { refreshContext } from '@/lib/context';
 import type { Severity } from '@/lib/severity';
@@ -48,6 +50,7 @@ interface CategoryRow {
 
 export function ContextPanel({ session, onClose }: ContextPanelProps): ReactElement {
   const context: SessionContext | null = useSessionContext(session.id, true);
+  const isLocked: boolean = useSessionLocked(session.id);
 
   function refresh(): void {
     // Die Antwort kommt als `context://changed`; hier gibt es nichts abzuwarten.
@@ -90,7 +93,7 @@ export function ContextPanel({ session, onClose }: ContextPanelProps): ReactElem
 
   function renderFoot(fetchedAt: number | null): ReactElement {
     const isRunning: boolean = context?.isAgentRunning ?? false;
-    const canCompact: boolean = COMPACTABLE_STATUSES.includes(session.status);
+    const canCompact: boolean = COMPACTABLE_STATUSES.includes(session.status) && !isLocked;
     return (
       <div className="context-panel__foot">
         <span>
@@ -107,7 +110,9 @@ export function ContextPanel({ session, onClose }: ContextPanelProps): ReactElem
             type="button"
             className="context-panel__button context-panel__button--primary"
             disabled={!canCompact}
-            title={canCompact ? COMPACT_BUTTON_TITLE : COMPACT_BLOCKED_TITLE}
+            title={
+              canCompact ? COMPACT_BUTTON_TITLE : isLocked ? LOCKED_TITLE : COMPACT_BLOCKED_TITLE
+            }
             onClick={compact}
           >
             Compact

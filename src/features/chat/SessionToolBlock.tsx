@@ -6,6 +6,7 @@ import { StatusIcon } from '@/components/StatusIcon';
 import { Switch } from '@/components/Switch';
 import type { QuestionEntry, ToolDraft, ToolEdit } from '@/features/chat/questionDraft';
 import { SelectButton } from '@/features/settings/SelectButton';
+import { useProjectLocked } from '@/features/remote/useProjectAccess';
 import type { Effort } from '@/lib/bindings/Effort';
 import type { ModelId } from '@/lib/bindings/ModelId';
 import type { QuestionAnswer } from '@/lib/bindings/QuestionAnswer';
@@ -54,6 +55,7 @@ export function SessionToolBlock({
 }: SessionToolBlockProps): ReactElement {
   const [isModelMenuOpen, setIsModelMenuOpen] = useState<boolean>(false);
   const [isSaving, setIsSaving] = useState<boolean>(false);
+  const isProjectLocked: boolean = useProjectLocked(projectId);
   const [switchError, setSwitchError] = useState<string | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const editButtonRef = useRef<HTMLButtonElement>(null);
@@ -266,7 +268,7 @@ export function SessionToolBlock({
             checked={isOn}
             label="Künftig ohne Nachfrage"
             title="Selbstfreigabe dieses Vorhabens; gilt ab dem nächsten Aufruf, dieser Kasten bleibt offen."
-            disabled={isSaving}
+            disabled={isSaving || isProjectLocked}
             onChange={(next: boolean): void => {
               saveSwitch(current, next);
             }}

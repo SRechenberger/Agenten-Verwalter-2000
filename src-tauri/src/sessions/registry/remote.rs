@@ -1,12 +1,17 @@
 //! Freigabe eines Vorhabens für Gäste (ADR 059). Das Steuerrecht selbst steht in `crate::remote`;
 //! hier steht nur, was die Registry beisteuert.
-use tauri::{AppHandle, Emitter};
+use std::collections::HashMap;
+use std::sync::Arc;
+
+use tauri::{AppHandle, Emitter, Manager};
 
 use super::{PROJECT_CHANGED_EVENT, SessionRegistry, project_not_found};
 use crate::db::remote as remote_rows;
 use crate::error::CommandError;
 use crate::projects::model::ProjectSummary;
 use crate::remote::CHANGED_EVENT as REMOTE_CHANGED_EVENT;
+use crate::remote::server::RemoteServer;
+use crate::remote::wire::Frame;
 
 impl SessionRegistry {
     /// Schaltet die Freigabe um; Ausschalten wirft einen steuernden Gast sofort hinaus. Erst danach
@@ -34,7 +39,11 @@ impl SessionRegistry {
         let summary = self.project_summary(project_id)?;
         // Wie die übrigen Ereignisse ohne Session-Protokoll: ein Sendefehler ändert nichts am Zustand.
         let _ = app.emit(PROJECT_CHANGED_EVENT, &summary);
-        let _ = app.emit(REMOTE_CHANGED_EVENT, ());
+        if shared {
+            let _ = app.emit(REMOTE_CHANGED_EVENT, ());
+        } else {
+            announce_unshared(app, project_id);
+        }
         if !shared && stop_agents {
             let mut first_error: Option<CommandError> = None;
             for session in self.project_members(project_id) {
@@ -68,3 +77,33 @@ impl SessionRegistry {
             .flatten()
     }
 }
+
+/// Die Freigabe ist zu Ende: Jeder verbundene Gast bekommt den Rahmen `access`, denn
+/// `project://changed` geht nur an Gäste, solange das Vorhaben freigegeben ist.
+pub(super) fn announce_unshared(app: &AppHandle, project_id: &str) {
+    if let Some(server) = app.try_state::<Arc<RemoteServer>>() {
+        server.broadcast(&Frame::Access {
+            project_id: project_id.to_owned(),
+        });
+    }
+    let _ = app.emit(REMOTE_CHANGED_EVENT, ());
+}
+
+/// Welche Oberfläche welche Session zeigt: `None` ist die eigene, sonst die ID des Gastes.
+pub(super) type Viewed = HashMap<Option<String>, String>;
+
+/// `surface` zeigt ab jetzt `session_id`: Nimmt ihren bisherigen Eintrag heraus und nennt die
+/// Session, die danach nicht mehr als gesehen gilt, weil keine Oberfläche sie mehr zeigt.
+pub(super) fn unviewed_after(
+    viewed: &mut Viewed,
+    surface: Option<&str>,
+    session_id: Option<&str>,
+) -> Option<String> {
+    viewed
+        .remove(&surface.map(str::to_owned))
+        .filter(|previous: &String| Some(previous.as_str()) != session_id)
+        .filter(|previous: &String| !viewed.values().any(|shown: &String| shown == previous))
+}
+
+#[cfg(test)]
+mod tests;

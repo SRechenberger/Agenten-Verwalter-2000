@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { UnlistenFn } from '@tauri-apps/api/event';
+import { useRemoteChanged } from '@/features/remote/useRemoteChanged';
 import type { SessionSummary } from '@/lib/bindings/SessionSummary';
 import { commandErrorText } from '@/lib/errors';
 import { listSessions, onSessionChanged } from '@/lib/sessions';
@@ -29,8 +30,11 @@ export function useSessionSummaries(): SessionSummaries {
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [subscribeError, setSubscribeError] = useState<string | null>(null);
+  // Sessions, die seit dem Start der laufenden Abfrage ein Ereignis brachten: Das Ereignis ist neuer.
+  const touchedRef = useRef<Set<string>>(new Set<string>());
 
   const upsertSession = useCallback((summary: SessionSummary): void => {
+    touchedRef.current.add(summary.id);
     setSessions((current: SessionSummary[]) => upsert(current, summary));
   }, []);
 
@@ -39,6 +43,29 @@ export function useSessionSummaries(): SessionSummaries {
       current.filter((candidate: SessionSummary) => candidate.id !== sessionId),
     );
   }, []);
+
+  // Nach dem Neuverbinden, einer Übernahme oder dem Ende einer Freigabe fehlen Ereignisse: Die Liste des
+  // Core ersetzt die hiesige, denn die Sessions eines Vorhabens, das nicht mehr gehalten wird, fehlen darin.
+  useRemoteChanged(() => {
+    touchedRef.current = new Set<string>();
+    const touched: Set<string> = touchedRef.current;
+    listSessions()
+      .then((listed: SessionSummary[]) => {
+        setSessions((current: SessionSummary[]) =>
+          listed
+            .map(
+              (candidate: SessionSummary) =>
+                (touched.has(candidate.id)
+                  ? current.find((known: SessionSummary) => known.id === candidate.id)
+                  : undefined) ?? candidate,
+            )
+            .sort(latestActivityFirst),
+        );
+      })
+      .catch((reason: unknown) => {
+        console.error('Sessions nicht neu geladen', reason);
+      });
+  });
 
   useEffect(() => {
     const controller = new AbortController();

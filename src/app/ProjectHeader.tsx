@@ -5,6 +5,7 @@ import { StatusIcon } from '@/components/StatusIcon';
 import { formatCount } from '@/features/changes/changesScope';
 import { useNow } from '@/features/background/useNow';
 import { mostUrgent } from '@/features/projects/projectStatus';
+import { RemoteGiveBack, RemoteHostBadge } from '@/features/remote/RemoteHeaderTools';
 import { headerStatus, headerStatusLabel } from '@/features/sessions/sessionStatus';
 import type { ProjectSummary } from '@/lib/bindings/ProjectSummary';
 import type { SessionSummary } from '@/lib/bindings/SessionSummary';
@@ -122,6 +123,7 @@ export function ProjectHeader({
         ))}
       </div>
       <div className="session-header__tools">
+        <RemoteHostBadge projectId={project.id} />
         <span className="session-header__mono" title="Laufzeit aller Sessions des Vorhabens">
           {sessionCountLabel} · {formatRuntime(totalRuntimeMs)}
         </span>
@@ -138,6 +140,7 @@ export function ProjectHeader({
             <span className="session-header__background-count">{String(terminalCount)}</span>
           )}
         </button>
+        <RemoteGiveBack projectId={project.id} />
       </div>
     </header>
   );

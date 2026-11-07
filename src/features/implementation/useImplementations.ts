@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { UnlistenFn } from '@tauri-apps/api/event';
+import { useRemoteChanged } from '@/features/remote/useRemoteChanged';
 import type { ImplementationView } from '@/lib/bindings/ImplementationView';
 import type { SessionSummary } from '@/lib/bindings/SessionSummary';
 import { commandErrorText } from '@/lib/errors';
@@ -39,6 +40,9 @@ export function useImplementations(): Implementations {
   const reload = useCallback((): void => {
     setGeneration((current: number) => current + 1);
   }, []);
+
+  // Nach dem Neuverbinden, einer Übernahme oder dem Ende einer Freigabe fehlen Ereignisse.
+  useRemoteChanged(reload);
 
   useEffect(() => {
     const controller = new AbortController();

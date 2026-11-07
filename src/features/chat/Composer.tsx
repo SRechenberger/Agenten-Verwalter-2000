@@ -21,6 +21,8 @@ import { McpDialog } from '@/features/mcp/McpDialog';
 import { McpProblemChip } from '@/features/mcp/McpProblemChip';
 import { CacheAwareModelMenu } from '@/features/promptcache/CacheAwareModelMenu';
 import { CacheColdHint } from '@/features/promptcache/CacheColdHint';
+import { LockedComposer } from '@/features/remote/LockedComposer';
+import { useProjectIsRemote, useProjectLock } from '@/features/remote/useProjectAccess';
 import { ReviewCommentList } from '@/features/review/ReviewCommentList';
 import { isQuotaPause } from '@/features/sessions/sessionStatus';
 import { openSide } from '@/features/side/openSide';
@@ -93,7 +95,17 @@ interface ComposerProps {
   onSessionCreated: (created: SessionSummary) => void;
 }
 
+/** Die Eingabeleiste; solange das Vorhaben gesperrt ist (ein Gast steuert, der Host fehlt), steht an ihrer
+ *  Stelle die Sperrzeile. Der Entwurf liegt im Store und überlebt den Wechsel. */
 export function Composer({ session, onSessionCreated }: ComposerProps): ReactElement {
+  const lock = useProjectLock(session.projectId);
+  if (lock !== null) {
+    return <LockedComposer session={session} lock={lock} />;
+  }
+  return <ComposerForm session={session} onSessionCreated={onSessionCreated} />;
+}
+
+function ComposerForm({ session, onSessionCreated }: ComposerProps): ReactElement {
   const [openMenu, setOpenMenu] = useState<OpenMenu>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isSending, setIsSending] = useState<boolean>(false);
@@ -115,8 +127,10 @@ export function Composer({ session, onSessionCreated }: ComposerProps): ReactEle
   const operatingMode = useSettingsStore((state) => state.settings?.operatingMode ?? 'claude');
   const localModel: string | null = useSettingsStore((state) => state.settings?.localModel ?? null);
   const isLocal: boolean = isLocalOperatingMode(operatingMode);
-  // Claude in Chrome gibt es nur mit der Claude-Kommandozeile und dem Claude-Abo.
-  const hasBrowser: boolean = operatingMode === 'claude';
+  // Claude in Chrome gibt es nur mit der Claude-Kommandozeile und dem Claude-Abo, und nicht an einem
+  // entfernten Vorhaben: Dort ginge der Browser am Bildschirm des Hosts auf.
+  const isRemote: boolean = useProjectIsRemote(session.projectId);
+  const hasBrowser: boolean = operatingMode === 'claude' && !isRemote;
   // Codex nutzt seine eigenen MCP-Server aus `~/.codex/config.toml`; die Hinweise gelten nur für die der Claude-Kommandozeile.
   const hasMcp: boolean = operatingMode !== 'codex';
   const isCodex: boolean = operatingMode === 'codex';

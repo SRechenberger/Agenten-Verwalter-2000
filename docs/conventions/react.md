@@ -88,3 +88,9 @@ Children: `ReactNode`. Events explizit typisieren (`React.ChangeEvent<HTMLTextAr
 2. **Lange Listen immer virtualisiert** — eine Chat-Historie mit tausenden Einträgen darf nicht vollständig im DOM landen.
 3. **Kein direkter Zugriff auf Dateisystem, Git oder Prozesse aus React** — alles läuft über den Core.
 4. **Jedes Event-Abo wird aufgeräumt** — vergessene Listener sind hier Speicherlecks pro Session.
+
+## Fernsteuerung (ADR 059)
+
+- Ein Bedienelement, das ins Vorhaben schreibt (ein Command der Klassen C und D in `src-tauri/src/remote/access.rs`), fragt `useProjectLocked(projectId)` oder, wenn es nur die Session kennt, `useSessionLocked(sessionId)` und sperrt sich damit am Host, solange ein Gast steuert, und am Gast, solange der Host fehlt. Der Core lehnt ohnehin ab; die Sperre erspart dem Nutzer den Fehler. Außerhalb von React gilt `isProjectLockedNow`.
+- Ein neuer Aufruf eines solchen Commands bekommt dieselbe Sperre im selben Commit. Dinge, die am Bildschirm des Hosts aufgingen (Browser-Schalter, MCP-Anmeldung), fehlen an entfernten Vorhaben (`useProjectIsRemote`, `useSessionIsRemote`).
+- Listen und Verlauf eines entfernten Vorhabens laden nach `remote://changed` neu (`useRemoteChanged`): Ereignisse aus der Lücke einer Verbindung fehlen.

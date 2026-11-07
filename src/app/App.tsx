@@ -26,6 +26,16 @@ import { ProjectOverview } from '@/features/projects/ProjectOverview';
 import { sessionsOf } from '@/features/projects/projectStatus';
 import { useProjectGroups } from '@/features/projects/useProjectGroups';
 import { useProjectSummaries } from '@/features/projects/useProjectSummaries';
+import { RemoteBanner } from '@/features/remote/RemoteBanner';
+import { RemoteOffer } from '@/features/remote/RemoteOffer';
+import { ShareEnded } from '@/features/remote/ShareEnded';
+import { useProjectAccessSync } from '@/features/remote/useProjectAccess';
+import {
+  useEndedShares,
+  type EndedShare,
+  type EndedShares,
+} from '@/features/remote/useEndedShares';
+import { useRemoteSync } from '@/features/remote/useRemoteSync';
 import { useRetroProgress } from '@/features/retro/useRetroProgress';
 import { EmptyState } from '@/features/sessions/EmptyState';
 import { NewSession } from '@/features/sessions/NewSession';
@@ -77,6 +87,14 @@ export function App(): ReactElement {
     reload: reloadImplementations,
     error: implementationsError,
   } = useImplementations();
+  // Fernsteuerung: Geräte und Hosts für Einstellungen, Leiste und Köpfe; die Rechte der Listen für gesperrte Bedienelemente.
+  useRemoteSync();
+  useProjectAccessSync(projects, sessions);
+  const { ended: endedShares, projectOfEntry }: EndedShares = useEndedShares(
+    projects,
+    sessions,
+    implementations,
+  );
   const activeSessionId: string | null = useSessionsStore((state) => state.activeSessionId);
   const activeImplementationId: string | null = useSessionsStore(
     (state) => state.activeImplementationId,
@@ -165,7 +183,49 @@ export function App(): ReactElement {
   }, []);
   useSessionOverlaps();
   // „Neues Vorhaben“ und die Einstellungen ersetzen den Inhalt; Session und Übersicht sind dann nicht sichtbar.
-  const isMainReplaced: boolean = showNewSession || showSettings;
+  const isPageReplaced: boolean = showNewSession || showSettings;
+  // Beendet der Host die Freigabe, verschwindet das Vorhaben aus den Listen; die offene Ansicht zeigt dann den
+  // Hinweis, statt auf eine andere Session auszuweichen.
+  const endedSelection: EndedShare | undefined = isPageReplaced
+    ? undefined
+    : endedShares.find((share: EndedShare) =>
+        showImplementation && activeImplementationId !== null
+          ? share.entryIds.has(activeImplementationId)
+          : showProjectOverview
+            ? share.projectId === activeProjectId
+            : activeSessionId !== null && share.entryIds.has(activeSessionId),
+      );
+  // Ein Vorhaben eines Hosts ohne Sessions: nur angeboten, oder gerade übernommen und noch ohne Liste. Das
+  // gilt auch für die offene Session, deren Vorhaben der Gast nicht mehr hält (Neustart des Host, Gerät gesperrt):
+  // Statt auf eine andere Session auszuweichen, zeigt die Hauptfläche das Angebot.
+  const shownEntryId: string | null = showImplementation
+    ? activeImplementationId
+    : showProjectOverview
+      ? null
+      : activeSessionId;
+  const isEntryMissing: boolean =
+    shownEntryId !== null &&
+    !sessions.some((session: SessionSummary) => session.id === shownEntryId) &&
+    !implementations.some(
+      (implementation: ImplementationView) => implementation.id === shownEntryId,
+    );
+  const offeredProjectId: string | null | undefined =
+    showProjectOverview && !showImplementation
+      ? activeProjectId
+      : isEntryMissing && shownEntryId !== null
+        ? projectOfEntry(shownEntryId)
+        : null;
+  const offeredProject: ProjectSummary | undefined =
+    isPageReplaced || endedSelection !== undefined || offeredProjectId === null
+      ? undefined
+      : projects.find(
+          (project: ProjectSummary) =>
+            project.id === offeredProjectId &&
+            project.access.kind === 'remote' &&
+            sessionsOf(project.id, sessions).length === 0,
+        );
+  const isMainReplaced: boolean =
+    isPageReplaced || endedSelection !== undefined || offeredProject !== undefined;
 
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent): void {
@@ -213,10 +273,11 @@ export function App(): ReactElement {
   // spränge sonst ohne Zutun in eine andere Session.
   const chosenSessionId: string | null = chosenSession?.id ?? null;
   useEffect(() => {
-    if (chosenSessionId !== null) {
+    // Zeigt die Hauptfläche den Hinweis oder das Angebot, bleibt die gewählte Session stehen, auch wenn sie fehlt.
+    if (chosenSessionId !== null && endedSelection === undefined && offeredProject === undefined) {
       holdSession(chosenSessionId);
     }
-  }, [chosenSessionId, holdSession]);
+  }, [chosenSessionId, endedSelection, offeredProject, holdSession]);
 
   // Der gewählte Reiter bleibt beim Session-Wechsel stehen; ohne Repository gibt es keine Changes.
   const isChangesView: boolean = isOverview
@@ -584,6 +645,18 @@ export function App(): ReactElement {
     if (showNewSession) {
       return <NewSession groups={groups} onCreated={handleCreated} onCancel={closeNewSession} />;
     }
+    if (endedSelection !== undefined) {
+      return <ShareEnded projectName={endedSelection.projectName} />;
+    }
+    if (offeredProject !== undefined && offeredProject.access.kind === 'remote') {
+      return (
+        <RemoteOffer
+          project={offeredProject}
+          access={offeredProject.access}
+          onProjectChanged={upsertProject}
+        />
+      );
+    }
     if (
       shownImplementation !== undefined &&
       overviewProject !== undefined &&
@@ -618,6 +691,7 @@ export function App(): ReactElement {
               selectProject(currentSession.projectId);
             }}
           />
+          <RemoteBanner projectId={currentSession.projectId} />
           <SessionActionError sessionId={currentSession.id} />
           {isClaude && <UsageAlertBar />}
           <OverlapBar sessionId={currentSession.id} projectId={currentSession.projectId} />
@@ -639,7 +713,7 @@ export function App(): ReactElement {
         activeSessionId={isMainReplaced || isOverview ? null : (currentSession?.id ?? null)}
         activeProjectId={activeProjectId}
         activeImplementationId={isImplementation ? (shownImplementation?.id ?? null) : null}
-        showProjectOverview={isOverview && !isImplementation}
+        showProjectOverview={(isOverview && !isImplementation) || offeredProject !== undefined}
         isSettingsOpen={showSettings}
         loadError={projectsError ?? groupsError ?? sessionsError ?? implementationsError}
         onSelectSession={selectSession}
@@ -651,6 +725,7 @@ export function App(): ReactElement {
           setIsArchiveOpen(true);
         }}
         onArchived={handleArchived}
+        onProjectChanged={upsertProject}
         onSessionDeleted={handleSessionDeleted}
       />
       <ResizeHandle edge="end" label="Breite der Seitenleiste" {...sidebarWidth.handleProps} />

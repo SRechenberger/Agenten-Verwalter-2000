@@ -3,6 +3,7 @@ import { Terminal } from '@xterm/xterm';
 import '@xterm/xterm/css/xterm.css';
 import { terminalFont, terminalTheme } from '@/features/terminal/terminalTheme';
 import type { TerminalOutput } from '@/lib/bindings/TerminalOutput';
+import { isProjectLockedNow } from '@/features/remote/useProjectAccess';
 import { attachTerminal, detachTerminal, resizeTerminal, writeTerminal } from '@/lib/terminal';
 import { useSettingsStore } from '@/stores/settings';
 
@@ -120,6 +121,10 @@ export function acquire(terminalId: string, projectId: string): TerminalInstance
     resizeTimer: null,
   };
   term.onData((data: string) => {
+    // Der Host liest nur mit, solange ein Gast steuert; der Core lehnte die Eingabe ohnehin ab.
+    if (isProjectLockedNow(projectId)) {
+      return;
+    }
     writeTerminal(terminalId, data).catch((reason: unknown) => {
       console.error('Eingabe nicht gesendet', reason);
     });
@@ -168,6 +173,9 @@ export function fitAndResize(terminalId: string): void {
   }
   instance.resizeTimer = window.setTimeout(() => {
     instance.resizeTimer = null;
+    if (isProjectLockedNow(instance.projectId)) {
+      return;
+    }
     resizeTerminal(terminalId, cols, rows).catch((reason: unknown) => {
       console.error('Größe nicht gemeldet', reason);
     });

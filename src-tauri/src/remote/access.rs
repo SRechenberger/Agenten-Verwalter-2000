@@ -246,6 +246,9 @@ const TABLE: &[(Class, Option<IdKind>, &[&str])] = &[
             "remote_connect",
             "remote_hosts",
             "remote_disconnect",
+            // Am Gast lokal; am Host beantwortet der Server dieselben Namen vor der Prüfung.
+            "remote_take",
+            "remote_give_back",
         ],
     ),
 ];
@@ -259,6 +262,22 @@ fn entry_of(command: &str) -> Option<(Class, Option<IdKind>)> {
 
 pub fn class_of(command: &str) -> Option<Class> {
     entry_of(command).map(|(class, _)| class)
+}
+
+/// Ob der Gast einen Aufruf mit der ID eines entfernten Vorhabens an dessen Host gibt. Was dort
+/// nie erlaubt ist, lehnt der Host ab; nur `project_set_group` bleibt lokal (Vertrag), was ohne
+/// ID auskommt, hat eigene Wege, und `session_set_viewed` geht an beide Seiten (der Command).
+pub fn routes_to_host(command: &str) -> bool {
+    command != "project_set_group"
+        && matches!(
+            class_of(command),
+            Some(
+                Class::HostRead
+                    | Class::HostWrite
+                    | Class::NeverGuestLocked
+                    | Class::NeverGuestOpen
+            )
+        )
 }
 
 /// Eine ID aus den Argumenten eines Aufrufs.

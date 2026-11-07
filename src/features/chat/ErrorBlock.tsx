@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import type { ReactElement } from 'react';
 import { StatusIcon } from '@/components/StatusIcon';
 import { commandErrorText } from '@/lib/errors';
+import { useSessionLocked } from '@/features/remote/useProjectAccess';
 import { getSessionLog, restartSession } from '@/lib/sessions';
 import { useSessionErrorsStore } from '@/stores/sessionErrors';
 import './ErrorBlock.css';
@@ -25,6 +26,7 @@ export function ErrorBlock({
 }: ErrorBlockProps): ReactElement {
   const [log, setLog] = useState<readonly string[] | null>(null);
   const [logError, setLogError] = useState<string | null>(null);
+  const isLocked: boolean = useSessionLocked(sessionId);
   const reportSessionError = useSessionErrorsStore((state) => state.report);
   const clearSessionError = useSessionErrorsStore((state) => state.clear);
 
@@ -87,6 +89,7 @@ export function ErrorBlock({
             <button
               type="button"
               className="error-block__button error-block__button--accent"
+              disabled={isLocked}
               onClick={restart}
             >
               Agent neu starten

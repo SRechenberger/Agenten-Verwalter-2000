@@ -9,6 +9,8 @@ import {
 } from '@/features/changes/changesScope';
 import { AddRepositoryMenu } from '@/features/projects/AddRepositoryMenu';
 import { ProjectSessionCard } from '@/features/projects/ProjectSessionCard';
+import { RemoteShareBlock, useShowsShareBlock } from '@/features/remote/RemoteShareBlock';
+import { useProjectLocked } from '@/features/remote/useProjectAccess';
 import { RetroButton } from '@/features/retro/RetroButton';
 import { SelfReleaseSettings } from '@/features/settings/SelfReleaseSettings';
 import { ProjectTldrCard } from '@/features/tldr/ProjectTldrCard';
@@ -54,6 +56,8 @@ export function ProjectOverview({
   const [isCreating, setIsCreating] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const { view: tldrView, error: tldrError } = useProjectTldr(project.id);
+  const isLocked: boolean = useProjectLocked(project.id);
+  const showsShareBlock: boolean = useShowsShareBlock(project.access);
 
   function tldrOfSession(sessionId: string): ProjectSessionTldr | null {
     return (
@@ -96,15 +100,17 @@ export function ProjectOverview({
   }
 
   function renderRepositories(): ReactElement {
-    const addMenu: ReactElement = (
-      <AddRepositoryMenu
-        project={project}
-        hasRunningSession={sessions.some((session: SessionSummary) =>
-          RUNNING_STATUSES.includes(session.status),
-        )}
-        onAdded={onProjectChanged}
-      />
-    );
+    // Ein Repository anhängen geht nur am Host: Der Ordner wäre sonst einer auf dem Rechner des Gastes.
+    const addMenu: ReactElement | null =
+      project.access.kind === 'remote' ? null : (
+        <AddRepositoryMenu
+          project={project}
+          hasRunningSession={sessions.some((session: SessionSummary) =>
+            RUNNING_STATUSES.includes(session.status),
+          )}
+          onAdded={onProjectChanged}
+        />
+      );
     if (project.repositoryNames.length === 0) {
       return (
         <div className="project-overview__repositories">
@@ -146,6 +152,9 @@ export function ProjectOverview({
           </div>
         )}
         {renderRepositories()}
+        {showsShareBlock && (
+          <RemoteShareBlock project={project} onProjectChanged={onProjectChanged} />
+        )}
         <section className="project-overview__sessions">
           <div className="project-overview__sessions-head">
             <div className="project-overview__sessions-title">
@@ -161,7 +170,7 @@ export function ProjectOverview({
               type="button"
               className="project-overview__new"
               title={NEW_SESSION_TITLE}
-              disabled={isCreating}
+              disabled={isCreating || isLocked}
               onClick={createSession}
             >
               <svg
@@ -186,6 +195,7 @@ export function ProjectOverview({
                 setProjectSelfRelease(project.id, next).then(onProjectChanged)
               }
               modelNote="Gilt ab dem nächsten Abruf."
+              isLocked={isLocked}
             />
           </div>
           {errorMessage !== null && <p className="project-overview__error">{errorMessage}</p>}

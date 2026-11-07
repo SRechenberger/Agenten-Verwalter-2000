@@ -229,6 +229,33 @@ impl RemoteServer {
             .collect())
     }
 
+    /// Schickt einen Rahmen an das Gerät, wenn es verbunden ist. Eine volle Warteschlange trennt
+    /// die Verbindung (Vertrag); der Gast verbindet neu.
+    pub fn send_to(&self, device_id: &str, frame: &Frame) {
+        let link = lock(&self.shared.online)
+            .get(device_id)
+            .map(|live: &Live| live.link.clone());
+        if let Some(link) = link {
+            let _ = link.send(frame);
+        }
+    }
+
+    /// Schickt einen Rahmen an jedes verbundene Gerät.
+    pub fn broadcast(&self, frame: &Frame) {
+        let links: Vec<Link> = lock(&self.shared.online)
+            .values()
+            .map(|live: &Live| live.link.clone())
+            .collect();
+        for link in links {
+            let _ = link.send(frame);
+        }
+    }
+
+    /// Die IDs der Geräte, die gerade verbunden sind.
+    pub fn online_device_ids(&self) -> Vec<String> {
+        lock(&self.shared.online).keys().cloned().collect()
+    }
+
     /// Sperrt das Gerät: Verbindung zu, seine Vorhaben fallen an den Host zurück, das Token gilt
     /// nicht mehr. Liefert die Vorhaben, die es hielt.
     pub fn revoke(&self, device_id: &str) -> Result<Vec<String>, CommandError> {
