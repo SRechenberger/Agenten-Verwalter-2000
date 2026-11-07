@@ -1,5 +1,6 @@
 //! Freigabe eines Vorhabens für Gäste (ADR 059). Das Steuerrecht selbst steht in `crate::remote`;
 //! hier steht nur, was die Registry beisteuert.
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use tauri::{AppHandle, Emitter, Manager};
@@ -87,3 +88,22 @@ pub(super) fn announce_unshared(app: &AppHandle, project_id: &str) {
     }
     let _ = app.emit(REMOTE_CHANGED_EVENT, ());
 }
+
+/// Welche Oberfläche welche Session zeigt: `None` ist die eigene, sonst die ID des Gastes.
+pub(super) type Viewed = HashMap<Option<String>, String>;
+
+/// `surface` zeigt ab jetzt `session_id`: Nimmt ihren bisherigen Eintrag heraus und nennt die
+/// Session, die danach nicht mehr als gesehen gilt, weil keine Oberfläche sie mehr zeigt.
+pub(super) fn unviewed_after(
+    viewed: &mut Viewed,
+    surface: Option<&str>,
+    session_id: Option<&str>,
+) -> Option<String> {
+    viewed
+        .remove(&surface.map(str::to_owned))
+        .filter(|previous: &String| Some(previous.as_str()) != session_id)
+        .filter(|previous: &String| !viewed.values().any(|shown: &String| shown == previous))
+}
+
+#[cfg(test)]
+mod tests;

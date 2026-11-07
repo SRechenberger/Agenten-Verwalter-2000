@@ -164,8 +164,8 @@ pub fn on_guest_frame(app: &AppHandle, host_id: &str, frame: Frame) {
                 return;
             }
             clients.learn(host_id, &payload);
+            remember(&clients, host_id, &name, &payload);
             if name == PROJECT_CHANGED_EVENT {
-                clients.update_project(host_id, &payload);
                 if let Some(summary) = guest::project_event(&clients, &database, host_id, payload) {
                     let _ = app.emit(PROJECT_CHANGED_EVENT, summary);
                 }
@@ -180,5 +180,19 @@ pub fn on_guest_frame(app: &AppHandle, host_id: &str, frame: Frame) {
         }
         // ponytail: Terminal-Rahmen kommen mit dem Terminal am Gast.
         _ => {}
+    }
+}
+
+/// Die Oberfläche lädt Listen nur einmal und fügt danach Ereignisse ein; der Zwischenspeicher für
+/// einen Host, der gerade weg ist, folgt denselben Ereignissen.
+fn remember(clients: &RemoteClients, host_id: &str, name: &str, payload: &Value) {
+    let (command, item) = match name {
+        PROJECT_CHANGED_EVENT => ("project_list", Some(payload)),
+        "session://changed" => ("session_list", Some(payload)),
+        "implementation://changed" => ("implementation_list", payload.get("implementation")),
+        _ => return,
+    };
+    if let Some(item) = item {
+        clients.remember(host_id, command, item);
     }
 }

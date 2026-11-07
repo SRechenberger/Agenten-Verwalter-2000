@@ -78,9 +78,21 @@ pub fn answer(
             control
                 .with(|control| access::check(command, &ids, Actor::Guest(&device.id), control))
                 .map_err(CommandError::from)?;
-            host.invoke(command, args)
+            host.invoke(command, surface_of(command, args, device))
         }
     }
+}
+
+/// Was der Server selbst einträgt und damit überschreibt (Vertrag): die Oberfläche des Geräts bei
+/// `session_set_viewed`.
+fn surface_of(command: &str, mut args: Value, device: &DeviceRef) -> Value {
+    if command == "session_set_viewed" {
+        if !args.is_object() {
+            args = Value::Object(serde_json::Map::new());
+        }
+        args["viewer"] = Value::String(device.id.clone());
+    }
+    args
 }
 
 fn project_id_of(args: &Value) -> Result<&str, CommandError> {

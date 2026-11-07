@@ -90,9 +90,21 @@ pub async fn session_delete(
 pub async fn session_set_viewed(
     app: tauri::AppHandle,
     registry: tauri::State<'_, SessionRegistry>,
+    clients: tauri::State<'_, Arc<RemoteClients>>,
     session_id: Option<String>,
+    viewer: Option<String>,
 ) -> Result<(), CommandError> {
-    registry.set_viewed(&app, session_id.as_deref())
+    // Je Oberfläche (ADR 059, Klasse B): Die ID eines Hosts wird lokal zu `None`, und die eigene
+    // Oberfläche meldet jedem Host, was sie dort zeigt. `viewer` setzt nur der Server.
+    let host = session_id
+        .as_deref()
+        .and_then(|id: &str| clients.host_of(id));
+    let local = session_id.as_deref().filter(|_| host.is_none());
+    registry.set_viewed(&app, viewer.as_deref(), local)?;
+    if viewer.is_none() {
+        guest::show_on_hosts(Arc::clone(&clients), host, session_id).await?;
+    }
+    Ok(())
 }
 
 #[tauri::command]

@@ -442,3 +442,28 @@ fn a_denied_call_turns_into_the_error_of_the_contract() {
         CommandError::Internal(_)
     ));
 }
+
+#[test]
+fn routes_to_host_keeps_project_set_group_set_viewed_and_commands_without_ids_local() {
+    for command in [
+        "project_set_group",
+        "session_set_viewed",
+        "project_list",
+        "session_list",
+        "settings_update",
+        "remote_take",
+        "gibt_es_nicht",
+    ] {
+        assert!(!routes_to_host(command), "{command} ginge an den Host");
+    }
+    for command in [
+        "chat_history",
+        "chat_send",
+        "implementation_report",
+        "terminal_detach",
+        "session_delete",
+        "git_open",
+    ] {
+        assert!(routes_to_host(command), "{command} bliebe lokal");
+    }
+}

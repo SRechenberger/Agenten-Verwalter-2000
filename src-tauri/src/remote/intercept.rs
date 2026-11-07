@@ -72,7 +72,10 @@ fn call_host<R: Runtime>(invoke: Invoke<R>, clients: Arc<RemoteClients>, host_id
     let spawned = thread::Builder::new()
         .name("remote-route".to_owned())
         .spawn(move || match clients.call(&host_id, &command, args) {
-            Ok(value) => resolver.resolve(guest::result_view(&app, &clients, &host_id, value)),
+            Ok(value) => {
+                guest::remember_result(&clients, &host_id, &command, &value);
+                resolver.resolve(guest::result_view(&app, &clients, &host_id, value));
+            }
             Err(error) => resolver.reject(error),
         });
     if let Err(error) = spawned {

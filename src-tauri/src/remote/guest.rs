@@ -96,7 +96,7 @@ pub async fn control(
     let host = host_id.clone();
     let value =
         blocking(move || called.call(&host, command, json!({ "projectId": project_id }))).await??;
-    clients.update_project(&host_id, &value);
+    clients.remember(&host_id, "project_list", &value);
     let summary: ProjectSummary =
         serde_json::from_value(value).map_err(|error| CommandError::Internal(error.to_string()))?;
     let info = clients
@@ -165,6 +165,50 @@ pub fn result_view<R: Runtime>(
     project_event(clients, &database, host_id, value.clone())
         .and_then(|summary: ProjectSummary| serde_json::to_value(summary).ok())
         .unwrap_or(value)
+}
+
+/// `session_set_viewed` an jeden verbundenen Host: dem Host der Session ihre ID, den übrigen
+/// `None`. Ob ein Host das annimmt, ändert nichts an der Ansicht hier.
+pub async fn show_on_hosts(
+    clients: Arc<RemoteClients>,
+    host_of_session: Option<String>,
+    session_id: Option<String>,
+) -> Result<(), CommandError> {
+    blocking(move || {
+        let host_ids = clients.online_host_ids();
+        // Je Host ein Thread: Ein Host, der hängt, hält die übrigen nicht auf.
+        std::thread::scope(|scope| {
+            for host_id in &host_ids {
+                let shown = session_id
+                    .as_deref()
+                    .filter(|_| host_of_session.as_deref() == Some(host_id.as_str()));
+                let args = json!({ "sessionId": shown });
+                let clients = &clients;
+                scope.spawn(move || {
+                    let _ = clients.call_within(
+                        host_id,
+                        "session_set_viewed",
+                        args,
+                        Some(LIST_TIMEOUT),
+                    );
+                });
+            }
+        });
+    })
+    .await
+}
+
+/// Eine Session, die ein Befehl über die Weiche anlegt, meldet der Host ohne `session://changed`;
+/// die Oberfläche fügt sie aus der Antwort ein, der Zwischenspeicher ebenso.
+pub fn remember_result(clients: &RemoteClients, host_id: &str, command: &str, value: &Value) {
+    let session = match command {
+        "session_create_in_project" => Some(value),
+        "implementation_new_inquiry" => value.get("session"),
+        _ => None,
+    };
+    if let Some(session) = session {
+        clients.remember(host_id, "session_list", session);
+    }
 }
 
 fn cached_project(

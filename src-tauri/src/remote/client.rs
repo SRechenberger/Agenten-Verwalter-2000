@@ -398,24 +398,25 @@ impl RemoteClients {
         }
     }
 
-    /// Ein Vorhaben, wie der Host es zuletzt gemeldet hat (`project://changed`, `remote_take`),
-    /// ersetzt seinen Eintrag im Zwischenspeicher; so stimmt `mine` auch, wenn der Host weg ist.
-    pub fn update_project(&self, host_id: &str, project: &Value) {
-        let Some(project_id) = project.get("id").and_then(Value::as_str) else {
-            return;
-        };
+    /// Ein Eintrag, wie der Host ihn zuletzt gemeldet hat (`project://changed`, `session://changed`,
+    /// `implementation://changed`, die Antwort von `remote_take` oder `session_create_in_project`),
+    /// ersetzt oder ergänzt den Eintrag mit derselben `id` in der Liste `command`; so stimmen
+    /// Vorhaben, Sessions und Umsetzungen auch, wenn der Host weg ist.
+    pub fn remember(&self, host_id: &str, command: &str, item: &Value) {
         let Some(slot) = lock(&self.shared.hosts).get(host_id).cloned() else {
             return;
         };
         let mut cache = lock(&slot.cache);
-        let items = cache.lists.entry("project_list".to_owned()).or_default();
-        match items
-            .iter_mut()
-            .find(|item: &&mut Value| item.get("id").and_then(Value::as_str) == Some(project_id))
-        {
-            Some(item) => *item = project.clone(),
-            None => items.push(project.clone()),
-        }
+        replace_or_push(cache.lists.entry(command.to_owned()).or_default(), item);
+    }
+
+    /// Die verbundenen Hosts.
+    pub fn online_host_ids(&self) -> Vec<String> {
+        lock(&self.shared.hosts)
+            .iter()
+            .filter(|(_, slot)| slot.is_online())
+            .map(|(host_id, _)| host_id.clone())
+            .collect()
     }
 
     /// Die Freigabe ist zu Ende (Rahmen `access`): Das Vorhaben und seine Sessions, Umsetzungen und
@@ -471,6 +472,21 @@ impl RemoteClients {
             .get(host_id)
             .cloned()
             .ok_or_else(|| unknown_host(host_id))
+    }
+}
+
+/// Ersetzt den Eintrag mit derselben `id` oder hängt `item` an; ohne `id` bleibt die Liste, wie sie
+/// ist.
+fn replace_or_push(items: &mut Vec<Value>, item: &Value) {
+    let Some(id) = item.get("id").and_then(Value::as_str) else {
+        return;
+    };
+    match items
+        .iter_mut()
+        .find(|entry: &&mut Value| entry.get("id").and_then(Value::as_str) == Some(id))
+    {
+        Some(entry) => *entry = item.clone(),
+        None => items.push(item.clone()),
     }
 }
 
@@ -771,3 +787,6 @@ fn attach(
     (shared.hooks.changed)();
     Ok(closed)
 }
+
+#[cfg(test)]
+mod tests;

@@ -852,6 +852,26 @@ fn dispatched(folder: &Path) -> Result<bool, String> {
         })
     });
 
+    all &= report("ansicht je geraet", {
+        [
+            (
+                &second,
+                json!({ "sessionId": SHARED_SESSION, "viewer": "gefaelscht" }),
+            ),
+            (&first, json!({ "sessionId": null })),
+        ]
+        .into_iter()
+        .try_for_each(|(guest, args): (&RemoteClients, Value)| {
+            let device_id = guest.host_info(&host_id).ok_or("Host unbekannt")?.device_id;
+            let ran = guest
+                .call(&host_id, "session_set_viewed", args.clone())
+                .map_err(text)?;
+            ensure(ran["args"]["viewer"] == device_id.as_str(), || {
+                format!("session_set_viewed mit {args} lief als {ran}")
+            })
+        })
+    });
+
     host.server.stop();
     Ok(all)
 }

@@ -265,15 +265,14 @@ pub fn class_of(command: &str) -> Option<Class> {
 }
 
 /// Ob der Gast einen Aufruf mit der ID eines entfernten Vorhabens an dessen Host gibt. Was dort
-/// nie erlaubt ist, lehnt der Host ab; nur `project_set_group` bleibt lokal (Vertrag), und was ohne
-/// ID auskommt, hat eigene Wege.
+/// nie erlaubt ist, lehnt der Host ab; nur `project_set_group` bleibt lokal (Vertrag), was ohne
+/// ID auskommt, hat eigene Wege, und `session_set_viewed` geht an beide Seiten (der Command).
 pub fn routes_to_host(command: &str) -> bool {
     command != "project_set_group"
         && matches!(
             class_of(command),
             Some(
                 Class::HostRead
-                    | Class::PerSurface
                     | Class::HostWrite
                     | Class::NeverGuestLocked
                     | Class::NeverGuestOpen
