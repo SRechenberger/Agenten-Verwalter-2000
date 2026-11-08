@@ -9,7 +9,7 @@ use std::time::Duration;
 use crate::agents::claude::local::{self, LocalBackend, LocalProgram};
 use crate::agents::event::{Effort, Mode, ModelId};
 use crate::mcp_access::{AGENT_TOOL_PREFIX, TOKEN_VARIABLE, VerwalterMcp};
-use crate::processes::hide_console;
+use crate::processes::{self, hide_console};
 use crate::session_tools::tools::{GET_SESSIONS, GET_TLDR, OPEN_SESSION, SEND_MESSAGE};
 use crate::{codex, standalone};
 
@@ -118,7 +118,7 @@ impl ClaudeProcess {
 }
 
 fn build_command(opts: &SpawnOptions) -> Command {
-    let mut command = Command::new(&opts.exe);
+    let mut command = processes::command(&opts.exe);
     command
         .args(&opts.leading_args)
         .current_dir(&opts.cwd)

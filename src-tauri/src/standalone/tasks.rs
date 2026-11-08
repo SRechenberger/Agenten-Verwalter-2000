@@ -8,7 +8,7 @@
 //! sein Ende erst, wenn sein Thread zurück ist.
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::process::{Child, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::Receiver;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
@@ -19,7 +19,7 @@ use serde_json::{Value, json};
 use uuid::Uuid;
 
 use super::output::Output;
-use crate::processes::hide_console;
+use crate::processes::{self, hide_console};
 
 const PROCESS_ID_PREFIX: char = 'b';
 const SUBAGENT_ID_PREFIX: char = 'a';
@@ -298,7 +298,7 @@ fn new_task_id(prefix: char) -> String {
 
 /// `taskkill /T` nimmt die Kindprozesse mit — `bash -c` startet seine Befehle als eigene Prozesse.
 pub fn kill_process_tree(pid: u32) {
-    let mut taskkill = Command::new("taskkill");
+    let mut taskkill = processes::command("taskkill");
     taskkill
         .args(["/PID", &pid.to_string(), "/T", "/F"])
         .stdin(Stdio::null())

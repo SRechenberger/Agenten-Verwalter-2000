@@ -76,7 +76,9 @@ pub fn start_installer(installer: &Path) -> Result<(), String> {
 #[cfg(windows)]
 fn launch_delayed(path: &Path) -> Result<(), String> {
     use std::os::windows::process::CommandExt;
-    use std::process::{Command, Stdio};
+    use std::process::Stdio;
+
+    use crate::processes;
 
     const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
     const CREATE_NO_WINDOW: u32 = 0x0800_0000;
@@ -92,7 +94,7 @@ fn launch_delayed(path: &Path) -> Result<(), String> {
         return Err(format!("Pfad {text} lässt sich nicht an die Shell geben."));
     }
     let shell = std::env::var_os("ComSpec").unwrap_or_else(|| OsString::from("cmd.exe"));
-    let mut command = Command::new(shell);
+    let mut command = processes::command(shell);
     // `raw_arg`, weil Rust sonst die Anführungszeichen für `start` maskierte. Kein DETACHED_PROCESS:
     // ohne eigene (verborgene) Konsole öffnete `ping` ein sichtbares Fenster. Der Prozess überlebt
     // das Ende des Verwalters auch so; die App hängt ihre Kinder an kein Job-Objekt.
