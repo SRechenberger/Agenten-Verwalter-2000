@@ -67,7 +67,7 @@ pnpm tauri build            # NSIS-Installer unter src-tauri/target/release/bund
 pnpm tauri build --no-bundle  # nur die lose exe
 ```
 
-Automatisierte Tests gibt es nur für die Fix-Runden-Auswahl der Umsetzung (`src-tauri/src/implementation/tests.rs`, von Hand mit `cargo test --manifest-path src-tauri/Cargo.toml`) und für das Steuerrecht der Fernsteuerung (`cargo test --manifest-path src-tauri/Cargo.toml --lib remote::`, auch in CI); sonst wird über strenge Typen, Lint und Build abgesichert und im laufenden Betrieb getestet.
+Automatisierte Tests gibt es nur für die Fix-Runden-Auswahl der Umsetzung und die Agententypen (`src-tauri/src/implementation/tests.rs`, `src-tauri/src/agent_types/tests.rs`; `cargo test --manifest-path src-tauri/Cargo.toml --lib -- implementation:: agent_types::`, auch in CI) und für das Steuerrecht der Fernsteuerung (`cargo test --manifest-path src-tauri/Cargo.toml --lib remote::`, auch in CI); alle zusammen laufen mit `cargo test --manifest-path src-tauri/Cargo.toml`. Sonst wird über strenge Typen, Lint und Build abgesichert und im laufenden Betrieb getestet.
 
 Fertige Installer liegen bei den [GitHub-Releases](https://github.com/SRechenberger/Agenten-Verwalter-2000/releases). Ein gepushter Tag `v<Version>` baut ein Release (Windows-Installer, dazu `.dmg`, `.AppImage` und `.deb` als Zusatz).
 

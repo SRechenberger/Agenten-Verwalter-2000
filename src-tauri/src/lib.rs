@@ -1,4 +1,5 @@
 pub mod account;
+pub mod agent_types;
 pub mod agents;
 pub mod app_update;
 pub mod archive;
@@ -303,6 +304,10 @@ pub fn run() {
             commands::settings::settings_load,
             commands::settings::settings_update,
             commands::settings::settings_local_models,
+            commands::agent_types::agent_types_list,
+            commands::agent_types::agent_type_create,
+            commands::agent_types::agent_type_update,
+            commands::agent_types::agent_type_delete,
             commands::environment::environment_status,
             commands::environment::environment_mirror,
             commands::codex::codex_models,

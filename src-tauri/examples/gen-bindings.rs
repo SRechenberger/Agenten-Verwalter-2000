@@ -2,6 +2,9 @@
 use ts_rs::{Config, TS};
 use verwalter_lib::{
     account::model::{AccountInfo, AccountStatus},
+    agent_types::model::{
+        AgentType, AgentTypeField, AgentTypeInput, AgentTypeSaved, AgentValueSource, FieldError,
+    },
     agents::event::{
         Attachment, AttachmentKind, ChatEntry, Effort, Mode, ModelId, Question, QuestionAnswer,
         QuestionKind, QuestionOption, SessionRef, TodoItem, TodoState, ToolDetail, ToolRequest,
@@ -242,5 +245,11 @@ fn main() -> Result<(), ts_rs::ExportError> {
     MirrorDiff::export_all(&cfg)?;
     MirrorRun::export_all(&cfg)?;
     EnvironmentStatus::export_all(&cfg)?;
+    AgentType::export_all(&cfg)?;
+    AgentTypeInput::export_all(&cfg)?;
+    AgentTypeField::export_all(&cfg)?;
+    FieldError::export_all(&cfg)?;
+    AgentTypeSaved::export_all(&cfg)?;
+    AgentValueSource::export_all(&cfg)?;
     Ok(())
 }
