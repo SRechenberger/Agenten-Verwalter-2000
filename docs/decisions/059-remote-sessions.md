@@ -1,6 +1,6 @@
 # 059 — Remote Sessions: Vorhaben einer anderen laufenden Instanz steuern
 
-**Status:** angenommen · **Datum:** 2026-11-05
+**Status:** angenommen, umgesetzt (Stand siehe „Stand der Umsetzung“) · **Datum:** 2026-11-05
 
 ## Kontext
 
@@ -64,7 +64,7 @@ Je Vorhaben `shared` (SQLite, `projects.remote_shared`) und `holder` aus Gerät 
 | Gerät sperren | Host | Verbindung zu, seine `holder = None`, Token ungültig. |
 | `project_archive` | Host, kein Inhaber | `shared = false`; auch nach dem Wiederherstellen nicht mehr freigegeben. |
 
-`access::check` ist eine Funktion für beide Stellen: Für die Oberfläche des Hosts im Wrapper `remote/intercept.rs`, dort sperrt sie nur, solange ein Gast Inhaber ist, und ohne Inhaber bleibt der Aufruf unverändert. Für Gäste im Server vor `on_message`. Ein Aufruf des Servers kommt mit der Kopfzeile `x-verwalter-remote` zurück durch den Wrapper und überspringt ihn.
+`access::check` ist eine Funktion für beide Stellen: Für die Oberfläche des Hosts im Wrapper `remote/intercept.rs`, dort sperrt sie nur, solange ein Gast Inhaber ist, und ohne Inhaber bleibt der Aufruf unverändert. Für Gäste im Server vor `on_message`. Ein Aufruf des Servers kommt mit der Kopfzeile `x-verwalter-remote` zurück durch den Wrapper und überspringt ihn. Ihr Wert ist `remote_pass()`, eine UUID je Start des Core; die Oberfläche des Hosts kennt ihn nicht und kann die Sperre darum nicht mit einer selbst gesetzten Kopfzeile umgehen.
 
 **Alle IDs zählen.** `ids_of` liest `sessionId`, `projectId` und bei `implementation_*` und `terminal_*` auch `id`. Für einen Gast muss jede davon zu einem Vorhaben führen, das er hält, und ein Befehl mit ID-Pflicht ohne seine ID wird abgelehnt. Für die Oberfläche des Hosts meldet eine unbekannte ID weiter der Command selbst. `stationId` führt über `implementation::station_in` zu `id`: Eine Station einer fremden Umsetzung wird abgelehnt, bevor an ihr etwas wirkt.
 
@@ -94,7 +94,7 @@ Zur Laufzeit belegt in der echten App mit Tauri 2.12, unter Linux im Dev-Lauf (`
 - `on_message` ruft aus dem Core synchrone und `async`-Commands mit und ohne Argumente und liefert das JSON der Antwort, auch Fehlerobjekte. Das Webview kommt über `get_webview_window("main")`; `get_webview` hängt am Feature `unstable`. Die Adresse im `InvokeRequest` muss lokal sein, `url()` des Fensters ist es.
 - `listen_any` sieht jedes `app.emit`, darunter `session://changed`.
 
-Unter Windows ist das noch nicht gelaufen.
+Unter Windows ist das noch nicht zur Laufzeit gelaufen. Die Tests von `remote::` laufen in CI unter Windows (`check.yml`), das belegt das Steuerrecht und die Tabelle der Klassen, aber nicht `on_message` im Webview, den Server und die Verbindung dort.
 
 ## Verbindung
 
@@ -112,7 +112,7 @@ Was der Vertrag offenlässt, ist so festgelegt:
 
 Was der Vertrag offenlässt, ist so festgelegt:
 
-- **Host.** `remote/dispatch.rs` beantwortet jeden Aufruf eines Gastes. `remote_take` und `remote_give_back` ändern das Steuerrecht direkt. `project_list`, `session_list`, `implementation_list` und `session_overlaps` liest der Host aus der Registry statt über `on_message` und filtert sie: freigegebene Vorhaben für jedes Gerät, Sessions, Umsetzungen und Überschneidungen nur für den Inhaber; eine Überschneidung zählt zum Vorhaben ihrer `sessionId`. So führt auch ein Host, der selbst Gast ist, keine Listen eines weiteren Hosts zusammen. Jeder andere Befehl geht durch `access::check` und dann über `Webview::on_message` auf dem Fenster `main`, mit `invoke_key` aus dem Core und der Kopfzeile `x-verwalter-remote`. `terminal_attach` und `terminal_detach` gehen nicht über `on_message`, siehe „Terminal über das Netz“.
+- **Host.** `remote/dispatch.rs` beantwortet jeden Aufruf eines Gastes. `remote_take` und `remote_give_back` ändern das Steuerrecht direkt. `project_list`, `session_list`, `implementation_list` und `session_overlaps` liest der Host aus der Registry statt über `on_message` und filtert sie: freigegebene Vorhaben für jedes Gerät, Sessions, Umsetzungen und Überschneidungen nur für den Inhaber; eine Überschneidung bekommt der Gast nur, wenn sowohl `sessionId` als auch `otherSessionId` zu einem Vorhaben gehören, das er hält; sonst entfiele nur ein Teil des Eintrags, und Name und Nummer der anderen Session oder der Name ihres Vorhabens gingen an ihn. So führt auch ein Host, der selbst Gast ist, keine Listen eines weiteren Hosts zusammen. Jeder andere Befehl geht durch `access::check` und dann über `Webview::on_message` auf dem Fenster `main`, mit `invoke_key` aus dem Core und der Kopfzeile `x-verwalter-remote`. `terminal_attach` und `terminal_detach` gehen nicht über `on_message`, siehe „Terminal über das Netz“.
 - **Ereignisse.** Am Host hört `listen_any` die Ereignisse aus dem Vertrag und legt sie in einen eigenen Thread, denn ein `emit` kann unter Sperren der Registry laufen, die die Suche nach dem Vorhaben selbst braucht. Weitergegeben wird nur an einen verbundenen Inhaber, `project://changed` an jedes verbundene Gerät, solange das Vorhaben freigegeben ist. Endet die Freigabe (Ausschalten, Archivieren, Löschen der letzten Session), bekommt jedes verbundene Gerät den Rahmen `access`. Der Gast gibt nur Ereignisse aus dem Vertrag unter ihrem Namen an die Oberfläche; `project://changed` zeigt er als `remote`, `access` wird `remote://changed`.
 - **Frist.** Ein Thread am Host prüft alle fünf Sekunden, ob ein Inhaber seit fünf Minuten keine Verbindung hat.
 - **Weiche.** Der Gast kennt je Host die IDs aus dessen Listen, Antworten und Ereignissen (`id`, `sessionId`, `projectId`, `implementation.id`). Nennt ein Aufruf eine davon, geht er an diesen Host; das gilt für die Klassen A, C, D und E außer `project_set_group`, denn was der Host nie erlaubt, soll er auch ablehnen. Die Listen wartet je Host höchstens fünf Sekunden und nehmen danach, was er zuletzt geschickt hat, mit `online: false`. Wie die Oberfläche, die Listen nur einmal lädt und danach Ereignisse einfügt, ersetzen oder ergänzen `project://changed`, `session://changed`, `implementation://changed` und die Antworten von `remote_take`, `remote_give_back`, `session_create_in_project` und `implementation_new_inquiry` den Eintrag mit derselben `id`. Der Zwischenspeicher lebt nur im Speicher; „Vergessen“ löscht die Gruppen der Vorhaben, die der Host zuletzt angeboten hat.
@@ -153,6 +153,34 @@ Was der Vertrag offenlässt, ist so festgelegt:
 - **Ausgeblendet** an entfernten Vorhaben: Dateiverweise (Klartext), Explorer und VS Code im Git-Menü und in der Konfliktzeile, „Im Browser/Mit Standardprogramm öffnen“ und „Im Explorer zeigen“ bei Artefakten und im Scratchpad, „In neuem Vorhaben starten“; Browser-Schalter, MCP-Anmeldung, Löschen, Archivieren und „Repository hinzufügen“ schon vorher.
 - **Herkunft.** `OriginLine` zeigt „von <Gerät>“ über der Nachricht und der beantworteten Rückfrage, an Gast und Host.
 - **Beenden.** `CloseGuard` fängt `onCloseRequested` ab, solange ein Gerät online ist, und fragt nach; „Trotzdem schließen“ ruft `destroy()` (`core:window:allow-destroy`). Der Dialog zum Installieren eines Updates warnt ebenso.
+
+## Stand der Umsetzung
+
+Gebaut ist alles, was Vertrag und Plan nennen. Belegt ist es in drei Stufen.
+
+**Gesehen und gelaufen (Linux, zwei Instanzen mit getrennten Datenordnern auf einem Rechner, wirklich gekoppelt; Bilder in [`docs/design/2026-11-05_remote-sessions/umsetzung/`](../design/2026-11-05_remote-sessions/umsetzung/), `claude` als Attrappe):**
+
+- Kopplung mit Einladung (auch eine benutzte Einladung und ein falscher Fingerabdruck), Sperren eines Geräts, Port belegt, Host nicht erreichbar, zwei Hosts am selben Gast.
+- Freigeben, Übernehmen, Zurückgeben, „Freigabe beenden“, Host liest nur, Sperrzeile, Host weg, Host neu gestartet; Gruppen entfernter Vorhaben; Umsetzung mit Rückfrage am Gast.
+- Artefakt (Bild, HTML), Anhang, Herkunft, Kontingent des Hosts, Betriebsart des Hosts, Warnung beim Schließen.
+- Terminal am Gast: Befehl läuft am Host, der Host liest mit, Neuverbinden nach voller Warteschlange, Shell lebt nach „Freigabe beenden“.
+- `cargo run --example remote-probe -- --selftest`: 31 Fälle über echte TLS-Verbindungen (benutzte und abgelaufene Einladung, Fingerabdruck, Token, andere Protokollnummer, Obergrenze, Abbruch nach 45 s ohne Zeile, zwei Hosts zugleich, gesperrtes Gerät, Übernahme und zweites Gerät, gefilterte Listen, Ansicht je Gerät, Herkunft, Artefakte und Dateien, Profil des Hosts, Terminal). `cargo test` mit 152 Tests, darunter die Tests über `lib.rs` (Klasse je Command) und das Steuerrecht Zeile für Zeile. `aws-lc-rs` ist nicht im Abhängigkeitsbaum.
+
+**Nur gelesen, nicht zur Laufzeit gesehen:**
+
+- Alles unter Windows: `on_message`, der Server, die Verbindung, Oberfläche. Nur die Tests von `remote::` liefen dort in CI.
+- Die Wirkung von `stopAgents`: Der Aufruf nimmt denselben Weg wie `session_pause`; dass er eine laufende Session anhält, zeigte die Attrappe nicht, die nie antwortet.
+- Dass Tauri eine selbst gesetzte Kopfzeile aus JavaScript durchreicht (Wert der Kopfzeile des Servers): belegt nur durch den Quelltext und einen Test auf den Zufallswert.
+- Das Neuladen des Verlaufs einer entfernten Session nach einem Abriss, eine beantwortete Rückfrage mit „von <Gerät>“, die Zeile „Antworten kann gerade nur …“, ein Host mit anderer Betriebsart als Claude, ein Host, der in der Kontingent-Zeile nicht erreichbar ist.
+- Das Bild eines Anhangs am Host selbst: Der Asset-Pfad von Tauri deckt auf Linux die versteckten Ordner nicht ab (leeres Rechteck, nicht Teil dieser Änderung).
+
+**Offen:**
+
+- **Abnahme auf zwei Rechnern** (Plan, Abschnitt 10, Punkte 4 und 15 und alles unter Windows als Gast): Übernehmen und Senden mit echtem Agenten, ein zweiter Host mit eigenem Kontingent.
+- **Gerätename:** Das Feld ist nicht vorbelegt; der Core kennt den Namen (`remote::host_name()`), gibt ihn aber über keinen Command heraus. Der Weg braucht eine Änderung am Vertrag.
+- **Protokollnummer:** Bei einer anderen Nummer lehnt der Host ab, zeigt aber selbst nichts (kein `error`, keine Meldung); die Meldung „Host N, dieses Gerät M“ sieht nur der Gast. Ob der Host sie auch zeigen soll, ist noch zu entscheiden.
+- **Überschneidungen:** Fällt ein Eintrag weg, weil seine andere Session in einem nicht übernommenen Vorhaben liegt, erreicht den Gast auch die Warnung „gleicher Ordner“ nicht. Ein allgemeiner Satz dafür bräuchte eine Änderung an `OverlapBar`.
+- **Polling über das Netz:** Mehrere Hooks fragen alle paar Sekunden; gemessen wird in der Abnahme.
 
 ## Konsequenzen
 

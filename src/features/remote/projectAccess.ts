@@ -174,6 +174,7 @@ export function remoteMeta(
 
 /** Ein Gast, der mit diesem Host verbunden ist, samt dem Vorhaben, das er gerade steuert. */
 export interface ConnectedGuest {
+  id: string;
   name: string;
   /** Der Name des Vorhabens, das der Gast hält; `null`, wenn er keins hält. */
   projectName: string | null;
@@ -192,6 +193,7 @@ export function connectedGuests(
         (id: string) => holderOf(access[id] ?? OWN_ACCESS)?.id === device.id,
       );
       return {
+        id: device.id,
         name: device.name,
         projectName: projectId === undefined ? null : (names[projectId] ?? null),
       };

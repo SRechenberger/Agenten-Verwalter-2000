@@ -38,9 +38,13 @@ export function parsePort(text: string): number | null {
 
 export const PORT_INVALID_TEXT = `Der Port ist eine Zahl von 1 bis ${String(MAX_PORT)}.`;
 
-export function deviceStateText(device: RemoteDevice): string {
+/** `controlledProject`: das Vorhaben, das das Gerät gerade steuert; `null`, wenn es keins steuert. */
+export function deviceStateText(
+  device: RemoteDevice,
+  controlledProject: string | null = null,
+): string {
   if (device.online) {
-    return 'Verbunden';
+    return controlledProject === null ? 'Verbunden' : `Verbunden · steuert „${controlledProject}“`;
   }
   if (device.lastSeenAt === null) {
     return 'Noch nicht angemeldet';

@@ -20,7 +20,7 @@ use tauri::{AppHandle, Emitter, Manager, Runtime, Webview};
 use super::access::{self, Actor, IdKind, ResolvedId, TargetId};
 use super::content;
 use super::control::Holder;
-use super::intercept::REMOTE_HEADER;
+use super::intercept::{REMOTE_HEADER, remote_pass};
 use super::model::DeviceRef;
 use super::wire::{Frame, Link, SendError};
 use super::{CHANGED_EVENT, RemoteControl};
@@ -284,20 +284,25 @@ fn filter_list(
         });
     }
     let held: HashSet<String> = control.with(|control| control.held_by(&device.id));
+    let held_session = |item: &Value, key: &str| {
+        text(item, key)
+            .and_then(|value: String| {
+                host.project_of(&TargetId {
+                    kind: IdKind::Session,
+                    value,
+                })
+            })
+            .is_some_and(|project_id: String| held.contains(&project_id))
+    };
     items
         .into_iter()
         .filter(|item: &Value| {
-            let project = if command == "session_overlaps" {
-                text(item, "sessionId").and_then(|value: String| {
-                    host.project_of(&TargetId {
-                        kind: IdKind::Session,
-                        value,
-                    })
-                })
-            } else {
-                text(item, "projectId")
-            };
-            project.is_some_and(|project_id: String| held.contains(&project_id))
+            if command == "session_overlaps" {
+                // Der Eintrag nennt Nummer, Name und Vorhaben der anderen Session: Liegt sie in einem
+                // Vorhaben, das der Gast nicht hält, bekommt er den Eintrag gar nicht.
+                return held_session(item, "sessionId") && held_session(item, "otherSessionId");
+            }
+            text(item, "projectId").is_some_and(|project_id: String| held.contains(&project_id))
         })
         .collect()
 }
@@ -357,7 +362,11 @@ impl Host for AppHost {
             .url()
             .map_err(|error| CommandError::Internal(error.to_string()))?;
         let mut headers = HeaderMap::new();
-        headers.insert(REMOTE_HEADER, HeaderValue::from_static("1"));
+        headers.insert(
+            REMOTE_HEADER,
+            HeaderValue::from_str(remote_pass())
+                .map_err(|error| CommandError::Internal(error.to_string()))?,
+        );
         let request = InvokeRequest {
             cmd: command.to_owned(),
             callback: CallbackFn(0),

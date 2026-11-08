@@ -27,7 +27,7 @@ MVP (Version 1):
 - **Agent:** Claude als einziger Provider; Betriebsart Claude Code + LM Studio für ein lokales Modell ([ADR 016](decisions/016-betriebsarten-und-lokales-modell.md)); Betriebsart Autark mit eigenem Agenten ohne Claude-Kommandozeile und ohne Anthropic ([ADR 017](decisions/017-autarker-agent.md))
 - **Persistenz:** SQLite, Session-Wiederherstellung nach App-Neustart
 - **Desktop:** Tauri-App für Windows
-- **Fernsteuerung:** Eine Instanz steuert freigegebene Vorhaben einer anderen laufenden Instanz im lokalen Netz; gearbeitet wird nur am Host ([ADR 059](decisions/059-remote-sessions.md)). Bisher steht das Steuerrecht im Core, die Verbindung folgt.
+- **Fernsteuerung:** Eine Instanz steuert freigegebene Vorhaben einer anderen laufenden Instanz im lokalen Netz; gearbeitet wird nur am Host ([ADR 059](decisions/059-remote-sessions.md)). Umgesetzt: Steuerrecht je Vorhaben, TLS-Verbindung zwischen Core und Core, Einstellungen, Leiste, Übersicht und Chat mit Sperren, Artefakte, Bilder und Anhänge, Kontingent und Betriebsart des Hosts, Terminal am Gast. Was auf einem Rechner gelaufen ist und was die Abnahme auf zwei Rechnern (Windows-Gast, Linux-Host) noch belegen muss, steht im ADR unter „Stand der Umsetzung“.
 
 Danach (Reihenfolge laut Konzept, Abschnitt 66): OpenCode-Provider (der LM-Studio-Provider ist durch ADR 016 und ADR 017 erledigt), feinere Rechte-Oberfläche über die Modi hinaus, Suche, app-weite Command Palette → Multi-Agent, „Ask about this change“, Commit-Automatik → PR-Workflow, Agent-Pipelines, Session-Vorlagen.
 
@@ -61,7 +61,7 @@ Keine IDE, kein VS-Code-Ersatz, kein vollständiger Git-Client, kein Ticket-Syst
 - **Sicherheit:** Der Session-Workspace ist die Sicherheitsgrenze; Agenten bekommen nicht standardmäßig das ganze Benutzerverzeichnis.
 - **Absturzfestigkeit:** Ein UI-Absturz darf keine Session und keinen Worktree verlieren; der Agent-Prozess wird danach neu gestartet.
 - **Team:** Einzelentwickler, keine Deadline.
-- **Qualitätssicherung:** automatisierte Tests nur für die Fix-Runden-Auswahl der Umsetzung (`src-tauri/src/implementation/tests.rs`, von Hand mit `cargo test`) und für das Steuerrecht der Fernsteuerung (`src-tauri/src/remote/`, in CI mit `cargo test --lib remote::`); sonst abgesichert über strenge Typen, Lint und Build; getestet wird im laufenden Betrieb, ohne Abnahme-Checkliste.
+- **Qualitätssicherung:** automatisierte Tests nur für die Fix-Runden-Auswahl der Umsetzung (`src-tauri/src/implementation/tests.rs`, von Hand mit `cargo test`) und für die Fernsteuerung (`src-tauri/src/remote/`, in CI mit `cargo test --lib remote::`, dazu die Probe `remote-probe` über echte TLS-Verbindungen); sonst abgesichert über strenge Typen, Lint und Build; getestet wird im laufenden Betrieb, ohne Abnahme-Checkliste.
 
 ## Meilensteine
 

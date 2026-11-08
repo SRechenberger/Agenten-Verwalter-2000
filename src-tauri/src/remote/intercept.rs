@@ -2,7 +2,7 @@
 //! entfernten Vorhabens zu dessen Host; am Host prüft er die eigene Oberfläche, solange ein Gast
 //! steuert. Ein Aufruf des Servers trägt `REMOTE_HEADER` und überspringt beides: So prüft der
 //! Server, und ein Host leitet nie an einen weiteren weiter.
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use std::thread;
 
 use serde_json::Value;
@@ -19,13 +19,28 @@ use crate::error::CommandError;
 /// Trägt ein Aufruf des Servers: Dort ist die Prüfung schon gelaufen.
 pub const REMOTE_HEADER: &str = "x-verwalter-remote";
 
+/// Der Wert der Kopfzeile, zufällig je Start des Core. Die Oberfläche des Hosts kennt ihn nicht und
+/// kann die Sperre nicht umgehen, indem sie `REMOTE_HEADER` selbst setzt.
+pub fn remote_pass() -> &'static str {
+    static PASS: OnceLock<String> = OnceLock::new();
+    PASS.get_or_init(|| uuid::Uuid::new_v4().to_string())
+}
+
+fn from_server<R: Runtime>(invoke: &Invoke<R>) -> bool {
+    invoke
+        .message
+        .headers()
+        .get(REMOTE_HEADER)
+        .is_some_and(|value| value.as_bytes() == remote_pass().as_bytes())
+}
+
 /// Umhüllt den Handler der App; ohne entfernte ID und ohne Inhaber geht jeder Aufruf unverändert
 /// durch.
 pub fn guarded(
     handler: impl Fn(Invoke<Wry>) -> bool + Send + Sync + 'static,
 ) -> impl Fn(Invoke<Wry>) -> bool + Send + Sync + 'static {
     move |invoke: Invoke<Wry>| {
-        if invoke.message.headers().contains_key(REMOTE_HEADER) {
+        if from_server(&invoke) {
             return handler(invoke);
         }
         if let Some((clients, host_id)) = remote_target(&invoke) {
