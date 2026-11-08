@@ -12,7 +12,7 @@ use super::access::{IdKind, TargetId};
 use super::client::RemoteClients;
 use super::control::Link as HolderLink;
 use super::dispatch::project_of;
-use super::guest;
+use super::guest::{self, GuestTerminals};
 use super::server::RemoteServer;
 use super::wire::Frame;
 use super::{CHANGED_EVENT, RemoteControl, USAGE_CHANGED_EVENT};
@@ -195,7 +195,12 @@ pub fn on_guest_frame(app: &AppHandle, host_id: &str, frame: Frame) {
             clients.drop_project(host_id, &project_id);
             let _ = app.emit(CHANGED_EVENT, ());
         }
-        // ponytail: Terminal-Rahmen kommen mit dem Terminal am Gast.
+        // Roh an den Kanal, den `terminal_attach` hier hinterlegt hat.
+        Frame::Terminal { id, output } => {
+            if let Some(terminals) = app.try_state::<GuestTerminals>() {
+                terminals.deliver(host_id, &id, output);
+            }
+        }
         _ => {}
     }
 }

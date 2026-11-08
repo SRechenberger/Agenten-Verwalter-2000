@@ -37,7 +37,7 @@
 
 ## Umsetzung
 
-Stand: Die Einstellungen stehen (Abschnitt „Fernsteuerung“ in der Kategorie „App“, Host und Gast), ebenso Leiste, Übersicht, Chat und Köpfe mit Freigeben, Übernehmen, Zurückgeben, Freigabe beenden und den Offline-Zuständen. Dazu kommen Kontingent und Betriebsart des Hosts, Inhalte (Artefakte, Bilder, Anhänge), Herkunft und die Warnung beim Schließen; das Terminal folgt in Phase 5.
+Stand: Die Einstellungen stehen (Abschnitt „Fernsteuerung“ in der Kategorie „App“, Host und Gast), ebenso Leiste, Übersicht, Chat und Köpfe mit Freigeben, Übernehmen, Zurückgeben, Freigabe beenden und den Offline-Zuständen. Dazu kommen Kontingent und Betriebsart des Hosts, Inhalte (Artefakte, Bilder, Anhänge), Herkunft und die Warnung beim Schließen und das Terminal am Gast.
 
 Bilder der laufenden App, zwei Instanzen mit getrennten Datenordnern auf einem Rechner, wirklich gekoppelt. Sie liegen in [`umsetzung/`](umsetzung/):
 
@@ -92,8 +92,17 @@ Inhalte, Kontingent, Betriebsart, Herkunft und Schließen, zwei Instanzen auf ei
 | Host · Chat · Herkunft an einer Nachricht, die der Gast wirklich geschickt hat | `host-herkunft.png` |
 | Host · Dialog „App trotzdem schließen?“ (echte Schließen-Anfrage des Fensters) | `host-warnung-schliessen.png` |
 
+Terminal, zwei Instanzen auf einem Rechner, wirklich gekoppelt und übernommen, dunkel:
+
+| Entwurf (Rolle · Zustand) | Bild |
+|---|---|
+| Gast · Terminal auf dem Host: „Läuft auf <Host>, im Ordner des Vorhabens“, Befehl läuft am Host (`$HOME` und `hostname` des Hosts), Größe des Gastes (`stty size` 42 125, Dock maximiert) | `gast-terminal.png` |
+| Host · Terminal zum Mitlesen: „Du liest mit. Eingabe, Größe und neue Terminals liegen bei <Gerät>.“, kein „＋“; die Eingabe „echo host tippt“ kam nicht an, die Größe bleibt die des Gastes | `host-terminal-mitlesen.png` |
+| Gast · Nach dem Neuverbinden (Warteschlange am Host voll gelaufen, während der Gast angehalten war): Bildschirm neu aus dem Puffer, darin die Ausgabe aus der Lücke („B fertig nach 14 s“) | `gast-terminal-neu-verbunden.png` |
+| Host · Nach „Freigabe beenden“: dieselbe Shell läuft weiter, der Host tippt wieder, die Größe ist seine (`stty size` 12 125) | `host-terminal-nach-freigabe.png` |
+
 Dazu gelesen, nicht gesehen: Die Warnung im Dialog „Neue Version“ erscheint nur bei einer Installation, die sich selbst aktualisiert; unter Linux ist sie „manuell“. Am Host lädt das Bild des Anhangs nicht (leeres Rechteck), denn der Asset-Pfad von Tauri deckt auf Linux die versteckten Ordner `.verwalter` und `.anhaenge` nicht ab; der Pfad ist unverändert, nur das Bild am Gast (über die Verbindung) lädt.
-Nicht gesehen: eine beantwortete Rückfrage mit „von <Gerät>“ (die Attrappe stellt keine offene; nur gelesen), ein zweiter Host mit eigener Betriebsart, ein Host, der nicht erreichbar ist, in der Kontingent-Zeile, ein Host mit anderer Betriebsart als Claude, eine offene Rückfrage mit der Zeile „Antworten kann gerade nur …“ (die Attrappe stellt keine), das Terminal am Gast und am Host (Phase 5), Windows, das Neuladen des Verlaufs nach einem Abriss (nur im Quelltext gelesen), die Meldung zum anderen Stand des Protokolls (sie lässt sich nur über die Probe erzeugen), „steuert „<Vorhaben>““ in der Geräteliste.
+Nicht gesehen: eine beantwortete Rückfrage mit „von <Gerät>“ (die Attrappe stellt keine offene; nur gelesen), ein zweiter Host mit eigener Betriebsart, ein Host, der nicht erreichbar ist, in der Kontingent-Zeile, ein Host mit anderer Betriebsart als Claude, eine offene Rückfrage mit der Zeile „Antworten kann gerade nur …“ (die Attrappe stellt keine), Windows, das Neuladen des Verlaufs nach einem Abriss (nur im Quelltext gelesen), die Meldung zum anderen Stand des Protokolls (sie lässt sich nur über die Probe erzeugen), „steuert „<Vorhaben>““ in der Geräteliste.
 
 ## Abweichungen vom Entwurf
 
@@ -106,4 +115,5 @@ Nicht gesehen: eine beantwortete Rückfrage mit „von <Gerät>“ (die Attrappe
 - **Meta-Zeile am Host:** Sie zeigt den Zustand der Freigabe statt „Läuft · …“ („Für Gäste freigegeben“, „Gesteuert von <Gerät>“, „<Gerät> getrennt · 4:12“). Die Restzeit steht ohne „frei in“, weil die Zeile sonst abgeschnitten wird; der volle Satz steht im Hinweis.
 - **Meta-Zeile am Gast:** Der Host steht vor den Sessions („<Host> · 2 Sessions · #2 pausiert“), denn die Zeile ist schmaler als im Entwurf und schneidet das Ende ab.
 - **Restzeit der Reservierung:** Der Host kennt den Zeitpunkt des Abrisses nicht als Teil des Vertrags; die Oberfläche liest ihn aus `RemoteDevice.lastSeenAt`, das der Core beim Abriss schreibt. „seit 14:02“ im Block „Fernsteuerung“ fehlt aus demselben Grund.
-- **Terminal-Knopf:** Er bleibt am Gast auch bei fehlendem Host stehen; das Terminal am Gast kommt mit Phase 5.
+- **Terminal-Knopf:** Er bleibt am Gast auch bei fehlendem Host stehen; das Dock zeigt dann den letzten Stand, Eingaben gehen nicht hinaus.
+- **Terminal am Host:** Während ein Gast steuert, fehlt „＋“ wie im Entwurf; „×“ am Reiter bleibt sichtbar, ist aber gesperrt. Ohne Terminal heißt die leere Fläche dann nur „Kein Terminal.“

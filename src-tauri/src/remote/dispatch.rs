@@ -1,26 +1,33 @@
 //! Was der Host einem angemeldeten Gast antwortet (ADR 059): `remote_take` und `remote_give_back`
 //! hier, die Listen aus Klasse F gefiltert nach Freigabe und Inhaber, jeder andere Befehl erst nach
 //! `access::check` und dann wie von der Oberfläche. Wie er den Befehl ausführt, sagt `Host`: in der
-//! App über `Webview::on_message`, in der Probe ein Stub.
+//! App über `Webview::on_message`, in der Probe ein Stub. `terminal_attach` und `terminal_detach`
+//! beantwortet `answer_on` über `TerminalHost`, denn ihr Kanal führt in die Verbindung.
 use std::collections::HashSet;
+use std::io;
 use std::path::PathBuf;
-use std::sync::mpsc;
+use std::sync::{Arc, mpsc};
 
 use serde::Serialize;
 use serde_json::{Value, json};
 use tauri::http::{HeaderMap, HeaderValue};
-use tauri::ipc::{CallbackFn, InvokeBody, InvokeError, InvokeResponse, InvokeResponseBody};
+use tauri::ipc::{
+    CallbackFn, Channel, InvokeBody, InvokeError, InvokeResponse, InvokeResponseBody,
+};
 use tauri::webview::InvokeRequest;
 use tauri::{AppHandle, Emitter, Manager, Runtime, Webview};
 
-use super::access::{self, Actor, IdKind, TargetId};
+use super::access::{self, Actor, IdKind, ResolvedId, TargetId};
 use super::content;
+use super::control::Holder;
 use super::intercept::REMOTE_HEADER;
 use super::model::DeviceRef;
+use super::wire::{Frame, Link, SendError};
 use super::{CHANGED_EVENT, RemoteControl};
 use crate::error::CommandError;
 use crate::sessions::registry::SessionRegistry;
-use crate::terminal::TerminalService;
+use crate::terminal::model::TerminalOutput;
+use crate::terminal::{TerminalService, Viewer};
 
 /// Die Commands aus Klasse F, deren Einträge der Host nach Vorhaben filtert.
 pub const MERGED_LISTS: [&str; 4] = [
@@ -85,9 +92,10 @@ pub fn answer(
             to_json(&found)
         }
         "remote_host_profile" => host_profile(host),
-        // ponytail: Das Terminal am Gast braucht einen eigenen Kanal statt `on_message`.
-        "terminal_attach" => Err(CommandError::Terminal(
-            "Terminals eines Hosts lassen sich am Gast noch nicht anzeigen.".to_owned(),
+        // Sie brauchen die Verbindung des Geräts: `answer_on`. Über `on_message` hinge
+        // `terminal_detach` die eigene Oberfläche ab.
+        "terminal_attach" | "terminal_detach" => Err(CommandError::Terminal(
+            "Terminals eines Hosts gehen nur über die Verbindung des Geräts.".to_owned(),
         )),
         list if MERGED_LISTS.contains(&list) => {
             let items = host.list(list)?;
@@ -96,15 +104,111 @@ pub fn answer(
             )))
         }
         _ => {
-            let ids = access::resolve(access::ids_of(command, &args), |target: &TargetId| {
-                host.project_of(target)
-            });
-            control
-                .with(|control| access::check(command, &ids, Actor::Guest(&device.id), control))
-                .map_err(CommandError::from)?;
+            check_guest(host, control, device, command, &args)?;
             host.invoke(command, surface_of(command, args, device))
         }
     }
+}
+
+/// Was der Host für die Terminals eines Geräts braucht.
+pub trait TerminalHost: Send + Sync {
+    /// Hängt das Gerät als Zuschauer an und liefert den Puffer; die eigene Oberfläche bleibt.
+    fn terminal_attach(
+        &self,
+        id: &str,
+        device_id: &str,
+        channel: Channel<TerminalOutput>,
+    ) -> Result<String, CommandError>;
+    /// Nimmt nur das Gerät als Zuschauer weg.
+    fn terminal_detach(&self, id: &str, device_id: &str);
+}
+
+/// Wie `answer`, mit der Verbindung des Geräts: `terminal_attach` hängt statt eines Kanals der
+/// Oberfläche einen an, der Rahmen `terminal` in die Warteschlange der Verbindung legt.
+pub fn answer_on<H: Host + TerminalHost>(
+    host: &H,
+    control: &Arc<RemoteControl>,
+    device: &DeviceRef,
+    link: &Link,
+    command: &str,
+    args: Value,
+) -> Result<Value, CommandError> {
+    if !matches!(command, "terminal_attach" | "terminal_detach") {
+        return answer(host, control, device, command, args);
+    }
+    let ids = check_guest(host, control, device, command, &args)?;
+    let id = text_of(&args, "id")?;
+    if command == "terminal_detach" {
+        host.terminal_detach(id, &device.id);
+        return Ok(Value::Null);
+    }
+    let project_id = ids
+        .into_iter()
+        .find(|resolved: &ResolvedId| resolved.target.kind == IdKind::Terminal)
+        .and_then(|resolved: ResolvedId| resolved.project)
+        .ok_or_else(|| CommandError::from(access::Denied::MissingId))?;
+    let channel = terminal_channel(
+        link.clone(),
+        Arc::clone(control),
+        project_id,
+        device.id.clone(),
+        id.to_owned(),
+    );
+    host.terminal_attach(id, &device.id, channel)
+        .map(Value::String)
+}
+
+/// Der Kanal eines Geräts an einem Terminal. `send` legt nur in die Warteschlange: Der Lese-Thread
+/// des Terminals wartet nie auf das Netz. Scheitert es, weil die Verbindung zu ist oder das Gerät
+/// das Vorhaben nicht mehr hält, nimmt der Lese-Thread den Zuschauer weg.
+// ponytail: Die Ausgabe geht als JSON-Text in derselben Warteschlange wie alles andere, höchstens
+// 16 MiB (Vertrag); läuft sie voll, trennt der Host, und der Gast holt den Puffer neu. Binärrahmen
+// und Drosselung erst, wenn das im Betrieb nicht reicht.
+fn terminal_channel(
+    link: Link,
+    control: Arc<RemoteControl>,
+    project_id: String,
+    device_id: String,
+    id: String,
+) -> Channel<TerminalOutput> {
+    Channel::new(move |body: InvokeResponseBody| {
+        let held = control.with(|control| {
+            control
+                .holder(&project_id)
+                .is_some_and(|holder: &Holder| holder.device.id == device_id)
+        });
+        if !held {
+            return Err(io::Error::other("Das Gerät steuert das Vorhaben nicht mehr.").into());
+        }
+        let output: Value = match body {
+            InvokeResponseBody::Json(text) => serde_json::from_str(&text)?,
+            InvokeResponseBody::Raw(_) => {
+                return Err(io::Error::other("Terminal-Ausgabe ist Text.").into());
+            }
+        };
+        link.send(&Frame::Terminal {
+            id: id.clone(),
+            output,
+        })
+        .map_err(|error: SendError| io::Error::other(error).into())
+    })
+}
+
+/// Die Prüfung vor jedem Befehl eines Geräts; liefert die IDs samt ihren Vorhaben.
+fn check_guest(
+    host: &dyn Host,
+    control: &RemoteControl,
+    device: &DeviceRef,
+    command: &str,
+    args: &Value,
+) -> Result<Vec<ResolvedId>, CommandError> {
+    let ids = access::resolve(access::ids_of(command, args), |target: &TargetId| {
+        host.project_of(target)
+    });
+    control
+        .with(|control| access::check(command, &ids, Actor::Guest(&device.id), control))
+        .map_err(CommandError::from)?;
+    Ok(ids)
 }
 
 /// Was der Server selbst einträgt und damit überschreibt (Vertrag): die Oberfläche des Geräts bei
@@ -293,6 +397,27 @@ impl Host for AppHost {
 
     fn workspace(&self, session_id: &str) -> Result<PathBuf, CommandError> {
         self.app.state::<SessionRegistry>().workspace_of(session_id)
+    }
+}
+
+impl TerminalHost for AppHost {
+    fn terminal_attach(
+        &self,
+        id: &str,
+        device_id: &str,
+        channel: Channel<TerminalOutput>,
+    ) -> Result<String, CommandError> {
+        self.app.state::<TerminalService>().attach(
+            id,
+            Viewer::Device(device_id.to_owned()),
+            channel,
+        )
+    }
+
+    fn terminal_detach(&self, id: &str, device_id: &str) {
+        self.app
+            .state::<TerminalService>()
+            .detach(id, &Viewer::Device(device_id.to_owned()));
     }
 }
 

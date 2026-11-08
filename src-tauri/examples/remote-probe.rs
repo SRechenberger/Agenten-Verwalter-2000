@@ -9,14 +9,15 @@ use std::io::{self, Write};
 use std::net::TcpStream;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
 use rustls::pki_types::ServerName;
 use rustls::{ClientConnection, StreamOwned};
 use serde_json::{Value, json};
+use tauri::ipc::Channel;
 use verwalter_lib::db::{Database, remote as remote_rows};
 use verwalter_lib::error::CommandError;
 use verwalter_lib::remote::RemoteControl;
@@ -33,6 +34,7 @@ use verwalter_lib::remote::wire::{
 };
 use verwalter_lib::settings::DEFAULT_SETTINGS;
 use verwalter_lib::settings::model::{OperatingMode, Settings, SettingsOverview};
+use verwalter_lib::terminal::model::TerminalOutput;
 
 const USAGE: &str = "Aufruf: remote-probe --selftest";
 const LOCALHOST: &str = "127.0.0.1";
@@ -123,7 +125,7 @@ impl Host {
     fn start(folder: &Path, name: &str, timing: Timing) -> Result<Host, String> {
         let host_name = name.to_owned();
         Host::start_with(folder, name, timing, move |_| {
-            Arc::new(move |device, command: &str, args: Value| match command {
+            Arc::new(move |device, _, command: &str, args: Value| match command {
                 "echo" => Ok(json!({ "host": host_name, "device": device.name, "args": args })),
                 other => Err(CommandError::Internal(format!("unbekannt: {other}"))),
             })
@@ -209,6 +211,43 @@ fn clients(file: PathBuf, timing: Timing) -> RemoteClients {
     )
 }
 
+/// Was ein Host ungefragt schickt (`event`, `access`, `terminal`), gesammelt.
+type Frames = Arc<Mutex<Vec<Frame>>>;
+
+fn clients_with_frames(file: PathBuf, timing: Timing) -> (RemoteClients, Frames) {
+    let frames: Frames = Arc::new(Mutex::new(Vec::new()));
+    let sink = Arc::clone(&frames);
+    let clients = RemoteClients::load(
+        file,
+        timing,
+        ClientHooks {
+            changed: Arc::new(|| {}),
+            frame: Arc::new(move |_, frame| {
+                if let Ok(mut frames) = sink.lock() {
+                    frames.push(frame);
+                }
+            }),
+        },
+    );
+    (clients, frames)
+}
+
+/// Die Ausgaben der Rahmen `terminal` zu `id`, in der Reihenfolge ihres Eintreffens.
+fn terminal_outputs(frames: &Frames, id: &str) -> Vec<Value> {
+    frames
+        .lock()
+        .map(|frames| {
+            frames
+                .iter()
+                .filter_map(|frame: &Frame| match frame {
+                    Frame::Terminal { id: framed, output } if framed == id => Some(output.clone()),
+                    _ => None,
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 fn host_status(clients: &RemoteClients, host_id: &str) -> Option<RemoteHostStatus> {
     clients
         .hosts()
@@ -257,6 +296,27 @@ impl Raw {
             match self.read()? {
                 Frame::Ping => {}
                 frame => return Ok(frame),
+            }
+        }
+    }
+
+    /// Liest weg, was vor dem Schließen schon unterwegs war; die Verbindung endet binnen `limit`.
+    fn drained_within(&mut self, limit: Duration) -> Result<(), String> {
+        let start = Instant::now();
+        let mut frames = 0_usize;
+        loop {
+            let left = limit.saturating_sub(start.elapsed());
+            if left.is_zero() {
+                return Err(format!("nach {frames} Rahmen und {limit:?} noch verbunden"));
+            }
+            self.stream
+                .sock
+                .set_read_timeout(Some(left))
+                .map_err(text)?;
+            match self.read() {
+                Ok(_) => frames += 1,
+                Err(_) if start.elapsed() < limit => return Ok(()),
+                Err(_) => return Err(format!("nach {frames} Rahmen und {limit:?} noch verbunden")),
             }
         }
     }
@@ -664,14 +724,53 @@ const SHARED_PROJECT: &str = "projekt-frei";
 const SHARED_SESSION: &str = "session-frei";
 const OTHER_PROJECT: &str = "projekt-nicht-frei";
 const OTHER_SESSION: &str = "session-nicht-frei";
+const SHARED_TERMINAL: &str = "terminal-frei";
+const OTHER_TERMINAL: &str = "terminal-nicht-frei";
+const TERMINAL_BUFFER: &str = "puffer bis jetzt";
 
 /// Statt der Commands: zählt, was durch die Prüfung kommt, und kennt zwei Vorhaben mit je einer
-/// Session; nur `SHARED_PROJECT` ist freigegeben.
+/// Session und einem Terminal; nur `SHARED_PROJECT` ist freigegeben.
 struct StubHost {
     control: Arc<RemoteControl>,
     invoked: AtomicUsize,
     /// Der Workspace beider Vorhaben; darin liegt `.artefakte`.
     workspace: PathBuf,
+    /// Die Kanäle, die `terminal_attach` angehängt hat, je Gerät; wie die Zuschauer im Core.
+    terminals: Mutex<Vec<(String, Channel<TerminalOutput>)>>,
+}
+
+impl StubHost {
+    fn terminal_channel(&self, device_id: &str) -> Option<Channel<TerminalOutput>> {
+        self.terminals
+            .lock()
+            .ok()?
+            .iter()
+            .find(|(attached, _)| attached == device_id)
+            .map(|(_, channel)| channel.clone())
+    }
+}
+
+impl dispatch::TerminalHost for StubHost {
+    fn terminal_attach(
+        &self,
+        _: &str,
+        device_id: &str,
+        channel: Channel<TerminalOutput>,
+    ) -> Result<String, CommandError> {
+        let mut terminals = self
+            .terminals
+            .lock()
+            .map_err(|error| CommandError::Internal(error.to_string()))?;
+        terminals.retain(|(attached, _)| attached != device_id);
+        terminals.push((device_id.to_owned(), channel));
+        Ok(TERMINAL_BUFFER.to_owned())
+    }
+
+    fn terminal_detach(&self, _: &str, device_id: &str) {
+        if let Ok(mut terminals) = self.terminals.lock() {
+            terminals.retain(|(attached, _)| attached != device_id);
+        }
+    }
 }
 
 impl dispatch::Host for StubHost {
@@ -680,8 +779,12 @@ impl dispatch::Host for StubHost {
             (IdKind::Project, project @ (SHARED_PROJECT | OTHER_PROJECT)) => {
                 Some(project.to_owned())
             }
-            (IdKind::Session, SHARED_SESSION) => Some(SHARED_PROJECT.to_owned()),
-            (IdKind::Session, OTHER_SESSION) => Some(OTHER_PROJECT.to_owned()),
+            (IdKind::Session, SHARED_SESSION) | (IdKind::Terminal, SHARED_TERMINAL) => {
+                Some(SHARED_PROJECT.to_owned())
+            }
+            (IdKind::Session, OTHER_SESSION) | (IdKind::Terminal, OTHER_TERMINAL) => {
+                Some(OTHER_PROJECT.to_owned())
+            }
             _ => None,
         }
     }
@@ -747,16 +850,18 @@ fn dispatched(folder: &Path) -> Result<bool, String> {
             control: Arc::clone(&control),
             invoked: AtomicUsize::new(0),
             workspace: workspace.clone(),
+            terminals: Mutex::new(Vec::new()),
         });
         stub = Some(Arc::clone(&host));
-        Arc::new(move |device, command: &str, args: Value| {
-            dispatch::answer(host.as_ref(), &control, device, command, args)
+        Arc::new(move |device, link, command: &str, args: Value| {
+            dispatch::answer_on(host.as_ref(), &control, device, link, command, args)
         })
     })?;
     let stub = stub.ok_or("Stub fehlt")?;
     host.control.with(|control| control.share(SHARED_PROJECT));
     let first = clients(folder.join("stub-erster.json"), Timing::CONTRACT);
-    let second = clients(folder.join("stub-zweiter.json"), Timing::CONTRACT);
+    let (second, second_frames) =
+        clients_with_frames(folder.join("stub-zweiter.json"), Timing::CONTRACT);
     let host_id = first
         .connect(&host.invitation(INVITATION_TTL)?.to_text(), "erster")
         .map_err(text)?
@@ -1066,6 +1171,212 @@ fn dispatched(folder: &Path) -> Result<bool, String> {
             })
     });
 
+    all &= terminals(&host, &stub, &first, &second, &second_frames, &host_id)?;
+
     host.server.stop();
     Ok(all)
+}
+
+/// Das Terminal am Gast: `terminal_attach` ohne Kanal, der Puffer als Antwort, die Ausgabe danach als
+/// Rahmen `terminal`; nur für den Inhaber. Am Anfang hält `second` das Vorhaben.
+fn terminals(
+    host: &Host,
+    stub: &StubHost,
+    first: &RemoteClients,
+    second: &RemoteClients,
+    second_frames: &Frames,
+    host_id: &str,
+) -> Result<bool, String> {
+    let second_device = second.host_info(host_id).ok_or("Host unbekannt")?.device_id;
+    let attach = json!({ "id": SHARED_TERMINAL });
+
+    let mut all = report("terminal: puffer als antwort, ausgabe als rahmen", {
+        let before = stub.invoked.load(Ordering::SeqCst);
+        second
+            .call(host_id, "terminal_attach", attach.clone())
+            .map_err(text)
+            .and_then(|buffer: Value| {
+                ensure(buffer == TERMINAL_BUFFER, || format!("Puffer {buffer}"))
+            })
+            .and_then(|()| {
+                let channel = stub
+                    .terminal_channel(&second_device)
+                    .ok_or("kein Kanal für das Gerät")?;
+                channel
+                    .send(TerminalOutput::Data {
+                        text: "hallo".to_owned(),
+                    })
+                    .map_err(text)?;
+                channel
+                    .send(TerminalOutput::Exit { code: Some(0) })
+                    .map_err(text)
+            })
+            .and_then(|()| {
+                let expected = vec![
+                    json!({ "kind": "data", "text": "hallo" }),
+                    json!({ "kind": "exit", "code": 0 }),
+                ];
+                ensure(
+                    wait_until(WAIT, || {
+                        terminal_outputs(second_frames, SHARED_TERMINAL) == expected
+                    }),
+                    || {
+                        format!(
+                            "Rahmen am Gast: {:?}",
+                            terminal_outputs(second_frames, SHARED_TERMINAL)
+                        )
+                    },
+                )
+            })
+            .and_then(|()| {
+                let after = stub.invoked.load(Ordering::SeqCst);
+                ensure(after == before, || {
+                    "terminal_attach lief über on_message".to_owned()
+                })
+            })
+    });
+
+    all &= report("terminal: fremdes geraet und fremdes terminal abgelehnt", {
+        [
+            (first, json!({ "id": SHARED_TERMINAL })),
+            (second, json!({ "id": OTHER_TERMINAL })),
+            (second, json!({ "id": "unbekannt" })),
+        ]
+        .into_iter()
+        .try_for_each(|(guest, args): (&RemoteClients, Value)| {
+            match guest.call(host_id, "terminal_attach", args.clone()) {
+                Err(CommandError::Internal(message)) if message.contains("gehört zu keinem") => {
+                    Ok(())
+                }
+                other => Err(format!("terminal_attach mit {args}: {other:?}")),
+            }
+        })
+        .and_then(|()| {
+            let first_device = first.host_info(host_id).ok_or("Host unbekannt")?.device_id;
+            ensure(stub.terminal_channel(&first_device).is_none(), || {
+                "fremdes Gerät hängt am Terminal".to_owned()
+            })
+        })
+    });
+
+    all &= report("terminal: detach nimmt nur das geraet weg", {
+        second
+            .call(host_id, "terminal_detach", attach.clone())
+            .map_err(text)
+            .and_then(|_| {
+                ensure(stub.terminal_channel(&second_device).is_none(), || {
+                    "Kanal des Geräts hängt noch".to_owned()
+                })
+            })
+    });
+
+    all &= report(
+        "terminal: nach dem zurueckgeben kein rahmen mehr",
+        (|| {
+            let take = json!({ "projectId": SHARED_PROJECT });
+            second
+                .call(host_id, "terminal_attach", attach.clone())
+                .map_err(text)?;
+            let channel = stub
+                .terminal_channel(&second_device)
+                .ok_or("kein Kanal für das Gerät")?;
+            let before = terminal_outputs(second_frames, SHARED_TERMINAL).len();
+            second
+                .call(host_id, "remote_give_back", take.clone())
+                .map_err(text)?;
+            let refused = channel
+                .send(TerminalOutput::Data {
+                    text: "nach dem Zurückgeben".to_owned(),
+                })
+                .is_err();
+            // Ein Rahmen bräuchte über `127.0.0.1` Millisekunden.
+            thread::sleep(Duration::from_millis(200));
+            let after = terminal_outputs(second_frames, SHARED_TERMINAL).len();
+            second.call(host_id, "remote_take", take).map_err(text)?;
+            ensure(refused && after == before, || {
+                format!("Senden abgelehnt: {refused}, Rahmen vorher {before}, nachher {after}")
+            })
+        })(),
+    );
+
+    all &= report(
+        "terminal: volle warteschlange trennt, ohne den sender aufzuhalten",
+        full_queue(host, stub, second, host_id),
+    );
+    Ok(all)
+}
+
+/// Ein Gerät, das nichts mehr liest: Jedes `send` kommt sofort zurück, bis die Warteschlange voll
+/// ist; dann ist die Verbindung zu. So wartet der Lese-Thread des Terminals nie auf das Netz.
+fn full_queue(
+    host: &Host,
+    stub: &StubHost,
+    second: &RemoteClients,
+    host_id: &str,
+) -> Result<(), String> {
+    const CHUNK: usize = 8192;
+    /// Weit über der Warteschlange samt den Puffern des Sockets.
+    const LIMIT_BYTES: usize = 64 * 1024 * 1024;
+    const LIMIT: Duration = Duration::from_secs(60);
+    let take = json!({ "projectId": SHARED_PROJECT });
+    second
+        .call(host_id, "remote_give_back", take.clone())
+        .map_err(text)?;
+    let mut stalled_device = String::new();
+    let mut stalled = host.raw_signed_in_after(|device_id: &str| {
+        stalled_device = device_id.to_owned();
+    })?;
+    for (id, command, args) in [
+        (1, "remote_take", take),
+        (2, "terminal_attach", json!({ "id": SHARED_TERMINAL })),
+    ] {
+        let call = Frame::Call {
+            id,
+            command: command.to_owned(),
+            args,
+        };
+        stalled.send(&wire::encode(&call)).map_err(text)?;
+        match stalled.read_reply()? {
+            Frame::Result {
+                outcome: Outcome::Ok(_),
+                ..
+            } => {}
+            other => return Err(format!("{command}: {other:?}")),
+        }
+    }
+    let channel = stub
+        .terminal_channel(&stalled_device)
+        .ok_or("kein Kanal für das stockende Gerät")?;
+    // Ein Stück wie `yes`, so groß wie ein Lesestück des Terminals im Core.
+    let text = "y\n".repeat(CHUNK / 2);
+    let start = Instant::now();
+    let mut slowest = Duration::ZERO;
+    let mut sent = 0_usize;
+    let refused = loop {
+        if sent * CHUNK > LIMIT_BYTES || start.elapsed() > LIMIT {
+            break false;
+        }
+        let one = Instant::now();
+        let outcome = channel.send(TerminalOutput::Data { text: text.clone() });
+        slowest = slowest.max(one.elapsed());
+        if outcome.is_err() {
+            break true;
+        }
+        sent += 1;
+    };
+    let mebibytes = sent * CHUNK / (1024 * 1024);
+    eprintln!(
+        "  volle warteschlange: {mebibytes} MiB in {:?}, langsamstes send {slowest:?}",
+        start.elapsed()
+    );
+    ensure(refused, || {
+        format!(
+            "nach {mebibytes} MiB in {:?} nicht abgelehnt",
+            start.elapsed()
+        )
+    })?;
+    ensure(slowest < Duration::from_millis(250), || {
+        format!("ein send wartete {slowest:?}")
+    })?;
+    stalled.drained_within(Duration::from_secs(10))
 }

@@ -12,6 +12,7 @@ use crate::projects::model::ProjectSummary;
 use crate::remote::CHANGED_EVENT as REMOTE_CHANGED_EVENT;
 use crate::remote::server::RemoteServer;
 use crate::remote::wire::Frame;
+use crate::terminal::TerminalService;
 
 impl SessionRegistry {
     /// Schaltet die Freigabe um; Ausschalten wirft einen steuernden Gast sofort hinaus. Erst danach
@@ -36,6 +37,7 @@ impl SessionRegistry {
                 control.unshare(project_id);
             }
         });
+        self.release_terminals(app, &[project_id.to_owned()]);
         let summary = self.project_summary(project_id)?;
         // Wie die übrigen Ereignisse ohne Session-Protokoll: ein Sendefehler ändert nichts am Zustand.
         let _ = app.emit(PROJECT_CHANGED_EVENT, &summary);
@@ -58,12 +60,30 @@ impl SessionRegistry {
         Ok(summary)
     }
 
-    /// Meldet Vorhaben, deren Inhaber der Server abgesetzt hat (Gerät gesperrt, Server aus).
+    /// Meldet Vorhaben, deren Inhaber sich geändert hat (Übernahme, Zurückgeben, Frist, Gerät
+    /// gesperrt, Server aus). Ein Gerät, das sie nicht mehr hält, liest ihre Terminals nicht mehr mit.
     pub fn emit_projects_changed(&self, app: &AppHandle, project_ids: &[String]) {
+        self.release_terminals(app, project_ids);
         for project_id in project_ids {
             if let Ok(summary) = self.project_summary(project_id) {
                 let _ = app.emit(PROJECT_CHANGED_EVENT, &summary);
             }
+        }
+    }
+
+    /// Nimmt an den Terminals der Vorhaben jedes Gerät als Zuschauer weg, das sie nicht hält. Die
+    /// Shells laufen weiter und stehen am Host zur Verfügung.
+    fn release_terminals(&self, app: &AppHandle, project_ids: &[String]) {
+        let Some(terminals) = app.try_state::<TerminalService>() else {
+            return;
+        };
+        for project_id in project_ids {
+            let holder: Option<String> = self.remote.with(|control| {
+                control
+                    .holder(project_id)
+                    .map(|holder| holder.device.id.clone())
+            });
+            terminals.detach_devices(project_id, holder.as_deref());
         }
     }
 

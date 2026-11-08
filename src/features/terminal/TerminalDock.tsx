@@ -6,7 +6,12 @@ import { useSettingsUpdate } from '@/features/settings/useSettingsUpdate';
 import type { TerminalInfo } from '@/lib/bindings/TerminalInfo';
 import type { TerminalPlacement } from '@/lib/bindings/TerminalPlacement';
 import { commandErrorText } from '@/lib/errors';
-import { useProjectLocked } from '@/features/remote/useProjectAccess';
+import { hostNameOf, type ProjectLock } from '@/features/remote/projectAccess';
+import {
+  useProjectAccess,
+  useProjectLock,
+  useProjectLocked,
+} from '@/features/remote/useProjectAccess';
 import { closeTerminal, openTerminal } from '@/lib/terminal';
 import { useSettingsStore } from '@/stores/settings';
 import { useTerminalStore } from '@/stores/terminal';
@@ -53,6 +58,9 @@ export function TerminalDock({
   const [actionError, setActionError] = useState<string | null>(null);
   // Solange ein Gast steuert, liest der Host nur mit: kein neues Terminal, kein Schließen.
   const isLocked: boolean = useProjectLocked(projectId);
+  const lock: ProjectLock | null = useProjectLock(projectId);
+  const hostName: string | null = hostNameOf(useProjectAccess(projectId));
+  const readingGuest: string | null = lock?.kind === 'guest' ? lock.device.name : null;
   const isMaximized: boolean = useTerminalStore((state) => state.isMaximized);
   const dragSize: number | null = useTerminalStore((state) => state.dragSize);
   const selectedId: string | undefined = useTerminalStore((state) => state.selected[projectId]);
@@ -154,6 +162,24 @@ export function TerminalDock({
       .catch(() => undefined);
   }
 
+  /** Am Gast: wo die Shell läuft. Am Host, solange ein Gast steuert: dass hier nur mitgelesen wird. */
+  function renderHint(): ReactElement | null {
+    const hint: string | null =
+      hostName !== null
+        ? `Läuft auf ${hostName}, im Ordner des Vorhabens`
+        : readingGuest !== null
+          ? `Du liest mit. Eingabe, Größe und neue Terminals liegen bei ${readingGuest}.`
+          : null;
+    if (hint === null) {
+      return null;
+    }
+    return (
+      <small className="terminal-dock__hint" title={hint}>
+        {hint}
+      </small>
+    );
+  }
+
   function renderBar(): ReactElement {
     return (
       <div className="terminal-dock__bar">
@@ -188,17 +214,24 @@ export function TerminalDock({
               </button>
             </div>
           ))}
-          <button
-            type="button"
-            className="terminal-dock__button terminal-dock__button--icon"
-            title="Neues Terminal im Arbeitsordner des Vorhabens"
-            aria-label="Neues Terminal"
-            disabled={isLocked}
-            onClick={openNew}
-          >
-            +
-          </button>
+          {readingGuest === null && (
+            <button
+              type="button"
+              className="terminal-dock__button terminal-dock__button--icon"
+              title={
+                hostName === null
+                  ? 'Neues Terminal im Arbeitsordner des Vorhabens'
+                  : `Neues Terminal auf ${hostName} im Arbeitsordner des Vorhabens`
+              }
+              aria-label="Neues Terminal"
+              disabled={isLocked}
+              onClick={openNew}
+            >
+              +
+            </button>
+          )}
         </div>
+        {renderHint()}
         <div className="terminal-dock__actions">
           {isBottom && (
             <button
@@ -254,7 +287,9 @@ export function TerminalDock({
       {errorText !== null && <p className="terminal-dock__error">{errorText}</p>}
       {renderBar()}
       {shown === undefined ? (
-        <p className="terminal-dock__empty">Kein Terminal — mit + eines starten.</p>
+        <p className="terminal-dock__empty">
+          {readingGuest === null ? 'Kein Terminal — mit + eines starten.' : 'Kein Terminal.'}
+        </p>
       ) : (
         <TerminalPane key={shown.id} terminalId={shown.id} projectId={projectId} />
       )}

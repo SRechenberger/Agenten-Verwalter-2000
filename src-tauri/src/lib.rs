@@ -87,8 +87,8 @@ fn start_remote(
         dispatch: {
             let host = AppHost { app: app.clone() };
             let control = Arc::clone(control);
-            Arc::new(move |device, command: &str, args| {
-                remote_dispatch::answer(&host, &control, device, command, args)
+            Arc::new(move |device, link, command: &str, args| {
+                remote_dispatch::answer_on(&host, &control, device, link, command, args)
             })
         },
         notify: Arc::clone(&notify),
@@ -112,6 +112,7 @@ fn start_remote(
         },
     );
     app.manage(Arc::new(clients));
+    app.manage(remote::guest::GuestTerminals::default());
     Ok(())
 }
 
