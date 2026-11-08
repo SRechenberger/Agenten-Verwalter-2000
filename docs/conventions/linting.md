@@ -12,7 +12,7 @@
 
 ## Prüfkette
 
-Lint, Typecheck und Build sind die Qualitätsschranke dieses Projekts — Tests gehören nicht dazu. Die einzigen sind die Unit-Tests der Fix-Runden-Auswahl in `src-tauri/src/implementation/tests.rs`, die von Hand mit `cargo test --manifest-path src-tauri/Cargo.toml` laufen, und die des Steuerrechts unter `src-tauri/src/remote/`, die der Job `check` zusätzlich mit `cargo test --manifest-path src-tauri/Cargo.toml --lib remote::` fährt; `pnpm check` fährt keine von beiden. `pnpm check` fährt die Kette lokal, [.github/workflows/check.yml](../../.github/workflows/check.yml) identisch in GitHub Actions (plus die Bindings-Prüfung und der Job `version-bump`, siehe unten):
+Lint, Typecheck und Build sind die Qualitätsschranke dieses Projekts — Tests gehören nicht dazu. Die einzigen sind die Unit-Tests der Fix-Runden-Auswahl in `src-tauri/src/implementation/tests.rs` und der Agententypen in `src-tauri/src/agent_types/tests.rs`, die der Job `check` mit `cargo test --manifest-path src-tauri/Cargo.toml --lib -- implementation:: agent_types::` fährt, und die des Steuerrechts unter `src-tauri/src/remote/`, die er mit `cargo test --manifest-path src-tauri/Cargo.toml --lib remote::` fährt; lokal laufen alle mit `cargo test --manifest-path src-tauri/Cargo.toml`, `pnpm check` fährt keine davon. `pnpm check` fährt die Kette lokal, [.github/workflows/check.yml](../../.github/workflows/check.yml) identisch in GitHub Actions (plus die Bindings-Prüfung und der Job `version-bump`, siehe unten):
 
 ```text
 pnpm version:check Abgleich der vier Versionsstellen

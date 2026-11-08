@@ -3,6 +3,7 @@
 //! Sperr-Reihenfolge: Wer die Datenbank benutzt, während er eine Session-Sperre hält, nimmt
 //! zuerst die Session-Sperre und dann die der Datenbank — nie umgekehrt. Unter `Database::with`
 //! darf deshalb kein Code eine Session sperren.
+pub mod agent_types;
 pub mod background;
 pub mod chat_entries;
 pub mod implementations;

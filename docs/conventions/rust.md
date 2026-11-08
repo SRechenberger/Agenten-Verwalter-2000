@@ -54,7 +54,7 @@ src-tauri/src/
 
 ## Typen für die UI
 
-Typen, die über die Tauri-Grenze gehen, werden im Core definiert und nach `src/lib/bindings/` generiert — mit `ts-rs`, ausgelöst über `pnpm bindings`. Der Export läuft über das Hilfsprogramm `src-tauri/examples/gen-bindings.rs` (neuer Typ → `derive(TS)` und Eintrag dort), nicht über `#[ts(export)]`, weil das an `cargo test` hängt und `pnpm check` keinen Testlauf fährt (Tests gibt es nur in `implementation/tests.rs`, von Hand mit `cargo test`, und unter `remote/`, dort auch in CI). Weil `examples/` ein zweites Programm neben der App ist, steht in `Cargo.toml` `default-run = "verwalter"`. Begründung: [ADR 002](../decisions/002-typgenerierung-und-listen.md).
+Typen, die über die Tauri-Grenze gehen, werden im Core definiert und nach `src/lib/bindings/` generiert — mit `ts-rs`, ausgelöst über `pnpm bindings`. Der Export läuft über das Hilfsprogramm `src-tauri/examples/gen-bindings.rs` (neuer Typ → `derive(TS)` und Eintrag dort), nicht über `#[ts(export)]`, weil das an `cargo test` hängt und `pnpm check` keinen Testlauf fährt (Tests gibt es nur in `implementation/tests.rs`, `agent_types/tests.rs` und unter `remote/`; alle laufen mit `cargo test` und in CI). Weil `examples/` ein zweites Programm neben der App ist, steht in `Cargo.toml` `default-run = "verwalter"`. Begründung: [ADR 002](../decisions/002-typgenerierung-und-listen.md).
 
 ## Critical Rules
 

@@ -1,4 +1,5 @@
 pub mod account;
+pub mod agent_types;
 pub mod app;
 pub mod app_update;
 pub mod archive;
