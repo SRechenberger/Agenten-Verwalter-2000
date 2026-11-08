@@ -37,7 +37,7 @@
 
 ## Umsetzung
 
-Stand: Die Einstellungen stehen (Abschnitt „Fernsteuerung“ in der Kategorie „App“, Host und Gast), ebenso Leiste, Übersicht, Chat und Köpfe mit Freigeben, Übernehmen, Zurückgeben, Freigabe beenden und den Offline-Zuständen. Dazu kommen Kontingent und Betriebsart des Hosts, Inhalte (Artefakte, Bilder, Anhänge), Herkunft und die Warnung beim Schließen und das Terminal am Gast.
+Stand: Die Einstellungen stehen (Abschnitt „Fernsteuerung“ in der Kategorie „App“, Host und Gast), ebenso Leiste, Übersicht, Chat und Köpfe mit Freigeben, Übernehmen, Zurückgeben, Freigabe beenden und den Offline-Zuständen. Dazu kommen Kontingent und Betriebsart des Hosts, Inhalte (Artefakte, Bilder, Anhänge), Herkunft und die Warnung beim Schließen und das Terminal am Gast. Damit ist alles aus dem Entwurf umgesetzt, bis auf die Abweichungen unten. Gesehen ist es unter Linux mit zwei Instanzen auf einem Rechner; die Abnahme auf zwei Rechnern (Windows-Gast, Linux-Host) steht aus, was darin noch fehlt, nennt [ADR 059](../../decisions/059-remote-sessions.md) unter „Stand der Umsetzung“.
 
 Bilder der laufenden App, zwei Instanzen mit getrennten Datenordnern auf einem Rechner, wirklich gekoppelt. Sie liegen in [`umsetzung/`](umsetzung/):
 
@@ -106,7 +106,9 @@ Nicht gesehen: eine beantwortete Rückfrage mit „von <Gerät>“ (die Attrappe
 
 ## Abweichungen vom Entwurf
 
-- **Gerätename:** Das Feld ist nicht vorbelegt. Der Core kennt den Namen des Rechners, gibt ihn aber über keinen Command heraus; „Verbinden“ bleibt gesperrt, bis ein Name im Feld steht.
+- **Gerätename:** Das Feld ist nicht vorbelegt. Der Core kennt den Namen des Rechners, gibt ihn aber über keinen Command heraus; „Verbinden“ bleibt gesperrt, bis ein Name im Feld steht. Offen, braucht eine Änderung am Vertrag.
+- **Andere Protokollnummer:** Die Meldung „Host N, dieses Gerät M“ sieht nur der Gast; der Host lehnt ab, zeigt aber selbst nichts.
+- **Überschneidung mit einem nicht übernommenen Vorhaben:** Der Eintrag fällt für den Gast ganz weg, also auch die Warnung „gleicher Ordner“.
 - **Erklärungen:** Der Text unter dem Zeilennamen steht, wie auf der übrigen Einstellungsseite, hinter dem ⓘ ([ADR 057](../../decisions/057-einstellungen-kategorien-und-suche.md)). Unter dem Bedienelement bleiben nur der Hinweis zum Port, die Adressen, der Fingerabdruck und die Fehlersätze.
 - **Dialog „Einladung“:** Er nennt „10 Minuten und einmal“ wörtlich und lässt sich nach der Kopplung nicht von selbst schließen.
 - **Suche:** Zeilen, die der Stand der Fernsteuerung ausblendet (Port, Status, Geräte ohne laufenden Server; Hosts ohne Kopplung), findet die Suche nicht.
