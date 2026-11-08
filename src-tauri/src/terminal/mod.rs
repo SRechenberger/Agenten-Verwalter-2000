@@ -1,5 +1,6 @@
 //! Pseudo-Terminals je Vorhaben (ADR 055). Eine Shell im Workspace des Vorhabens, ihre Ausgabe als
-//! Verlauf im Speicher und, solange eine Oberfläche angehängt ist, live über einen Kanal.
+//! Verlauf im Speicher und live an jeden Zuschauer: die eigene Oberfläche und das Gerät, das das
+//! Vorhaben steuert (ADR 059), je über einen eigenen Kanal.
 //!
 //! Sperren: die Map nur zum Holen, Einfügen und Entfernen einer `Arc`; je Terminal nie zwei seiner
 //! Sperren zugleich.
@@ -39,12 +40,32 @@ struct TerminalIo {
     killer: Box<dyn ChildKiller + Send + Sync>,
 }
 
+/// Wer die Ausgabe eines Terminals sieht.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Viewer {
+    /// Die Oberfläche dieser Instanz.
+    Own,
+    /// Ein Gerät, das das Vorhaben steuert; seine ID.
+    Device(String),
+}
+
 struct OutputState {
     buffer: ScrollBuffer,
-    channel: Option<Channel<TerminalOutput>>,
+    /// Je Zuschauer höchstens ein Kanal.
+    viewers: Vec<(Viewer, Channel<TerminalOutput>)>,
     /// `Some(Exit-Code)`, sobald die Shell beendet ist. Hier statt in `info`, damit `attach` das
     /// Ende unter derselben Sperre sieht, unter der es den Kanal einhängt — sonst ginge `Exit` verloren.
     exit: Option<Option<u32>>,
+}
+
+impl OutputState {
+    /// Schickt an jeden Zuschauer; wessen Kanal scheitert, der ist danach keiner mehr.
+    fn send(&mut self, output: &TerminalOutput) {
+        self.viewers
+            .retain(|(_, channel): &(Viewer, Channel<TerminalOutput>)| {
+                channel.send(output.clone()).is_ok()
+            });
+    }
 }
 
 pub struct TerminalService {
@@ -180,7 +201,7 @@ impl TerminalService {
             }),
             output: Mutex::new(OutputState {
                 buffer: ScrollBuffer::default(),
-                channel: None,
+                viewers: Vec::new(),
                 exit: None,
             }),
         });
@@ -192,11 +213,13 @@ impl TerminalService {
         Ok(info)
     }
 
-    /// Hängt den Kanal an und liefert den bisherigen Verlauf; beides unter derselben Sperre, damit
-    /// zwischen Verlauf und Live-Ausgabe nichts fehlt und nichts doppelt kommt.
+    /// Hängt den Kanal des Zuschauers an und liefert den bisherigen Verlauf; beides unter derselben
+    /// Sperre, damit zwischen Verlauf und Live-Ausgabe nichts fehlt und nichts doppelt kommt. Hatte
+    /// der Zuschauer schon einen Kanal, ersetzt der neue nur diesen.
     pub fn attach(
         &self,
         id: &str,
+        viewer: Viewer,
         channel: Channel<TerminalOutput>,
     ) -> Result<String, CommandError> {
         let terminal = self.get(id)?;
@@ -206,13 +229,32 @@ impl TerminalService {
             // Fehlschlag heißt: die Oberfläche ist weg; ein Kanal ohne Empfänger braucht keinen Halt.
             let _ = channel.send(TerminalOutput::Exit { code });
         }
-        output.channel = Some(channel);
+        output
+            .viewers
+            .retain(|(attached, _): &(Viewer, Channel<TerminalOutput>)| *attached != viewer);
+        output.viewers.push((viewer, channel));
         Ok(snapshot)
     }
 
-    pub fn detach(&self, id: &str) {
+    /// Nimmt nur diesen Zuschauer weg; die übrigen sehen weiter zu.
+    pub fn detach(&self, id: &str, viewer: &Viewer) {
         if let Ok(terminal) = self.get(id) {
-            lock(&terminal.output).channel = None;
+            lock(&terminal.output)
+                .viewers
+                .retain(|(attached, _): &(Viewer, Channel<TerminalOutput>)| attached != viewer);
+        }
+    }
+
+    /// Nimmt an allen Terminals des Vorhabens jedes Gerät außer `keep` als Zuschauer weg: Die
+    /// Inhaberschaft ist zu Ende oder ging an ein anderes Gerät. Die Shells laufen weiter.
+    pub fn detach_devices(&self, project_id: &str, keep: Option<&str>) {
+        for terminal in self.project_terminals(project_id) {
+            lock(&terminal.output).viewers.retain(
+                |(viewer, _): &(Viewer, Channel<TerminalOutput>)| match viewer {
+                    Viewer::Own => true,
+                    Viewer::Device(device_id) => Some(device_id.as_str()) == keep,
+                },
+            );
         }
     }
 
@@ -307,13 +349,9 @@ fn spawn_reader(terminal: Arc<Terminal>, mut reader: Box<dyn Read + Send>) {
                 }
                 let mut output = lock(&terminal.output);
                 output.buffer.push(&text);
-                let delivered: bool = match output.channel.as_ref() {
-                    Some(channel) => channel.send(TerminalOutput::Data { text }).is_ok(),
-                    None => true,
-                };
-                if !delivered {
-                    output.channel = None;
-                }
+                // Kein Kanal wartet auf das Netz: Der eines Geräts legt nur in die Warteschlange
+                // seiner Verbindung (ADR 059).
+                output.send(&TerminalOutput::Data { text });
             }
         });
     if let Err(error) = spawned {
@@ -339,9 +377,7 @@ fn spawn_waiter(
             {
                 let mut output = lock(&terminal.output);
                 output.exit = Some(code);
-                if let Some(channel) = output.channel.as_ref() {
-                    let _ = channel.send(TerminalOutput::Exit { code });
-                }
+                output.send(&TerminalOutput::Exit { code });
             }
             lock(&terminal.io).master = None;
             emit_changed(&app, &project_id);

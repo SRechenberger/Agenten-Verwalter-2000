@@ -1,14 +1,15 @@
 //! Der Gast (ADR 059): Listen der Hosts an die eigenen anfügen, Vorhaben eines Hosts als `remote`
-//! zeigen, ihre Gruppe nur lokal führen, übernehmen und zurückgeben.
+//! zeigen, ihre Gruppe nur lokal führen, übernehmen und zurückgeben, Terminals des Hosts anzeigen.
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
 use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
-use tauri::{AppHandle, Emitter, Manager, Runtime};
+use tauri::ipc::{Channel, JavaScriptChannelId};
+use tauri::{AppHandle, Emitter, Manager, Runtime, Webview};
 
 use super::CHANGED_EVENT;
 use super::client::{HostInfo, RemoteClients};
@@ -347,6 +348,87 @@ fn cached_project(
         .filter_map(|item: Value| serde_json::from_value::<ProjectSummary>(item).ok())
         .map(|summary: ProjectSummary| guest_view(summary, &host, &groups))
         .next())
+}
+
+/// Die Kanäle der Oberfläche zu den Terminals der Hosts, je Host und Terminal einer. Die Rahmen
+/// `terminal` gehen roh hinein; `TerminalOutput` muss dafür nicht lesbar sein.
+#[derive(Default)]
+pub struct GuestTerminals {
+    channels: Mutex<HashMap<(String, String), Channel<Value>>>,
+}
+
+impl GuestTerminals {
+    fn channels(&self) -> MutexGuard<'_, HashMap<(String, String), Channel<Value>>> {
+        self.channels.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// Ein Rahmen `terminal` des Hosts; ohne Kanal oder wenn er scheitert, fällt er weg.
+    pub fn deliver(&self, host_id: &str, id: &str, output: Value) {
+        let key = (host_id.to_owned(), id.to_owned());
+        let mut channels = self.channels();
+        let delivered = channels
+            .get(&key)
+            .is_some_and(|channel: &Channel<Value>| channel.send(output).is_ok());
+        if !delivered {
+            channels.remove(&key);
+        }
+    }
+
+    fn remove(&self, host_id: &str, id: &str) {
+        self.channels().remove(&(host_id.to_owned(), id.to_owned()));
+    }
+}
+
+/// `terminal_attach` für ein Terminal eines Hosts: Der Kanal aus `onOutput` bleibt hier, und der
+/// Host bekommt den Aufruf ohne ihn. Der Kanal steht vor dem Aufruf, denn der Host schickt die
+/// ersten Rahmen vor seiner Antwort; die Oberfläche hält sie bis zum Puffer zurück.
+pub fn attach_terminal(
+    webview: &Webview,
+    clients: &RemoteClients,
+    host_id: &str,
+    mut args: Value,
+) -> Result<Value, CommandError> {
+    let id = args
+        .get("id")
+        .and_then(Value::as_str)
+        .map(str::to_owned)
+        .ok_or_else(|| CommandError::Internal("Dem Aufruf fehlt id.".to_owned()))?;
+    let channel_id: JavaScriptChannelId = args
+        .get("onOutput")
+        .and_then(Value::as_str)
+        .ok_or("Dem Aufruf fehlt onOutput.")
+        .and_then(str::parse)
+        .map_err(|error: &str| CommandError::Internal(error.to_owned()))?;
+    if let Value::Object(fields) = &mut args {
+        fields.remove("onOutput");
+    }
+    let terminals = webview.state::<GuestTerminals>();
+    terminals.channels().insert(
+        (host_id.to_owned(), id.clone()),
+        channel_id.channel_on(webview.clone()),
+    );
+    let attached = clients.call(host_id, "terminal_attach", args);
+    if attached.is_err() {
+        terminals.remove(host_id, &id);
+    }
+    attached
+}
+
+/// `terminal_detach` für ein Terminal eines Hosts: Der Kanal hier fällt weg, auch wenn der Host
+/// gerade nicht erreichbar ist.
+pub fn detach_terminal(
+    app: &AppHandle,
+    clients: &RemoteClients,
+    host_id: &str,
+    args: Value,
+) -> Result<Value, CommandError> {
+    if let (Some(terminals), Some(id)) = (
+        app.try_state::<GuestTerminals>(),
+        args.get("id").and_then(Value::as_str),
+    ) {
+        terminals.remove(host_id, id);
+    }
+    clients.call(host_id, "terminal_detach", args)
 }
 
 /// Einträge, die dieser Stand nicht lesen kann (ein neuerer Host mit gleichem Protokoll), fehlen.

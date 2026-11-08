@@ -56,6 +56,17 @@
     gap: var(--space-sm);
   }
 
+  /* Fernsteuerung: wo die Shell läuft oder wer gerade tippt (ADR 059). */
+  &__hint {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    color: var(--color-fg-muted);
+    font-size: var(--font-size-xs);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
   &__tab {
     display: flex;
     align-items: center;

@@ -28,9 +28,9 @@ use crate::db::{Database, remote as remote_rows};
 use crate::error::CommandError;
 use crate::sessions::registry::now_ms;
 
-/// Beantwortet den Aufruf eines angemeldeten Geräts.
+/// Beantwortet den Aufruf eines angemeldeten Geräts; die Verbindung braucht `terminal_attach`.
 pub type Dispatch =
-    Arc<dyn Fn(&DeviceRef, &str, Value) -> Result<Value, CommandError> + Send + Sync>;
+    Arc<dyn Fn(&DeviceRef, &Link, &str, Value) -> Result<Value, CommandError> + Send + Sync>;
 /// Server, Geräte oder Verbindungen haben sich geändert (`remote://changed`).
 pub type Notify = Arc<dyn Fn() + Send + Sync>;
 
@@ -507,7 +507,8 @@ impl Shared {
                 let _ = thread::Builder::new()
                     .name("remote-call".to_owned())
                     .spawn(move || {
-                        let outcome = match (shared.setup.dispatch)(&caller, &command, args) {
+                        let outcome = match (shared.setup.dispatch)(&caller, &link, &command, args)
+                        {
                             Ok(value) => Outcome::Ok(value),
                             Err(error) => {
                                 Outcome::Err(serde_json::to_value(&error).unwrap_or(Value::Null))

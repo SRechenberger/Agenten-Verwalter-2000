@@ -67,16 +67,22 @@ fn call_host(invoke: Invoke<Wry>, clients: Arc<RemoteClients>, host_id: String) 
         InvokeBody::Json(payload) => payload.clone(),
         InvokeBody::Raw(_) => Value::Null,
     };
-    let app = invoke.message.webview_ref().app_handle().clone();
+    let webview = invoke.message.webview();
     let resolver = invoke.resolver;
     let spawned = thread::Builder::new()
         .name("remote-route".to_owned())
-        .spawn(
-            move || match guest::route(&app, &clients, &host_id, &command, args) {
+        .spawn(move || {
+            let app = webview.app_handle();
+            let answered = match command.as_str() {
+                "terminal_attach" => guest::attach_terminal(&webview, &clients, &host_id, args),
+                "terminal_detach" => guest::detach_terminal(app, &clients, &host_id, args),
+                _ => guest::route(app, &clients, &host_id, &command, args),
+            };
+            match answered {
                 Ok(value) => resolver.resolve(value),
                 Err(error) => resolver.reject(error),
-            },
-        );
+            }
+        });
     if let Err(error) = spawned {
         eprintln!("Aufruf an den Host nicht gestartet: {error}");
     }

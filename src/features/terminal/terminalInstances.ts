@@ -3,8 +3,11 @@ import { Terminal } from '@xterm/xterm';
 import '@xterm/xterm/css/xterm.css';
 import { terminalFont, terminalTheme } from '@/features/terminal/terminalTheme';
 import type { TerminalOutput } from '@/lib/bindings/TerminalOutput';
+import { isLocked, OWN_ACCESS } from '@/features/remote/projectAccess';
 import { isProjectLockedNow } from '@/features/remote/useProjectAccess';
+import type { ProjectAccess } from '@/lib/bindings/ProjectAccess';
 import { attachTerminal, detachTerminal, resizeTerminal, writeTerminal } from '@/lib/terminal';
+import { useProjectAccessStore } from '@/stores/projectAccess';
 import { useSettingsStore } from '@/stores/settings';
 
 const FONT_SIZE = 13;
@@ -22,6 +25,8 @@ export interface TerminalInstance {
   lastCols: number;
   lastRows: number;
   resizeTimer: number | null;
+  /** Zählt die Anhänge-Vorgänge; ein Kanal eines früheren schreibt nicht mehr in den Bildschirm. */
+  attachment: number;
 }
 
 /** Jede Instanz lebt hier von ihrem ersten Anzeigen bis zum Ende ihres Terminals — nicht in React: Ausblenden und
@@ -42,8 +47,11 @@ function writeOutput(term: Terminal, message: TerminalOutput): void {
 function wireOutput(terminalId: string, instance: TerminalInstance): void {
   const pending: TerminalOutput[] = [];
   let isReady = false;
+  instance.attachment += 1;
+  const attachment: number = instance.attachment;
+  const isCurrent = (): boolean => !instance.isDisposed && instance.attachment === attachment;
   attachTerminal(terminalId, (message: TerminalOutput) => {
-    if (instance.isDisposed) {
+    if (!isCurrent()) {
       return;
     }
     if (!isReady) {
@@ -53,7 +61,7 @@ function wireOutput(terminalId: string, instance: TerminalInstance): void {
     writeOutput(instance.term, message);
   })
     .then((snapshot: string) => {
-      if (instance.isDisposed) {
+      if (!isCurrent()) {
         return;
       }
       instance.term.write(snapshot);
@@ -119,6 +127,7 @@ export function acquire(terminalId: string, projectId: string): TerminalInstance
     lastCols: 0,
     lastRows: 0,
     resizeTimer: null,
+    attachment: 0,
   };
   term.onData((data: string) => {
     // Der Host liest nur mit, solange ein Gast steuert; der Core lehnte die Eingabe ohnehin ab.
@@ -223,3 +232,26 @@ useSettingsStore.subscribe((state, previous) => {
   }
 });
 window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', applyThemeToAll);
+
+/** Ein Vorhaben ist wieder zu bedienen (ADR 059). Am Gast: Der Host ist zurück oder das Vorhaben wieder übernommen;
+ *  was in der Lücke kam, fehlt, deshalb beginnt der Bildschirm mit dem Puffer von vorn. Auf beiden Seiten meldet
+ *  die Instanz danach ihre Größe neu, denn bis dahin galt die des anderen Geräts. */
+function onUnlocked(terminalId: string, instance: TerminalInstance, access: ProjectAccess): void {
+  if (access.kind === 'remote') {
+    instance.term.reset();
+    wireOutput(terminalId, instance);
+  }
+  instance.lastCols = 0;
+  instance.lastRows = 0;
+  fitAndResize(terminalId);
+}
+
+useProjectAccessStore.subscribe((state, previous) => {
+  for (const [terminalId, instance] of [...instances]) {
+    const access: ProjectAccess = state.access[instance.projectId] ?? OWN_ACCESS;
+    const before: ProjectAccess = previous.access[instance.projectId] ?? OWN_ACCESS;
+    if (isLocked(before) && !isLocked(access)) {
+      onUnlocked(terminalId, instance, access);
+    }
+  }
+});

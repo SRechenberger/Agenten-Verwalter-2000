@@ -2,8 +2,8 @@ use tauri::ipc::Channel;
 
 use crate::error::CommandError;
 use crate::sessions::registry::SessionRegistry;
-use crate::terminal::TerminalService;
 use crate::terminal::model::{TerminalInfo, TerminalOutput};
+use crate::terminal::{TerminalService, Viewer};
 
 #[tauri::command]
 pub async fn terminal_list(
@@ -32,7 +32,7 @@ pub async fn terminal_attach(
     id: String,
     on_output: Channel<TerminalOutput>,
 ) -> Result<String, CommandError> {
-    terminals.attach(&id, on_output)
+    terminals.attach(&id, Viewer::Own, on_output)
 }
 
 #[tauri::command]
@@ -40,7 +40,7 @@ pub async fn terminal_detach(
     terminals: tauri::State<'_, TerminalService>,
     id: String,
 ) -> Result<(), CommandError> {
-    terminals.detach(&id);
+    terminals.detach(&id, &Viewer::Own);
     Ok(())
 }
 
