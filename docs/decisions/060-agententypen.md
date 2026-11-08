@@ -58,12 +58,11 @@ Die Story nannte sie unbestätigt; die Freigabe des Plans am 2026-11-08 bestäti
 Was die Verträge offenlassen, legt der Core so fest:
 
 - **Trimmen:** Name, Beschreibung, jeder Stationsname, jeder Pfad und jeder Skill werden getrimmt geprüft und gespeichert; der Text (`prompt`) bleibt, wie er kommt. Doppelte Stationsnamen eines Typs (ohne Beachtung der Schreibweise) fallen ohne Meldung weg, der erste bleibt.
-- **Zählen:** Längen zählen Zeichen (Unicode-Skalarwerte, wie `check_length` der Umsetzung). Nur der Text zählt UTF-16-Einheiten, denn er geht als Argument auf die Kommandozeile, deren Grenze Windows in diesen Einheiten zählt; ein Zeichen außerhalb der BMP zählt dort zwei.
-- **Anzahl:** Für zu viele Stationsnamen, Dateien oder Skills nennt der Vertrag keine Meldung; der Core meldet „Ein Typ führt höchstens 20 Stationsnamen.“, „Ein Typ hat höchstens 10 Dateien.“ und „Ein Typ hat höchstens 10 Skills.“
+- **Zählen:** Längen zählen Zeichen (Unicode-Skalarwerte, wie `check_length` der Umsetzung). Nur der Text zählt UTF-16-Einheiten, denn er geht als Argument auf die Kommandozeile, deren Grenze Windows in diesen Einheiten zählt; ein Zeichen außerhalb der BMP zählt dort zwei. Die Oberfläche der Phase 3 zählt ebenso: die Beschreibung in Codepunkten (`[...text].length`), den Text mit `.length`; ein Zähler mit `.length` wiche bei der Beschreibung für Zeichen außerhalb der BMP vom Core ab.
+- **Skill mit „/“:** Ein Skill mit führendem „/“ ist ungültig, der Core kürzt nicht. Die Oberfläche der Phase 3 schneidet ein getipptes führendes „/“ vor dem Senden ab.
 - **Reihenfolge der Anlage:** Die Spalte `position` (größte vorhandene plus eins) hält sie, auch über das Löschen hinweg.
 - **Transaktion:** Anlegen und Ändern lesen die gespeicherten Typen, prüfen und schreiben in einer Transaktion, die sofort schreibend beginnt (`IMMEDIATE`); dazwischen ändert niemand die Tabelle.
 - **Unbekannte ID:** Ändern und Löschen eines Typs, den es nicht gibt, sind ein `CommandError`, keine Meldung der Prüfung.
-- **`UnknownAgent`** trägt den genannten Namen (getrimmt) und die Namen aller Typen in der Reihenfolge der Anlage; als Text „Der Agententyp „X“ ist unbekannt. Bekannt: a, b“.
 - **Ereignis:** `agent-types://changed` geht nach jeder Änderung, also nicht, wenn die Prüfung etwas meldet.
 
 ## Aufbau
@@ -132,18 +131,21 @@ Ist `errors` nicht leer, ist `agentType` `null` und nichts gespeichert. Echte Fe
 | `description` | höchstens 500 | „Die Beschreibung ist länger als 500 Zeichen.“ |
 | `stages` | jeder Name getrimmt 1 bis 40 | „Der Stationsname „X“ ist leer oder länger als 40 Zeichen.“ |
 | `stages` | ein Name gehört höchstens einem Typ (getrimmt, ohne Beachtung der Schreibweise); innerhalb des Typs doppelte fallen weg | „„X“ gehört schon zum Typ „Y“.“ |
+| `stages` | höchstens 20, gezählt nach dem Wegfall doppelter Namen | „Ein Typ führt höchstens 20 Stationsnamen.“ |
 | `model` | nur zusammen mit `effort` | „Modell und Denkaufwand gelten nur zusammen.“ |
 | `prompt` | höchstens 16 000 Zeichen (UTF-16-Einheiten, wie Windows zählt) | „Der Text ist länger als 16 000 Zeichen.“ |
-| `files` | höchstens 10; jeder Pfad 1 bis 500, ohne Zeilenumbruch und NUL | „Der Pfad „X“ ist ungültig.“ |
-| `skills` | höchstens 10; jeder 1 bis 40, ohne „/“ | „Der Skill „X“ ist ungültig (1 bis 40 Zeichen, ohne „/“).“ |
+| `files` | höchstens 10 | „Ein Typ hat höchstens 10 Dateien.“ |
+| `files` | jeder Pfad 1 bis 500 Zeichen, ohne Zeilenumbruch und NUL | „Der Pfad „X“ ist ungültig.“ |
+| `skills` | höchstens 10 | „Ein Typ hat höchstens 10 Skills.“ |
+| `skills` | jeder 1 bis 40 Zeichen, ohne „/“ | „Der Skill „X“ ist ungültig (1 bis 40 Zeichen, ohne „/“).“ |
 
-Dazu die drei Meldungen für die Anzahl aus „Festlegungen der Phase 1“. Die Oberfläche zeigt die Meldungen an ihrem Feld und rechnet nur die Zähler (500, 16 000) selbst.
+Die Oberfläche zeigt die Meldungen an ihrem Feld und rechnet nur die Zähler (500, 16 000) selbst. Der Core zählt Längen in Zeichen (Unicode-Skalarwerten, wie `check_length` der Umsetzung), nur den Text des Typs in UTF-16-Einheiten; die Oberfläche zählt ebenso: die Beschreibung in Codepunkten (`[...text].length`), den Text mit `.length`. Name, Beschreibung, Stationsnamen, Pfade und Skills werden getrimmt geprüft und gespeichert, der Text nicht. Alle Meldungen aller Felder kommen zusammen, in der Reihenfolge der Felder. Ein Skill mit führendem „/“ ist ungültig (der Core kürzt nicht); die Oberfläche schneidet ein getipptes führendes „/“ vor dem Senden ab.
 
 ### Auflösung
 
 ```text
-resolve(types, station) -> Result<Resolved, UnknownAgent>
-  type   = station.agent gesetzt  -> der Typ mit diesem Namen (getrimmt, ohne Beachtung der Schreibweise); keiner: Err(UnknownAgent(name))
+resolve(types, station: StationValues) -> Result<Resolved, UnknownAgent>          // StationValues { stage, agent, model, effort }
+  type   = station.agent gesetzt  -> der Typ mit diesem Namen (getrimmt, ohne Beachtung der Schreibweise); keiner: Err(UnknownAgent { name, known })
            sonst                  -> der Typ, der station.stage führt (getrimmt, ohne Beachtung der Schreibweise); keiner: kein Typ
   model  = station.model  >  type.model  >  allgemeine Regel
   effort = station.effort >  type.effort >  allgemeine Regel
@@ -153,9 +155,7 @@ Resolved { agent_type: Option<&AgentType>,
            effort: Option<Effort>,   effort_from: Option<AgentValueSource> }   // Station | Type
 ```
 
-Modell und Denkaufwand lösen sich **unabhängig** auf: Eine Station mit `effort: max` und ohne `model` nimmt das Modell des Typs; das Paar verlangt nur die Definition eines Typs. `station.model` und `station.effort` gelten in jeder Betriebsart, wie das Modell der Station heute; `type.model` und `type.effort` wendet der Start nur in der Betriebsart Claude an. Ob die Kommandozeile eine Kombination (etwa Haiku mit `max`) annimmt, prüft der Verwalter nicht; die Eingabeleiste lässt dieselben Kombinationen zu. „Gesamt-Review“ trifft den Typ nicht, der „Review“ führt; `review` und ` Review ` treffen ihn. Der Vergleich der Stationsnamen für Fix-Runde, Umsetzung und Abschluss in `implementation/mod.rs` bleibt, wie er ist (wörtlich, mit Beachtung der Schreibweise).
-
-Im Core ist die Station `StationValues { stage, agent, model, effort }`.
+`AgentValueSource` steht in `agent_types/model.rs` (Phase 1). `StationValues { stage, agent, model, effort }` ist die Eingabe der Auflösung; Phase 2 baut sie aus den Feldern der Station. `UnknownAgent { name, known }` trägt den getrimmten Namen und die Namen der Typen in der Reihenfolge der Anlage; sein Text ist „Der Agententyp „X“ ist unbekannt. Bekannt: a, b“ (ohne Typen „Bekannt: keine“). Modell und Denkaufwand lösen sich **unabhängig** auf: Eine Station mit `effort: max` und ohne `model` nimmt das Modell des Typs; das Paar verlangt nur die Definition eines Typs. `station.model` und `station.effort` gelten in jeder Betriebsart, wie das Modell der Station heute; `type.model` und `type.effort` wendet der Start nur in der Betriebsart Claude an. Ob die Kommandozeile eine Kombination (etwa Haiku mit `max`) annimmt, prüft der Verwalter nicht; die Eingabeleiste lässt dieselben Kombinationen zu. „Gesamt-Review“ trifft den Typ nicht, der „Review“ führt; `review` und ` Review ` treffen ihn. Der Vergleich der Stationsnamen für Fix-Runde, Umsetzung und Abschluss in `implementation/mod.rs` bleibt, wie er ist (wörtlich, mit Beachtung der Schreibweise).
 
 ### Station: Eingabe, Ansicht, Datenbank (Phase 2)
 
@@ -193,10 +193,10 @@ Nach dem Start zeigt die Karte Modell und Denkaufwand der Session (`SessionSumma
 ### Start einer Station (Phase 2 und 4)
 
 1. Die vorhandenen Prüfungen (keine Session, nicht fertig, nicht „durch dich“, `schedule::may_start`; Letzteres liefert `false`, solange `start_error` gesetzt ist).
-2. Auflösen; `UnknownAgent` ist ein Fehler. Ab Phase 4: Text zusammensetzen (Text des Typs, seine Dateien, Zusatztext der Station); Fehler bei fehlender oder nicht lesbarer Datei und bei Überschreitung der Grenze.
-3. Bei einem Fehler in 2: `start_error` schreiben, ankündigen, **keine** Session anlegen. Meldungen: „Der Typ „X“ gibt es nicht mehr.“, „Die Datei „P“ aus dem Typ „X“ wurde nicht gefunden.“, „Die Datei „P“ aus dem Typ „X“ ist nicht lesbar.“, „Der Systemprompt dieser Station hat N Zeichen; erlaubt sind 16 000.“ Ein manueller Start gibt denselben Text als Fehler zurück.
+2. Auflösen. `UnknownAgent { name, known }`: Fehler mit der Meldung aus 3 (`name`). Ab Phase 4: Text zusammensetzen (Text des Typs, seine Dateien, Zusatztext der Station); Fehler bei fehlender oder nicht lesbarer Datei und bei Überschreitung der Grenze.
+3. Bei einem Fehler in 2: `start_error` schreiben, ankündigen, **keine** Session anlegen. Meldungstexte: „Den Typ „X“ gibt es nicht mehr.“, „Die Datei „P“ aus dem Typ „X“ wurde nicht gefunden.“, „Die Datei „P“ aus dem Typ „X“ ist nicht lesbar.“, „Der Systemprompt dieser Station hat N Zeichen; erlaubt sind 16 000.“ Ein manueller Start gibt denselben Text als Fehler zurück.
 4. Erst danach `create_fresh_in_project`, `bind_station`, `rename`.
-5. `set_model` mit dem ausdrücklichen Modell der Station, wie bisher in jeder Betriebsart; fehlt es und ist die Betriebsart Claude, mit dem Modell des Typs. `set_effort` ebenso. Beide nur, wenn der Wert von dem der neuen Session abweicht. In den anderen Betriebsarten ändert der Typ weder Modell noch Denkaufwand.
+5. `set_model` mit dem ausdrücklichen Modell der Station, wie bisher in jeder Betriebsart; fehlt es und ist die Betriebsart Claude, mit dem Modell des Typs. `set_effort` ebenso: mit dem ausdrücklichen Denkaufwand der Station in jeder Betriebsart; fehlt er und ist die Betriebsart Claude, mit dem des Typs. Beide nur, wenn der Wert von dem der neuen Session abweicht. In den anderen Betriebsarten ändert der Typ weder Modell noch Denkaufwand; ob ein ausdrücklicher Wert der Station dort wirkt, entscheidet die Betriebsart wie heute beim Modell, der Start ruft `set_model` und `set_effort` unabhängig davon auf.
 6. `agent_used` schreiben, `start_error` leeren; ab Phase 4 den Schnappschuss an der Session speichern.
 7. `send(first_message)`.
 
@@ -259,7 +259,7 @@ Der Befehl ersetzt alle fünf Werte der Station auf einmal; `None` löscht eine 
 
 **Noch nicht gebaut:** alles aus den Phasen 2 bis 7. Kein Teil der App ruft die Auflösung auf: Stationen haben noch kein Feld `agent`, `effort` oder `prompt`, der Start, die Fix-Runde und die Werkzeuge sind unverändert, und die Einstellungen zeigen noch keine Typen. Ohne Typen und mit Typen läuft eine Umsetzung deshalb wie vor dieser ADR.
 
-**Windows:** Unter Windows ist nichts davon gelaufen. Die CI fährt dort Lint, Typecheck, Build, Clippy und die Tests von `implementation::`, `agent_types::` und `remote::`; die Probe läuft in keiner CI.
+**Windows:** Unter Windows ist nichts davon gelaufen. Die CI fährt dort Lint, Typecheck, Build, Clippy und die Tests von `remote::`, `processes::`, `implementation::` und `agent_types::`; die Probe läuft in keiner CI.
 
 ## Konsequenzen
 
