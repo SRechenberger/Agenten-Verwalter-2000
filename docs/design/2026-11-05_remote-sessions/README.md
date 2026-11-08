@@ -108,7 +108,6 @@ Nicht gesehen: eine beantwortete Rückfrage mit „von <Gerät>“ (die Attrappe
 
 - **Gerätename:** Das Feld ist nicht vorbelegt. Der Core kennt den Namen des Rechners, gibt ihn aber über keinen Command heraus; „Verbinden“ bleibt gesperrt, bis ein Name im Feld steht.
 - **Erklärungen:** Der Text unter dem Zeilennamen steht, wie auf der übrigen Einstellungsseite, hinter dem ⓘ ([ADR 057](../../decisions/057-einstellungen-kategorien-und-suche.md)). Unter dem Bedienelement bleiben nur der Hinweis zum Port, die Adressen, der Fingerabdruck und die Fehlersätze.
-- **Geräteliste:** Ein Gerät zeigt „Verbunden“ oder „Zuletzt gesehen …“, noch nicht, welches Vorhaben es steuert; die Zeile `RemoteDevice` kennt das nicht.
 - **Dialog „Einladung“:** Er nennt „10 Minuten und einmal“ wörtlich und lässt sich nach der Kopplung nicht von selbst schließen.
 - **Suche:** Zeilen, die der Stand der Fernsteuerung ausblendet (Port, Status, Geräte ohne laufenden Server; Hosts ohne Kopplung), findet die Suche nicht.
 - **Hosts:** Die Liste ist nach Name und Adresse sortiert; „Getrennt“ erscheint für einen Host, den „Trennen“ beendet hat, ohne Fehler.

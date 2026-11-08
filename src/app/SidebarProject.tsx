@@ -5,7 +5,12 @@ import { StatusIcon } from '@/components/StatusIcon';
 import { RenameField } from '@/app/SidebarItem';
 import { useNow } from '@/features/background/useNow';
 import { hasUnread, mostUrgent, projectMetaLine } from '@/features/projects/projectStatus';
-import { isOffered, remoteMeta, type RemoteMeta } from '@/features/remote/projectAccess';
+import {
+  isOffered,
+  LOCKED_TITLE,
+  remoteMeta,
+  type RemoteMeta,
+} from '@/features/remote/projectAccess';
 import { RemoteMark } from '@/features/remote/RemoteMark';
 import { useProjectLock, useReservedLeft } from '@/features/remote/useProjectAccess';
 import {
@@ -81,6 +86,8 @@ export function SidebarProject({
   const isRemote: boolean = access.kind === 'remote';
   const isFree: boolean = isOffered(access);
   const isHeld: boolean = access.kind === 'remote' && access.mine;
+  // Der Core lehnt Umbenennen und Archivieren ab, solange ein Gast steuert oder der Host fehlt.
+  const isLocked: boolean = lock !== null;
 
   function renderGroupItem(groupId: string | null, label: string): ReactElement {
     const isCurrent: boolean = project.groupId === groupId;
@@ -187,7 +194,7 @@ export function SidebarProject({
           onPointerDown={onRowPointerDown}
           onClick={onOpen}
           onDoubleClick={(): void => {
-            if (!isFree) {
+            if (!isFree && !isLocked) {
               onStartRename('project', project.id);
             }
           }}
@@ -287,6 +294,8 @@ export function SidebarProject({
                 type="button"
                 role="menuitem"
                 className="sidebar-project__menu-item"
+                disabled={isLocked}
+                title={isLocked ? LOCKED_TITLE : undefined}
                 onClick={(): void => {
                   setIsMenuOpen(false);
                   onStartRename('project', project.id);
@@ -301,7 +310,8 @@ export function SidebarProject({
                 type="button"
                 role="menuitem"
                 className="sidebar-project__menu-item"
-                title={ARCHIVE_TITLE}
+                disabled={isLocked}
+                title={isLocked ? LOCKED_TITLE : ARCHIVE_TITLE}
                 onClick={(): void => {
                   setIsMenuOpen(false);
                   onArchive();

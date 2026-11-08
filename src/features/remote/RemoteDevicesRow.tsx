@@ -1,5 +1,7 @@
 import type { ReactElement } from 'react';
+import type { ConnectedGuest } from '@/features/remote/projectAccess';
 import { deviceStateText } from '@/features/remote/remoteTexts';
+import { useConnectedGuests } from '@/features/remote/useProjectAccess';
 import { SettingRow } from '@/features/settings/SettingRow';
 import type { RemoteDevice } from '@/lib/bindings/RemoteDevice';
 import { revokeRemoteDevice } from '@/lib/remote';
@@ -10,6 +12,7 @@ import './RemoteRows.css';
 /** Die gekoppelten Geräte mit „Sperren“ (Host, nur wenn der Server lauscht). */
 export function RemoteDevicesRow(): ReactElement {
   const devices: RemoteDevice[] = useRemoteStore((state) => state.devices);
+  const guests: ConnectedGuest[] = useConnectedGuests();
   const { error, run } = useActionError(null);
 
   function renderDevice(device: RemoteDevice): ReactElement {
@@ -21,7 +24,12 @@ export function RemoteDevicesRow(): ReactElement {
         />
         <span className="remote-row__item-text">
           <span className="remote-row__plain">{device.name}</span>
-          <span className="remote-row__muted">{deviceStateText(device)}</span>
+          <span className="remote-row__muted">
+            {deviceStateText(
+              device,
+              guests.find((guest: ConnectedGuest) => guest.id === device.id)?.projectName ?? null,
+            )}
+          </span>
         </span>
         <button
           type="button"
