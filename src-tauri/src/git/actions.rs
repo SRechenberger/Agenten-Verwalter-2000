@@ -2,7 +2,7 @@
 //! wechseln, anlegen und löschen, Verwerfen, Stash, Merge, Rebase, Ticket-Worktree. Ob die Sperre
 //! greift, prüft der Command davor.
 use std::path::Path;
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 use std::time::Duration;
 
 use crate::changes;
@@ -10,7 +10,7 @@ use crate::error::CommandError;
 use crate::git;
 use crate::git::model::{GitOperation, GitSwitchMode};
 use crate::git::status;
-use crate::processes::hide_console;
+use crate::processes::{self, hide_console};
 use crate::worktrees;
 
 const COMMIT_CONVENTION_PATH: &str = "docs/conventions/commits.md";
@@ -254,11 +254,11 @@ pub fn create_ticket_worktree(main_dir: &Path, name: &str) -> Result<String, Com
 /// Start nicht findet.
 pub fn open_in_vs_code(dir: &Path) -> Result<(), CommandError> {
     let mut command = if cfg!(windows) {
-        let mut through_cmd = Command::new("cmd");
+        let mut through_cmd = processes::command("cmd");
         through_cmd.args(["/C", "code"]);
         through_cmd
     } else {
-        Command::new("code")
+        processes::command("code")
     };
     command.arg(dir).stdin(Stdio::null());
     hide_console(&mut command);

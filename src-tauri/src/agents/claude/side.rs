@@ -7,7 +7,7 @@ use serde_json::Value;
 
 use crate::agents::claude::print::exchange;
 use crate::agents::claude::process::{SpawnOptions, common_args};
-use crate::processes::hide_console;
+use crate::processes::{self, hide_console};
 
 /// Lehnt ab, was `--allowedTools` nicht freigibt, ohne die Werkzeugliste zu ändern — eine andere
 /// Liste entwertete den Prompt-Cache, und jede Nebenfrage läse den ganzen Verlauf zum vollen Preis.
@@ -43,7 +43,7 @@ pub fn run_side(request: &SideRequest) -> Result<SideAnswer, String> {
 }
 
 fn side_command(options: &SpawnOptions) -> Command {
-    let mut command = Command::new(&options.exe);
+    let mut command = processes::command(&options.exe);
     command
         .args(&options.leading_args)
         .current_dir(&options.cwd)

@@ -128,6 +128,10 @@ fn swap_running() -> ProbeResult {
     let old_bytes = fs::read(&target)?;
     let new_bytes = fs::read(&replacement)?;
 
+    #[allow(
+        clippy::disallowed_methods,
+        reason = "Die Probe startet eine Kopie von PING.EXE, kein Programm des Verwalters"
+    )]
     let mut running = Command::new(&target)
         .args(["-n", PING_SECONDS, "127.0.0.1"])
         .stdout(Stdio::null())

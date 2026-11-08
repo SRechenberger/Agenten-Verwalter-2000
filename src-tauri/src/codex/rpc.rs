@@ -4,7 +4,7 @@
 use std::collections::HashMap;
 use std::io::{self, BufRead, BufReader, Read, Write};
 use std::path::Path;
-use std::process::{Child, ChildStdin, Command, Stdio};
+use std::process::{Child, ChildStdin, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{self, RecvTimeoutError, Sender};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
@@ -13,7 +13,7 @@ use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
 
-use crate::processes::hide_console;
+use crate::processes::{self, hide_console};
 
 /// Zeit, die `codex app-server` nach dem Schließen seiner Standardeingabe zum Beenden bekommt.
 const SHUTDOWN_GRACE: Duration = Duration::from_secs(3);
@@ -55,7 +55,7 @@ impl RpcClient {
         cwd: &Path,
         on_message: impl Fn(Incoming) + Send + 'static,
     ) -> io::Result<RpcClient> {
-        let mut command = Command::new(exe);
+        let mut command = processes::command(exe);
         command
             .arg("app-server")
             .current_dir(cwd)

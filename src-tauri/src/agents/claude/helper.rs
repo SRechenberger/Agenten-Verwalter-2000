@@ -9,7 +9,7 @@ use std::time::Duration;
 use serde_json::Value;
 
 use crate::agents::claude::protocol::{Incoming, control_request};
-use crate::processes::hide_console;
+use crate::processes::{self, hide_console};
 
 const REQUEST_ID: &str = "verwalter-usage";
 const SUCCESS_SUBTYPE: &str = "success";
@@ -32,7 +32,7 @@ pub fn ask_once(exe: &Path, cwd: &Path, request: Value, timeout: Duration) -> An
 /// Keine MCP-Server, kein Transkript; `--bare` scheidet aus, weil es sich nur mit API-Schlüssel
 /// anmeldet, nicht mit dem Abo (docs/knowledge/claude-stream-json.md).
 fn helper_command(exe: &Path, cwd: &Path) -> Command {
-    let mut command = Command::new(exe);
+    let mut command = processes::command(exe);
     command
         .current_dir(cwd)
         .stdin(Stdio::piped())
