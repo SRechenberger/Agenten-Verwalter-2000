@@ -17,7 +17,7 @@ use std::time::Duration;
 use crate::changes;
 use crate::error::CommandError;
 use crate::filesystem::native_path;
-use crate::processes::hide_console;
+use crate::processes::{self, hide_console};
 
 const MAX_ERROR_CHARS: usize = 500;
 const INDEX_LOCK_MARKER: &str = "index.lock";
@@ -794,7 +794,7 @@ fn git_command(dir: &Path, arguments: &[&OsStr]) -> Command {
 }
 
 fn git_write_command(dir: &Path, arguments: &[&OsStr]) -> Command {
-    let mut command = Command::new("git");
+    let mut command = processes::command("git");
     command
         .arg("-C")
         .arg(dir)

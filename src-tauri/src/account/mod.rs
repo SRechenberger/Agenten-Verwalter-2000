@@ -3,7 +3,7 @@ pub mod model;
 
 use std::io::Read;
 use std::path::Path;
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 use std::sync::mpsc::{self, RecvTimeoutError};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::thread;
@@ -14,7 +14,7 @@ use tauri::{AppHandle, Emitter, Manager};
 
 use crate::agents::claude::locate::find_claude;
 use crate::db::Database;
-use crate::processes::{hide_console, show_console};
+use crate::processes::{self, hide_console, show_console};
 use crate::settings::{self, model::OperatingMode};
 use crate::usage::UsageService;
 use model::{AccountInfo, AccountStatus};
@@ -121,7 +121,7 @@ fn read_current_status() -> Result<AccountInfo, String> {
 /// Fragt `claude auth status --json`. Der Exit-Code zählt nicht: ohne Anmeldung endet die
 /// Kommandozeile womöglich mit Fehlercode, nennt das aber im JSON (`loggedIn: false`).
 fn read_status(exe: &Path) -> Result<AccountInfo, String> {
-    let mut command = Command::new(exe);
+    let mut command = processes::command(exe);
     command
         .args(["auth", "status", "--json"])
         .stdin(Stdio::null())
@@ -185,7 +185,7 @@ fn text_field(value: &Value, key: &str) -> Option<String> {
 /// damit der Nutzer Adresse und Code-Eingabe sieht; Schließen des Fensters bricht ab.
 fn run_login() -> Result<(), String> {
     let exe = find_claude().ok_or_else(|| CLAUDE_NOT_FOUND.to_owned())?;
-    let mut command = Command::new(exe);
+    let mut command = processes::command(exe);
     command.args(["auth", "login"]);
     show_console(&mut command);
     let mut child = command

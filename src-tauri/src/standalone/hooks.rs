@@ -3,7 +3,7 @@
 //! beachtet; jeder andere Exit-Code lässt den Aufruf durch und landet im Protokoll (stderr).
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 use std::sync::atomic::AtomicBool;
 use std::thread;
 use std::time::Duration;
@@ -13,7 +13,7 @@ use serde_json::{Value, json};
 
 use super::settings;
 use super::tools::shell::{self, Waited};
-use crate::processes::hide_console;
+use crate::processes::{self, hide_console};
 
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(60);
 const EVENT_NAME: &str = "PreToolUse";
@@ -211,7 +211,7 @@ fn run_hook(
     stdin: &str,
     cancel: &AtomicBool,
 ) -> HookVerdict {
-    let mut command = Command::new(bash);
+    let mut command = processes::command(bash);
     command
         .arg("-c")
         .arg(&entry.command)

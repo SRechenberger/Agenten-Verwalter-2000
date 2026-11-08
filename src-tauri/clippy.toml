@@ -1,0 +1,4 @@
+disallowed-methods = [
+    { path = "std::process::Command::new", reason = "Kindprozesse mit processes::command starten: es nimmt die Umgebung des AppImage heraus" },
+    { path = "portable_pty::CommandBuilder::new", reason = "Das Terminal mit processes::pty_command starten: es nimmt die Umgebung des AppImage heraus" },
+]

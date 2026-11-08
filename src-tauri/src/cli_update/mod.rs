@@ -4,7 +4,7 @@ pub mod model;
 
 use std::cmp::Ordering;
 use std::io::Read;
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 use std::sync::{Mutex, MutexGuard, PoisonError};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
@@ -13,7 +13,7 @@ use serde_json::Value;
 use tauri::{AppHandle, Emitter, Manager};
 
 use crate::agents::claude::locate::find_claude;
-use crate::processes::hide_console;
+use crate::processes::{self, hide_console};
 use model::{CliUpdateOutcome, CliVersionStatus};
 
 pub const CLI_UPDATE_CHANGED_EVENT: &str = "cli-update://changed";
@@ -213,7 +213,7 @@ fn tail(output: &str) -> String {
 /// Zeitlimit wird der Prozess beendet.
 fn run_claude(args: &[&str], timeout: Duration) -> Result<Finished, String> {
     let exe = find_claude().ok_or_else(|| CLAUDE_NOT_FOUND.to_owned())?;
-    let mut command = Command::new(exe);
+    let mut command = processes::command(exe);
     command
         .args(args)
         .stdin(Stdio::null())

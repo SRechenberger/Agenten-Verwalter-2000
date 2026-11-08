@@ -16,7 +16,7 @@ use serde_json::Value;
 
 use super::oem::OutputDecoder;
 use super::{ToolContext, optional_count, optional_flag, optional_string, required_string};
-use crate::processes::hide_console;
+use crate::processes::{self, hide_console};
 use crate::standalone::tasks::{NewProcess, kill_process_tree, wait_for_readers};
 
 /// Wohin die Lese-Threads die Ausgabe geben: Puffer im Vordergrund, Datei im Hintergrund.
@@ -191,14 +191,14 @@ fn spawn_shell(
 fn shell_command(kind: ShellKind, command_text: &str) -> Result<Command, String> {
     match kind {
         ShellKind::Bash => {
-            let mut command = Command::new(bash_path()?);
+            let mut command = processes::command(bash_path()?);
             command.arg("-c").arg(command_text);
             Ok(command)
         }
         ShellKind::PowerShell => {
             // Nicht `-EncodedCommand`: damit schreibt PowerShell 5.1 Fehler als CLIXML auf stderr
             // statt als Text.
-            let mut command = Command::new("powershell.exe");
+            let mut command = processes::command("powershell.exe");
             command
                 .args(["-NoProfile", "-NonInteractive", "-Command"])
                 .arg(format!("{POWERSHELL_PREAMBLE}{command_text}"));

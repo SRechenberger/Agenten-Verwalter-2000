@@ -15,11 +15,12 @@ use std::path::Path;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use portable_pty::{ChildKiller, CommandBuilder, MasterPty, PtySize, native_pty_system};
+use portable_pty::{ChildKiller, MasterPty, PtySize, native_pty_system};
 use tauri::ipc::Channel;
 use tauri::{AppHandle, Emitter};
 
 use crate::error::CommandError;
+use crate::processes;
 use buffer::{ScrollBuffer, Utf8Carry};
 use model::{TerminalChanged, TerminalInfo, TerminalOutput};
 
@@ -170,7 +171,7 @@ impl TerminalService {
             })
             .map_err(not_started)?;
         let shell = shell::shell_command();
-        let mut builder = CommandBuilder::new(&shell.program);
+        let mut builder = processes::pty_command(&shell.program);
         builder.args(&shell.args);
         builder.cwd(workspace);
         builder.env("TERM", "xterm-256color");

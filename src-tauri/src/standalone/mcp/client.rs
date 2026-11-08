@@ -6,7 +6,7 @@
 use std::collections::{HashMap, VecDeque};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::path::Path;
-use std::process::{Child, ChildStdin, Command, Stdio};
+use std::process::{Child, ChildStdin, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
@@ -17,7 +17,7 @@ use serde_json::{Value, json};
 use ureq::http::HeaderValue;
 
 use super::config::{ServerConfig, Transport};
-use crate::processes::hide_console;
+use crate::processes::{self, hide_console};
 use crate::standalone::tasks::kill_process_tree;
 use crate::standalone::tools::INTERRUPTED;
 
@@ -369,11 +369,11 @@ fn spawn(
     through_cmd: bool,
 ) -> std::io::Result<Child> {
     let mut process = if through_cmd {
-        let mut process = Command::new("cmd");
+        let mut process = processes::command("cmd");
         process.arg("/c").arg(command);
         process
     } else {
-        Command::new(command)
+        processes::command(command)
     };
     process
         .args(args)

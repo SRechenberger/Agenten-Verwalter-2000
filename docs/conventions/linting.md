@@ -12,7 +12,7 @@
 
 ## Prüfkette
 
-Lint, Typecheck und Build sind die Qualitätsschranke dieses Projekts — Tests gehören nicht dazu. Die einzigen sind die Unit-Tests der Fix-Runden-Auswahl in `src-tauri/src/implementation/tests.rs`, die von Hand mit `cargo test --manifest-path src-tauri/Cargo.toml` laufen, und die des Steuerrechts unter `src-tauri/src/remote/`, die der Job `check` zusätzlich mit `cargo test --manifest-path src-tauri/Cargo.toml --lib remote::` fährt; `pnpm check` fährt keine von beiden. `pnpm check` fährt die Kette lokal, [.github/workflows/check.yml](../../.github/workflows/check.yml) identisch in GitHub Actions (plus die Bindings-Prüfung und der Job `version-bump`, siehe unten):
+Lint, Typecheck und Build sind die Qualitätsschranke dieses Projekts — Tests gehören nicht dazu. Die einzigen sind die Unit-Tests der Fix-Runden-Auswahl in `src-tauri/src/implementation/tests.rs`, die von Hand mit `cargo test --manifest-path src-tauri/Cargo.toml` laufen, die des Steuerrechts unter `src-tauri/src/remote/` und die der Umgebung der Kindprozesse unter `src-tauri/src/processes/`; die beiden letzten fährt der Job `check` zusätzlich mit `cargo test --manifest-path src-tauri/Cargo.toml --lib remote::` und `cargo test --manifest-path src-tauri/Cargo.toml --lib processes::`; `pnpm check` fährt keine von allen dreien. `pnpm check` fährt die Kette lokal, [.github/workflows/check.yml](../../.github/workflows/check.yml) identisch in GitHub Actions (plus die Bindings-Prüfung und der Job `version-bump`, siehe unten):
 
 ```text
 pnpm version:check Abgleich der vier Versionsstellen
@@ -45,6 +45,7 @@ Kein CMake, kein LLVM. Zusätzlich zu Rust braucht der Bau unter Windows:
 
 - Warnungen sind Fehler — in ESLint (`--max-warnings 0`) wie in Clippy (`-D warnings`)
 - Regel-Ausnahmen nur zeilengenau (`// eslint-disable-next-line <regel> -- <grund>`, `#[allow(clippy::…)]` mit Kommentar), nie datei- oder projektweit ohne ADR
+- Sperre gegen vergessene Startpunkte: `src-tauri/clippy.toml` verbietet mit `disallowed-methods` `std::process::Command::new` und `portable_pty::CommandBuilder::new`. Kindprozesse starten über `processes::command` bzw. `processes::pty_command` ([rust.md](rust.md)); Ausnahmen nur zeilengenau mit `#[allow(clippy::disallowed_methods, reason = "…")]` und Grund, heute die beiden Aufrufe im Helfer selbst und der in `examples/app-update-probe.rs`. Eine neue Regel greift erst nach `touch src-tauri/src/lib.rs`, sonst kann Clippy aus dem Zwischenspeicher grün sein.
 
 ## Critical Rules
 

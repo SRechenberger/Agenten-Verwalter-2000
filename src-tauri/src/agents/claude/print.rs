@@ -19,7 +19,7 @@ use crate::agents::standalone;
 use crate::db::Database;
 use crate::error::CommandError;
 use crate::filesystem::workspace::data_dir;
-use crate::processes::hide_console;
+use crate::processes::{self, hide_console};
 use crate::settings;
 use crate::settings::model::OperatingMode;
 
@@ -153,7 +153,7 @@ pub fn run_print(
 /// Ohne Werkzeuge, MCP-Server, Hooks und Transkript; `--bare` scheidet aus, weil es sich nur mit
 /// API-Schlüssel anmeldet, nicht mit dem Abo (docs/knowledge/claude-stream-json.md).
 fn print_command(exe: &Path, cwd: &Path, request: &PrintRequest<'_>) -> Command {
-    let mut command = Command::new(exe);
+    let mut command = processes::command(exe);
     command
         .args(request.leading_args)
         .current_dir(cwd)
