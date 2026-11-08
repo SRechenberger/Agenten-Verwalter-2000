@@ -348,3 +348,29 @@ fn the_origin_of_a_message_survives_a_round_trip_through_the_history() {
     let stored = serde_json::to_value(&entry).expect("JSON");
     assert_eq!(stored["origin"], "Laptop");
 }
+
+#[test]
+fn an_overlap_with_a_session_of_a_project_the_guest_does_not_hold_never_reaches_the_guest() {
+    let host = Stub::new(&Scratch::new());
+    let control = held_by_a();
+    let overlap = |session: &str, other: &str| json!({ "sessionId": session, "otherSessionId": other, "otherName": "Geheim" });
+    let kept = filter_list(
+        &host,
+        &control,
+        &device("a"),
+        "session_overlaps",
+        vec![
+            overlap(OWN_SESSION, OWN_SESSION),
+            overlap(OWN_SESSION, FOREIGN_SESSION),
+            overlap(FOREIGN_SESSION, OWN_SESSION),
+        ],
+    );
+    assert_eq!(kept, vec![overlap(OWN_SESSION, OWN_SESSION)]);
+}
+
+#[test]
+fn the_header_value_of_the_server_is_random_per_start_and_not_a_fixed_word() {
+    let pass = crate::remote::intercept::remote_pass();
+    assert_eq!(pass, crate::remote::intercept::remote_pass());
+    assert!(pass.len() >= 32, "zu kurz zum Raten: {pass}");
+}

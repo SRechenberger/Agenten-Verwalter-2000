@@ -803,8 +803,10 @@ impl dispatch::Host for StubHost {
                 json!({ "id": OTHER_PROJECT }),
             ],
             "session_overlaps" => vec![
-                json!({ "sessionId": SHARED_SESSION }),
-                json!({ "sessionId": OTHER_SESSION }),
+                json!({ "sessionId": SHARED_SESSION, "otherSessionId": SHARED_SESSION }),
+                json!({ "sessionId": OTHER_SESSION, "otherSessionId": OTHER_SESSION }),
+                // Die andere Session liegt in einem Vorhaben, das der Gast nicht hält.
+                json!({ "sessionId": SHARED_SESSION, "otherSessionId": OTHER_SESSION }),
             ],
             _ => vec![
                 json!({ "id": SHARED_SESSION, "projectId": SHARED_PROJECT }),
@@ -984,7 +986,9 @@ fn dispatched(folder: &Path) -> Result<bool, String> {
                 (seen(&first).map_err(text)?, seen(&second).map_err(text)?);
             let expected_second = match *command {
                 "project_list" => json!([{ "id": SHARED_PROJECT }]),
-                "session_overlaps" => json!([{ "sessionId": SHARED_SESSION }]),
+                "session_overlaps" => {
+                    json!([{ "sessionId": SHARED_SESSION, "otherSessionId": SHARED_SESSION }])
+                }
                 _ => json!([{ "id": SHARED_SESSION, "projectId": SHARED_PROJECT }]),
             };
             let expected_first = if *command == "project_list" {
