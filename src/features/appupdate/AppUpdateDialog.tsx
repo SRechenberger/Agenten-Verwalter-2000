@@ -12,6 +12,8 @@ import {
   runningSessionsWarning,
 } from '@/features/appupdate/appUpdateTexts';
 import { useAppUpdateInstall } from '@/features/appupdate/useAppUpdate';
+import { updateWarning } from '@/features/remote/remoteTexts';
+import { useConnectedGuests } from '@/features/remote/useProjectAccess';
 import type { AppUpdateStatus } from '@/lib/bindings/AppUpdateStatus';
 import type { ReleaseInfo } from '@/lib/bindings/ReleaseInfo';
 import { commandErrorText } from '@/lib/errors';
@@ -33,6 +35,8 @@ export function AppUpdateDialog({
   onClose,
 }: AppUpdateDialogProps): ReactElement {
   const { progress, isInstalling, error, install } = useAppUpdateInstall();
+  // Der Neustart trennt die Gäste und beendet die Agenten, die für sie laufen.
+  const guests = useConnectedGuests();
   const [openError, setOpenError] = useState<string | null>(null);
   const isManual: boolean = status.installKind === 'manual';
   const latestRelease: ReleaseInfo | undefined = status.releases[0];
@@ -128,7 +132,7 @@ export function AppUpdateDialog({
         disabled={isInstalling}
         onClick={install}
       >
-        {runningSessions > 0 ? 'Trotzdem installieren' : 'Jetzt installieren'}
+        {runningSessions > 0 || guests.length > 0 ? 'Trotzdem installieren' : 'Jetzt installieren'}
       </button>
     );
   }
@@ -144,6 +148,9 @@ export function AppUpdateDialog({
       </p>
       {runningSessions > 0 && !isManual && (
         <p className="app-update-dialog__warning">{runningSessionsWarning(runningSessions)}</p>
+      )}
+      {guests.length > 0 && !isManual && (
+        <p className="app-update-dialog__warning">{updateWarning(guests)}</p>
       )}
       {renderProgress()}
       {renderErrors()}

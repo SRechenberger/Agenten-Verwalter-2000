@@ -249,6 +249,11 @@ const TABLE: &[(Class, Option<IdKind>, &[&str])] = &[
             // Am Gast lokal; am Host beantwortet der Server dieselben Namen vor der Prüfung.
             "remote_take",
             "remote_give_back",
+            // Am Gast lokal; `remote_host_profile` beantwortet der Server am Host vor der Prüfung.
+            "remote_host_profile",
+            "remote_usage_load",
+            "remote_usage_refresh",
+            "remote_asset_base",
         ],
     ),
 ];
@@ -405,6 +410,22 @@ fn check_guest(
     {
         return Err(Denied::MissingId);
     }
+    require_held(ids, device_id, control)
+}
+
+/// Die Prüfung für `remote_artifact` und `remote_file`, die der Server vor der Tabelle beantwortet:
+/// wie ein Lesebefehl der Klasse A mit der Session als Pflicht-ID, also nur für den Inhaber.
+pub fn check_content(ids: &[ResolvedId], device_id: &str, control: &Control) -> Result<(), Denied> {
+    if !ids
+        .iter()
+        .any(|id: &ResolvedId| id.target.kind == IdKind::Session)
+    {
+        return Err(Denied::MissingId);
+    }
+    require_held(ids, device_id, control)
+}
+
+fn require_held(ids: &[ResolvedId], device_id: &str, control: &Control) -> Result<(), Denied> {
     for id in ids {
         let held = id
             .project

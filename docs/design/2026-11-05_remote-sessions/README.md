@@ -37,7 +37,7 @@
 
 ## Umsetzung
 
-Stand: Die Einstellungen stehen (Abschnitt „Fernsteuerung“ in der Kategorie „App“, Host und Gast), ebenso Leiste, Übersicht, Chat und Köpfe mit Freigeben, Übernehmen, Zurückgeben, Freigabe beenden und den Offline-Zuständen. Kontingent, Betriebsart des Hosts, Inhalte (Artefakte, Bilder, Anhänge) und Terminal folgen in den nächsten Phasen.
+Stand: Die Einstellungen stehen (Abschnitt „Fernsteuerung“ in der Kategorie „App“, Host und Gast), ebenso Leiste, Übersicht, Chat und Köpfe mit Freigeben, Übernehmen, Zurückgeben, Freigabe beenden und den Offline-Zuständen. Dazu kommen Kontingent und Betriebsart des Hosts, Inhalte (Artefakte, Bilder, Anhänge), Herkunft und die Warnung beim Schließen; das Terminal folgt in Phase 5.
 
 Bilder der laufenden App, zwei Instanzen mit getrennten Datenordnern auf einem Rechner, wirklich gekoppelt. Sie liegen in [`umsetzung/`](umsetzung/):
 
@@ -78,7 +78,22 @@ Leiste, Übersicht und Chat, zwei Instanzen auf einem Rechner, wirklich gekoppel
 | Gast · Umsetzung, Rückfrage (hell) | `gast-umsetzung-hell.png`, `gast-rueckfrage-hell.png` |
 | Gast · Host neu gestartet: Übernahme verfallen, Angebot statt fremder Session (hell) | `gast-angebot-nach-neustart-hell.png` |
 
-Nicht gesehen: eine offene Rückfrage mit der Zeile „Antworten kann gerade nur …“ (die Attrappe stellt keine), das Terminal am Gast und am Host (Phase 5), Windows, ein zweiter Host, das Neuladen des Verlaufs nach einem Abriss (nur im Quelltext gelesen), die Meldung zum anderen Stand des Protokolls (sie lässt sich nur über die Probe erzeugen), die Warnung beim Schließen der App, „steuert „<Vorhaben>““ in der Geräteliste.
+
+Inhalte, Kontingent, Betriebsart, Herkunft und Schließen, zwei Instanzen auf einem Rechner, wirklich gekoppelt, `claude` als Attrappe (sie beantwortet auch die Kontingent-Abfrage, je Instanz mit eigener Zahl), dunkel:
+
+| Entwurf (Rolle · Zustand) | Bild |
+|---|---|
+| Gast · Leiste · Kontingent: „selbst“ und der Host unter der Überschrift | `gast-kontingent-hosts.png` |
+| Gast · Fenster „Kontingent · <Host>“ | `gast-kontingent-fenster-host.png` |
+| Gast · Chat · „Claude · Host“, „von Laptop Büro“, Bild-Anhang des Hosts, kein Browser-Schalter | `gast-chat-inhalte.png` |
+| Gast · Bildansicht eines Anhangs auf dem Host | `gast-bild-des-hosts.png` |
+| Gast · Artefakt (Bild) des Hosts, ohne „Im Browser öffnen“ | `gast-artefakt-bild.png` |
+| Gast · Artefakt (HTML) des Hosts | `gast-artefakt-html.png` |
+| Host · Chat · Herkunft an einer Nachricht, die der Gast wirklich geschickt hat | `host-herkunft.png` |
+| Host · Dialog „App trotzdem schließen?“ (echte Schließen-Anfrage des Fensters) | `host-warnung-schliessen.png` |
+
+Dazu gelesen, nicht gesehen: Die Warnung im Dialog „Neue Version“ erscheint nur bei einer Installation, die sich selbst aktualisiert; unter Linux ist sie „manuell“. Am Host lädt das Bild des Anhangs nicht (leeres Rechteck), denn der Asset-Pfad von Tauri deckt auf Linux die versteckten Ordner `.verwalter` und `.anhaenge` nicht ab; der Pfad ist unverändert, nur das Bild am Gast (über die Verbindung) lädt.
+Nicht gesehen: eine beantwortete Rückfrage mit „von <Gerät>“ (die Attrappe stellt keine offene; nur gelesen), ein zweiter Host mit eigener Betriebsart, ein Host, der nicht erreichbar ist, in der Kontingent-Zeile, ein Host mit anderer Betriebsart als Claude, eine offene Rückfrage mit der Zeile „Antworten kann gerade nur …“ (die Attrappe stellt keine), das Terminal am Gast und am Host (Phase 5), Windows, das Neuladen des Verlaufs nach einem Abriss (nur im Quelltext gelesen), die Meldung zum anderen Stand des Protokolls (sie lässt sich nur über die Probe erzeugen), „steuert „<Vorhaben>““ in der Geräteliste.
 
 ## Abweichungen vom Entwurf
 
@@ -92,4 +107,3 @@ Nicht gesehen: eine offene Rückfrage mit der Zeile „Antworten kann gerade nur
 - **Meta-Zeile am Gast:** Der Host steht vor den Sessions („<Host> · 2 Sessions · #2 pausiert“), denn die Zeile ist schmaler als im Entwurf und schneidet das Ende ab.
 - **Restzeit der Reservierung:** Der Host kennt den Zeitpunkt des Abrisses nicht als Teil des Vertrags; die Oberfläche liest ihn aus `RemoteDevice.lastSeenAt`, das der Core beim Abriss schreibt. „seit 14:02“ im Block „Fernsteuerung“ fehlt aus demselben Grund.
 - **Terminal-Knopf:** Er bleibt am Gast auch bei fehlendem Host stehen; das Terminal am Gast kommt mit Phase 5.
-- **Herkunft („von <Gerät>“):** Der Verlauf trägt sie noch nicht; `ChatEntry` hat das Feld im Core noch nicht.

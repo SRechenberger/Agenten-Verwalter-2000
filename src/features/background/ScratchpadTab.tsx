@@ -1,6 +1,5 @@
 import { useRef } from 'react';
 import type { ReactElement } from 'react';
-import { convertFileSrc } from '@tauri-apps/api/core';
 import { revealItemInDir } from '@tauri-apps/plugin-opener';
 import { formatBytes } from '@/features/attachments/formatBytes';
 import { formatTime } from '@/features/background/backgroundLabels';
@@ -14,6 +13,8 @@ import type { DetailAction } from '@/features/background/DetailHead';
 import { mentionInChat } from '@/features/background/mention';
 import { OutputPane } from '@/features/background/OutputPane';
 import { PanelLayout } from '@/features/background/PanelLayout';
+import { useAssetUrl } from '@/features/remote/assetUrl';
+import { useSessionIsRemote } from '@/features/remote/useProjectAccess';
 import { useActionError } from '@/lib/useActionError';
 import { useScratchpad } from '@/features/background/useScratchpad';
 import { useScratchpadFile } from '@/features/background/useScratchpadFile';
@@ -53,6 +54,13 @@ export function ScratchpadTab({ session }: ScratchpadTabProps): ReactElement {
   const selected: ScratchpadRow | null =
     files.find((row: ScratchpadRow) => row.path === selectedPath) ?? files[0] ?? null;
   const folder: string | null = listing === null ? null : listing.dir;
+  // Gehört die Session einem Host, liegt der Ordner dort: Das Bild kommt über die Verbindung, und der
+  // Explorer hier öffnete einen Pfad, den es auf diesem Gerät nicht gibt.
+  const isRemote: boolean = useSessionIsRemote(session.id);
+  const imageSrc: string = useAssetUrl(
+    folder === null || selected === null ? '' : fullPath(folder, selected.path),
+    session.id,
+  );
 
   const textPath: string | null = selected !== null && !selected.isImage ? selected.path : null;
   const file: ScratchpadFileState = useScratchpadFile(
@@ -63,7 +71,7 @@ export function ScratchpadTab({ session }: ScratchpadTabProps): ReactElement {
   const { error: actionError, run } = useActionError(selected === null ? null : selected.path);
 
   function buildActions(row: ScratchpadRow): DetailAction[] {
-    return [
+    const actions: DetailAction[] = [
       {
         label: 'Im Chat besprechen',
         hint: 'Setzt einen Verweis in das Eingabefeld.',
@@ -73,7 +81,9 @@ export function ScratchpadTab({ session }: ScratchpadTabProps): ReactElement {
           mentionInChat(session.id, row.name);
         },
       },
-      {
+    ];
+    if (!isRemote) {
+      actions.push({
         label: 'Im Explorer zeigen',
         hint: 'Öffnet den Ordner im Windows-Explorer.',
         isDanger: false,
@@ -83,8 +93,9 @@ export function ScratchpadTab({ session }: ScratchpadTabProps): ReactElement {
             run(() => revealItemInDir(fullPath(folder, row.path)));
           }
         },
-      },
-    ];
+      });
+    }
+    return actions;
   }
 
   function renderPreview(row: ScratchpadRow): ReactElement {
@@ -94,7 +105,7 @@ export function ScratchpadTab({ session }: ScratchpadTabProps): ReactElement {
           <img
             className="scratchpad-tab__image-content"
             alt={row.name}
-            src={folder === null ? '' : convertFileSrc(fullPath(folder, row.path))}
+            src={folder === null ? '' : imageSrc}
           />
         </div>
       );

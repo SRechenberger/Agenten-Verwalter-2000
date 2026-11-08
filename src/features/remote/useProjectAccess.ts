@@ -2,10 +2,12 @@ import { useEffect, useMemo } from 'react';
 import { useNow } from '@/features/background/useNow';
 import {
   accessById,
+  connectedGuests,
   isLocked,
   lockOf,
   OWN_ACCESS,
   reservedLeftMs,
+  type ConnectedGuest,
   type ProjectLock,
 } from '@/features/remote/projectAccess';
 import type { ProjectAccess } from '@/lib/bindings/ProjectAccess';
@@ -94,4 +96,18 @@ export function useReservedLeft(lock: ProjectLock | null): number | null {
 /** Wie `useProjectLocked`, für Code außerhalb von React (Eingaben und Größenmeldungen des Terminals). */
 export function isProjectLockedNow(projectId: string): boolean {
   return isLocked(useProjectAccessStore.getState().access[projectId] ?? OWN_ACCESS);
+}
+
+/** Die Gäste, die gerade mit diesem Host verbunden sind, samt dem Vorhaben, das jeder steuert. */
+export function useConnectedGuests(): ConnectedGuest[] {
+  const devices = useRemoteStore((state) => state.devices);
+  const access = useProjectAccessStore((state) => state.access);
+  const names = useProjectAccessStore((state) => state.names);
+  return useMemo(() => connectedGuests(devices, access, names), [devices, access, names]);
+}
+
+/** Wie `useConnectedGuests`, für Code außerhalb von React (die Anfrage zum Schließen des Fensters). */
+export function connectedGuestsNow(): ConnectedGuest[] {
+  const { access, names } = useProjectAccessStore.getState();
+  return connectedGuests(useRemoteStore.getState().devices, access, names);
 }

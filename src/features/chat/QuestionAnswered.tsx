@@ -1,5 +1,6 @@
 import { useState, type ReactElement } from 'react';
 import { QuestionItem } from '@/features/chat/QuestionItem';
+import { OriginLine } from '@/features/remote/OriginLine';
 import {
   answeredLabels,
   answerParts,
@@ -46,6 +47,7 @@ export function QuestionAnswered({ entry }: QuestionAnsweredProps): ReactElement
 
   return (
     <>
+      <OriginLine origin={entry.origin} />
       {renderAnswers()}
       <button
         type="button"

@@ -393,6 +393,8 @@ enum TurnOrigin<'a> {
         folders: &'a [Option<PathBuf>],
         skill: Option<SkillRef>,
         report_update: Option<&'a ReportUpdate>,
+        /// Das Gerät, von dem ein Gast sendet (ADR 059); `None`: die eigene Oberfläche.
+        device: Option<&'a str>,
     },
     Session {
         sender: &'a SessionRef,
@@ -633,7 +635,7 @@ impl SessionRegistry {
                     backend.as_ref(),
                 )?;
                 let line = message_line(task, &task_attachments)?;
-                state.push_user(outbox, task, task_attachments, task_skill, Vec::new());
+                state.push_user(outbox, task, task_attachments, task_skill, Vec::new(), None);
                 outbox.write(state, line)?;
                 Ok(summarize(&session, state))
             },
@@ -1146,6 +1148,7 @@ impl SessionRegistry {
         text: &str,
         attachment_ids: &[String],
         comments: &[ReviewComment],
+        device: Option<&str>,
     ) -> Result<(), CommandError> {
         let session = self.get(session_id)?;
         review::validate(comments)?;
@@ -1188,10 +1191,10 @@ impl SessionRegistry {
                     if !attachment_ids.is_empty() {
                         return Err(CommandError::AttachmentsWhileWaiting);
                     }
-                    answer_oldest_with_text(state, outbox, text)?;
+                    answer_oldest_with_text(state, outbox, text, device)?;
                     // Die Antwort läuft weiter: der Text des Users ist eine Quelle mehr.
                     state.turn_sources.push_text(text);
-                    state.push_user(outbox, text, Vec::new(), skill, Vec::new());
+                    state.push_user(outbox, text, Vec::new(), skill, Vec::new(), device);
                     return Ok(());
                 }
                 titled = start_turn(
@@ -1207,6 +1210,7 @@ impl SessionRegistry {
                         folders: &folders,
                         skill,
                         report_update: report_update.as_ref(),
+                        device,
                     },
                 )?;
                 Ok(())
@@ -1244,13 +1248,14 @@ impl SessionRegistry {
         session_id: &str,
         request_id: &str,
         answer: &QuestionAnswer,
+        device: Option<&str>,
     ) -> Result<(), CommandError> {
         let session = self.get(session_id)?;
         update(
             app,
             &session,
             |state: &mut SessionState, outbox: &mut Outbox| {
-                apply_answer(state, outbox, request_id, answer)
+                apply_answer(state, outbox, request_id, answer, device)
             },
         )
     }
@@ -1281,7 +1286,7 @@ impl SessionRegistry {
         if status != SessionStatus::Paused {
             return Ok(());
         }
-        self.send(app, session_id, RESUME_MESSAGE, &[], &[])
+        self.send(app, session_id, RESUME_MESSAGE, &[], &[], None)
     }
 
     pub fn cancel(&self, app: &AppHandle, session_id: &str) -> Result<(), CommandError> {
@@ -2706,6 +2711,7 @@ impl SessionState {
         attachments: Vec<Attachment>,
         skill: Option<SkillRef>,
         comments: Vec<ReviewComment>,
+        device: Option<&str>,
     ) {
         let sent_at = now_ms();
         self.push_entry(outbox, |seq: u32| ChatEntry::User {
@@ -2715,6 +2721,7 @@ impl SessionState {
             attachments,
             skill,
             comments,
+            origin: device.map(str::to_owned),
         });
         self.note_input(outbox);
         self.auto_chain = 0;
@@ -2777,14 +2784,22 @@ impl SessionState {
         outbox.entries.push(entry);
     }
 
-    fn set_question_answer(&mut self, outbox: &mut Outbox, seq: u32, text: String) {
+    /// `device`: der Gast, der die Rückfrage beantwortet hat (ADR 059); sonst `None`.
+    fn set_question_answer(
+        &mut self,
+        outbox: &mut Outbox,
+        seq: u32,
+        text: String,
+        device: Option<&str>,
+    ) {
         let Some(entry) = self.entries.get_mut(seq as usize) else {
             return;
         };
-        let ChatEntry::Question { answer, .. } = entry else {
+        let ChatEntry::Question { answer, origin, .. } = entry else {
             return;
         };
         *answer = Some(text);
+        *origin = device.map(str::to_owned);
         outbox.entries.push(entry.clone());
     }
 
@@ -2841,7 +2856,7 @@ impl SessionState {
     /// offener Aufruf eines Session-Werkzeugs endet mit seinem Kanal als Fehler.
     fn abandon_pending(&mut self, outbox: &mut Outbox, label: &str) {
         for (_, request) in std::mem::take(&mut self.pending) {
-            self.set_question_answer(outbox, request.seq, label.to_owned());
+            self.set_question_answer(outbox, request.seq, label.to_owned(), None);
         }
     }
 
@@ -3304,6 +3319,7 @@ impl SessionState {
             answer: None,
             tool_request,
             chain_limited,
+            origin: None,
         });
         self.pending.push((
             request_id,
@@ -3861,6 +3877,7 @@ fn start_turn(
             folders,
             skill,
             report_update,
+            device,
         } => {
             // Unter der Session-Sperre zulässig: verschiebt nur lokale Dateien, schreibt nicht in die Pipe.
             let sent_attachments =
@@ -3902,7 +3919,7 @@ fn start_turn(
             );
             let line = message_line(&agent_text, &agent_attachments)?;
             let titled = state.begin_turn(outbox, session, text, &agent_text);
-            state.push_user(outbox, sent_text, sent_attachments, skill, comments);
+            state.push_user(outbox, sent_text, sent_attachments, skill, comments, device);
             if let Some(found) = report_update {
                 state.last_report = Some(found.stripped.clone());
                 state.push_entry(outbox, |seq: u32| ChatEntry::Notice {
@@ -4213,7 +4230,7 @@ fn interrupt_agent(
         if request.tool.is_none() {
             outbox.write(state, deny(&request_id, deny_message))?;
         }
-        state.set_question_answer(outbox, request.seq, answer_label.to_owned());
+        state.set_question_answer(outbox, request.seq, answer_label.to_owned(), None);
     }
     if state.status == SessionStatus::Waiting {
         state.set_status(outbox, SessionStatus::Running);
@@ -4226,6 +4243,7 @@ fn answer_oldest_with_text(
     state: &mut SessionState,
     outbox: &mut Outbox,
     text: &str,
+    device: Option<&str>,
 ) -> Result<(), CommandError> {
     let Some((request_id, request)) = state.pending.first() else {
         return Ok(());
@@ -4239,7 +4257,7 @@ fn answer_oldest_with_text(
         },
     };
     let request_id = request_id.clone();
-    apply_answer(state, outbox, &request_id, &answer)
+    apply_answer(state, outbox, &request_id, &answer, device)
 }
 
 fn apply_answer(
@@ -4247,6 +4265,7 @@ fn apply_answer(
     outbox: &mut Outbox,
     request_id: &str,
     answer: &QuestionAnswer,
+    device: Option<&str>,
 ) -> Result<(), CommandError> {
     let Some(position) = state
         .pending
@@ -4256,7 +4275,7 @@ fn apply_answer(
         return Err(CommandError::Internal("Rückfrage nicht offen".to_owned()));
     };
     if state.pending[position].1.tool.is_some() {
-        return session_tools::apply_tool_answer(state, outbox, position, answer);
+        return session_tools::apply_tool_answer(state, outbox, position, answer, device);
     }
     let (line, label, seq) = {
         let (_, request) = &state.pending[position];
@@ -4265,7 +4284,7 @@ fn apply_answer(
     };
     outbox.write(state, line)?;
     state.pending.remove(position);
-    state.set_question_answer(outbox, seq, label);
+    state.set_question_answer(outbox, seq, label, device);
     state.resume_after_answer(outbox);
     Ok(())
 }

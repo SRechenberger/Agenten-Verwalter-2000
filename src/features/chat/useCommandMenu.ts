@@ -6,12 +6,13 @@ import {
   pickableRows,
   rowKey,
 } from '@/features/chat/commandMenuRows';
+import { useOperatingMode } from '@/features/remote/useOperatingMode';
 import { useSessionIsRemote } from '@/features/remote/useProjectAccess';
 import type { CommandRow, CommandScope, CommandSection } from '@/features/chat/commandMenuRows';
 import { useSkills } from '@/features/skills/useSkills';
 import type { SkillSource } from '@/features/skills/useSkills';
+import type { OperatingMode } from '@/lib/bindings/OperatingMode';
 import type { SessionSummary } from '@/lib/bindings/SessionSummary';
-import { useSettingsStore } from '@/stores/settings';
 
 const SLASH_AT_START = /^\/(\S*)$/;
 
@@ -70,14 +71,11 @@ export function useCommandMenu({
   // Claude in Chrome gibt es nur mit der Claude-Kommandozeile und dem Claude-Abo, und nicht an einem
   // entfernten Vorhaben: Dort ginge der Browser am Bildschirm des Hosts auf.
   const isRemote: boolean = useSessionIsRemote(session?.id ?? null);
-  const hasBrowser: boolean =
-    useSettingsStore((state) => (state.settings?.operatingMode ?? 'claude') === 'claude') &&
-    !isRemote;
+  const operatingMode: OperatingMode = useOperatingMode(session?.projectId ?? null);
+  const hasBrowser: boolean = operatingMode === 'claude' && !isRemote;
 
   // Codex nutzt seine eigenen MCP-Server aus `~/.codex/config.toml`; der Dialog zeigt nur die der Claude-Kommandozeile.
-  const hasMcp: boolean = useSettingsStore(
-    (state) => (state.settings?.operatingMode ?? 'claude') !== 'codex',
-  );
+  const hasMcp: boolean = operatingMode !== 'codex';
 
   const slashMatch: RegExpExecArray | null = SLASH_AT_START.exec(draft);
   if (slashMatch === null && isSlashDismissed) {

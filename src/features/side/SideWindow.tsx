@@ -7,6 +7,7 @@ import { useNow } from '@/features/background/useNow';
 import { formatThousands } from '@/features/context/formatTokens';
 import { promptCacheState } from '@/features/promptcache/promptCacheState';
 import type { PromptCacheState } from '@/features/promptcache/promptCacheState';
+import { useOperatingMode } from '@/features/remote/useOperatingMode';
 import { useSideQuestions } from '@/features/side/useSideQuestions';
 import type { SideQuestion } from '@/lib/bindings/SideQuestion';
 import type { SessionSummary } from '@/lib/bindings/SessionSummary';
@@ -14,7 +15,6 @@ import type { SideUsage } from '@/lib/bindings/SideUsage';
 import { commandErrorText } from '@/lib/errors';
 import { useSessionLocked } from '@/features/remote/useProjectAccess';
 import { askSide, dismissSide } from '@/lib/side';
-import { useSettingsStore } from '@/stores/settings';
 import { useSideStore } from '@/stores/side';
 import type { SideWindowState } from '@/stores/side';
 import './SideWindow.css';
@@ -269,9 +269,7 @@ interface SideCostPillProps {
 /** Cache-Zustand der Session vor und während der Frage, nach der Antwort dazu der Anteil aus dem Cache. */
 function SideCostPill({ session, question }: SideCostPillProps): ReactElement | null {
   // Einen Prompt-Cache gibt es nur mit der Claude-Kommandozeile und dem Claude-Abo.
-  const hasPromptCache: boolean = useSettingsStore(
-    (state) => (state.settings?.operatingMode ?? 'claude') === 'claude',
-  );
+  const hasPromptCache: boolean = useOperatingMode(session.projectId) === 'claude';
   const now: number = useNow(hasPromptCache && question === undefined);
   const state: PromptCacheState = promptCacheState(session.promptCache, session.model, now);
   const usage: SideUsage | null = question?.usage ?? null;

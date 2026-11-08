@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import type { ReactElement } from 'react';
-import { convertFileSrc } from '@tauri-apps/api/core';
 import { formatBytes } from '@/features/attachments/formatBytes';
+import { useAssetUrl } from '@/features/remote/assetUrl';
 import type { Attachment } from '@/lib/bindings/Attachment';
 import './AttachmentChip.css';
 
@@ -9,6 +9,8 @@ interface AttachmentChipProps {
   attachment: Attachment;
   /** `input`: Chip über dem Eingabefeld (mit ×); `sent`: Chip in einer gesendeten Nachricht. */
   size: 'input' | 'sent';
+  /** Die Session der Nachricht; ein gesendeter Anhang einer Session eines Hosts liegt dort. */
+  sessionId?: string | undefined;
   onRemove?: (() => void) | undefined;
   /** Öffnet die Bildansicht; nur bei Bild-Anhängen wirksam. */
   onOpen?: (() => void) | undefined;
@@ -22,9 +24,11 @@ interface Dimensions {
 export function AttachmentChip({
   attachment,
   size,
+  sessionId,
   onRemove,
   onOpen,
 }: AttachmentChipProps): ReactElement {
+  const thumbSrc: string = useAssetUrl(attachment.path, sessionId ?? '', size === 'sent');
   // Die Abmessungen kennt nur das geladene Bild; bis dahin steht die Größe da.
   const [dimensions, setDimensions] = useState<Dimensions | null>(null);
   const isImage: boolean = attachment.kind === 'image';
@@ -40,7 +44,7 @@ export function AttachmentChip({
     const thumb: ReactElement = (
       <img
         className="attachment-chip__thumb"
-        src={convertFileSrc(attachment.path)}
+        src={thumbSrc}
         alt=""
         onLoad={(event): void => {
           setDimensions({

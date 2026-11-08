@@ -2,6 +2,7 @@
 //! nur am Host (ADR 059). `access` und `control` sind rein; der Zustand liegt in `RemoteControl`.
 pub mod access;
 pub mod client;
+pub mod content;
 pub mod control;
 pub mod dispatch;
 pub mod forward;
@@ -24,6 +25,8 @@ use control::{Control, Refused};
 
 /// Ohne Inhalt, am Gast und am Host: Server, Geräte, Hosts oder Verbindungen haben sich geändert.
 pub const CHANGED_EVENT: &str = "remote://changed";
+/// `{ hostId }`, am Gast: Das Kontingent eines Hosts hat sich geändert (`usage://changed` am Host).
+pub const USAGE_CHANGED_EVENT: &str = "remote://usage-changed";
 /// Ordner unter `~/.verwalter` für Zertifikat und Hosts.
 pub const DIR_NAME: &str = "remote";
 pub const HOST_KEY_FILE: &str = "host-key.pem";

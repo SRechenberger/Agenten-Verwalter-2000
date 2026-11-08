@@ -19,7 +19,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 /// Wächst bei jeder Änderung an Rahmen oder an den Argumenten erlaubter Befehle.
-pub const PROTOCOL: u32 = 2;
+pub const PROTOCOL: u32 = 3;
 /// Längste Zeile ohne den Zeilenumbruch.
 pub const MAX_LINE: usize = 64 * 1024 * 1024;
 /// Längste erste Zeile (`pair` oder `hello`): Vor der Anmeldung puffert der Host nicht mehr.

@@ -142,6 +142,20 @@
     }
   }
 
+  /* Die Betriebsart des Hosts gilt am entfernten Vorhaben; sie ist hier nicht zu ändern (gestrichelt, ohne Knopf). */
+  &__host-mode {
+    display: flex;
+    align-items: center;
+    height: 24px;
+    margin-left: var(--space-sm);
+    padding: 0 var(--space-md);
+    border: 1px dashed var(--color-border);
+    border-radius: var(--radius-md);
+    color: var(--color-fg-secondary);
+    font-size: var(--font-size-xs);
+    white-space: nowrap;
+  }
+
   &__effort {
     color: var(--color-fg-muted);
   }

@@ -6,6 +6,7 @@ import { ContextPanel } from '@/features/context/ContextPanel';
 import { useNow } from '@/features/background/useNow';
 import { PromptCachePanel } from '@/features/promptcache/PromptCachePanel';
 import { promptCacheState } from '@/features/promptcache/promptCacheState';
+import { useOperatingMode } from '@/features/remote/useOperatingMode';
 import type {
   KnownPromptCacheState,
   PromptCacheState,
@@ -13,7 +14,6 @@ import type {
 import { PromptCacheSymbol, promptCacheView } from '@/features/promptcache/PromptCacheSymbol';
 import type { PromptCache } from '@/lib/bindings/PromptCache';
 import type { SessionSummary } from '@/lib/bindings/SessionSummary';
-import { useSettingsStore } from '@/stores/settings';
 import './SessionGauge.css';
 
 const GAUGE_POPOVER_WIDTH = 360;
@@ -30,9 +30,7 @@ interface SessionGaugeProps {
 export function SessionGauge({ session, runtime }: SessionGaugeProps): ReactElement {
   const [isOpen, setIsOpen] = useState<boolean>(false);
   // Den Prompt-Cache mit Haltedauer gibt es nur mit der Claude-Kommandozeile und dem Claude-Abo.
-  const hasPromptCache: boolean = useSettingsStore(
-    (state) => (state.settings?.operatingMode ?? 'claude') === 'claude',
-  );
+  const hasPromptCache: boolean = useOperatingMode(session.projectId) === 'claude';
   const cacheNow: number = useNow(hasPromptCache && session.promptCache !== null);
   const cacheState: PromptCacheState = promptCacheState(
     session.promptCache,

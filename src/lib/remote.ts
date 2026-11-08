@@ -1,13 +1,16 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import type { UnlistenFn } from '@tauri-apps/api/event';
+import type { HostProfile } from '@/lib/bindings/HostProfile';
 import type { ProjectSummary } from '@/lib/bindings/ProjectSummary';
 import type { RemoteDevice } from '@/lib/bindings/RemoteDevice';
 import type { RemoteHostStatus } from '@/lib/bindings/RemoteHostStatus';
 import type { RemoteInvitation } from '@/lib/bindings/RemoteInvitation';
 import type { RemoteServerStatus } from '@/lib/bindings/RemoteServerStatus';
+import type { UsageStatus } from '@/lib/bindings/UsageStatus';
 
 const REMOTE_CHANGED_EVENT = 'remote://changed';
+const REMOTE_USAGE_CHANGED_EVENT = 'remote://usage-changed';
 
 /** Der Server dieses Rechners als Host: Schalter, Port, Adressen, Fingerabdruck.
  *  @throws {import('@/lib/bindings/CommandError').CommandError} `database` */
@@ -91,4 +94,35 @@ export function takeRemoteProject(projectId: string): Promise<ProjectSummary> {
  *  @throws {import('@/lib/bindings/CommandError').CommandError} `hostUnreachable`, `internal` */
 export function giveBackRemoteProject(projectId: string): Promise<ProjectSummary> {
   return invoke<ProjectSummary>('remote_give_back', { projectId });
+}
+
+/** Betriebsart und Modelle des Hosts, solange die Oberfläche ein Vorhaben von ihm zeigt. Am Gast.
+ *  @throws {import('@/lib/bindings/CommandError').CommandError} `hostUnreachable`, `internal` (unbekannter Host) */
+export function loadRemoteHostProfile(hostId: string): Promise<HostProfile> {
+  return invoke<HostProfile>('remote_host_profile', { hostId });
+}
+
+/** Das Kontingent des Hosts, wie er es zuletzt gelesen hat. Am Gast.
+ *  @throws {import('@/lib/bindings/CommandError').CommandError} `hostUnreachable`, `internal` */
+export function loadRemoteUsage(hostId: string): Promise<UsageStatus> {
+  return invoke<UsageStatus>('remote_usage_load', { hostId });
+}
+
+/** Lässt den Host sein Kontingent abrufen; das Ergebnis meldet `remote://usage-changed`. Am Gast.
+ *  @throws {import('@/lib/bindings/CommandError').CommandError} `hostUnreachable`, `internal` */
+export async function refreshRemoteUsage(hostId: string, force: boolean): Promise<void> {
+  await invoke('remote_usage_refresh', { hostId, force });
+}
+
+/** Meldet, wenn sich das Kontingent eines Hosts geändert hat; danach `loadRemoteUsage` neu laden. */
+export function onRemoteUsageChanged(callback: (hostId: string) => void): Promise<UnlistenFn> {
+  return listen<{ hostId: string }>(REMOTE_USAGE_CHANGED_EVENT, (event) => {
+    callback(event.payload.hostId);
+  });
+}
+
+/** Die Adresse, unter der der Server dieses Geräts Bilder und Anhänge eines Hosts liefert, mit `/`
+ *  am Ende; dahinter folgen die kodierte Session-ID, `/` und der kodierte Pfad auf dem Host. */
+export function loadRemoteAssetBase(): Promise<string> {
+  return invoke<string>('remote_asset_base');
 }

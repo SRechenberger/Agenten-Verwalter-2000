@@ -19,6 +19,7 @@ import {
 import { groupArtifacts } from '@/features/artifacts/groupArtifacts';
 import type { ArtifactGroup } from '@/features/artifacts/groupArtifacts';
 import { mentionInChat } from '@/features/background/mention';
+import { useProjectIsRemote } from '@/features/remote/useProjectAccess';
 import { openArtifactDefault, revealArtifact } from '@/lib/artifacts';
 import type { Artifact } from '@/lib/bindings/Artifact';
 import type { ArtifactList } from '@/lib/bindings/ArtifactList';
@@ -49,6 +50,8 @@ export function ArtifactsView({
   list,
 }: ArtifactsViewProps): ReactElement | null {
   const listWidth = usePanelWidth('artifactsList');
+  // Die Dateien liegen beim Host: Sein Standardprogramm und sein Dateimanager laufen an seinem Bildschirm, nicht hier.
+  const isRemote: boolean = useProjectIsRemote(projectId);
   const [reloadToken, setReloadToken] = useState<number>(0);
   const [isJustUpdated, setIsJustUpdated] = useState<boolean>(false);
   const [isCommenting, setIsCommenting] = useState<boolean>(false);
@@ -363,28 +366,30 @@ export function ArtifactsView({
               </button>
             ) : null}
             {renderDiscussButton(selected)}
-            <button
-              type="button"
-              className="artifacts__button"
-              onClick={(): void => {
-                runOnFile(openArtifactDefault, selected);
-              }}
-            >
-              {openLabel(selected.kind)}
-              <svg
-                width="11"
-                height="11"
-                viewBox="0 0 14 14"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.3"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                aria-hidden="true"
+            {!isRemote && (
+              <button
+                type="button"
+                className="artifacts__button"
+                onClick={(): void => {
+                  runOnFile(openArtifactDefault, selected);
+                }}
               >
-                <path d="M5.5 2.5h6v6M11.5 2.5 4 10" />
-              </svg>
-            </button>
+                {openLabel(selected.kind)}
+                <svg
+                  width="11"
+                  height="11"
+                  viewBox="0 0 14 14"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.3"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d="M5.5 2.5h6v6M11.5 2.5 4 10" />
+                </svg>
+              </button>
+            )}
           </div>
         </header>
         {isCommenting ? (
@@ -411,6 +416,7 @@ export function ArtifactsView({
           ) : (
             <ArtifactOtherCard
               item={selected}
+              canOpen={!isRemote}
               onOpen={(): void => {
                 runOnFile(openArtifactDefault, selected);
               }}

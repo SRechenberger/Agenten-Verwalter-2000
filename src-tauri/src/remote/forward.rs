@@ -5,7 +5,7 @@ use std::sync::{Arc, mpsc};
 use std::thread;
 use std::time::Duration;
 
-use serde_json::Value;
+use serde_json::{Value, json};
 use tauri::{AppHandle, Emitter, Listener, Manager};
 
 use super::access::{IdKind, TargetId};
@@ -15,9 +15,10 @@ use super::dispatch::project_of;
 use super::guest;
 use super::server::RemoteServer;
 use super::wire::Frame;
-use super::{CHANGED_EVENT, RemoteControl};
+use super::{CHANGED_EVENT, RemoteControl, USAGE_CHANGED_EVENT};
 use crate::db::Database;
 use crate::sessions::registry::{SessionRegistry, now_ms};
+use crate::usage::USAGE_CHANGED_EVENT as HOST_USAGE_EVENT;
 
 const PROJECT_CHANGED_EVENT: &str = "project://changed";
 const EXPIRY_TICK: Duration = Duration::from_secs(5);
@@ -33,6 +34,8 @@ enum Owner {
     Implementation,
     /// `id`; an jedes Gerät, solange das Vorhaben freigegeben ist.
     AnyDevice,
+    /// Gehört keinem Vorhaben: an jedes verbundene Gerät.
+    EveryDevice,
 }
 
 /// Was weitergegeben wird. Ein neues Ereignis geht erst über das Netz, wenn es hier steht.
@@ -49,6 +52,7 @@ const FORWARDED: &[(&str, Owner)] = &[
     ("terminal://changed", Owner::Project),
     ("implementation://changed", Owner::Implementation),
     (PROJECT_CHANGED_EVENT, Owner::AnyDevice),
+    (HOST_USAGE_EVENT, Owner::EveryDevice),
 ];
 
 /// Hört die Ereignisse mit und gibt sie über einen eigenen Thread weiter: Ein `emit` kann unter
@@ -87,6 +91,13 @@ fn forward(
         return;
     };
     let text = |value: &Value, key: &str| value.get(key).and_then(Value::as_str).map(str::to_owned);
+    if owner == Owner::EveryDevice {
+        server.broadcast(&Frame::Event {
+            name: name.to_owned(),
+            payload,
+        });
+        return;
+    }
     let project_id = match owner {
         Owner::Session => text(&payload, "sessionId").and_then(|value: String| {
             project_of(
@@ -102,6 +113,7 @@ fn forward(
             .get("implementation")
             .and_then(|implementation: &Value| text(implementation, "projectId")),
         Owner::AnyDevice => text(&payload, "id"),
+        Owner::EveryDevice => None,
     };
     let Some(project_id) = project_id else {
         return;
@@ -161,6 +173,11 @@ pub fn on_guest_frame(app: &AppHandle, host_id: &str, frame: Frame) {
         Frame::Event { name, payload } => {
             // Nur was der Vertrag weitergibt; ein Host bestimmt nicht, was die Oberfläche hört.
             if !FORWARDED.iter().any(|(forwarded, _)| *forwarded == name) {
+                return;
+            }
+            // Das Kontingent des Hosts ist kein Inhalt eines Vorhabens: Die Oberfläche lädt es neu.
+            if name == HOST_USAGE_EVENT {
+                let _ = app.emit(USAGE_CHANGED_EVENT, json!({ "hostId": host_id }));
                 return;
             }
             clients.learn(host_id, &payload);

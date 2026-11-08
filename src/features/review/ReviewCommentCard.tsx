@@ -1,16 +1,20 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ChangeEvent, KeyboardEvent, ReactElement } from 'react';
-import { convertFileSrc } from '@tauri-apps/api/core';
+import { useAssetUrl } from '@/features/remote/assetUrl';
 import { kindLabel, whereLabel } from '@/features/review/reviewLabels';
+import type { Attachment } from '@/lib/bindings/Attachment';
 import type { CommentTarget } from '@/lib/bindings/CommentTarget';
 import type { DiffLineKind } from '@/lib/bindings/DiffLineKind';
 import type { ReviewComment } from '@/lib/bindings/ReviewComment';
 import { highlightLine, languageOf } from '@/lib/syntax';
 import type { SyntaxLine, SyntaxSegment } from '@/lib/syntax';
+import { useAttachmentsStore } from '@/stores/attachments';
 import './ReviewCommentCard.css';
 
 interface ReviewCommentCardProps {
   comment: ReviewComment;
+  /** Die Session des Kommentars: Das Bild liegt beim Host der Session, außer es gehört zu einem noch nicht gesendeten Anhang. Fehlt sie, liegt es auf diesem Gerät. */
+  sessionId?: string | undefined;
   /** Fehlt in der gesendeten Nachricht: dort gibt es weder Stift noch Bearbeiten. */
   onEdit?: (text: string) => void;
   onRemove?: () => void;
@@ -18,6 +22,7 @@ interface ReviewCommentCardProps {
 
 export function ReviewCommentCard({
   comment,
+  sessionId,
   onEdit,
   onRemove,
 }: ReviewCommentCardProps): ReactElement {
@@ -30,6 +35,21 @@ export function ReviewCommentCard({
   );
   const where: string = whereLabel(comment);
   const kind: string = kindLabel(comment.target);
+  const imagePath: string = comment.target.kind === 'image' ? comment.target.path : '';
+  const attachmentId: string = comment.target.kind === 'image' ? comment.target.attachmentId : '';
+  // Ein noch nicht gesendeter Anhang liegt auf diesem Gerät, ein gesendeter beim Host der Session.
+  const isUnsent: boolean = useAttachmentsStore((state) =>
+    sessionId === undefined
+      ? false
+      : (state.pending[sessionId] ?? []).some(
+          (candidate: Attachment) => candidate.id === attachmentId,
+        ),
+  );
+  const imageSrc: string = useAssetUrl(
+    imagePath,
+    sessionId ?? '',
+    sessionId !== undefined && !isUnsent,
+  );
   const isEmpty: boolean = editText.trim() === '';
 
   useEffect(() => {
@@ -128,7 +148,7 @@ export function ReviewCommentCard({
                 height: `${String(imageHeight)}px`,
               }}
             >
-              <img src={convertFileSrc(target.path)} alt="" />
+              <img src={imageSrc} alt="" />
               <span
                 className="review-card__crop-frame"
                 style={{

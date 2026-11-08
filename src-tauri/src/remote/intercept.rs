@@ -7,7 +7,7 @@ use std::thread;
 
 use serde_json::Value;
 use tauri::ipc::{Invoke, InvokeBody};
-use tauri::{Manager, Runtime};
+use tauri::{Manager, Runtime, Wry};
 
 use super::RemoteControl;
 use super::access::{self, Actor, TargetId};
@@ -21,10 +21,10 @@ pub const REMOTE_HEADER: &str = "x-verwalter-remote";
 
 /// Umhüllt den Handler der App; ohne entfernte ID und ohne Inhaber geht jeder Aufruf unverändert
 /// durch.
-pub fn guarded<R: Runtime>(
-    handler: impl Fn(Invoke<R>) -> bool + Send + Sync + 'static,
-) -> impl Fn(Invoke<R>) -> bool + Send + Sync + 'static {
-    move |invoke: Invoke<R>| {
+pub fn guarded(
+    handler: impl Fn(Invoke<Wry>) -> bool + Send + Sync + 'static,
+) -> impl Fn(Invoke<Wry>) -> bool + Send + Sync + 'static {
+    move |invoke: Invoke<Wry>| {
         if invoke.message.headers().contains_key(REMOTE_HEADER) {
             return handler(invoke);
         }
@@ -61,7 +61,7 @@ fn remote_target<R: Runtime>(invoke: &Invoke<R>) -> Option<(Arc<RemoteClients>, 
 }
 
 /// Ein eigener Thread wartet auf den Host; ohne Antwort meldet `call` „nicht erreichbar“.
-fn call_host<R: Runtime>(invoke: Invoke<R>, clients: Arc<RemoteClients>, host_id: String) {
+fn call_host(invoke: Invoke<Wry>, clients: Arc<RemoteClients>, host_id: String) {
     let command = invoke.message.command().to_owned();
     let args = match invoke.message.payload() {
         InvokeBody::Json(payload) => payload.clone(),
@@ -71,13 +71,12 @@ fn call_host<R: Runtime>(invoke: Invoke<R>, clients: Arc<RemoteClients>, host_id
     let resolver = invoke.resolver;
     let spawned = thread::Builder::new()
         .name("remote-route".to_owned())
-        .spawn(move || match clients.call(&host_id, &command, args) {
-            Ok(value) => {
-                guest::remember_result(&clients, &host_id, &command, &value);
-                resolver.resolve(guest::result_view(&app, &clients, &host_id, value));
-            }
-            Err(error) => resolver.reject(error),
-        });
+        .spawn(
+            move || match guest::route(&app, &clients, &host_id, &command, args) {
+                Ok(value) => resolver.resolve(value),
+                Err(error) => resolver.reject(error),
+            },
+        );
     if let Err(error) = spawned {
         eprintln!("Aufruf an den Host nicht gestartet: {error}");
     }

@@ -12,8 +12,7 @@ import type { UsageStatus } from '@/lib/bindings/UsageStatus';
 import { planLabel } from '@/lib/labels';
 import { severityOf } from '@/lib/severity';
 import type { Severity } from '@/lib/severity';
-import { refreshUsage } from '@/lib/usage';
-import { useSettingsStore } from '@/stores/settings';
+import type { UsageSource } from '@/lib/usage';
 import './UsagePopover.css';
 
 const USAGE_POPOVER_WIDTH = 380;
@@ -33,20 +32,31 @@ const NO_CODEX_LIMITS_TEXT = 'Für dieses Konto meldet Codex kein Kontingent.';
 
 interface UsagePopoverProps {
   status: UsageStatus | null;
+  /** Woher das Kontingent kommt; das Fenster fragt dort neu an. */
+  source: UsageSource;
+  /** Der Host, dessen Kontingent das Fenster zeigt; `null` beim eigenen. */
+  hostName: string | null;
+  /** Ob das Abo zu Codex gehört (nur der Text ohne Kontingent ändert sich). */
+  isCodex: boolean;
   onClose: () => void;
 }
 
-export function UsagePopover({ status, onClose }: UsagePopoverProps): ReactElement {
+export function UsagePopover({
+  status,
+  source,
+  hostName,
+  isCodex,
+  onClose,
+}: UsagePopoverProps): ReactElement {
   const [period, setPeriod] = useState<Period>('day');
   // Das Fenster wird bei jedem Öffnen neu eingehängt; so bleibt der Reset-Zeitpunkt beim Rendern stabil.
   const [now] = useState<number>(() => Date.now());
-  const isCodex: boolean = useSettingsStore((state) => state.settings?.operatingMode === 'codex');
   const snapshot: UsageSnapshot | null = status?.snapshot ?? null;
   const hasBreakdown: boolean =
     snapshot !== null && (snapshot.day !== null || snapshot.week !== null);
 
   function refresh(): void {
-    refreshUsage(true).catch((reason: unknown) => {
+    source.refresh(true).catch((reason: unknown) => {
       console.error('Kontingent nicht abrufbar', reason);
     });
   }
@@ -92,7 +102,8 @@ export function UsagePopover({ status, onClose }: UsagePopoverProps): ReactEleme
               </div>
             </div>
             <p className="usage-popover__note">
-              Näherung aus den Sessions auf diesem Rechner — ohne andere Geräte und claude.ai
+              Näherung aus den Sessions auf {hostName === null ? 'diesem Rechner' : hostName} — ohne
+              andere Geräte und claude.ai
             </p>
             {renderDrivers(snapshot[period])}
           </section>
@@ -111,7 +122,10 @@ export function UsagePopover({ status, onClose }: UsagePopoverProps): ReactEleme
     >
       <div className="usage-popover">
         <div className="usage-popover__head">
-          <h2 className="usage-popover__title">Kontingent</h2>
+          <h2 className="usage-popover__title">
+            Kontingent
+            {hostName !== null && <span className="usage-popover__host"> · {hostName}</span>}
+          </h2>
           {snapshot?.plan != null && (
             <span className="usage-popover__plan">Abo: {planLabel(snapshot.plan)}</span>
           )}

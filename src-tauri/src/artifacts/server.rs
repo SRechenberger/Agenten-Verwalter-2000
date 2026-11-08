@@ -8,13 +8,20 @@
 //!
 //! Adresse: `http://127.0.0.1:<port>/<token>/<session-id>/<pfad>`. Der Zufalls-Token hält andere
 //! Seiten (etwa im Browser) draußen, die Prüfung des `Host`-Kopfes DNS-Rebinding.
+//!
+//! Gehört die Session zu einem Host (ADR 059), holt der Server Dateien und Listen über die
+//! Verbindung (`remote_artifact`); Brücke, Betrachter und Content-Security-Policy setzt er wie für
+//! lokale Artefakte. Bilder und Anhänge eines Hosts liefert `/<token>/file/<session-id>/<pfad>`
+//! (`remote_file`).
 use std::fs;
 use std::io::{self, Read, Write};
 use std::net::{Ipv4Addr, SocketAddr, TcpListener, TcpStream};
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
 
+use serde_json::json;
 use tauri::{AppHandle, Manager};
 
 use super::folder::{list_folder, resolve_folder};
@@ -22,6 +29,8 @@ use super::model::ArtifactKind;
 use super::{kind_of, resolve, viewers};
 use crate::error::CommandError;
 use crate::filesystem::native_path;
+use crate::remote::client::RemoteClients;
+use crate::remote::content::Content;
 use crate::sessions::registry::SessionRegistry;
 
 const MAX_REQUEST_BYTES: usize = 16 * 1024;
@@ -31,6 +40,11 @@ const HTML: &str = "text/html; charset=utf-8";
 const JSON: &str = "application/json";
 const INDEX_PAGE: &str = "index.html";
 const BRIDGE_SCRIPT: &str = include_str!("bridge.js");
+/// So lange wartet eine Anfrage auf einen Host.
+const REMOTE_TIMEOUT: Duration = Duration::from_secs(30);
+/// Anhänge eines Hosts sind Daten: nichts darin darf Skripte ausführen.
+const FILE_CSP: &str = "default-src 'none'; sandbox";
+const FILE_SEGMENT: &str = "file";
 
 /// Der laufende Server; als Tauri-State verwaltet.
 pub struct ArtifactServer {
@@ -47,6 +61,12 @@ impl ArtifactServer {
             self.token,
             percent_encode(session_id)
         )
+    }
+
+    /// Adresse für Bilder und Anhänge eines Hosts, mit `/` am Ende; dahinter folgen die
+    /// kodierte Session-ID, `/` und der Pfad auf dem Host.
+    pub fn asset_base(&self) -> String {
+        format!("{}/{}/{FILE_SEGMENT}/", self.origin, self.token)
     }
 }
 
@@ -87,12 +107,135 @@ struct Connection {
     token: String,
 }
 
-struct Reply {
-    status: u16,
-    reason: &'static str,
-    content_type: &'static str,
-    body: Vec<u8>,
-    csp: Option<String>,
+pub(crate) struct Reply {
+    pub(crate) status: u16,
+    pub(crate) reason: &'static str,
+    pub(crate) content_type: String,
+    pub(crate) body: Vec<u8>,
+    pub(crate) csp: Option<String>,
+}
+
+/// Warum eine Datei nicht kommt.
+enum Failure {
+    NotFound,
+    Forbidden,
+    Unreachable,
+}
+
+impl From<CommandError> for Failure {
+    fn from(error: CommandError) -> Self {
+        match error {
+            CommandError::FileNotFound(_) => Failure::NotFound,
+            CommandError::HostUnreachable(_) => Failure::Unreachable,
+            _ => Failure::Forbidden,
+        }
+    }
+}
+
+impl Failure {
+    fn reply(self) -> Reply {
+        match self {
+            Failure::NotFound => not_found(),
+            Failure::Forbidden => text_reply(403, "Forbidden", "Nicht erlaubt"),
+            Failure::Unreachable => text_reply(502, "Bad Gateway", "Host nicht erreichbar"),
+        }
+    }
+}
+
+/// Holt `remote_artifact` oder `remote_file` (erster Wert) für einen Pfad (zweiter Wert) am Host.
+type Fetch = Box<dyn Fn(&str, &str) -> Result<Content, CommandError> + Send + Sync>;
+
+/// Ein Host, bei dem die Dateien einer entfernten Session liegen.
+pub(crate) struct RemoteSource {
+    fetch: Fetch,
+}
+
+impl RemoteSource {
+    pub(crate) fn new(
+        fetch: impl Fn(&str, &str) -> Result<Content, CommandError> + Send + Sync + 'static,
+    ) -> RemoteSource {
+        RemoteSource {
+            fetch: Box::new(fetch),
+        }
+    }
+
+    fn fetch(&self, command: &str, path: &str) -> Result<Content, Failure> {
+        (self.fetch)(command, path).map_err(Failure::from)
+    }
+}
+
+/// Woher die Dateien einer Session kommen: aus ihrem Ordner `.artefakte` oder von einem Host.
+pub(crate) enum Source {
+    Local(PathBuf),
+    Remote(RemoteSource),
+}
+
+impl Source {
+    /// Der Name des Ordners `relative`; lokal prüft das auch, dass es ihn gibt. Am Host prüft die
+    /// Dateiliste, die der Betrachter danach holt.
+    fn folder_name(&self, relative: &str) -> Result<String, Failure> {
+        match self {
+            Source::Local(dir) => Ok(name_of(&resolve_folder(dir, relative)?)),
+            Source::Remote(_) => Ok(last_segment(relative)),
+        }
+    }
+
+    /// Die Dateiliste des Ordners als JSON.
+    fn listing(&self, relative: &str) -> Result<Vec<u8>, Failure> {
+        match self {
+            Source::Local(dir) => {
+                let folder = resolve_folder(dir, relative)?;
+                serde_json::to_vec(&list_folder(dir, &folder, relative))
+                    .map_err(|_| Failure::NotFound)
+            }
+            Source::Remote(remote) => remote
+                .fetch("remote_artifact", &format!("{relative}/"))?
+                .bytes()
+                .map_err(Failure::from),
+        }
+    }
+
+    /// Der Name der Datei `relative` für den Betrachter, ohne sie zu lesen.
+    fn file_name(&self, relative: &str) -> Result<String, Failure> {
+        match self {
+            Source::Local(dir) => Ok(name_of(&resolve(
+                dir,
+                &native_path(relative).to_string_lossy(),
+            )?)),
+            Source::Remote(_) => Ok(last_segment(relative)),
+        }
+    }
+
+    /// Inhalt und Typ der Datei `relative`.
+    fn read(&self, relative: &str) -> Result<(String, Vec<u8>), Failure> {
+        match self {
+            Source::Local(dir) => {
+                let target = resolve(dir, &native_path(relative).to_string_lossy())?;
+                let body = fs::read(&target).map_err(|_| Failure::NotFound)?;
+                Ok((content_type(&target).to_owned(), body))
+            }
+            Source::Remote(remote) => {
+                let content = remote.fetch("remote_artifact", relative)?;
+                let body = content.bytes()?;
+                Ok((content.content_type, body))
+            }
+        }
+    }
+}
+
+fn name_of(path: &Path) -> String {
+    path.file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_default()
+}
+
+fn last_segment(relative: &str) -> String {
+    relative
+        .trim_end_matches('/')
+        .rsplit('/')
+        .next()
+        .unwrap_or_default()
+        .to_owned()
 }
 
 impl Connection {
@@ -139,12 +282,20 @@ impl Connection {
         else {
             return not_found();
         };
-        // `try_state`: eine Anfrage vor dem Ende von `setup` fände die Registry noch nicht vor.
-        let Some(registry) = self.app.try_state::<SessionRegistry>() else {
-            return not_found();
-        };
-        let Ok(dir) = registry.artifacts_dir(&session_id) else {
-            return not_found();
+        if session_part == FILE_SEGMENT {
+            return self.answer_file(&relative);
+        }
+        let source = if let Some(remote) = self.remote_source(&session_id) {
+            Source::Remote(remote)
+        } else {
+            // `try_state`: eine Anfrage vor dem Ende von `setup` fände die Registry noch nicht vor.
+            let Some(registry) = self.app.try_state::<SessionRegistry>() else {
+                return not_found();
+            };
+            let Ok(dir) = registry.artifacts_dir(&session_id) else {
+                return not_found();
+            };
+            Source::Local(dir)
         };
         // Aus der geprüften Session-ID neu kodiert, nie aus dem Anfragetext: der landet sonst in der CSP.
         let scope = format!(
@@ -153,70 +304,116 @@ impl Connection {
             self.token,
             percent_encode(&session_id)
         );
-        let ok = |content_type: &'static str, body: Vec<u8>| Reply {
+        respond(&source, &scope, relative, wants_list, wants_viewer)
+    }
+
+    /// Die Datei einer entfernten Session für `/<token>/file/<session-id>/<pfad>`; `relative` ist
+    /// hier der Rest hinter `file/`, also `<session-id>/<pfad>`.
+    fn answer_file(&self, rest: &str) -> Reply {
+        let Some((session_id, path)) = rest.split_once('/') else {
+            return not_found();
+        };
+        let Some(remote) = self.remote_source(session_id) else {
+            return not_found();
+        };
+        file_reply(&remote, path)
+    }
+
+    /// Der Host der Session, wenn sie zu einem gehört.
+    fn remote_source(&self, session_id: &str) -> Option<RemoteSource> {
+        let clients = Arc::clone(&*self.app.try_state::<Arc<RemoteClients>>()?);
+        let host_id = clients.host_of(session_id)?;
+        let session_id = session_id.to_owned();
+        Some(RemoteSource::new(move |command: &str, path: &str| {
+            let value = clients.call_within(
+                &host_id,
+                command,
+                json!({ "sessionId": session_id, "path": path }),
+                Some(REMOTE_TIMEOUT),
+            )?;
+            serde_json::from_value(value).map_err(|error| CommandError::Internal(error.to_string()))
+        }))
+    }
+}
+
+/// Die Antwort auf `GET <pfad>` einer Session: Dateiliste (`?list=1`), Betrachter (`?view=1`) oder
+/// die Datei selbst, aus `source`. `scope` ist die Adresse ihres Ordners, ohne den Anfragetext.
+pub(crate) fn respond(
+    source: &Source,
+    scope: &str,
+    relative: String,
+    wants_list: bool,
+    wants_viewer: bool,
+) -> Reply {
+    let ok = |content_type: &str, body: Vec<u8>| Reply {
+        status: 200,
+        reason: "OK",
+        content_type: content_type.to_owned(),
+        body,
+        csp: Some(artifact_csp(scope)),
+    };
+    // `<ordner>/?list=1` ist die Dateiliste, `<ordner>/?view=1` der Ordner-Betrachter.
+    if wants_list || (wants_viewer && relative.ends_with('/')) {
+        let folder_relative = relative.trim_end_matches('/');
+        if wants_list {
+            return match source.listing(folder_relative) {
+                Ok(body) => ok(JSON, body),
+                Err(failure) => failure.reply(),
+            };
+        }
+        // Lokal geht nur der Name des geprüften Ordners in die Seite. Bei einer entfernten Quelle ist
+        // es der letzte Teil des Pfads; `script_string` maskiert ihn, und die Dateiliste prüft der Host.
+        let name = match source.folder_name(folder_relative) {
+            Ok(name) => name,
+            Err(failure) => return failure.reply(),
+        };
+        return match viewers::render(ArtifactKind::Folder, &name) {
+            Some(page) => ok(HTML, with_bridge(page.into_bytes())),
+            None => not_found(),
+        };
+    }
+    // Ein Ordner-Ziel (`<ordner>/`) ist eine Website: ihre `index.html`.
+    let relative = if relative.ends_with('/') {
+        format!("{relative}{INDEX_PAGE}")
+    } else {
+        relative
+    };
+    let (content_type, body) = if wants_viewer {
+        // Lokal geht nur der Name des geprüften Ziels in die Seite. Bei einer entfernten Quelle ist
+        // es der letzte Teil des Pfads (maskiert); den Inhalt prüft der Host beim Holen.
+        let file = match source.file_name(&relative) {
+            Ok(file) => file,
+            Err(failure) => return failure.reply(),
+        };
+        let Some(page) = viewers::render(kind_of(Path::new(&file)), &file) else {
+            return not_found();
+        };
+        (HTML.to_owned(), with_bridge(page.into_bytes()))
+    } else {
+        match source.read(&relative) {
+            Ok((content_type, body)) if content_type == HTML => (content_type, with_bridge(body)),
+            Ok(loaded) => loaded,
+            Err(failure) => return failure.reply(),
+        }
+    };
+    ok(&content_type, body)
+}
+
+/// Die Datei `path` des Hosts für `/<token>/file/<session-id>/<pfad>`: Daten, die nichts ausführen
+/// dürfen.
+pub(crate) fn file_reply(remote: &RemoteSource, path: &str) -> Reply {
+    match remote.fetch("remote_file", path).and_then(|content| {
+        let body = content.bytes()?;
+        Ok((content.content_type, body))
+    }) {
+        Ok((content_type, body)) => Reply {
             status: 200,
             reason: "OK",
             content_type,
             body,
-            csp: Some(artifact_csp(&scope)),
-        };
-        // `<ordner>/?list=1` ist die Dateiliste, `<ordner>/?view=1` der Ordner-Betrachter.
-        if wants_list || (wants_viewer && relative.ends_with('/')) {
-            let folder_relative = relative.trim_end_matches('/');
-            let folder = match resolve_folder(&dir, folder_relative) {
-                Ok(folder) => folder,
-                Err(CommandError::FileNotFound(_)) => return not_found(),
-                Err(_) => return text_reply(403, "Forbidden", "Nicht erlaubt"),
-            };
-            if wants_list {
-                let listing = list_folder(&dir, &folder, folder_relative);
-                return match serde_json::to_vec(&listing) {
-                    Ok(body) => ok(JSON, body),
-                    Err(_) => not_found(),
-                };
-            }
-            let name = folder
-                .file_name()
-                .map(|name| name.to_string_lossy().into_owned())
-                .unwrap_or_default();
-            return match viewers::render(ArtifactKind::Folder, &name) {
-                Some(page) => ok(HTML, with_bridge(page.into_bytes())),
-                None => not_found(),
-            };
-        }
-        // Ein Ordner-Ziel (`<ordner>/`) ist eine Website: ihre `index.html`.
-        let relative = if relative.ends_with('/') {
-            format!("{relative}{INDEX_PAGE}")
-        } else {
-            relative
-        };
-        let target = match resolve(&dir, &native_path(&relative).to_string_lossy()) {
-            Ok(target) => target,
-            Err(CommandError::FileNotFound(_)) => return not_found(),
-            Err(_) => return text_reply(403, "Forbidden", "Nicht erlaubt"),
-        };
-        let (content_type, body) = if wants_viewer {
-            // Nur der Name des geprüften Ziels geht in die Seite, nie der Anfragetext.
-            let file = target
-                .file_name()
-                .map(|name| name.to_string_lossy().into_owned())
-                .unwrap_or_default();
-            let Some(page) = viewers::render(kind_of(&target), &file) else {
-                return not_found();
-            };
-            (HTML, with_bridge(page.into_bytes()))
-        } else {
-            let Ok(body) = fs::read(&target) else {
-                return not_found();
-            };
-            let content_type = content_type(&target);
-            if content_type == HTML {
-                (content_type, with_bridge(body))
-            } else {
-                (content_type, body)
-            }
-        };
-        ok(content_type, body)
+            csp: Some(FILE_CSP.to_owned()),
+        },
+        Err(failure) => failure.reply(),
     }
 }
 
@@ -295,7 +492,7 @@ fn text_reply(status: u16, reason: &'static str, text: &str) -> Reply {
     Reply {
         status,
         reason,
-        content_type: TEXT_PLAIN,
+        content_type: TEXT_PLAIN.to_owned(),
         body: text.as_bytes().to_vec(),
         csp: None,
     }
@@ -340,7 +537,7 @@ fn hex_value(byte: u8) -> Option<u8> {
         .and_then(|digit: u32| u8::try_from(digit).ok())
 }
 
-fn content_type(path: &Path) -> &'static str {
+pub(crate) fn content_type(path: &Path) -> &'static str {
     let extension = path
         .extension()
         .map(|extension| extension.to_string_lossy().to_ascii_lowercase())

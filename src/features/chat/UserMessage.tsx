@@ -1,5 +1,6 @@
 import type { ReactElement } from 'react';
 import { AttachmentRow } from '@/features/attachments/AttachmentRow';
+import { OriginLine } from '@/features/remote/OriginLine';
 import { ReviewCommentCard } from '@/features/review/ReviewCommentCard';
 import type { Attachment } from '@/lib/bindings/Attachment';
 import type { ReviewComment } from '@/lib/bindings/ReviewComment';
@@ -13,6 +14,8 @@ interface UserMessageProps {
   attachments: readonly Attachment[];
   skill: SkillRef | null;
   comments: readonly ReviewComment[];
+  /** Das Gerät, von dem ein Gast die Nachricht schickte; `null`: diese Oberfläche. */
+  origin: string | null;
 }
 
 export function UserMessage({
@@ -21,6 +24,7 @@ export function UserMessage({
   attachments,
   skill,
   comments,
+  origin,
 }: UserMessageProps): ReactElement {
   const openViewer = useAttachmentsStore((state) => state.openViewer);
   const hasComments: boolean = comments.length > 0;
@@ -36,10 +40,12 @@ export function UserMessage({
   return (
     <div className="user-message">
       <div className={boxClass}>
+        <OriginLine origin={origin} />
         {attachments.length > 0 && (
           <AttachmentRow
             attachments={attachments}
             size="sent"
+            sessionId={sessionId}
             onOpen={(attachment: Attachment): void => {
               openViewer(sessionId, attachment);
             }}
@@ -55,7 +61,7 @@ export function UserMessage({
           <div className="user-message__comments">
             <span className="user-message__comments-count">{commentCount}</span>
             {comments.map((comment: ReviewComment, index: number) => (
-              <ReviewCommentCard key={index} comment={comment} />
+              <ReviewCommentCard key={index} comment={comment} sessionId={sessionId} />
             ))}
           </div>
         )}

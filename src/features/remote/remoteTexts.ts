@@ -1,3 +1,4 @@
+import type { ConnectedGuest } from '@/features/remote/projectAccess';
 import type { RemoteDevice } from '@/lib/bindings/RemoteDevice';
 import type { RemoteHostStatus } from '@/lib/bindings/RemoteHostStatus';
 
@@ -53,4 +54,29 @@ export function hostStateText(host: RemoteHostStatus): string {
     return 'Verbunden';
   }
   return host.error ?? 'Getrennt';
+}
+
+/** Ein Satz je verbundenem Gast: wer verbunden ist und welches Vorhaben er steuert. */
+function guestSentence(guest: ConnectedGuest): string {
+  return guest.projectName === null
+    ? `${guest.name} ist verbunden.`
+    : `${guest.name} ist verbunden und steuert „${guest.projectName}“.`;
+}
+
+/** Warnung vor dem Schließen der App: Die Agenten laufen auf diesem Rechner und enden mit ihm. */
+export function closeWarning(guests: readonly ConnectedGuest[]): string {
+  const rest: string =
+    guests.length === 1
+      ? 'der Gast kann erst nach dem nächsten Start wieder übernehmen'
+      : 'die Gäste können erst nach dem nächsten Start wieder übernehmen';
+  return `${guests.map(guestSentence).join(' ')} Beim Schließen enden alle Agenten-Prozesse auf diesem Rechner, und ${rest}.`;
+}
+
+/** Warnung vor dem Installieren eines Updates: Der Verwalter startet dabei neu. */
+export function updateWarning(guests: readonly ConnectedGuest[]): string {
+  const rest: string =
+    guests.length === 1
+      ? 'der Gast kann erst nach dem Neustart wieder übernehmen'
+      : 'die Gäste können erst nach dem Neustart wieder übernehmen';
+  return `${guests.map(guestSentence).join(' ')} Beim Neustart enden alle Agenten-Prozesse auf diesem Rechner, und ${rest}.`;
 }

@@ -1,0 +1,7 @@
+.origin-line {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  color: var(--color-fg-muted);
+  font-size: 11px;
+}

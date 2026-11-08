@@ -6,6 +6,8 @@ import './AttachmentRow.css';
 interface AttachmentRowProps {
   attachments: readonly Attachment[];
   size: 'input' | 'sent';
+  /** Die Session der Nachricht, für gesendete Anhänge eines Hosts. */
+  sessionId?: string | undefined;
   onRemove?: (attachmentId: string) => void;
   /** Öffnet die Bildansicht für einen Bild-Anhang. */
   onOpen?: (attachment: Attachment) => void;
@@ -14,6 +16,7 @@ interface AttachmentRowProps {
 export function AttachmentRow({
   attachments,
   size,
+  sessionId,
   onRemove,
   onOpen,
 }: AttachmentRowProps): ReactElement {
@@ -24,6 +27,7 @@ export function AttachmentRow({
           key={attachment.id}
           attachment={attachment}
           size={size}
+          sessionId={sessionId}
           onRemove={
             onRemove === undefined
               ? undefined

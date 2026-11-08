@@ -28,11 +28,33 @@
     &[aria-expanded='true'] {
       background: var(--color-bg-selected);
     }
+
+    &:disabled {
+      cursor: default;
+
+      &:hover {
+        background: transparent;
+      }
+    }
+
+    /* Unter der Überschrift „Kontingent“: eingerückt, flacher als die einzelne Zeile. */
+    &--sub {
+      height: 24px;
+      padding-left: 30px;
+    }
   }
 
   &__name {
     flex-grow: 1;
+    min-width: 0;
+    overflow: hidden;
     text-align: left;
+    text-overflow: ellipsis;
+  }
+
+  &__offline {
+    font-size: 11.5px;
+    color: var(--color-status-error);
   }
 
   &__bar {
@@ -55,5 +77,19 @@
     font-size: 11.5px;
     text-align: right;
     color: var(--severity-color, inherit);
+  }
+}
+
+.usage-section {
+  display: flex;
+  flex-direction: column;
+
+  &__head {
+    display: flex;
+    align-items: center;
+    gap: var(--space-md);
+    height: 26px;
+    padding: 0 var(--space-md);
+    color: var(--color-fg-secondary);
   }
 }

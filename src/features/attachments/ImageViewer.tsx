@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import type { PointerEvent as ReactPointerEvent, ReactElement } from 'react';
-import { convertFileSrc } from '@tauri-apps/api/core';
 import { Dialog } from '@/components/Dialog';
 import { isClickSized, toImageRect } from '@/features/attachments/imageRect';
 import type { ImageRect, Point, Size } from '@/features/attachments/imageRect';
+import { useAssetUrl } from '@/features/remote/assetUrl';
 import { CommentBox } from '@/features/review/CommentBox';
 import type { Attachment } from '@/lib/bindings/Attachment';
 import { useAttachmentsStore } from '@/stores/attachments';
@@ -43,6 +43,13 @@ export function ImageViewer({ sessionId, attachment, onClose }: ImageViewerProps
   const imageRef = useRef<HTMLImageElement>(null);
   const collected = useReviewStore((state) => state.collected[sessionId]) ?? NO_COMMENTS;
   const upsert = useReviewStore((state) => state.upsert);
+  // Ein noch nicht gesendeter Anhang liegt auf diesem Gerät, ein gesendeter beim Host der Session.
+  const isUnsent: boolean = useAttachmentsStore((state) =>
+    (state.pending[sessionId] ?? []).some(
+      (candidate: Attachment) => candidate.id === attachment.id,
+    ),
+  );
+  const imageSrc: string = useAssetUrl(attachment.path, sessionId, !isUnsent);
 
   // Eingepasst und 1:1 haben unterschiedliche Anzeigebreiten; der Maßstab folgt der echten Breite.
   useEffect(() => {
@@ -267,7 +274,7 @@ export function ImageViewer({ sessionId, attachment, onClose }: ImageViewerProps
           <img
             ref={imageRef}
             className={`image-viewer__image${isActualSize ? ' image-viewer__image--actual' : ''}`}
-            src={convertFileSrc(attachment.path)}
+            src={imageSrc}
             alt={attachment.name}
             draggable={false}
             onLoad={(event): void => {

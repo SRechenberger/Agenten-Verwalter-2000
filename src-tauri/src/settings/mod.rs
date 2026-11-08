@@ -60,7 +60,7 @@ fn stored_panel_width(stored: &HashMap<String, String>, panel: PanelId) -> Optio
 }
 
 /// „Neues Vorhaben“ startet mit denselben Werten, solange die Einstellungen nicht geladen sind.
-const DEFAULT_SETTINGS: Settings = Settings {
+pub const DEFAULT_SETTINGS: Settings = Settings {
     color_scheme: ColorScheme::System,
     default_model: ModelId::Sonnet,
     default_effort: Effort::High,
