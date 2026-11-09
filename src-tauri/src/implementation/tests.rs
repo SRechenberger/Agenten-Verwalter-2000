@@ -11,6 +11,7 @@ use crate::db::sessions::{self as session_rows, SessionRow};
 use crate::db::{Database, agent_types as agent_type_rows};
 use crate::error::CommandError;
 use crate::mcp_access::tools::{ToolResult, ToolSet, ToolSpec};
+use crate::mcp_access::{Caller, ProcessKind, rpc, tool_sets};
 use crate::settings::model::OperatingMode;
 use model::{PendingChange, PhaseInput, StationSettings, check_agents, validate};
 use serde_json::{Value, json};
@@ -1586,15 +1587,24 @@ fn agent_types_tool_is_allowed_in_side_questions() {
 }
 
 #[test]
-fn agent_types_tool_is_marked_read_only_so_plan_mode_may_call_it() {
-    let set = tools::ImplementationTools;
-    assert!(set.is_read_only("implementation_agent_types"));
-    for writing in [
-        "implementation_create",
-        "implementation_set_phases",
-        "implementation_describe_phase",
-        "implementation_complete_station",
-    ] {
-        assert!(!set.is_read_only(writing), "{writing} schreibt");
-    }
+fn tools_list_marks_only_the_agent_types_tool_read_only() {
+    let caller = Caller {
+        session_id: "session".to_owned(),
+        kind: ProcessKind::Main,
+        session_tools: true,
+    };
+    let listed = rpc::list(&caller, &tool_sets());
+    let marked: Vec<Value> = listed["tools"]
+        .as_array()
+        .expect("tools/list liefert eine Liste")
+        .iter()
+        .filter(|tool: &&Value| tool.get("annotations").is_some())
+        .map(|tool: &Value| json!({ "name": tool["name"], "annotations": tool["annotations"] }))
+        .collect();
+    // Ohne die Kennzeichnung lehnt die Kommandozeile das Werkzeug im Modus Plan ab; ein schreibendes
+    // Werkzeug mit ihr könnte dort schreiben.
+    assert_eq!(
+        marked,
+        [json!({ "name": tools::AGENT_TYPES, "annotations": { "readOnlyHint": true } })]
+    );
 }

@@ -162,7 +162,7 @@ fn initialize(app: &AppHandle, params: &Value) -> Value {
     })
 }
 
-fn list(caller: &Caller, tool_sets: &[Box<dyn ToolSet>]) -> Value {
+pub(crate) fn list(caller: &Caller, tool_sets: &[Box<dyn ToolSet>]) -> Value {
     let tools: Vec<Value> = visible(caller, tool_sets)
         .flat_map(|set: &dyn ToolSet| {
             set.tools().into_iter().map(move |spec| {
