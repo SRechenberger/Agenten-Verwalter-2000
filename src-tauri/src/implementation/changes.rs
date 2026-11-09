@@ -7,7 +7,7 @@ use tauri::{AppHandle, Manager};
 
 use super::model::{
     ChangeSummary, ImplementationView, PendingChange, PhaseInput, PhaseMark, PhaseView,
-    StationState, StationView, validate,
+    StationState, StationView, check_agents, validate,
 };
 use super::{announce, now_ms, phase_rows, start};
 use crate::db::implementations::{ChangeRow, PhaseRow, StationRow};
@@ -97,6 +97,10 @@ pub fn describe(summary: &ChangeSummary) -> String {
 pub fn propose(app: &AppHandle, session_id: &str, inputs: &[PhaseInput]) -> Result<String, String> {
     validate(inputs)?;
     let registry = app.state::<SessionRegistry>();
+    let types = registry
+        .agent_types()
+        .map_err(|error: CommandError| error.to_string())?;
+    check_agents(inputs, &types)?;
     let view = registry
         .require_implementation_of_session(session_id)
         .map_err(|error: CommandError| error.to_string())?;

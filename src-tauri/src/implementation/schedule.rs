@@ -1,6 +1,6 @@
 //! Reihenfolge der Stationen: Gruppen aus Wellen nacheinander, in einer Phase Station für Station.
 use super::is_done;
-use super::model::{PhaseView, StationView};
+use super::model::{PhaseView, StationState, StationView};
 
 /// Aufeinanderfolgende Phasen mit derselben `wave` bilden eine Gruppe; eine Phase ohne `wave` ist
 /// eine eigene. Indizes in `phases`, in Plan-Reihenfolge.
@@ -18,9 +18,39 @@ pub fn groups(phases: &[PhaseView]) -> Vec<Vec<usize>> {
     groups
 }
 
-/// Darf die Station starten: alle Stationen aller vorigen Gruppen und alle vorigen Stationen ihrer
-/// Phase sind fertig gemeldet. Eine fertige oder unbekannte Station darf es nicht.
+/// Darf die Station starten: Sie ist an der Reihe (`is_due`), und kein Startfehler hält sie an
+/// (ADR 060, N5): kein automatischer Neuversuch, nur ▶ versucht es.
 pub fn may_start(phases: &[PhaseView], station_id: &str) -> bool {
+    is_due(phases, station_id)
+        && phases
+            .iter()
+            .flat_map(|phase: &PhaseView| phase.stations.iter())
+            .any(|station: &StationView| station.id == station_id && station.start_error.is_none())
+}
+
+/// Die Stationen, für die der automatische Start jetzt einen Countdown plant: bereit, nicht vom
+/// Benutzer und ohne Startfehler.
+pub fn due_for_countdown(phases: &[PhaseView]) -> Vec<(&PhaseView, &StationView)> {
+    phases
+        .iter()
+        .flat_map(|phase: &PhaseView| {
+            phase
+                .stations
+                .iter()
+                .map(move |station: &StationView| (phase, station))
+        })
+        .filter(|(_, station): &(&PhaseView, &StationView)| {
+            station.state == StationState::Ready
+                && !station.by_user
+                && may_start(phases, &station.id)
+        })
+        .collect()
+}
+
+/// Ist die Station an der Reihe: alle Stationen aller vorigen Gruppen und alle vorigen Stationen
+/// ihrer Phase sind fertig gemeldet. Eine fertige oder unbekannte Station ist es nicht. Ein
+/// Startfehler zählt hier nicht: Die Station bleibt bereit für ▶.
+pub fn is_due(phases: &[PhaseView], station_id: &str) -> bool {
     for group in groups(phases) {
         for &phase_index in &group {
             let stations = &phases[phase_index].stations;

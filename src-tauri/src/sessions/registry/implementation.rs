@@ -12,20 +12,23 @@ use super::{
     Outbox, PendingRequest, ProjectState, Session, SessionRegistry, SessionState, now_ms,
     summarize, update,
 };
+use crate::agent_types::model::AgentType;
 use crate::agents::event::{Attachment, Question};
 use crate::attachments;
 use crate::changes::{self, model::ChangesReach};
+use crate::db::agent_types as agent_type_rows;
 use crate::db::implementations::{
     self as implementation_rows, ChangeRow, PhaseRow, StationRow, StoredImplementation,
 };
 use crate::error::CommandError;
 use crate::file_links;
 use crate::implementation::model::{
-    ImplementationView, InquiryCreated, PendingChange, PhaseInput, PhaseView,
+    ImplementationView, InquiryCreated, PendingChange, PhaseInput, PhaseView, check_agents,
 };
 use crate::implementation::report::{self, Extras};
 use crate::implementation::{Countdowns, SessionLive, build_view, new_rows, station_in};
 use crate::sessions::model::SessionStatus;
+use crate::settings::{self, model::OperatingMode};
 
 const NO_IMPLEMENTATION: &str = "In diesem Vorhaben gibt es keine Umsetzung.";
 
@@ -45,6 +48,7 @@ impl SessionRegistry {
         let stored = self
             .database
             .with(|connection| implementation_rows::load_all(connection))?;
+        let types = self.agent_types()?;
         let active: Vec<StoredImplementation> = {
             let projects = self.lock_projects();
             stored
@@ -54,7 +58,7 @@ impl SessionRegistry {
         };
         Ok(active
             .iter()
-            .map(|item: &StoredImplementation| self.view_of(item))
+            .map(|item: &StoredImplementation| self.view_of(item, &types))
             .collect())
     }
 
@@ -66,7 +70,18 @@ impl SessionRegistry {
             .ok_or_else(|| {
                 CommandError::Implementation(format!("Umsetzung nicht gefunden: {id}"))
             })?;
-        Ok(self.view_of(&stored))
+        Ok(self.view_of(&stored, &self.agent_types()?))
+    }
+
+    /// Die Agententypen in der Reihenfolge der Anlage (ADR 060).
+    pub fn agent_types(&self) -> Result<Vec<AgentType>, CommandError> {
+        self.database
+            .with(|connection| agent_type_rows::list(connection))
+    }
+
+    /// Die Betriebsart, in der der nächste Agent startet.
+    pub fn operating_mode(&self) -> Result<OperatingMode, CommandError> {
+        Ok(settings::load(&self.database)?.operating_mode)
     }
 
     /// Für eine Station ihre Umsetzung, sonst die neueste des Vorhabens der Session.
@@ -96,8 +111,9 @@ impl SessionRegistry {
     }
 
     /// Legt im Vorhaben der Session eine Umsetzung an; `phases` sind schon geprüft
-    /// (`model::validate`). Prüfung auf eine unfertige Umsetzung und Anlegen laufen unter derselben
-    /// Datenbank-Sperre, damit zwei gleichzeitige Aufrufe nicht beide durchkommen.
+    /// (`model::validate`). Prüfung der Agententypen, Prüfung auf eine unfertige Umsetzung und
+    /// Anlegen laufen unter derselben Datenbank-Sperre, damit zwei gleichzeitige Aufrufe nicht beide
+    /// durchkommen.
     pub fn create_implementation(
         &self,
         session_id: &str,
@@ -109,6 +125,8 @@ impl SessionRegistry {
         let (row, phase_rows, station_rows) =
             new_rows(&project_id, session_id, name, source, phases, now_ms());
         self.database.with(|connection| {
+            check_agents(phases, &agent_type_rows::list(connection)?)
+                .map_err(CommandError::Implementation)?;
             if let Some((_, running)) =
                 implementation_rows::unfinished_of_project(connection, &project_id)?
             {
@@ -186,6 +204,28 @@ impl SessionRegistry {
         if let Ok(session) = self.get(session_id) {
             session.log_line(line);
         }
+    }
+
+    /// `None` räumt den Startfehler aus.
+    pub fn store_start_error(
+        &self,
+        station_id: &str,
+        start_error: Option<&str>,
+    ) -> Result<(), CommandError> {
+        self.database.with(|connection| {
+            implementation_rows::set_start_error(connection, station_id, start_error)
+        })
+    }
+
+    /// Hält den Typ des Starts fest und räumt einen Startfehler aus.
+    pub fn store_agent_used(
+        &self,
+        station_id: &str,
+        agent_used: Option<&str>,
+    ) -> Result<(), CommandError> {
+        self.database.with(|connection| {
+            implementation_rows::set_agent_used(connection, station_id, agent_used)
+        })
     }
 
     /// Meldet die Station fertig und hängt `followups` dahinter an (eine Datenbank-Transaktion).
@@ -439,7 +479,7 @@ impl SessionRegistry {
             .unwrap_or_default()
     }
 
-    fn view_of(&self, stored: &StoredImplementation) -> ImplementationView {
+    fn view_of(&self, stored: &StoredImplementation, types: &[AgentType]) -> ImplementationView {
         let members = self.project_members(&stored.row.project_id);
         let numbers: HashMap<String, u32> = members
             .iter()
@@ -456,7 +496,7 @@ impl SessionRegistry {
             })
             .map(|member: &Arc<Session>| (member.id.clone(), live_of(member, now)))
             .collect();
-        build_view(stored, &live, &numbers, &countdowns)
+        build_view(stored, &live, &numbers, &countdowns, types)
     }
 }
 

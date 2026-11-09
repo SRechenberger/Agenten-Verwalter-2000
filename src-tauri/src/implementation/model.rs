@@ -2,7 +2,10 @@
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
-use crate::agents::event::{Attachment, ModelId};
+use crate::agent_types::model::{AgentType, AgentValueSource};
+use crate::agent_types::name_key;
+use crate::agent_types::validate::MAX_NAME_CHARS as MAX_AGENT_CHARS;
+use crate::agents::event::{Attachment, Effort, ModelId};
 use crate::db::enum_from_text;
 use crate::sessions::model::SessionSummary;
 
@@ -14,6 +17,8 @@ pub const MAX_DESCRIPTION_CHARS: usize = 500;
 pub const MAX_STAGE_CHARS: usize = 40;
 pub const MAX_SKILL_CHARS: usize = 40;
 pub const MAX_BRIEF_CHARS: usize = 1000;
+/// Zusatztext einer Station zum Systemprompt (ADR 060); die Gesamtgrenze von 16 000 prüft der Start.
+pub const MAX_PROMPT_CHARS: usize = 4000;
 
 /// Eine neue Rückfrage: die Session und der Lagebericht, der als ungesendeter Anhang an ihr hängt.
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
@@ -90,6 +95,19 @@ pub struct StationView {
     /// Laufzeit der Session in ms (abgeschlossene Abschnitte + laufender).
     #[ts(type = "number")]
     pub running_ms: f64,
+    // Ab hier ADR 060: die Felder der Station, ihre Auflösung und ein Startfehler.
+    pub agent: Option<String>,
+    pub effort: Option<Effort>,
+    pub prompt: Option<String>,
+    // Typ, als der die Station läuft oder laufen wird; nach dem Start der gespeicherte Name.
+    pub agent_type: Option<String>,
+    // Vor dem Start aufgelöst, unabhängig von der Betriebsart; `None` = allgemeine Regel. Nach dem
+    // Start gelten Modell und Denkaufwand der Session.
+    pub agent_model: Option<ModelId>,
+    pub agent_model_from: Option<AgentValueSource>,
+    pub agent_effort: Option<Effort>,
+    pub agent_effort_from: Option<AgentValueSource>,
+    pub start_error: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
@@ -211,6 +229,17 @@ pub struct StationInput {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub brief: Option<String>,
+    // Ab hier ADR 060; `default`, damit gespeicherte Vorschläge (`PendingChange`) lesbar bleiben.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub agent: Option<String>,
+    // Als Text wie `model`, damit `validate` einen unbekannten Wert mit seinem Feld meldet.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional, type = "'low' | 'medium' | 'high' | 'xhigh' | 'max'")]
+    pub effort: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub prompt: Option<String>,
 }
 
 const BY_AGENT: &str = "agent";
@@ -222,6 +251,29 @@ impl StationInput {
         self.model
             .as_deref()
             .and_then(|name: &str| enum_from_text::<ModelId>(name).ok())
+    }
+
+    /// Getrimmt; ob es den Typ gibt, prüft `check_agents`.
+    pub fn agent_name(&self) -> Option<String> {
+        self.agent
+            .as_deref()
+            .map(|agent: &str| agent.trim().to_owned())
+    }
+
+    /// Nur nach `validate` aufrufen: dann ist ein gesetzter Wert bekannt.
+    pub fn effort_level(&self) -> Option<Effort> {
+        self.effort
+            .as_deref()
+            .and_then(|name: &str| enum_from_text::<Effort>(name).ok())
+    }
+
+    /// Getrimmt; ein leerer Text ist keiner.
+    pub fn prompt_text(&self) -> Option<String> {
+        self.prompt
+            .as_deref()
+            .map(str::trim)
+            .filter(|prompt: &&str| !prompt.is_empty())
+            .map(str::to_owned)
     }
 
     pub fn is_by_user(&self) -> bool {
@@ -310,6 +362,52 @@ fn validate_station(field: &str, station: &StationInput) -> Result<(), String> {
     }
     if let Some(brief) = &station.brief {
         check_length(&format!("{field}.brief"), brief, 0, MAX_BRIEF_CHARS)?;
+    }
+    if let Some(agent) = &station.agent {
+        check_length(&format!("{field}.agent"), agent.trim(), 1, MAX_AGENT_CHARS)?;
+    }
+    if let Some(effort) = &station.effort
+        && enum_from_text::<Effort>(effort).is_err()
+    {
+        return Err(format!(
+            "{field}.effort: unbekannter Denkaufwand „{effort}“ (low, medium, high, xhigh, max)"
+        ));
+    }
+    if let Some(prompt) = &station.prompt {
+        check_length(&format!("{field}.prompt"), prompt, 0, MAX_PROMPT_CHARS)?;
+    }
+    Ok(())
+}
+
+/// Prüft das Feld `agent` jeder Station gegen die Typen (ADR 060); wie die Auflösung getrimmt und
+/// ohne Beachtung der Schreibweise. Die Meldung nennt Feld, Wert und die bekannten Namen.
+pub fn check_agents(phases: &[PhaseInput], types: &[AgentType]) -> Result<(), String> {
+    for (index, phase) in phases.iter().enumerate() {
+        for (station_index, station) in phase.stations.iter().enumerate() {
+            let Some(agent) = station.agent.as_deref() else {
+                continue;
+            };
+            if types
+                .iter()
+                .any(|agent_type: &AgentType| name_key(&agent_type.name) == name_key(agent))
+            {
+                continue;
+            }
+            let names: Vec<&str> = types
+                .iter()
+                .map(|agent_type: &AgentType| agent_type.name.as_str())
+                .collect();
+            let known = if names.is_empty() {
+                "keine".to_owned()
+            } else {
+                names.join(", ")
+            };
+            return Err(format!(
+                "phases[{index}].stations[{station_index}].agent: unbekannter Agententyp „{}“; \
+                 bekannt: {known}",
+                agent.trim()
+            ));
+        }
     }
     Ok(())
 }

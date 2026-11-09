@@ -3,7 +3,8 @@
 //! ihrer Session.
 use rusqlite::{Connection, OptionalExtension, Row, params};
 
-use crate::agents::event::ModelId;
+use crate::agent_types::name_key;
+use crate::agents::event::{Effort, ModelId};
 use crate::db::{enum_from_text, enum_to_text};
 use crate::error::CommandError;
 use crate::implementation::model::PhaseMark;
@@ -49,6 +50,18 @@ pub struct StationRow {
     pub started_at: Option<f64>,
     pub completed_at: Option<f64>,
     pub result: Option<String>,
+    /// Ausdrücklich genannter Agententyp (ADR 060).
+    pub agent: Option<String>,
+    /// Name des Typs, als der die Station gestartet ist.
+    pub agent_used: Option<String>,
+    /// Ausdrücklicher Denkaufwand der Station.
+    pub effort: Option<Effort>,
+    /// Zusatztext zum Systemprompt.
+    pub prompt: Option<String>,
+    /// Warum der letzte Start vor der Session scheiterte; hält den automatischen Start an.
+    pub start_error: Option<String>,
+    /// Auf der Karte angepasst (N15); erst Phase 5 schreibt es.
+    pub edited: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -76,8 +89,10 @@ pub struct StoredImplementation {
 const IMPLEMENTATION_COLUMNS: &str = "id, project_id, name, source, created_by_session_id, \
      created_at, finished_at, auto_start, stop_after_current, pending_change";
 const PHASE_COLUMNS: &str = "id, implementation_id, position, key, title, description, wave, mark";
+/// Die Reihenfolge muss mit `StoredStation::read` übereinstimmen.
 const STATION_COLUMNS: &str = "s.id, s.phase_id, s.position, s.stage, s.model, s.by_user, \
-     s.skill, s.brief, s.session_id, s.started_at, s.completed_at, s.result";
+     s.skill, s.brief, s.session_id, s.started_at, s.completed_at, s.result, s.agent, \
+     s.agent_used, s.effort, s.prompt, s.start_error, s.edited";
 
 /// Legt die Umsetzung mit ihren Phasen und Stationen in einem Zug an.
 pub fn insert(
@@ -136,8 +151,9 @@ fn insert_phases(
     for station in stations {
         connection.execute(
             "INSERT INTO implementation_stations (id, phase_id, position, stage, model, by_user, \
-                 skill, brief, session_id, started_at, completed_at, result) \
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+                 skill, brief, session_id, started_at, completed_at, result, agent, agent_used, \
+                 effort, prompt, start_error, edited) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)",
             params![
                 station.id,
                 station.phase_id,
@@ -151,6 +167,12 @@ fn insert_phases(
                 station.started_at,
                 station.completed_at,
                 station.result,
+                station.agent,
+                station.agent_used,
+                station.effort.as_ref().map(enum_to_text).transpose()?,
+                station.prompt,
+                station.start_error,
+                station.edited,
             ],
         )?;
     }
@@ -328,10 +350,11 @@ impl StoredPhase {
     }
 }
 
-/// Die Zeile, wie sie in der Datenbank steht; `model` wird erst danach umgewandelt.
+/// Die Zeile, wie sie in der Datenbank steht; `model` und `effort` werden erst danach umgewandelt.
 struct StoredStation {
     row: StationRow,
     model: Option<String>,
+    effort: Option<String>,
 }
 
 impl StoredStation {
@@ -350,14 +373,22 @@ impl StoredStation {
                 started_at: row.get(9)?,
                 completed_at: row.get(10)?,
                 result: row.get(11)?,
+                agent: row.get(12)?,
+                agent_used: row.get(13)?,
+                effort: None,
+                prompt: row.get(15)?,
+                start_error: row.get(16)?,
+                edited: row.get(17)?,
             },
             model: row.get(4)?,
+            effort: row.get(14)?,
         })
     }
 
     fn into_row(self) -> Result<StationRow, CommandError> {
         Ok(StationRow {
             model: self.model.as_deref().map(enum_from_text).transpose()?,
+            effort: self.effort.as_deref().map(enum_from_text).transpose()?,
             ..self.row
         })
     }
@@ -387,6 +418,55 @@ pub fn set_station_session(
         "UPDATE implementation_stations SET session_id = ?2, started_at = ?3 WHERE id = ?1",
         params![station_id, session_id, started_at],
     )?;
+    Ok(())
+}
+
+/// `None` räumt den Fehler aus.
+pub fn set_start_error(
+    connection: &Connection,
+    station_id: &str,
+    start_error: Option<&str>,
+) -> Result<(), CommandError> {
+    connection.execute(
+        "UPDATE implementation_stations SET start_error = ?2 WHERE id = ?1",
+        params![station_id, start_error],
+    )?;
+    Ok(())
+}
+
+/// Hält den Typ des Starts fest und räumt einen Startfehler aus: Die Station ist gestartet.
+pub fn set_agent_used(
+    connection: &Connection,
+    station_id: &str,
+    agent_used: Option<&str>,
+) -> Result<(), CommandError> {
+    connection.execute(
+        "UPDATE implementation_stations SET agent_used = ?2, start_error = NULL WHERE id = ?1",
+        params![station_id, agent_used],
+    )?;
+    Ok(())
+}
+
+/// Führt das Feld `agent` noch nicht gestarteter Stationen auf den neuen Namen eines Typs nach (N4).
+/// Verglichen wird wie bei der Auflösung (`name_key`), deshalb in Rust und nicht mit `lower()`, das
+/// nur ASCII kennt.
+pub fn rename_agent(connection: &Connection, old: &str, new: &str) -> Result<(), CommandError> {
+    let mut statement = connection.prepare(
+        "SELECT id, agent FROM implementation_stations \
+         WHERE agent IS NOT NULL AND session_id IS NULL AND completed_at IS NULL",
+    )?;
+    let named: Vec<(String, String)> = statement
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
+        .collect::<rusqlite::Result<_>>()?;
+    for (station_id, _) in named
+        .iter()
+        .filter(|(_, agent): &&(String, String)| name_key(agent) == name_key(old))
+    {
+        connection.execute(
+            "UPDATE implementation_stations SET agent = ?2 WHERE id = ?1",
+            params![station_id, new],
+        )?;
+    }
     Ok(())
 }
 
@@ -429,7 +509,8 @@ pub fn complete_station_with_followups(
         for (offset, followup) in (1..).zip(followups) {
             transaction.execute(
                 "INSERT INTO implementation_stations (id, phase_id, position, stage, model, \
-                     by_user, skill, brief) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                     by_user, skill, brief, agent, agent_used, effort, prompt, start_error, edited) \
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
                 params![
                     followup.id,
                     phase_id,
@@ -439,6 +520,12 @@ pub fn complete_station_with_followups(
                     followup.by_user,
                     followup.skill,
                     followup.brief,
+                    followup.agent,
+                    followup.agent_used,
+                    followup.effort.as_ref().map(enum_to_text).transpose()?,
+                    followup.prompt,
+                    followup.start_error,
+                    followup.edited,
                 ],
             )?;
         }

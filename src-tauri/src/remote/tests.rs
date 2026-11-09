@@ -251,6 +251,12 @@ fn registry_with_two_implementations() -> SessionRegistry {
                         started_at: None,
                         completed_at: None,
                         result: None,
+                        agent: None,
+                        agent_used: None,
+                        effort: None,
+                        prompt: None,
+                        start_error: None,
+                        edited: false,
                     }],
                 )?;
             }
