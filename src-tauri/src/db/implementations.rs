@@ -7,7 +7,7 @@ use crate::agent_types::name_key;
 use crate::agents::event::{Effort, ModelId};
 use crate::db::{enum_from_text, enum_to_text};
 use crate::error::CommandError;
-use crate::implementation::model::PhaseMark;
+use crate::implementation::model::{PhaseMark, StationSettings};
 
 #[derive(Debug, Clone)]
 pub struct ImplementationRow {
@@ -60,7 +60,7 @@ pub struct StationRow {
     pub prompt: Option<String>,
     /// Warum der letzte Start vor der Session scheiterte; hält den automatischen Start an.
     pub start_error: Option<String>,
-    /// Auf der Karte angepasst (N15); erst Phase 5 schreibt es.
+    /// Auf der Karte angepasst (N15): Eine Plan-Änderung behält dann, was der Planer nicht nennt.
     pub edited: bool,
 }
 
@@ -445,6 +445,30 @@ pub fn set_agent_used(
         params![station_id, agent_used],
     )?;
     Ok(())
+}
+
+/// Schreibt die fünf Einstellungen einer Station von der Karte und die Marke `edited` (N15) in einem
+/// Schritt, nur solange sie weder eine Session hat noch fertig ist. `false`: Die Station hat
+/// inzwischen begonnen, nichts ist geschrieben.
+pub fn set_station_settings(
+    connection: &Connection,
+    station_id: &str,
+    settings: &StationSettings,
+) -> Result<bool, CommandError> {
+    let changed = connection.execute(
+        "UPDATE implementation_stations \
+         SET agent = ?2, model = ?3, effort = ?4, prompt = ?5, skill = ?6, edited = 1 \
+         WHERE id = ?1 AND session_id IS NULL AND completed_at IS NULL",
+        params![
+            station_id,
+            settings.agent,
+            settings.model.as_ref().map(enum_to_text).transpose()?,
+            settings.effort.as_ref().map(enum_to_text).transpose()?,
+            settings.prompt,
+            settings.skill,
+        ],
+    )?;
+    Ok(changed == 1)
 }
 
 /// Führt das Feld `agent` noch nicht gestarteter Stationen auf den neuen Namen eines Typs nach (N4).

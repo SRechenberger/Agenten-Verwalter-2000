@@ -164,12 +164,17 @@ fn initialize(app: &AppHandle, params: &Value) -> Value {
 
 fn list(caller: &Caller, tool_sets: &[Box<dyn ToolSet>]) -> Value {
     let tools: Vec<Value> = visible(caller, tool_sets)
-        .flat_map(|set: &dyn ToolSet| set.tools())
-        .map(|spec| {
-            json!({
-                "name": spec.name,
-                "description": spec.description,
-                "inputSchema": spec.input_schema,
+        .flat_map(|set: &dyn ToolSet| {
+            set.tools().into_iter().map(move |spec| {
+                let mut tool = json!({
+                    "name": spec.name,
+                    "description": spec.description,
+                    "inputSchema": spec.input_schema,
+                });
+                if set.is_read_only(spec.name) {
+                    tool["annotations"] = json!({ "readOnlyHint": true });
+                }
+                tool
             })
         })
         .collect();

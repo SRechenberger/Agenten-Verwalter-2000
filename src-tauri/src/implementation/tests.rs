@@ -10,8 +10,10 @@ use crate::db::implementations::{self as implementation_rows, ImplementationRow,
 use crate::db::sessions::{self as session_rows, SessionRow};
 use crate::db::{Database, agent_types as agent_type_rows};
 use crate::error::CommandError;
+use crate::mcp_access::tools::{ToolResult, ToolSet, ToolSpec};
 use crate::settings::model::OperatingMode;
-use model::{PendingChange, PhaseInput, check_agents, validate};
+use model::{PendingChange, PhaseInput, StationSettings, check_agents, validate};
+use serde_json::{Value, json};
 use start::{StartPlan, start_plan};
 
 fn station(stage: &str, model: ModelId, skill: &str) -> StationView {
@@ -998,4 +1000,601 @@ fn upsert_writes_the_agent_prompt_on_update_and_both_loads_read_it() {
         Some(snapshot),
         "Wiederherstellen eines Vorhabens"
     );
+}
+
+// Werkzeuge des Planers, Einstellungen einer Station und Plan-Änderung (ADR 060).
+
+/// Eine Station mit allen fünf Abweichungen, wie der Planer sie setzt.
+fn planned(id: &str, position: u32, stage: &str) -> StationRow {
+    let mut planned = station_row(id, position, stage);
+    planned.agent = Some("developer".to_owned());
+    planned.model = Some(ModelId::Opus);
+    planned.effort = Some(Effort::Max);
+    planned.prompt = Some("Baue sauber.".to_owned());
+    planned.skill = Some("build".to_owned());
+    planned.brief = "Baue.".to_owned();
+    planned
+}
+
+fn edited(mut station: StationRow) -> StationRow {
+    station.edited = true;
+    station
+}
+
+type Five<'a> = (
+    Option<&'a str>,
+    Option<ModelId>,
+    Option<Effort>,
+    Option<&'a str>,
+    Option<&'a str>,
+);
+
+/// `agent`, `model`, `effort`, `prompt` und `skill` der Station.
+fn five(station: &StationRow) -> Five<'_> {
+    (
+        station.agent.as_deref(),
+        station.model,
+        station.effort,
+        station.prompt.as_deref(),
+        station.skill.as_deref(),
+    )
+}
+
+/// Was `set_station_agent` ohne Fenster tut: gegen die Ansicht prüfen, dann schreiben.
+fn set_station(
+    database: &Database,
+    station_id: &str,
+    settings: &StationSettings,
+) -> Result<(), CommandError> {
+    let stored = database
+        .with(|connection| implementation_rows::load(connection, "implementation"))?
+        .expect("Umsetzung vorhanden");
+    let view = build_view(
+        &stored,
+        &HashMap::new(),
+        &HashMap::new(),
+        &HashMap::new(),
+        &types(),
+    );
+    let checked = checked_settings(&view, station_id, settings, &types())?;
+    let is_written = database.with(|connection| {
+        implementation_rows::set_station_settings(connection, station_id, &checked)
+    })?;
+    assert!(is_written, "Station ohne Session wird geschrieben");
+    Ok(())
+}
+
+fn refusal(result: Result<StationSettings, CommandError>) -> String {
+    match result {
+        Err(CommandError::Implementation(message)) => message,
+        other => panic!("Erwartet: eine Ablehnung, nicht {other:?}"),
+    }
+}
+
+#[test]
+fn set_station_agent_replaces_all_five_values() {
+    let database = database_with(&[planned("review", 0, "Review")]);
+    let settings = StationSettings {
+        agent: Some(" Reviewer ".to_owned()),
+        model: Some(ModelId::Haiku),
+        effort: Some(Effort::Low),
+        prompt: Some("  Prüfe nur die Tests.  ".to_owned()),
+        skill: Some("/review".to_owned()),
+    };
+    set_station(&database, "review", &settings).expect("gespeichert");
+    let [stored] = &stored_stations(&database)[..] else {
+        panic!("Erwartet: eine Station");
+    };
+    assert_eq!(
+        five(stored),
+        (
+            Some("Reviewer"),
+            Some(ModelId::Haiku),
+            Some(Effort::Low),
+            Some("Prüfe nur die Tests."),
+            Some("review")
+        )
+    );
+    assert_eq!(
+        (stored.stage.as_str(), stored.brief.as_str()),
+        ("Review", "Baue."),
+        "Stufe und Auftrag bleiben"
+    );
+}
+
+#[test]
+fn set_station_agent_with_none_clears_the_deviation() {
+    let database = database_with(&[planned("review", 0, "Review")]);
+    let blank_prompt = StationSettings {
+        prompt: Some("   ".to_owned()),
+        ..StationSettings::default()
+    };
+    set_station(&database, "review", &blank_prompt).expect("gespeichert");
+    let stations = stored_stations(&database);
+    assert_eq!(five(&stations[0]), (None, None, None, None, None));
+    let view = view_with(stations, &types());
+    let shown = &view.phases[0].stations[0];
+    assert_eq!(
+        (
+            shown.agent_type.as_deref(),
+            shown.agent_model,
+            shown.agent_model_from,
+            shown.agent_effort,
+            shown.agent_effort_from
+        ),
+        (
+            Some("reviewer"),
+            Some(ModelId::Sonnet),
+            Some(AgentValueSource::Type),
+            Some(Effort::High),
+            Some(AgentValueSource::Type)
+        ),
+        "ohne Abweichung gilt wieder der Typ, der die Stufe führt"
+    );
+}
+
+#[test]
+fn set_station_agent_refuses_a_started_station() {
+    let mut started = station_row("started", 0, "Umsetzung");
+    started.session_id = Some("session".to_owned());
+    let mut done = station_row("done", 1, "Review");
+    done.completed_at = Some(1.0);
+    let view = view_with(vec![started.clone(), done], &types());
+    for station_id in ["started", "done"] {
+        assert_eq!(
+            refusal(checked_settings(
+                &view,
+                station_id,
+                &StationSettings::default(),
+                &types()
+            )),
+            STATION_BEGUN,
+            "{station_id}"
+        );
+    }
+
+    // Auch wenn die Session erst nach der Prüfung kommt: geschrieben wird nur ohne Session.
+    let database = database_with(&[started]);
+    let critical = StationSettings {
+        effort: Some(Effort::Max),
+        ..StationSettings::default()
+    };
+    let is_written = database
+        .with(|connection| {
+            implementation_rows::set_station_settings(connection, "started", &critical)
+        })
+        .expect("schreibbar");
+    assert!(!is_written);
+    let stored = &stored_stations(&database)[0];
+    assert_eq!((stored.effort, stored.edited), (None, false));
+
+    // Ein laufender Countdown ist kein Hindernis: Der Start liest die Station erst beim Auslösen.
+    let stored = StoredImplementation {
+        row: implementation_row(),
+        phases: vec![phase_row()],
+        stations: vec![station_row("waiting", 0, "Test")],
+        changes: Vec::new(),
+    };
+    let countdowns = HashMap::from([("waiting".to_owned(), 5.0)]);
+    let view = build_view(
+        &stored,
+        &HashMap::new(),
+        &HashMap::new(),
+        &countdowns,
+        &types(),
+    );
+    assert_eq!(view.phases[0].stations[0].state, StationState::Countdown);
+    assert!(checked_settings(&view, "waiting", &critical, &types()).is_ok());
+}
+
+#[test]
+fn set_station_agent_refuses_a_station_of_the_user() {
+    let mut yours = station_row("yours", 0, "Merge");
+    yours.by_user = true;
+    let view = view_with(vec![yours], &types());
+    assert_eq!(
+        refusal(checked_settings(
+            &view,
+            "yours",
+            &StationSettings::default(),
+            &types()
+        )),
+        "Diese Station erledigst du selbst."
+    );
+}
+
+#[test]
+fn set_station_agent_names_an_unknown_type_and_the_known_ones() {
+    let view = view_with(vec![station_row("review", 0, "Review")], &types());
+    let named = |agent: &str| StationSettings {
+        agent: Some(agent.to_owned()),
+        ..StationSettings::default()
+    };
+    assert_eq!(
+        refusal(checked_settings(
+            &view,
+            "review",
+            &named("reviewr"),
+            &types()
+        )),
+        "Der Agententyp „reviewr“ ist unbekannt. Bekannt: developer, reviewer"
+    );
+    assert_eq!(
+        refusal(checked_settings(&view, "review", &named("reviewer"), &[])),
+        "Der Agententyp „reviewer“ ist unbekannt. Bekannt: keine"
+    );
+    let known = checked_settings(&view, "review", &named(" Reviewer "), &types())
+        .expect("bekannt, ohne Beachtung der Schreibweise");
+    assert_eq!(known.agent.as_deref(), Some("Reviewer"));
+}
+
+#[test]
+fn set_station_agent_checks_the_lengths_of_prompt_and_skill() {
+    let view = view_with(vec![station_row("review", 0, "Review")], &types());
+    let check = |settings: StationSettings| checked_settings(&view, "review", &settings, &types());
+    let with_prompt = |chars: usize| StationSettings {
+        prompt: Some("ä".repeat(chars)),
+        ..StationSettings::default()
+    };
+    let with_skill = |skill: &str| StationSettings {
+        skill: Some(skill.to_owned()),
+        ..StationSettings::default()
+    };
+    assert_eq!(
+        refusal(check(with_prompt(4001))),
+        "prompt: höchstens 4000 Zeichen, nicht 4001"
+    );
+    assert!(check(with_prompt(4000)).is_ok());
+    assert_eq!(
+        refusal(check(with_skill(" / "))),
+        "skill: darf nicht leer sein"
+    );
+    assert_eq!(
+        refusal(check(with_skill(&"s".repeat(41)))),
+        "skill: höchstens 40 Zeichen, nicht 41"
+    );
+}
+
+#[test]
+fn set_station_agent_marks_the_station_edited() {
+    let database = database_with(&[
+        station_row("review", 0, "Review"),
+        station_row("other", 1, "Test"),
+    ]);
+    set_station(&database, "review", &StationSettings::default()).expect("gespeichert");
+    let marks: Vec<(String, bool)> = stored_stations(&database)
+        .into_iter()
+        .map(|station: StationRow| (station.id, station.edited))
+        .collect();
+    assert_eq!(
+        marks,
+        vec![("review".to_owned(), true), ("other".to_owned(), false)]
+    );
+}
+
+#[test]
+fn set_station_agent_is_class_c_in_the_access_table() {
+    use crate::remote::access::{Class, IdKind, TargetId, class_of, ids_of};
+    assert_eq!(
+        class_of("implementation_set_station_agent"),
+        Some(Class::HostWrite)
+    );
+    assert_eq!(
+        ids_of(
+            "implementation_set_station_agent",
+            &json!({ "id": "implementation", "stationId": "station", "settings": {} })
+        ),
+        vec![TargetId {
+            kind: IdKind::Implementation,
+            value: "implementation".to_owned()
+        }],
+        "die Umsetzung entscheidet über das Steuerrecht"
+    );
+}
+
+/// Eine Phase mit eigenem Schlüssel; ihre Stationen tragen `phase-<Schlüssel>`.
+fn phase_keyed(key: &str, position: u32) -> PhaseRow {
+    PhaseRow {
+        id: format!("phase-{key}"),
+        key: key.to_owned(),
+        position,
+        ..phase_row()
+    }
+}
+
+fn in_phase(mut station: StationRow, key: &str) -> StationRow {
+    station.phase_id = format!("phase-{key}");
+    station
+}
+
+/// Rechnet eine Plan-Änderung über die kommenden Phasen wie `apply` und liefert die neuen Stationen
+/// mit dem Schlüssel ihrer Phase.
+fn plan_change(
+    phases: Vec<PhaseRow>,
+    stations: Vec<StationRow>,
+    input: &str,
+) -> Vec<(String, StationRow)> {
+    let stored = StoredImplementation {
+        row: implementation_row(),
+        phases,
+        stations,
+        changes: Vec::new(),
+    };
+    let view = build_view(
+        &stored,
+        &HashMap::new(),
+        &HashMap::new(),
+        &HashMap::new(),
+        &types(),
+    );
+    let removed: Vec<&PhaseView> = view
+        .phases
+        .iter()
+        .filter(|phase: &&PhaseView| !changes::is_begun(phase))
+        .collect();
+    let inputs: Vec<PhaseInput> = serde_json::from_str(input).expect("Eingabe lesbar");
+    assert_eq!(validate(&inputs), Ok(()));
+    let (phases, stations) =
+        changes::replacement_rows(&view.id, &inputs, &removed, &stored.stations);
+    stations
+        .into_iter()
+        .map(|station: StationRow| {
+            let key = phases
+                .iter()
+                .find(|phase: &&PhaseRow| phase.id == station.phase_id)
+                .map(|phase: &PhaseRow| phase.key.clone())
+                .unwrap_or_default();
+            (key, station)
+        })
+        .collect()
+}
+
+#[test]
+fn plan_change_keeps_edited_settings_where_the_input_is_silent() {
+    let changed = plan_change(
+        vec![phase_row()],
+        vec![edited(planned("build", 0, "Umsetzung"))],
+        r#"[{"key":"1","title":"Phase","stations":[{"stage":"Umsetzung","brief":"Baue neu."}]}]"#,
+    );
+    let [(key, kept)] = &changed[..] else {
+        panic!("Erwartet: eine Station");
+    };
+    assert_eq!(key, "1");
+    assert_eq!(
+        five(kept),
+        (
+            Some("developer"),
+            Some(ModelId::Opus),
+            Some(Effort::Max),
+            Some("Baue sauber."),
+            Some("build")
+        )
+    );
+    assert!(kept.edited, "die Station trägt deine Einstellungen weiter");
+    assert_eq!(kept.brief, "Baue neu.", "der Auftrag kommt vom Planer");
+}
+
+#[test]
+fn plan_change_takes_the_planners_value_over_the_edited_one() {
+    let changed = plan_change(
+        vec![phase_row()],
+        vec![edited(planned("build", 0, "Umsetzung"))],
+        r#"[{"key":"1","title":"Phase","stations":[{"stage":"Umsetzung","agent":"reviewer",
+            "model":"sonnet","effort":"low","prompt":"Nur das Nötige."}]}]"#,
+    );
+    let [(_, station)] = &changed[..] else {
+        panic!("Erwartet: eine Station");
+    };
+    assert_eq!(
+        five(station),
+        (
+            Some("reviewer"),
+            Some(ModelId::Sonnet),
+            Some(Effort::Low),
+            Some("Nur das Nötige."),
+            Some("build")
+        ),
+        "was der Planer nennt, gilt; den Skill nennt er nicht"
+    );
+    assert!(station.edited);
+}
+
+#[test]
+fn plan_change_does_not_keep_settings_of_unedited_stations() {
+    let changed = plan_change(
+        vec![phase_row()],
+        vec![planned("build", 0, "Umsetzung")],
+        r#"[{"key":"1","title":"Phase","stations":[{"stage":"Umsetzung"}]}]"#,
+    );
+    let [(_, station)] = &changed[..] else {
+        panic!("Erwartet: eine Station");
+    };
+    assert_eq!(five(station), (None, None, None, None, None));
+    assert!(!station.edited);
+}
+
+/// Phasenschlüssel, Stufe, Typ, Denkaufwand und Marke `edited` einer neuen Station.
+type Seen<'a> = (&'a str, &'a str, Option<&'a str>, Option<Effort>, bool);
+
+#[test]
+fn plan_change_matches_by_phase_key_stage_and_running_number() {
+    let critical = |id: &str, position: u32, effort: Effort| {
+        let mut review = station_row(id, position, "Review");
+        review.effort = Some(effort);
+        in_phase(edited(review), "1")
+    };
+    let mut renamed = station_row("critic", 0, "Review");
+    renamed.agent = Some("reviewer".to_owned());
+    let stations = vec![
+        in_phase(planned("build", 0, "Umsetzung"), "1"),
+        critical("first", 1, Effort::Max),
+        critical("second", 2, Effort::Low),
+        in_phase(edited(renamed), "2"),
+    ];
+    let changed = plan_change(
+        vec![phase_keyed("1", 0), phase_keyed("2", 1)],
+        stations,
+        r#"[{"key":"2","title":"Vorgezogen","stations":[{"stage":"review"},{"stage":"Review"}]},
+            {"key":"1","title":"Eins","stations":[{"stage":"Review"},{"stage":"Umsetzung"},
+                {"stage":"Review"},{"stage":"Review"}]},
+            {"key":"3","title":"Neu","stations":[{"stage":"Review"}]}]"#,
+    );
+    let seen: Vec<Seen<'_>> = changed
+        .iter()
+        .map(|(key, station): &(String, StationRow)| {
+            (
+                key.as_str(),
+                station.stage.as_str(),
+                station.agent.as_deref(),
+                station.effort,
+                station.edited,
+            )
+        })
+        .collect();
+    assert_eq!(
+        seen,
+        vec![
+            ("2", "review", None, None, false),
+            ("2", "Review", Some("reviewer"), None, true),
+            ("1", "Review", None, Some(Effort::Max), true),
+            ("1", "Umsetzung", None, None, false),
+            ("1", "Review", None, Some(Effort::Low), true),
+            ("1", "Review", None, None, false),
+            ("3", "Review", None, None, false),
+        ]
+    );
+}
+
+fn tool(name: &str) -> ToolSpec {
+    tools::ImplementationTools
+        .tools()
+        .into_iter()
+        .find(|spec: &ToolSpec| spec.name == name)
+        .expect("Werkzeug vorhanden")
+}
+
+#[test]
+fn tool_schema_lists_agent_effort_and_prompt() {
+    for name in ["implementation_create", "implementation_set_phases"] {
+        let spec = tool(name);
+        let station =
+            &spec.input_schema["properties"]["phases"]["items"]["properties"]["stations"]["items"];
+        let fields = &station["properties"];
+        assert_eq!(
+            (
+                &fields["agent"]["type"],
+                &fields["agent"]["minLength"],
+                &fields["agent"]["maxLength"]
+            ),
+            (&json!("string"), &json!(1), &json!(40)),
+            "{name}"
+        );
+        assert_eq!(
+            fields["effort"]["enum"],
+            json!(["low", "medium", "high", "xhigh", "max"]),
+            "{name}"
+        );
+        assert_eq!(
+            (&fields["prompt"]["type"], &fields["prompt"]["maxLength"]),
+            (&json!("string"), &json!(4000)),
+            "{name}"
+        );
+        assert_eq!(
+            fields["prompt"]["description"],
+            "Zusatztext zum Systemprompt dieser Station; steht hinter dem Text des Typs"
+        );
+        assert_eq!(
+            station["additionalProperties"],
+            json!(false),
+            "{name}: ein Tippfehler im Feldnamen scheitert am Schema"
+        );
+        for field in ["model", "effort", "prompt", "skill"] {
+            let description = fields[field]["description"].as_str().unwrap_or_default();
+            assert!(
+                description.contains("Typ"),
+                "{name}.{field} nennt die Abweichung vom Typ: {description}"
+            );
+        }
+    }
+    let agent_types = tool("implementation_agent_types");
+    assert_eq!(
+        agent_types.input_schema,
+        json!({ "type": "object", "properties": {}, "additionalProperties": false })
+    );
+    assert!(agent_types.description.starts_with(
+        "Liest die Agententypen aus den Einstellungen: Name, Beschreibung, Stationsnamen, Modell, \
+         Denkaufwand und Skills, nie den Prompt-Text."
+    ));
+}
+
+#[test]
+fn agent_types_tool_never_returns_prompt_or_files() {
+    let mut reviewer = agent_type(
+        "reviewer",
+        &["Review"],
+        Some((ModelId::Sonnet, Effort::High)),
+    );
+    reviewer.prompt = "GEHEIMER ROLLENTEXT".to_owned();
+    reviewer.files = vec!["~/rollen/geheim.md".to_owned()];
+    reviewer.skills = vec!["review".to_owned()];
+    let standard = agent_type("tester", &["Test"], None);
+    let ToolResult::Ok {
+        text,
+        structured: Some(structured),
+    } = tools::agent_types_answer(&[reviewer, standard])
+    else {
+        panic!("Erwartet: die Liste als Ergebnis");
+    };
+    assert_eq!(
+        serde_json::from_str::<Value>(&text).expect("Text ist JSON"),
+        structured,
+        "Text und structuredContent sind gleich"
+    );
+    assert_eq!(
+        structured,
+        json!({ "agentTypes": [
+            { "name": "reviewer", "description": "Beschreibung von reviewer", "stages": ["Review"],
+              "model": "sonnet", "effort": "high", "skills": ["review"] },
+            { "name": "tester", "description": "Beschreibung von tester", "stages": ["Test"],
+              "model": null, "effort": null, "skills": [] },
+        ] })
+    );
+    for secret in ["GEHEIM", "geheim.md", "\"prompt\"", "\"files\""] {
+        assert!(!text.contains(secret), "{secret} steht im Text");
+    }
+    let ToolResult::Ok { text: empty, .. } = tools::agent_types_answer(&[]) else {
+        panic!("Erwartet: eine leere Liste");
+    };
+    assert_eq!(empty, r#"{"agentTypes":[]}"#);
+}
+
+#[test]
+fn agent_types_tool_is_allowed_in_side_questions() {
+    assert!(tools::side_may_call("implementation_agent_types"));
+    assert!(tools::side_may_call("implementation_get"));
+    for writing in [
+        "implementation_create",
+        "implementation_set_phases",
+        "implementation_describe_phase",
+        "implementation_complete_station",
+    ] {
+        assert!(
+            !tools::side_may_call(writing),
+            "{writing} bleibt der Nebenfrage verboten"
+        );
+    }
+}
+
+#[test]
+fn agent_types_tool_is_marked_read_only_so_plan_mode_may_call_it() {
+    let set = tools::ImplementationTools;
+    assert!(set.is_read_only("implementation_agent_types"));
+    for writing in [
+        "implementation_create",
+        "implementation_set_phases",
+        "implementation_describe_phase",
+        "implementation_complete_station",
+    ] {
+        assert!(!set.is_read_only(writing), "{writing} schreibt");
+    }
 }

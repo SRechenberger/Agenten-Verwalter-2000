@@ -3,7 +3,9 @@ use std::sync::Arc;
 use tauri::AppHandle;
 
 use crate::error::CommandError;
-use crate::implementation::model::{ImplementationView, InquiryCreated, PhaseView, StationView};
+use crate::implementation::model::{
+    ImplementationView, InquiryCreated, PhaseView, StationSettings, StationView,
+};
 use crate::implementation::{self, announce, changes, now_ms, start};
 use crate::remote::client::RemoteClients;
 use crate::remote::guest;
@@ -103,6 +105,18 @@ pub async fn implementation_start_station(
     station_id: String,
 ) -> Result<(), CommandError> {
     start::start_now(&app, &id, &station_id)
+}
+
+/// „Einstellungen“ einer Station ohne Session (ADR 060): ersetzt Typ, Modell, Denkaufwand,
+/// Zusatztext und Skill auf einmal; die Prüfung liegt im Core.
+#[tauri::command]
+pub async fn implementation_set_station_agent(
+    app: AppHandle,
+    id: String,
+    station_id: String,
+    settings: StationSettings,
+) -> Result<(), CommandError> {
+    implementation::set_station_agent(&app, &id, &station_id, &settings)
 }
 
 /// „Abbrechen“: der Countdown endet, die Station bleibt bereit.

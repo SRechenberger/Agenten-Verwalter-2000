@@ -147,6 +147,7 @@ const TABLE: &[(Class, Option<IdKind>, &[&str])] = &[
             "implementation_set_auto_start",
             "implementation_set_stop_after_current",
             "implementation_start_station",
+            "implementation_set_station_agent",
             "implementation_cancel_countdown",
             "implementation_apply_change",
             "implementation_complete_station",

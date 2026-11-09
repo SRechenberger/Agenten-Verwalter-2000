@@ -14,7 +14,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use tauri::{AppHandle, Emitter, Manager};
 
-use crate::agent_types::{self, Resolved, StationValues, model::AgentType};
+use crate::agent_types::{self, Resolved, StationValues, UnknownAgent, model::AgentType};
 use crate::agents::event::{Effort, ModelId};
 use crate::db::implementations::{
     ChangeRow, ImplementationRow, PhaseRow, StationRow, StoredImplementation,
@@ -23,8 +23,9 @@ use crate::error::CommandError;
 use crate::sessions::model::SessionStatus;
 use crate::sessions::registry::SessionRegistry;
 use model::{
-    ChangeSummary, ChangeView, ImplementationChangedEvent, ImplementationView, PendingChange,
-    PhaseInput, PhaseView, StationState, StationView,
+    ChangeSummary, ChangeView, ImplementationChangedEvent, ImplementationView, MAX_PROMPT_CHARS,
+    MAX_SKILL_CHARS, PendingChange, PhaseInput, PhaseView, StationSettings, StationState,
+    StationView, check_length,
 };
 
 pub const IMPLEMENTATION_CHANGED_EVENT: &str = "implementation://changed";
@@ -48,6 +49,9 @@ const MAX_FIX_ROUNDS: usize = 2;
 const FIX_BRIEF: &str = "Behebe die Befunde der vorigen Review-Station (siehe Vorgänger).";
 const FIX_LIMIT_HINT: &str = "Zwei Fix-Runden sind durch; frag den Benutzer (🔴).";
 const NOT_IN_IMPLEMENTATION: &str = "Diese Station gehört nicht zur Umsetzung.";
+/// Session vorhanden oder fertig gemeldet: Ihre Einstellungen gelten nicht mehr.
+pub const STATION_BEGUN: &str = "Die Station hat schon begonnen.";
+const STATION_OF_USER: &str = "Diese Station erledigst du selbst.";
 
 /// Countdowns und Startsperren der Stationen; liegt in der `SessionRegistry` (eigene Sperre, nie
 /// zusammen mit einer anderen gehalten).
@@ -260,6 +264,74 @@ pub fn station_in<'a>(
 ) -> Result<(&'a PhaseView, &'a StationView), CommandError> {
     find_station(view, station_id)
         .ok_or_else(|| CommandError::Implementation(NOT_IN_IMPLEMENTATION.to_owned()))
+}
+
+/// „Einstellungen“ einer Station (ADR 060): ersetzt Typ, Modell, Denkaufwand, Zusatztext und Skill
+/// auf einmal, setzt die Marke `edited` und meldet die Ansicht. Wirkt auf keine Session und startet
+/// nichts; ein laufender Countdown bleibt, denn der Start liest die Station erst beim Auslösen.
+pub fn set_station_agent(
+    app: &AppHandle,
+    implementation_id: &str,
+    station_id: &str,
+    settings: &StationSettings,
+) -> Result<(), CommandError> {
+    let registry = app.state::<SessionRegistry>();
+    let view = registry.implementation_view(implementation_id)?;
+    let checked = checked_settings(&view, station_id, settings, &registry.agent_types()?)?;
+    registry.store_station_settings(station_id, &checked)?;
+    announce(app, &registry.implementation_view(implementation_id)?);
+    Ok(())
+}
+
+/// Prüft die Einstellungen für die Station und gibt sie so zurück, wie sie gespeichert werden: Typ
+/// und Zusatztext getrimmt, ein leerer Zusatztext ist keiner, der Skill ohne führenden „/“.
+pub fn checked_settings(
+    view: &ImplementationView,
+    station_id: &str,
+    settings: &StationSettings,
+    types: &[AgentType],
+) -> Result<StationSettings, CommandError> {
+    let (_, station) = station_in(view, station_id)?;
+    if station.session_id.is_some() || station.completed_at.is_some() {
+        return Err(CommandError::Implementation(STATION_BEGUN.to_owned()));
+    }
+    if station.by_user {
+        return Err(CommandError::Implementation(STATION_OF_USER.to_owned()));
+    }
+    let agent = settings.agent.as_deref().map(str::trim);
+    if agent.is_some() {
+        let values = StationValues {
+            stage: &station.stage,
+            agent,
+            model: None,
+            effort: None,
+        };
+        agent_types::resolve(types, &values)
+            .map_err(|unknown: UnknownAgent| CommandError::Implementation(unknown.to_string()))?;
+    }
+    if let Some(prompt) = &settings.prompt {
+        check_length("prompt", prompt, 0, MAX_PROMPT_CHARS)
+            .map_err(CommandError::Implementation)?;
+    }
+    let skill = settings
+        .skill
+        .as_deref()
+        .map(|skill: &str| skill.trim().trim_start_matches('/'));
+    if let Some(skill) = skill {
+        check_length("skill", skill, 1, MAX_SKILL_CHARS).map_err(CommandError::Implementation)?;
+    }
+    Ok(StationSettings {
+        agent: agent.map(str::to_owned),
+        model: settings.model,
+        effort: settings.effort,
+        prompt: settings
+            .prompt
+            .as_deref()
+            .map(str::trim)
+            .filter(|prompt: &&str| !prompt.is_empty())
+            .map(str::to_owned),
+        skill: skill.map(str::to_owned),
+    })
 }
 
 fn fix_rounds(phase: &PhaseView) -> usize {

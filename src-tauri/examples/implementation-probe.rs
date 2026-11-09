@@ -6,13 +6,19 @@
 //! bzw. `… -- <Datenbank-Kopie> complete <Umsetzungs-ID> <Station-ID> "<Ergebnis>" [--fix]`
 //! (meldet die Station fertig, ohne etwas zu starten, und druckt, welche Stationen danach starten
 //! dürfen).
-//! bzw. `… -- <Datenbank-Kopie> set-phases <Umsetzungs-ID> <JSON-Datei>` (druckt die Unterschiede
-//! eines Vorschlags `{ "phases": [...] }`, schreibt nichts).
+//! bzw. `… -- <Datenbank-Kopie> set-phases <Umsetzungs-ID> <JSON-Datei> [--apply]` (druckt die
+//! Unterschiede eines Vorschlags `{ "phases": [...] }`; mit `--apply` ersetzt er die kommenden Phasen
+//! wie „Übernehmen“, ohne Marken und ohne Vermerk, und behält dabei die Einstellungen der Stationen,
+//! die auf der Karte angepasst sind).
+//! bzw. `… -- <Datenbank-Kopie> set-station <Umsetzungs-ID> <Station-ID> <JSON-Datei>` (setzt die
+//! Einstellungen einer Station wie `implementation_set_station_agent`: die JSON-Datei nennt `agent`,
+//! `model`, `effort`, `prompt` und `skill`, `null` löscht eine Abweichung).
 //! Die JSON-Datei hat die Form der Eingabe von `implementation_create` (`name`, `source`, `phases`),
 //! je Station auch `agent`, `effort` und `prompt` (ADR 060); `agent` wird wie in der App gegen die
 //! Agententypen der Datenbank geprüft.
 //! Druckt den Lagebericht und je Station Typ, Modell und Denkaufwand samt Herkunft, die Länge des
-//! Zusatztexts und einen Startfehler; Stationen gelten als nicht gestartet, weil keine Session läuft.
+//! Zusatztexts, einen Startfehler und ob sie auf der Karte angepasst ist; Stationen gelten als nicht
+//! gestartet, weil keine Session läuft.
 //! Fehler als `FEHLER: <Satz>`.
 use std::collections::HashMap;
 use std::env;
@@ -24,20 +30,23 @@ use serde::Deserialize;
 use verwalter_lib::agent_types::{self, model::AgentType, model::AgentValueSource};
 use verwalter_lib::db::Database;
 use verwalter_lib::db::agent_types as agent_type_rows;
-use verwalter_lib::db::implementations::{self, StoredImplementation};
+use verwalter_lib::db::implementations::{self, StationRow, StoredImplementation};
 use verwalter_lib::db::sessions::{self, SessionRow};
 use verwalter_lib::error::CommandError;
 use verwalter_lib::file_links::LinkRoots;
-use verwalter_lib::implementation::model::{ImplementationView, StationState};
+use verwalter_lib::implementation::model::{
+    ImplementationView, PhaseView, StationSettings, StationState,
+};
 use verwalter_lib::implementation::model::{
     MAX_NAME_CHARS, MAX_SOURCE_CHARS, PhaseInput, check_agents, check_length, validate,
 };
 use verwalter_lib::implementation::report::Extras;
 use verwalter_lib::implementation::{
-    build_view, changes, new_rows, now_ms, plan_completion_with_types, report,
+    STATION_BEGUN, build_view, changes, checked_settings, new_rows, now_ms,
+    plan_completion_with_types, report,
 };
 
-const USAGE: &str = "Aufruf: implementation-probe <Datenbank-Kopie> create <Session-ID> <JSON-Datei> | show <Umsetzungs-ID> | report <Umsetzungs-ID> | complete <Umsetzungs-ID> <Station-ID> \"<Ergebnis>\" [--fix] | set-phases <Umsetzungs-ID> <JSON-Datei>";
+const USAGE: &str = "Aufruf: implementation-probe <Datenbank-Kopie> create <Session-ID> <JSON-Datei> | show <Umsetzungs-ID> | report <Umsetzungs-ID> | complete <Umsetzungs-ID> <Station-ID> \"<Ergebnis>\" [--fix] | set-phases <Umsetzungs-ID> <JSON-Datei> [--apply] | set-station <Umsetzungs-ID> <Station-ID> <JSON-Datei>";
 
 #[derive(Deserialize)]
 struct CreateInput {
@@ -98,7 +107,27 @@ fn main() -> ExitCode {
             inquiry_report(&database_path, implementation_id)
         }
         (Some("set-phases"), Some(implementation_id), Some(json_file)) => {
-            set_phases(&database_path, implementation_id, Path::new(json_file))
+            let is_applied: bool = arguments
+                .get(4)
+                .is_some_and(|flag: &String| flag == "--apply");
+            set_phases(
+                &database_path,
+                implementation_id,
+                Path::new(json_file),
+                is_applied,
+            )
+        }
+        (Some("set-station"), Some(implementation_id), Some(station_id)) => {
+            let Some(json_file) = arguments.get(4) else {
+                eprintln!("{USAGE}");
+                return ExitCode::from(2);
+            };
+            set_station(
+                &database_path,
+                implementation_id,
+                station_id,
+                Path::new(json_file),
+            )
         }
         _ => {
             eprintln!("{USAGE}");
@@ -226,8 +255,9 @@ fn types_of(database: &Database) -> Result<Vec<AgentType>, String> {
     agent_types::list(database).map_err(|error| error.to_string())
 }
 
-/// Je Station Typ, Modell und Denkaufwand, wie die Ansicht sie vor dem Start auflöst (ADR 060).
-fn agent_lines(view: &ImplementationView) -> String {
+/// Je Station Typ, Modell und Denkaufwand, wie die Ansicht sie vor dem Start auflöst, und ob sie
+/// auf der Karte angepasst ist (ADR 060).
+fn agent_lines(view: &ImplementationView, rows: &[StationRow]) -> String {
     let source = |from: Option<AgentValueSource>| match from {
         Some(AgentValueSource::Station) => "Station",
         Some(AgentValueSource::Type) => "Typ",
@@ -254,9 +284,22 @@ fn agent_lines(view: &ImplementationView) -> String {
                 .as_deref()
                 .map(|error: &str| format!(" · Startfehler: {error}"))
                 .unwrap_or_default();
+            let skill = station
+                .skill
+                .as_deref()
+                .map(|skill: &str| format!(" · Skill {skill}"))
+                .unwrap_or_default();
+            let edited = if rows
+                .iter()
+                .any(|row: &StationRow| row.id == station.id && row.edited)
+            {
+                " · auf der Karte angepasst"
+            } else {
+                ""
+            };
             lines.push(format!(
                 "  Phase {} · {}: {field}Typ {} · Modell {model} ({}) · Denkaufwand {effort} ({}) · \
-                 Zusatztext {prompt} Zeichen{error}",
+                 Zusatztext {prompt} Zeichen{skill}{error}{edited}",
                 phase.key,
                 station.stage,
                 station.agent_type.as_deref().unwrap_or("keiner"),
@@ -268,11 +311,13 @@ fn agent_lines(view: &ImplementationView) -> String {
     lines.join("\n")
 }
 
-/// Druckt die Unterschiede eines Vorschlags, ohne etwas zu schreiben.
+/// Druckt die Unterschiede eines Vorschlags; mit `is_applied` ersetzt er die kommenden Phasen wie
+/// „Übernehmen“ (dieselbe Rechnung wie `changes::apply`, ohne Marken und ohne Vermerk).
 fn set_phases(
     database_path: &Path,
     implementation_id: &str,
     json_file: &Path,
+    is_applied: bool,
 ) -> Result<String, String> {
     let json = fs::read_to_string(json_file)
         .map_err(|error| format!("{} nicht lesbar: {error}", json_file.display()))?;
@@ -287,14 +332,85 @@ fn set_phases(
     } else {
         "gälte sofort (noch keine Station gestartet)"
     };
-    Ok(format!(
+    let text = format!(
         "Neu: {}\nVorgezogen: {}\nEntfallen: {}\nStationen {} → {}\nWirkung: {effect}",
         list_or_nothing(&summary.added),
         list_or_nothing(&summary.moved),
         list_or_nothing(&summary.removed),
         view.stations_total,
         stations_after(&view, &input.phases),
+    );
+    if !is_applied {
+        return Ok(text);
+    }
+    check_agents(&input.phases, &types_of(&database)?)?;
+    let removed: Vec<&PhaseView> = view
+        .phases
+        .iter()
+        .filter(|phase: &&PhaseView| !changes::is_begun(phase))
+        .collect();
+    let removed_ids: Vec<String> = removed
+        .iter()
+        .map(|phase: &&PhaseView| phase.id.clone())
+        .collect();
+    let (phases, stations) = changes::replacement_rows(
+        &view.id,
+        &input.phases,
+        &removed,
+        &rows_of(&database, &view.id)?,
+    );
+    database
+        .with(|connection| {
+            implementations::replace_upcoming_phases(
+                connection,
+                &view.id,
+                &removed_ids,
+                &phases,
+                &stations,
+                None,
+            )
+        })
+        .map_err(|error| error.to_string())?;
+    Ok(format!(
+        "{text}\nÜbernommen.\n\n{}",
+        report_of(&database, implementation_id)?
     ))
+}
+
+/// Setzt die Einstellungen einer Station wie `implementation_set_station_agent`: dieselbe Prüfung,
+/// dasselbe Schreiben samt Marke `edited`, ohne Ereignis.
+fn set_station(
+    database_path: &Path,
+    implementation_id: &str,
+    station_id: &str,
+    json_file: &Path,
+) -> Result<String, String> {
+    let json = fs::read_to_string(json_file)
+        .map_err(|error| format!("{} nicht lesbar: {error}", json_file.display()))?;
+    let settings: StationSettings =
+        serde_json::from_str(&json).map_err(|error| format!("Eingabe nicht lesbar: {error}"))?;
+    let database = Database::open(database_path).map_err(|error| error.to_string())?;
+    let view = view_of(&database, implementation_id)?;
+    let checked = checked_settings(&view, station_id, &settings, &types_of(&database)?)
+        .map_err(|error| error.to_string())?;
+    let is_written = database
+        .with(|connection| implementations::set_station_settings(connection, station_id, &checked))
+        .map_err(|error| error.to_string())?;
+    if !is_written {
+        return Err(STATION_BEGUN.to_owned());
+    }
+    Ok(format!(
+        "Einstellungen gesetzt.\n\n{}",
+        report_of(&database, implementation_id)?
+    ))
+}
+
+fn rows_of(database: &Database, implementation_id: &str) -> Result<Vec<StationRow>, String> {
+    Ok(database
+        .with(|connection| implementations::load(connection, implementation_id))
+        .map_err(|error| error.to_string())?
+        .map(|stored: StoredImplementation| stored.stations)
+        .unwrap_or_default())
 }
 
 fn list_or_nothing(keys: &[String]) -> String {
@@ -359,7 +475,7 @@ fn report_of(database: &Database, implementation_id: &str) -> Result<String, Str
     Ok(format!(
         "{}\n\n{}",
         report::text(&view, now_ms(), false),
-        agent_lines(&view)
+        agent_lines(&view, &rows_of(database, implementation_id)?)
     ))
 }
 
