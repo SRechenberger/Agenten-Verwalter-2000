@@ -14,7 +14,8 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use tauri::{AppHandle, Emitter, Manager};
 
-use crate::agents::event::ModelId;
+use crate::agent_types::{self, Resolved, StationValues, model::AgentType};
+use crate::agents::event::{Effort, ModelId};
 use crate::db::implementations::{
     ChangeRow, ImplementationRow, PhaseRow, StationRow, StoredImplementation,
 };
@@ -168,8 +169,9 @@ pub fn complete_station(
 ) -> Result<CompleteOutcome, CommandError> {
     let registry = app.state::<SessionRegistry>();
     let view = registry.implementation_view(implementation_id)?;
-    let (followups, hint) =
-        plan_completion(&view, station_id, fix_needed).map_err(CommandError::Implementation)?;
+    let types = registry.agent_types()?;
+    let (followups, hint) = plan_completion_with_types(&view, station_id, fix_needed, &types)
+        .map_err(CommandError::Implementation)?;
     registry.store_station_completion(station_id, result.trim(), &followups)?;
     let mut outcome = after_completion(app, &registry, implementation_id)?;
     outcome.hint = hint;
@@ -177,11 +179,22 @@ pub fn complete_station(
 }
 
 /// Prüft die Fertigmeldung und liefert die Stationen, die dahinter einzuhängen sind (Fix-Runde und
-/// zweites Review), sowie den Hinweis an den Agenten, wenn die Fix-Runden erschöpft sind.
+/// zweites Review), sowie den Hinweis an den Agenten, wenn die Fix-Runden erschöpft sind. Ohne
+/// Agententypen; der Betrieb ruft `plan_completion_with_types`.
 pub fn plan_completion(
     view: &ImplementationView,
     station_id: &str,
     fix_needed: bool,
+) -> Result<(Vec<StationRow>, Option<String>), String> {
+    plan_completion_with_types(view, station_id, fix_needed, &[])
+}
+
+/// Wie `plan_completion`; führt ein Typ die Fix-Runde, schlägt er den Rückfall (ADR 060).
+pub fn plan_completion_with_types(
+    view: &ImplementationView,
+    station_id: &str,
+    fix_needed: bool,
+    types: &[AgentType],
 ) -> Result<(Vec<StationRow>, Option<String>), String> {
     let (phase, station) =
         find_station(view, station_id).ok_or_else(|| NOT_IN_IMPLEMENTATION.to_owned())?;
@@ -192,7 +205,7 @@ pub fn plan_completion(
         return Ok((Vec::new(), None));
     }
     if fix_rounds(phase) < MAX_FIX_ROUNDS {
-        return Ok((fix_stations(phase, station), None));
+        return Ok((fix_stations(phase, station, types), None));
     }
     Ok((Vec::new(), Some(FIX_LIMIT_HINT.to_owned())))
 }
@@ -257,10 +270,37 @@ fn fix_rounds(phase: &PhaseView) -> usize {
         .count()
 }
 
-/// Fix-Runde (Modell und Skill der letzten Umsetzungs-Station der Phase, sonst der letzten
-/// Abschluss-Station, sonst `implement` auf Sonnet) und danach noch einmal die Stufe der meldenden
-/// Station.
-fn fix_stations(phase: &PhaseView, reporting: &StationView) -> Vec<StationRow> {
+/// Was eine eingehängte Station von ihrer Vorlage übernimmt.
+#[derive(Default)]
+struct Carried {
+    model: Option<ModelId>,
+    skill: Option<String>,
+    agent: Option<String>,
+    effort: Option<Effort>,
+    prompt: Option<String>,
+}
+
+impl Carried {
+    fn of(station: &StationView) -> Carried {
+        Carried {
+            model: station.model,
+            skill: station.skill.clone(),
+            agent: station.agent.clone(),
+            effort: station.effort,
+            prompt: station.prompt.clone(),
+        }
+    }
+}
+
+/// Fix-Runde (Modell, Skill, Typ, Denkaufwand und Zusatztext der letzten Umsetzungs-Station der
+/// Phase, sonst der letzten Abschluss-Station, sonst `implement` auf Sonnet, außer ein Typ führt die
+/// Fix-Runde) und danach noch einmal die Stufe der meldenden Station mit ihren Werten: Ein
+/// kritisches Review bleibt kritisch.
+fn fix_stations(
+    phase: &PhaseView,
+    reporting: &StationView,
+    types: &[AgentType],
+) -> Vec<StationRow> {
     let last_of = |stage: &str| {
         phase
             .stations
@@ -268,41 +308,50 @@ fn fix_stations(phase: &PhaseView, reporting: &StationView) -> Vec<StationRow> {
             .rev()
             .find(|station: &&StationView| station.stage == stage)
     };
-    let (fix_model, fix_skill): (Option<ModelId>, Option<String>) =
-        match last_of(BUILD_STAGE).or_else(|| last_of(CLOSING_STAGE)) {
-            Some(source) => (source.model, source.skill.clone()),
-            None => (
-                Some(FALLBACK_FIX_MODEL),
-                Some(FALLBACK_FIX_SKILL.to_owned()),
-            ),
-        };
-    let row =
-        |stage: String, model: Option<ModelId>, skill: Option<String>, brief: String| StationRow {
-            id: uuid::Uuid::new_v4().to_string(),
-            phase_id: phase.id.clone(),
-            position: 0,
-            stage,
-            model,
-            by_user: false,
-            skill,
-            brief,
-            session_id: None,
-            started_at: None,
-            completed_at: None,
-            result: None,
-        };
+    let fix_values = StationValues {
+        stage: FIX_STAGE,
+        agent: None,
+        model: None,
+        effort: None,
+    };
+    let is_fix_stage_typed = agent_types::resolve(types, &fix_values)
+        .is_ok_and(|resolved: Resolved<'_>| resolved.agent_type.is_some());
+    let fix_carried = match last_of(BUILD_STAGE).or_else(|| last_of(CLOSING_STAGE)) {
+        Some(source) => Carried::of(source),
+        // Der Rückfall gilt nur ohne Typ: Den Rest bestimmt der Typ beim Start.
+        None if is_fix_stage_typed => Carried::default(),
+        None => Carried {
+            model: Some(FALLBACK_FIX_MODEL),
+            skill: Some(FALLBACK_FIX_SKILL.to_owned()),
+            ..Carried::default()
+        },
+    };
+    let row = |stage: String, brief: String, carried: Carried| StationRow {
+        id: uuid::Uuid::new_v4().to_string(),
+        phase_id: phase.id.clone(),
+        position: 0,
+        stage,
+        model: carried.model,
+        by_user: false,
+        skill: carried.skill,
+        brief,
+        session_id: None,
+        started_at: None,
+        completed_at: None,
+        result: None,
+        agent: carried.agent,
+        agent_used: None,
+        effort: carried.effort,
+        prompt: carried.prompt,
+        start_error: None,
+        edited: false,
+    };
     vec![
-        row(
-            FIX_STAGE.to_owned(),
-            fix_model,
-            fix_skill,
-            FIX_BRIEF.to_owned(),
-        ),
+        row(FIX_STAGE.to_owned(), FIX_BRIEF.to_owned(), fix_carried),
         row(
             reporting.stage.clone(),
-            reporting.model,
-            reporting.skill.clone(),
             reporting.brief.clone(),
+            Carried::of(reporting),
         ),
     ]
 }
@@ -325,12 +374,13 @@ pub struct SessionLive {
 
 /// Baut die Ansicht aus den Zeilen. `live` enthält die Sessions der Stationen, `numbers` die
 /// Nummern aller Sessions des Vorhabens (für Plan-Änderungen), `countdowns` das Ende der laufenden
-/// Countdowns je Station.
+/// Countdowns je Station, `types` die Agententypen für die Auflösung vor dem Start.
 pub fn build_view(
     stored: &StoredImplementation,
     live: &HashMap<String, SessionLive>,
     numbers: &HashMap<String, u32>,
     countdowns: &HashMap<String, f64>,
+    types: &[AgentType],
 ) -> ImplementationView {
     let row = &stored.row;
     let mut phases: Vec<PhaseView> = stored
@@ -347,7 +397,7 @@ pub fn build_view(
                 .stations
                 .iter()
                 .filter(|station: &&StationRow| station.phase_id == phase.id)
-                .map(|station: &StationRow| station_view(station, live))
+                .map(|station: &StationRow| station_view(station, live, types))
                 .collect(),
         })
         .collect();
@@ -415,11 +465,39 @@ pub fn build_view(
     }
 }
 
-fn station_view(station: &StationRow, live: &HashMap<String, SessionLive>) -> StationView {
+fn station_view(
+    station: &StationRow,
+    live: &HashMap<String, SessionLive>,
+    types: &[AgentType],
+) -> StationView {
     let session = station
         .session_id
         .as_ref()
         .and_then(|session_id: &String| live.get(session_id));
+    let values = StationValues {
+        stage: &station.stage,
+        agent: station.agent.as_deref(),
+        model: station.model,
+        effort: station.effort,
+    };
+    // Vor dem Start die Auflösung; nennt die Station einen unbekannten Typ, nur ihre eigenen Werte
+    // (ihr Start scheitert). Nach dem Start gilt der gespeicherte Typ, eine Station des Benutzers
+    // läuft nie als Typ.
+    let resolved: Option<Resolved<'_>> = if station.session_id.is_some() || station.by_user {
+        None
+    } else {
+        agent_types::resolve(types, &values)
+            .or_else(|_| {
+                agent_types::resolve(
+                    &[],
+                    &StationValues {
+                        agent: None,
+                        ..values
+                    },
+                )
+            })
+            .ok()
+    };
     let state = if station.completed_at.is_some() {
         StationState::Done
     } else {
@@ -446,6 +524,20 @@ fn station_view(station: &StationRow, live: &HashMap<String, SessionLive>) -> St
             .filter(|_| state == StationState::Asking)
             .and_then(|session: &SessionLive| session.question.clone()),
         running_ms: session.map_or(0.0, |session: &SessionLive| session.running_ms),
+        agent: station.agent.clone(),
+        effort: station.effort,
+        prompt: station.prompt.clone(),
+        agent_type: match &resolved {
+            Some(resolved) => resolved
+                .agent_type
+                .map(|agent_type: &AgentType| agent_type.name.clone()),
+            None => station.agent_used.clone(),
+        },
+        agent_model: resolved.and_then(|resolved: Resolved<'_>| resolved.model),
+        agent_model_from: resolved.and_then(|resolved: Resolved<'_>| resolved.model_from),
+        agent_effort: resolved.and_then(|resolved: Resolved<'_>| resolved.effort),
+        agent_effort_from: resolved.and_then(|resolved: Resolved<'_>| resolved.effort_from),
+        start_error: station.start_error.clone(),
     }
 }
 
@@ -462,9 +554,9 @@ fn state_of(status: SessionStatus, awaits_script: bool) -> StationState {
     }
 }
 
-/// Stationen ohne Session, die starten dürfen: eine Station des Benutzers wartet auf ihn, eine des
-/// Agenten zählt herunter oder ist bereit (▶). Nach einem App-Neustart läuft kein Countdown mehr;
-/// die Station ist dann bereit.
+/// Stationen ohne Session, die an der Reihe sind: eine Station des Benutzers wartet auf ihn, eine des
+/// Agenten zählt herunter oder ist bereit (▶), auch mit Startfehler. Nach einem App-Neustart läuft
+/// kein Countdown mehr; die Station ist dann bereit.
 fn settle_waiting(phases: &mut [PhaseView], countdowns: &HashMap<String, f64>) {
     let startable: Vec<String> = phases
         .iter()
@@ -472,7 +564,7 @@ fn settle_waiting(phases: &mut [PhaseView], countdowns: &HashMap<String, f64>) {
         .filter(|station: &&StationView| {
             station.session_id.is_none() && station.state == StationState::Pending
         })
-        .filter(|station: &&StationView| schedule::may_start(phases, &station.id))
+        .filter(|station: &&StationView| schedule::is_due(phases, &station.id))
         .map(|station: &StationView| station.id.clone())
         .collect();
     for station in phases
@@ -571,6 +663,12 @@ pub fn phase_rows(
                 started_at: None,
                 completed_at: None,
                 result: None,
+                agent: station.agent_name(),
+                agent_used: None,
+                effort: station.effort_level(),
+                prompt: station.prompt_text(),
+                start_error: None,
+                edited: false,
             });
         }
         phases.push(PhaseRow {

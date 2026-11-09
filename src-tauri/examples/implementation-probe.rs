@@ -8,9 +8,12 @@
 //! dürfen).
 //! bzw. `… -- <Datenbank-Kopie> set-phases <Umsetzungs-ID> <JSON-Datei>` (druckt die Unterschiede
 //! eines Vorschlags `{ "phases": [...] }`, schreibt nichts).
-//! Die JSON-Datei hat die Form der Eingabe von `implementation_create` (`name`, `source`, `phases`).
-//! Druckt den Lagebericht; Stationen gelten als nicht gestartet, weil keine Session läuft. Fehler
-//! als `FEHLER: <Satz>`.
+//! Die JSON-Datei hat die Form der Eingabe von `implementation_create` (`name`, `source`, `phases`),
+//! je Station auch `agent`, `effort` und `prompt` (ADR 060); `agent` wird wie in der App gegen die
+//! Agententypen der Datenbank geprüft.
+//! Druckt den Lagebericht und je Station Typ, Modell und Denkaufwand samt Herkunft, die Länge des
+//! Zusatztexts und einen Startfehler; Stationen gelten als nicht gestartet, weil keine Session läuft.
+//! Fehler als `FEHLER: <Satz>`.
 use std::collections::HashMap;
 use std::env;
 use std::fs;
@@ -18,18 +21,20 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use serde::Deserialize;
+use verwalter_lib::agent_types::{self, model::AgentType, model::AgentValueSource};
 use verwalter_lib::db::Database;
+use verwalter_lib::db::agent_types as agent_type_rows;
 use verwalter_lib::db::implementations::{self, StoredImplementation};
 use verwalter_lib::db::sessions::{self, SessionRow};
 use verwalter_lib::error::CommandError;
 use verwalter_lib::file_links::LinkRoots;
 use verwalter_lib::implementation::model::{ImplementationView, StationState};
 use verwalter_lib::implementation::model::{
-    MAX_NAME_CHARS, MAX_SOURCE_CHARS, PhaseInput, check_length, validate,
+    MAX_NAME_CHARS, MAX_SOURCE_CHARS, PhaseInput, check_agents, check_length, validate,
 };
 use verwalter_lib::implementation::report::Extras;
 use verwalter_lib::implementation::{
-    build_view, changes, new_rows, now_ms, plan_completion, report,
+    build_view, changes, new_rows, now_ms, plan_completion_with_types, report,
 };
 
 const USAGE: &str = "Aufruf: implementation-probe <Datenbank-Kopie> create <Session-ID> <JSON-Datei> | show <Umsetzungs-ID> | report <Umsetzungs-ID> | complete <Umsetzungs-ID> <Station-ID> \"<Ergebnis>\" [--fix] | set-phases <Umsetzungs-ID> <JSON-Datei>";
@@ -132,6 +137,8 @@ fn create(database_path: &Path, session_id: &str, json_file: &Path) -> Result<St
                     "Session {session_id} ist nicht aktiv oder unbekannt"
                 )));
             };
+            check_agents(&input.phases, &agent_type_rows::list(connection)?)
+                .map_err(CommandError::Implementation)?;
             if let Some((_, running)) =
                 implementations::unfinished_of_project(connection, &row.project_id)?
             {
@@ -164,7 +171,8 @@ fn complete(
 ) -> Result<String, String> {
     let database = Database::open(database_path).map_err(|error| error.to_string())?;
     let before = view_of(&database, implementation_id)?;
-    let (followups, hint) = plan_completion(&before, station_id, fix_needed)?;
+    let (followups, hint) =
+        plan_completion_with_types(&before, station_id, fix_needed, &types_of(&database)?)?;
     database
         .with(|connection| {
             implementations::complete_station_with_followups(
@@ -212,6 +220,52 @@ Darf starten:
         report::text(&before, now_ms(), false),
         report::text(&after, now_ms(), false),
     ))
+}
+
+fn types_of(database: &Database) -> Result<Vec<AgentType>, String> {
+    agent_types::list(database).map_err(|error| error.to_string())
+}
+
+/// Je Station Typ, Modell und Denkaufwand, wie die Ansicht sie vor dem Start auflöst (ADR 060).
+fn agent_lines(view: &ImplementationView) -> String {
+    let source = |from: Option<AgentValueSource>| match from {
+        Some(AgentValueSource::Station) => "Station",
+        Some(AgentValueSource::Type) => "Typ",
+        None => "allgemeine Regel",
+    };
+    let mut lines: Vec<String> = vec!["Agententypen der Stationen:".to_owned()];
+    for phase in &view.phases {
+        for station in &phase.stations {
+            let field = station
+                .agent
+                .as_deref()
+                .map(|agent: &str| format!("agent={agent} → "))
+                .unwrap_or_default();
+            let model = station.agent_model.map_or("—", |model| model.cli_id());
+            let effort = station
+                .agent_effort
+                .map_or("—", |effort| effort.cli_value());
+            let prompt = station
+                .prompt
+                .as_deref()
+                .map_or(0, |prompt: &str| prompt.chars().count());
+            let error = station
+                .start_error
+                .as_deref()
+                .map(|error: &str| format!(" · Startfehler: {error}"))
+                .unwrap_or_default();
+            lines.push(format!(
+                "  Phase {} · {}: {field}Typ {} · Modell {model} ({}) · Denkaufwand {effort} ({}) · \
+                 Zusatztext {prompt} Zeichen{error}",
+                phase.key,
+                station.stage,
+                station.agent_type.as_deref().unwrap_or("keiner"),
+                source(station.agent_model_from),
+                source(station.agent_effort_from),
+            ));
+        }
+    }
+    lines.join("\n")
 }
 
 /// Druckt die Unterschiede eines Vorschlags, ohne etwas zu schreiben.
@@ -274,6 +328,7 @@ fn view_of(database: &Database, implementation_id: &str) -> Result<Implementatio
         &HashMap::new(),
         &HashMap::new(),
         &HashMap::new(),
+        &types_of(database)?,
     ))
 }
 
@@ -301,7 +356,11 @@ fn inquiry_report(database_path: &Path, implementation_id: &str) -> Result<Strin
 
 fn report_of(database: &Database, implementation_id: &str) -> Result<String, String> {
     let view = view_of(database, implementation_id)?;
-    Ok(report::text(&view, now_ms(), false))
+    Ok(format!(
+        "{}\n\n{}",
+        report::text(&view, now_ms(), false),
+        agent_lines(&view)
+    ))
 }
 
 fn is_app_database(path: &Path) -> bool {

@@ -5,7 +5,7 @@ use rusqlite::{Connection, Row, TransactionBehavior, params};
 
 use crate::agent_types::model::{AgentType, AgentTypeInput, AgentTypeSaved, FieldError};
 use crate::agent_types::validate;
-use crate::db::{enum_from_text, enum_to_text};
+use crate::db::{enum_from_text, enum_to_text, implementations};
 use crate::error::CommandError;
 
 fn not_found(id: &str) -> CommandError {
@@ -60,7 +60,8 @@ pub fn insert(
 }
 
 /// Ein unbekannter Typ ist ein Fehler; sein eigener Name und seine Stationsnamen kollidieren nicht
-/// mit ihm selbst.
+/// mit ihm selbst. Ein neuer Name gilt in derselben Transaktion auch für das Feld `agent` noch nicht
+/// gestarteter Stationen (N4).
 pub fn update(
     connection: &mut Connection,
     id: &str,
@@ -68,12 +69,13 @@ pub fn update(
 ) -> Result<AgentTypeSaved, CommandError> {
     let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
     let existing = list(&transaction)?;
-    if !existing
+    let Some(old_name) = existing
         .iter()
-        .any(|agent_type: &AgentType| agent_type.id == id)
-    {
+        .find(|agent_type: &&AgentType| agent_type.id == id)
+        .map(|agent_type: &AgentType| agent_type.name.clone())
+    else {
         return Err(not_found(id));
-    }
+    };
     let input = match validate(input, &existing, Some(id)) {
         Ok(input) => input,
         Err(errors) => return Ok(rejected(errors)),
@@ -94,6 +96,9 @@ pub fn update(
             lists.skills,
         ],
     )?;
+    if input.name != old_name {
+        implementations::rename_agent(&transaction, &old_name, &input.name)?;
+    }
     transaction.commit()?;
     Ok(saved(id, input))
 }
