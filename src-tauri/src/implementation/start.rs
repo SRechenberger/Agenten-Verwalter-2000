@@ -1,6 +1,8 @@
-//! Stationen starten (ADR 048): Countdown, frische Session, erste Nachricht; dazu Typ, Modell und
-//! Denkaufwand aus den Agententypen (ADR 060). Alles hier läuft ohne gehaltene Sperre; die Registry
-//! nimmt ihre Sperren selbst, nacheinander.
+//! Stationen starten (ADR 048): Countdown, frische Session, erste Nachricht; dazu Typ, Modell,
+//! Denkaufwand, Systemprompt und Skills aus den Agententypen (ADR 060). Alles hier läuft ohne
+//! gehaltene Sperre; die Registry nimmt ihre Sperren selbst, nacheinander.
+use std::fs;
+use std::path::Path;
 use std::thread;
 
 use tauri::{AppHandle, Manager};
@@ -8,9 +10,11 @@ use tauri::{AppHandle, Manager};
 use super::model::{ImplementationView, PhaseView, StationState, StationView};
 use super::{START_DELAY, StationRef, announce, now_ms, schedule, station_in};
 use crate::agent_types::model::{AgentType, AgentValueSource};
+use crate::agent_types::prompt::{Folders, PromptError};
 use crate::agent_types::{self, StationValues, UnknownAgent};
 use crate::agents::event::{Effort, ModelId};
 use crate::error::CommandError;
+use crate::filesystem::workspace::home_dir;
 use crate::sessions::model::SessionSummary;
 use crate::sessions::registry::SessionRegistry;
 use crate::settings::model::OperatingMode;
@@ -20,15 +24,33 @@ const FIRST_MESSAGE_FOOTER: &str = "Melde diese Station mit dem Werkzeug \
     diese Meldung, wartet die Umsetzung auf den Benutzer. Gib keine Einstiegszeile aus.";
 
 /// Die erste Nachricht der Session einer Station. `/<skill>` steht allein in der ersten Zeile,
-/// weil die Kommandozeile einen Befehl nur am Anfang erkennt.
+/// weil die Kommandozeile einen Befehl nur am Anfang erkennt: der Skill der Station, sonst der erste
+/// ihres Typs. Die übrigen Skills des Typs nennt die Zeile darunter als Anweisung (ADR 060); ob es
+/// sie gibt, prüft niemand.
 pub fn first_message(
     view: &ImplementationView,
     phase: &PhaseView,
     station: &StationView,
+    type_skills: &[String],
 ) -> String {
     let mut lines: Vec<String> = Vec::new();
-    if let Some(skill) = &station.skill {
+    let first_skill: Option<&str> = station
+        .skill
+        .as_deref()
+        .or_else(|| type_skills.first().map(String::as_str));
+    if let Some(skill) = first_skill {
         lines.push(format!("/{skill}"));
+        let others: Vec<&str> = type_skills
+            .iter()
+            .map(String::as_str)
+            .filter(|other: &&str| *other != skill)
+            .collect();
+        if !others.is_empty() {
+            lines.push(format!(
+                "Lade außerdem diese Skills: {}.",
+                others.join(", ")
+            ));
+        }
     }
     lines.push(format!(
         "Station: Phase {} „{}“ · {}",
@@ -203,7 +225,7 @@ enum Trigger {
 }
 
 /// ▶: Startet die Station sofort, auch nach einem Startfehler: frische Session, Name, Modell und
-/// Denkaufwand, Bindung, erste Nachricht. Ein laufender Countdown wird beendet.
+/// Denkaufwand, Bindung, Systemprompt, erste Nachricht. Ein laufender Countdown wird beendet.
 pub fn start_now(
     app: &AppHandle,
     implementation_id: &str,
@@ -256,12 +278,32 @@ fn start_claimed(
             "Die Vorgänger dieser Station sind noch nicht fertig.".to_owned(),
         ));
     }
-    let plan = match start_plan(
-        &registry.agent_types()?,
-        station,
-        registry.operating_mode()?,
-    ) {
-        Ok(plan) => plan,
+    let types: Vec<AgentType> = registry.agent_types()?;
+    let home = home_dir(app)?;
+    let repositories = registry.repository_dirs_of_project(&view.project_id);
+    let folders = Folders {
+        home: &home,
+        repositories: &repositories,
+    };
+    let prepared =
+        start_plan(&types, station, registry.operating_mode()?).and_then(|plan: StartPlan| {
+            let agent_type: Option<&AgentType> =
+                plan.agent_type.as_deref().and_then(|name: &str| {
+                    types
+                        .iter()
+                        .find(|candidate: &&AgentType| candidate.name == name)
+                });
+            let agent_prompt = agent_types::prompt::compose(
+                agent_type,
+                station.prompt.as_deref(),
+                folders,
+                |path: &Path| fs::read_to_string(path),
+            )
+            .map_err(|error: PromptError| error.to_string())?;
+            Ok((plan, agent_type, agent_prompt))
+        });
+    let (plan, agent_type, agent_prompt) = match prepared {
+        Ok(prepared) => prepared,
         Err(reason) => {
             // Ohne Session: Die Station hält mit Grund an, bis ▶ es erneut versucht.
             registry.store_start_error(station_id, Some(&reason))?;
@@ -290,8 +332,15 @@ fn start_claimed(
         set_effort(app, registry, &created.id, effort)?;
     }
     registry.store_agent_used(station_id, plan.agent_type.as_deref())?;
+    // Vor dem ersten Prozess: `send` startet ihn schon mit dem Schnappschuss.
+    if let Some(agent_prompt) = agent_prompt {
+        registry.store_agent_prompt(app, &created.id, agent_prompt)?;
+    }
     announce(app, &registry.implementation_view(implementation_id)?);
-    let message: String = first_message(&view, phase, station);
+    let type_skills: &[String] = agent_type
+        .map(|agent_type: &AgentType| agent_type.skills.as_slice())
+        .unwrap_or_default();
+    let message: String = first_message(&view, phase, station, type_skills);
     if let Err(error) = registry.send(app, &created.id, &message, &[], &[], None) {
         registry.log_session_line(
             &created.id,

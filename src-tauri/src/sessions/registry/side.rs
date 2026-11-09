@@ -126,6 +126,7 @@ impl SessionRegistry {
                     chrome,
                     codex_exe: None,
                     verwalter_mcp,
+                    agent_prompt: state.agent_prompt.clone(),
                 },
                 prompt: prompt(question, quote.as_deref()),
                 timeout,

@@ -1,6 +1,7 @@
-//! Agententypen aus den Einstellungen: Speicher, Prüfung und Auflösung von Typ, Modell und
-//! Denkaufwand einer Station (ADR 060). Ohne Tauri; das Ereignis sendet der Command.
+//! Agententypen aus den Einstellungen: Speicher, Prüfung, Auflösung von Typ, Modell und Denkaufwand
+//! einer Station und ihr Systemprompt (ADR 060). Ohne Tauri; das Ereignis sendet der Command.
 pub mod model;
+pub mod prompt;
 pub mod resolve;
 pub mod validate;
 

@@ -7,7 +7,9 @@ use std::path::Path;
 
 use crate::agent_types::model::{AgentTypeInput, AgentValueSource};
 use crate::db::implementations::{self as implementation_rows, ImplementationRow, PhaseRow};
+use crate::db::sessions::{self as session_rows, SessionRow};
 use crate::db::{Database, agent_types as agent_type_rows};
+use crate::error::CommandError;
 use crate::settings::model::OperatingMode;
 use model::{PendingChange, PhaseInput, check_agents, validate};
 use start::{StartPlan, start_plan};
@@ -876,5 +878,124 @@ fn renaming_a_type_renames_the_agent_of_unstarted_stations_only() {
             Some("reviewer".to_owned()),
             Some("tester".to_owned()),
         ]
+    );
+}
+
+// Systemprompt und Skills einer Station (ADR 060, Phase 4).
+
+/// Die erste Nachricht einer Station „Review“ mit diesem eigenen Skill und diesen Skills ihres Typs.
+fn first_message_with(station_skill: Option<&str>, type_skills: &[&str]) -> String {
+    let mut review = waiting("Review");
+    review.skill = station_skill.map(str::to_owned);
+    let view = view_of(phase_with(vec![review], 0));
+    let phase = &view.phases[0];
+    let type_skills: Vec<String> = type_skills
+        .iter()
+        .map(|skill: &&str| (*skill).to_owned())
+        .collect();
+    start::first_message(&view, phase, &phase.stations[0], &type_skills)
+}
+
+fn first_lines(message: &str, count: usize) -> Vec<&str> {
+    message.lines().take(count).collect()
+}
+
+#[test]
+fn first_message_has_the_station_skill_on_line_one_and_the_type_skills_as_instruction() {
+    let message = first_message_with(
+        Some("vault:role-code-reviewer"),
+        &["review-checkliste", "rust-fallen"],
+    );
+    assert_eq!(
+        first_lines(&message, 3),
+        [
+            "/vault:role-code-reviewer",
+            "Lade außerdem diese Skills: review-checkliste, rust-fallen.",
+            "Station: Phase 1 „Phase“ · Review",
+        ]
+    );
+    // Steht der Skill der Station auch am Typ, nennt die Anweisung ihn nicht noch einmal.
+    let repeated = first_message_with(
+        Some("review-checkliste"),
+        &["review-checkliste", "rust-fallen"],
+    );
+    assert_eq!(
+        first_lines(&repeated, 2),
+        [
+            "/review-checkliste",
+            "Lade außerdem diese Skills: rust-fallen."
+        ]
+    );
+}
+
+#[test]
+fn type_skill_becomes_line_one_when_the_station_has_none() {
+    let message = first_message_with(None, &["review-checkliste", "rust-fallen"]);
+    assert_eq!(
+        first_lines(&message, 3),
+        [
+            "/review-checkliste",
+            "Lade außerdem diese Skills: rust-fallen.",
+            "Station: Phase 1 „Phase“ · Review",
+        ]
+    );
+    let single = first_message_with(None, &["review-checkliste"]);
+    assert_eq!(
+        first_lines(&single, 2),
+        ["/review-checkliste", "Station: Phase 1 „Phase“ · Review"]
+    );
+}
+
+#[test]
+fn first_message_without_type_skills_is_unchanged() {
+    let with_skill = first_message_with(Some("implement"), &[]);
+    assert_eq!(
+        first_lines(&with_skill, 2),
+        ["/implement", "Station: Phase 1 „Phase“ · Review"]
+    );
+    let without = first_message_with(None, &[]);
+    assert_eq!(
+        first_lines(&without, 1),
+        ["Station: Phase 1 „Phase“ · Review"]
+    );
+    assert!(!with_skill.contains("Lade außerdem") && !without.contains("Lade außerdem"));
+}
+
+#[test]
+fn upsert_writes_the_agent_prompt_on_update_and_both_loads_read_it() {
+    let database = database_with(&[]);
+    let loaded = |database: &Database| -> (SessionRow, SessionRow) {
+        database
+            .with(|connection| {
+                let mut active = session_rows::load_active(connection)?;
+                let mut of_project = session_rows::load_for_project(connection, "project")?;
+                match (active.pop(), of_project.pop()) {
+                    (Some(active), Some(of_project)) => Ok((active, of_project)),
+                    _ => Err(CommandError::Internal("Session fehlt".to_owned())),
+                }
+            })
+            .expect("lesbar")
+    };
+    let (before, _) = loaded(&database);
+    assert_eq!(
+        before.agent_prompt, None,
+        "eine Session von vorher liest NULL"
+    );
+
+    // Die Zeile gibt es schon: Der Start einer Station setzt den Schnappschuss über das `UPDATE`.
+    let snapshot = "Du prüfst.\n\nPrüfe besonders streng.";
+    let started = SessionRow {
+        agent_prompt: Some(snapshot.to_owned()),
+        ..before
+    };
+    database
+        .with(|connection| session_rows::upsert(connection, &started))
+        .expect("schreibbar");
+    let (active, of_project) = loaded(&database);
+    assert_eq!(active.agent_prompt.as_deref(), Some(snapshot), "App-Start");
+    assert_eq!(
+        of_project.agent_prompt.as_deref(),
+        Some(snapshot),
+        "Wiederherstellen eines Vorhabens"
     );
 }

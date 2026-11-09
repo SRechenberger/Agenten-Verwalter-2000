@@ -49,6 +49,8 @@ pub struct SpawnOptions {
     pub codex_exe: Option<PathBuf>,
     /// MCP-Zugang der Session (ADR 046); `None`: ohne Zugang.
     pub verwalter_mcp: Option<VerwalterMcp>,
+    /// Systemprompt der Station aus dem Speicher der Session (ADR 060); `None`: ohne.
+    pub agent_prompt: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -145,8 +147,9 @@ fn build_command(opts: &SpawnOptions) -> Command {
 }
 
 /// Alles, was Systemprompt, Werkzeugliste und Modell bestimmt. Eine Nebenfrage (`side.rs`) setzt
-/// dieselben Argumente, damit sie den Prompt-Cache des Hauptprozesses liest (ADR 044).
-pub(super) fn common_args(command: &mut Command, opts: &SpawnOptions, permission_mode: &str) {
+/// dieselben Argumente, damit sie den Prompt-Cache des Hauptprozesses liest (ADR 044). Für die Tests
+/// in `agent_types` im ganzen Crate sichtbar.
+pub(crate) fn common_args(command: &mut Command, opts: &SpawnOptions, permission_mode: &str) {
     command.arg("--model").arg(model_arg(opts));
     // Das lokale Modell kennt keinen Denkaufwand, und Artefakte veröffentlicht nur Anthropic.
     if opts.local.is_none() {
@@ -208,6 +211,9 @@ pub(super) fn common_args(command: &mut Command, opts: &SpawnOptions, permission
         command.env(TOKEN_VARIABLE, token);
         prompts.push(session_tools_prompt());
     }
+    // Zuletzt, hinter den Vorgaben des Verwalters: der Systemprompt der Station (ADR 060), in allen
+    // vier Betriebsarten, denn Autark und Codex lesen genau dieses Argument.
+    prompts.extend(opts.agent_prompt.iter().cloned());
     if !prompts.is_empty() {
         command
             .arg("--append-system-prompt")
