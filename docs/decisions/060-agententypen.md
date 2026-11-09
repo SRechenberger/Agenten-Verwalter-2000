@@ -1,6 +1,6 @@
 # 060 — Agententypen für Stationen der Umsetzung
 
-**Status:** in Umsetzung, Phase 1 von 7 (Stand siehe „Stand der Umsetzung“) · **Datum:** 2026-11-08
+**Status:** in Umsetzung, Phasen 1 und 2 von 7 (Stand siehe „Stand der Umsetzung“) · **Datum:** 2026-11-08
 
 ## Kontext
 
@@ -64,6 +64,17 @@ Was die Verträge offenlassen, legt der Core so fest:
 - **Transaktion:** Anlegen und Ändern lesen die gespeicherten Typen, prüfen und schreiben in einer Transaktion, die sofort schreibend beginnt (`IMMEDIATE`); dazwischen ändert niemand die Tabelle.
 - **Unbekannte ID:** Ändern und Löschen eines Typs, den es nicht gibt, sind ein `CommandError`, keine Meldung der Prüfung.
 - **Ereignis:** `agent-types://changed` geht nach jeder Änderung, also nicht, wenn die Prüfung etwas meldet.
+
+### Festlegungen der Phase 2
+
+Was die Verträge für den Ablauf offenlassen, legt der Core so fest:
+
+- **Startfehler und ▶:** `schedule::may_start` liefert `false`, solange `start_error` gesetzt ist; der automatische Start (`schedule_ready` über `schedule::due_for_countdown`, der Zeitgeber über `may_start`) versucht die Station deshalb nicht erneut. Die Ansicht zeigt sie trotzdem als `ready` (N5), denn ihr Zustand folgt aus `schedule::is_due` (an der Reihe, ohne Blick auf den Fehler); ▶ prüft in Schritt 1 ebenfalls `is_due`, sonst könnte niemand den Start erneut versuchen. Scheitert ▶ wieder, steht der neue Text an der Station und kommt als Fehler zurück; gelingt der Start, räumt Schritt 6 den Fehler aus.
+- **Entscheidung des Starts:** `start::start_plan(types, station, mode)` ist rein und liefert Typ, Modell und Denkaufwand oder den Text des Startfehlers; `start_claimed` ruft sie vor `create_fresh_in_project` und vergleicht danach mit Modell und Denkaufwand der neuen Session. Die Betriebsart kommt aus den Einstellungen, denn mit ihr startet der erste `send` den Prozess.
+- **Rückfall der Fix-Runde:** Hat die Phase weder Umsetzung noch Abschluss und führt ein Typ die Fix-Runde (Stationsname „Fix-Runde“ wie bei der Auflösung), schreibt der Rückfall weder Modell noch Skill: Beides kommt beim Start vom Typ, und `implement` stünde sonst vor dessen Skills. Kopiert wird das Feld `agent` der Vorlage, nicht der aufgelöste Typ; lief die Umsetzung nur über ihren Stationsnamen als Typ, nimmt die Fix-Runde den Typ, der „Fix-Runde“ führt, oder keinen.
+- **Ansicht:** Vor dem Start löst `build_view` Typ, Modell und Denkaufwand unabhängig von der Betriebsart auf; nennt die Station einen unbekannten Typ, stehen nur ihre eigenen Werte da. Nach dem Start (eine Session ist gebunden) gilt der gespeicherte Name `agent_used`, Modell und Denkaufwand bleiben leer, denn dann gelten die der Session. Eine Station des Benutzers läuft nie als Typ.
+- **Speichern:** `agent` wird getrimmt gespeichert, `prompt` getrimmt und leer als kein Zusatztext; `effort` liegt wie `model` als serde-Text in der Spalte.
+- **Umbenennen und Ändern:** Ein neuer Name, auch nur in anderer Schreibweise, führt `agent` aller Stationen ohne Session und ohne Fertigmeldung nach; verglichen wird in Rust mit `name_key`, weil `lower()` in SQLite nur ASCII kennt. Nach jeder Änderung an den Typen, auch nach dem Anlegen, meldet der Befehl jede Umsetzung mit einer noch nicht gestarteten Station neu (`implementation://changed`), denn deren Auflösung hängt an den Typen.
 
 ## Aufbau
 
@@ -257,9 +268,11 @@ Der Befehl ersetzt alle fünf Werte der Station auf einmal; `None` löscht eine 
 
 **Belegt (unter Linux):** die Tests in `src-tauri/src/agent_types/tests.rs` (Auflösung und jede Zeile der Prüfung, mit Mutationsprobe); die Probe `agent-type-probe --selftest` (Anlegen, Ändern, Löschen, doppelter Name, doppelter Stationsname, Neustart); die Migration auf einer leeren Datenbank und auf Kopien einer echten (von Version 20 und von 21 auf 22, ohne verletzte Fremdschlüssel). Die Tests fährt künftig auch der Schritt `cargo test --manifest-path src-tauri/Cargo.toml --lib -- implementation:: agent_types::` in `check.yml`.
 
-**Noch nicht gebaut:** alles aus den Phasen 2 bis 7. Kein Teil der App ruft die Auflösung auf: Stationen haben noch kein Feld `agent`, `effort` oder `prompt`, der Start, die Fix-Runde und die Werkzeuge sind unverändert, und die Einstellungen zeigen noch keine Typen. Ohne Typen und mit Typen läuft eine Umsetzung deshalb wie vor dieser ADR.
+**Gebaut in Phase 2 (Typen im Ablauf):** die Felder `agent`, `effort` und `prompt` an der Station (Migration 23 mit `agent_used`, `start_error` und `edited`, das erst Phase 5 schreibt), ihre Prüfung (`effort` und `prompt` in `validate_station`, `agent` gegen die Typen in `implementation_create` und `implementation_set_phases`), die Auflösung in der Ansicht, der Start nach der Reihenfolge oben samt Startfehler, die Fix-Runde mit `plan_completion_with_types` und das Nachführen beim Umbenennen. Belegt durch die Tests in `src-tauri/src/implementation/tests.rs` (mit Mutationsprobe), die Probe `implementation-probe` und einen Lauf der App mit einer Attrappe der Kommandozeile unter Linux.
 
-**Windows:** Unter Windows ist nichts davon gelaufen. Die CI fährt dort Lint, Typecheck, Build, Clippy und die Tests von `remote::`, `processes::`, `implementation::` und `agent_types::`; die Probe läuft in keiner CI.
+**Noch nicht gebaut:** alles aus den Phasen 3 bis 7. Das Schema der Werkzeuge kennt `agent`, `effort` und `prompt` noch nicht (bis Phase 5 wählt im Betrieb nur der Stationsname einen Typ), die Karte zeigt Typ und Startfehler noch nicht, und Systemprompt, Dateien und Skills des Typs wirken noch nicht. Ohne Typen läuft eine Umsetzung wie vor dieser ADR.
+
+**Windows:** Unter Windows ist nichts davon gelaufen, auch nicht der Start einer Station mit Typ. Die CI fährt dort Lint, Typecheck, Build, Clippy und die Tests von `remote::`, `processes::`, `implementation::` und `agent_types::`; die Probe läuft in keiner CI.
 
 ## Konsequenzen
 
