@@ -1,0 +1,1079 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Entwurf: Agententypen</title>
+<style>
+/* Tokens wie src/styles/theme.css (Stand main 25b4752); Namen und Werte sind die der App. */
+:root {
+  --color-bg-base: #1f1f1f; --color-bg-sidebar: #181818; --color-bg-surface: #252526; --color-bg-popover: #252526;
+  --color-bg-hover: #2e2e30; --color-bg-selected: #37373d;
+  --color-border-subtle: #2b2b2b; --color-border: #3c3c3c;
+  --color-fg-primary: #d4d4d4; --color-fg-secondary: #b0b0b0; --color-fg-muted: #8f8f8f;
+  --color-accent: #e0825c; --color-fg-on-accent: #1d130e;
+  --color-accent-subtle: color-mix(in srgb, #e0825c 16%, transparent); --color-accent-text: #eea283;
+  --color-toggle-on: #e0825c; --color-toggle-off: #4a4a4f; --color-fg-on-toggle: #f5f5f5;
+  --color-status-running: #5b9dff; --color-status-waiting: #f2b33d;
+  --color-status-waiting-subtle: color-mix(in srgb, #f2b33d 11%, transparent);
+  --color-status-error: #f47067; --color-status-error-subtle: color-mix(in srgb, #f47067 11%, transparent);
+  --color-status-completed: #4cc38a; --color-status-script: #a78bfa; --color-status-paused: #8f8f8f;
+  --color-scrim: rgb(0 0 0 / .55);
+  --shadow-popover: 0 10px 30px rgb(0 0 0 / .45);
+  --font-sans: 'Segoe UI Variable Text', 'Segoe UI', system-ui, sans-serif;
+  --font-mono: 'Cascadia Code', 'Cascadia Mono', Consolas, ui-monospace, monospace;
+  --font-size-2xs: 11px; --font-size-xs: 12px; --font-size-sm: 12.5px; --font-size-md: 13px; --font-size-lg: 13.5px;
+  --space-2xs: 2px; --space-xs: 4px; --space-sm: 6px; --space-md: 8px; --space-lg: 10px; --space-xl: 12px;
+  --space-2xl: 16px; --space-3xl: 20px; --space-4xl: 24px; --space-5xl: 32px;
+  --radius-sm: 4px; --radius-md: 6px; --radius-lg: 8px; --radius-xl: 10px; --radius-full: 999px;
+  color-scheme: dark;
+}
+:root[data-theme="light"] {
+  --color-bg-base: #fff; --color-bg-sidebar: #f8f8f8; --color-bg-surface: #fff; --color-bg-popover: #fff;
+  --color-bg-hover: #f0f0f0; --color-bg-selected: #e4e6f1;
+  --color-border-subtle: #e5e5e5; --color-border: #cecece;
+  --color-fg-primary: #3c3c3c; --color-fg-secondary: #555; --color-fg-muted: #6e6e6e;
+  --color-accent: #c4572f; --color-fg-on-accent: #fff;
+  --color-accent-subtle: color-mix(in srgb, #c4572f 10%, transparent); --color-accent-text: #a8461f;
+  --color-toggle-on: #c4572f; --color-toggle-off: #c8c8c8; --color-fg-on-toggle: #fff;
+  --color-status-running: #2563eb; --color-status-waiting: #a86a00;
+  --color-status-waiting-subtle: color-mix(in srgb, #a86a00 10%, transparent);
+  --color-status-error: #d23b33; --color-status-error-subtle: #fdeceb;
+  --color-status-completed: #16803c; --color-status-script: #7c3aed; --color-status-paused: #6e6e6e;
+  --color-scrim: rgb(0 0 0 / .28);
+  --shadow-popover: 0 10px 30px rgb(0 0 0 / .14);
+  color-scheme: light;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--color-bg-base); color: var(--color-fg-primary); font: 13px/1.45 var(--font-sans); }
+button, input, textarea, select { font: inherit; color: inherit; }
+button { cursor: pointer; }
+code, .mono { font-family: var(--font-mono); font-size: 12px; }
+p { margin: 0; }
+
+/* ---- Seite um den Entwurf ---- */
+.page { max-width: 1280px; margin: 0 auto; padding: 24px 16px 56px; }
+.page h1 { font-size: 18px; margin: 0 0 4px; font-weight: 600; }
+.page h2.sec { font-size: 12px; margin: 28px 0 8px; text-transform: uppercase; letter-spacing: .06em; color: var(--color-fg-muted); font-weight: 600; }
+.lead { color: var(--color-fg-secondary); margin: 0 0 14px; max-width: 920px; }
+.tag { font-size: 11px; font-weight: 400; border: 1px solid var(--color-border); border-radius: 999px; padding: 1px 8px; color: var(--color-fg-muted); vertical-align: 2px; }
+.bar { display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; margin-bottom: 10px; }
+.bar label { color: var(--color-fg-muted); font-size: 12px; margin-right: 6px; }
+.grp { display: inline-flex; align-items: center; }
+.seg { display: inline-flex; border: 1px solid var(--color-border); border-radius: 6px; overflow: hidden; }
+.seg button { border: 0; background: transparent; padding: 4px 11px; color: var(--color-fg-secondary); }
+.seg button[aria-pressed="true"] { background: var(--color-bg-selected); color: var(--color-fg-primary); }
+.seg button[disabled] { opacity: .4; cursor: default; }
+.tour { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; padding: 10px 12px; margin-bottom: 12px; border: 1px solid var(--color-border); border-left: 3px solid var(--color-accent); border-radius: 8px; background: var(--color-bg-surface); }
+.tour__nav { display: inline-flex; gap: 6px; align-items: center; }
+.tour__nav button { height: 28px; min-width: 32px; padding: 0 10px; border: 1px solid var(--color-border); border-radius: 6px; background: transparent; }
+.tour__nav button:hover:not([disabled]) { background: var(--color-bg-hover); }
+.tour__nav button[disabled] { opacity: .4; cursor: default; }
+.tour__no { font-family: var(--font-mono); font-size: 12px; color: var(--color-fg-muted); white-space: nowrap; }
+.tour__txt { flex: 1; min-width: 260px; }
+.tour__txt b { color: var(--color-fg-primary); font-weight: 600; }
+.tour__txt span { color: var(--color-fg-secondary); }
+.tour__dots { display: flex; flex-wrap: wrap; gap: 4px; flex-basis: 100%; }
+.tour__dots button { width: 10px; height: 10px; padding: 0; border-radius: 50%; border: 1px solid var(--color-fg-muted); background: transparent; }
+.tour__dots button[aria-current="step"] { background: var(--color-accent); border-color: var(--color-accent); }
+.tour__dots button.seen { background: var(--color-fg-muted); }
+
+/* Hotspot: das nächste Ziel des Rundgangs */
+@keyframes pulse { 0%,100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-accent) 55%, transparent); } 50% { box-shadow: 0 0 0 5px transparent; } }
+.hot { outline: 2px solid var(--color-accent); outline-offset: 2px; animation: pulse 1.6s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) { .hot { animation: none; } }
+
+.stage { position: relative; display: grid; grid-template-columns: 256px minmax(0, 1fr); border: 1px solid var(--color-border-subtle); border-radius: 8px; overflow: hidden; min-height: 700px; background: var(--color-bg-base); }
+
+/* ---- Leiste ---- */
+.sb { display: flex; flex-direction: column; background: var(--color-bg-sidebar); border-right: 1px solid var(--color-border-subtle); }
+.sb__brand { height: 48px; display: flex; align-items: center; gap: 10px; padding: 0 16px; font-weight: 600; }
+.sb__logo { width: 18px; height: 18px; border-radius: 5px; background: var(--color-accent); }
+.sb__new { margin: 2px 10px 10px; height: 30px; display: flex; align-items: center; gap: 8px; padding: 0 10px; border: 1px solid var(--color-border); border-radius: 6px; background: transparent; text-align: left; }
+.sb__new:hover { background: var(--color-bg-hover); }
+.sb__new span { flex: 1; }
+.sb__list { flex: 1; padding: 2px 10px 10px; display: flex; flex-direction: column; gap: 2px; }
+.sb__foot { border-top: 1px solid var(--color-border-subtle); padding: 8px 10px; display: flex; gap: 14px; }
+.sb__foot button { border: 0; background: transparent; padding: 4px 6px; border-radius: 6px; color: var(--color-fg-muted); }
+.sb__foot button:hover, .sb__foot button[aria-current="true"] { background: var(--color-bg-hover); color: var(--color-fg-primary); }
+.pr { display: flex; align-items: flex-start; gap: 10px; width: 100%; padding: 6px 8px; border: 0; border-radius: 6px; background: transparent; text-align: left; }
+.pr:hover { background: var(--color-bg-hover); }
+.pr[aria-current="true"] { background: var(--color-bg-selected); }
+.pr__txt { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+.pr__name { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pr__meta { font-size: 12px; color: var(--color-fg-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.si { width: 10px; height: 10px; margin-top: 5px; border-radius: 50%; border: 1.5px solid currentColor; flex-shrink: 0; }
+.si--running { color: var(--color-status-running); border-top-color: transparent; }
+.si--completed { color: var(--color-status-completed); background: var(--color-status-completed); }
+.si--waiting { color: var(--color-status-waiting); background: color-mix(in srgb, var(--color-status-waiting) 35%, transparent); }
+.si--new { color: var(--color-fg-muted); border-style: dashed; }
+.si--error { color: var(--color-status-error); background: var(--color-status-error); }
+
+/* ---- Hauptfläche ---- */
+.main { position: relative; display: flex; flex-direction: column; min-width: 0; }
+.hdr { display: flex; align-items: center; gap: 16px; height: 48px; padding: 0 20px; border-bottom: 1px solid var(--color-border-subtle); flex-shrink: 0; }
+.hdr h3 { margin: 0; font-size: 13.5px; font-weight: 600; }
+.hdr .sp { flex: 1; }
+.tabs { display: flex; gap: 2px; }
+.tabs button { border: 0; background: transparent; padding: 4px 10px; border-radius: 6px; color: var(--color-fg-muted); }
+.tabs button:hover { background: var(--color-bg-hover); }
+.tabs button[aria-selected="true"] { background: var(--color-bg-selected); color: var(--color-fg-primary); }
+
+/* ---- Einstellungen ---- */
+.set { display: grid; grid-template-columns: 216px minmax(0, 1fr); flex: 1; min-height: 0; }
+.set__nav { padding: 12px 8px; display: flex; flex-direction: column; gap: 2px; border-right: 1px solid var(--color-border-subtle); }
+.set__nav button { text-align: left; border: 0; background: transparent; border-radius: 6px; padding: 6px 10px; color: var(--color-fg-secondary); }
+.set__nav button:hover { background: var(--color-bg-hover); }
+.set__nav button[aria-current="true"] { background: var(--color-bg-selected); color: var(--color-fg-primary); }
+.set__nav small { display: block; font-size: 11px; color: var(--color-fg-muted); }
+.set__scroll { overflow-y: auto; min-width: 0; }
+.set__content { display: flex; flex-direction: column; gap: 22px; max-width: 780px; padding: 20px 32px 40px; }
+.sec-t { margin: 0 0 6px; font-size: 11px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: var(--color-fg-muted); }
+.row { display: grid; grid-template-columns: 230px minmax(0, 1fr); align-items: center; gap: 16px; padding: 8px 0; border-top: 1px solid var(--color-border-subtle); }
+.row__label { display: flex; align-items: center; gap: 6px; }
+.row__control { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.info { display: inline-flex; width: 18px; height: 18px; align-items: center; justify-content: center; border: 0; background: transparent; color: var(--color-fg-muted); cursor: help; padding: 0; }
+.selbtn { position: relative; display: flex; align-items: center; gap: 8px; width: 300px; height: 30px; padding: 0 10px; border: 1px solid var(--color-border); border-radius: 6px; background: var(--color-bg-surface); text-align: left; }
+.selbtn span { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.selbtn--small { width: 270px; }
+.segmented { display: flex; gap: 2px; padding: 2px; border: 1px solid var(--color-border-subtle); border-radius: 8px; }
+.segmented button { height: 26px; padding: 0 14px; border: 0; border-radius: 6px; background: transparent; color: var(--color-fg-secondary); }
+.segmented button[aria-pressed="true"] { background: var(--color-bg-selected); color: var(--color-fg-primary); }
+.muted { color: var(--color-fg-muted); }
+.sec2 { color: var(--color-fg-secondary); }
+.dim-section { opacity: .55; }
+
+/* Agententypen-Abschnitt */
+.atypes { border-top: 1px solid var(--color-border-subtle); padding-top: 8px; display: flex; flex-direction: column; gap: 10px; }
+.atypes__head { display: flex; align-items: center; gap: 8px; }
+.atypes__head .sp { flex: 1; }
+.atypes__intro { color: var(--color-fg-secondary); max-width: 640px; }
+.atypes__list { border: 1px solid var(--color-border-subtle); border-radius: 8px; overflow: visible; }
+.atype { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 12px; align-items: start; padding: 10px 12px; border-top: 1px solid var(--color-border-subtle); position: relative; }
+.atype:first-child { border-top: 0; }
+.atype__name { font-weight: 600; }
+.atype__desc { grid-column: 1; color: var(--color-fg-muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.atype__facts { grid-column: 1; display: flex; flex-wrap: wrap; gap: 4px 6px; margin-top: 2px; }
+.atype__act { grid-column: 2; grid-row: 1 / span 3; display: flex; gap: 6px; align-items: center; }
+.chip { display: inline-flex; align-items: center; gap: 4px; height: 20px; padding: 0 8px; border: 1px solid var(--color-border); border-radius: 999px; font-size: 11.5px; color: var(--color-fg-secondary); white-space: nowrap; }
+.chip--stage { color: var(--color-fg-primary); }
+.chip--model { color: var(--color-accent-text); border-color: color-mix(in srgb, var(--color-accent) 40%, var(--color-border)); }
+.chip--err { color: var(--color-status-error); border-color: color-mix(in srgb, var(--color-status-error) 45%, var(--color-border)); }
+.chip button { border: 0; background: transparent; padding: 0 0 0 2px; color: var(--color-fg-muted); line-height: 1; }
+.chip button:hover { color: var(--color-fg-primary); }
+.atypes__empty { padding: 18px 14px; border: 1px dashed var(--color-border); border-radius: 8px; color: var(--color-fg-secondary); display: flex; flex-direction: column; gap: 10px; align-items: flex-start; }
+.atypes__empty b { color: var(--color-fg-primary); font-weight: 600; }
+
+/* Knöpfe */
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 28px; padding: 0 12px; border: 1px solid var(--color-border); border-radius: 6px; background: transparent; color: var(--color-fg-secondary); font-size: 12px; white-space: nowrap; }
+.btn:hover:not([disabled]) { background: var(--color-bg-hover); color: var(--color-fg-primary); }
+.btn--primary { background: var(--color-accent); border-color: var(--color-accent); color: var(--color-fg-on-accent); }
+.btn--primary:hover:not([disabled]) { background: var(--color-accent); color: var(--color-fg-on-accent); opacity: .9; }
+.btn--danger { color: var(--color-status-error); border-color: color-mix(in srgb, var(--color-status-error) 45%, var(--color-border)); }
+.btn--icon { width: 28px; padding: 0; }
+.btn[disabled] { opacity: .5; cursor: default; }
+
+/* Menü und Popover */
+.menu { position: absolute; z-index: 30; min-width: 190px; padding: 4px; background: var(--color-bg-popover); border: 1px solid var(--color-border); border-radius: 8px; box-shadow: var(--shadow-popover); }
+.menu button { display: flex; width: 100%; align-items: center; gap: 10px; height: 28px; padding: 0 10px; border: 0; border-radius: 4px; background: transparent; text-align: left; }
+.menu button:hover { background: var(--color-bg-hover); }
+.menu .danger { color: var(--color-status-error); }
+.menu hr { border: 0; border-top: 1px solid var(--color-border-subtle); margin: 4px 0; }
+.pop { position: absolute; z-index: 40; width: 340px; background: var(--color-bg-popover); border: 1px solid var(--color-border); border-radius: 8px; box-shadow: var(--shadow-popover); padding: 4px; }
+.pop__head { padding: 6px 10px 4px; font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--color-fg-muted); }
+.pop__item { display: flex; align-items: center; gap: 8px; width: 100%; padding: 6px 10px; border: 0; border-radius: 6px; background: transparent; text-align: left; }
+.pop__item:hover { background: var(--color-bg-hover); }
+.pop__txt { display: flex; flex-direction: column; flex: 1; min-width: 0; }
+.pop__name { font-weight: 500; }
+.pop__hint { font-size: 12px; color: var(--color-fg-muted); }
+.pop__check { color: var(--color-accent); width: 14px; }
+.pop__effort { border-top: 1px solid var(--color-border-subtle); margin-top: 4px; padding: 8px 10px; }
+.pop__foot { border-top: 1px solid var(--color-border-subtle); padding: 6px 10px 4px; font-size: 12px; color: var(--color-fg-muted); }
+.dots { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.dots__title b { font-weight: 500; }
+.dots__group { display: flex; gap: 2px; }
+.dots__group button { width: 22px; height: 22px; border: 0; background: transparent; display: flex; align-items: center; justify-content: center; padding: 0; }
+.dots__dot { width: 9px; height: 9px; border-radius: 50%; border: 1.5px solid var(--color-fg-muted); }
+.dots__dot--sel { background: var(--color-accent); border-color: var(--color-accent); }
+.dots__dot--max.dots__dot--sel { box-shadow: 0 0 0 3px var(--color-accent-subtle); }
+
+/* Dialog */
+.scrim { position: absolute; inset: 0; z-index: 50; display: flex; align-items: flex-start; justify-content: center; padding: 28px 16px; background: var(--color-scrim); overflow-y: auto; }
+.dlg { width: min(580px, 100%); background: var(--color-bg-popover); border: 1px solid var(--color-border); border-radius: 10px; box-shadow: var(--shadow-popover); display: flex; flex-direction: column; }
+.dlg--small { width: min(440px, 100%); }
+.dlg__h { padding: 14px 18px 4px; }
+.dlg__h h4 { margin: 0; font-size: 15px; font-weight: 600; }
+.dlg__h p { margin-top: 2px; color: var(--color-fg-muted); font-size: 12px; }
+.dlg__b { padding: 8px 18px 6px; display: flex; flex-direction: column; gap: 14px; }
+.dlg__f { padding: 10px 18px 14px; display: flex; align-items: center; gap: 8px; justify-content: flex-end; border-top: 1px solid var(--color-border-subtle); margin-top: 6px; }
+.dlg__f .msg { flex: 1; margin-right: 6px; }
+.fld { display: flex; flex-direction: column; gap: 4px; }
+.fld__l { display: flex; align-items: baseline; gap: 8px; font-weight: 500; }
+.fld__l .req { color: var(--color-fg-muted); font-weight: 400; font-size: 11.5px; }
+.fld__l .cnt { margin-left: auto; font: 11.5px var(--font-mono); color: var(--color-fg-muted); }
+.fld__l .cnt.over { color: var(--color-status-error); }
+.fld__h { font-size: 12px; color: var(--color-fg-muted); }
+.fld__e { font-size: 12px; color: var(--color-status-error); }
+.inp, .ta { width: 100%; padding: 5px 9px; border: 1px solid var(--color-border); border-radius: 6px; background: var(--color-bg-base); }
+.inp { height: 30px; }
+.ta { resize: vertical; min-height: 66px; line-height: 1.45; }
+.ta--mono { font-family: var(--font-mono); font-size: 12px; min-height: 120px; }
+.inp:focus, .ta:focus { outline: 2px solid var(--color-accent); outline-offset: 1px; }
+.fld--bad .inp, .fld--bad .ta { border-color: var(--color-status-error); }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 5px 6px; border: 1px solid var(--color-border); border-radius: 6px; background: var(--color-bg-base); min-height: 32px; }
+.chips input { flex: 1; min-width: 120px; border: 0; background: transparent; outline: 0; height: 20px; padding: 0 4px; }
+.fld--bad .chips { border-color: var(--color-status-error); }
+.paths { display: flex; flex-direction: column; gap: 4px; }
+.path { display: flex; align-items: center; gap: 8px; padding: 4px 8px; border: 1px solid var(--color-border-subtle); border-radius: 6px; }
+.path code { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.path button { border: 0; background: transparent; color: var(--color-fg-muted); }
+.path button:hover { color: var(--color-fg-primary); }
+.addrow { display: flex; gap: 6px; }
+.addrow .inp { flex: 1; }
+.suggest { position: absolute; z-index: 5; margin-top: 4px; min-width: 260px; max-height: 160px; overflow-y: auto; background: var(--color-bg-popover); border: 1px solid var(--color-border); border-radius: 8px; box-shadow: var(--shadow-popover); padding: 4px; }
+.suggest button { display: block; width: 100%; padding: 4px 8px; border: 0; border-radius: 4px; background: transparent; text-align: left; font-family: var(--font-mono); font-size: 12px; }
+.suggest button:hover { background: var(--color-bg-hover); }
+.rel { position: relative; }
+.note { display: flex; gap: 8px; padding: 8px 10px; border-radius: 6px; background: var(--color-accent-subtle); color: var(--color-fg-secondary); font-size: 12px; }
+.note--warn { background: var(--color-status-waiting-subtle); }
+.note--err { background: var(--color-status-error-subtle); color: var(--color-fg-primary); }
+
+/* Chat */
+.chat { flex: 1; overflow-y: auto; padding: 18px 28px 12px; display: flex; flex-direction: column; gap: 12px; }
+.msg-u { align-self: flex-end; max-width: 78%; padding: 8px 12px; border-radius: 10px; background: var(--color-bg-selected); }
+.msg-a { max-width: 860px; }
+.msg-a p + p { margin-top: 6px; }
+.tool { border: 1px solid var(--color-border-subtle); border-radius: 8px; background: var(--color-bg-surface); max-width: 860px; }
+.tool__h { display: flex; align-items: center; gap: 8px; width: 100%; padding: 6px 10px; border: 0; background: transparent; text-align: left; color: var(--color-fg-secondary); font-size: 12px; }
+.tool__h b { font-family: var(--font-mono); font-weight: 500; color: var(--color-fg-primary); }
+.tool__h .sp { flex: 1; }
+.tool__b { margin: 0; padding: 8px 10px 10px; border-top: 1px solid var(--color-border-subtle); font: 12px/1.5 var(--font-mono); color: var(--color-fg-primary); white-space: pre-wrap; overflow-x: auto; }
+.plan { border: 1px solid var(--color-border); border-radius: 10px; background: var(--color-bg-surface); max-width: 860px; overflow: hidden; }
+.plan__h { padding: 10px 14px; border-bottom: 1px solid var(--color-border-subtle); font-weight: 600; }
+.plan table { width: 100%; border-collapse: collapse; }
+.plan th, .plan td { text-align: left; padding: 6px 14px; border-top: 1px solid var(--color-border-subtle); vertical-align: top; }
+.plan th { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--color-fg-muted); font-weight: 600; border-top: 0; }
+.plan td small { display: block; color: var(--color-fg-muted); font-size: 12px; }
+.ask { border: 1px solid var(--color-status-waiting); border-radius: 10px; padding: 10px 14px; background: var(--color-status-waiting-subtle); max-width: 860px; display: flex; flex-direction: column; gap: 8px; }
+.ask__o { display: flex; gap: 8px; flex-wrap: wrap; }
+.composer { margin: 0 28px 16px; border: 1px solid var(--color-border); border-radius: 10px; background: var(--color-bg-surface); }
+.composer__in { padding: 10px 12px; color: var(--color-fg-muted); min-height: 42px; }
+.composer__f { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-top: 1px solid var(--color-border-subtle); }
+.pill { display: inline-flex; align-items: center; height: 24px; padding: 0 8px; border-radius: 6px; color: var(--color-fg-secondary); font-size: 12px; }
+
+/* Umsetzung: Maße wie ImplementationBar.css, Timeline.css, CardStack.css, StationCard.css */
+.sess-h { display: flex; align-items: center; gap: 16px; height: 48px; padding: 0 20px; border-bottom: 1px solid var(--color-border-subtle); flex-shrink: 0; }
+.sess-h__title { display: flex; align-items: center; gap: 8px; min-width: 0; flex: 1; }
+.sess-h__proj { border: 0; background: transparent; padding: 0; color: var(--color-fg-muted); }
+.sess-h__proj:hover { color: var(--color-fg-primary); }
+.page .sess-h__name { margin: 0; font-size: 13.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sess-h__status { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--color-fg-muted); white-space: nowrap; }
+.ibar { display: flex; flex-wrap: wrap; gap: 12px 14px; align-items: center; padding: 8px 20px; border-bottom: 1px solid var(--color-border-subtle); color: var(--color-fg-secondary); font-size: 12.5px; }
+.ibar__progress { width: 160px; height: 6px; overflow: hidden; border-radius: 999px; background: var(--color-bg-hover); }
+.ibar__progress i { display: block; height: 100%; background: var(--color-status-completed); }
+.ibar .sp { flex: 1; }
+.ibar__sw { display: inline-flex; gap: 7px; align-items: center; }
+.sw { position: relative; width: 28px; height: 16px; border: 0; border-radius: 999px; background: var(--color-toggle-off); padding: 0; flex-shrink: 0; }
+.sw::after { content: ''; position: absolute; top: 2px; left: 2px; width: 12px; height: 12px; border-radius: 50%; background: var(--color-fg-on-toggle); transition: left 120ms; }
+.sw[aria-checked="true"] { background: var(--color-toggle-on); }
+.sw[aria-checked="true"]::after { left: 14px; }
+.ibtn { height: 24px; padding: 0 8px; border: 1px solid var(--color-border); border-radius: 6px; background: transparent; color: var(--color-fg-secondary); font-size: 11.5px; white-space: nowrap; }
+.ibtn:hover { background: var(--color-bg-hover); color: var(--color-fg-primary); }
+.iview { display: grid; grid-template-columns: 300px minmax(0, 1fr); flex: 1; min-height: 0; }
+.tl { border-right: 1px solid var(--color-border-subtle); overflow-y: auto; padding: 12px 12px 24px 14px; --rail: 26px; }
+.tl__phase { display: grid; grid-template-columns: var(--rail) minmax(0, 1fr); gap: 8px; align-items: baseline; padding: 16px 6px 4px 0; }
+.tl__phase span { grid-column: 2; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tl__phase i { font-style: normal; margin-right: 6px; color: var(--color-fg-muted); font-size: 11px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; }
+.tl__st { position: relative; display: grid; grid-template-columns: var(--rail) minmax(0, 1fr) auto; gap: 8px; align-items: center; width: 100%; padding: 5px 8px 5px 0; border: 0; border-radius: 8px; background: transparent; color: var(--color-fg-secondary); font-size: 12.5px; text-align: left; }
+.tl__st:hover { background: var(--color-bg-hover); }
+.tl__st[aria-current="true"] { background: var(--color-bg-selected); color: var(--color-fg-primary); font-weight: 600; }
+.tl__st .sd { justify-self: start; margin-left: 7px; }
+.tl__st small { color: var(--color-fg-muted); font-size: 11px; font-weight: 400; white-space: nowrap; }
+.tl__st small.bad { color: var(--color-status-error); font-weight: 600; }
+.tl__st em { font-style: normal; color: var(--color-fg-muted); font-weight: 400; }
+.sd { position: relative; z-index: 1; width: 12px; height: 12px; border-radius: 999px; display: block; }
+.sd--done { background: var(--color-status-completed); }
+.sd--run { border: 2px solid var(--color-status-running); background: var(--color-status-running); box-shadow: inset 0 0 0 2px var(--color-bg-base); }
+.sd--wait { background: var(--color-status-waiting); }
+.sd--error { background: var(--color-status-error); }
+.sd--todo { border: 2px solid var(--color-border); background: var(--color-bg-base); }
+.cs { display: grid; gap: 8px; align-content: start; padding: 14px 20px 24px; overflow-y: auto; }
+.cs__label { color: var(--color-fg-muted); font-size: 11px; font-weight: 600; letter-spacing: .07em; text-transform: uppercase; min-height: 22px; display: flex; align-items: center; }
+.cs__small { display: grid; grid-template-columns: 12px minmax(0, 1fr) auto; gap: 10px; align-items: center; width: 100%; padding: 7px 12px; border: 1px solid var(--color-border-subtle); border-radius: 8px; background: var(--color-bg-surface); color: var(--color-fg-secondary); font-size: 12px; text-align: left; }
+.cs__small:hover { border-color: var(--color-border); }
+.cs__small b { color: var(--color-fg-primary); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cs__small small { color: var(--color-fg-muted); font-size: 11px; white-space: nowrap; }
+.sc { display: grid; gap: 10px; margin: 4px 0; padding: 14px 16px; border: 1px solid var(--color-border-subtle); border-left: 3px solid var(--color-border); border-radius: 10px; background: var(--color-bg-surface); box-shadow: var(--shadow-popover); font-size: 13px; }
+.sc--done { border-left-color: var(--color-status-completed); }
+.sc--run { border-left-color: var(--color-status-running); }
+.sc--wait { border-color: var(--color-status-waiting); border-left-color: var(--color-status-waiting); }
+.sc--error { border-color: var(--color-status-error); border-left-color: var(--color-status-error); }
+.sc__head { display: flex; gap: 8px; align-items: baseline; }
+.sc__title { flex: 1; min-width: 0; font-size: 15px; }
+.sc__no { color: var(--color-fg-muted); font: 12px var(--font-mono); }
+.sc__phase { color: var(--color-fg-muted); font-size: 12px; }
+.sc__state { color: var(--color-fg-secondary); }
+.sc__result { color: var(--color-fg-secondary); }
+.sc__acts { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.sc__btn { display: inline-flex; align-items: center; height: 28px; padding: 0 10px; border: 1px solid var(--color-border); border-radius: 6px; background: transparent; color: var(--color-fg-secondary); font-size: 12px; white-space: nowrap; }
+.sc__btn:hover { background: var(--color-bg-hover); color: var(--color-fg-primary); }
+.sc__btn--primary { background: var(--color-accent); border-color: var(--color-accent); color: var(--color-fg-on-accent); }
+.sc__btn--primary:hover { background: var(--color-accent); color: var(--color-fg-on-accent); opacity: .9; }
+/* neu: Zeile mit Typ, Modell und Denkaufwand sowie der Startfehler */
+.sc__agent { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.sc__agent .lead-in { color: var(--color-fg-muted); font-size: 12px; margin-right: 2px; }
+.ag { display: inline-flex; align-items: center; gap: 5px; height: 22px; padding: 0 9px; border: 1px solid var(--color-border); border-radius: 999px; font-size: 12px; color: var(--color-fg-primary); white-space: nowrap; }
+.ag--type { font-weight: 600; }
+.ag--none { color: var(--color-fg-muted); border-style: dashed; font-weight: 400; }
+.ag small { color: var(--color-fg-muted); font-size: 10.5px; }
+.ag--rule { color: var(--color-fg-secondary); }
+.sc__src { color: var(--color-fg-muted); font-size: 11.5px; }
+.sc__fail { padding: 8px 12px; border-radius: 6px; background: var(--color-status-error-subtle); color: var(--color-fg-primary); }
+.sc__fail b { color: var(--color-status-error); font-weight: 600; }
+.sc__fail code { color: var(--color-fg-primary); }
+.ag--set { border-color: color-mix(in srgb, var(--color-accent) 45%, var(--color-border)); background: var(--color-accent-subtle); }
+.ag--skill { font-family: var(--font-mono); font-size: 11.5px; }
+
+/* neu: Einstellungen einer Station (Dialog) */
+.src { display: inline-flex; align-items: center; height: 18px; padding: 0 7px; border: 1px solid var(--color-border); border-radius: 999px; font-size: 11px; font-weight: 400; color: var(--color-fg-muted); white-space: nowrap; }
+.src--set { color: var(--color-accent-text); border-color: color-mix(in srgb, var(--color-accent) 45%, var(--color-border)); background: var(--color-accent-subtle); font-weight: 500; }
+.lnk { margin-left: auto; border: 0; background: transparent; padding: 0; color: var(--color-fg-muted); font-size: 11.5px; font-weight: 400; text-decoration: underline; }
+.lnk:hover { color: var(--color-fg-primary); }
+.fld__l .lnk + .cnt { margin-left: 10px; }
+.segmented--wrap { flex-wrap: wrap; }
+.segmented--wrap button { padding: 0 10px; }
+.segmented button.inh .muted { margin-left: 3px; }
+.sd-prev { display: block; }
+.sd-prev b { color: var(--color-fg-primary); font-weight: 600; }
+
+/* Notizen unter dem Entwurf */
+.notes { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 14px; }
+.notes > div { background: var(--color-bg-surface); border: 1px solid var(--color-border-subtle); border-radius: 8px; padding: 4px 16px 12px; }
+.notes h3 { font-size: 13px; margin: 12px 0 4px; }
+.notes ul { margin: 0; padding-left: 18px; color: var(--color-fg-secondary); }
+.notes li { margin: 3px 0; }
+
+@media (max-width: 860px) {
+  .stage { grid-template-columns: minmax(0, 1fr); }
+  .sb { border-right: 0; border-bottom: 1px solid var(--color-border-subtle); }
+  .sb__list { flex-direction: row; flex-wrap: wrap; }
+  .set { grid-template-columns: minmax(0, 1fr); }
+  .set__nav { flex-direction: row; flex-wrap: wrap; border-right: 0; border-bottom: 1px solid var(--color-border-subtle); }
+  .row { grid-template-columns: minmax(0, 1fr); gap: 6px; }
+  .selbtn { width: 100%; }
+  .set__content { padding: 16px; }
+}
+</style>
+</head>
+<body>
+<div class="page">
+  <h1>Agententypen <span class="tag">Entwurf · Taiga #55</span></h1>
+  <p class="lead">Klickbarer Entwurf der neuen Oberfläche. Der Rundgang führt durch die Schritte; alle Knöpfe in der Anwendung funktionieren auch außerhalb davon. Namen, Pfade und Zahlen sind Beispieldaten. Farben, Schriften, Maße und Texte folgen <code>src/styles/theme.css</code> und den vorhandenen Komponenten; was hier nicht vorkommt, bleibt wie heute.</p>
+
+  <div class="bar">
+    <span class="grp"><label>Ansicht</label><span class="seg" id="seg-view"></span></span>
+    <span class="grp"><label>Betriebsart</label><span class="seg" id="seg-mode"></span></span>
+    <span class="grp"><label>Farbschema</label><span class="seg" id="seg-theme"></span></span>
+    <span class="grp" id="grp-file"><label>Datei <code>~/.claude/rollen/reviewer.md</code> (nur im Entwurf)</label><span class="seg" id="seg-file"></span></span>
+  </div>
+  <div class="tour" id="tour"></div>
+
+  <div class="stage" id="stage"></div>
+
+  <h2 class="sec">Entscheidungen im Entwurf</h2>
+  <div class="notes" id="notes"></div>
+</div>
+<script>
+(function () {
+  'use strict';
+
+  /* ================= Daten ================= */
+  var MODELS = [
+    { id: 'fable', name: 'Fable 5.1', hint: 'Am stärksten, für Planung und Architektur' },
+    { id: 'opus', name: 'Opus 5.5', hint: 'Gründlich, für schwierige Umsetzung' },
+    { id: 'opusplan', name: 'Opus Plan', hint: 'Opus plant, Sonnet setzt um' },
+    { id: 'sonnet', name: 'Sonnet 5.5', hint: 'Schnell und ausgewogen' },
+    { id: 'haiku', name: 'Haiku 5.5', hint: 'Am schnellsten, für Kleinkram' }
+  ];
+  var EFFORTS = [
+    { id: 'low', label: 'Niedrig' }, { id: 'medium', label: 'Mittel' }, { id: 'high', label: 'Hoch' },
+    { id: 'xhigh', label: 'Sehr hoch' }, { id: 'max', label: 'Max' }
+  ];
+  var MODES = [
+    { id: 'claude', label: 'Claude', short: 'Claude' },
+    { id: 'local', label: 'Claude Code + LM Studio', short: 'LM Studio' },
+    { id: 'standalone', label: 'Autark', short: 'Autark' },
+    { id: 'codex', label: 'Codex', short: 'Codex' }
+  ];
+  var SKILLS = ['vault:role-developer', 'vault:role-rust-developer', 'vault:role-typescript-developer', 'vault:role-code-reviewer', 'implement', 'review', 'simplify'];
+  /* Die Sitzung mit der höchsten Nummer: Quelle der „allgemeinen Regel“ für Stationen ohne Typ. */
+  var LAST_SESSION = { no: 2, model: 'opus', effort: 'max' };
+
+  function seed() {
+    return [
+      { id: 't1', name: 'developer',
+        desc: 'Setzt eine abgegrenzte Aufgabe im Code um: liest die Dateien der Phase, ändert sie, lässt die Prüfkette laufen und schreibt den Bericht. Lohnt sich für jede Umsetzung; nicht für reine Prüfungen oder Doku.',
+        stages: ['Umsetzung', 'Fix-Runde'], model: 'opus', effort: 'high',
+        prompt: 'Du setzt genau die Aufgabe um, die der Brief der Phase nennt. Ändere nichts außerhalb des Worktrees und melde Abweichungen im Bericht.',
+        files: [], skills: ['vault:role-developer'] },
+      { id: 't2', name: 'reviewer',
+        desc: 'Prüft die fertige Änderung einer Phase unabhängig gegen ihren Brief und ändert nichts. Lohnt sich nach jeder Umsetzung; nicht für Entwürfe.',
+        stages: ['Review'], model: 'sonnet', effort: 'high', prompt: '',
+        files: ['~/.claude/rollen/reviewer.md'], skills: ['vault:role-code-reviewer'] },
+      { id: 't3', name: 'tester',
+        desc: 'Schreibt vor der Umsetzung die Prüfungen und lässt sie scheitern. Lohnt sich bei Regeln mit klarem Ergebnis; nicht für Oberflächen.',
+        stages: ['Test'], model: null, effort: null,
+        prompt: 'Schreibe zuerst die Prüfungen und lass sie scheitern, bevor irgendetwas umgesetzt wird.',
+        files: [], skills: [] }
+    ];
+  }
+  var EXAMPLE = seed()[0];
+
+  /* ================= Zustand ================= */
+  var state = {
+    theme: (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches) ? 'light' : 'dark',
+    view: 'settings', mode: 'claude',
+    types: [], dialog: null, chat: 0, scenario: 'before', focus: null,
+    fileOk: false, step: 0, seen: {}, edits: {}
+  };
+  /* Die fünf Einstellungen einer Station, die den Typ überschreiben können (Plan 4.10). */
+  var EDITABLE = ['agent', 'model', 'effort', 'prompt', 'skill'];
+  var STATION_PROMPT = 'Prüfe diese Phase besonders streng: Fehlerpfade, Randfälle und Rückwärtskompatibilität. Melde auch Kleinigkeiten, nicht nur Fehler.';
+  var nextId = 10;
+
+  /* ================= Hilfen ================= */
+  var $ = function (id) { return document.getElementById(id); };
+  function esc(s) { return String(s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+  function norm(s) { return String(s).trim().toLowerCase(); }
+  function clone(o) { return JSON.parse(JSON.stringify(o)); }
+  function modelName(id) { for (var i = 0; i < MODELS.length; i++) { if (MODELS[i].id === id) { return MODELS[i].name; } } return id; }
+  function effortLabel(id) { for (var i = 0; i < EFFORTS.length; i++) { if (EFFORTS[i].id === id) { return EFFORTS[i].label; } } return id; }
+  function typeByName(name) { for (var i = 0; i < state.types.length; i++) { if (norm(state.types[i].name) === norm(name)) { return state.types[i]; } } return null; }
+  function typeByStage(stage) { for (var i = 0; i < state.types.length; i++) { for (var j = 0; j < state.types[i].stages.length; j++) { if (norm(state.types[i].stages[j]) === norm(stage)) { return state.types[i]; } } } return null; }
+  function icon(path, size) { return '<svg width="' + (size || 12) + '" height="' + (size || 12) + '" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + path + '</svg>'; }
+  var ICON_CHEV = icon('<path d="M3.5 5.5 7 9l3.5-3.5"/>');
+  var ICON_INFO = '<svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" aria-hidden="true"><circle cx="7" cy="7" r="5.5"/><path d="M7 6.4v3.4"/><circle cx="7" cy="4.3" r=".5" fill="currentColor"/></svg>';
+  var ICON_X = icon('<path d="M3.5 3.5l7 7M10.5 3.5l-7 7"/>', 10);
+  var ICON_CHECK = '<svg width="14" height="14" viewBox="0 0 12 12" aria-hidden="true"><path d="M2.4 6.3 4.9 8.7 9.6 3.4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+  function infoBtn(text) { return '<button type="button" class="info" title="' + esc(text) + '" aria-label="Erklärung: ' + esc(text) + '">' + ICON_INFO + '</button>'; }
+
+  /* ================= Prüfung beim Speichern ================= */
+  function validate(d, selfId) {
+    var e = {};
+    if (!d.name.trim()) { e.name = 'Der Name fehlt.'; }
+    else {
+      for (var i = 0; i < state.types.length; i++) {
+        if (state.types[i].id !== selfId && norm(state.types[i].name) === norm(d.name)) { e.name = 'Der Name „' + d.name.trim() + '“ gehört schon einem anderen Typ.'; }
+      }
+    }
+    if (!d.desc.trim()) { e.desc = 'Die Beschreibung fehlt. Der Planer braucht sie für seine Empfehlung.'; }
+    else if (d.desc.length > 500) { e.desc = 'Die Beschreibung ist länger als 500 Zeichen.'; }
+    var clashes = [];
+    d.stages.forEach(function (s) {
+      state.types.forEach(function (t) {
+        if (t.id === selfId) { return; }
+        t.stages.forEach(function (x) { if (norm(x) === norm(s)) { clashes.push('„' + s.trim() + '“ gehört schon zum Typ „' + t.name + '“.'); } });
+      });
+    });
+    if (clashes.length) { e.stages = clashes.join(' '); }
+    if (d.prompt.length > 16000) { e.prompt = 'Der Text ist länger als 16 000 Zeichen.'; }
+    return e;
+  }
+
+  /* ================= Rahmen ================= */
+  function sidebar() {
+    var sel = function (v) { return state.view === v ? ' aria-current="true"' : ''; };
+    return '<nav class="sb" aria-label="Vorhaben">' +
+      '<div class="sb__brand"><span class="sb__logo"></span>Agenten Verwalter</div>' +
+      '<button type="button" class="sb__new"><span>Neues Vorhaben</span><span class="muted">Strg+N</span></button>' +
+      '<div class="sb__list">' +
+      '<button type="button" class="pr" data-act="view" data-v="chat"' + (state.view === 'chat' ? ' aria-current="true"' : '') + '><span class="si si--waiting"></span><span class="pr__txt"><span class="pr__name">Export als Markdown</span><span class="pr__meta">Planung · fragt dich</span></span></button>' +
+      '<button type="button" class="pr" data-act="view" data-v="impl"' + (state.view === 'impl' ? ' aria-current="true"' : '') + '><span class="si si--running"></span><span class="pr__txt"><span class="pr__name">Umsetzung Export</span><span class="pr__meta">Phase 1 von 3 · 1/7</span></span></button>' +
+      '<button type="button" class="pr"><span class="si si--completed"></span><span class="pr__txt"><span class="pr__name">Kontingent-Warnung</span><span class="pr__meta">fertig</span></span></button>' +
+      '</div>' +
+      '<div class="sb__foot"><button type="button" data-act="view" data-v="settings"' + sel('settings') + '>Einstellungen</button><button type="button">Hilfe</button></div>' +
+      '</nav>';
+  }
+
+  /* ================= Einstellungen ================= */
+  function modelEffortText(t) {
+    return t.model === null ? 'Modell und Denkaufwand: Standard' : modelName(t.model) + ' · ' + effortLabel(t.effort);
+  }
+  function typeRow(t) {
+    var facts = t.stages.map(function (s) { return '<span class="chip chip--stage" title="Eine Station mit diesem Namen läuft als ' + esc(t.name) + '">' + esc(s) + '</span>'; });
+    facts.push('<span class="chip chip--model">' + esc(modelEffortText(t)) + '</span>');
+    if (t.prompt.trim()) { facts.push('<span class="chip">Systemprompt</span>'); }
+    if (t.files.length) { facts.push('<span class="chip">' + t.files.length + (t.files.length === 1 ? ' Datei' : ' Dateien') + '</span>'); }
+    if (t.skills.length) { facts.push('<span class="chip">' + t.skills.length + (t.skills.length === 1 ? ' Skill' : ' Skills') + '</span>'); }
+    return '<div class="atype" data-type="' + t.id + '">' +
+      '<span class="atype__name">' + esc(t.name) + '</span>' +
+      '<span class="atype__act"><button type="button" class="btn" data-act="type-edit" data-id="' + t.id + '">Bearbeiten</button><button type="button" class="btn btn--danger" data-act="type-del" data-id="' + t.id + '">Löschen</button></span>' +
+      '<span class="atype__desc" title="' + esc(t.desc) + '">' + esc(t.desc) + '</span>' +
+      '<span class="atype__facts">' + facts.join('') + '</span></div>';
+  }
+  var INFO_TYPES = 'Rollen für die Stationen einer Umsetzung. Ein Typ legt Modell, Denkaufwand, Systemprompt, Dateien und Skills fest; eine Station läuft als der Typ, der ihren Namen führt oder den sie mit agent nennt. Die Beschreibungen liest der Planer und empfiehlt damit den Ablauf.';
+  function typesSection() {
+    var body;
+    if (!state.types.length) {
+      body = '<div class="atypes__empty"><span><b>Noch keine Agententypen.</b> Ohne Typen läuft jede Station wie bisher: Modell und Denkaufwand kommen von der Session mit der höchsten Nummer.</span><button type="button" class="btn btn--primary" data-act="type-new">Agententyp anlegen</button></div>';
+    } else {
+      body = '<div class="atypes__list">' + state.types.map(typeRow).join('') + '</div>';
+    }
+    var modeNote = '';
+    if (state.mode !== 'claude') {
+      modeNote = '<div class="note note--warn">In der Betriebsart ' + esc(MODES.filter(function (m) { return m.id === state.mode; })[0].label) + ' gelten Modell und Denkaufwand der Typen nicht. Systemprompt, Dateien und Skills wirken auch hier.</div>';
+    }
+    return '<section><h2 class="sec-t">Agententypen</h2>' +
+      '<div class="atypes"><div class="atypes__head"><span class="row__label"><span>Typen</span>' + infoBtn(INFO_TYPES) + '</span><span class="sp"></span>' +
+      (state.types.length ? '<button type="button" class="btn" data-act="type-new">Agententyp anlegen</button>' : '') + '</div>' +
+      '<p class="atypes__intro">Ein Typ ist eine Rolle für Stationen, etwa developer, tester oder reviewer. Die Beschreibung ist für den Planer, der Systemprompt für den Agenten selbst.</p>' +
+      modeNote + body + '</div></section>';
+  }
+  function settingsView() {
+    var modeSeg = '<div class="segmented" role="group" aria-label="Betriebsart">' + MODES.map(function (m) { return '<button type="button" data-act="mode" data-m="' + m.id + '" aria-pressed="' + (state.mode === m.id) + '">' + esc(m.label) + '</button>'; }).join('') + '</div>';
+    var row = function (label, info, control) { return '<div class="row"><div class="row__label"><span>' + label + '</span>' + infoBtn(info) + '</div><div class="row__control">' + control + '</div></div>'; };
+    var sel = function (v, cls) { return '<span class="selbtn ' + (cls || '') + '"><span>' + esc(v) + '</span>' + ICON_CHEV + '</span>'; };
+    return '<div class="hdr"><h3>Einstellungen</h3></div>' +
+      '<div class="set"><nav class="set__nav" aria-label="Kategorien">' +
+      '<button type="button">Allgemein<small>Konto · Darstellung</small></button>' +
+      '<button type="button" aria-current="true">Agent<small>Betriebsart · Modelle · Modus · Agententypen · Claude Code · Selbstfreigabe</small></button>' +
+      '<button type="button">Skills &amp; Umgebung<small>Skills · Umgebung</small></button>' +
+      '<button type="button">App<small>Version · Ordner · Rechte</small></button></nav>' +
+      '<div class="set__scroll"><div class="set__content">' +
+      '<section><h2 class="sec-t">Agent</h2>' +
+      row('Betriebsart', 'Claude, Claude Code + LM Studio, Autark oder Codex. Gilt ab der nächsten Nachricht jeder Session.', modeSeg) +
+      row('Standardmodell', 'Mit diesem Modell startet die erste Session eines neuen Vorhabens.', sel('Opus 5.5')) +
+      row('Standard-Modus', 'Wie selbstständig Claude arbeitet und wie gründlich es nachdenkt.', sel('Auto · Denkaufwand Max')) +
+      '</section>' + typesSection() +
+      '<section class="dim-section"><h2 class="sec-t">Claude Code</h2>' + row('Claude-Version', 'Die Version der Claude-Kommandozeile.', '<span class="muted">2.1.296 · aktuell</span>') + '</section>' +
+      '<section class="dim-section"><h2 class="sec-t">Selbstfreigabe</h2><div class="row"><div class="row__label muted">unverändert</div></div></section>' +
+      '</div></div></div>';
+  }
+
+  /* ================= Dialog ================= */
+  function modelPopover(d) {
+    var items = MODELS.map(function (m) {
+      return '<button type="button" class="pop__item" data-act="pick-model" data-id="' + m.id + '" role="menuitemradio" aria-checked="' + (d.model === m.id) + '">' +
+        '<span class="pop__txt"><span class="pop__name">' + esc(m.name) + '</span><span class="pop__hint">' + esc(m.hint) + '</span></span>' +
+        '<span class="pop__check">' + (d.model === m.id ? ICON_CHECK : '') + '</span></button>';
+    }).join('');
+    var dots = EFFORTS.map(function (f) {
+      var on = d.effort === f.id;
+      return '<button type="button" data-act="pick-effort" data-id="' + f.id + '" aria-label="Denkaufwand ' + esc(f.label) + '" aria-pressed="' + on + '"><span class="dots__dot' + (on ? ' dots__dot--sel' : '') + (f.id === 'max' ? ' dots__dot--max' : '') + '"></span></button>';
+    }).join('');
+    return '<div class="pop" role="dialog" aria-label="Modell" style="bottom:36px;left:0"><div class="pop__head">Modell für Stationen dieses Typs</div>' + items +
+      '<div class="pop__effort"><div class="dots"><span class="dots__title">Denkaufwand <span class="muted">(' + esc(effortLabel(d.effort)) + ')</span></span><div class="dots__group" role="group" aria-label="Denkaufwand">' + dots + '</div></div></div>' +
+      '<div class="pop__foot">Gilt in der Betriebsart Claude. Ein Modell der Station gewinnt.</div></div>';
+  }
+  function fieldErr(errors, key) { return errors[key] ? '<div class="fld__e" role="alert">' + esc(errors[key]) + '</div>' : ''; }
+  function typeDialog() {
+    var dg = state.dialog, d = dg.draft, er = dg.showErrors ? dg.errors : {};
+    var title = dg.mode === 'new' ? 'Neuer Agententyp' : 'Agententyp bearbeiten';
+    var pair = d.pair === 'set';
+    var pairControl = '<div class="segmented" role="group" aria-label="Modell und Denkaufwand"><button type="button" data-act="pair" data-p="default" aria-pressed="' + !pair + '">Standard</button><button type="button" data-act="pair" data-p="set" aria-pressed="' + pair + '">Festlegen</button></div>';
+    if (pair) {
+      pairControl += '<span class="rel"><button type="button" class="selbtn selbtn--small" data-act="pop-toggle" aria-haspopup="dialog" aria-expanded="' + !!dg.pop + '"><span>' + esc(modelName(d.model)) + ' · Denkaufwand ' + esc(effortLabel(d.effort)) + '</span>' + ICON_CHEV + '</button>' + (dg.pop ? modelPopover(d) : '') + '</span>';
+    }
+    var stageChips = d.stages.map(function (s, i) { return '<span class="chip chip--stage">' + esc(s) + '<button type="button" data-act="stage-del" data-i="' + i + '" aria-label="Station ' + esc(s) + ' entfernen">' + ICON_X + '</button></span>'; }).join('');
+    var skillChips = d.skills.map(function (s, i) { return '<span class="chip"><code>' + esc(s) + '</code><button type="button" data-act="skill-del" data-i="' + i + '" aria-label="Skill ' + esc(s) + ' entfernen">' + ICON_X + '</button></span>'; }).join('');
+    var sugg = '';
+    if (dg.suggest) {
+      var q = norm(dg.skillQuery || '');
+      var list = SKILLS.filter(function (s) { return d.skills.indexOf(s) < 0 && (!q || s.toLowerCase().indexOf(q) >= 0); });
+      sugg = '<div class="suggest" role="listbox">' + (list.length ? list.map(function (s) { return '<button type="button" data-act="skill-pick" data-s="' + esc(s) + '">' + esc(s) + '</button>'; }).join('') : '<div class="muted" style="padding:4px 8px">Kein Vorschlag. Freier Text mit Enter.</div>') + '</div>';
+    }
+    var files = d.files.map(function (p, i) { return '<div class="path"><code title="' + esc(p) + '">' + esc(p) + '</code><button type="button" data-act="file-del" data-i="' + i + '" aria-label="Datei ' + esc(p) + ' entfernen">' + ICON_X + '</button></div>'; }).join('');
+    var len = d.prompt.length;
+    var msg = '';
+    var n = Object.keys(dg.errors).length;
+    if (dg.showErrors && n) { msg = '<span class="msg fld__e" role="alert">Speichern nicht möglich: ' + n + (n === 1 ? ' Angabe fehlt oder ist ungültig.' : ' Angaben fehlen oder sind ungültig.') + '</span>'; }
+    else { msg = '<span class="msg"></span>'; }
+    return '<div class="scrim"><div class="dlg" role="dialog" aria-modal="true" aria-label="' + title + '">' +
+      '<div class="dlg__h"><h4>' + title + '</h4><p>Eine Rolle für Stationen. Gespeichert in den Einstellungen, gilt für alle Vorhaben.</p></div><div class="dlg__b">' +
+      '<div class="fld' + (er.name ? ' fld--bad' : '') + '"><label class="fld__l" for="f-name">Name <span class="req">Pflicht</span></label><input class="inp" id="f-name" data-f="name" value="' + esc(d.name) + '" placeholder="z. B. developer" autocomplete="off">' + fieldErr(er, 'name') + '<span class="fld__h">Unter diesem Namen nennt eine Station den Typ im Feld agent.</span></div>' +
+      '<div class="fld' + (er.desc ? ' fld--bad' : '') + '"><label class="fld__l" for="f-desc">Beschreibung für den Planer <span class="req">Pflicht</span><span class="cnt' + (d.desc.length > 500 ? ' over' : '') + '" id="c-desc">' + d.desc.length + ' / 500</span></label><textarea class="ta" id="f-desc" data-f="desc" rows="3" placeholder="Wofür taugt der Typ, wann lohnt er sich, was tut er nicht?">' + esc(d.desc) + '</textarea>' + fieldErr(er, 'desc') + '</div>' +
+      '<div class="fld' + (er.stages ? ' fld--bad' : '') + '"><span class="fld__l">Stationen</span><div class="chips">' + stageChips + '<input id="f-stage" data-f="stage" placeholder="Stationsname, Enter" autocomplete="off" aria-label="Stationsname hinzufügen"></div>' + fieldErr(er, 'stages') + '<span class="fld__h">Eine Station mit diesem Namen läuft von selbst als dieser Typ. Groß- und Kleinschreibung und Leerzeichen am Rand zählen nicht; ein Name gehört höchstens einem Typ.</span></div>' +
+      '<div class="fld"><span class="fld__l">Modell und Denkaufwand</span><div class="addrow" style="align-items:center">' + pairControl + '</div><span class="fld__h">Beides zusammen oder „Standard“: dann gilt die allgemeine Regel. Gilt nur in der Betriebsart Claude.</span></div>' +
+      '<div class="fld' + (er.prompt ? ' fld--bad' : '') + '"><label class="fld__l" for="f-prompt">Systemprompt<span class="cnt' + (len > 16000 ? ' over' : '') + '" id="c-prompt">' + len.toLocaleString('de-DE') + ' / 16 000</span></label><textarea class="ta ta--mono" id="f-prompt" data-f="prompt" rows="5" placeholder="Anweisungen an den Agenten selbst">' + esc(d.prompt) + '</textarea>' + fieldErr(er, 'prompt') + '<span class="fld__h">Steht hinter den Vorgaben des Verwalters, in allen vier Betriebsarten. Danach folgen die Dateien.</span></div>' +
+      '<div class="fld"><span class="fld__l">Dateien</span><div class="paths">' + files + '</div><div class="addrow"><input class="inp" id="f-file" data-f="file" placeholder="Pfad: absolut, ~/ oder relativ zu den Repositories" autocomplete="off" aria-label="Pfad hinzufügen"><button type="button" class="btn" data-act="file-add">Hinzufügen</button><button type="button" class="btn" data-act="file-pick">Datei wählen …</button></div><span class="fld__h">Der Verwalter liest die Dateien beim Start der Station, ohne Frontmatter. Fehlt eine, startet die Station nicht.</span></div>' +
+      '<div class="fld"><span class="fld__l">Skills</span><div class="rel"><div class="chips">' + skillChips + '<input id="f-skill" data-f="skill" placeholder="Skill, Enter" autocomplete="off" aria-label="Skill hinzufügen"></div>' + sugg + '</div><span class="fld__h">Der erste Skill steht als Befehl in der ersten Zeile, die weiteren nennt die erste Nachricht. Ein Skill der Station kommt vor denen des Typs. Ob ein Skill existiert, prüft der Verwalter nicht.</span></div>' +
+      '</div><div class="dlg__f">' + msg + '<button type="button" class="btn" data-act="dlg-example" title="Nur im Entwurf: füllt den Typ developer aus">Beispiel einsetzen</button><button type="button" class="btn" data-act="dlg-cancel">Abbrechen</button><button type="button" class="btn btn--primary" data-act="dlg-save">Speichern</button></div></div></div>';
+  }
+  function deleteDialog() {
+    var t = state.types.filter(function (x) { return x.id === state.dialog.id; })[0];
+    if (!t) { return ''; }
+    return '<div class="scrim"><div class="dlg dlg--small" role="alertdialog" aria-modal="true" aria-label="Typ löschen"><div class="dlg__h"><h4>„' + esc(t.name) + '“ löschen?</h4></div><div class="dlg__b"><p class="sec2">Stationen, die diesen Typ im Feld agent nennen, starten danach nicht mehr; die Karte nennt den Grund. Eine laufende Station behält ihren Systemprompt. Stationen, die nur über den Namen zugeordnet waren, laufen ohne Typ.</p></div><div class="dlg__f"><button type="button" class="btn" data-act="dlg-cancel">Abbrechen</button><button type="button" class="btn btn--danger" data-act="dlg-delete">Löschen</button></div></div></div>';
+  }
+
+  /* ================= Planung (Chat) ================= */
+  var TOOL_RESULT = '[\n  { "name": "developer",\n    "description": "Setzt eine abgegrenzte Aufgabe im Code um: …",\n    "stages": ["Umsetzung", "Fix-Runde"],\n    "model": "opus", "effort": "high",\n    "skills": ["vault:role-developer"] },\n  { "name": "reviewer",\n    "description": "Prüft die fertige Änderung einer Phase unabhängig …",\n    "stages": ["Review"],\n    "model": "sonnet", "effort": "high",\n    "skills": ["vault:role-code-reviewer"] },\n  { "name": "tester",\n    "description": "Schreibt vor der Umsetzung die Prüfungen …",\n    "stages": ["Test"],\n    "model": null, "effort": null,\n    "skills": [] }\n]';
+  var CREATE_CALL = '{ "name": "Export als Markdown",\n  "phases": [\n    { "key": "1", "title": "Export im Core",\n      "stations": [\n        { "stage": "Test",      "agent": "tester" },\n        { "stage": "Umsetzung", "agent": "developer" },\n        { "stage": "Review",    "agent": "reviewer",\n          "effort": "max",\n          "prompt": "Prüfe diese Phase besonders streng: Fehlerpfade, Randfälle und Rückwärtskompatibilität. Melde auch Kleinigkeiten, nicht nur Fehler." } ] },\n    { "key": "2", "title": "Export in der Oberfläche",\n      "stations": [\n        { "stage": "Umsetzung", "agent": "developer" },\n        { "stage": "Review",    "agent": "reviewer", "model": "haiku" },\n        { "stage": "Merge",     "by": "you" } ] },\n    { "key": "3", "title": "Doku",\n      "stations": [ { "stage": "Doku" } ] }\n  ] }';
+  function toolBlock(name, summary, body, open) {
+    return '<div class="tool"><button type="button" class="tool__h" data-act="tool-toggle" data-t="' + name + '" aria-expanded="' + !!open + '"><b>' + name + '</b><span class="sp"></span><span>' + summary + '</span>' + ICON_CHEV + '</button>' + (open ? '<pre class="tool__b">' + esc(body) + '</pre>' : '') + '</div>';
+  }
+  function chatView() {
+    var c = state.chat, out = '';
+    out += '<div class="msg-u">Plane den Export als Markdown: erst der Core, dann die Oberfläche, dann die Doku.</div>';
+    out += '<div class="msg-a"><p>Ich lese zuerst die Agententypen und lege danach den Plan vor.</p></div>';
+    out += toolBlock('implementation_agent_types', c >= 1 ? '3 Typen' : 'läuft …', TOOL_RESULT, state.toolOpen === 'types');
+    if (c >= 1) {
+      out += '<div class="msg-a"><p>Drei Typen sind angelegt: <b>developer</b> (Umsetzung, Fix-Runde), <b>reviewer</b> (Review) und <b>tester</b> (Test). Mein Vorschlag:</p></div>';
+    }
+    if (c >= 2) {
+      out += '<div class="plan"><div class="plan__h">Plan: Export als Markdown</div><table><thead><tr><th>Phase</th><th>Stationen und Typ</th><th>Begründung</th></tr></thead><tbody>' +
+        '<tr><td><b>1</b> Export im Core</td><td>Test <span class="chip">tester</span> → Umsetzung <span class="chip">developer</span> → Review <span class="chip">reviewer</span> <span class="chip chip--model">Denkaufwand Max</span> <span class="chip">Zusatztext</span></td><td>Reine Regeln mit klarem Ergebnis: erst die Prüfungen, dann die Umsetzung. Der Core trägt die beiden anderen Phasen, deshalb ein besonders kritischer Review: Max und ein Zusatztext für Fehlerpfade und Randfälle.</td></tr>' +
+        '<tr><td><b>2</b> Export in der Oberfläche</td><td>Umsetzung <span class="chip">developer</span> → Review <span class="chip">reviewer</span> (Haiku) → Merge (du)</td><td>Kein tester: Das Ergebnis ist ein Bild. Der Review ist kurz, deshalb das kleine Modell.</td></tr>' +
+        '<tr><td><b>3</b> Doku</td><td>Doku <span class="chip">ohne Typ</span></td><td>Kein Typ passt; die Station folgt der allgemeinen Regel.</td></tr>' +
+        '</tbody></table></div>';
+    }
+    if (c === 2) {
+      out += '<div class="ask" role="group" aria-label="Rückfrage"><b>Plan freigeben?</b><span class="sec2">Mit der Freigabe lege ich die Umsetzung an. Die Typen stehen je Station im Feld agent; das kritische Review trägt außerdem effort und prompt. Beides kannst du danach auf der Karte der Station ändern.</span><div class="ask__o"><button type="button" class="btn btn--primary" data-act="plan-approve">Plan freigeben</button><button type="button" class="btn">Ändern …</button></div></div>';
+    }
+    if (c >= 3) {
+      out += '<div class="msg-u">Plan freigeben</div>';
+      out += toolBlock('implementation_create', 'Export als Markdown · 3 Phasen · 7 Stationen', CREATE_CALL, state.toolOpen === 'create');
+      out += '<div class="msg-a"><p>Die Umsetzung „Export als Markdown“ ist angelegt. Die erste Station startest du mit ▶.</p><p style="margin-top:8px"><button type="button" class="btn btn--primary" data-act="goto-impl">Zur Umsetzung</button></p></div>';
+    }
+    return '<header class="sess-h"><div class="sess-h__title"><button type="button" class="sess-h__proj">Export als Markdown</button>' + icon('<path d="M4.5 2.5 8 6l-3.5 3.5"/>', 11) + '<h1 class="sess-h__name">Planung #2</h1><span class="sess-h__status"><span class="si si--' + (c === 2 ? 'waiting' : 'running') + '" style="margin:0"></span>' + (c === 2 ? 'fragt dich' : 'läuft') + '</span></div><div class="tabs" role="tablist"><button type="button" role="tab" aria-selected="true">Chat</button><button type="button" role="tab" aria-selected="false">Changes</button></div></header>' +
+      '<div class="chat">' + out + '</div>' +
+      '<div class="composer"><div class="composer__in">Nachricht an Claude …</div><div class="composer__f"><span class="pill">Opus 5.5 · Max</span><span class="pill">Planen</span></div></div>';
+  }
+
+  /* ================= Umsetzung ================= */
+  /* Zustände einer Station je Szenario; `agent` ist das Feld der Station, `model` ihr ausdrückliches Modell. */
+  function stations() {
+    var s = state.scenario;
+    var list = [
+      { id: 'p1test', phase: '1', ptitle: 'Export im Core', stage: 'Test', agent: 'tester', st: 'ready' },
+      { id: 'p1impl', phase: '1', ptitle: 'Export im Core', stage: 'Umsetzung', agent: 'developer', st: 'pending' },
+      { id: 'p1rev', phase: '1', ptitle: 'Export im Core', stage: 'Review', agent: 'reviewer', effort: 'max', prompt: STATION_PROMPT, st: 'pending' },
+      { id: 'p2impl', phase: '2', ptitle: 'Export in der Oberfläche', stage: 'Umsetzung', agent: 'developer', st: 'pending' },
+      { id: 'p2rev', phase: '2', ptitle: 'Export in der Oberfläche', stage: 'Review', agent: 'reviewer', model: 'haiku', st: 'pending' },
+      { id: 'p2merge', phase: '2', ptitle: 'Export in der Oberfläche', stage: 'Merge', byYou: true, st: 'pending' },
+      { id: 'p3doku', phase: '3', ptitle: 'Doku', stage: 'Doku', st: 'pending' }
+    ];
+    var by = function (id) { return list.filter(function (x) { return x.id === id; })[0]; };
+    if (s === 'running') {
+      by('p1test').st = 'done'; by('p1test').result = '6 Prüfungen geschrieben, alle rot, wie gewollt.'; by('p1test').no = 3; by('p1test').ms = '4 min';
+      by('p1impl').st = 'running'; by('p1impl').no = 4; by('p1impl').ms = 'läuft 12 min';
+    } else if (s === 'failed' || s === 'fixed') {
+      by('p1test').st = 'done'; by('p1test').result = '6 Prüfungen geschrieben, alle rot, wie gewollt.'; by('p1test').no = 3; by('p1test').ms = '4 min';
+      by('p1impl').st = 'done'; by('p1impl').result = 'Export im Core fertig, 6 von 6 Prüfungen grün, pnpm check grün.'; by('p1impl').no = 4; by('p1impl').ms = '31 min';
+      if (s === 'failed') { by('p1rev').st = 'ready'; by('p1rev').fail = !state.fileOk; }
+      else { by('p1rev').st = 'running'; by('p1rev').no = 5; by('p1rev').ms = 'läuft 2 min'; }
+    }
+    /* Was du auf der Karte gesetzt hast, ersetzt den ganzen Satz der Station (Plan 4.10). */
+    list.forEach(function (x) {
+      var ed = state.edits[x.id];
+      if (!ed) { return; }
+      EDITABLE.forEach(function (k) { x[k] = ed[k] || undefined; });
+    });
+    return list;
+  }
+  function tone(st) { return { done: 'done', running: 'run', ready: 'todo', pending: 'todo', error: 'error' }[st.fail ? 'error' : st.st] || 'todo'; }
+  function stateWord(st) { return st.fail ? 'startet nicht' : ({ pending: 'wartet', ready: 'bereit', running: 'läuft', done: 'fertig' })[st.st]; }
+  function resolveStation(st) {
+    var t = st.agent ? typeByName(st.agent) : (st.byYou ? null : typeByStage(st.stage));
+    var missing = !!st.agent && !t;
+    var model = null, mSrc = 'rule';
+    if (st.model) { model = st.model; mSrc = 'station'; }
+    else if (t && t.model) { model = t.model; mSrc = 'type'; }
+    var effort = null, eSrc = 'rule';
+    if (st.effort) { effort = st.effort; eSrc = 'station'; }
+    else if (t && t.effort) { effort = t.effort; eSrc = 'type'; }
+    if (!model) { model = LAST_SESSION.model; }
+    if (!effort) { effort = LAST_SESSION.effort; }
+    return { type: t, missing: missing, model: model, mSrc: mSrc, effort: effort, eSrc: eSrc };
+  }
+  var SRC = { station: 'Einstellung der Station', type: 'aus dem Typ', rule: 'allgemeine Regel: wie Session #' + LAST_SESSION.no };
+  var SRC_WORD = { station: 'Station', type: 'Typ', rule: 'Regel' };
+  function srcSmall(src) { return src === 'type' ? '' : ' <small>' + SRC_WORD[src] + '</small>'; }
+  function agentLine(st) {
+    if (st.byYou) { return ''; }
+    var r = resolveStation(st), started = st.st === 'running' || st.st === 'done';
+    var parts = [];
+    var local = state.mode !== 'claude';
+    if (r.missing) {
+      parts.push('<span class="ag ag--none" title="Der Typ ist gelöscht">' + esc(st.agent) + ' · gelöscht</span>');
+    } else if (r.type) {
+      parts.push('<span class="ag ag--type" title="Typ">' + esc(r.type.name) + '</span>');
+    } else {
+      parts.push('<span class="ag ag--none" title="Kein Typ trifft diesen Stationsnamen">kein Typ</span>');
+    }
+    /* Werte des Typs gelten nur in der Betriebsart Claude; ausdrückliche Werte der Station zeigt die Karte in jeder (Plan 4.5, Schritt 5). */
+    var showM = !local || r.mSrc === 'station', showE = !local || r.eSrc === 'station';
+    if (showM) {
+      parts.push('<span class="ag' + (r.mSrc === 'rule' ? ' ag--rule' : r.mSrc === 'station' ? ' ag--set' : '') + '" title="' + esc(SRC[r.mSrc]) + '">' + esc(modelName(r.model)) + srcSmall(r.mSrc) + '</span>');
+    } else {
+      parts.push('<span class="ag ag--rule" title="In dieser Betriebsart gilt das Modell des Typs nicht">Modell: wie die Session</span>');
+    }
+    if (showE) {
+      parts.push('<span class="ag' + (r.eSrc === 'rule' ? ' ag--rule' : r.eSrc === 'station' ? ' ag--set' : '') + '" title="' + esc(SRC[r.eSrc]) + '">Denkaufwand ' + esc(effortLabel(r.effort)) + srcSmall(r.eSrc) + '</span>');
+    } else {
+      parts.push('<span class="ag ag--rule" title="In dieser Betriebsart gilt der Denkaufwand des Typs nicht">Denkaufwand: wie die Session</span>');
+    }
+    if (st.skill) { parts.push('<span class="ag ag--set ag--skill" title="Skill der Station: steht als Befehl in der ersten Zeile">/' + esc(st.skill) + '</span>'); }
+    if (st.prompt) { parts.push('<span class="ag ag--set" title="' + esc('Zusatztext zum Systemprompt: ' + st.prompt) + '">Zusatztext · ' + st.prompt.length + ' Zeichen</span>'); }
+    return '<div class="sc__agent"><span class="lead-in">' + (started ? 'läuft als' : 'startet als') + '</span>' + parts.join('') + '</div>';
+  }
+  function failBox(st) {
+    if (!st.fail) { return ''; }
+    return '<div class="sc__fail" role="alert"><b>Startet nicht.</b> Die Datei <code>~/.claude/rollen/reviewer.md</code> aus dem Typ „reviewer“ wurde nicht gefunden. Es ist keine Session entstanden. Lege die Datei an oder ändere den Typ; danach startet ▶ die Station.</div>';
+  }
+  function stationCard(st) {
+    var acts = '';
+    if (st.st === 'ready') { acts += '<button type="button" class="sc__btn sc__btn--primary" data-act="st-start" data-id="' + st.id + '">▶ Jetzt starten</button>'; }
+    if ((st.st === 'ready' || st.st === 'pending') && !st.byYou) { acts += '<button type="button" class="sc__btn" data-act="st-edit" data-id="' + st.id + '" title="Typ, Modell, Denkaufwand, Zusatztext und Skill nur für diese Station ändern">Einstellungen</button>'; }
+    if (st.fail) { acts += '<button type="button" class="sc__btn" data-act="fix-type">Typ bearbeiten</button>'; }
+    if (st.no) { acts += '<button type="button" class="sc__btn sc__btn--primary">Chat öffnen</button>'; }
+    var state_ = st.st === 'running' ? 'läuft seit ' + st.ms.replace('läuft ', '') : st.st === 'done' ? 'fertig · ' + st.ms : st.fail ? 'bereit' : 'wartet auf Start';
+    return '<article class="sc sc--' + tone(st) + '" aria-label="Phase ' + st.phase + ' · ' + esc(st.stage) + '">' +
+      '<div class="sc__head"><b class="sc__title">Phase ' + st.phase + ' · ' + esc(st.stage) + '</b><span class="sc__no">' + (st.no ? '#' + st.no : '') + '</span></div>' +
+      '<p class="sc__phase">' + esc(st.ptitle) + '</p><p class="sc__state">' + state_ + '</p>' +
+      agentLine(st) + failBox(st) + (st.result ? '<p class="sc__result">' + esc(st.result) + '</p>' : '') +
+      (acts ? '<div class="sc__acts">' + acts + '</div>' : '') + '</article>';
+  }
+  function implView() {
+    var list = stations();
+    var focusId = state.focus;
+    if (!focusId || !list.some(function (x) { return x.id === focusId; })) {
+      focusId = state.scenario === 'before' ? 'p1test' : state.scenario === 'running' ? 'p1impl' : 'p1rev';
+    }
+    var idx = 0; list.forEach(function (x, i) { if (x.id === focusId) { idx = i; } });
+    var cur = list[idx];
+    var doneCount = list.filter(function (x) { return x.st === 'done'; }).length;
+    var tl = '', lastPhase = '';
+    list.forEach(function (x) {
+      if (x.phase !== lastPhase) { tl += '<div class="tl__phase"><span><i>Phase ' + x.phase + '</i>' + esc(x.ptitle) + '</span></div>'; lastPhase = x.phase; }
+      var meta = x.fail ? '<small class="bad">startet nicht</small>' : '<small>' + esc(x.ms || '') + '</small>';
+      var typeName = x.byYou ? '' : (function () { var r = resolveStation(x); return r.type ? ' <em>' + esc(r.type.name) + '</em>' : ''; })();
+      tl += '<button type="button" class="tl__st" data-act="focus" data-id="' + x.id + '"' + (x.id === focusId ? ' aria-current="true"' : '') + '><span class="sd sd--' + tone(x) + '"></span><span>' + esc(x.stage) + typeName + '</span>' + meta + '</button>';
+    });
+    var prev = list.slice(Math.max(0, idx - 2), idx), next = list.slice(idx + 1, idx + 3);
+    var small = function (x) { return '<button type="button" class="cs__small" data-act="focus" data-id="' + x.id + '"><span class="sd sd--' + tone(x) + '"></span><b>' + x.phase + ' · ' + esc(x.stage) + '</b><small>' + esc(x.ms || '') + '</small></button>'; };
+    var lead = state.scenario === 'before' ? 'ruhend' : state.scenario === 'running' ? 'läuft' : state.scenario === 'failed' ? 'Fehler' : 'läuft';
+    return '<header class="sess-h"><div class="sess-h__title"><button type="button" class="sess-h__proj">Export als Markdown</button>' + icon('<path d="M4.5 2.5 8 6l-3.5 3.5"/>', 11) + '<h1 class="sess-h__name">Umsetzung Export als Markdown</h1><span class="sess-h__status"><span class="sd sd--' + (state.scenario === 'failed' ? 'error' : state.scenario === 'before' ? 'todo' : 'run') + '"></span>' + lead + '</span></div><div class="tabs" role="tablist"><button type="button" role="tab" aria-selected="true">Ablauf</button><button type="button" role="tab" aria-selected="false">Changes</button></div></header>' +
+      '<div class="ibar"><span>Phase ' + (state.scenario === 'before' ? 1 : 1) + ' von 3 · ' + doneCount + ' von ' + list.length + ' Sessions fertig</span><span class="ibar__progress"><i style="width:' + Math.round(doneCount / list.length * 100) + '%"></i></span><span class="sp"></span>' +
+      '<span class="ibar__sw"><button type="button" class="sw" role="switch" aria-checked="false" aria-label="Automatisch weiter"></button>Automatisch weiter</span><span class="ibar__sw"><button type="button" class="sw" role="switch" aria-checked="false" aria-label="Anhalten nach dieser Session"></button>Anhalten nach dieser Session</span><button type="button" class="ibtn">Neue Rückfrage</button><button type="button" class="ibtn">Lagebericht</button></div>' +
+      '<div class="iview"><div class="tl" aria-label="Zeitleiste der Umsetzung">' + tl + '</div><div class="cs"><div class="cs__label">Davor</div>' + prev.map(small).join('') + stationCard(cur) + '<div class="cs__label">Danach</div>' + next.map(small).join('') + '</div></div>';
+  }
+
+  /* ================= Einstellungen einer Station (Dialog) ================= */
+  function stDraft(st) { var d = {}; EDITABLE.forEach(function (k) { d[k] = st[k] || ''; }); return d; }
+  function stDialogOpen(st, draftOver) {
+    var dg = { kind: 'station', id: st.id, stage: st.stage, phase: st.phase, draft: stDraft(st), errors: {}, showErrors: false, pop: false };
+    if (draftOver) { for (var k in draftOver) { dg.draft[k] = draftOver[k]; } }
+    return dg;
+  }
+  function stValidate(d) {
+    var e = {};
+    if (d.prompt.length > 4000) { e.prompt = 'Der Text ist länger als 4 000 Zeichen.'; }
+    if (d.skill.replace(/^\//, '').length > 40) { e.skill = 'Der Skill ist länger als 40 Zeichen.'; }
+    return e;
+  }
+  /* Die Station, wie der Dialog sie gerade beschreibt; `withValues` false = ohne Modell und Denkaufwand der Station (was dann „wie der Typ“ ergäbe). */
+  function stProbe(dg, withValues) {
+    var d = dg.draft;
+    return { stage: dg.stage, agent: d.agent || undefined, model: withValues ? (d.model || undefined) : undefined, effort: withValues ? (d.effort || undefined) : undefined, prompt: d.prompt, skill: d.skill };
+  }
+  function sdPreview(dg) {
+    var r = resolveStation(stProbe(dg, true)), d = dg.draft, parts = [], local = state.mode !== 'claude';
+    parts.push('<b>' + (r.missing ? esc(d.agent) + ' (gelöscht)' : r.type ? esc(r.type.name) : 'kein Typ') + '</b>');
+    parts.push(local && r.mSrc !== 'station' ? 'Modell wie die Session' : esc(modelName(r.model)) + ' (' + SRC_WORD[r.mSrc] + ')');
+    parts.push(local && r.eSrc !== 'station' ? 'Denkaufwand wie die Session' : 'Denkaufwand ' + esc(effortLabel(r.effort)) + ' (' + SRC_WORD[r.eSrc] + ')');
+    var sk = d.skill.replace(/^\//, '') || (r.type && r.type.skills.length ? r.type.skills[0] : '');
+    if (sk) { parts.push('Skill /' + esc(sk) + (d.skill ? ' (Station)' : ' (Typ)')); }
+    if (d.prompt.trim()) { parts.push('Zusatztext ' + d.prompt.length + ' Zeichen'); }
+    return '<span class="sd-prev"><b>So startet die Station:</b> ' + parts.join(' · ') + '</span>';
+  }
+  function stationDialog() {
+    var dg = state.dialog, d = dg.draft, er = dg.showErrors ? dg.errors : {};
+    var base = resolveStation(stProbe(dg, false));
+    var mWord = base.mSrc === 'type' ? 'Wie der Typ' : 'Wie die allgemeine Regel', eWord = base.eSrc === 'type' ? 'Wie der Typ' : 'Wie die allgemeine Regel';
+    var anySet = EDITABLE.some(function (k) { return !!d[k]; });
+    function row(label, key, inherited, control, hint, err, setWord) {
+      var isSet = !!d[key];
+      return '<div class="fld' + (err ? ' fld--bad' : '') + '"><span class="fld__l">' + label +
+        '<span class="src' + (isSet ? ' src--set' : '') + '">' + (isSet ? esc(setWord || 'Abweichung') : esc(inherited)) + '</span>' +
+        (isSet ? '<button type="button" class="lnk" data-act="sd-reset" data-k="' + key + '" aria-label="' + esc(label) + ' zurücksetzen">Zurücksetzen</button>' : '') +
+        (key === 'prompt' ? '<span class="cnt' + (d.prompt.length > 4000 ? ' over' : '') + '">' + d.prompt.length.toLocaleString('de-DE') + ' / 4 000</span>' : '') +
+        '</span>' + control + (err ? '<div class="fld__e" role="alert">' + esc(err) + '</div>' : '') + '<span class="fld__h">' + hint + '</span></div>';
+    }
+    var auto = typeByStage(dg.stage);
+    var typeCtl = '<select class="inp" data-f="stype" aria-label="Typ"><option value="">Nach Stationsname (' + (auto ? esc(auto.name) : 'kein Typ') + ')</option>' +
+      state.types.map(function (t) { return '<option value="' + esc(t.name) + '"' + (norm(d.agent) === norm(t.name) ? ' selected' : '') + '>' + esc(t.name) + '</option>'; }).join('') + '</select>';
+    var item = function (id, name, hint) {
+      var on = id === '' ? !d.model : d.model === id;
+      return '<button type="button" class="pop__item" data-act="sd-model" data-id="' + id + '" role="menuitemradio" aria-checked="' + on + '"><span class="pop__txt"><span class="pop__name">' + esc(name) + '</span><span class="pop__hint">' + esc(hint) + '</span></span><span class="pop__check">' + (on ? ICON_CHECK : '') + '</span></button>';
+    };
+    var modelCtl = '<span class="rel"><button type="button" class="selbtn selbtn--small" data-act="sd-pop" aria-haspopup="menu" aria-expanded="' + !!dg.pop + '"><span>' + (d.model ? esc(modelName(d.model)) : esc(mWord) + ' · ' + esc(modelName(base.model))) + '</span>' + ICON_CHEV + '</button>' +
+      (dg.pop ? '<div class="pop" role="menu" aria-label="Modell" style="top:34px;left:0">' + item('', mWord, modelName(base.model)) + MODELS.map(function (m) { return item(m.id, m.name, m.hint); }).join('') + '</div>' : '') + '</span>';
+    var effCtl = '<div class="segmented segmented--wrap" role="group" aria-label="Denkaufwand"><button type="button" class="inh" data-act="sd-effort" data-id="" aria-pressed="' + !d.effort + '">' + esc(eWord) + ' <span class="muted">(' + esc(effortLabel(base.effort)) + ')</span></button>' +
+      EFFORTS.map(function (f) { return '<button type="button" data-act="sd-effort" data-id="' + f.id + '" aria-pressed="' + (d.effort === f.id) + '">' + esc(f.label) + '</button>'; }).join('') + '</div>';
+    var promptCtl = '<textarea class="ta ta--mono" id="sd-prompt" data-f="sprompt" rows="4" placeholder="Zusätzliche Anweisungen nur für diese Station, z. B. „Prüfe besonders streng …“">' + esc(d.prompt) + '</textarea>';
+    var typeSkills = base.type && base.type.skills.length ? ' Skills des Typs: ' + base.type.skills.map(function (s) { return '<code>' + esc(s) + '</code>'; }).join(', ') + '.' : '';
+    var skillCtl = '<input class="inp" id="sd-skill" data-f="sskill" list="sd-skills" value="' + esc(d.skill) + '" placeholder="z. B. vault:role-code-reviewer" autocomplete="off"><datalist id="sd-skills">' + SKILLS.map(function (s) { return '<option value="' + esc(s) + '"></option>'; }).join('') + '</datalist>';
+    var n = Object.keys(dg.errors).length;
+    var msg = dg.showErrors && n ? '<span class="msg fld__e" role="alert">Speichern nicht möglich: ' + n + (n === 1 ? ' Angabe ist ungültig.' : ' Angaben sind ungültig.') + '</span>' : '<span class="msg"></span>';
+    return '<div class="scrim"><div class="dlg" role="dialog" aria-modal="true" aria-label="Einstellungen der Station">' +
+      '<div class="dlg__h"><h4>Einstellungen der Station</h4><p>Phase ' + esc(dg.phase) + ' · ' + esc(dg.stage) + '. Gilt nur für diese Station und nur, solange sie nicht gestartet ist. Was leer bleibt, übernimmt die Station vom Typ.</p></div><div class="dlg__b">' +
+      row('Typ', 'agent', 'nach Stationsname', typeCtl, 'Die Typen legst du in den Einstellungen an. „Nach Stationsname“ nimmt den Typ, der den Namen der Station führt.', '', 'ausdrücklich') +
+      row('Modell', 'model', mWord, modelCtl, 'Gilt in jeder Betriebsart, wie das Modell einer Station heute. Das Modell des Typs gilt nur in der Betriebsart Claude.', '') +
+      row('Denkaufwand', 'effort', eWord, effCtl, 'Etwa Max für ein besonders kritisches Review. Gilt unabhängig vom Modell.', '') +
+      row('Zusatz zum Systemprompt', 'prompt', 'kein Zusatztext', promptCtl, 'Steht hinter Text und Dateien des Typs im Systemprompt, in allen Betriebsarten. Dateien gibt es nur am Typ.', er.prompt) +
+      row('Skill', 'skill', 'kein eigener Skill', skillCtl, 'Steht als Befehl in der ersten Zeile; die Skills des Typs folgen als Anweisung in der Nachricht.' + typeSkills, er.skill) +
+      '<div class="note"><div id="sd-preview" aria-live="polite">' + sdPreview(dg) + '</div></div>' +
+      '</div><div class="dlg__f">' + msg + (anySet ? '<button type="button" class="btn" data-act="sd-resetall">Alles zurücksetzen</button>' : '') +
+      '<button type="button" class="btn" data-act="dlg-cancel">Abbrechen</button><button type="button" class="btn btn--primary" data-act="sd-save">Speichern</button></div></div></div>';
+  }
+  function saveStation() {
+    var dg = state.dialog, d = dg.draft;
+    dg.errors = stValidate(d); dg.showErrors = true;
+    if (Object.keys(dg.errors).length) { render(); return false; }
+    var out = {};
+    EDITABLE.forEach(function (k) { out[k] = k === 'skill' ? d[k].trim().replace(/^\//, '') : k === 'prompt' ? d[k].trim() : d[k]; });
+    state.edits[dg.id] = out; state.focus = dg.id; state.dialog = null; render(); return true;
+  }
+
+  /* ================= Rundgang ================= */
+  function dlgNew(draftOver) {
+    var dr = { name: '', desc: '', stages: [], pair: 'default', model: 'opus', effort: 'high', prompt: '', files: [], skills: [] };
+    if (draftOver) { for (var k in draftOver) { dr[k] = draftOver[k]; } }
+    return { kind: 'type', mode: 'new', id: null, draft: dr, errors: {}, showErrors: false, pop: false, suggest: false, skillQuery: '' };
+  }
+  function fromType(t) {
+    var dr = clone(t); dr.pair = t.model === null ? 'default' : 'set';
+    if (t.model === null) { dr.model = 'opus'; dr.effort = 'high'; }
+    return { kind: 'type', mode: 'edit', id: t.id, draft: dr, errors: {}, showErrors: false, pop: false, suggest: false, skillQuery: '' };
+  }
+  function exampleDraft() { var e = clone(EXAMPLE); e.pair = 'set'; return e; }
+  var STEPS = [
+    { t: 'Einstellungen › Agent', x: 'Neuer Abschnitt „Agententypen“ in der Kategorie Agent. Ohne Typen läuft jede Station wie bisher.', target: '[data-act="type-new"]',
+      setup: function () { state.view = 'settings'; state.mode = 'claude'; state.types = []; state.dialog = null; } },
+    { t: 'Dialog: Pflichtangaben', x: 'Name und Beschreibung sind Pflicht. „Speichern“ ohne sie zeigt die Gründe an der Stelle.', target: '[data-act="dlg-save"]', stay: true,
+      setup: function () { state.view = 'settings'; state.types = []; state.dialog = dlgNew(); } },
+    { t: 'Beispiel einsetzen', x: 'Nur im Entwurf: Ein Klick füllt den Typ developer aus, damit du nicht tippen musst.', target: '[data-act="dlg-example"]',
+      setup: function () { state.view = 'settings'; state.types = []; state.dialog = dlgNew(); } },
+    { t: 'Modell und Denkaufwand', x: 'Als Paar oder „Standard“. Das Menü ist das der Eingabeleiste: Modelle, darunter die Punkte für den Denkaufwand.', target: '[data-act="pick-effort"][data-id="high"]', stay: true,
+      setup: function () { state.view = 'settings'; state.types = []; state.dialog = dlgNew(exampleDraft()); state.dialog.pop = true; } },
+    { t: 'Speichern', x: 'Die Liste zeigt je Typ die Stationen, Modell und Denkaufwand und was sonst noch hängt (Systemprompt, Dateien, Skills).', target: '[data-act="dlg-save"]',
+      setup: function () { state.view = 'settings'; state.types = []; state.dialog = dlgNew(exampleDraft()); } },
+    { t: 'Drei Typen', x: 'So sieht die Liste mit developer, reviewer und tester aus. „Bearbeiten“ öffnet denselben Dialog; Umbenennen ist nur ein neuer Name.', target: '[data-act="type-edit"][data-id="t2"]',
+      setup: function () { state.view = 'settings'; state.types = seed(); state.dialog = null; } },
+    { t: 'Stationsname schon vergeben', x: 'Ein Stationsname gehört höchstens einem Typ; „ review “ trifft „Review“. Das Speichern wird abgelehnt und nennt den Besitzer.', target: '[data-act="dlg-save"]', stay: true,
+      setup: function () { state.view = 'settings'; state.types = seed(); var t = state.types[2]; state.dialog = fromType(t); state.dialog.draft.stages.push(' review '); revalidate(); state.dialog.showErrors = true; } },
+    { t: 'Typ löschen', x: 'Löschen fragt nach und nennt die Folge: Stationen, die den Typ im Feld agent nennen, starten dann nicht.', target: '[data-act="dlg-delete"]',
+      setup: function () { state.view = 'settings'; state.types = seed(); state.dialog = { kind: 'delete', id: 't3' }; } },
+    { t: 'Planung: Typen lesen', x: 'Bevor die planende Session den Plan vorlegt, liest sie die Typen. Sie sieht Name, Beschreibung, Stationen, Modell, Denkaufwand und Skills – nie den Prompt-Text.', target: '[data-act="tool-toggle"]',
+      setup: function () { state.view = 'chat'; state.types = seed(); state.dialog = null; state.chat = 1; state.toolOpen = 'types'; } },
+    { t: 'Plan mit Empfehlung', x: 'Je Phase Stationen, Reihenfolge und Typ mit kurzer Begründung. Ein besonders kritisches Review trägt Denkaufwand Max und einen Zusatztext. Du entscheidest bei der Freigabe.', target: '[data-act="plan-approve"]',
+      setup: function () { state.view = 'chat'; state.types = seed(); state.chat = 2; state.toolOpen = null; } },
+    { t: 'Umsetzung angelegt', x: 'Die Stationen nennen ihre Typen im neuen Feld agent; das kritische Review trägt dazu effort und prompt. Ein unbekannter Name oder Wert lässt implementation_create mit dem Feld scheitern.', target: '[data-act="goto-impl"]',
+      setup: function () { state.view = 'chat'; state.types = seed(); state.chat = 3; state.toolOpen = 'create'; } },
+    { t: 'Umsetzung: vor dem Start', x: 'Die Karte nennt, womit die Station startet: Typ, Modell, Denkaufwand und woher sie kommen. Ohne Typ gilt die allgemeine Regel.', target: '[data-act="focus"][data-id="p2rev"]',
+      setup: function () { state.view = 'impl'; state.types = seed(); state.scenario = 'before'; state.focus = 'p1test'; } },
+    { t: 'Besonders kritisch', x: 'Das Review der Phase 1 trägt die Abweichungen, die der Planer gesetzt hat: Denkaufwand Max und einen Zusatztext, beides mit der Herkunft „Station“. Solange die Station keine Session hat, ändert „Einstellungen“ sie.', target: '[data-act="st-edit"]',
+      setup: function () { state.view = 'impl'; state.types = seed(); state.scenario = 'before'; state.focus = 'p1rev'; } },
+    { t: 'Einstellungen der Station', x: 'Jede Einstellung des Typs lässt sich für diese Station überschreiben: Typ, Modell, Denkaufwand, Zusatztext, Skill. Eine Zeile je Einstellung nennt Wert und Herkunft; „Zurücksetzen“ heißt wieder „wie der Typ“. Die Vorschau unten zeigt, wie die Station startet. Probier einen anderen Denkaufwand aus.', target: '[data-act="sd-effort"][data-id="xhigh"]', stay: true,
+      setup: function () { state.view = 'impl'; state.types = seed(); state.scenario = 'before'; state.focus = 'p1rev'; state.dialog = stDialogOpen(stations().filter(function (x) { return x.id === 'p1rev'; })[0]); } },
+    { t: 'Eigene Einstellung speichern', x: 'Hier hast du für Phase 2 · Umsetzung Denkaufwand „Sehr hoch“ und den Skill der Rust-Rolle gesetzt. Alles andere bleibt beim Typ developer. Eine spätere Plan-Änderung lässt das stehen, soweit der Planer es nicht ausdrücklich nennt. Nach „Speichern“ zeigt die Karte die neuen Werte.', target: '[data-act="sd-save"]', stay: true,
+      setup: function () { state.view = 'impl'; state.types = seed(); state.scenario = 'before'; state.focus = 'p2impl'; state.dialog = stDialogOpen(stations().filter(function (x) { return x.id === 'p2impl'; })[0], { effort: 'xhigh', skill: 'vault:role-rust-developer' }); } },
+    { t: 'Läuft', x: 'Nach dem Start zeigt die Karte die Werte der Session. Dazu gehört, was du in der Eingabeleiste geändert hast.', target: '[data-act="focus"][data-id="p1test"]',
+      setup: function () { state.view = 'impl'; state.types = seed(); state.scenario = 'running'; state.focus = 'p1impl'; } },
+    { t: 'Start scheitert', x: 'Fehlt die Datei des Typs, entsteht keine Session. Die Karte nennt Grund und Pfad, auch beim automatischen Start.', target: '[data-act="fix-type"]',
+      setup: function () { state.view = 'impl'; state.types = seed(); state.scenario = 'failed'; state.focus = 'p1rev'; } },
+    { t: 'Nach der Korrektur', x: 'Die Datei liegt jetzt da (oben im Entwurf umschaltbar). ▶ startet die Station, jetzt als reviewer mit seinem Rollentext.', target: '[data-act="st-start"]',
+      setup: function () { state.view = 'impl'; state.types = seed(); state.scenario = 'failed'; state.focus = 'p1rev'; state.fileOk = true; } },
+    { t: 'Andere Betriebsart', x: 'In Codex, LM Studio und Autark ändert der Typ weder Modell noch Denkaufwand; Systemprompt und Skills wirken.', target: '',
+      setup: function () { state.view = 'impl'; state.types = seed(); state.scenario = 'running'; state.focus = 'p1impl'; state.mode = 'codex'; } }
+  ];
+
+  /* ================= Zeichnen ================= */
+  function render() {
+    var main;
+    if (state.view === 'settings') { main = settingsView(); }
+    else if (state.view === 'chat') { main = chatView(); }
+    else { main = implView(); }
+    var overlay = '';
+    if (state.dialog) { overlay = state.dialog.kind === 'delete' ? deleteDialog() : state.dialog.kind === 'station' ? stationDialog() : typeDialog(); }
+    /* Ein hoher Dialog soll ohne Rollen ganz zu sehen sein: die Bühne wächst mit ihm. */
+    $('stage').style.minHeight = (state.dialog && state.dialog.kind !== 'delete') ? '1000px' : '';
+    var scrim = $('stage').querySelector('.scrim'), top = scrim ? scrim.scrollTop : 0;
+    $('stage').innerHTML = sidebar() + '<div class="main" id="main">' + main + overlay + '</div>';
+    var s2 = $('stage').querySelector('.scrim'); if (s2) { s2.scrollTop = top; }
+    renderBar();
+    var st = STEPS[state.step];
+    if (st && st.target) { var el = $('stage').querySelector(st.target); if (el) { el.classList.add('hot'); } }
+  }
+  function seg(el, items, cur, act) {
+    el.innerHTML = items.map(function (it) { return '<button type="button" data-bar="' + act + '" data-v="' + it.id + '" aria-pressed="' + (cur === it.id) + '"' + (it.dis ? ' disabled' : '') + '>' + esc(it.label) + '</button>'; }).join('');
+  }
+  function renderBar() {
+    seg($('seg-view'), [{ id: 'settings', label: 'Einstellungen' }, { id: 'chat', label: 'Planung' }, { id: 'impl', label: 'Umsetzung' }], state.view, 'view');
+    seg($('seg-mode'), MODES.map(function (m) { return { id: m.id, label: m.short }; }), state.mode, 'mode');
+    seg($('seg-theme'), [{ id: 'dark', label: 'Dunkel' }, { id: 'light', label: 'Hell' }], state.theme, 'theme');
+    seg($('seg-file'), [{ id: 'missing', label: 'fehlt' }, { id: 'present', label: 'liegt da' }], state.fileOk ? 'present' : 'missing', 'file');
+    $('grp-file').style.display = (state.view === 'impl' && (state.scenario === 'failed' || state.scenario === 'fixed')) ? '' : 'none';
+    var st = STEPS[state.step];
+    var dots = STEPS.map(function (s, i) { return '<button type="button" data-bar="goto" data-v="' + i + '" aria-label="Schritt ' + (i + 1) + ': ' + esc(s.t) + '"' + (i === state.step ? ' aria-current="step"' : '') + (state.seen[i] ? ' class="seen"' : '') + '></button>'; }).join('');
+    $('tour').innerHTML = '<span class="tour__nav"><button type="button" data-bar="prev"' + (state.step === 0 ? ' disabled' : '') + '>◀ Zurück</button><button type="button" data-bar="next"' + (state.step === STEPS.length - 1 ? ' disabled' : '') + '>Weiter ▶</button></span>' +
+      '<span class="tour__no">Schritt ' + (state.step + 1) + ' / ' + STEPS.length + '</span><span class="tour__txt"><b>' + esc(st.t) + '.</b> <span>' + esc(st.x) + '</span></span><span class="tour__dots">' + dots + '</span>';
+    document.documentElement.setAttribute('data-theme', state.theme);
+  }
+  function go(i) {
+    state.step = Math.max(0, Math.min(STEPS.length - 1, i));
+    state.seen[state.step] = true;
+    state.fileOk = false;
+    state.mode = 'claude';
+    state.dialog = null;
+    state.edits = {};
+    STEPS[state.step].setup();
+    render();
+  }
+
+  /* ================= Aktionen ================= */
+  function addStage() {
+    var inp = $('f-stage'); if (!inp) { return; }
+    var v = inp.value.trim(); if (!v) { return; }
+    state.dialog.draft.stages.push(v); revalidate(); render(); var n = $('f-stage'); if (n) { n.focus(); }
+  }
+  function revalidate() { var dg = state.dialog; dg.errors = validate(dg.draft, dg.id); }
+  function save() {
+    var dg = state.dialog, d = dg.draft;
+    dg.errors = validate(d, dg.id); dg.showErrors = true;
+    if (Object.keys(dg.errors).length) { render(); return false; }
+    var rec = { id: dg.id || ('t' + (nextId++)), name: d.name.trim(), desc: d.desc.trim(), stages: d.stages.map(function (s) { return s.trim(); }),
+      model: d.pair === 'set' ? d.model : null, effort: d.pair === 'set' ? d.effort : null, prompt: d.prompt, files: d.files.slice(), skills: d.skills.slice() };
+    if (dg.id) { state.types = state.types.map(function (t) { return t.id === dg.id ? rec : t; }); } else { state.types.push(rec); }
+    state.dialog = null; render(); return true;
+  }
+  function act(el, ev) {
+    var a = el.getAttribute('data-act'), id = el.getAttribute('data-id'), dg = state.dialog;
+    switch (a) {
+      case 'view': state.view = el.getAttribute('data-v'); state.dialog = null; render(); return;
+      case 'mode': state.mode = el.getAttribute('data-m'); render(); return;
+      case 'type-new': state.dialog = dlgNew(); render(); var f = $('f-name'); if (f) { f.focus(); } return;
+      case 'type-edit': state.dialog = fromType(state.types.filter(function (t) { return t.id === id; })[0]); render(); return;
+      case 'type-del': state.dialog = { kind: 'delete', id: id }; render(); return;
+      case 'dlg-cancel': state.dialog = null; render(); return;
+      case 'dlg-delete': state.types = state.types.filter(function (t) { return t.id !== dg.id; }); state.dialog = null; render(); return;
+      case 'dlg-save': save(); return;
+      case 'dlg-example': var ex = exampleDraft(); state.dialog = dlgNew(ex); render(); return;
+      case 'pair': dg.draft.pair = el.getAttribute('data-p'); if (dg.draft.pair === 'default') { dg.pop = false; } revalidate(); render(); return;
+      case 'pop-toggle': dg.pop = !dg.pop; render(); return;
+      case 'pick-model': dg.draft.model = id; render(); return;
+      case 'pick-effort': dg.draft.effort = id; render(); return;
+      case 'stage-del': dg.draft.stages.splice(+el.getAttribute('data-i'), 1); revalidate(); render(); return;
+      case 'skill-del': dg.draft.skills.splice(+el.getAttribute('data-i'), 1); render(); return;
+      case 'skill-pick': dg.draft.skills.push(el.getAttribute('data-s')); dg.suggest = false; dg.skillQuery = ''; render(); var sk = $('f-skill'); if (sk) { sk.focus(); } return;
+      case 'file-del': dg.draft.files.splice(+el.getAttribute('data-i'), 1); render(); return;
+      case 'file-add': var fi = $('f-file'); if (fi && fi.value.trim()) { dg.draft.files.push(fi.value.trim()); render(); } return;
+      case 'file-pick': dg.draft.files.push('/home/nutzer/rollen/' + (dg.draft.name.trim() || 'rolle') + '.md'); render(); return;
+      case 'tool-toggle': var t = el.getAttribute('data-t'); var key = t === 'implementation_agent_types' ? 'types' : 'create'; state.toolOpen = state.toolOpen === key ? null : key; render(); return;
+      case 'plan-approve': state.chat = 3; state.toolOpen = 'create'; render(); return;
+      case 'goto-impl': state.view = 'impl'; state.scenario = 'before'; state.focus = 'p1test'; render(); return;
+      case 'focus': state.focus = id; render(); return;
+      case 'st-edit': var sx = stations().filter(function (x) { return x.id === id; })[0]; if (sx) { state.dialog = stDialogOpen(sx); render(); } return;
+      case 'sd-pop': dg.pop = !dg.pop; render(); return;
+      case 'sd-model': dg.draft.model = id; dg.pop = false; render(); return;
+      case 'sd-effort': dg.draft.effort = id; render(); return;
+      case 'sd-reset': dg.draft[el.getAttribute('data-k')] = ''; dg.pop = false; if (dg.showErrors) { dg.errors = stValidate(dg.draft); } render(); return;
+      case 'sd-resetall': EDITABLE.forEach(function (k) { dg.draft[k] = ''; }); dg.pop = false; dg.errors = {}; render(); return;
+      case 'sd-save': saveStation(); return;
+      case 'st-start': if (state.scenario === 'failed' && state.fileOk) { state.scenario = 'fixed'; state.focus = 'p1rev'; } else if (state.scenario === 'before') { state.scenario = 'running'; state.focus = 'p1test'; } render(); return;
+      case 'fix-type': state.view = 'settings'; state.mode = 'claude'; state.types = state.types.length ? state.types : seed(); state.dialog = fromType(state.types.filter(function (t) { return t.name === 'reviewer'; })[0]); render(); return;
+      default: return;
+    }
+  }
+  function onClick(ev) {
+    var bar = ev.target.closest('[data-bar]');
+    if (bar) {
+      var k = bar.getAttribute('data-bar'), v = bar.getAttribute('data-v');
+      if (k === 'prev') { go(state.step - 1); } else if (k === 'next') { go(state.step + 1); } else if (k === 'goto') { go(+v); }
+      else if (k === 'theme') { state.theme = v; render(); }
+      else if (k === 'file') { state.fileOk = v === 'present'; if (state.scenario === 'fixed' && !state.fileOk) { state.scenario = 'failed'; } render(); }
+      else if (k === 'view') { state.view = v; state.dialog = null; render(); }
+      else if (k === 'mode') { state.mode = v; render(); }
+      return;
+    }
+    var el = ev.target.closest('[data-act]');
+    if (!el) { return; }
+    var wasHot = el.classList.contains('hot'), st = STEPS[state.step];
+    act(el, ev);
+    if (wasHot && !(st && st.stay)) { go(state.step + 1); }
+  }
+  function onInput(ev) {
+    var f = ev.target.getAttribute && ev.target.getAttribute('data-f'), dg = state.dialog;
+    if (f && dg && dg.kind === 'station') {
+      if (f === 'sprompt') { dg.draft.prompt = ev.target.value; } else if (f === 'sskill') { dg.draft.skill = ev.target.value; } else { return; }
+      if (dg.showErrors) { dg.errors = stValidate(dg.draft); }
+      var pos = ev.target.selectionStart, tid = ev.target.id;
+      render();
+      var again = $(tid);
+      if (again) { again.focus(); try { again.setSelectionRange(pos, pos); } catch (e) { /* kein Textfeld: ohne Wirkung */ } }
+      return;
+    }
+    if (!f || !dg || dg.kind !== 'type') { return; }
+    var v = ev.target.value;
+    if (f === 'name') { dg.draft.name = v; }
+    else if (f === 'desc') { dg.draft.desc = v; var c = $('c-desc'); if (c) { c.textContent = v.length + ' / 500'; c.classList.toggle('over', v.length > 500); } }
+    else if (f === 'prompt') { dg.draft.prompt = v; var p = $('c-prompt'); if (p) { p.textContent = v.length.toLocaleString('de-DE') + ' / 16 000'; p.classList.toggle('over', v.length > 16000); } }
+    else if (f === 'skill') { dg.skillQuery = v; dg.suggest = true; render(); var sk = $('f-skill'); if (sk) { sk.focus(); sk.setSelectionRange(v.length, v.length); sk.value = v; } return; }
+    if (dg.showErrors) { dg.errors = validate(dg.draft, dg.id); }
+  }
+  function onKey(ev) {
+    var f = ev.target.getAttribute && ev.target.getAttribute('data-f'), dg = state.dialog;
+    if (ev.key === 'Escape' && dg) { state.dialog = null; render(); return; }
+    if (!f || !dg || dg.kind !== 'type') { return; }
+    if (ev.key === 'Enter' && f === 'stage') { ev.preventDefault(); addStage(); }
+    else if (ev.key === 'Enter' && f === 'skill') { ev.preventDefault(); var v = ev.target.value.trim(); if (v) { dg.draft.skills.push(v); dg.suggest = false; dg.skillQuery = ''; render(); var sk = $('f-skill'); if (sk) { sk.focus(); } } }
+    else if (ev.key === 'Enter' && f === 'file') { ev.preventDefault(); var fi = ev.target.value.trim(); if (fi) { dg.draft.files.push(fi); render(); var n = $('f-file'); if (n) { n.focus(); } } }
+  }
+  function onFocusIn(ev) {
+    var dg = state.dialog;
+    if (dg && dg.kind === 'type' && ev.target.getAttribute && ev.target.getAttribute('data-f') === 'skill' && !dg.suggest) { dg.suggest = true; render(); var sk = $('f-skill'); if (sk) { sk.focus(); } }
+  }
+
+  /* ================= Notizen ================= */
+  $('notes').innerHTML =
+    '<div><h3>Einstellungen</h3><ul>' +
+    '<li><b>Ein Abschnitt in der Kategorie Agent,</b> hinter „Agent“, als eine Zeile des Katalogs (ADR 057) mit voller Breite für die Liste. Der ⓘ-Text und die Suche kommen aus dem Katalog.</li>' +
+    '<li><b>Dialog statt Zeile.</b> Ein Typ hat sieben Felder; „Bearbeiten“ öffnet denselben Dialog wie „Anlegen“. Umbenennen heißt: anderen Namen speichern.</li>' +
+    '<li><b>Pflicht:</b> Name und Beschreibung. Die Beschreibung ist für den Planer, der Systemprompt für den Agenten.</li>' +
+    '<li><b>Modell und Denkaufwand als Paar</b> oder „Standard“. Das Menü ist das der Eingabeleiste; die Auswahl gilt nur in der Betriebsart Claude.</li>' +
+    '<li><b>Dateien ohne Prüfung im Dialog.</b> Relative Pfade gelten gegen die Repositories eines Vorhabens, das es hier nicht gibt. Fehlt eine Datei, sagt es die Karte beim Start.</li></ul></div>' +
+    '<div><h3>Planung</h3><ul>' +
+    '<li><b>Der Planer liest die Typen,</b> bevor er den Plan vorlegt, über das neue Lesewerkzeug <code>implementation_agent_types</code>. Es nennt nie den Prompt-Text und ändert nichts.</li>' +
+    '<li><b>Die Empfehlung steht im Plan,</b> nicht in einem eigenen Bildschirm: je Phase Stationen, Typ und Begründung. Die Freigabe des Plans ist deine Entscheidung.</li>' +
+    '<li><b>Ohne Typen</b> liefert das Werkzeug eine leere Liste, und der Plan entsteht wie bisher.</li>' +
+    '<li><b>Abweichungen stehen im Plan:</b> Ein besonders kritisches Review trägt <code>effort</code> und <code>prompt</code> an der Station, mit Begründung in der Tabelle. Der Planer nutzt das sparsam.</li></ul></div>' +
+    '<div><h3>Umsetzung</h3><ul>' +
+    '<li><b>Eine Zeile auf der Karte:</b> Typ, Modell, Denkaufwand. Vor dem Start die aufgelösten Werte mit ihrer Herkunft (Station, Typ, Regel), danach die der Session.</li>' +
+    '<li><b>Ein Startfehler hat einen Ton:</b> Die Karte ist rot umrandet, nennt Grund und Pfad, die Station bleibt bereit. ▶ startet sie nach der Korrektur.</li>' +
+    '<li><b>Typname in der Zeitleiste</b> (Punkt N6 im Plan): klein und gedämpft hinter dem Stationsnamen. Nicht in der Story; fällt weg, wenn die Zeitleiste unverändert bleiben soll.</li>' +
+    '<li><b>Stationen ohne Typ</b> bleiben wie heute; „kein Typ“ steht gestrichelt, damit niemand einen Typ vermutet.</li>' +
+    '<li><b>Andere Betriebsarten:</b> Die Karte nennt den Typ, aber kein Modell und keinen Denkaufwand des Typs; ausdrückliche Werte der Station zeigt sie.</li>' +
+    '<li><b>Einstellungen der Station</b> (Vorgabe U1): Der Knopf sitzt neben ▶, solange die Station keine Session hat. Der Dialog hat eine Zeile je Einstellung mit Wert, Herkunft und „Zurücksetzen“; leer heißt „wie der Typ“. Gespeichert wird immer der ganze Satz aus Typ, Modell, Denkaufwand, Zusatztext und Skill.</li>' +
+    '<li><b>Der Zusatztext ist sichtbar:</b> Chip mit Zeichenzahl auf der Karte, Text im Tooltip und im Dialog. Ein Text vom Planer steht im Systemprompt und soll vor dem Start nicht unbemerkt bleiben.</li>' +
+    '<li><b>Dateien nur am Typ:</b> Der Dialog der Station kennt keine Dateien (Plan N12).</li></ul></div>';
+
+  /* ================= Start ================= */
+  var stage = $('stage');
+  stage.addEventListener('click', onClick);
+  document.querySelector('.page').addEventListener('click', function (ev) { if (ev.target.closest('.bar, .tour')) { onClick(ev); } });
+  stage.addEventListener('input', onInput);
+  stage.addEventListener('change', function (ev) {
+    var f = ev.target.getAttribute && ev.target.getAttribute('data-f'), dg = state.dialog;
+    if (f === 'stype' && dg && dg.kind === 'station') { dg.draft.agent = ev.target.value; render(); }
+  });
+  stage.addEventListener('keydown', onKey);
+  stage.addEventListener('focusin', onFocusIn);
+  /* Sprungmarken: #schritt=7&schema=hell&betriebsart=codex */
+  var h = (location.hash || '').replace(/^#/, '').split('&').reduce(function (o, kv) { var p = kv.split('='); o[p[0]] = p[1]; return o; }, {});
+  if (h.schema === 'hell') { state.theme = 'light'; } else if (h.schema === 'dunkel') { state.theme = 'dark'; }
+  go(h.schritt ? Math.max(0, (parseInt(h.schritt, 10) || 1) - 1) : 0);
+  if (h.betriebsart && MODES.some(function (m) { return m.id === h.betriebsart; })) { state.mode = h.betriebsart; render(); }
+})();
+</script>
+</body>
+</html>

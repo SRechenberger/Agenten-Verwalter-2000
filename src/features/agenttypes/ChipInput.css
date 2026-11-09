@@ -1,0 +1,122 @@
+.chip-input {
+  position: relative;
+
+  &__box {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-sm);
+    box-sizing: border-box;
+    min-height: 32px;
+    padding: 5px var(--space-sm);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    background: var(--color-bg-base);
+
+    &:focus-within {
+      border-color: var(--color-accent);
+    }
+
+    &--invalid,
+    &--invalid:focus-within {
+      border-color: var(--color-status-error);
+    }
+  }
+
+  &__chip {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-xs);
+    height: 20px;
+    padding: 0 var(--space-md);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-full);
+    font-size: 11.5px;
+    color: var(--color-fg-primary);
+    white-space: nowrap;
+  }
+
+  &__text {
+    &--mono {
+      font-family: var(--font-mono);
+      font-size: var(--font-size-xs);
+      color: var(--color-fg-secondary);
+    }
+  }
+
+  &__remove {
+    display: flex;
+    align-items: center;
+    padding: 0 0 0 var(--space-2xs);
+    border: 0;
+    background: transparent;
+    color: var(--color-fg-muted);
+    line-height: 1;
+    cursor: pointer;
+
+    &:hover {
+      color: var(--color-fg-primary);
+    }
+
+    &:focus-visible {
+      outline: 2px solid var(--color-accent);
+      outline-offset: 2px;
+    }
+  }
+
+  &__input {
+    flex: 1;
+    min-width: 120px;
+    height: 20px;
+    padding: 0 var(--space-xs);
+    border: 0;
+    outline: 0;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+
+    &::placeholder {
+      color: var(--color-fg-muted);
+    }
+  }
+
+  &__suggest {
+    position: absolute;
+    z-index: var(--z-dropdown);
+    box-sizing: border-box;
+    min-width: 260px;
+    max-height: 160px;
+    margin-top: var(--space-xs);
+    padding: var(--space-xs);
+    overflow-y: auto;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    background: var(--color-bg-popover);
+    box-shadow: var(--shadow-popover);
+  }
+
+  &__option {
+    display: block;
+    width: 100%;
+    padding: var(--space-xs) var(--space-md);
+    border: 0;
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: var(--color-fg-primary);
+    font-family: var(--font-mono);
+    font-size: var(--font-size-xs);
+    text-align: left;
+    cursor: pointer;
+
+    &:hover,
+    &:focus-visible {
+      background: var(--color-bg-hover);
+    }
+  }
+
+  &__none {
+    padding: var(--space-xs) var(--space-md);
+    font-size: var(--font-size-xs);
+    color: var(--color-fg-muted);
+  }
+}
