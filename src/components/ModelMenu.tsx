@@ -36,6 +36,10 @@ interface ModelMenuProps<Id extends string> {
   warning?: ModelMenuWarning | undefined;
   /** Ein Klick ändert den Denkaufwand und lässt das Menü offen; fehlt das Feld, steht keine Zeile da (Einstellungen). */
   effort?: ModelMenuEffort | undefined;
+  /** Wie bei `Popover`: das Menü hängt am `body`, damit ein scrollender Vorfahre (Dialog) es nicht abschneidet. */
+  detached?: boolean;
+  /** Klasse für die Hülle des Menüs, etwa um ein losgelöstes Menü über einen Dialog zu heben. */
+  className?: string;
 }
 
 export function ModelMenu<Id extends string>({
@@ -49,6 +53,8 @@ export function ModelMenu<Id extends string>({
   emptyText = 'Keine Modelle verfügbar.',
   warning,
   effort,
+  detached = false,
+  className = '',
 }: ModelMenuProps<Id>): ReactElement {
   return (
     <Popover
@@ -57,6 +63,8 @@ export function ModelMenu<Id extends string>({
       align="start"
       width={MODEL_MENU_WIDTH}
       onClose={onClose}
+      detached={detached}
+      className={className}
     >
       <div className="model-menu__head">{title}</div>
       {options.length === 0 && <div className="model-menu__empty">{emptyText}</div>}

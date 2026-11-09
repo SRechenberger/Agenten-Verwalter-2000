@@ -11,6 +11,10 @@ interface SettingRowProps {
   id: SettingId;
   /** Ersetzt den Namen aus dem Katalog, wenn er vom Zustand abhängt. */
   label?: string;
+  /** Zeile mit voller Breite: der Name oben, das Bedienelement darunter (eine Liste braucht die Breite). */
+  isWide?: boolean;
+  /** In einer breiten Zeile rechts neben dem Namen, etwa ein Knopf „Anlegen“. */
+  action?: ReactNode;
   /** Das Bedienelement. */
   children: ReactNode;
 }
@@ -21,13 +25,19 @@ function renderParts(parts: readonly TextPart[]): ReactElement[] {
   );
 }
 
-export function SettingRow({ id, label: labelOverride, children }: SettingRowProps): ReactElement {
+export function SettingRow({
+  id,
+  label: labelOverride,
+  isWide = false,
+  action,
+  children,
+}: SettingRowProps): ReactElement {
   const { label: catalogLabel, info } = settingEntry(id);
   const label: string = labelOverride ?? catalogLabel;
   const terms: readonly string[] = useSettingsSearchTerms();
   const found: TextPart[] | null = foundInInfo(label, info, terms);
   return (
-    <div className="setting-row">
+    <div className={`setting-row${isWide ? ' setting-row--wide' : ''}`}>
       <div className="setting-row__label">
         <span>{renderParts(markParts(label, terms))}</span>
         <button
@@ -51,6 +61,7 @@ export function SettingRow({ id, label: labelOverride, children }: SettingRowPro
             <circle cx="7" cy="4.3" r="0.5" fill="currentColor" />
           </svg>
         </button>
+        {action !== undefined && <span className="setting-row__action">{action}</span>}
       </div>
       <div className="setting-row__control">{children}</div>
       {found !== null && (

@@ -21,7 +21,7 @@ export const SETTINGS_CATEGORIES: readonly SettingsCategory[] = [
   {
     id: 'agent',
     label: 'Agent',
-    summary: 'Betriebsart · Modelle · Modus · Claude Code · Selbstfreigabe',
+    summary: 'Betriebsart · Modelle · Modus · Agententypen · Claude Code · Selbstfreigabe',
   },
   { id: 'skills', label: 'Skills & Umgebung', summary: 'Skills · Umgebung' },
   { id: 'app', label: 'App', summary: 'Version · Ordner · Rechte · Fernsteuerung' },
@@ -131,6 +131,12 @@ const ENTRY_DATA = {
     section: 'Agent',
     label: 'Angaben ohne Fundstelle',
     info: 'Unterstreicht Pfade, Datei:Zeile und Zahlen ab zwei Ziffern, die in keiner Werkzeug-Ausgabe derselben Antwort vorkommen.',
+  },
+  agentTypes: {
+    category: 'agent',
+    section: 'Agententypen',
+    label: 'Typen',
+    info: 'Rollen für die Stationen einer Umsetzung. Ein Typ legt Modell, Denkaufwand, Systemprompt, Dateien und Skills fest; eine Station läuft als der Typ, der ihren Namen führt oder den sie mit agent nennt. Die Beschreibungen liest der Planer und empfiehlt damit den Ablauf.',
   },
   cliVersion: {
     category: 'agent',

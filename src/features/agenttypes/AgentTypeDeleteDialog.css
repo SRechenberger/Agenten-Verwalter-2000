@@ -1,0 +1,48 @@
+.agent-type-delete {
+  width: 440px;
+
+  &__header {
+    padding: 14px 18px var(--space-xs);
+  }
+
+  &__title {
+    margin: 0;
+    font-size: 15px;
+    font-weight: 600;
+  }
+
+  &__body {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-md);
+    padding: var(--space-md) 18px var(--space-sm);
+  }
+
+  &__text,
+  &__error {
+    margin: 0;
+    font-size: var(--font-size-md);
+    color: var(--color-fg-secondary);
+  }
+
+  &__error {
+    font-size: var(--font-size-xs);
+    color: var(--color-status-error);
+  }
+
+  &__footer {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: var(--space-md);
+    margin-top: var(--space-sm);
+    padding: var(--space-lg) 18px 14px;
+    border-top: 1px solid var(--color-border-subtle);
+  }
+
+  /* Steht auf `settings-view__button`: gleiche Gewichtung, also zwei Klassen. */
+  &__danger.settings-view__button {
+    color: var(--color-status-error);
+    border-color: color-mix(in srgb, var(--color-status-error) 45%, var(--color-border));
+  }
+}

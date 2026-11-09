@@ -1,0 +1,176 @@
+/* Die Hülle `dialog__panel` ist eine Spalte mit `max-height: 100%`: Kopf und Fuß bleiben stehen, der Rumpf rollt. */
+.agent-type-dialog {
+  /* 20 px breiter als im Entwurf: Die Knöpfe der Einstellungen sind breiter, sonst schneidet die Pfadzeile ihren Platzhalter ab. */
+  width: 600px;
+  overflow: hidden;
+
+  &__header {
+    flex-shrink: 0;
+    padding: 14px 18px var(--space-xs);
+  }
+
+  &__title {
+    margin: 0;
+    font-size: 15px;
+    font-weight: 600;
+  }
+
+  &__subtitle {
+    margin: var(--space-2xs) 0 0;
+    font-size: var(--font-size-xs);
+    color: var(--color-fg-muted);
+  }
+
+  &__body {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    min-height: 0;
+    padding: var(--space-md) 18px var(--space-sm);
+    overflow-y: auto;
+  }
+
+  &__field {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+  }
+
+  &__label {
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-md);
+    font-weight: 500;
+  }
+
+  &__required {
+    font-size: 11.5px;
+    font-weight: 400;
+    color: var(--color-fg-muted);
+  }
+
+  &__counter {
+    margin-left: auto;
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    font-weight: 400;
+    color: var(--color-fg-muted);
+
+    &--over {
+      color: var(--color-status-error);
+    }
+  }
+
+  &__hint {
+    font-size: var(--font-size-xs);
+    color: var(--color-fg-muted);
+  }
+
+  &__error {
+    font-size: var(--font-size-xs);
+    color: var(--color-status-error);
+  }
+
+  &__input,
+  &__textarea {
+    box-sizing: border-box;
+    width: 100%;
+    padding: 5px 9px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    background: var(--color-bg-base);
+    color: var(--color-fg-primary);
+    font: inherit;
+
+    &:focus {
+      outline: 2px solid var(--color-accent);
+      outline-offset: 1px;
+    }
+
+    &::placeholder {
+      color: var(--color-fg-muted);
+    }
+
+    &--invalid {
+      border-color: var(--color-status-error);
+    }
+  }
+
+  &__input {
+    height: 30px;
+  }
+
+  &__textarea {
+    min-height: 66px;
+    resize: vertical;
+    line-height: 1.45;
+
+    &--mono {
+      min-height: 120px;
+      font-family: var(--font-mono);
+      font-size: var(--font-size-xs);
+    }
+  }
+
+  &__pair {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-sm);
+  }
+
+  &__confirm {
+    display: flex;
+    flex-shrink: 0;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-md);
+    margin: var(--space-sm) 18px 0;
+    padding: var(--space-md) var(--space-lg);
+    border-radius: var(--radius-md);
+    background: var(--color-status-waiting-subtle);
+    font-size: var(--font-size-sm);
+    color: var(--color-fg-primary);
+  }
+
+  &__confirm-text {
+    flex: 1;
+    min-width: 0;
+  }
+
+  &__footer {
+    display: flex;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: flex-end;
+    gap: var(--space-md);
+    margin-top: var(--space-sm);
+    padding: var(--space-lg) 18px 14px;
+    border-top: 1px solid var(--color-border-subtle);
+  }
+
+  &__message {
+    flex: 1;
+    min-width: 0;
+    font-size: var(--font-size-xs);
+    color: var(--color-status-error);
+  }
+
+  /* Beide stehen auf `settings-view__button`: gleiche Gewichtung, also zwei Klassen. */
+  &__primary.settings-view__button:not(:disabled) {
+    border-color: var(--color-accent);
+    background: var(--color-accent);
+    color: var(--color-fg-on-accent);
+    font-weight: 600;
+  }
+
+  &__danger.settings-view__button {
+    color: var(--color-status-error);
+    border-color: color-mix(in srgb, var(--color-status-error) 45%, var(--color-border));
+  }
+}
+
+/* Das losgelöste Modellmenü hängt am `body` und muss über dem Dialog (`--z-modal`) liegen. */
+.popover.agent-type-dialog__menu {
+  z-index: calc(var(--z-modal) + 1);
+}

@@ -5,6 +5,7 @@ import { ModeMenu } from '@/components/ModeMenu';
 import { ModelMenu } from '@/components/ModelMenu';
 import { Switch } from '@/components/Switch';
 import { AccountRow } from '@/features/account/AccountRow';
+import { AgentTypesRow } from '@/features/agenttypes/AgentTypesRow';
 import { runningSessionCount } from '@/features/appupdate/appUpdateTexts';
 import { AppVersionRow } from '@/features/appupdate/AppVersionRow';
 import { CodexAccountRow } from '@/features/codexaccount/CodexAccountRow';
@@ -427,6 +428,8 @@ export function SettingsView({
             />
           </SettingRow>
         );
+      case 'agentTypes':
+        return <AgentTypesRow operatingMode={current.operatingMode} />;
       case 'cliVersion':
         return <CliVersionRow />;
       case 'selfReleaseMessages':
