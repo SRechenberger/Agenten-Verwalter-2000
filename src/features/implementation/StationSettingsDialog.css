@@ -172,7 +172,7 @@
   &__preview {
     padding: var(--space-md) var(--space-lg);
     border-radius: var(--radius-md);
-    background: var(--color-bg-hover);
+    background: var(--color-accent-subtle);
     color: var(--color-fg-secondary);
     font-size: var(--font-size-sm);
     line-height: 1.5;

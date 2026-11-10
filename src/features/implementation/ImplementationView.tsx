@@ -60,9 +60,14 @@ function isTextTarget(target: EventTarget | null): boolean {
   );
 }
 
-/** Ein Dialog (Einstellungen der Station, Agententyp) steht über der Kartei: Seine Pfeiltasten blättern nicht dahinter. */
-function isInsideDialog(target: EventTarget | null): boolean {
-  return target instanceof HTMLElement && target.closest('[aria-modal="true"]') !== null;
+/**
+ * Ein Dialog (Einstellungen der Station, Agententyp) steht über der Kartei: Die Pfeiltasten blättern
+ * nicht dahinter. Gefragt wird, ob einer offen ist, nicht, wo das Ziel der Taste liegt: Nach einem
+ * Klick auf Text im Dialog oder auf einen Knopf, der sich selbst entfernt („Zurücksetzen“), liegt
+ * der Fokus auf `body`.
+ */
+function isDialogOpen(): boolean {
+  return document.querySelector('[aria-modal="true"]') !== null;
 }
 
 /** Schritt in der Stationsfolge für eine Taste; 0, wenn sie nicht blättert. */
@@ -140,7 +145,7 @@ export function ImplementationView({
       if (step === 0 || event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey) {
         return;
       }
-      if (isTextTarget(event.target) || isInsideDialog(event.target)) {
+      if (isTextTarget(event.target) || isDialogOpen()) {
         return;
       }
       const position: number = order.indexOf(currentFocus);

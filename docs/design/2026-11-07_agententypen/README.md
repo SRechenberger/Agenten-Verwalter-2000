@@ -109,7 +109,7 @@ Belegt im Lauf (Datenbank und Argumente der Attrappe gelesen): „Einstellungen�
 
 - **Esc und Klick auf den Hintergrund:** Der Dialog der Station fragt wie der der Typen („Die Eingaben sind nicht gespeichert. Verwerfen?“, „Weiter bearbeiten“ vorgewählt, ein zweites Esc heißt „Weiter bearbeiten“). Ohne Änderung schließt er sofort, „Abbrechen“ verwirft ohne Rückfrage. `Dialog.tsx` und `Popover.tsx` bleiben unverändert.
 - **Modellmenü im rollenden Dialog:** Das Menü hängt am `body` (`detached`) und liegt über dem Dialog; Esc schließt zuerst nur das Menü, eine Auswahl schließt es auch. Belegt durch die beiden Bilder oben.
-- **Pfeiltasten:** Die Kartei blättert mit ↑ und ↓. Mit einem Dialog über der Kartei blätterte ein Pfeil auf einem Knopf des Dialogs die Station dahinter weiter; `ImplementationView` ignoriert die Tasten jetzt innerhalb eines Dialogs.
+- **Pfeiltasten:** Die Kartei blättert mit ↑ und ↓. Mit einem Dialog über der Kartei blätterte ein Pfeil die Station dahinter weiter, und mit ihr verschwand der Dialog samt Eingaben; `ImplementationView` ignoriert die Tasten jetzt, solange irgendein Dialog offen ist, gleich wo der Fokus liegt. Das Ziel der Taste zu prüfen reichte nicht: Nach einem Klick auf Text im Dialog und nach „Zurücksetzen“ (der Knopf entfernt sich selbst) liegt der Fokus auf `body`.
 
 ### Abweichungen vom Entwurf (Schritte 12 bis 19)
 
