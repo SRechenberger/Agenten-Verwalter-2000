@@ -3,6 +3,7 @@ import type { UnlistenFn } from '@tauri-apps/api/event';
 import { useRemoteChanged } from '@/features/remote/useRemoteChanged';
 import type { ImplementationView } from '@/lib/bindings/ImplementationView';
 import type { SessionSummary } from '@/lib/bindings/SessionSummary';
+import { onAgentTypesChanged } from '@/lib/agentTypes';
 import { commandErrorText } from '@/lib/errors';
 import { listImplementations, onImplementationChanged } from '@/lib/implementation';
 import { onSessionChanged } from '@/lib/sessions';
@@ -30,7 +31,8 @@ function upsert(
 }
 
 /** Alle Umsetzungen (ADR 048). Der Zustand einer Station folgt ihrer Session: meldet
- *  `session://changed` eine Station, wird die Liste neu geladen. */
+ *  `session://changed` eine Station, wird die Liste neu geladen. Ebenso bei `agent-types://changed`: Typ, Modell
+ *  und Denkaufwand einer Station vor dem Start sind aufgelöst gegen die Typen (ADR 060). */
 export function useImplementations(): Implementations {
   const [implementations, setImplementations] = useState<ImplementationView[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -73,6 +75,7 @@ export function useImplementations(): Implementations {
     })
       .then(keep)
       .catch(reportSubscribeError);
+    onAgentTypesChanged(reload).then(keep).catch(reportSubscribeError);
 
     return (): void => {
       controller.abort();

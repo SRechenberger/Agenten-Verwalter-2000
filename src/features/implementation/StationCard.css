@@ -75,6 +75,77 @@
     color: var(--color-fg-secondary);
   }
 
+  /* Typ, Modell und Denkaufwand als Zeile aus Chips (Entwurf, Schritt 12 bis 19). */
+  &__agent {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-sm);
+    align-items: center;
+  }
+
+  &__lead {
+    margin-right: var(--space-2xs);
+    color: var(--color-fg-muted);
+    font-size: var(--font-size-xs);
+  }
+
+  &__fact {
+    display: inline-flex;
+    gap: 5px;
+    align-items: center;
+    box-sizing: border-box;
+    height: 22px;
+    padding: 0 9px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-full);
+    color: var(--color-fg-primary);
+    font-size: var(--font-size-xs);
+    white-space: nowrap;
+
+    &--type {
+      font-weight: 600;
+    }
+
+    /* „kein Typ“ und ein gelöschter Typ: gestrichelt, damit niemand einen Typ vermutet. */
+    &--none {
+      border-style: dashed;
+      color: var(--color-fg-muted);
+    }
+
+    &--rule {
+      color: var(--color-fg-secondary);
+    }
+
+    /* Eine Abweichung der Station vom Typ. */
+    &--set {
+      border-color: color-mix(in srgb, var(--color-accent) 45%, var(--color-border));
+      background: var(--color-accent-subtle);
+    }
+
+    &--skill {
+      font-family: var(--font-mono);
+      font-size: 11.5px;
+    }
+  }
+
+  &__fact-source {
+    color: var(--color-fg-muted);
+    font-size: 10.5px;
+  }
+
+  &__fail {
+    margin: 0;
+    padding: var(--space-md) var(--space-xl);
+    border-radius: var(--radius-md);
+    background: var(--color-status-error-subtle);
+    color: var(--color-fg-primary);
+  }
+
+  &__fail-lead {
+    color: var(--color-status-error);
+    font-weight: 600;
+  }
+
   &__actions {
     display: flex;
     flex-wrap: wrap;

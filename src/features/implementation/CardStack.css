@@ -77,6 +77,13 @@
     white-space: nowrap;
   }
 
+  &__small-agent {
+    margin-left: var(--space-md);
+    color: var(--color-fg-muted);
+    font-size: var(--font-size-2xs);
+    font-weight: 400;
+  }
+
   &__small-meta {
     color: var(--color-fg-muted);
     font-size: var(--font-size-2xs);

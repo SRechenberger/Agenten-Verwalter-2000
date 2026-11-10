@@ -127,6 +127,14 @@
     white-space: nowrap;
   }
 
+  /* Der Typ der Station, klein und gedämpft hinter dem Namen (Plan „Agententypen“, N6). */
+  &__agent {
+    margin-left: var(--space-md);
+    color: var(--color-fg-muted);
+    font-size: var(--font-size-2xs);
+    font-weight: 400;
+  }
+
   &__meta {
     color: var(--color-fg-muted);
     font-size: var(--font-size-2xs);
@@ -139,8 +147,13 @@
       font-weight: 600;
     }
 
-    &--error {
+    &--error,
+    &--failed {
       color: var(--color-status-error);
+    }
+
+    &--failed {
+      font-weight: 600;
     }
   }
 
