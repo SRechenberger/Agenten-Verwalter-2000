@@ -3,6 +3,7 @@ import type { PhaseMark } from '@/lib/bindings/PhaseMark';
 import type { PhaseView } from '@/lib/bindings/PhaseView';
 import type { StationState } from '@/lib/bindings/StationState';
 import type { StationView } from '@/lib/bindings/StationView';
+import type { ValueSource } from '@/features/implementation/stationAgent';
 import type { ImplementationViewKind } from '@/stores/sessions';
 
 export const VIEW_LABEL: Record<ImplementationViewKind, string> = {
@@ -45,6 +46,11 @@ export const CANCEL_COUNTDOWN_TITLE = 'Hält den Countdown an; die Station bleib
 export const DONE_BY_USER_RESULT = 'vom Benutzer erledigt';
 export const DONE_BY_USER_LABEL = 'Erledigt';
 export const DONE_BY_USER_TITLE = 'Meldet diese Station als fertig, damit die nächste starten darf';
+export const STATION_SETTINGS_LABEL = 'Einstellungen';
+export const STATION_SETTINGS_TITLE =
+  'Typ, Modell, Denkaufwand, Zusatztext und Skill nur für diese Station ändern';
+export const EDIT_TYPE_LABEL = 'Typ bearbeiten';
+export const EDIT_TYPE_TITLE = 'Öffnet den Agententyp dieser Station zum Bearbeiten';
 export const REPORT_TITLE =
   'Zeigt den Lagebericht, den auch der Agent über implementation_get liest';
 export const TIMELINE_LABEL = 'Zeitleiste der Umsetzung';
@@ -67,6 +73,70 @@ export const PHASE_MARK_TITLE: Record<PhaseMark, string> = {
   new: 'Diese Phase kam mit der letzten Plan-Änderung dazu',
   moved: 'Diese Phase wurde mit der letzten Plan-Änderung vorgezogen',
 };
+
+// ---- Typ, Modell, Denkaufwand und Startfehler der Karte (ADR 060) ----
+
+/** Meta der Zeitleiste und Name des Punkts, wenn der Start der Station scheiterte. */
+export const START_FAILED_LABEL = 'startet nicht';
+export const START_FAILED_LEAD = 'Startet nicht.';
+export const START_FAILED_HINT =
+  'Es ist keine Session entstanden. Behebe die Ursache; danach startet ▶ die Station.';
+
+export const AGENT_LEAD_NEXT = 'startet als';
+export const AGENT_LEAD_STARTED = 'läuft als';
+export const AGENT_TYPE_TITLE = 'Typ';
+export const NO_TYPE_LABEL = 'kein Typ';
+export const NO_TYPE_TITLE = 'Kein Typ trifft den Namen dieser Station';
+export const DELETED_TYPE_TITLE = 'Der Typ ist gelöscht';
+export const MODEL_LIKE_SESSION = 'Modell: wie die Session';
+export const EFFORT_LIKE_SESSION = 'Denkaufwand: wie die Session';
+export const MODEL_LIKE_SESSION_TITLE = 'In dieser Betriebsart gilt das Modell des Typs nicht';
+export const EFFORT_LIKE_SESSION_TITLE =
+  'In dieser Betriebsart gilt der Denkaufwand des Typs nicht';
+export const AGENT_TYPE_NAME_TITLE = 'Agententyp der Station';
+export const SKILL_CHIP_TITLE = 'Skill der Station: steht als Befehl in der ersten Zeile';
+
+export function deletedTypeText(name: string): string {
+  return `${name} · gelöscht`;
+}
+
+/** Der kleine Zusatz hinter einem Wert („Opus 5.5 Station“, „Opus 5.5 Regel“). Ein Wert des Typs oder der Session trägt keinen. */
+export function sourceSmall(source: ValueSource | null): string | null {
+  switch (source) {
+    case 'station':
+      return 'Station';
+    case 'rule':
+      return 'Regel';
+    case 'type':
+    case null:
+      return null;
+  }
+}
+
+/** Tooltip der Herkunft; `ruleNumber` ist die Nummer der Session, von der eine neue erbt. */
+export function sourceTitle(source: ValueSource | null, ruleNumber: number | null): string {
+  switch (source) {
+    case 'station':
+      return 'Einstellung der Station';
+    case 'type':
+      return 'aus dem Typ';
+    case 'rule':
+      return ruleNumber === null
+        ? 'allgemeine Regel: wie die Session mit der höchsten Nummer'
+        : `allgemeine Regel: wie Session #${String(ruleNumber)}`;
+    case null:
+      return 'Wert der Session';
+  }
+}
+
+/** „Zusatztext · 140 Zeichen“; der Text selbst steht im Tooltip. Die Zahl im Format der App wie der Zähler im Dialog („4.001“). */
+export function promptChipText(count: number): string {
+  return `Zusatztext · ${count.toLocaleString('de-DE')} Zeichen`;
+}
+
+export function promptChipTitle(text: string): string {
+  return `Zusatztext zum Systemprompt: ${text}`;
+}
 
 /** „2 Spuren aktiv“ in der Kopfzeile, solange eine Welle mehrere Phasen zugleich bearbeitet. */
 export function lanesActiveText(count: number): string {
@@ -128,6 +198,9 @@ export function durationText(milliseconds: number): string {
 
 /** Zustand der Station als Satz für die große Karte („läuft seit 12 min“, „fertig · 24 min“). */
 export function stateText(station: StationView, now: number): string {
+  if (station.startError !== null) {
+    return 'bereit';
+  }
   switch (station.state) {
     case 'running':
     case 'starting':
@@ -150,8 +223,11 @@ export function stateText(station: StationView, now: number): string {
   }
 }
 
-/** Kurzfassung für die Zeitleiste: Dauer, „läuft“, „fragt“ — leer, solange nichts war. */
+/** Kurzfassung für die Zeitleiste: Dauer, „läuft“, „fragt“, „startet nicht“ — leer, solange nichts war. */
 export function stationMeta(station: StationView, now: number): string {
+  if (station.startError !== null) {
+    return START_FAILED_LABEL;
+  }
   switch (station.state) {
     case 'done':
       return durationText(station.runningMs);

@@ -60,6 +60,11 @@ function isTextTarget(target: EventTarget | null): boolean {
   );
 }
 
+/** Ein Dialog (Einstellungen der Station, Agententyp) steht über der Kartei: Seine Pfeiltasten blättern nicht dahinter. */
+function isInsideDialog(target: EventTarget | null): boolean {
+  return target instanceof HTMLElement && target.closest('[aria-modal="true"]') !== null;
+}
+
 /** Schritt in der Stationsfolge für eine Taste; 0, wenn sie nicht blättert. */
 function arrowStep(key: string): number {
   if (key === 'ArrowDown') {
@@ -135,7 +140,7 @@ export function ImplementationView({
       if (step === 0 || event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey) {
         return;
       }
-      if (isTextTarget(event.target)) {
+      if (isTextTarget(event.target) || isInsideDialog(event.target)) {
         return;
       }
       const position: number = order.indexOf(currentFocus);
@@ -219,6 +224,7 @@ export function ImplementationView({
         isManualFocus={isManualFocus}
         now={now}
         changesCount={hasChanges ? stationChangesCount : null}
+        sessions={sessions}
         onFocus={(focusId: string): void => {
           setFocused(implementationId, focusId);
         }}

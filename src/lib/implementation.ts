@@ -3,6 +3,7 @@ import { listen, type Event, type UnlistenFn } from '@tauri-apps/api/event';
 import type { ImplementationChangedEvent } from '@/lib/bindings/ImplementationChangedEvent';
 import type { ImplementationView } from '@/lib/bindings/ImplementationView';
 import type { InquiryCreated } from '@/lib/bindings/InquiryCreated';
+import type { StationSettings } from '@/lib/bindings/StationSettings';
 
 const IMPLEMENTATION_CHANGED_EVENT = 'implementation://changed';
 
@@ -60,6 +61,17 @@ export async function setImplementationStopAfterCurrent(
  *  @throws {import('@/lib/bindings/CommandError').CommandError} `implementation` (Station darf nicht starten), `sessionNotFound`, `database` */
 export async function startStation(id: string, stationId: string): Promise<void> {
   await invoke('implementation_start_station', { id, stationId });
+}
+
+/** „Einstellungen“ einer Station ohne Session: ersetzt Typ, Modell, Denkaufwand, Zusatztext und Skill auf einmal,
+ *  `null` löscht eine Abweichung (ADR 060). Wirkt auf keine Session und startet nichts; die Prüfung liegt im Core.
+ *  @throws {import('@/lib/bindings/CommandError').CommandError} `implementation` (Station hat begonnen, Station des Benutzers, unbekannter Typ, Länge von Zusatztext und Skill), `database` */
+export async function setStationAgent(
+  id: string,
+  stationId: string,
+  settings: StationSettings,
+): Promise<void> {
+  await invoke('implementation_set_station_agent', { id, stationId, settings });
 }
 
 /** Beendet den Countdown; die Station bleibt bereit.

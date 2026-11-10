@@ -8,6 +8,7 @@ import {
   type StationRef,
 } from '@/features/implementation/implementationOrder';
 import {
+  AGENT_TYPE_NAME_TITLE,
   BACK_TO_CURRENT_LABEL,
   BACK_TO_CURRENT_TITLE,
   SHOW_PENDING_LABEL,
@@ -15,14 +16,18 @@ import {
   stationMeta,
 } from '@/features/implementation/implementationTexts';
 import { PlanChangeCard } from '@/features/implementation/PlanChangeCard';
+import { latestSessionOf } from '@/features/implementation/stationAgent';
 import { StationCard } from '@/features/implementation/StationCard';
 import { StationDot } from '@/features/implementation/StationDot';
+import { useOperatingMode } from '@/features/remote/useOperatingMode';
 import { useProjectLocked } from '@/features/remote/useProjectAccess';
 import type { ChangeView } from '@/lib/bindings/ChangeView';
 import type { ImplementationView } from '@/lib/bindings/ImplementationView';
+import type { OperatingMode } from '@/lib/bindings/OperatingMode';
 import type { PendingChange } from '@/lib/bindings/PendingChange';
 import type { PhaseInput } from '@/lib/bindings/PhaseInput';
 import type { PhaseView } from '@/lib/bindings/PhaseView';
+import type { SessionSummary } from '@/lib/bindings/SessionSummary';
 import type { StationView } from '@/lib/bindings/StationView';
 import './CardStack.css';
 
@@ -34,6 +39,8 @@ interface CardStackProps {
   isManualFocus: boolean;
   now: number;
   changesCount: number | null;
+  /** Alle Sessions: Die Karte liest daraus Modell und Denkaufwand der Session der Station und der „allgemeinen Regel“. */
+  sessions: readonly SessionSummary[];
   onFocus: (focusId: string) => void;
   onBackToCurrent: () => void;
   onOpenChat: (stationId: string) => void;
@@ -70,6 +77,7 @@ export function CardStack({
   isManualFocus,
   now,
   changesCount,
+  sessions,
   onFocus,
   onBackToCurrent,
   onOpenChat,
@@ -82,6 +90,7 @@ export function CardStack({
 }: CardStackProps): ReactElement | null {
   // Ein anderes Gerät steuert das Vorhaben, oder der Host fehlt: Die Karten zeigen, die Knöpfe ruhen.
   const isLocked: boolean = useProjectLocked(implementation.projectId);
+  const operatingMode: OperatingMode = useOperatingMode(implementation.projectId);
   const pending: PendingChange | null = implementation.pendingChange;
   const changeId: string | null = changeIdOf(focusedId);
   const focusedChange: ChangeView | undefined =
@@ -104,9 +113,14 @@ export function CardStack({
           onFocus(ref.station.id);
         }}
       >
-        <StationDot state={ref.station.state} />
+        <StationDot station={ref.station} />
         <span className="card-stack__small-title">
           {ref.phase.key} · {ref.station.stage}
+          {ref.station.agentType !== null && (
+            <span className="card-stack__small-agent" title={AGENT_TYPE_NAME_TITLE}>
+              {ref.station.agentType}
+            </span>
+          )}
         </span>
         <span className="card-stack__small-meta">{stationMeta(ref.station, now)}</span>
       </button>
@@ -146,10 +160,20 @@ export function CardStack({
     if (focusedStation === undefined) {
       return null;
     }
+    const stationSessionId: string | null = focusedStation.station.sessionId;
     return (
       <StationCard
+        key={focusedStation.station.id}
+        implementationId={implementation.id}
         stationRef={focusedStation}
         now={now}
+        operatingMode={operatingMode}
+        session={
+          stationSessionId === null
+            ? null
+            : (sessions.find((session: SessionSummary) => session.id === stationSessionId) ?? null)
+        }
+        ruleSession={latestSessionOf(sessions, implementation.projectId)}
         changesCount={changesCount}
         onOpenChat={onOpenChat}
         onShowChanges={onShowChanges}

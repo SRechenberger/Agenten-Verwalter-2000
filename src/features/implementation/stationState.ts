@@ -1,5 +1,7 @@
 import type { DisplayStatus } from '@/features/sessions/sessionStatus';
+import { START_FAILED_LABEL } from '@/features/implementation/implementationTexts';
 import type { StationState } from '@/lib/bindings/StationState';
+import type { StationView } from '@/lib/bindings/StationView';
 
 const LABEL: Record<StationState, string> = {
   pending: 'wartet',
@@ -60,6 +62,16 @@ const URGENCY_RANK: Record<StationState, number> = {
 
 export function stateTone(state: StationState): StationTone {
   return TONE[state];
+}
+
+/** Ton einer Station: Ein Startfehler färbt sie wie einen Fehler, obwohl ihr Zustand „bereit“ bleibt (ADR 060). */
+export function stationTone(station: StationView): StationTone {
+  return station.startError === null ? TONE[station.state] : 'error';
+}
+
+/** Name des Zustands für Screenreader; ein Startfehler geht vor „bereit“. */
+export function stationLabel(station: StationView): string {
+  return station.startError === null ? LABEL[station.state] : START_FAILED_LABEL;
 }
 
 export function urgencyRank(state: StationState): number {

@@ -1,0 +1,245 @@
+/* Die Hülle `dialog__panel` ist eine Spalte mit `max-height: 100%`: Kopf und Fuß bleiben stehen, der Rumpf rollt.
+   Maße und Aufbau wie der Dialog der Agententypen (`AgentTypeDialog.css`). */
+.station-settings-dialog {
+  width: 600px;
+  overflow: hidden;
+
+  &__header {
+    flex-shrink: 0;
+    padding: 14px 18px var(--space-xs);
+  }
+
+  &__title {
+    margin: 0;
+    font-size: 15px;
+    font-weight: 600;
+  }
+
+  &__subtitle {
+    margin: var(--space-2xs) 0 0;
+    font-size: var(--font-size-xs);
+    color: var(--color-fg-muted);
+  }
+
+  &__body {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    min-height: 0;
+    padding: var(--space-md) 18px var(--space-sm);
+    overflow-y: auto;
+  }
+
+  &__field {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+  }
+
+  &__label-row {
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-md);
+  }
+
+  &__label {
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-md);
+    font-weight: 500;
+  }
+
+  /* „wie der Typ“ oder „Abweichung“: wer eine Abweichung sieht, sieht, dass die Zeile vom Typ abweicht. */
+  &__source {
+    display: inline-flex;
+    align-items: center;
+    height: 18px;
+    padding: 0 7px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-full);
+    color: var(--color-fg-muted);
+    font-size: var(--font-size-2xs);
+    font-weight: 400;
+    white-space: nowrap;
+
+    &--set {
+      border-color: color-mix(in srgb, var(--color-accent) 45%, var(--color-border));
+      background: var(--color-accent-subtle);
+      color: var(--color-accent-text);
+      font-weight: 500;
+    }
+  }
+
+  &__reset {
+    margin-left: auto;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--color-fg-muted);
+    font: inherit;
+    font-size: 11.5px;
+    text-decoration: underline;
+    cursor: pointer;
+
+    &:hover {
+      color: var(--color-fg-primary);
+    }
+
+    &:focus-visible {
+      outline: 2px solid var(--color-accent);
+      outline-offset: 2px;
+    }
+  }
+
+  &__counter {
+    margin-left: auto;
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    font-weight: 400;
+    color: var(--color-fg-muted);
+
+    &--over {
+      color: var(--color-status-error);
+    }
+  }
+
+  &__hint {
+    font-size: var(--font-size-xs);
+    color: var(--color-fg-muted);
+  }
+
+  &__error {
+    font-size: var(--font-size-xs);
+    color: var(--color-status-error);
+  }
+
+  &__input,
+  &__select,
+  &__textarea {
+    box-sizing: border-box;
+    width: 100%;
+    padding: 5px 9px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    background: var(--color-bg-base);
+    color: var(--color-fg-primary);
+    font: inherit;
+
+    &:focus {
+      outline: 2px solid var(--color-accent);
+      outline-offset: 1px;
+    }
+
+    &::placeholder {
+      color: var(--color-fg-muted);
+    }
+
+    &--invalid {
+      border-color: var(--color-status-error);
+    }
+  }
+
+  &__input,
+  &__select {
+    height: 30px;
+  }
+
+  /* Der Rand des nativen Auswahlfelds sitzt höher als der der Eingabe: ohne Abstand oben und unten steht der Text zu tief. */
+  &__select {
+    padding-block: 0;
+  }
+
+  &__input {
+    font-family: var(--font-mono);
+    font-size: var(--font-size-xs);
+  }
+
+  &__textarea {
+    min-height: 66px;
+    resize: vertical;
+    font-family: var(--font-mono);
+    font-size: var(--font-size-xs);
+    line-height: 1.45;
+  }
+
+  /* Fünf Stufen und „Wie der Typ (Sehr hoch)“ brechen um, statt den Dialog zu weiten. */
+  &__segment {
+    align-self: flex-start;
+    flex-wrap: wrap;
+    max-width: 100%;
+  }
+
+  &__preview {
+    padding: var(--space-md) var(--space-lg);
+    border-radius: var(--radius-md);
+    background: var(--color-bg-hover);
+    color: var(--color-fg-secondary);
+    font-size: var(--font-size-sm);
+    line-height: 1.5;
+
+    & b {
+      color: var(--color-fg-primary);
+      font-weight: 600;
+    }
+  }
+
+  &__confirm {
+    display: flex;
+    flex-shrink: 0;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-md);
+    margin: var(--space-sm) 18px 0;
+    padding: var(--space-md) var(--space-lg);
+    border-radius: var(--radius-md);
+    background: var(--color-status-waiting-subtle);
+    font-size: var(--font-size-sm);
+    color: var(--color-fg-primary);
+  }
+
+  &__confirm-text {
+    flex: 1;
+    min-width: 0;
+  }
+
+  &__footer {
+    display: flex;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: flex-end;
+    gap: var(--space-md);
+    margin-top: var(--space-sm);
+    padding: var(--space-lg) 18px 14px;
+    border-top: 1px solid var(--color-border-subtle);
+  }
+
+  &__message {
+    flex: 1;
+    min-width: 0;
+    font-size: var(--font-size-xs);
+    color: var(--color-status-error);
+  }
+
+  /* Beide stehen auf `settings-view__button`: gleiche Gewichtung, also zwei Klassen. */
+  &__primary.settings-view__button:not(:disabled) {
+    border-color: var(--color-accent);
+    background: var(--color-accent);
+    color: var(--color-fg-on-accent);
+    font-weight: 600;
+  }
+
+  &__danger.settings-view__button {
+    color: var(--color-status-error);
+    border-color: color-mix(in srgb, var(--color-status-error) 45%, var(--color-border));
+  }
+}
+
+/* Das losgelöste Modellmenü hängt am `body` und muss über dem Dialog (`--z-modal`) liegen. */
+.popover.station-settings-dialog__menu {
+  z-index: calc(var(--z-modal) + 1);
+}
+
+/* Der Zähler steht rechts; folgt er auf „Zurücksetzen“ (`margin-left: auto`), rückt er daneben. */
+.station-settings-dialog__reset + .station-settings-dialog__counter {
+  margin-left: var(--space-lg);
+}

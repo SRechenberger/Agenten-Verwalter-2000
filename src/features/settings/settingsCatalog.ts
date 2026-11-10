@@ -136,7 +136,7 @@ const ENTRY_DATA = {
     category: 'agent',
     section: 'Agententypen',
     label: 'Typen',
-    info: 'Rollen für die Stationen einer Umsetzung. Ein Typ legt Modell, Denkaufwand, Systemprompt, Dateien und Skills fest; eine Station läuft als der Typ, der ihren Namen führt oder den sie mit agent nennt. Die Beschreibungen liest der Planer und empfiehlt damit den Ablauf.',
+    info: 'Rollen für die Stationen einer Umsetzung. Ein Typ legt Modell, Denkaufwand, Systemprompt, Dateien und Skills fest; eine Station läuft als der Typ, der ihren Namen führt oder den sie mit agent nennt. Die Beschreibungen liest der Planer und empfiehlt damit den Ablauf. Auf der Karte einer Station ändert „Einstellungen“ Typ, Modell, Denkaufwand, Zusatztext und Skill nur für diese Station.',
   },
   cliVersion: {
     category: 'agent',

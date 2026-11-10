@@ -9,6 +9,7 @@ import {
   type StationRef,
 } from '@/features/implementation/implementationOrder';
 import {
+  AGENT_TYPE_NAME_TITLE,
   changeMarkerText,
   CHANGE_MARKER_TITLE,
   NO_PHASES,
@@ -179,12 +180,21 @@ export function Timeline({
             onOpenChat(ref.station.id);
           }}
         >
-          <StationDot state={ref.station.state} />
+          <StationDot station={ref.station} />
           <span className="timeline__label">
             {label}
+            {ref.station.agentType !== null && (
+              <span className="timeline__agent" title={AGENT_TYPE_NAME_TITLE}>
+                {ref.station.agentType}
+              </span>
+            )}
             {renderMark(mark)}
           </span>
-          <span className={`timeline__meta timeline__meta--${ref.station.state}`}>{meta}</span>
+          <span
+            className={`timeline__meta timeline__meta--${ref.station.startError === null ? ref.station.state : 'failed'}`}
+          >
+            {meta}
+          </span>
         </button>
       </div>
     );

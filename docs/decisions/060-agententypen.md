@@ -1,6 +1,6 @@
 # 060 — Agententypen für Stationen der Umsetzung
 
-**Status:** in Umsetzung, Phasen 1 bis 5 von 7 (Stand siehe „Stand der Umsetzung“) · **Datum:** 2026-11-08
+**Status:** in Umsetzung, Phasen 1 bis 6 von 7 (Stand siehe „Stand der Umsetzung“) · **Datum:** 2026-11-08
 
 ## Kontext
 
@@ -86,6 +86,18 @@ Was die Verträge für Systemprompt und Skills offenlassen, legt der Core so fes
 - **Schnappschuss:** `start_claimed` setzt den Text vor `create_fresh_in_project` zusammen, aus dem Typ, den `start_plan` nennt; ein Fehler geht denselben Weg wie ein unbekannter Typ (Startfehler, keine Session). Nach `agent_used` hält `store_agent_prompt` den Text an der Session fest, danach sendet `send` die erste Nachricht und startet damit den ersten Prozess. Gespeichert wird er über `upsert`, das die Spalte auch im `UPDATE` schreibt, denn die Zeile der Session legt `create_fresh_in_project` ohne ihn an. `start_process` und `ask_side` lesen ihn aus dem Zustand der Session, nach einem Neustart der App und nach `restore_project` kommt er aus der Zeile.
 - **Skills:** Die übrigen Skills des Typs stehen in der zweiten Zeile der ersten Nachricht: „Lade außerdem diese Skills: a, b.“ Ein Skill, der schon in Zeile 1 steht, fehlt dort. Ohne Skills bleibt die erste Nachricht, wie sie war.
 - **Aufzeichnung der Kommandozeile:** Die Kommandozeile (2.1.296) zeichnet mit `--system-prompt-snapshot on`, ihrem Standard, den gerenderten Systemprompt samt `--append-system-prompt` beim ersten Request auf und sendet ihn bei jedem weiteren Request und Resume unverändert, auch wenn ein späterer Start anderen Text übergibt, bis die Unterhaltung verdichtet wird. Der Schnappschuss des Verwalters bleibt trotzdem nötig: Nach dem Verdichten gilt, was der Verwalter übergibt; Autark und Codex kennen keine Aufzeichnung und lesen bei jedem Start nur das Argument; und ein Modell, das nach einem Neustart den alten Text befolgt, beweist nicht, dass der Verwalter ihn übergeben hat. Belegt werden deshalb die Argumente der Prozesse, und einmal ein Lauf mit `--system-prompt-snapshot off`.
+
+### Festlegungen der Phase 6
+
+Was Plan und Entwurf für Karte und Dialog offenlassen, legt die Oberfläche so fest:
+
+- **Karte vor dem Start:** Die Zeile zeigt, was der Core in `StationView` auflöst (`agentType`, `agentModel` und `agentEffort` mit ihrer Herkunft Station oder Typ). Fehlt ein Wert, gilt die allgemeine Regel; ihr Wert ist der der Session mit der höchsten Nummer im Vorhaben, den die Oberfläche aus den Sessions liest (`latestSessionOf`, dieselbe Regel wie `create_fresh_in_project`; ändert sich die Regel, ändert sich nur diese Funktion). Der Core meldet die allgemeine Regel nicht als Wert.
+- **Karte nach dem Start:** Modell und Denkaufwand der Session ohne Herkunft, denn der Nutzer kann sie in der Eingabeleiste geändert haben. Der Typ ist der gespeicherte (`agentType` nach dem Start).
+- **Andere Betriebsarten:** Die Karte zeigt nur ausdrückliche Werte der Station („Station“); sonst steht „Modell: wie die Session“ und „Denkaufwand: wie die Session“, auch nach dem Start. Die Betriebsart ist die des Hosts, wenn das Vorhaben einem anderen Gerät gehört (`useOperatingMode`).
+- **Typ ohne Treffer:** Nennt `agent` einen Typ, den es nicht gibt, steht er gestrichelt als „X · gelöscht“; ohne `agent` und ohne Treffer über den Stationsnamen steht „kein Typ“ gestrichelt.
+- **Startfehler:** Der Ton `error` gehört der Station, nicht ihrem Zustand (`stationTone`): Punkt, Linie der Zeitleiste und Rand der Karte sind rot, der Zustand bleibt „bereit“ und ▶ versucht es erneut. Der Text im Block ist der des Core. Ein manueller Start gibt ihn zusätzlich als Fehler zurück; ihn zeigt das vorhandene Banner über der Zeitleiste. „Typ bearbeiten“ steht nur, wenn die Auflösung einen Typ fand; ein gelöschter Typ wird in „Einstellungen“ ersetzt.
+- **Dialog:** Er schickt immer den ganzen Satz der fünf Werte; leer wird `null`. Der Core meldet einen Satz je Aufruf; der Dialog setzt ihn an das Feld, mit dem er beginnt („prompt: …“, „skill: …“, „Der Agententyp …“), alles andere in den Fuß. Die Vorschau „So startet die Station“ bildet die Auflösung aus 4.3 für den Entwurf nach, denn der Core kennt ihn nicht; es ist die einzige Stelle der Oberfläche, die diese Regel rechnet. Esc und Klick auf den Hintergrund fragen bei Ungespeichertem wie im Dialog der Typen; ein offenes Modellmenü schließt zuerst.
+- **Gäste:** Die Typen im Dialog und für „Typ bearbeiten“ kommen aus den Einstellungen dieses Rechners (Klasse G). Gehört das Vorhaben einem anderen Gerät, kann die Liste von der des Hosts abweichen; geprüft wird am Host.
 
 ### Festlegungen der Phase 5
 
@@ -297,7 +309,9 @@ Der Befehl ersetzt alle fünf Werte der Station auf einmal; `None` löscht eine 
 
 **Gebaut in Phase 5 (Werkzeuge und Stationsbefehl):** das Lesewerkzeug `implementation_agent_types` (als lesend gekennzeichnet, in Nebenfragen erlaubt), `agent`, `effort` und `prompt` im Schema von `implementation_create` und `implementation_set_phases`, der Satz in `session_tools_prompt`, der Befehl `implementation_set_station_agent` (Klasse C, Binding `StationSettings`) und die Plan-Änderung, die Einstellungen mit `edited` behält. Belegt durch die Tests in `src-tauri/src/implementation/tests.rs` (mit Mutationsprobe), die Probe `implementation-probe` (`set-station`, `set-phases --apply`), einen Lauf der App mit einer Attrappe der Kommandozeile und `mcp-probe` (Hauptprozess und Nebenfrage) und drei Läufe mit Haiku, alles unter Linux.
 
-**Noch nicht gebaut:** alles aus den Phasen 6 und 7. Die Karte zeigt Typ und Startfehler noch nicht, und den Befehl ruft die Oberfläche noch nicht. Ohne Typen und ohne Zusatztext läuft eine Umsetzung wie vor dieser ADR.
+**Gebaut in Phase 6 (Karte und Stationseinstellungen):** die Zeile mit Typ, Modell und Denkaufwand auf der Karte einer Station samt Herkunft, der Chip „Zusatztext · N Zeichen“, der Startfehler im Fehlerton mit „Typ bearbeiten“, der Typname in Zeitleiste und Kartei, „startet nicht“ als Meta, Nachladen bei `agent-types://changed` und der Dialog „Einstellungen der Station“, der den Befehl aus Phase 5 aufruft. Belegt (unter Linux) durch einen Lauf der App mit Wegwerf-`HOME`, einer Attrappe der Kommandozeile und Bildschirmfotos in Hell und Dunkel (Entwurfsordner, README), ohne Test-Läufer für die Oberfläche.
+
+**Noch nicht gebaut:** die Phase 7 (Abschluss). Ohne Typen und ohne Zusatztext läuft eine Umsetzung wie vor dieser ADR.
 
 **Windows:** Unter Windows ist nichts davon gelaufen, auch nicht der Start einer Station mit Typ, das Lesen der Dateien, Pfade wie `~/…` und relative Pfade, die Grenze der Kommandozeile (32 767 Zeichen), der Befehl oder die Werkzeuge. Die CI fährt dort Lint, Typecheck, Build, Clippy und die Tests von `remote::`, `processes::`, `implementation::` und `agent_types::`; die Probe läuft in keiner CI.
 

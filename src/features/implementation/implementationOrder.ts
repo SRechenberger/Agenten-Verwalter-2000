@@ -1,4 +1,4 @@
-import { stateTone, urgencyRank, type StationTone } from '@/features/implementation/stationState';
+import { stationTone, urgencyRank, type StationTone } from '@/features/implementation/stationState';
 import type { ChangeView } from '@/lib/bindings/ChangeView';
 import type { ImplementationView } from '@/lib/bindings/ImplementationView';
 import type { PhaseView } from '@/lib/bindings/PhaseView';
@@ -111,7 +111,7 @@ function toneOf(station: StationView, isCurrent: boolean): StationTone {
     return 'done';
   }
   if (isCurrent) {
-    const tone: StationTone = stateTone(station.state);
+    const tone: StationTone = stationTone(station);
     return tone === 'done' ? 'todo' : tone;
   }
   return 'todo';

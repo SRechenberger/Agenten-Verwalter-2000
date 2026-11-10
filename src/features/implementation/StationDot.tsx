@@ -1,10 +1,11 @@
 import type { ReactElement } from 'react';
-import { stateLabel, stateTone } from '@/features/implementation/stationState';
+import { stationLabel, stationTone } from '@/features/implementation/stationState';
 import type { StationState } from '@/lib/bindings/StationState';
+import type { StationView } from '@/lib/bindings/StationView';
 import './StationDot.css';
 
 interface StationDotProps {
-  state: StationState;
+  station: StationView;
 }
 
 const GLYPH: Partial<Record<StationState, string>> = {
@@ -13,15 +14,16 @@ const GLYPH: Partial<Record<StationState, string>> = {
   error: '!',
 };
 
-/** Punkt einer Station: alle gleich groß, der Zustand steckt in Füllung und Zeichen. */
-export function StationDot({ state }: StationDotProps): ReactElement {
+/** Punkt einer Station: alle gleich groß, der Zustand steckt in Füllung und Zeichen. Ein Startfehler zeigt
+ *  das Ausrufezeichen des Fehlers. */
+export function StationDot({ station }: StationDotProps): ReactElement {
   return (
     <span
-      className={`station-dot station-dot--${stateTone(state)}`}
+      className={`station-dot station-dot--${stationTone(station)}`}
       role="img"
-      aria-label={stateLabel(state)}
+      aria-label={stationLabel(station)}
     >
-      {GLYPH[state]}
+      {station.startError === null ? GLYPH[station.state] : GLYPH.error}
     </span>
   );
 }

@@ -11,11 +11,21 @@ const AGENT_TYPES_CHANGED_EVENT = 'agent-types://changed';
 // „Agententypen für Stationen“, Abschnitt 4.2). Die Zahlen sind die des Core (`agent_types::validate`).
 export const MAX_DESCRIPTION_CHARS = 500;
 export const MAX_PROMPT_UNITS = 16_000;
+// Grenze des Zusatztexts einer Station (Plan „Agententypen für Stationen“, Abschnitt 4.10 und N13; im
+// Core `implementation::model::MAX_PROMPT_CHARS`). Anders als der Systemprompt zählt sie Zeichen
+// (Codepunkte), nicht UTF-16-Einheiten, und der Text zählt unbeschnitten.
+export const MAX_STATION_PROMPT_CHARS = 4_000;
 
 /** Länge der Beschreibung, wie der Core sie prüft: getrimmt, in Zeichen (Codepunkten). `Array.from`
  *  zählt wie `[...text]` Codepunkte, nicht UTF-16-Einheiten; die Spread-Schreibweise verbietet die Lint-Regel. */
 export function descriptionLength(description: string): number {
   return Array.from(description.trim()).length;
+}
+
+/** Länge des Zusatztexts einer Station, wie der Core sie prüft: nicht getrimmt, in Codepunkten (`Array.from`,
+ *  aus demselben Grund wie bei `descriptionLength`). */
+export function stationPromptLength(prompt: string): number {
+  return Array.from(prompt).length;
 }
 
 /** Länge des Systemprompts, wie der Core sie prüft: nicht getrimmt, in UTF-16-Einheiten, denn so
