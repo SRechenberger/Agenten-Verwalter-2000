@@ -24,10 +24,13 @@ use crate::db::implementations::{
 use crate::error::CommandError;
 use crate::file_links;
 use crate::implementation::model::{
-    ImplementationView, InquiryCreated, PendingChange, PhaseInput, PhaseView, check_agents,
+    ImplementationView, InquiryCreated, PendingChange, PhaseInput, PhaseView, StationSettings,
+    check_agents,
 };
 use crate::implementation::report::{self, Extras};
-use crate::implementation::{Countdowns, SessionLive, build_view, new_rows, station_in};
+use crate::implementation::{
+    Countdowns, STATION_BEGUN, SessionLive, build_view, new_rows, station_in,
+};
 use crate::sessions::model::SessionStatus;
 use crate::settings::{self, model::OperatingMode};
 use crate::worktrees::SessionRepository;
@@ -264,6 +267,30 @@ impl SessionRegistry {
                     .collect()
             })
             .unwrap_or_default()
+    }
+
+    /// Schreibt die Einstellungen der Station samt `edited`; hat sie inzwischen begonnen, ein Fehler.
+    pub fn store_station_settings(
+        &self,
+        station_id: &str,
+        settings: &StationSettings,
+    ) -> Result<(), CommandError> {
+        let is_written = self.database.with(|connection| {
+            implementation_rows::set_station_settings(connection, station_id, settings)
+        })?;
+        if !is_written {
+            return Err(CommandError::Implementation(STATION_BEGUN.to_owned()));
+        }
+        Ok(())
+    }
+
+    /// Die gespeicherten Stationen der Umsetzung; anders als die Ansicht mit der Marke `edited`.
+    pub fn station_rows(&self, implementation_id: &str) -> Result<Vec<StationRow>, CommandError> {
+        Ok(self
+            .database
+            .with(|connection| implementation_rows::load(connection, implementation_id))?
+            .map(|stored: StoredImplementation| stored.stations)
+            .unwrap_or_default())
     }
 
     /// Meldet die Station fertig und hängt `followups` dahinter an (eine Datenbank-Transaktion).

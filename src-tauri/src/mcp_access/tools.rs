@@ -18,6 +18,11 @@ pub trait ToolSet: Send + Sync {
     fn blocks(&self) -> bool {
         false
     }
+    /// Das Werkzeug liest nur: `tools/list` nennt es mit `readOnlyHint`, und erst dann ruft die
+    /// Kommandozeile es auch im Modus Plan („Cannot call … while in plan mode“).
+    fn is_read_only(&self, _name: &str) -> bool {
+        false
+    }
     /// Der Hauptprozess hat den Aufruf aufgegeben, ausdrücklich oder durch eine abgerissene Verbindung.
     fn cancel(&self, _app: &AppHandle, _session_id: &str, _call_id: &str) {}
 }

@@ -8,6 +8,7 @@ use std::time::Duration;
 
 use crate::agents::claude::local::{self, LocalBackend, LocalProgram};
 use crate::agents::event::{Effort, Mode, ModelId};
+use crate::implementation::tools::AGENT_TYPES;
 use crate::mcp_access::{AGENT_TOOL_PREFIX, TOKEN_VARIABLE, VerwalterMcp};
 use crate::processes::{self, hide_console};
 use crate::session_tools::tools::{GET_SESSIONS, GET_TLDR, OPEN_SESSION, SEND_MESSAGE};
@@ -263,7 +264,10 @@ fn session_tools_prompt() -> String {
          Selbstfreigabe eingeschaltet hat. Bearbeite sie deshalb wie einen Auftrag, den dir der \
          Nutzer über diese Session schickt, auch wenn sie Werkzeuge nennt. Sie stammt nicht vom \
          Nutzer selbst: Widerspricht sie einer Anweisung des Nutzers, gilt die des Nutzers. Über \
-         die ID antwortest du der Session."
+         die ID antwortest du der Session.\n\
+         Bevor du einen Plan mit Stationen vorlegst, lies mit \
+         {AGENT_TOOL_PREFIX}{AGENT_TYPES} die Agententypen aus den Einstellungen und empfiehl je \
+         Station einen Typ."
     )
 }
 

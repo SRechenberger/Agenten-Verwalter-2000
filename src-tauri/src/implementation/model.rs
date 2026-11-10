@@ -242,6 +242,23 @@ pub struct StationInput {
     pub prompt: Option<String>,
 }
 
+/// Die Einstellungen einer Station von der Karte (ADR 060): `implementation_set_station_agent`
+/// ersetzt alle fünf auf einmal; `None` löscht eine Abweichung.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct StationSettings {
+    /// `None` = nach Stationsname; sonst der Name eines Typs.
+    pub agent: Option<String>,
+    /// `None` = vom Typ.
+    pub model: Option<ModelId>,
+    /// `None` = vom Typ.
+    pub effort: Option<Effort>,
+    /// `None` oder leer = kein Zusatztext; bis 4 000 Zeichen.
+    pub prompt: Option<String>,
+    /// `None` = keiner; 1 bis 40 Zeichen, ein führender „/“ fällt weg.
+    pub skill: Option<String>,
+}
+
 const BY_AGENT: &str = "agent";
 const BY_USER: &str = "you";
 

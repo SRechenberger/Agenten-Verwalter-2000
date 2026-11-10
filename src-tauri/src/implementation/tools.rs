@@ -1,14 +1,17 @@
 //! Werkzeuge der Umsetzung im MCP-Zugang (ADR 048): der Agent legt eine Umsetzung an, liest ihren
-//! Lagebericht und beschreibt Phasen. Jeder Aufruf wirkt im Vorhaben der aufrufenden Session.
+//! Lagebericht und beschreibt Phasen; der Planer liest die Agententypen (ADR 060). Jeder Aufruf
+//! wirkt im Vorhaben der aufrufenden Session.
 use serde::Deserialize;
 use serde_json::{Value, json};
 use tauri::{Emitter, Manager};
 
 use super::model::{
     ImplementationChangedEvent, ImplementationView, MAX_DESCRIPTION_CHARS, MAX_NAME_CHARS,
-    MAX_SOURCE_CHARS, MAX_TITLE_CHARS, PhaseInput, check_length, validate,
+    MAX_PROMPT_CHARS, MAX_SOURCE_CHARS, MAX_TITLE_CHARS, PhaseInput, check_length, validate,
 };
 use super::{IMPLEMENTATION_CHANGED_EVENT, changes};
+use crate::agent_types::model::AgentType;
+use crate::error::CommandError;
 use crate::mcp_access::ProcessKind;
 use crate::mcp_access::tools::{ToolCall, ToolResult, ToolSet, ToolSpec};
 use crate::sessions::registry::SessionRegistry;
@@ -18,6 +21,10 @@ const GET: &str = "implementation_get";
 const SET_PHASES: &str = "implementation_set_phases";
 const DESCRIBE_PHASE: &str = "implementation_describe_phase";
 const COMPLETE_STATION: &str = "implementation_complete_station";
+/// Liest die Agententypen für den Planer (ADR 060); `session_tools_prompt` nennt es beim Namen.
+pub const AGENT_TYPES: &str = "implementation_agent_types";
+/// Was eine Nebenfrage aufrufen darf: nur Lesendes.
+const SIDE_READABLE: [&str; 2] = [GET, AGENT_TYPES];
 const NO_REGISTRY: &str = "Der Verwalter startet noch";
 const NOT_A_STATION: &str = "Diese Session ist keine Station.";
 const SIDE_FORBIDDEN: &str = "Eine Nebenfrage darf die Umsetzung nur lesen.";
@@ -58,6 +65,23 @@ impl ToolSet for ImplementationTools {
                 description: "Liefert den Lagebericht der Umsetzung, zu der diese Session gehört \
                               (sonst der neuesten des Vorhabens): Stand, was läuft, was fertig \
                               ist, was offen ist.",
+                input_schema: json!({
+                    "type": "object",
+                    "properties": {},
+                    "additionalProperties": false,
+                }),
+            },
+            ToolSpec {
+                name: AGENT_TYPES,
+                description: "Liest die Agententypen aus den Einstellungen: Name, Beschreibung, \
+                              Stationsnamen, Modell, Denkaufwand und Skills, nie den Prompt-Text. \
+                              Lies sie, bevor du einen Plan mit Stationen vorlegst, und empfiehl je \
+                              Phase Stationen, Reihenfolge und Typ mit kurzer Begründung. Eine \
+                              Station nennt ihren Typ im Feld `agent`; ohne das Feld gilt der Typ, \
+                              der ihren Namen führt. Für eine einzelne Station weichen `model`, \
+                              `effort`, `prompt` (Zusatztext zum Systemprompt) und `skill` vom Typ \
+                              ab, etwa `effort: max` bei einem besonders kritischen Review; nutze \
+                              das sparsam und begründe es im Plan. Ohne Typen ist die Liste leer.",
                 input_schema: json!({
                     "type": "object",
                     "properties": {},
@@ -108,10 +132,15 @@ impl ToolSet for ImplementationTools {
         ]
     }
 
+    /// Der Planer liest die Typen im Modus Plan, bevor er den Plan vorlegt (ADR 060).
+    fn is_read_only(&self, name: &str) -> bool {
+        name == AGENT_TYPES
+    }
+
     fn call(&self, call: &ToolCall) -> ToolResult {
         // Vor der Registry: eine Nebenfrage darf nur lesen. Ihr Prozess hat dieselben Argumente wie der
         // Hauptprozess (ADR 044) und damit auch die Freigabe, nur der Schlüssel unterscheidet sie.
-        if call.kind == ProcessKind::Side && call.name != GET {
+        if call.kind == ProcessKind::Side && !side_may_call(call.name) {
             return ToolResult::Err(SIDE_FORBIDDEN.to_owned());
         }
         let Some(registry) = call.app.try_state::<SessionRegistry>() else {
@@ -120,12 +149,43 @@ impl ToolSet for ImplementationTools {
         let outcome = match call.name {
             CREATE => create(call, &registry),
             GET => get(call, &registry),
+            AGENT_TYPES => registry
+                .agent_types()
+                .map(|types: Vec<AgentType>| agent_types_answer(&types))
+                .map_err(|error: CommandError| error.to_string()),
             DESCRIBE_PHASE => describe_phase(call, &registry),
             COMPLETE_STATION => complete_station(call, &registry),
             SET_PHASES => set_phases(call),
             other => Err(format!("Unbekanntes Werkzeug: {other}")),
         };
         outcome.unwrap_or_else(ToolResult::Err)
+    }
+}
+
+pub(super) fn side_may_call(name: &str) -> bool {
+    SIDE_READABLE.contains(&name)
+}
+
+/// Was der Planer von den Typen liest, als `structuredContent` und gleich als Text; nie den
+/// Prompt-Text und nie die Dateien (V13). `model` und `effort` sind `null` bei „Standard“.
+pub(super) fn agent_types_answer(types: &[AgentType]) -> ToolResult {
+    let listed: Vec<Value> = types
+        .iter()
+        .map(|agent_type: &AgentType| {
+            json!({
+                "name": agent_type.name,
+                "description": agent_type.description,
+                "stages": agent_type.stages,
+                "model": agent_type.model,
+                "effort": agent_type.effort,
+                "skills": agent_type.skills,
+            })
+        })
+        .collect();
+    let structured = json!({ "agentTypes": listed });
+    ToolResult::Ok {
+        text: structured.to_string(),
+        structured: Some(structured),
     }
 }
 
@@ -147,9 +207,12 @@ fn phases_schema() -> Value {
                         "type": "object",
                         "properties": {
                             "stage": { "type": "string", "minLength": 1, "maxLength": 40, "description": "z. B. Test, Umsetzung, Review" },
-                            "model": { "type": "string", "enum": ["fable", "opusplan", "opus", "sonnet", "haiku"] },
+                            "agent": { "type": "string", "minLength": 1, "maxLength": 40, "description": "Agententyp der Station (implementation_agent_types); ohne das Feld der Typ, der den Stationsnamen führt" },
+                            "model": { "type": "string", "enum": ["fable", "opusplan", "opus", "sonnet", "haiku"], "description": "Modell dieser Station, abweichend vom Typ" },
+                            "effort": { "type": "string", "enum": ["low", "medium", "high", "xhigh", "max"], "description": "Denkaufwand dieser Station, abweichend vom Typ" },
+                            "prompt": { "type": "string", "maxLength": MAX_PROMPT_CHARS, "description": "Zusatztext zum Systemprompt dieser Station; steht hinter dem Text des Typs" },
                             "by": { "type": "string", "enum": ["agent", "you"], "description": "\"you\": der Benutzer erledigt die Station selbst" },
-                            "skill": { "type": "string", "minLength": 1, "maxLength": 40, "description": "Skill ohne \"/\", mit dem die Session beginnt" },
+                            "skill": { "type": "string", "minLength": 1, "maxLength": 40, "description": "Skill ohne \"/\", mit dem die Session beginnt; abweichend vom ersten Skill des Typs" },
                             "brief": { "type": "string", "maxLength": 1000, "description": "Auftrag an die Session" },
                         },
                         "required": ["stage"],
