@@ -6,12 +6,14 @@ use crate::agents::event::ModelId;
 use std::path::Path;
 
 use crate::agent_types::model::{AgentTypeInput, AgentValueSource};
+use crate::artifacts::tools::ArtifactTools;
 use crate::db::implementations::{self as implementation_rows, ImplementationRow, PhaseRow};
 use crate::db::sessions::{self as session_rows, SessionRow};
 use crate::db::{Database, agent_types as agent_type_rows};
 use crate::error::CommandError;
-use crate::mcp_access::tools::{ToolResult, ToolSet, ToolSpec};
-use crate::mcp_access::{Caller, ProcessKind, rpc, tool_sets};
+use crate::mcp_access::tools::{ToolCall, ToolResult, ToolSet, ToolSpec};
+use crate::mcp_access::{Caller, ProcessKind, rpc};
+use crate::session_tools::tools::SessionTools;
 use crate::settings::model::OperatingMode;
 use model::{PendingChange, PhaseInput, StationSettings, check_agents, validate};
 use serde_json::{Value, json};
@@ -1586,6 +1588,33 @@ fn agent_types_tool_is_allowed_in_side_questions() {
     }
 }
 
+/// Reicht von einem Werkzeug-Satz nur weiter, was `tools/list` liest; `call` ruft nichts. Ein `Box<dyn ToolSet>`
+/// der echten Sätze (`tool_sets()`) nähme über `call` den ganzen Tauri-Code ins Testprogramm, und das startete
+/// unter Windows dann nicht mehr (0xc0000139, `STATUS_ENTRYPOINT_NOT_FOUND`): kein Test lief.
+struct ListOnly<S: ToolSet>(S);
+
+impl<S: ToolSet> ToolSet for ListOnly<S> {
+    fn prefix(&self) -> &'static str {
+        self.0.prefix()
+    }
+
+    fn tools(&self) -> Vec<ToolSpec> {
+        self.0.tools()
+    }
+
+    fn call(&self, _call: &ToolCall) -> ToolResult {
+        ToolResult::Err("Dieser Satz listet nur.".to_owned())
+    }
+
+    fn requires_claude(&self) -> bool {
+        self.0.requires_claude()
+    }
+
+    fn is_read_only(&self, name: &str) -> bool {
+        self.0.is_read_only(name)
+    }
+}
+
 #[test]
 fn tools_list_marks_only_the_agent_types_tool_read_only() {
     let caller = Caller {
@@ -1593,7 +1622,12 @@ fn tools_list_marks_only_the_agent_types_tool_read_only() {
         kind: ProcessKind::Main,
         session_tools: true,
     };
-    let listed = rpc::list(&caller, &tool_sets());
+    let sets: Vec<Box<dyn ToolSet>> = vec![
+        Box::new(ListOnly(ArtifactTools)),
+        Box::new(ListOnly(SessionTools)),
+        Box::new(ListOnly(tools::ImplementationTools)),
+    ];
+    let listed = rpc::list(&caller, &sets);
     let marked: Vec<Value> = listed["tools"]
         .as_array()
         .expect("tools/list liefert eine Liste")
