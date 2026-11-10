@@ -4,6 +4,7 @@
 //! Sperren: erst die Datenbank lesen, dann jede Station-Session einzeln und kurz sperren — nie zwei
 //! Session-Sperren zugleich, nie `Database::with` unter einer Session-Sperre.
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::{Arc, MutexGuard, PoisonError};
 
 use tauri::AppHandle;
@@ -29,6 +30,7 @@ use crate::implementation::report::{self, Extras};
 use crate::implementation::{Countdowns, SessionLive, build_view, new_rows, station_in};
 use crate::sessions::model::SessionStatus;
 use crate::settings::{self, model::OperatingMode};
+use crate::worktrees::SessionRepository;
 
 const NO_IMPLEMENTATION: &str = "In diesem Vorhaben gibt es keine Umsetzung.";
 
@@ -226,6 +228,42 @@ impl SessionRegistry {
         self.database.with(|connection| {
             implementation_rows::set_agent_used(connection, station_id, agent_used)
         })
+    }
+
+    /// Hält den Systemprompt der Station an ihrer Session fest, bevor ihr erster Prozess startet
+    /// (ADR 060): jeder spätere Prozessstart und jede Nebenfrage nimmt dieselben Bytes.
+    pub fn store_agent_prompt(
+        &self,
+        app: &AppHandle,
+        session_id: &str,
+        agent_prompt: String,
+    ) -> Result<(), CommandError> {
+        let session = self.get(session_id)?;
+        update(
+            app,
+            &session,
+            |state: &mut SessionState, outbox: &mut Outbox| {
+                state.agent_prompt = Some(agent_prompt);
+                outbox.summary_dirty = true;
+                Ok(())
+            },
+        )
+    }
+
+    /// Die Arbeitsordner der Repositories, die eine neue Session des Vorhabens bekommt (die der Session
+    /// mit der höchsten Nummer), in ihrer Reihenfolge; gegen sie gilt ein relativer Pfad eines
+    /// Agententyps.
+    pub fn repository_dirs_of_project(&self, project_id: &str) -> Vec<PathBuf> {
+        self.project_members(project_id)
+            .last()
+            .map(|latest: &Arc<Session>| {
+                latest
+                    .repositories()
+                    .iter()
+                    .map(|repository: &SessionRepository| repository.working_dir(&latest.workspace))
+                    .collect()
+            })
+            .unwrap_or_default()
     }
 
     /// Meldet die Station fertig und hängt `followups` dahinter an (eine Datenbank-Transaktion).

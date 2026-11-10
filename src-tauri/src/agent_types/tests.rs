@@ -1,8 +1,19 @@
-//! Auflösung von Typ, Modell und Denkaufwand einer Station und Prüfung eines Typs vor dem Speichern
-//! (ADR 060): rein, ohne Datenbank und ohne Tauri.
+//! Auflösung von Typ, Modell und Denkaufwand einer Station, Prüfung eines Typs vor dem Speichern und
+//! Systemprompt einer Station samt seinem Weg in die Argumente des Agenten (ADR 060): rein, ohne
+//! Datenbank, ohne Dateisystem und ohne Tauri.
+use std::collections::HashMap;
+use std::env;
+use std::io;
+use std::path::{Path, PathBuf};
+
 use super::model::{AgentType, AgentTypeField, AgentTypeInput, AgentValueSource, FieldError};
+use super::prompt::{Folders, PromptError, compose};
 use super::{StationValues, UnknownAgent, resolve, validate};
-use crate::agents::event::{Effort, ModelId};
+use crate::agents::claude::local::{LocalBackend, LocalProgram};
+use crate::agents::claude::process::{SpawnOptions, common_args};
+use crate::agents::event::{Effort, Mode, ModelId};
+use crate::mcp_access::VerwalterMcp;
+use crate::{codex, processes, standalone};
 
 fn agent_type(
     name: &str,
@@ -628,4 +639,341 @@ fn errors_of_several_fields_come_together_in_field_order() {
             AgentTypeField::Skills,
         ]
     );
+}
+
+// Systemprompt einer Station
+
+/// Ein Typ „reviewer“ mit diesem Text und diesen Dateien.
+fn reviewer_with(prompt: &str, files: &[&str]) -> AgentType {
+    AgentType {
+        prompt: prompt.to_owned(),
+        files: texts(files),
+        ..agent_type("reviewer", &["Review"], None, None)
+    }
+}
+
+/// Wo die Datei liegt, wenn ihr Pfad relativ gegen dieses Repository gilt.
+fn in_repository(repository: &str, path: &str) -> PathBuf {
+    PathBuf::from(repository).join(path)
+}
+
+/// `compose` mit dem Benutzerordner `nutzer`, den Repositories `repo-a`, `repo-b`, `repo-c` und diesen
+/// Dateien; jeder andere Pfad fehlt.
+fn compose_with(
+    agent_type: Option<&AgentType>,
+    station_prompt: Option<&str>,
+    files: Vec<(PathBuf, Result<&str, io::ErrorKind>)>,
+) -> Result<Option<String>, PromptError> {
+    let home = PathBuf::from("nutzer");
+    let repositories: Vec<PathBuf> = ["repo-a", "repo-b", "repo-c"]
+        .into_iter()
+        .map(PathBuf::from)
+        .collect();
+    let files: HashMap<PathBuf, Result<&str, io::ErrorKind>> = files.into_iter().collect();
+    compose(
+        agent_type,
+        station_prompt,
+        Folders {
+            home: &home,
+            repositories: &repositories,
+        },
+        |path: &Path| match files.get(path) {
+            Some(Ok(text)) => Ok((*text).to_owned()),
+            Some(Err(kind)) => Err(io::Error::from(*kind)),
+            None => Err(io::Error::from(io::ErrorKind::NotFound)),
+        },
+    )
+}
+
+#[test]
+fn text_comes_before_files_and_files_keep_their_order() {
+    let reviewer = reviewer_with("Du prüfst.", &["b.md", "a.md"]);
+    let text = compose_with(
+        Some(&reviewer),
+        None,
+        vec![
+            (in_repository("repo-a", "a.md"), Ok("Datei A")),
+            (in_repository("repo-a", "b.md"), Ok("Datei B")),
+        ],
+    );
+    assert_eq!(
+        text,
+        Ok(Some("Du prüfst.\n\nDatei B\n\nDatei A".to_owned()))
+    );
+}
+
+#[test]
+fn frontmatter_of_a_file_is_removed() {
+    let reviewer = reviewer_with("", &["rolle.md"]);
+    let text = compose_with(
+        Some(&reviewer),
+        None,
+        vec![(
+            in_repository("repo-a", "rolle.md"),
+            Ok("---\nname: rolle\ndescription: Prüft streng\n---\n\nPrüfe jede Zeile.\n"),
+        )],
+    );
+    assert_eq!(text, Ok(Some("Prüfe jede Zeile.".to_owned())));
+}
+
+#[test]
+fn missing_file_names_the_path_and_the_type() {
+    let reviewer = reviewer_with("Du prüfst.", &["docs/fehlt.md"]);
+    let error = compose_with(Some(&reviewer), None, Vec::new()).expect_err("Datei fehlt");
+    assert_eq!(
+        error.to_string(),
+        "Die Datei „docs/fehlt.md“ aus dem Typ „reviewer“ wurde nicht gefunden."
+    );
+}
+
+#[test]
+fn unreadable_file_names_the_path_and_the_type_and_no_later_repository_counts() {
+    let reviewer = reviewer_with("", &["rolle.md"]);
+    let error = compose_with(
+        Some(&reviewer),
+        None,
+        vec![
+            (
+                in_repository("repo-a", "rolle.md"),
+                Err(io::ErrorKind::PermissionDenied),
+            ),
+            (in_repository("repo-b", "rolle.md"), Ok("lesbar")),
+        ],
+    )
+    .expect_err("Datei nicht lesbar");
+    assert_eq!(
+        error.to_string(),
+        "Die Datei „rolle.md“ aus dem Typ „reviewer“ ist nicht lesbar."
+    );
+}
+
+#[test]
+fn total_over_16000_units_is_rejected() {
+    let reviewer = reviewer_with(&"a".repeat(10_000), &["rolle.md"]);
+    let file_of = |length: usize| "b".repeat(length);
+    // 10 000 + Leerzeile (2) + Datei
+    let at_limit = file_of(5_998);
+    let text = compose_with(
+        Some(&reviewer),
+        None,
+        vec![(in_repository("repo-a", "rolle.md"), Ok(&at_limit))],
+    )
+    .expect("genau 16 000 sind erlaubt")
+    .expect("Text vorhanden");
+    assert_eq!(text.encode_utf16().count(), 16_000);
+
+    let over = file_of(5_999);
+    let error = compose_with(
+        Some(&reviewer),
+        None,
+        vec![(in_repository("repo-a", "rolle.md"), Ok(&over))],
+    )
+    .expect_err("16 001 sind zu viel");
+    assert_eq!(error, PromptError::TooLong { units: 16_001 });
+    assert_eq!(
+        error.to_string(),
+        "Der Systemprompt dieser Station hat 16 001 Zeichen; erlaubt sind 16 000."
+    );
+}
+
+#[test]
+fn relative_path_resolves_in_repository_order_first_hit() {
+    let reviewer = reviewer_with("", &["docs/rolle.md"]);
+    let text = compose_with(
+        Some(&reviewer),
+        None,
+        vec![
+            (in_repository("repo-c", "docs/rolle.md"), Ok("aus C")),
+            (in_repository("repo-b", "docs/rolle.md"), Ok("aus B")),
+        ],
+    );
+    assert_eq!(text, Ok(Some("aus B".to_owned())));
+}
+
+#[test]
+fn tilde_path_resolves_to_the_home_folder() {
+    let reviewer = reviewer_with("", &["~/rollen/review.md"]);
+    let text = compose_with(
+        Some(&reviewer),
+        None,
+        vec![
+            (
+                PathBuf::from("nutzer").join("rollen/review.md"),
+                Ok("aus dem Benutzerordner"),
+            ),
+            (
+                in_repository("repo-a", "~/rollen/review.md"),
+                Ok("aus repo-a"),
+            ),
+        ],
+    );
+    assert_eq!(text, Ok(Some("aus dem Benutzerordner".to_owned())));
+}
+
+#[test]
+fn absolute_path_is_read_where_it_points() {
+    let absolute = env::temp_dir().join("rolle.md");
+    let reviewer = reviewer_with("", &[&absolute.to_string_lossy()]);
+    let text = compose_with(Some(&reviewer), None, vec![(absolute, Ok("absolut"))]);
+    assert_eq!(text, Ok(Some("absolut".to_owned())));
+}
+
+#[test]
+fn station_text_comes_last_after_type_text_and_files() {
+    let reviewer = reviewer_with("Du prüfst.", &["rolle.md"]);
+    let text = compose_with(
+        Some(&reviewer),
+        Some("Prüfe besonders streng."),
+        vec![(in_repository("repo-a", "rolle.md"), Ok("Datei"))],
+    );
+    assert_eq!(
+        text,
+        Ok(Some(
+            "Du prüfst.\n\nDatei\n\nPrüfe besonders streng.".to_owned()
+        ))
+    );
+}
+
+#[test]
+fn station_text_stands_alone_without_a_type() {
+    let text = compose_with(None, Some("Prüfe besonders streng."), Vec::new());
+    assert_eq!(text, Ok(Some("Prüfe besonders streng.".to_owned())));
+}
+
+#[test]
+fn total_with_the_station_text_over_16000_units_is_rejected() {
+    // 7 999 Zeichen, aber 15 998 UTF-16-Einheiten: gezählt wird wie unter Windows.
+    let reviewer = reviewer_with(&"𝄞".repeat(7_999), &[]);
+    assert!(compose_with(Some(&reviewer), None, Vec::new()).is_ok());
+    let error = compose_with(Some(&reviewer), Some("x"), Vec::new())
+        .expect_err("mit dem Zusatztext zu lang");
+    assert_eq!(error, PromptError::TooLong { units: 16_001 });
+}
+
+#[test]
+fn empty_parts_leave_no_gap_and_nothing_gives_no_system_prompt() {
+    let reviewer = reviewer_with("  \n", &["leer.md", "rolle.md"]);
+    let text = compose_with(
+        Some(&reviewer),
+        Some(" "),
+        vec![
+            (
+                in_repository("repo-a", "leer.md"),
+                Ok("---\nname: leer\n---\n"),
+            ),
+            (in_repository("repo-a", "rolle.md"), Ok("\n\nPrüfe.\n\n")),
+        ],
+    );
+    assert_eq!(text, Ok(Some("Prüfe.".to_owned())));
+    assert_eq!(
+        compose_with(Some(&reviewer_with("", &[])), None, Vec::new()),
+        Ok(None)
+    );
+    assert_eq!(compose_with(None, None, Vec::new()), Ok(None));
+}
+
+/// Argumente einer Session mit Scratchpad, Artefakten und Systemprompt der Station; Session-Werkzeuge
+/// gibt es nur im Claude-Betrieb, wie in der App.
+fn spawn_options(local: Option<LocalBackend>, codex_exe: Option<PathBuf>) -> SpawnOptions {
+    let is_claude = local.is_none() && codex_exe.is_none();
+    SpawnOptions {
+        exe: PathBuf::from("claude"),
+        leading_args: Vec::new(),
+        cwd: PathBuf::from("workspace"),
+        session_id: "session".to_owned(),
+        resume: false,
+        model: ModelId::Opus,
+        codex_model: None,
+        effort: Effort::High,
+        mode: Mode::Auto,
+        add_dirs: Vec::new(),
+        allowed_rules: Vec::new(),
+        local,
+        scratchpad: Some(PathBuf::from("scratchpad")),
+        artifacts: Some(PathBuf::from("artefakte")),
+        chrome: false,
+        codex_exe,
+        verwalter_mcp: Some(VerwalterMcp {
+            config: PathBuf::from("mcp.json"),
+            token: is_claude.then(|| "schluessel".to_owned()),
+        }),
+        agent_prompt: Some("Du prüfst.\n\nPrüfe besonders streng.".to_owned()),
+    }
+}
+
+fn backend(program: LocalProgram) -> LocalBackend {
+    LocalBackend {
+        base_url: "http://localhost:1234".to_owned(),
+        model: "lokal".to_owned(),
+        context_window: 32_768,
+        program,
+        has_vision: false,
+    }
+}
+
+#[test]
+fn station_text_is_the_last_part_of_the_one_append_system_prompt_in_all_four_modes() {
+    let modes = [
+        ("Claude", spawn_options(None, None)),
+        (
+            "Claude Code + LM Studio",
+            spawn_options(Some(backend(LocalProgram::ClaudeCode)), None),
+        ),
+        (
+            "Autark",
+            spawn_options(Some(backend(LocalProgram::Standalone)), None),
+        ),
+        ("Codex", spawn_options(None, Some(PathBuf::from("codex")))),
+    ];
+    for (name, options) in modes {
+        let mut command = processes::command(&options.exe);
+        common_args(&mut command, &options, "auto");
+        let mut args: Vec<String> = command
+            .get_args()
+            .map(|arg| arg.to_string_lossy().into_owned())
+            .collect();
+        let appended: Vec<&String> = args
+            .iter()
+            .zip(args.iter().skip(1))
+            .filter(|(option, _): &(&String, &String)| *option == "--append-system-prompt")
+            .map(|(_, value): (&String, &String)| value)
+            .collect();
+        let [appended] = appended[..] else {
+            panic!("{name}: genau ein --append-system-prompt erwartet, da: {appended:?}");
+        };
+        let appended = appended.clone();
+        assert!(
+            appended.starts_with("Scratchpad dieser Session: scratchpad\n"),
+            "{name}: die Vorgaben des Verwalters zuerst"
+        );
+        assert!(
+            appended.ends_with("\n\nDu prüfst.\n\nPrüfe besonders streng."),
+            "{name}: der Systemprompt der Station zuletzt"
+        );
+        if name == "Claude" {
+            let tools = appended.find("Mit anderen Sessions dieses Vorhabens");
+            let station = appended.find("Du prüfst.");
+            assert!(
+                tools.is_some() && tools < station,
+                "{name}: Session-Werkzeuge davor"
+            );
+        }
+        // Autark liest genau dieses Argument, Codex macht daraus `developerInstructions`.
+        args.extend(["--session-id".to_owned(), "session".to_owned()]);
+        let parsed = standalone::args::parse(&args).expect("Argumente lesbar");
+        assert_eq!(
+            parsed.append_system_prompt.as_deref(),
+            Some(appended.as_str())
+        );
+        let instructions = codex::instructions::developer_instructions(
+            parsed.append_system_prompt.as_deref(),
+            Path::new("workspace"),
+            &[],
+        )
+        .expect("Vorgaben für Codex");
+        assert!(
+            instructions.ends_with("Prüfe besonders streng."),
+            "{name}: Codex bekommt den Text zuletzt"
+        );
+    }
 }

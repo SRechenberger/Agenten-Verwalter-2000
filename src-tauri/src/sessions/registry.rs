@@ -348,6 +348,9 @@ struct SessionState {
     station_of: Option<String>,
     /// Umsetzung, zu der diese Session eine Rückfrage ist (ADR 048); gespeichert.
     inquiry_of: Option<String>,
+    /// Systemprompt der Station, festgehalten beim Start der Station (ADR 060); gespeichert. Jeder
+    /// Prozessstart und jede Nebenfrage nimmt genau diese Bytes (Prompt-Cache, ADR 044).
+    agent_prompt: Option<String>,
     /// Lagebericht (ohne Zeile „Lage“), den diese Rückfrage zuletzt als Anhang bekam; nur im
     /// Speicher — nach einem Neustart hängt das nächste Senden den Bericht neu an.
     last_report: Option<String>,
@@ -2245,6 +2248,7 @@ impl SessionState {
             side: Vec::new(),
             station_of: None,
             inquiry_of: None,
+            agent_prompt: None,
             last_report: None,
         }
     }
@@ -2277,6 +2281,7 @@ impl SessionState {
         state.process_chrome = row.chrome;
         state.scratchpad_dir = row.scratchpad_dir.clone();
         state.inquiry_of = row.inquiry_of.clone();
+        state.agent_prompt = row.agent_prompt.clone();
         state.idle_since = None;
         state.entries_loaded = false;
         state.needs_settling = was_active;
@@ -3732,6 +3737,7 @@ fn row_of(session: &Session, state: &SessionState) -> SessionRow {
         tldr_at: None,
         tldr_seq: None,
         inquiry_of: state.inquiry_of.clone(),
+        agent_prompt: state.agent_prompt.clone(),
     }
 }
 
@@ -4071,6 +4077,7 @@ fn start_process(
             chrome: state.chrome,
             codex_exe,
             verwalter_mcp,
+            agent_prompt: state.agent_prompt.clone(),
         },
         move |output: ProcessOutput| {
             handle_output(&callback_app, &callback_session, generation, output);

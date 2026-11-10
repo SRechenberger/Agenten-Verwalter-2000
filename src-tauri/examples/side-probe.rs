@@ -91,6 +91,8 @@ fn main() -> Result<ExitCode, Box<dyn std::error::Error>> {
         // Ohne laufende App gibt es keinen MCP-Zugang; die Werkzeugliste weicht dann von der des
         // Hauptprozesses ab.
         verwalter_mcp: None,
+        // Der gespeicherte Systemprompt der Station, wie die App ihn übergibt.
+        agent_prompt: row.agent_prompt.clone(),
     };
     let request = SideRequest {
         options,

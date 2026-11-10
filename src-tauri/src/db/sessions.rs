@@ -50,6 +50,8 @@ pub struct SessionRow {
     pub name_auto: bool,
     /// Umsetzung, zu der diese Session eine Rückfrage ist (ADR 048); nach dem Anlegen unveränderlich.
     pub inquiry_of: Option<String>,
+    /// Systemprompt der Station, festgehalten beim Start der Station (ADR 060); `None` ohne.
+    pub agent_prompt: Option<String>,
 }
 
 /// Die Zeile, wie sie in der Datenbank steht; die Enum-Texte werden erst danach umgewandelt,
@@ -81,6 +83,7 @@ struct StoredRow {
     prompt_cache: Option<String>,
     name_auto: bool,
     inquiry_of: Option<String>,
+    agent_prompt: Option<String>,
 }
 
 impl StoredRow {
@@ -112,6 +115,7 @@ impl StoredRow {
             prompt_cache: row.get(23)?,
             name_auto: row.get(24)?,
             inquiry_of: row.get(25)?,
+            agent_prompt: row.get(26)?,
         })
     }
 
@@ -142,6 +146,7 @@ impl StoredRow {
             codex_model: self.codex_model,
             name_auto: self.name_auto,
             inquiry_of: self.inquiry_of,
+            agent_prompt: self.agent_prompt,
             prompt_cache: self
                 .prompt_cache
                 .as_deref()
@@ -153,15 +158,16 @@ impl StoredRow {
 /// Legt die Zeile an oder aktualisiert sie; `scratchpad_dir` kommt mit dem ersten `init` dazu.
 /// `created_at`, `workspace_dir`, `project_id`, `number`, `inquiry_of` und `archived_at` bleiben,
 /// wie sie sind: der Arbeitsordner einer Session ändert sich nie, ihr Vorhaben, ihre Nummer und
-/// ihre Umsetzung auch nicht. Die TL;DR-Spalten schreibt nur `db::tldr`.
+/// ihre Umsetzung auch nicht. Die TL;DR-Spalten schreibt nur `db::tldr`. `agent_prompt` schreibt
+/// auch das `UPDATE`: der Start einer Station setzt ihn erst an der schon angelegten Zeile.
 pub fn upsert(connection: &Connection, row: &SessionRow) -> Result<(), CommandError> {
     connection.execute(
         "INSERT INTO sessions (id, name, status, model, effort, mode, created_at, running_ms, \
              context_used, context_window, has_agent_history, workspace_dir, scratchpad_dir, \
              project_id, number, last_activity_at, seen_at, handoff_line, chrome, codex_model, \
-             prompt_cache, name_auto, inquiry_of) \
+             prompt_cache, name_auto, inquiry_of, agent_prompt) \
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, \
-             ?19, ?20, ?21, ?22, ?23) \
+             ?19, ?20, ?21, ?22, ?23, ?24) \
          ON CONFLICT(id) DO UPDATE SET \
              name = excluded.name, \
              status = excluded.status, \
@@ -179,7 +185,8 @@ pub fn upsert(connection: &Connection, row: &SessionRow) -> Result<(), CommandEr
              chrome = excluded.chrome, \
              codex_model = excluded.codex_model, \
              prompt_cache = excluded.prompt_cache, \
-             name_auto = excluded.name_auto",
+             name_auto = excluded.name_auto, \
+             agent_prompt = excluded.agent_prompt",
         params![
             row.id,
             row.name,
@@ -206,6 +213,7 @@ pub fn upsert(connection: &Connection, row: &SessionRow) -> Result<(), CommandEr
                 .and_then(|cache: &PromptCache| serde_json::to_string(cache).ok()),
             row.name_auto,
             row.inquiry_of,
+            row.agent_prompt,
         ],
     )?;
     Ok(())
@@ -218,7 +226,7 @@ pub fn load_active(connection: &Connection) -> Result<Vec<SessionRow>, CommandEr
         "SELECT id, name, status, model, effort, mode, created_at, running_ms, \
              context_used, context_window, has_agent_history, workspace_dir, scratchpad_dir, \
              COALESCE(project_id, id), number, tldr, tldr_at, tldr_seq, last_activity_at, seen_at, \
-             handoff_line, chrome, codex_model, prompt_cache, name_auto, inquiry_of \
+             handoff_line, chrome, codex_model, prompt_cache, name_auto, inquiry_of, agent_prompt \
          FROM sessions WHERE archived_at IS NULL ORDER BY created_at DESC",
     )?;
     let stored: Vec<StoredRow> = statement
@@ -236,7 +244,7 @@ pub fn load_for_project(
         "SELECT id, name, status, model, effort, mode, created_at, running_ms, \
              context_used, context_window, has_agent_history, workspace_dir, scratchpad_dir, \
              project_id, number, tldr, tldr_at, tldr_seq, last_activity_at, seen_at, handoff_line, \
-             chrome, codex_model, prompt_cache, name_auto, inquiry_of \
+             chrome, codex_model, prompt_cache, name_auto, inquiry_of, agent_prompt \
          FROM sessions WHERE project_id = ?1 ORDER BY number",
     )?;
     let stored: Vec<StoredRow> = statement
