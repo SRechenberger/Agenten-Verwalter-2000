@@ -61,7 +61,7 @@ Keine IDE, kein VS-Code-Ersatz, kein vollständiger Git-Client, kein Ticket-Syst
 - **Sicherheit:** Der Session-Workspace ist die Sicherheitsgrenze; Agenten bekommen nicht standardmäßig das ganze Benutzerverzeichnis.
 - **Absturzfestigkeit:** Ein UI-Absturz darf keine Session und keinen Worktree verlieren; der Agent-Prozess wird danach neu gestartet.
 - **Team:** Einzelentwickler, keine Deadline.
-- **Qualitätssicherung:** automatisierte Tests nur für die Fix-Runden-Auswahl der Umsetzung und die Agententypen (`src-tauri/src/implementation/tests.rs`, `src-tauri/src/agent_types/tests.rs`, in CI mit `cargo test --lib -- implementation:: agent_types::`, dazu die Probe `agent-type-probe`) und für die Fernsteuerung (`src-tauri/src/remote/`, in CI mit `cargo test --lib remote::`, dazu die Probe `remote-probe` über echte TLS-Verbindungen); sonst abgesichert über strenge Typen, Lint und Build; getestet wird im laufenden Betrieb, ohne Abnahme-Checkliste.
+- **Qualitätssicherung:** automatisierte Tests nur für die Fix-Runden-Auswahl der Umsetzung und die Agententypen (`src-tauri/src/implementation/tests.rs`, `src-tauri/src/agent_types/tests.rs`, in CI mit `cargo test --lib -- implementation:: agent_types::`, dazu die Probe `agent-type-probe`) für die Fernsteuerung (`src-tauri/src/remote/`, in CI mit `cargo test --lib remote::`, dazu die Probe `remote-probe` über echte TLS-Verbindungen) und für die Umgebung der Kindprozesse im AppImage (`src-tauri/src/processes/tests.rs`, in CI mit `cargo test --lib processes::`); sonst abgesichert über strenge Typen, Lint und Build; getestet wird im laufenden Betrieb, ohne Abnahme-Checkliste.
 
 ## Meilensteine
 

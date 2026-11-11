@@ -1,6 +1,6 @@
 # Design-Entwurf: Agententypen
 
-**Status:** freigegeben am 2026-11-08 mit dem Plan „Agententypen für Stationen“ (Taiga-Story 55, [ADR 060](../../decisions/060-agententypen.md)). Der Entwurf zeigt drei Teile: die Einstellungen (Schritte 1 bis 8), die Planung (Schritte 9 bis 11) und die Umsetzung (Schritte 12 bis 19). Gebaut sind die Einstellungen (Phase 3), die Werkzeuge der Planung (Phase 5, ohne eigene Oberfläche) und die Umsetzung (Phase 6). Wo die Umsetzung abweichen muss, wird erst dieser Entwurf geändert, dann der Code; `mockup.html` bleibt nach der Abnahme unverändert, die Abweichungen stehen unten.
+**Status:** freigegeben am 2026-11-08 mit dem Plan „Agententypen für Stationen“ (Taiga-Story 55, [ADR 060](../../decisions/060-agententypen.md)). Der Entwurf zeigt drei Teile: die Einstellungen (Schritte 1 bis 8), die Planung (Schritte 9 bis 11) und die Umsetzung (Schritte 12 bis 19). Gebaut sind die Einstellungen (Phase 3), die Werkzeuge der Planung (Phase 5, ohne eigene Oberfläche) und die Umsetzung (Phase 6). `mockup.html` ist seit der Abnahme unverändert; wo die gebaute Oberfläche abweicht, stehen die Abweichungen unten, und die Bilder in `umsetzung/` zeigen die gebaute App.
 
 ## Ansehen
 
@@ -123,7 +123,7 @@ Belegt im Lauf (Datenbank und Argumente der Attrappe gelesen): „Einstellungen�
 - **Dialog, Bausteine:** 600 px breit und mittig wie der Dialog der Typen, nur der Rumpf rollt; das Modell wählt man im `ModelMenu` ohne Denkaufwand-Zeile (der hat der Dialog eine eigene), der Typ in einem nativen Auswahlfeld. Ein Typ, den es nicht gibt, bleibt als „X (gelöscht)“ wählbar, damit man ihn sieht und ersetzen kann. Der lange Eintrag „Wie die allgemeine Regel (Max)“ bricht die Stufen des Denkaufwands in eine zweite Zeile um.
 - **Skill-Vorschläge:** Eine native Liste (`datalist`) mit den Skills und Befehlen des Benutzers, wie im Dialog der Typen; Plugin-Skills kennt sie nicht, freier Text geht immer. Das native Popup erscheint nicht auf den Bildern.
 - **Zusatztext:** Chip und Vorschau zählen den getrimmten Text in Codepunkten (so speichert ihn der Core), der Zähler und die Grenze den Text, wie er im Feld steht.
-- **Info-Text:** Der ⓘ-Text des Abschnitts „Agententypen“ in den Einstellungen (Katalog) hat einen Satz mehr: „Auf der Karte einer Station ändert „Einstellungen“ … nur für diese Station.“ Der Entwurf zeigt den alten Text.
+- **Info-Text:** Der ⓘ-Text des Abschnitts „Agententypen“ in den Einstellungen (Katalog) hat einen Satz mehr: „Auf der Karte einer Station ändert „Einstellungen“ … nur für diese Station.“ Er beginnt mit „Agententypen sind Rollen …“, denn die Suche der Einstellungen liest nur Zeilenname und ⓘ-Text und fand den Abschnitt sonst nicht unter „Agententyp“. Der Entwurf zeigt den alten Text.
 - **Platzhalter des Entwurfs:** Der Schalter „Datei fehlt / liegt da“ und „Beispiel einsetzen“ gibt es in der App nicht; der Startfehler kommt vom Core.
 
 ### Bekannte Grenzen (Karte und Dialog)
