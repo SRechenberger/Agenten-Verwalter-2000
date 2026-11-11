@@ -4,4 +4,4 @@ export type StationInput = { stage: string,
 /**
  * Als Text, damit ein unbekannter Name in `validate` mit seinem Feld gemeldet wird.
  */
-model?: 'fable' | 'opusplan' | 'opus' | 'sonnet' | 'haiku', by?: 'agent' | 'you', skill?: string, brief?: string, agent?: string, effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max', prompt?: string, };
+model?: 'fable' | 'opusplan' | 'opus' | 'sonnet' | 'haiku', by?: 'agent' | 'you', skill?: string, brief?: string, agent?: string, effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max', prompt?: string, id?: string, after?: Array<string>, priority?: number, };

@@ -4,7 +4,7 @@ use tauri::AppHandle;
 
 use crate::error::CommandError;
 use crate::implementation::model::{
-    ImplementationView, InquiryCreated, PhaseView, StationSettings, StationView,
+    ImplementationView, InquiryCreated, PhaseView, StationSettings, StationView, check_max_parallel,
 };
 use crate::implementation::{self, announce, changes, now_ms, start};
 use crate::remote::client::RemoteClients;
@@ -78,6 +78,31 @@ pub async fn implementation_set_auto_start(
         {
             let _ = registry.cancel_countdown(&station.id);
         }
+    }
+    announce(&app, &registry.implementation_view(&id)?);
+    Ok(())
+}
+
+/// „Parallel max.“ (ADR 061): Grenze gleichzeitig aktiver Stationen, `None` = unbegrenzt. Plant die
+/// Warteschlange neu, sobald die Umsetzung begonnen hat und die Automatik an ist.
+#[tauri::command]
+pub async fn implementation_set_max_parallel(
+    app: AppHandle,
+    registry: tauri::State<'_, SessionRegistry>,
+    id: String,
+    max_parallel: Option<u32>,
+) -> Result<(), CommandError> {
+    check_max_parallel(max_parallel).map_err(CommandError::Implementation)?;
+    registry.implementation_view(&id)?;
+    registry.store_max_parallel(&id, max_parallel)?;
+    let view = registry.implementation_view(&id)?;
+    let has_begun: bool = view
+        .phases
+        .iter()
+        .flat_map(|phase: &PhaseView| phase.stations.iter())
+        .any(|station: &StationView| station.session_id.is_some());
+    if has_begun && view.auto_start && !view.stop_after_current && view.finished_at.is_none() {
+        start::schedule_ready(&app, &id)?;
     }
     announce(&app, &registry.implementation_view(&id)?);
     Ok(())

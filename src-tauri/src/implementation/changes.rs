@@ -10,7 +10,7 @@ use super::model::{
     ChangeSummary, ImplementationView, PendingChange, PhaseInput, PhaseMark, PhaseView,
     StationState, StationView, check_agents, validate,
 };
-use super::{announce, now_ms, phase_rows, start};
+use super::{announce, kept_phases, link, now_ms, phase_rows, start};
 use crate::db::implementations::{ChangeRow, PhaseRow, StationRow};
 use crate::error::CommandError;
 use crate::sessions::registry::SessionRegistry;
@@ -109,6 +109,9 @@ pub fn propose(app: &AppHandle, session_id: &str, inputs: &[PhaseInput]) -> Resu
         return Err(IS_FINISHED.to_owned());
     }
     let summary = diff(&view, inputs)?;
+    // Kanten und Prüfung wie beim Übernehmen, damit ein Zyklus schon hier abgelehnt wird (ADR 061).
+    let (_, mut stations) = phase_rows(&view.id, inputs, 0);
+    link(&kept_phases(&view), inputs, &mut stations)?;
     if !view.phases.iter().any(is_begun) {
         apply(app, &registry, &view, inputs, None)
             .map_err(|error: CommandError| error.to_string())?;
@@ -184,7 +187,8 @@ fn apply(
     // Die gespeicherten Zeilen von jetzt: Was der Benutzer seit dem Vorschlag auf der Karte gesetzt
     // hat, zählt mit.
     let rows = registry.station_rows(&view.id)?;
-    let (mut phases, stations) = replacement_rows(&view.id, inputs, &removed, &rows);
+    let (mut phases, mut stations) = replacement_rows(&view.id, inputs, &removed, &rows);
+    link(&kept_phases(view), inputs, &mut stations).map_err(CommandError::Implementation)?;
     set_marks(&removed, record.as_ref(), &mut phases);
     let change = record
         .as_ref()

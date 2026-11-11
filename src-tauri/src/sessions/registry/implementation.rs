@@ -6,6 +6,7 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, MutexGuard, PoisonError};
+use std::thread;
 
 use tauri::AppHandle;
 
@@ -25,11 +26,11 @@ use crate::error::CommandError;
 use crate::file_links;
 use crate::implementation::model::{
     ImplementationView, InquiryCreated, PendingChange, PhaseInput, PhaseView, StationSettings,
-    check_agents,
+    StationView, check_agents,
 };
 use crate::implementation::report::{self, Extras};
 use crate::implementation::{
-    Countdowns, STATION_BEGUN, SessionLive, build_view, new_rows, station_in,
+    self, Countdowns, STATION_BEGUN, SessionLive, build_view, new_rows, station_in,
 };
 use crate::sessions::model::SessionStatus;
 use crate::settings::{self, model::OperatingMode};
@@ -125,10 +126,19 @@ impl SessionRegistry {
         name: &str,
         source: &str,
         phases: &[PhaseInput],
+        max_parallel: Option<u32>,
     ) -> Result<ImplementationView, CommandError> {
         let project_id = self.get(session_id)?.project_id.clone();
-        let (row, phase_rows, station_rows) =
-            new_rows(&project_id, session_id, name, source, phases, now_ms());
+        let (row, phase_rows, station_rows) = new_rows(
+            &project_id,
+            session_id,
+            name,
+            source,
+            phases,
+            max_parallel,
+            now_ms(),
+        )
+        .map_err(CommandError::Implementation)?;
         self.database.with(|connection| {
             check_agents(phases, &agent_type_rows::list(connection)?)
                 .map_err(CommandError::Implementation)?;
@@ -330,6 +340,17 @@ impl SessionRegistry {
         })
     }
 
+    /// Setzt `max_parallel` (ADR 061); `None` = unbegrenzt.
+    pub fn store_max_parallel(
+        &self,
+        implementation_id: &str,
+        max_parallel: Option<u32>,
+    ) -> Result<(), CommandError> {
+        self.database.with(|connection| {
+            implementation_rows::set_max_parallel(connection, implementation_id, max_parallel)
+        })
+    }
+
     /// Gibt der Umsetzung den Namen, den der Nutzer gewählt hat.
     pub fn rename_implementation(
         &self,
@@ -392,6 +413,30 @@ impl SessionRegistry {
     /// Beginnt den Countdown der Station; ein laufender wird ersetzt. Gibt die Marke zurück.
     pub fn begin_countdown(&self, station_id: &str, ends_at: f64) -> u64 {
         self.lock_countdowns().begin(station_id, ends_at)
+    }
+
+    /// Zählt die aktiven Stationen und beginnt Countdowns bis zur Grenze unter der Sperre der
+    /// Countdowns (`Countdowns::begin_if_current`, ADR 061); `None`: Die Ansicht ist veraltet.
+    pub fn begin_countdowns(
+        &self,
+        seen: u64,
+        stations: &[&StationView],
+        candidates: &[&str],
+        max_parallel: Option<u32>,
+        ends_at: f64,
+    ) -> Option<Vec<(String, u64)>> {
+        self.lock_countdowns()
+            .begin_if_current(seen, stations, candidates, max_parallel, ends_at)
+    }
+
+    /// Vor der Ansicht lesen, die `begin_countdowns` bekommt.
+    pub fn start_releases(&self) -> u64 {
+        self.lock_countdowns().releases()
+    }
+
+    /// Countdown-Ende und Startanspruch in einem Schritt (`Countdowns::take_for_start`).
+    pub fn take_countdown_for_start(&self, station_id: &str, token: u64) -> bool {
+        self.lock_countdowns().take_for_start(station_id, token)
     }
 
     /// `true`, wenn der Countdown mit dieser Marke noch galt; er ist danach weg.
@@ -562,6 +607,24 @@ impl SessionRegistry {
             .map(|member: &Arc<Session>| (member.id.clone(), live_of(member, now)))
             .collect();
         build_view(stored, &live, &numbers, &countdowns, types)
+    }
+}
+
+/// Der Haken nach dem Ende einer Station-Session (ADR 061) in einem eigenen Thread: Er nimmt seine
+/// Sperren selbst, und `update` kann unter anderen Sperren gerufen sein.
+pub(super) fn schedule_station_session_end(app: &AppHandle, implementation_id: String) {
+    let thread_app = app.clone();
+    let spawned = thread::Builder::new()
+        .name("implementation-queue".to_owned())
+        .spawn(move || {
+            if let Err(error) =
+                implementation::station_session_ended(&thread_app, &implementation_id)
+            {
+                eprintln!("Warteschlange der Umsetzung nicht neu geplant: {error}");
+            }
+        });
+    if let Err(error) = spawned {
+        eprintln!("Warteschlange der Umsetzung nicht geplant: {error}");
     }
 }
 

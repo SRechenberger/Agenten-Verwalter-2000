@@ -19,6 +19,8 @@ pub const MAX_SKILL_CHARS: usize = 40;
 pub const MAX_BRIEF_CHARS: usize = 1000;
 /// Zusatztext einer Station zum Systemprompt (ADR 060); die Gesamtgrenze von 16 000 prüft der Start.
 pub const MAX_PROMPT_CHARS: usize = 4000;
+/// Plan-Kennung einer Station (ADR 061), getrimmt.
+pub const MAX_PLAN_ID_CHARS: usize = 40;
 
 /// Eine neue Rückfrage: die Session und der Lagebericht, der als ungesendeter Anhang an ihr hängt.
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
@@ -108,6 +110,29 @@ pub struct StationView {
     pub agent_effort: Option<Effort>,
     pub agent_effort_from: Option<AgentValueSource>,
     pub start_error: Option<String>,
+    // Ab hier ADR 061: Plan-Kennung, Vorgänger als Plan-Kennungen, Nachfolger (abgeleitet) als `id`
+    // der Stationen dieser Ansicht, Vorrang, Stufe (längste Kette, Wurzeln 1) und Platz in der
+    // Warteschlange (1 = rückt als Nächstes nach).
+    pub plan_id: String,
+    pub after: Vec<String>,
+    pub next: Vec<String>,
+    pub priority: i32,
+    pub level: u32,
+    pub queue_position: Option<u32>,
+}
+
+impl StationView {
+    /// Zählt gegen `max_parallel` (ADR 061).
+    pub fn is_active(&self) -> bool {
+        matches!(
+            self.state,
+            StationState::Countdown
+                | StationState::Starting
+                | StationState::Running
+                | StationState::WaitsForScript
+                | StationState::Asking
+        )
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
@@ -183,6 +208,10 @@ pub struct ImplementationView {
     #[ts(type = "number")]
     pub last_activity_at: f64,
     pub unread: bool,
+    // ADR 061: Grenze gleichzeitig aktiver Stationen (`None` = unbegrenzt) und Zahl der Stationen in
+    // der Warteschlange.
+    pub max_parallel: Option<u32>,
+    pub queued: u32,
 }
 
 /// Gesendet als `implementation://changed`.
@@ -240,6 +269,18 @@ pub struct StationInput {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub prompt: Option<String>,
+    // Ab hier ADR 061. `id`: Plan-Kennung, fehlt sie, gilt `<Phasenschlüssel>-<Nummer>`. `after`:
+    // Plan-Kennungen der Vorgänger, leer = Startstation; nennt keine Station des Plans `after`, gelten
+    // Position und Welle (Regel R1). `priority`: höher zuerst unter bereiten Stationen, Standard 0.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub after: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub priority: Option<i32>,
 }
 
 /// Die Einstellungen einer Station von der Karte (ADR 060): `implementation_set_station_agent`
@@ -295,6 +336,23 @@ impl StationInput {
 
     pub fn is_by_user(&self) -> bool {
         self.by.as_deref() == Some(BY_USER)
+    }
+
+    /// Die Plan-Kennung, getrimmt; ohne Angabe `<Phasenschlüssel>-<Nummer>` (1-basiert).
+    pub fn plan_id(&self, phase_key: &str, number: usize) -> String {
+        self.id
+            .as_deref()
+            .map(str::trim)
+            .map_or_else(|| format!("{}-{number}", phase_key.trim()), str::to_owned)
+    }
+
+    /// Die Vorgänger, getrimmt; ohne Angabe keine.
+    pub fn after_ids(&self) -> Vec<String> {
+        self.after
+            .iter()
+            .flatten()
+            .map(|before: &String| before.trim().to_owned())
+            .collect()
     }
 
     /// Ohne führenden „/“, wie die erste Nachricht ihn voranstellt.
@@ -392,6 +450,17 @@ fn validate_station(field: &str, station: &StationInput) -> Result<(), String> {
     }
     if let Some(prompt) = &station.prompt {
         check_length(&format!("{field}.prompt"), prompt, 0, MAX_PROMPT_CHARS)?;
+    }
+    if let Some(id) = &station.id {
+        check_length(&format!("{field}.id"), id.trim(), 1, MAX_PLAN_ID_CHARS)?;
+    }
+    Ok(())
+}
+
+/// `max_parallel` einer Umsetzung (ADR 061): mindestens 1, `None` = unbegrenzt.
+pub fn check_max_parallel(max_parallel: Option<u32>) -> Result<(), String> {
+    if max_parallel == Some(0) {
+        return Err("max_parallel: mindestens 1".to_owned());
     }
     Ok(())
 }
