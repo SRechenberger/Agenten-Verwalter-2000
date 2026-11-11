@@ -14,7 +14,7 @@
 
 **Die Version steigt nur auf einem Release-Branch.** Ein PR nach `dev` ändert sie nie. Welche Nummer das Release trägt, folgt aus den Annotationen der Betreffzeilen seit dem letzten Release: Basis ist die Version in `package.json` auf `main`, gezählt werden die Commits auf dem Release-Branch, die `main` noch nicht hat.
 
-Eine Betreffzeile trägt eine Annotation, wenn sie `[MAJOR]`, `[MINOR]` oder `[PATCH]` enthält, genau so geschrieben, großgeschrieben und in eckigen Klammern, an beliebiger Stelle (GitHub hängt ` (#N)` an den Squash-Betreff). Ein nacktes „PATCH“ zählt nicht, denn Commit-Texte sprechen von HTTP-`PATCH`. Merge-Commits und der Versions-Commit tragen keine Annotation.
+Eine Betreffzeile trägt eine Annotation, wenn sie `[MAJOR]`, `[MINOR]` oder `[PATCH]` enthält, genau so geschrieben, großgeschrieben und in eckigen Klammern, an beliebiger Stelle (GitHub hängt ` (#N)` an den Squash-Betreff). Ein nacktes „PATCH“ zählt nicht, denn Commit-Texte sprechen von HTTP-`PATCH`. Der Versions-Commit trägt keine Annotation. Ein Merge-Commit trägt den PR-Titel als Betreff (siehe „GitHub-Einstellungen“): Kommt ein PR nach `dev` versehentlich per Merge-Commit, zählt seine Annotation also trotzdem. Deshalb trägt der Titel einer Rückführung keine Annotation.
 
 | Annotationen seit dem letzten Release | Nächste Version |
 |---|---|
@@ -73,6 +73,23 @@ Der Abgleich mit `Aalphones/main` läuft als PR nach `dev` mit Annotation. Dort 
 - **Kandidat fehlt:** Der Lauf `release` meldet „kein Kandidat“ und wird rot. Ursache meist ein Merge, bevor der Kandidat gebaut war; weiter wie bei „`main` weicht ab“.
 - **Lauf wiederholen:** `candidate` und `release` lassen sich über „Re-run“ wiederholen und kommen zum selben Ergebnis: Gibt es das Release schon, entfernt der Lauf nur den Kandidaten; ein Tag ohne Release räumt `candidate` vor dem Anlegen ab.
 - **Eine macOS-Datei fehlt im Kandidaten**, weil der Job abgebrochen wurde (rund 15 Minuten, 0 Schritte): Den Kandidaten-Lauf wiederholen, **bevor** gemergt wird. Das Release übernimmt die Dateien des Kandidaten und damit auch das Fehlen.
+- **„Linux-Abhängigkeiten“ wird nach 10 Minuten rot**, wenn `apt-get` den Ubuntu-Spiegel nicht erreicht. `compile (ubuntu-latest)` und der Linux-Bau sind optional, der Kandidat entsteht dann ohne Linux-Dateien. Den Lauf später wiederholen, wenn Linux-Dateien ins Release sollen. Wie beim fehlenden macOS-Paket gilt: wiederholen, **bevor** gemergt wird.
+
+## GitHub-Einstellungen
+
+Der Ablauf baut auf diesen Einstellungen des Repositories auf:
+
+| Einstellung | Wert |
+|---|---|
+| Standard-Branch | `dev` |
+| Squash-Merge | Betreff = PR-Titel, Body = PR-Text |
+| Merge-Commit | Betreff = PR-Titel, Body = PR-Text |
+| Branch nach dem Merge löschen (`delete_branch_on_merge`) | aus |
+| Ruleset `dev` | PR nötig; erlaubt sind Squash und Merge-Commit; Pflicht-Checks `check` und `annotation` (beide von GitHub Actions); kein Force-Push; Löschen gesperrt; keine Ausnahme |
+| Ruleset `main` | PR nötig; nur Merge-Commit; Pflicht-Checks `check`, `gate`, `build (windows-latest)` und `candidate`; kein Force-Push; Löschen gesperrt; Ausnahme für die Admin-Rolle |
+| `release/*` | kein Ruleset |
+
+Die Pflicht-Checks hängen an den Job-Namen in `check.yml`, `annotation.yml` und `release.yml`. Wer einen Job umbenennt, passt das Ruleset an, sonst wartet jeder PR auf einen Check, den es nicht mehr gibt. `delete_branch_on_merge` bleibt aus, weil der Release-Branch nach dem Merge nach `main` noch zurück nach `dev` muss.
 
 ## Regeln
 

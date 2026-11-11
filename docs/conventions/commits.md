@@ -34,7 +34,7 @@
 - Der Titel ist eine Betreffzeile nach diesem Format plus `[MAJOR]`, `[MINOR]` oder `[PATCH]`, höchstens 72 Zeichen samt Annotation, zum Beispiel `feat(chat): Nachricht kürzen [MINOR]`. Ohne Annotation ist der Check `annotation` rot.
 - Der Squash übernimmt den Titel als Betreff (GitHub hängt ` (#N)` an), und aus den Annotationen seit dem letzten Release folgt die nächste Version.
 - Welche Annotation: ein Bruch ist `[MAJOR]`, eine neue Funktion `[MINOR]`, eine Fehlerbehebung, Doku oder CI `[PATCH]`.
-- Merge-Methode je Ziel: nach `dev` **Squash**, nach `main` **Merge-Commit**, die Rückführung `release/v<X.Y.Z>` → `dev` **Merge-Commit**.
+- Merge-Methode je Ziel: nach `dev` **Squash**, nach `main` **Merge-Commit**, die Rückführung `release/v<X.Y.Z>` → `dev` **Merge-Commit**. Die Rulesets lassen nach `main` nur Merge-Commits zu, nach `dev` Squash und Merge-Commit.
 
 ## Critical Rules
 
