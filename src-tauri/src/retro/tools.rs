@@ -26,6 +26,8 @@ const USER_TEXT_MAX_CHARS: usize = 240;
 const DISPLAY_COMMAND_MAX_CHARS: usize = 180;
 const EXACT_KEY_MAX_CHARS: usize = 300;
 const SCRIPT_HASH_BYTES: usize = 5;
+/// So viele Zeichen der Session-ID hängen an einer doppelten Session-Nummer.
+const LABEL_ID_CHARS: usize = 6;
 const MIDDLE_CUT_LINE: &str = "… Mitte gekürzt …";
 /// Ausgabe eines Aufrufs, den `MAX_TOOL_OUTPUT_BYTES` (131 072) abgeschnitten hat.
 const TRUNCATED_OUTPUT_LABEL: &str = "≥131k";
@@ -75,6 +77,9 @@ const INTERPRETER_HEADS: [&str; 7] = [
     "pwsh",
     "bash",
 ];
+/// Optionen, nach denen der Interpreter Code statt einer Datei bekommt.
+const INLINE_CODE_FLAGS: [&str; 4] = ["-c", "-e", "-command", "-encodedcommand"];
+const EXE_SUFFIX: &str = ".exe";
 const SCRIPT_EXTENSIONS: [&str; 8] = ["py", "ps1", "psm1", "sh", "js", "mjs", "cjs", "ts"];
 /// Pfadteile (klein geschrieben), an denen eine geschriebene Datei als Wegwerf-Skript gilt.
 const SCRATCH_MARKERS: [&str; 6] = [
@@ -98,6 +103,14 @@ static WHITESPACE_PATTERN: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\s+").expect("Muster ist ein Literal"));
 static SEGMENT_SPLIT: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"&&|\|\||;|\||\r?\n").expect("Muster ist ein Literal"));
+/// Jedes Benutzerverzeichnis unter `Users`, auch gekürzt (`C:\Users\s…`, wie es `target` liefert,
+/// wenn ein Muster lang ist) und in der kodierten Schreibweise des Claude-Projektordners.
+static USER_DIR_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
+        r#"(?i)(?:[a-z]:[\\/]+|/[a-z]/|[\\/]+)users\b(?:[\\/]+[^\\/\s"'`…]*)?|\b[a-z]--users-[^\\/\s"'`…]*"#,
+    )
+    .expect("Muster ist ein Literal")
+});
 static ENV_ASSIGNMENT: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^[A-Za-z_][A-Za-z0-9_]*=").expect("Muster ist ein Literal"));
 
@@ -149,6 +162,11 @@ pub struct TraceStep {
 #[derive(Debug, Clone)]
 pub struct SessionTrace {
     pub number: u32,
+    /// Session-ID; unterscheidet Sessions mit gleicher Nummer.
+    pub id: String,
+    /// Kennung für Dateinamen und Querschnitt: die Nummer, bei doppelter Nummer mit Kurz-ID
+    /// (`assign_labels`).
+    pub label: String,
     pub name: String,
     pub steps: Vec<TraceStep>,
 }
@@ -191,7 +209,7 @@ impl Normalizer {
         if let Some(pattern) = &self.home {
             result = pattern.replace_all(&result, "~").into_owned();
         }
-        result
+        USER_DIR_PATTERN.replace_all(&result, "~").into_owned()
     }
 }
 
@@ -200,8 +218,9 @@ pub fn normalize(text: &str, workspace: &Path, home: Option<&Path>) -> String {
     Normalizer::new(workspace, home).full(text)
 }
 
-/// Ein Muster für den Pfad in vier Schreibweisen, ohne Rücksicht auf Groß/Klein: wie gespeichert,
-/// mit verdoppelten `\` (wie in JSON), mit `/` und MSYS (`/c/Users/…`).
+/// Ein Muster für den Pfad in fünf Schreibweisen, ohne Rücksicht auf Groß/Klein: wie gespeichert,
+/// mit verdoppelten `\` (wie in JSON), mit `/`, MSYS (`/c/Users/…`) und als Name des
+/// Claude-Projektordners (`C--Users-x--verwalter-…`).
 fn path_pattern(path: &Path) -> Option<Regex> {
     let stored = path
         .to_string_lossy()
@@ -211,11 +230,22 @@ fn path_pattern(path: &Path) -> Option<Regex> {
         return None;
     }
     let slashed = stored.replace('\\', "/");
+    let encoded: String = stored
+        .chars()
+        .map(|character: char| {
+            if character.is_alphanumeric() {
+                character
+            } else {
+                '-'
+            }
+        })
+        .collect();
     let mut variants: Vec<String> = Vec::new();
     for variant in [
         stored.replace('\\', "\\\\"),
         slashed.clone(),
         msys_form(&slashed).unwrap_or_default(),
+        encoded,
         stored,
     ] {
         if !variant.is_empty() && !variants.contains(&variant) {
@@ -264,9 +294,15 @@ fn file_name(text: &str) -> &str {
     unquoted.rsplit(['/', '\\']).next().unwrap_or(unquoted)
 }
 
+/// Wer die Session ist: Nummer, ID und Name.
+pub struct SessionIdentity<'a> {
+    pub number: u32,
+    pub id: &'a str,
+    pub name: &'a str,
+}
+
 pub fn build_trace(
-    number: u32,
-    name: &str,
+    identity: &SessionIdentity<'_>,
     entries: &[ChatEntry],
     details: &HashMap<String, ToolSummary>,
     traces: &RuleTraces,
@@ -323,9 +359,32 @@ pub fn build_trace(
         }
     }
     SessionTrace {
-        number,
-        name: name.to_owned(),
+        number: identity.number,
+        id: identity.id.to_owned(),
+        label: identity.number.to_string(),
+        name: identity.name.to_owned(),
         steps,
+    }
+}
+
+/// Gibt Sessions mit doppelter Nummer eine eindeutige Kennung (`7-1a2b3c`), damit ihre Dateien
+/// sich nicht überschreiben und der Querschnitt sie getrennt zählt.
+pub fn assign_labels(traces: &mut [&mut SessionTrace]) {
+    let mut counts: HashMap<u32, usize> = HashMap::new();
+    for trace in traces.iter() {
+        *counts.entry(trace.number).or_default() += 1;
+    }
+    for trace in traces.iter_mut() {
+        if counts.get(&trace.number).copied().unwrap_or(0) < 2 {
+            continue;
+        }
+        let short_id: String = trace
+            .id
+            .chars()
+            .filter(|character: &char| character.is_ascii_alphanumeric())
+            .take(LABEL_ID_CHARS)
+            .collect();
+        trace.label = format!("{}-{short_id}", trace.number);
     }
 }
 
@@ -425,7 +484,7 @@ fn describe(tool: &str, target: &str, input: &str, normalizer: &Normalizer) -> L
     if tool == SKILL_TOOL {
         return Labels {
             display,
-            family: format!("{tool}:{}", target.trim()),
+            family: format!("{tool}:{}", normalizer.full(target)),
             exact_key: String::new(),
         };
     }
@@ -460,7 +519,7 @@ fn describe_shell(tool: &str, command: &str, normalizer: &Normalizer) -> Labels 
     }
     Labels {
         display,
-        family: format!("{tool}:{}", shell_family(trimmed)),
+        family: format!("{tool}:{}", normalizer.full(&shell_family(trimmed))),
         exact_key: shorten(
             &format!("{tool}:{}", normalizer.full(trimmed)),
             EXACT_KEY_MAX_CHARS,
@@ -501,20 +560,18 @@ fn family_of(words: &[&str]) -> String {
     let Some(first) = words.first() else {
         return String::new();
     };
-    let head = file_name(first);
+    let head = without_exe_suffix(file_name(first));
     let rest = &words[1..];
     let lower = head.to_lowercase();
     let lower = lower.as_str();
     let subcommand = if lower == "git" {
         git_subcommand(rest)
     } else if SUBCOMMAND_HEADS.contains(&lower) {
-        first_word_without_dash(rest)
+        first_word_without_option(rest)
     } else if PACKAGE_HEADS.contains(&lower) {
         package_subcommand(rest)
     } else if INTERPRETER_HEADS.contains(&lower) {
-        rest.first()
-            .map(|word: &&str| file_name(word.trim_start_matches('-')).to_owned())
-            .filter(|name: &String| !name.is_empty())
+        interpreter_target(rest)
     } else {
         None
     };
@@ -524,7 +581,17 @@ fn family_of(words: &[&str]) -> String {
     }
 }
 
-/// `git -C <pfad> -c <schlüssel> status` → `status`.
+/// `python.exe` → `python`.
+fn without_exe_suffix(name: &str) -> &str {
+    match name.len().checked_sub(EXE_SUFFIX.len()) {
+        Some(cut) if name.is_char_boundary(cut) && name[cut..].eq_ignore_ascii_case(EXE_SUFFIX) => {
+            &name[..cut]
+        }
+        _ => name,
+    }
+}
+
+/// `git -C <pfad> -c <schlüssel> --no-pager status` → `status`.
 fn git_subcommand(rest: &[&str]) -> Option<String> {
     let mut words = rest.iter();
     while let Some(word) = words.next() {
@@ -532,15 +599,40 @@ fn git_subcommand(rest: &[&str]) -> Option<String> {
             words.next();
             continue;
         }
-        let name = word.trim_start_matches('-');
-        return (!name.is_empty()).then(|| name.to_owned());
+        if word.starts_with('-') {
+            continue;
+        }
+        return Some((*word).to_owned());
     }
     None
 }
 
-fn first_word_without_dash(rest: &[&str]) -> Option<String> {
-    let name = rest.first()?.trim_start_matches('-');
-    (!name.is_empty()).then(|| name.to_owned())
+/// Das erste Wort, das weder Option noch Pfad ist (`cargo --manifest-path=… test` → `test`).
+fn first_word_without_option(rest: &[&str]) -> Option<String> {
+    rest.iter()
+        .find(|word: &&&str| !word.starts_with('-') && !word.contains(['/', '\\']))
+        .map(|word: &&str| (*word).to_owned())
+}
+
+/// Der Dateiname des ersten Worts ohne führendes `-`; vor Inline-Code (`python -c …`) nur die
+/// Option selbst, damit der Code nicht in der Familie landet.
+fn interpreter_target(rest: &[&str]) -> Option<String> {
+    for word in rest {
+        let lower = word.to_lowercase();
+        if INLINE_CODE_FLAGS.contains(&lower.as_str()) {
+            return Some(lower.trim_start_matches('-').to_owned());
+        }
+        if word.starts_with('-') {
+            continue;
+        }
+        // `python <<'EOF'`: der Code kommt über Stdin, es gibt keinen Dateinamen.
+        if word.starts_with('<') {
+            return None;
+        }
+        let name = file_name(word);
+        return (!name.is_empty()).then(|| name.to_owned());
+    }
+    None
 }
 
 /// `pnpm run check` → `run check`, sonst wie ein Programm mit Unterbefehl.
@@ -550,7 +642,7 @@ fn package_subcommand(rest: &[&str]) -> Option<String> {
     {
         return Some(format!("run {script}"));
     }
-    first_word_without_dash(rest)
+    first_word_without_option(rest)
 }
 
 fn detect_script(tool: &str, input: &str, normalizer: &Normalizer) -> Option<InlineScript> {
@@ -653,7 +745,7 @@ pub fn render_spur(trace: &SessionTrace) -> String {
     let mut lines: Vec<String> = vec![
         format!(
             "# Werkzeug-Spur – Session #{} – {}",
-            trace.number,
+            trace.label,
             one_line(&trace.name)
         ),
         format!(
@@ -752,7 +844,7 @@ pub fn script_files(trace: &SessionTrace) -> Vec<(String, String)> {
             continue;
         }
         files.push((
-            format!("s{}-{}.{}", trace.number, script.hash, script.extension),
+            format!("s{}-{}.{}", trace.label, script.hash, script.extension),
             script.body.clone(),
         ));
     }
@@ -762,7 +854,7 @@ pub fn script_files(trace: &SessionTrace) -> Vec<(String, String)> {
 /// Schreibt `spur-<N>.md` und die Skript-Dateien der Session in den Retro-Ordner.
 pub fn write_trace_files(folder: &Path, trace: &SessionTrace) -> io::Result<()> {
     fs::write(
-        folder.join(format!("spur-{}.md", trace.number)),
+        folder.join(format!("spur-{}.md", trace.label)),
         render_spur(trace),
     )?;
     let scripts = script_files(trace);

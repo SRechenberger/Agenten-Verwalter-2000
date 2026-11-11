@@ -117,6 +117,11 @@ impl SessionRegistry {
         let run_name = format!("lauf-{}", now_ms() as u64);
         let folder = workspace.join(RETRO_DIR).join(&run_name);
         fs::create_dir_all(&folder).map_err(write_error)?;
+        let mut unlabeled: Vec<&mut SessionTrace> = prepared
+            .iter_mut()
+            .filter_map(|session: &mut PreparedSession| session.trace.as_mut())
+            .collect();
+        tools::assign_labels(&mut unlabeled);
         for session in &prepared {
             if let Ok(texts) = &session.texts {
                 let path = folder.join(format!("session-{}.md", session.number));
@@ -235,8 +240,11 @@ fn prepare_session(session: &Session) -> Option<PreparedSession> {
     };
     let home = crate::standalone::home_dir();
     let trace = tools::build_trace(
-        session.number,
-        &state.name,
+        &tools::SessionIdentity {
+            number: session.number,
+            id: &session.id,
+            name: &state.name,
+        },
         &state.entries,
         &summaries,
         &traces,

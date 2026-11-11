@@ -146,16 +146,23 @@ fn write_tool_files(
                 .join(&member.id),
         };
         let trace = tools::build_trace(
-            member.number,
-            &member.name,
+            &tools::SessionIdentity {
+                number: member.number,
+                id: &member.id,
+                name: &member.name,
+            },
             &entries,
             &summaries,
             &rule_traces,
             &workspace,
             home.as_deref(),
         );
-        tools::write_trace_files(folder, &trace)?;
         traces.push(trace);
+    }
+    let mut unlabeled: Vec<&mut SessionTrace> = traces.iter_mut().collect();
+    tools::assign_labels(&mut unlabeled);
+    for trace in &traces {
+        tools::write_trace_files(folder, trace)?;
     }
     let retros: Vec<Option<Result<ToolFindings, String>>> =
         (0..traces.len()).map(|_| None).collect();

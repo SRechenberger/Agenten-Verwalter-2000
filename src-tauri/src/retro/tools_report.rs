@@ -101,12 +101,15 @@ fn calls_of(trace: &SessionTrace) -> impl Iterator<Item = &TraceCall> {
         .flat_map(|step: &TraceStep| step.calls.iter())
 }
 
-/// `#1, #4, …`: höchstens `MAX_LISTED_SESSIONS` Nummern.
-fn session_list(sessions: &BTreeSet<u32>) -> String {
+/// Stellen der Sessions in `traces`; die Nummer allein ist nicht eindeutig.
+type SessionSet = BTreeSet<usize>;
+
+/// `#1, #4, …`: höchstens `MAX_LISTED_SESSIONS` Kennungen.
+fn session_list(sessions: &SessionSet, traces: &[SessionTrace]) -> String {
     let mut listed: Vec<String> = sessions
         .iter()
         .take(MAX_LISTED_SESSIONS)
-        .map(|number: &u32| format!("#{number}"))
+        .map(|position: &usize| format!("#{}", traces[*position].label))
         .collect();
     if sessions.len() > MAX_LISTED_SESSIONS {
         listed.push("…".to_owned());
@@ -116,23 +119,23 @@ fn session_list(sessions: &BTreeSet<u32>) -> String {
 
 struct Occurrence {
     total: usize,
-    sessions: BTreeSet<u32>,
+    sessions: SessionSet,
     display: String,
 }
 
 fn repeated_calls(traces: &[SessionTrace]) -> Vec<String> {
     let mut groups: HashMap<&str, Occurrence> = HashMap::new();
-    for trace in traces {
+    for (position, trace) in traces.iter().enumerate() {
         for call in calls_of(trace).filter(|call: &&TraceCall| !call.exact_key.is_empty()) {
             let group = groups
                 .entry(call.exact_key.as_str())
                 .or_insert_with(|| Occurrence {
                     total: 0,
-                    sessions: BTreeSet::new(),
+                    sessions: SessionSet::new(),
                     display: call.display.clone(),
                 });
             group.total += 1;
-            group.sessions.insert(trace.number);
+            group.sessions.insert(position);
         }
     }
     let mut listed: Vec<(&str, &Occurrence)> = groups
@@ -159,7 +162,7 @@ fn repeated_calls(traces: &[SessionTrace]) -> Vec<String> {
                 "{}× in {} Sessions ({}): {}",
                 group.total,
                 group.sessions.len(),
-                session_list(&group.sessions),
+                session_list(&group.sessions, traces),
                 group.display
             )
         })
@@ -169,7 +172,7 @@ fn repeated_calls(traces: &[SessionTrace]) -> Vec<String> {
 struct Sequence {
     families: Vec<String>,
     total: usize,
-    sessions: BTreeSet<u32>,
+    sessions: SessionSet,
 }
 
 impl Sequence {
@@ -198,8 +201,8 @@ fn is_meaningful_window(window: &[&str]) -> bool {
 }
 
 fn recurring_sequences(traces: &[SessionTrace]) -> Vec<String> {
-    let mut counts: HashMap<Vec<String>, (usize, BTreeSet<u32>)> = HashMap::new();
-    for trace in traces {
+    let mut counts: HashMap<Vec<String>, (usize, SessionSet)> = HashMap::new();
+    for (position, trace) in traces.iter().enumerate() {
         for step in &trace.steps {
             let families: Vec<&str> = step
                 .calls
@@ -219,7 +222,7 @@ fn recurring_sequences(traces: &[SessionTrace]) -> Vec<String> {
                         .collect();
                     let entry = counts.entry(key).or_default();
                     entry.0 += 1;
-                    entry.1.insert(trace.number);
+                    entry.1.insert(position);
                 }
             }
         }
@@ -227,12 +230,12 @@ fn recurring_sequences(traces: &[SessionTrace]) -> Vec<String> {
     let mut candidates: Vec<Sequence> = counts
         .into_iter()
         .filter(
-            |(_, (total, sessions)): &(Vec<String>, (usize, BTreeSet<u32>))| {
+            |(_, (total, sessions)): &(Vec<String>, (usize, SessionSet))| {
                 *total >= MIN_TOTAL && sessions.len() >= MIN_SESSIONS
             },
         )
         .map(
-            |(families, (total, sessions)): (Vec<String>, (usize, BTreeSet<u32>))| Sequence {
+            |(families, (total, sessions)): (Vec<String>, (usize, SessionSet))| Sequence {
                 families,
                 total,
                 sessions,
@@ -286,24 +289,24 @@ fn order_sequences_longest_first(left: &Sequence, right: &Sequence) -> std::cmp:
 #[derive(Default)]
 struct BlockGroup {
     total: usize,
-    sessions: BTreeSet<u32>,
+    sessions: SessionSet,
     /// Familie des nächsten Aufrufs im selben Schritt → wie oft.
     followers: BTreeMap<String, usize>,
 }
 
 fn hook_blocks(traces: &[SessionTrace]) -> Vec<String> {
     let mut groups: BTreeMap<String, BlockGroup> = BTreeMap::new();
-    for trace in traces {
+    for (session_position, trace) in traces.iter().enumerate() {
         for step in &trace.steps {
-            for (position, call) in step.calls.iter().enumerate() {
+            for (call_position, call) in step.calls.iter().enumerate() {
                 let CallStatus::Blocked(reason) = &call.status else {
                     continue;
                 };
                 let key: String = reason.chars().take(REASON_KEY_CHARS).collect();
                 let group = groups.entry(key).or_default();
                 group.total += 1;
-                group.sessions.insert(trace.number);
-                if let Some(next) = step.calls.get(position + 1) {
+                group.sessions.insert(session_position);
+                if let Some(next) = step.calls.get(call_position + 1) {
                     *group.followers.entry(next.family.clone()).or_default() += 1;
                 }
             }
@@ -390,15 +393,15 @@ fn family_table(traces: &[SessionTrace]) -> Vec<String> {
 }
 
 fn big_outputs(traces: &[SessionTrace]) -> Vec<String> {
-    let mut big: Vec<(u32, &TraceCall)> = Vec::new();
-    for trace in traces {
+    let mut big: Vec<(usize, &TraceCall)> = Vec::new();
+    for (position, trace) in traces.iter().enumerate() {
         for call in calls_of(trace) {
             if call.output_chars > BIG_OUTPUT_CHARS || call.output_truncated {
-                big.push((trace.number, call));
+                big.push((position, call));
             }
         }
     }
-    big.sort_by(|left: &(u32, &TraceCall), right: &(u32, &TraceCall)| {
+    big.sort_by(|left: &(usize, &TraceCall), right: &(usize, &TraceCall)| {
         right
             .1
             .output_chars
@@ -409,9 +412,10 @@ fn big_outputs(traces: &[SessionTrace]) -> Vec<String> {
     });
     big.into_iter()
         .take(MAX_BIG_OUTPUTS)
-        .map(|(number, call): (u32, &TraceCall)| {
+        .map(|(position, call): (usize, &TraceCall)| {
             format!(
-                "#{number} Schritt {}.{}: {} — {}",
+                "#{} Schritt {}.{}: {} — {}",
+                traces[position].label,
                 call.step,
                 call.index,
                 output_label(call.output_chars, call.output_truncated),
@@ -423,25 +427,25 @@ fn big_outputs(traces: &[SessionTrace]) -> Vec<String> {
 
 struct ScriptGroup {
     count: usize,
-    sessions: BTreeSet<u32>,
+    sessions: SessionSet,
     label: String,
     lines: usize,
 }
 
 fn inline_scripts(traces: &[SessionTrace]) -> Vec<String> {
     let mut groups: BTreeMap<&str, ScriptGroup> = BTreeMap::new();
-    for trace in traces {
+    for (position, trace) in traces.iter().enumerate() {
         for script in calls_of(trace).filter_map(|call: &TraceCall| call.script.as_ref()) {
             let group = groups
                 .entry(script.hash.as_str())
                 .or_insert_with(|| ScriptGroup {
                     count: 0,
-                    sessions: BTreeSet::new(),
+                    sessions: SessionSet::new(),
                     label: script.label.clone(),
                     lines: script.lines,
                 });
             group.count += 1;
-            group.sessions.insert(trace.number);
+            group.sessions.insert(position);
         }
     }
     let mut ranked: Vec<(&str, &ScriptGroup)> = groups
@@ -472,7 +476,7 @@ fn inline_scripts(traces: &[SessionTrace]) -> Vec<String> {
             format!(
                 "{}× in Sessions {}: {} ({hash}, {} Zeilen){candidate}",
                 group.count,
-                session_list(&group.sessions),
+                session_list(&group.sessions, traces),
                 group.label,
                 group.lines
             )
@@ -496,7 +500,7 @@ fn push_part_b(
         lines.push(String::new());
         lines.push(format!(
             "### Session #{} – {}",
-            trace.number,
+            trace.label,
             one_line(&trace.name)
         ));
         match outcome {
