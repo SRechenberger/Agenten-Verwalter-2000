@@ -12,10 +12,10 @@
 
 ## Prüfkette
 
-Lint, Typecheck und Build sind die Qualitätsschranke dieses Projekts — Tests gehören nicht dazu. Die einzigen sind die Unit-Tests der Fix-Runden-Auswahl in `src-tauri/src/implementation/tests.rs` und der Agententypen in `src-tauri/src/agent_types/tests.rs`, die des Steuerrechts unter `src-tauri/src/remote/` und die der Umgebung der Kindprozesse unter `src-tauri/src/processes/`; der Job `check` fährt sie in drei Schritten, mit `cargo test --manifest-path src-tauri/Cargo.toml --lib remote::`, mit `cargo test --manifest-path src-tauri/Cargo.toml --lib processes::` und mit `cargo test --manifest-path src-tauri/Cargo.toml --lib -- implementation:: agent_types::`; lokal laufen alle mit `cargo test --manifest-path src-tauri/Cargo.toml`, `pnpm check` fährt keine davon. `pnpm check` fährt die Kette lokal, [.github/workflows/check.yml](../../.github/workflows/check.yml) identisch in GitHub Actions (plus die Bindings-Prüfung und der Job `version-bump`, siehe unten):
+Lint, Typecheck und Build sind die Qualitätsschranke dieses Projekts — Tests gehören nicht dazu. Die einzigen sind die Unit-Tests der Fix-Runden-Auswahl in `src-tauri/src/implementation/tests.rs` und der Agententypen in `src-tauri/src/agent_types/tests.rs`, die des Steuerrechts unter `src-tauri/src/remote/` und die der Umgebung der Kindprozesse unter `src-tauri/src/processes/`; der Job `check` fährt sie in drei Schritten, mit `cargo test --manifest-path src-tauri/Cargo.toml --lib remote::`, mit `cargo test --manifest-path src-tauri/Cargo.toml --lib processes::` und mit `cargo test --manifest-path src-tauri/Cargo.toml --lib -- implementation:: agent_types::`; lokal laufen alle mit `cargo test --manifest-path src-tauri/Cargo.toml`, `pnpm check` fährt keine davon. `pnpm check` fährt die Kette lokal, [.github/workflows/check.yml](../../.github/workflows/check.yml) identisch in GitHub Actions (plus die Bindings-Prüfung, siehe unten):
 
 ```text
-pnpm version:check Abgleich der vier Versionsstellen
+pnpm version:check Abgleich der vier Versionsstellen, dazu der Selbsttest der Versionsregel (`selftest`)
 pnpm lint          ESLint
 pnpm typecheck     tsc für App und Vite-Konfiguration
 pnpm format:check  Prettier
@@ -26,7 +26,7 @@ pnpm rust:clippy   cargo clippy --all-targets -- -D warnings
 
 `pnpm build` steht vor Clippy, weil ein Release-Build des Tauri-Kerns `dist/` erwartet; im Debug-Profil (Clippy, `pnpm bindings`) ist das nicht nötig — die Reihenfolge ist Vorsicht, keine Pflicht.
 
-In CI folgt als letzter Schritt `pnpm bindings` und die Prüfung, dass `src/lib/bindings/` dadurch unverändert bleibt — ein Typ im Core ohne nachgezogene Bindings lässt den Lauf rot werden. Bei einem PR prüft zusätzlich der Job `version-bump`, dass die Version über der von `main` liegt ([releases.md](releases.md)).
+In CI folgt als letzter Schritt `pnpm bindings` und die Prüfung, dass `src/lib/bindings/` dadurch unverändert bleibt — ein Typ im Core ohne nachgezogene Bindings lässt den Lauf rot werden. Auf PRs nach `dev` und `release/**` prüft zusätzlich der Check `annotation` (eigene Datei [annotation.yml](../../.github/workflows/annotation.yml)), dass der Titel `[MAJOR]`, `[MINOR]` oder `[PATCH]` trägt ([releases.md](releases.md)).
 
 ## Voraussetzungen
 
