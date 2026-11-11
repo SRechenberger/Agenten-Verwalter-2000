@@ -349,7 +349,7 @@ fn ask_all(
                         })
                 })
                 .collect();
-            for handle in handles {
+            for (session, handle) in block.iter().zip(handles) {
                 let outcome = match handle {
                     Ok(handle) => handle.join().unwrap_or_else(|_| {
                         (
@@ -357,7 +357,13 @@ fn ask_all(
                             Some(Err("Werkzeug-Retro abgestürzt.".to_owned())),
                         )
                     }),
-                    Err(error) => (Err(format!("Mini-Retro startet nicht: {error}")), None),
+                    Err(error) => (
+                        Err(format!("Mini-Retro startet nicht: {error}")),
+                        session
+                            .trace
+                            .as_ref()
+                            .map(|_| Err(format!("Werkzeug-Retro startet nicht: {error}"))),
+                    ),
                 };
                 outcomes.push(outcome);
             }

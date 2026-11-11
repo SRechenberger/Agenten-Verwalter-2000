@@ -504,7 +504,7 @@ fn push_part_b(
             one_line(&trace.name)
         ));
         match outcome {
-            Ok(findings) => push_findings(lines, findings),
+            Ok(findings) => push_findings(lines, trace, findings),
             Err(error) => lines.push(format!(
                 "Werkzeug-Retro fehlgeschlagen: {}",
                 one_line(error)
@@ -513,32 +513,48 @@ fn push_part_b(
     }
 }
 
-fn push_findings(lines: &mut Vec<String>, findings: &ToolFindings) {
-    push_labeled(
-        lines,
-        "Ziele und Wege",
-        &findings.steps,
-        |item: &StepSummary| {
-            format!(
-                "Schritt {}: {} — {}",
-                item.step,
-                one_line(&item.goal),
-                one_line(&item.path)
-            )
-        },
-    );
+/// Auf `, ` verbundene Aufruf-Nummern, jede einzeilig.
+fn join_calls(calls: &[String]) -> String {
+    calls
+        .iter()
+        .map(|call: &String| one_line(call))
+        .collect::<Vec<String>>()
+        .join(", ")
+}
+
+fn push_findings(lines: &mut Vec<String>, trace: &SessionTrace, findings: &ToolFindings) {
+    // Das Modell erfindet gelegentlich Schritt-Nummern; nur Schritte der Spur kommen in den Bericht.
+    let known: HashSet<u32> = trace
+        .steps
+        .iter()
+        .map(|step: &TraceStep| step.step)
+        .collect();
+    let steps: Vec<StepSummary> = findings
+        .steps
+        .iter()
+        .filter(|item: &&StepSummary| known.contains(&item.step))
+        .cloned()
+        .collect();
+    push_labeled(lines, "Ziele und Wege", &steps, |item: &StepSummary| {
+        format!(
+            "Schritt {}: {} — {}",
+            item.step,
+            one_line(&item.goal),
+            one_line(&item.path)
+        )
+    });
     push_labeled(lines, "Handgriffe", &findings.routines, |item: &Routine| {
         format!(
             "[{}] {}: {} · ändert sich: {} · Vorschlag: {}",
             one_line(&item.kind),
-            item.calls.join(", "),
+            join_calls(&item.calls),
             one_line(&item.recipe),
             one_line(&item.inputs),
             one_line(&item.proposal)
         )
     });
     push_labeled(lines, "Reibung", &findings.friction, |item: &Friction| {
-        format!("{}: {}", item.calls.join(", "), one_line(&item.cause))
+        format!("{}: {}", join_calls(&item.calls), one_line(&item.cause))
     });
     push_labeled(
         lines,
