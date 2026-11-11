@@ -58,6 +58,7 @@ use crate::error::CommandError;
 use crate::filesystem::workspace::{home_dir, new_session_workspace, stored_session_workspace};
 use crate::git::model::GitBusySession;
 use crate::implementation::Countdowns;
+use crate::implementation::plan::plan_prompt;
 use crate::mcp::model::{McpAction, McpActionError, McpAuthWait, McpChangedEvent, McpServer};
 use crate::mcp_access::{McpAccess, ProcessKind};
 use crate::notices::model::{Denial, Notice};
@@ -118,6 +119,11 @@ const MAX_LOG_LINES: usize = 300;
 const MAX_LOG_LINE_CHARS: usize = 500;
 const MAX_HISTORY_PAGE: u32 = 500;
 const RESUME_MESSAGE: &str = "Mach weiter.";
+const PLAN_NEEDS_TASK: &str = "„Plane Vorhaben“ braucht einen Auftrag.";
+const PLAN_NEEDS_CLAUDE: &str = "„Plane Vorhaben“ gibt es nur in der Betriebsart „Claude“: Nur dort \
+     hat die Session die Werkzeuge des Verwalters.";
+const PLAN_ANSWER_FIRST: &str = "Beantworte zuerst die Rückfrage des Agenten; „Plane Vorhaben“ \
+     beginnt einen neuen Zug.";
 /// Satz an den Agenten, wenn eine andere Session im selben Schreib-Ordner arbeitet (ADR 037).
 const OVERLAP_HINT: &str = "Hinweis des Verwalters: Eine andere Session arbeitet gerade im selben Ordner ({folder}, Session „{name}“). Ihre uncommitteten Änderungen dort sind nicht deine.";
 const ANSWER_SEPARATOR: &str = " · ";
@@ -354,6 +360,9 @@ struct SessionState {
     /// Lagebericht (ohne Zeile „Lage“), den diese Rückfrage zuletzt als Anhang bekam; nur im
     /// Speicher — nach einem Neustart hängt das nächste Senden den Bericht neu an.
     last_report: Option<String>,
+    /// Der laufende Zug begann mit „Plane Vorhaben“ (ADR 062); nur im Speicher. Jeder neue Zug setzt
+    /// ihn neu, die Antwort auf eine Rückfrage lässt ihn stehen. Phase 81.2 hängt den Wächter daran.
+    planning_turn: bool,
 }
 
 /// Eine Session, wie `SessionRegistry::restore` sie aus der Datenbank liest.
@@ -398,6 +407,9 @@ enum TurnOrigin<'a> {
         report_update: Option<&'a ReportUpdate>,
         /// Das Gerät, von dem ein Gast sendet (ADR 059); `None`: die eigene Oberfläche.
         device: Option<&'a str>,
+        /// „Plane Vorhaben“ (ADR 062): Der Agent bekommt `plan_prompt` mit dem Text, der Chat zeigt
+        /// nur den Text.
+        planning: bool,
     },
     Session {
         sender: &'a SessionRef,
@@ -1153,6 +1165,53 @@ impl SessionRegistry {
         comments: &[ReviewComment],
         device: Option<&str>,
     ) -> Result<(), CommandError> {
+        self.send_turn(
+            app,
+            session_id,
+            text,
+            attachment_ids,
+            comments,
+            device,
+            false,
+        )
+    }
+
+    /// „Plane Vorhaben“ (ADR 062): setzt `plan_prompt(task)` als Nachricht ab und merkt den Zug als
+    /// Planungszug. Die Werkzeuge des Verwalters hat nur die Session in der Betriebsart Claude; ohne
+    /// sie wäre der Planungs-Prompt ein Auftrag, den der Agent nicht ausführen kann.
+    pub fn plan_vorhaben(
+        &self,
+        app: &AppHandle,
+        session_id: &str,
+        task: &str,
+        device: Option<&str>,
+    ) -> Result<(), CommandError> {
+        let task = task.trim();
+        if task.is_empty() {
+            return Err(CommandError::Implementation(PLAN_NEEDS_TASK.to_owned()));
+        }
+        if settings::load(&self.database)?.operating_mode != OperatingMode::Claude {
+            return Err(CommandError::Implementation(PLAN_NEEDS_CLAUDE.to_owned()));
+        }
+        self.send_turn(app, session_id, task, &[], &[], device, true)
+    }
+
+    /// Ob der laufende Zug der Session ein Planungszug ist (ADR 062).
+    pub fn is_planning_turn(&self, session_id: &str) -> Result<bool, CommandError> {
+        Ok(self.get(session_id)?.lock().planning_turn)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn send_turn(
+        &self,
+        app: &AppHandle,
+        session_id: &str,
+        text: &str,
+        attachment_ids: &[String],
+        comments: &[ReviewComment],
+        device: Option<&str>,
+        planning: bool,
+    ) -> Result<(), CommandError> {
         let session = self.get(session_id)?;
         review::validate(comments)?;
         let input = self.prepare_turn(&session, text);
@@ -1186,6 +1245,10 @@ impl SessionRegistry {
                     _ => {}
                 }
                 if !state.pending.is_empty() {
+                    // Der Planungs-Prompt wäre hier nur der Text einer Antwort.
+                    if planning {
+                        return Err(CommandError::Implementation(PLAN_ANSWER_FIRST.to_owned()));
+                    }
                     // Die Antwort auf eine Rückfrage ist reiner Text — Anhänge und Kommentare hätten
                     // keinen Platz.
                     if !comments.is_empty() {
@@ -1214,6 +1277,7 @@ impl SessionRegistry {
                         skill,
                         report_update: report_update.as_ref(),
                         device,
+                        planning,
                     },
                 )?;
                 Ok(())
@@ -2250,6 +2314,7 @@ impl SessionState {
             inquiry_of: None,
             agent_prompt: None,
             last_report: None,
+            planning_turn: false,
         }
     }
 
@@ -3876,6 +3941,7 @@ fn start_turn(
         }
         _ => text,
     };
+    let is_planning = matches!(origin, TurnOrigin::User { planning: true, .. });
     let (titled, line) = match origin {
         TurnOrigin::User {
             attachment_ids,
@@ -3884,6 +3950,7 @@ fn start_turn(
             skill,
             report_update,
             device,
+            planning,
         } => {
             // Unter der Session-Sperre zulässig: verschiebt nur lokale Dateien, schreibt nicht in die Pipe.
             let sent_attachments =
@@ -3918,8 +3985,15 @@ fn start_turn(
             }
             let mut agent_attachments = sent_attachments.clone();
             agent_attachments.extend(extra_attachments);
+            let planned: String;
+            let for_agent: &str = if planning {
+                planned = plan_prompt(sent_text);
+                &planned
+            } else {
+                sent_text
+            };
             let agent_text = with_overlap_hint(
-                review::agent_text(sent_text, &comments, folders),
+                review::agent_text(for_agent, &comments, folders),
                 state,
                 input.overlap.as_ref(),
             );
@@ -3955,6 +4029,7 @@ fn start_turn(
         .as_ref()
         .map(|found: &SessionOverlap| found.key.clone());
     state.pause_reason = None;
+    state.planning_turn = is_planning;
     state.set_status(outbox, SessionStatus::Running);
     outbox.write(state, line)?;
     Ok(titled)

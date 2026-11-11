@@ -212,11 +212,12 @@ fn check_guest(
 }
 
 /// Was der Server selbst einträgt und damit überschreibt (Vertrag): die Oberfläche des Geräts bei
-/// `session_set_viewed` und der Name des Geräts als Herkunft von `chat_send` und `chat_answer`.
+/// `session_set_viewed` und der Name des Geräts als Herkunft von `chat_send`, `chat_answer` und
+/// `session_plan_vorhaben`.
 fn surface_of(command: &str, mut args: Value, device: &DeviceRef) -> Value {
     let (key, value) = match command {
         "session_set_viewed" => ("viewer", device.id.as_str()),
-        "chat_send" | "chat_answer" => ("origin", device.name.as_str()),
+        "chat_send" | "chat_answer" | "session_plan_vorhaben" => ("origin", device.name.as_str()),
         _ => return args,
     };
     if !args.is_object() {

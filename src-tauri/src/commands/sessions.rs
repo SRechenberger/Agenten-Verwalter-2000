@@ -39,6 +39,19 @@ pub async fn session_create_in_project(
     registry.create_in_project(&project_id)
 }
 
+/// „Plane Vorhaben“ (ADR 062): sendet den festen Planungs-Prompt mit dem Auftrag des Benutzers und
+/// merkt den Zug als Planungszug. `origin`: wie bei `chat_send`.
+#[tauri::command]
+pub async fn session_plan_vorhaben(
+    app: tauri::AppHandle,
+    registry: tauri::State<'_, SessionRegistry>,
+    session_id: String,
+    task: String,
+    origin: Option<String>,
+) -> Result<(), CommandError> {
+    registry.plan_vorhaben(&app, &session_id, &task, origin.as_deref())
+}
+
 #[tauri::command]
 pub async fn session_pause(
     app: tauri::AppHandle,

@@ -1,6 +1,7 @@
 //! Umsetzung eines Plans: Phasen, Stationen, Werkzeuge für den Agenten (ADR 048).
 pub mod changes;
 pub mod model;
+pub mod plan;
 pub mod report;
 pub mod schedule;
 pub mod start;

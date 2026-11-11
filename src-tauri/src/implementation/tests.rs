@@ -1663,3 +1663,54 @@ fn manual_start_retries_a_station_with_a_start_error_and_the_countdown_does_not(
         "▶ startet keine fertige Station"
     );
 }
+
+// „Plane Vorhaben“ (ADR 062): der feste Planungs-Prompt.
+
+#[test]
+fn plan_prompt_names_the_tools_the_terms_and_the_pattern() {
+    let prompt = plan::plan_prompt("Baue etwas.");
+    for part in [
+        "implementation_create",
+        "implementation_agent_types",
+        "Lane",
+        "Station",
+        "Test, Umsetzung, Review, PR",
+    ] {
+        assert!(prompt.contains(part), "der Prompt nennt „{part}“ nicht");
+    }
+    // Der Planer liest die Typen vor dem Vorschlag und konfiguriert jede Station einzeln.
+    for part in ["Typ", "Prompt", "Modell", "Denkaufwand"] {
+        assert!(
+            prompt.contains(part),
+            "die Konfiguration nennt „{part}“ nicht"
+        );
+    }
+}
+
+#[test]
+fn plan_prompt_embeds_the_task_unchanged_at_the_end() {
+    let task = "Zeile 1 mit „Umlauten“ und `Code`\n\n  eingerückt: {task} %s\n";
+    let prompt = plan::plan_prompt(task);
+    assert!(
+        prompt.ends_with(task),
+        "der Auftrag steht unverändert am Ende"
+    );
+    assert_eq!(
+        prompt.matches(task).count(),
+        1,
+        "der Auftrag steht genau einmal im Prompt"
+    );
+}
+
+#[test]
+fn plan_prompt_names_no_field_of_the_schema() {
+    // Die Beschreibung von `implementation_create` ist die einzige Quelle der Feldnamen: Ändert
+    // Phase 76.2 das Schema, darf der Prompt nicht brechen.
+    let prompt = plan::plan_prompt("");
+    for field in ["after", "wave", "phases", "max_parallel"] {
+        assert!(
+            !prompt.to_lowercase().contains(field),
+            "der Prompt nennt das Feld „{field}“"
+        );
+    }
+}
