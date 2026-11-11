@@ -47,6 +47,7 @@ const CASES: Case[] = [
     subjects: ['fix: PATCH-Aufruf an Taiga', 'feat: y [minor]'],
     expected: undefined,
   },
+  { base: '0.73.1', subjects: ['a [MAJOR]', 'b [PATCH]'], expected: '0.74.0' },
 ];
 
 function fail(message: string): never {

@@ -228,8 +228,10 @@ jobs:
           }
           tag="v$VERSION"
           candidate="$tag-candidate"
-          # Gibt es das Release schon, bleibt nur der Kandidat zu entfernen: so führt jede Wiederholung zum selben Ergebnis.
-          if ! gh release view "$tag" > /dev/null 2>&1; then
+          # `draft` ist `true` bei einem Entwurf, `false` bei einem veröffentlichten Release und leer, wenn es das Release nicht gibt.
+          draft=$(gh release view "$tag" --json isDraft --jq .isDraft 2> /dev/null || true)
+          # Gibt es das Release veröffentlicht schon, bleibt nur der Kandidat zu entfernen: so führt jede Wiederholung zum selben Ergebnis.
+          if [ "$draft" != "false" ]; then
             commit=$(git ls-remote --tags origin "refs/tags/$candidate" | cut -f1)
             if [ -z "$commit" ]; then
               echo "::error::Kein Kandidat $candidate: den PR erneut bauen lassen, bevor er gemergt wird. Kein Release."
@@ -242,6 +244,10 @@ jobs:
             gh release download "$candidate" -D out
             ls -l out
             prev=$(gh release view --json tagName --jq .tagName)
+            # Bricht ein Lauf beim Upload ab, bleibt ein Entwurf zurück: Er hat unvollständige Dateien und wird vor dem Neuanlegen entfernt.
+            if [ "$draft" = "true" ]; then
+              gh release delete "$tag" --yes
+            fi
             gh release create "$tag" --target "$GITHUB_SHA" --title "$tag" --generate-notes --notes-start-tag "$prev" out/*
           fi
           drop "$candidate"
