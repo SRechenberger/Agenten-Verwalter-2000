@@ -12,10 +12,13 @@ use tauri::{AppHandle, Emitter};
 use super::{Session, SessionRegistry, now_ms, project_not_found};
 use crate::agents::claude::print::{HaikuRequest, PrintProgram, ask_model, print_program};
 use crate::agents::event::ModelId;
+use crate::db::tool_details;
 use crate::error::CommandError;
 use crate::retro::findings::{self, SessionResult};
-use crate::retro::model::{RetroExport, RetroProgress, SessionFindings};
+use crate::retro::model::{RetroExport, RetroProgress, SessionFindings, ToolFindings};
 use crate::retro::prompt::{RETRO_PARALLEL, RETRO_TIMEOUT, SESSION_SCHEMA, SESSION_SYSTEM_PROMPT};
+use crate::retro::tools::{self, SessionTrace, TOOLS_FILE};
+use crate::retro::tools_report;
 use crate::retro::traces::{self, HookBlock};
 use crate::retro::transcript::{is_retro_session, retro_transcript, session_file, tool_counts};
 use crate::sessions::model::SessionStatus;
@@ -43,6 +46,8 @@ struct PreparedSession {
     hook_blocks: Vec<HookBlock>,
     /// Fehlertext, wenn der Verlauf nicht lesbar war — dann läuft keine Mini-Retro.
     texts: Result<SessionTexts, String>,
+    /// Werkzeug-Spur (ADR 067); `None`, wenn der Verlauf nicht lesbar war.
+    trace: Option<SessionTrace>,
 }
 
 struct SessionTexts {
@@ -95,7 +100,7 @@ impl SessionRegistry {
     ) -> Result<RetroExport, CommandError> {
         let members = self.project_members(project_id);
         // Erst nach dem Freigeben der Vorhaben-Sperre, eine Session nach der anderen.
-        let prepared: Vec<PreparedSession> = members
+        let mut prepared: Vec<PreparedSession> = members
             .iter()
             .filter_map(|member: &Arc<Session>| prepare_session(member))
             .collect();
@@ -117,7 +122,14 @@ impl SessionRegistry {
                 let path = folder.join(format!("session-{}.md", session.number));
                 fs::write(path, &texts.file).map_err(write_error)?;
             }
+            if let Some(trace) = &session.trace {
+                tools::write_trace_files(&folder, trace).map_err(write_error)?;
+            }
         }
+        let traces: Vec<SessionTrace> = prepared
+            .iter_mut()
+            .filter_map(|session: &mut PreparedSession| session.trace.take())
+            .collect();
 
         let outcomes = ask_all(app, project_id, program, &prepared);
         let results: Vec<SessionResult> = prepared
@@ -152,6 +164,14 @@ impl SessionRegistry {
             findings::render(project_name, &results),
         )
         .map_err(write_error)?;
+        // Ohne Werkzeug-Retro je Session: `werkzeuge.md` hat dann nur Teil A.
+        let tool_retros: Vec<Option<Result<ToolFindings, String>>> =
+            (0..traces.len()).map(|_| None).collect();
+        fs::write(
+            folder.join(TOOLS_FILE),
+            tools_report::render(project_name, &traces, &tool_retros),
+        )
+        .map_err(write_error)?;
 
         Ok(RetroExport {
             folder: format!("{RETRO_DIR}/{run_name}"),
@@ -184,17 +204,20 @@ fn prepare_session(session: &Session) -> Option<PreparedSession> {
                 skills: NO_SKILLS.to_owned(),
                 hook_blocks: Vec::new(),
                 texts: Err(format!("Verlauf nicht lesbar: {error}")),
+                trace: None,
             });
         }
     };
     if is_retro_session(&state.entries) {
         return None;
     }
-    let traces = match session
-        .database
-        .with(|connection| traces::collect(connection, &session.id, &state.entries))
-    {
-        Ok(traces) => traces,
+    let loaded = session.database.with(|connection| {
+        let traces = traces::collect(connection, &session.id, &state.entries)?;
+        let summaries = tool_details::load_summaries(connection, &session.id)?;
+        Ok((traces, summaries))
+    });
+    let (traces, summaries) = match loaded {
+        Ok(loaded) => loaded,
         Err(error) => {
             return Some(PreparedSession {
                 number: session.number,
@@ -206,9 +229,20 @@ fn prepare_session(session: &Session) -> Option<PreparedSession> {
                 skills: NO_SKILLS.to_owned(),
                 hook_blocks: Vec::new(),
                 texts: Err(format!("Regel-Spuren nicht lesbar: {error}")),
+                trace: None,
             });
         }
     };
+    let home = crate::standalone::home_dir();
+    let trace = tools::build_trace(
+        session.number,
+        &state.name,
+        &state.entries,
+        &summaries,
+        &traces,
+        &session.workspace,
+        home.as_deref(),
+    );
     let (transcript, truncated) = retro_transcript(&state.entries, &traces);
     let file = session_file(
         session.number,
@@ -228,6 +262,7 @@ fn prepare_session(session: &Session) -> Option<PreparedSession> {
         skills: traces::skills_line(&traces),
         hook_blocks: traces.hook_blocks,
         texts: Ok(SessionTexts { file, transcript }),
+        trace: Some(trace),
     })
 }
 

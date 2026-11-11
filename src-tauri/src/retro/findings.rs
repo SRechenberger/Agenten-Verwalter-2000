@@ -115,7 +115,7 @@ fn push_session(lines: &mut Vec<String>, session: &SessionResult) {
     });
 }
 
-fn push_rubric<T>(
+pub(crate) fn push_rubric<T>(
     lines: &mut Vec<String>,
     heading: &str,
     items: &[T],
@@ -132,7 +132,7 @@ fn push_rubric<T>(
 }
 
 /// Ein Zeilenumbruch im Zitat würde den Listenpunkt zerreißen.
-fn one_line(text: &str) -> String {
+pub(crate) fn one_line(text: &str) -> String {
     text.split(['\r', '\n'])
         .filter(|part: &&str| !part.trim().is_empty())
         .map(str::trim)
