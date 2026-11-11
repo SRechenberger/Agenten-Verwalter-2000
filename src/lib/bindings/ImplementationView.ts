@@ -13,4 +13,4 @@ currentPhase: number,
 /**
  * Dringendster Zustand über alle Stationen (`StationState::urgency_rank`).
  */
-urgency: StationState, lastActivityAt: number, unread: boolean, };
+urgency: StationState, lastActivityAt: number, unread: boolean, maxParallel: number | null, queued: number, };

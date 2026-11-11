@@ -1,0 +1,803 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mock – Umsetzung mit Constraints (Entwurf 1, Click-Through)</title>
+<style>
+  :root {
+    color-scheme: light;
+    --bg: #ffffff; --panel: #f5f5f5; --panel-2: #ececec; --border: #cfcfcf; --text: #1f1f1f; --muted: #5f5f5f;
+    --accent: #2563eb; --done: #16803c; --run: #2563eb; --ready: #a86a00; --user: #7c3aed; --wait: #8f8f8f;
+    --ask: #c4572f; --err: #c0262d; --mark-bg: #e8f6ee;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
+      --bg: #1f1f1f; --panel: #252526; --panel-2: #2e2e30; --border: #3f3f46; --text: #e5e5e5; --muted: #a0a0a0;
+      --accent: #5b9dff; --done: #4cc38a; --run: #5b9dff; --ready: #f2b33d; --user: #a78bfa; --wait: #6e6e6e;
+      --ask: #e0825c; --err: #ff7b72; --mark-bg: #1d2b24;
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --bg: #1f1f1f; --panel: #252526; --panel-2: #2e2e30; --border: #3f3f46; --text: #e5e5e5; --muted: #a0a0a0;
+    --accent: #5b9dff; --done: #4cc38a; --run: #5b9dff; --ready: #f2b33d; --user: #a78bfa; --wait: #6e6e6e;
+    --ask: #e0825c; --err: #ff7b72; --mark-bg: #1d2b24;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.5 system-ui, "Segoe UI", sans-serif; }
+  main { max-width: 960px; margin: 0 auto; padding: 16px; }
+  button { font: inherit; color: inherit; cursor: pointer; }
+  button:disabled { cursor: not-allowed; opacity: .5; }
+  input[type="checkbox"] { accent-color: var(--accent); }
+  h1 { font-size: 18px; margin: 0 0 2px; }
+  .lead { color: var(--muted); margin: 0 0 10px; font-size: 13px; }
+
+  /* Steuerung des Entwurfs (gehört nicht zur App) */
+  .sim { border: 1px dashed var(--border); border-radius: 8px; padding: 8px 10px; margin-bottom: 12px; display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: center; font-size: 12.5px; }
+  .sim b { color: var(--muted); font-weight: 600; margin-right: 2px; }
+  .sim button { border: 1px solid var(--border); background: var(--panel); border-radius: 6px; padding: 2px 9px; }
+  .sim button[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); }
+  .sim .sp { flex: 1; }
+  details.how { margin: 0 0 12px; font-size: 13px; }
+  details.how summary { cursor: pointer; color: var(--muted); }
+  details.how ul { margin: 6px 0 0; padding-left: 20px; }
+
+  /* App-Rahmen */
+  .app { border: 1px solid var(--border); border-radius: 10px; background: var(--bg); overflow: hidden; }
+  .bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; padding: 9px 12px; background: var(--panel); border-bottom: 1px solid var(--border); }
+  .bar .name { font-weight: 600; }
+  .fill { width: 120px; height: 6px; border-radius: 3px; background: var(--panel-2); border: 1px solid var(--border); overflow: hidden; }
+  .fill i { display: block; height: 100%; background: var(--done); }
+  .bar label { display: inline-flex; align-items: center; gap: 5px; color: var(--muted); }
+  .bar .sp { flex: 1; }
+  .body { padding: 6px 12px 12px; }
+
+  .step { display: inline-flex; align-items: center; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); overflow: hidden; color: var(--text); }
+  .step button { border: 0; background: var(--panel-2); width: 22px; line-height: 20px; }
+  .step button:hover:not(:disabled) { background: var(--border); }
+  .step b { min-width: 22px; text-align: center; font-weight: 600; }
+
+  .dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; border: 2px solid var(--wait); flex: none; }
+  .dot.done { background: var(--done); border-color: var(--done); }
+  .dot.run { border-color: var(--run); background: radial-gradient(var(--run) 40%, transparent 45%); }
+  .dot.ready { border-color: var(--ready); }
+  .dot.ask { border-color: var(--ask); background: var(--ask); }
+  .dot.err { border-color: var(--err); background: var(--err); }
+  .hand { color: var(--user); flex: none; display: inline-block; vertical-align: middle; }
+  .done { color: var(--done); } .run { color: var(--run); } .ready { color: var(--ready); } .wait { color: var(--muted); } .ask { color: var(--ask); } .err { color: var(--err); }
+  .dot.done, .dot.run, .dot.ready, .dot.wait, .dot.ask, .dot.err { color: inherit; }
+
+  .stage { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 11.5px; text-transform: uppercase; letter-spacing: .04em; margin: 12px 0 3px; }
+  .stage::after { content: ""; flex: 1; height: 1px; background: var(--border); }
+  .par { border-left: 2px solid var(--ready); margin-left: 4px; padding-left: 6px; }
+  .row { display: grid; grid-template-columns: 14px 1fr auto; gap: 1px 10px; align-items: center; padding: 5px 8px; border-radius: 6px; cursor: pointer; }
+  .row:hover { background: var(--panel); }
+  .row.focus { background: var(--panel); outline: 1px solid var(--accent); }
+  .row .state { text-align: right; white-space: nowrap; }
+  .row .sub { grid-column: 2 / 4; font-size: 12px; color: var(--muted); }
+  .num { color: var(--muted); }
+  .meta { margin-left: 8px; font-size: 11.5px; color: var(--muted); border: 1px solid var(--border); border-radius: 9px; padding: 0 7px; white-space: nowrap; }
+  .sw { margin-left: 5px; width: 20px; height: 18px; line-height: 15px; font-size: 12px; text-align: center; border: 1px solid var(--border); border-radius: 9px; background: var(--bg); color: var(--muted); padding: 0; vertical-align: middle; }
+  .sw.on { border-color: var(--done); color: var(--done); background: var(--mark-bg); }
+  .new { font-size: 11px; background: var(--mark-bg); color: var(--done); border: 1px solid var(--done); border-radius: 8px; padding: 0 6px; margin-left: 6px; }
+  .chip { display: inline-block; font-size: 11.5px; line-height: 1.5; border: 1px solid var(--border); background: var(--bg); border-radius: 10px; padding: 0 7px; margin: 1px 3px 1px 0; color: var(--muted); }
+  button.chip:hover { border-color: var(--accent); color: var(--text); }
+  .chip.ok { color: var(--done); border-color: var(--done); }
+  .chip.edit { color: var(--text); }
+  .chip.edit button { border: 0; background: none; padding: 0 0 0 4px; color: var(--muted); }
+  .chip.edit button:hover { color: var(--err); }
+  .chip.lock { opacity: .75; }
+  .chip.add { border-style: dashed; color: var(--text); }
+  .chip.sel { border-color: var(--accent); color: var(--accent); background: var(--panel); }
+  .chip:disabled { opacity: .45; cursor: not-allowed; }
+  .mini { font-size: 11.5px; border: 1px solid var(--border); background: var(--bg); border-radius: 5px; padding: 0 7px; margin-left: 6px; line-height: 1.5; }
+  .mini:hover:not(:disabled) { border-color: var(--accent); }
+
+  /* Schaltergruppen statt Auswahllisten */
+  .seg { display: inline-flex; flex-wrap: wrap; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; background: var(--bg); }
+  .seg button { border: 0; border-right: 1px solid var(--border); background: transparent; padding: 1px 9px; font-size: 12px; color: var(--text); }
+  .seg button:last-child { border-right: 0; }
+  .seg button:hover:not(:disabled):not(.on) { background: var(--panel-2); }
+  .seg button.on { background: var(--accent); color: #fff; }
+  .seg button:disabled.on { background: var(--panel-2); color: var(--text); font-weight: 600; opacity: 1; }
+  .seg button:disabled { opacity: .6; }
+  .ta, .inp { background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 4px 8px; font: inherit; font-size: 12.5px; }
+  .ta { width: 100%; resize: vertical; min-height: 56px; }
+  .ta:disabled, .inp:disabled { background: var(--panel); color: var(--muted); }
+  .inp { min-width: 200px; }
+
+  /* Kartei */
+  .card { margin: 4px 0 8px 24px; background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 9px 11px; font-size: 12.5px; }
+  .card .ln, .np .ln, .change .ln { margin: 5px 0; display: flex; flex-wrap: wrap; gap: 3px 6px; align-items: baseline; }
+  .card .lbl, .np .lbl, .change .lbl { color: var(--muted); min-width: 96px; }
+  .hint { color: var(--muted); font-size: 11.5px; margin: 2px 0; }
+  .purpose { margin: 3px 0 6px; color: var(--muted); }
+  .purpose b { color: var(--text); }
+  .sec { border-top: 1px solid var(--border); margin-top: 6px; padding-top: 4px; }
+  .sech { border: 0; background: none; padding: 2px 0; width: 100%; text-align: left; font-weight: 600; }
+  .sech .sum { font-weight: 400; color: var(--muted); margin-left: 8px; }
+  .sech .car { display: inline-block; width: 12px; color: var(--muted); }
+  .secb { padding: 2px 0 4px 12px; }
+  .pick { border: 1px solid var(--border); background: var(--bg); border-radius: 6px; padding: 4px; margin: 2px 0 4px 102px; display: grid; gap: 1px; max-width: 460px; }
+  .pick button { text-align: left; border: 0; background: none; border-radius: 4px; padding: 2px 6px; }
+  .pick button:hover:not(:disabled) { background: var(--panel-2); }
+  .pick small { display: block; color: var(--muted); font-size: 11px; }
+  .note { border-left: 3px solid var(--ready); background: var(--bg); border-radius: 0 6px 6px 0; padding: 3px 8px; margin: 4px 0; font-size: 12px; }
+  .note .was { color: var(--muted); text-decoration: line-through; }
+  .sys { background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 4px 8px; color: var(--muted); font-size: 12px; margin: 3px 0; }
+  .lockinfo { margin-top: 6px; padding-top: 5px; border-top: 1px dashed var(--border); }
+  .simrow { margin-top: 8px; padding-top: 7px; border-top: 1px dashed var(--border); color: var(--muted); display: flex; flex-wrap: wrap; gap: 4px 6px; align-items: center; }
+  .simrow button { border: 1px dashed var(--border); background: var(--bg); border-radius: 5px; padding: 0 8px; }
+
+  /* Neue Lane und Plan ändern? */
+  .np { border-bottom: 1px solid var(--border); background: var(--panel-2); padding: 10px 12px; font-size: 12.5px; }
+  .nps { border: 1px solid var(--border); background: var(--panel); border-radius: 8px; padding: 6px 10px; margin: 6px 0; }
+  .np .acts, .change .acts { display: flex; gap: 6px; margin-top: 8px; }
+  .np .acts button, .change .acts button { border: 1px solid var(--border); background: var(--bg); border-radius: 5px; padding: 1px 12px; }
+  .np .acts button.primary, .change .acts button.primary { border-color: var(--accent); color: var(--accent); }
+  .np-preview { margin: 6px 0 0; color: var(--muted); }
+  .np-preview .err { display: block; }
+  .change { margin: 8px 0 2px; border: 1px solid var(--ready); border-radius: 8px; padding: 8px 11px; background: var(--panel); font-size: 12.5px; }
+  .log { margin-top: 14px; font-size: 12px; color: var(--muted); }
+  .log h4 { margin: 0 0 3px; font-size: 11.5px; text-transform: uppercase; letter-spacing: .04em; }
+  .log div { padding: 1px 0; }
+  .legend { margin-top: 12px; color: var(--muted); font-size: 11.5px; display: flex; flex-wrap: wrap; gap: 4px 14px; }
+  .legend span { display: inline-flex; align-items: center; gap: 5px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Umsetzung mit Constraints – Entwurf 1 (Click-Through)</h1>
+  <p class="lead">Zeitleiste mit Kanten-Chips. Alle Namen, Zahlen und Zeiten sind Beispieldaten; die gestrichelt umrandeten Knöpfe sind Simulation und gehören nicht zur App. Angenommen: Die Agententypen (Story 55) und „Automatisch fortsetzen“ je Station (Story 56) gibt es schon.</p>
+
+  <div class="sim" id="sim"></div>
+
+  <details class="how" open>
+    <summary>Was du ausprobieren kannst</summary>
+    <ul>
+      <li><b>Zeile anklicken</b> klappt die Kartei auf: Ablauf (Kanten), Auftrag (Prompt), Agent (Typ, Modell, Denkaufwand, System-Prompt, Skill) und Automatik. Die Kopfzeilen der Abschnitte zeigen die Werte auch zugeklappt. Chips springen zur genannten Station.</li>
+      <li><b>Was sich wann ändern lässt:</b> bis zum Start alles; danach sind Auftrag, Typ, Modell, Denkaufwand und System-Prompt festgeschrieben (🔒), die Automatik bleibt bis „fertig“ änderbar. Eine fertige Station zeigt nur noch, womit sie lief.</li>
+      <li><b>Prompt durch Vorgänger:</b> in der Kartei einer laufenden Station „Fertig melden · Hinweis an Nachfolger“. Je nach Einstellung der Nachfolger („nur ergänzen“ / „ergänzen und ändern“ / „nicht anfassen“) wird der Auftrag ergänzt, geändert oder nicht angefasst. Du kannst Ergänzungen entfernen und Änderungen zurücksetzen, solange die Station nicht gestartet ist.</li>
+      <li><b>Kanten ändern:</b> „×“, „+ Vorgänger“, „+ Nachfolger“; Zyklen sind gesperrt, gestartete Stationen auch.</li>
+      <li><b>Neue Lane:</b> „+ Lane“ in der Leiste. Je Station Typ wählen (der Zweck steht dabei), Prompt, Modell und Denkaufwand einstellen; „durch dich“ ist eine Anweisung für dich. Die Vorschau nennt Stufe und verschobene Stationen.</li>
+      <li><b>Plan ändern?</b> „Agent schlägt Plan-Änderung vor“: Typ, Modell, Denkaufwand und Prompt des Vorschlags lassen sich vor „Übernehmen“ ändern.</li>
+      <li><b>Automatik:</b> „Automatisch starten“ (Countdown, bis „Parallel max.“ erreicht ist, dann Warteschlange), „Automatisch weiter“ (nach leerem Kontingent und Fehler; die Leiste schaltet alle Stationen, ↻ in der Zeile nur eine).</li>
+    </ul>
+  </details>
+
+  <div class="app" id="app"><div class="bar" id="bar"></div><div id="np"></div><div class="body" id="body"></div></div>
+</main>
+
+<script>
+(() => {
+  'use strict';
+  const COUNTDOWN_MS = 10000;
+  const MODELS = [['opus', 'Opus'], ['sonnet', 'Sonnet'], ['haiku', 'Haiku'], ['fable', 'Fable'], ['opusplan', 'Opus Plan']];
+  const MODEL_FULL = { opus: 'Opus 5.5', sonnet: 'Sonnet 5.5', haiku: 'Haiku 5.5', fable: 'Fable 5.1', opusplan: 'Opus Plan' };
+  const SHORT = Object.fromEntries(MODELS);
+  const EFFORTS = [['low', 'Niedrig'], ['medium', 'Mittel'], ['high', 'Hoch'], ['xhigh', 'Sehr hoch'], ['max', 'Max']];
+  const ELBL = Object.fromEntries(EFFORTS.map(([k, v]) => [k, v.toLowerCase()]));
+  const STD = { model: 'opus', effort: 'max' }; // Einstellungen: Standardmodell und Standard-Denkaufwand
+  // Agententypen (Story 55): Zweck für den Planer, Standardwerte, Rollentext
+  const TYPES = {
+    tester: { desc: 'Schreibt die Tests zuerst und führt sie aus; ändert keinen Produktivcode.', model: null, effort: null, stages: ['Test'], sys: 'Du bist ein Tester. Schreibe die Tests vor der Umsetzung, führe sie aus und melde, welche scheitern. (Rollentext aus ~/.verwalter/typen/tester.md)', hint: 'Schreibe die Tests für den Auftrag der Lane, bevor etwas umgesetzt wird. Führe sie aus und melde, welche scheitern.' },
+    developer: { desc: 'Setzt einen Auftrag im Code um, hält die Tests grün und committet im Worktree.', model: 'opus', effort: 'high', stages: ['Umsetzung', 'Fix-Runde'], sys: 'Du bist ein Entwickler. Arbeite im Worktree der Lane, halte die Prüfkette grün, committe klein. (Rollentext aus ~/.verwalter/typen/developer.md)', hint: 'Setze den Auftrag der Lane um, halte die Tests grün und committe im Worktree.' },
+    reviewer: { desc: 'Prüft eine fertige Lane unabhängig gegen Auftrag und Tests; ändert keinen Code.', model: 'sonnet', effort: 'high', stages: ['Review', 'Gesamt-Review'], sys: 'Du bist ein unabhängiger Reviewer. Lies den Diff, prüfe gegen den Auftrag, ändere keinen Code, melde Befunde nach Rang. (Rollentext aus ~/.verwalter/typen/reviewer.md)', hint: 'Prüfe die Lane unabhängig gegen ihren Auftrag und die Tests. Ändere keinen Code. Melde Befunde; bei einem Befund mit fix_needed.' },
+    integrator: { desc: 'Fasst die Lanes zusammen und öffnet den PR mit Beschreibung und Versions-Bump.', model: 'sonnet', effort: 'medium', stages: ['PR', 'Merge'], sys: 'Du bist für die Integration zuständig: PR öffnen, Version heben, Beschreibung schreiben. (Rollentext aus ~/.verwalter/typen/integrator.md)', hint: 'Öffne den PR für die Lanes, hebe die Version und beschreibe die Änderungen.' },
+  };
+  const TYPE_ORDER = ['tester', 'developer', 'reviewer', 'integrator'];
+  const YOU_HINT = 'Beschreibe, was du tun sollst und woran du merkst, dass es gelungen ist.';
+  const HAND = '<svg class="hand" viewBox="0 0 24 24" width="15" height="15" role="img" aria-label="durch dich"><path fill="currentColor" d="M23 5.5V20c0 2.2-1.8 4-4 4h-7.3c-1.08 0-2.1-.43-2.85-1.19L1 14.83s1.26-1.23 1.3-1.25c.22-.19.49-.29.79-.29.22 0 .42.06.6.16.04.01 4.31 2.46 4.31 2.46V4c0-.83.67-1.5 1.5-1.5S11 3.17 11 4v7h1V1.5c0-.83.67-1.5 1.5-1.5S15 .67 15 1.5V11h1V2.5c0-.83.67-1.5 1.5-1.5S19 1.67 19 2.5V11h1V5.5c0-.83.67-1.5 1.5-1.5s1.5.67 1.5 1.5z"/></svg>';
+
+  let st, cd, held, auto, resumeAll, maxPar, nextNum, focusId, pick, log, proposal, scenario, counter, np = null, dirty = false;
+  const sec = { ablauf: true, auftrag: true, agent: true, automatik: true };
+  const drafts = {};
+
+  const esc = (t) => String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  const $ = (sel) => document.querySelector(sel);
+  const mk = (id, name, lane, state, o = {}) => ({
+    id, name, lane, st: state, after: o.after || [], by: o.by || 'agent', num: o.num || null, since: o.since || null, isNew: false,
+    type: o.by === 'you' ? null : (o.type || null), model: o.model || '', effort: o.effort || '', prompt: o.prompt || '',
+    notes: [], inherit: o.inherit || 'add', skill: o.skill || '', sysAdd: o.sysAdd || '',
+    autoStart: o.autoStart || 'inherit', autoResume: o.autoResume === undefined ? false : o.autoResume, onError: o.onError || 'stop',
+    snap: null, result: o.result || '',
+  });
+  const get = (id) => st.find((x) => x.id === id);
+  const name = (id) => get(id).name;
+  const succ = (id) => st.filter((x) => x.after.includes(id));
+  const isReady = (s) => s.st === 'pending' && s.after.every((a) => get(a).st === 'done');
+  const isLive = (s) => s.st === 'running' || s.st === 'asking';
+  const used = () => st.filter(isLive).length + Object.keys(cd).length;
+  const wants = (s) => s.by !== 'you' && (s.autoStart === 'inherit' ? auto : s.autoStart === 'on');
+  // Warteschlange: bereite Stationen, die nur auf einen freien Platz warten, in Planreihenfolge.
+  const waiting = () => (maxPar - used() <= 0 ? st.filter((x) => wants(x) && isReady(x) && !cd[x.id] && !held.has(x.id)) : []);
+  const level = (s, memo = {}) => memo[s.id] ?? (memo[s.id] = s.after.length ? 1 + Math.max(...s.after.map((a) => level(get(a), memo))) : 0);
+  const path = (from, to) => {
+    if (from === to) return [from];
+    for (const n of succ(from)) { const p = path(n.id, to); if (p) return [from, ...p]; }
+    return null;
+  };
+  // Eine neue Kante p → x (x wartet auf p) ergibt einen Zyklus, wenn x schon zu p führt.
+  const cycleOf = (p, x) => {
+    if (p === x) return 'eine Station kann nicht auf sich selbst warten';
+    const way = path(x, p);
+    return way ? 'Zyklus: ' + [...way, x].map(name).join(' → ') : null;
+  };
+  const clock = () => new Date().toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
+  const note = (text) => { log.unshift(clock() + ' · ' + text); };
+  const nextKey = () => String(Math.max(0, ...st.map((x) => parseInt(x.lane, 10) || 0)) + 1);
+
+  // Modell und Denkaufwand: Station vor Typ vor Standard; nach dem Start gelten die Werte der Session.
+  function eff(s) {
+    if (s.snap) return s.snap;
+    const t = s.type && TYPES[s.type];
+    const m = s.model ? [s.model, 'überschrieben'] : t && t.model ? [t.model, 'Typ'] : [STD.model, 'Standard'];
+    const e = s.effort ? [s.effort, 'überschrieben'] : t && t.effort ? [t.effort, 'Typ'] : [STD.effort, 'Standard'];
+    return { model: m[0], mSrc: m[1], effort: e[0], eSrc: e[1] };
+  }
+  const stdOf = (type, what) => { const t = type && TYPES[type]; return (t && t[what]) || STD[what]; };
+
+  function load(which) {
+    const now = Date.now();
+    scenario = which; cd = {}; held = new Set(); log = []; pick = null; proposal = null; counter = 0; np = null; dirty = false;
+    Object.keys(drafts).forEach((k) => delete drafts[k]);
+    if (which === 'mid') {
+      st = [
+        mk('t1', 'Test', '1', 'done', { type: 'tester', num: 3, prompt: 'Schreibe die Tests für die Warteschlange hinter max_parallel.', result: '4 Tests rot, wie erwartet.' }),
+        mk('c1', 'Umsetzung Core', '2', 'done', { type: 'developer', after: ['t1'], num: 4, prompt: 'Setze die Warteschlange im Core um (schedule_ready, Zählen unter einer Sperre).', result: 'Core fertig, Tests grün.' }),
+        mk('c2', 'Review Core', '2', 'running', { type: 'reviewer', after: ['c1'], num: 6, since: now - 12 * 60000, prompt: 'Prüfe die Lane Core gegen den Auftrag und die Tests.' }),
+        mk('u1', 'Umsetzung UI', '3', 'done', { type: 'developer', after: ['t1'], num: 5, model: 'sonnet', effort: 'medium', prompt: 'Zeige die Warteschlange in der Leiste und in der Zeile.', result: 'UI fertig.' }),
+        mk('u2', 'Review UI', '3', 'pending', { type: 'reviewer', after: ['u1'], prompt: 'Prüfe die Lane UI; achte auf Hell und Dunkel.' }),
+        mk('g1', 'Gesamt-Review', '4', 'pending', { type: 'reviewer', after: ['u2', 'c2'], model: 'opus', effort: 'max', prompt: 'Prüfe das Zusammenspiel beider Lanes und die Akzeptanzkriterien der Story.' }),
+        mk('p1', 'PR', '5', 'pending', { type: 'integrator', after: ['g1'], prompt: 'Öffne den PR, hebe die Version und trage die Prüfung in die Beschreibung ein.' }),
+        mk('a1', 'Abnahme', '5', 'pending', { by: 'you', after: ['p1'], prompt: 'Handtest: Starte die App, lege eine Umsetzung mit zwei Lanes an und prüfe, dass die zweite Lane nach der ersten startet. Melde in einer Zeile, was geklappt hat.' }),
+      ];
+      auto = true; resumeAll = true; maxPar = 3; nextNum = 7; focusId = 'c2'; cd.u2 = now + 7000;
+      st.forEach((s) => { s.autoResume = true; });
+    } else {
+      st = [
+        mk('r1', 'Recherche UI', '1', 'pending', { type: 'developer', prompt: 'Sammle, wie die Zeile heute gezeichnet wird, und nenne die Stellen für Modell und Denkaufwand.', model: 'haiku', effort: 'low' }),
+        mk('t1', 'Test', '1', 'pending', { type: 'tester', prompt: TYPES.tester.hint }),
+        mk('c1', 'Umsetzung Core', '2', 'pending', { type: 'developer', after: ['t1'], prompt: TYPES.developer.hint }),
+        mk('c2', 'Review Core', '2', 'pending', { type: 'reviewer', after: ['c1'], prompt: TYPES.reviewer.hint }),
+        mk('u1', 'Umsetzung UI', '3', 'pending', { type: 'developer', after: ['t1', 'r1'], prompt: TYPES.developer.hint }),
+        mk('u2', 'Review UI', '3', 'pending', { type: 'reviewer', after: ['u1'], prompt: TYPES.reviewer.hint }),
+        mk('g1', 'Gesamt-Review', '4', 'pending', { type: 'reviewer', after: ['c2', 'u2'], prompt: TYPES.reviewer.hint }),
+        mk('p1', 'PR', '5', 'pending', { type: 'integrator', after: ['g1'], prompt: TYPES.integrator.hint }),
+        mk('a1', 'Abnahme', '5', 'pending', { by: 'you', after: ['p1'], prompt: 'Handtest: ' + YOU_HINT }),
+      ];
+      auto = false; resumeAll = false; maxPar = 3; nextNum = 1; focusId = 'r1';
+      note('Umsetzung angelegt: Startstationen sind Recherche UI und Test (keine Vorgänger).');
+    }
+    st.forEach((s) => { if (s.st !== 'pending' && s.by !== 'you') s.snap = eff(s); });
+    renderForm();
+    render(true);
+  }
+
+  function startStation(s) {
+    if (s.by !== 'you') s.snap = eff(s);
+    s.st = 'running'; s.num = nextNum++; s.since = Date.now();
+    delete cd[s.id]; held.delete(s.id);
+  }
+
+  function complete(id, fix, handoff) {
+    const s = get(id);
+    s.st = 'done';
+    s.result = s.result || (s.by === 'you' ? (drafts['res' + id] || 'erledigt') : 'Fertig gemeldet.');
+    if (handoff) {
+      const from = s.name + (s.num ? ' #' + s.num : '');
+      succ(id).filter((x) => x.st === 'pending').forEach((x) => {
+        if (x.inherit === 'none') { note(x.name + ' lässt keine Änderungen von Vorgängern zu – Hinweis von ' + esc(from) + ' nicht übernommen.'); return; }
+        if (x.inherit === 'edit') {
+          const after = x.prompt + ' Beachte den Hinweis von ' + from + ': zwei kleine Punkte im Core, kein Blocker.';
+          x.notes.push({ kind: 'geändert', from, before: x.prompt, text: after });
+          x.prompt = after;
+          note('Auftrag von ' + x.name + ' durch ' + esc(from) + ' geändert.');
+        } else {
+          x.notes.push({ kind: 'ergänzt', from, text: 'Zwei kleine Punkte im Core, kein Blocker – bitte in deiner Prüfung gegenlesen.' });
+          note('Auftrag von ' + x.name + ' durch ' + esc(from) + ' ergänzt.');
+        }
+      });
+    }
+    if (fix) {
+      const rounds = st.filter((x) => x.name.startsWith('Fix-Runde')).length;
+      if (rounds >= 2) {
+        note('Zwei Fix-Runden sind durch – der Benutzer entscheidet (Hinweis an den Agenten).');
+      } else {
+        const base = s.name.replace(/ \(\d\)$/, '');
+        const f = Object.assign(mk('f' + (++counter), 'Fix-Runde ' + (rounds + 1), s.lane, 'pending', { type: 'developer', after: [id], prompt: 'Behebe die Befunde der vorigen Review-Station (siehe Vorgänger).' }), { isNew: true });
+        const r = Object.assign(mk('r' + counter, base + ' (' + (rounds + 2) + ')', s.lane, 'pending', { type: s.type, after: [f.id], model: s.model, effort: s.effort, prompt: s.prompt }), { isNew: true });
+        st.filter((x) => x.after.includes(id)).forEach((x) => { x.after = x.after.map((a) => (a === id ? r.id : a)); });
+        st.push(f, r);
+        note('Befund bei ' + s.name + ': Fix-Runde und zweites Review eingehängt, die Nachfolger warten jetzt auf das zweite Review. → Ersteller-Session #1 benachrichtigt.');
+      }
+    }
+    if (st.every((x) => x.st === 'done')) note('Umsetzung fertig. → Ersteller-Session #1 benachrichtigt.');
+  }
+
+  function addEdge(p, x) {
+    get(x).after.push(p);
+    held.delete(x); delete cd[x];
+    note(name(x) + ' wartet jetzt auch auf ' + name(p) + '.');
+  }
+  function rmEdge(p, x) {
+    const s = get(x);
+    s.after = s.after.filter((a) => a !== p);
+    note(name(x) + ' wartet nicht mehr auf ' + name(p) + (s.after.length ? '.' : ' – ohne Vorgänger darf sie sofort starten.'));
+  }
+
+  // Werte einer Station ändern. Bis zum Start alles; danach nur die Automatik, bis die Station fertig ist.
+  const PRE_START = ['prompt', 'type', 'model', 'effort', 'skill', 'sysAdd', 'inherit', 'autoStart', 'by'];
+  function setField(id, f, v) {
+    const s = get(id);
+    if (!s) return;
+    if (PRE_START.includes(f) && s.st !== 'pending') return;
+    if ((f === 'autoResume' || f === 'onError') && s.st === 'done') return;
+    if (f === 'by') { s.by = v; s.type = v === 'you' ? null : (s.type || 'developer'); if (v === 'you') delete cd[id]; }
+    else if (f === 'type') {
+      const oldHint = s.type ? TYPES[s.type].hint : YOU_HINT;
+      s.type = v || null;
+      if (!s.prompt || s.prompt === oldHint) s.prompt = v ? TYPES[v].hint : '';
+    } else s[f] = v;
+    if (f === 'autoStart') { delete cd[id]; held.delete(id); }
+  }
+
+  const canPropose = () => !get('d1') && get('g1') && get('g1').st === 'pending' && get('g1').after.includes('c2') && get('c2');
+  function openProposal() {
+    const p = { type: 'developer', model: 'sonnet', effort: 'medium', stage: 'Doku nachziehen', prompt: 'Ziehe README, Glossar und Code-Map für die Lanes mit Constraints nach.' };
+    proposal = Object.assign({}, p, { orig: Object.assign({}, p) });
+  }
+  function applyProposal() {
+    const d = Object.assign(mk('d1', proposal.stage, nextKey(), 'pending', { type: proposal.type, model: proposal.model, effort: proposal.effort, prompt: proposal.prompt, after: ['c2'] }), { isNew: true });
+    const g = get('g1');
+    g.after = g.after.map((a) => (a === 'c2' ? 'd1' : a));
+    st.push(d);
+    note('Plan-Änderung übernommen: ' + d.name + ' (' + d.type + ', ' + SHORT[eff(d).model] + ' · ' + ELBL[eff(d).effort] + ') eingefügt, Gesamt-Review wartet jetzt auf Doku statt auf Review Core.');
+    proposal = null;
+  }
+
+  function tick() {
+    const now = Date.now();
+    let changed = false;
+    for (const id of Object.keys(cd)) {
+      const s = get(id);
+      if (!s || !isReady(s) || !wants(s)) { delete cd[id]; changed = true; }
+      else if (now >= cd[id]) { startStation(s); changed = true; }
+    }
+    let free = maxPar - used();
+    for (const s of st) {
+      if (free > 0 && wants(s) && isReady(s) && !cd[s.id] && !held.has(s.id)) { cd[s.id] = now + COUNTDOWN_MS; free--; changed = true; }
+    }
+    if (changed || dirty) render(); else timers();
+  }
+
+  function timers() {
+    const now = Date.now();
+    document.querySelectorAll('[data-cd]').forEach((e) => { e.textContent = Math.max(0, Math.ceil((Number(e.dataset.cd) - now) / 1000)) + ' s'; });
+    document.querySelectorAll('[data-since]').forEach((e) => {
+      const sec2 = Math.floor((now - Number(e.dataset.since)) / 1000);
+      e.textContent = Math.floor(sec2 / 60) + ':' + String(sec2 % 60).padStart(2, '0') + ' min';
+    });
+  }
+
+  // ---- Darstellung ----
+  const seg = (act, extra, cur, opts, dis) => '<span class="seg" role="group">' + opts.map(([v, label]) =>
+    '<button class="' + (cur === v ? 'on' : '') + '" data-act="' + act + '" ' + extra + ' data-v="' + v + '" aria-pressed="' + (cur === v) + '"' + (dis ? ' disabled' : '') + '>' + label + '</button>').join('') + '</span>';
+  const dotHtml = (cls) => (cls === 'user' ? HAND : '<span class="dot ' + cls + '"></span>');
+
+  function disp(s) {
+    if (s.st === 'done') return { dot: 'done', cls: 'done', text: 'fertig' };
+    if (s.st === 'running') return { dot: 'run', cls: 'run', text: 'läuft · <span data-since="' + s.since + '"></span>' };
+    if (s.st === 'asking') return { dot: 'ask', cls: 'ask', text: 'Frage offen' };
+    if (s.st === 'error') return { dot: 'err', cls: 'err', text: 'Fehler' };
+    const youDot = s.by === 'you' ? 'user' : null;
+    if (!isReady(s)) return { dot: youDot || 'wait', cls: 'wait', text: 'wartet' };
+    if (s.by === 'you') return { dot: 'user', cls: 'ready', text: 'wartet auf dich', act: ['focus', 'Öffnen'] };
+    if (cd[s.id]) return { dot: 'ready', cls: 'ready', text: 'startet in <span data-cd="' + cd[s.id] + '"></span>', act: ['cancel', 'Abbrechen'] };
+    const place = waiting().indexOf(s);
+    if (place >= 0) return { dot: 'ready', cls: 'ready', text: 'bereit · Warteschlange ' + (place + 1), act: ['start', '▶'] };
+    return { dot: 'ready', cls: 'ready', text: 'bereit', act: ['start', '▶'] };
+  }
+
+  const chipBtn = (id) => {
+    const s = get(id);
+    return '<button class="chip ' + (s.st === 'done' ? 'ok' : '') + '" data-act="focus" data-id="' + id + '">' + s.name + (s.st === 'done' ? ' ✓' : '') + '</button>';
+  };
+
+  function subLine(s) {
+    const started = s.st !== 'pending';
+    let html;
+    if (s.after.length) html = (started ? 'wartete auf ' : 'wartet auf ') + s.after.map(chipBtn).join('');
+    else html = '<span class="chip">Startstation</span>' + (started ? '' : 'keine Vorgänger – darf sofort starten');
+    const next = succ(s.id);
+    html += ' · danach ' + (next.length ? '→ ' + next.map((n) => chipBtn(n.id)).join('') : '<span class="chip">Ende des Plans</span>');
+    return html;
+  }
+
+  function rowHtml(s) {
+    const d = disp(s);
+    const act = d.act ? '<button class="mini" data-act="' + d.act[0] + '" data-id="' + s.id + '" title="' + (d.act[0] === 'start' ? 'Jetzt starten (ignoriert die Grenze „Parallel max.“)' : '') + '">' + d.act[1] + '</button>' : '';
+    let meta = '', sw = '', manual = '';
+    if (s.by === 'you') {
+      meta = '<span class="meta" title="Diese Station erledigst du selbst">durch dich</span>';
+    } else {
+      const e = eff(s);
+      meta = '<span class="meta" title="Modell: ' + MODEL_FULL[e.model] + ' (' + e.mSrc + ') · Denkaufwand: ' + ELBL[e.effort] + ' (' + e.eSrc + ')' + (s.snap ? ' – Werte der Session' : '') + '">' + SHORT[e.model] + ' · ' + ELBL[e.effort] + '</span>';
+      sw = '<button class="sw' + (s.autoResume ? ' on' : '') + '" data-act="row-resume" data-id="' + s.id + '" aria-pressed="' + s.autoResume + '"' + (s.st === 'done' ? ' disabled' : '') +
+        ' title="Automatisch weiter: setzt nach leerem Kontingent und nach einem Fehler selbst fort. Ein Klick schaltet nur diese Station.">↻</button>';
+      if (s.st === 'pending' && s.autoStart === 'off' && auto) manual = '<span class="chip" title="Startet nie von selbst, auch mit „Automatisch starten“">⏸ manuell</span>';
+      if (s.st === 'pending' && s.autoStart === 'on' && !auto) manual = '<span class="chip" title="Startet von selbst, obwohl „Automatisch starten“ aus ist">▶ automatisch</span>';
+    }
+    return '<div class="row ' + (s.id === focusId ? 'focus' : '') + '" role="button" tabindex="0" data-act="focus" data-id="' + s.id + '">' +
+      dotHtml(d.dot) +
+      '<span>Lane ' + s.lane + ' · ' + s.name + (s.num ? ' <span class="num">#' + s.num + '</span>' : '') + (s.isNew ? '<span class="new">neu</span>' : '') + meta + sw + (manual ? ' ' + manual : '') + '</span>' +
+      '<span class="state ' + d.cls + '">' + d.text + act + '</span>' +
+      '<span class="sub">' + subLine(s) + '</span></div>';
+  }
+
+  function pickHtml(s, kind) {
+    const items = st.filter((x) => x.id !== s.id).map((x) => {
+      let reason = null;
+      if (kind === 'pred') {
+        if (s.after.includes(x.id)) return '';
+        reason = cycleOf(x.id, s.id);
+      } else {
+        if (x.after.includes(s.id)) return '';
+        reason = x.st !== 'pending' ? 'schon gestartet – Kanten gesperrt' : cycleOf(s.id, x.id);
+      }
+      return '<button data-act="' + (kind === 'pred' ? 'add-pred' : 'add-succ') + '" data-id="' + x.id + '"' + (reason ? ' disabled' : '') + '>' +
+        x.name + (reason ? '<small>' + reason + '</small>' : '') + '</button>';
+    }).join('');
+    return '<div class="pick">' + (items || '<small>Keine weitere Station.</small>') + '</div>';
+  }
+
+  const section = (key, title, summary, body) => '<div class="sec"><button class="sech" data-act="sec" data-s="' + key + '" aria-expanded="' + sec[key] + '"><span class="car">' + (sec[key] ? '▾' : '▸') + '</span>' + title +
+    '<span class="sum">' + summary + '</span></button>' + (sec[key] ? '<div class="secb">' + body + '</div>' : '') + '</div>';
+
+  function cardHtml(s) {
+    const d = disp(s);
+    const pending = s.st === 'pending', done = s.st === 'done', you = s.by === 'you';
+    const t = s.type && TYPES[s.type];
+    const e = you ? null : eff(s);
+    const id = 'data-id="' + s.id + '"';
+    const purpose = you
+      ? 'Zweck: <b>Aufgabe für dich</b> – du bekommst die Anweisung unten und meldest „Erledigt“; erst dann geht es weiter.'
+      : 'Zweck: ' + (t ? '<b>' + s.type + '</b> – ' + t.desc : '<b>ohne Typ</b> – keine Rolle, nur Modell und Prompt der Station.');
+
+    // Ablauf
+    const preds = s.after.map((a) => (pending
+      ? '<span class="chip edit">' + name(a) + (get(a).st === 'done' ? ' ✓' : '') + '<button data-act="rm-pred" data-id="' + a + '" title="Kante lösen">×</button></span>'
+      : '<span class="chip lock" title="Gestartet: Kanten gesperrt">' + name(a) + ' 🔒</span>')).join('');
+    const nexts = succ(s.id).map((n) => (n.st === 'pending'
+      ? '<span class="chip edit">' + n.name + '<button data-act="rm-succ" data-id="' + n.id + '" title="Kante lösen">×</button></span>'
+      : '<span class="chip lock" title="Gestartet: Kanten gesperrt">' + n.name + ' 🔒</span>')).join('');
+    const ablauf =
+      '<div class="ln"><span class="lbl">Wartet auf</span>' + (preds || '<span class="chip">keine – Startstation</span>') +
+        (pending ? '<button class="chip add" data-act="open-pred">+ Vorgänger</button>' : '') + '</div>' +
+      (pick === 'pred' && pending ? pickHtml(s, 'pred') : '') +
+      '<div class="ln"><span class="lbl">Nachfolger</span>' + (nexts || '<span class="chip">keiner – Ende des Plans</span>') + '<button class="chip add" data-act="open-succ">+ Nachfolger</button></div>' +
+      (pick === 'succ' ? pickHtml(s, 'succ') : '') +
+      '<div class="hint">Der Nachfolger ist abgeleitet: „+ Nachfolger“ lässt die gewählte Station auf diese warten, „×“ löst die Kante.</div>';
+
+    // Auftrag (Prompt)
+    const notes = s.notes.length ? s.notes.map((n, i) => '<div class="note"><b>' + (n.kind === 'geändert' ? 'Geändert' : 'Ergänzt') + ' von ' + esc(n.from) + ' (Vorgänger)</b>' +
+      (n.kind === 'geändert' ? '<div class="was">vorher: ' + esc(n.before) + '</div>' : '<div>' + esc(n.text) + '</div>') +
+      (pending ? '<button class="mini" data-act="note-rm" ' + id + ' data-i="' + i + '" style="margin-left:0">' + (n.kind === 'geändert' ? 'Zurücksetzen' : 'Entfernen') + '</button>' : '') + '</div>').join('')
+      : '<div class="hint">Bisher keine Änderung durch Vorgänger.</div>';
+    const result = done && s.result ? '<div class="ln"><span class="lbl">Ergebnis</span><span>' + esc(s.result) + '</span></div>' : '';
+    const youResult = you && isReady(s)
+      ? '<div class="ln"><span class="lbl">Ergebnis</span><input type="text" class="inp" data-f="res" ' + id + ' maxlength="200" placeholder="Eine Zeile, geht an die Nachfolger" value="' + esc(drafts['res' + s.id] || '') + '"><button class="chip add" data-act="userdone" ' + id + '>Erledigt</button></div>' : '';
+    const auftrag =
+      '<div class="ln"><span class="lbl">' + (you ? 'Anweisung an dich' : 'Prompt') + '</span></div>' +
+      '<textarea class="ta" rows="3" maxlength="1000" data-f="prompt" ' + id + (pending ? '' : ' disabled') + '>' + esc(s.prompt) + '</textarea>' +
+      '<div class="hint"><span data-count="' + s.id + '">' + s.prompt.length + '</span>/1000 Zeichen' + (pending ? ' · bis zum Start änderbar' : ' · gesendet, festgeschrieben 🔒') + '</div>' +
+      youResult + result +
+      '<div class="ln"><span class="lbl">Vorgänger dürfen</span>' + seg('set', id + ' data-f="inherit"', s.inherit, [['add', 'nur ergänzen'], ['edit', 'ergänzen und ändern'], ['none', 'nicht anfassen']], !pending) + '</div>' +
+      notes;
+
+    // Agent
+    const sysText = t ? t.sys : '(kein Typ – kein Rollentext)';
+    const runs = e ? (s.snap ? 'Die Session ' + (done ? 'lief' : 'läuft') + ' mit ' : 'Läuft mit ') + '<b>' + MODEL_FULL[e.model] + ' · ' + ELBL[e.effort] + '</b> (Modell: ' + e.mSrc + ', Denkaufwand: ' + e.eSrc + ')' : '';
+    const agent = you
+      ? '<div class="ln"><span class="lbl">Bearbeiter</span>' + seg('set', id + ' data-f="by"', 'you', [['agent', 'Agent'], ['you', 'durch dich']], !pending) + '</div><div class="hint">Eine Station durch dich hat keinen Typ, kein Modell und keinen System-Prompt.</div>'
+      : '<div class="ln"><span class="lbl">Bearbeiter</span>' + seg('set', id + ' data-f="by"', 'agent', [['agent', 'Agent'], ['you', 'durch dich']], !pending) + '</div>' +
+        '<div class="ln"><span class="lbl">Typ</span>' + seg('set', id + ' data-f="type"', s.type || '', [...TYPE_ORDER.map((k) => [k, k]), ['', 'ohne Typ']], !pending) + '</div>' +
+        '<div class="ln"><span class="lbl">Modell</span>' + seg('set', id + ' data-f="model"', s.model, [['', 'Standard: ' + SHORT[stdOf(s.type, 'model')]], ...MODELS], !pending) + '</div>' +
+        '<div class="ln"><span class="lbl">Denkaufwand</span>' + seg('set', id + ' data-f="effort"', s.effort, [['', 'Standard: ' + ELBL[stdOf(s.type, 'effort')]], ...EFFORTS], !pending) + '</div>' +
+        '<div class="hint">' + runs + '</div>' +
+        '<div class="ln"><span class="lbl">Skill</span><input type="text" class="inp" data-f="skill" ' + id + ' maxlength="40" placeholder="z. B. implement" value="' + esc(s.skill) + '"' + (pending ? '' : ' disabled') + '></div>' +
+        '<div class="ln"><span class="lbl">System-Prompt</span></div><div class="sys">' + esc(sysText) + '</div>' +
+        '<div class="ln"><span class="lbl">Zusatz</span></div>' +
+        '<textarea class="ta" rows="2" maxlength="1000" data-f="sysAdd" ' + id + ' placeholder="Optional: Ergänzung zum Rollentext nur für diese Station"' + (pending ? '' : ' disabled') + '>' + esc(s.sysAdd) + '</textarea>' +
+        '<div class="hint">Der Rollentext kommt aus dem Agententyp (Einstellungen) und wird beim Start festgeschrieben.</div>';
+
+    // Automatik
+    const effStart = wants(s);
+    const automatik = you
+      ? '<div class="hint">Eine Station durch dich startet nie von selbst: sie wartet auf dich, sobald ihre Vorgänger fertig sind.</div>'
+      : '<div class="ln"><span class="lbl">Automatisch starten</span>' + seg('set', id + ' data-f="autoStart"', s.autoStart, [['inherit', 'wie Umsetzung (' + (auto ? 'an' : 'aus') + ')'], ['on', 'an'], ['off', 'aus']], !pending) + '</div>' +
+        '<div class="hint">Startet die Station nach ihren Vorgängern von selbst (Countdown) oder erst auf ▶. Jetzt: ' + (effStart ? 'von selbst' : 'auf ▶') + '.</div>' +
+        '<div class="ln"><span class="lbl">Automatisch weiter</span><label><input type="checkbox" data-f="autoResume" ' + id + (s.autoResume ? ' checked' : '') + (done ? ' disabled' : '') + '> nach leerem Kontingent selbst fortsetzen</label></div>' +
+        '<div class="ln"><span class="lbl">Bei Fehler</span>' + seg('set', id + ' data-f="onError"', s.onError, [['stop', 'anhalten'], ['retry1', '1× neu starten'], ['retry3', 'bis 3× neu starten']], done) + '</div>' +
+        '<div class="hint">Gilt bis die Station fertig ist; auch während sie läuft.</div>';
+
+    const lockinfo = pending ? 'Alles lässt sich ändern, bis die Station startet.'
+      : done ? 'Fertig: nur noch Ansicht, mit den Werten, mit denen die Station lief.'
+        : 'Gestartet: Prompt, Typ, Modell, Denkaufwand und System-Prompt sind festgeschrieben 🔒 (ein Modellwechsel in der Eingabeleiste der Session bleibt möglich). Offen bleibt die Automatik.';
+    let sim = '';
+    if (s.st === 'running') sim = '<button data-act="complete" ' + id + '>Fertig melden</button><button data-act="complete-note" ' + id + '>Fertig melden · Hinweis an Nachfolger</button><button data-act="complete-fix" ' + id + '>Mit Befund melden</button><button data-act="ask" ' + id + '>Agent fragt</button><button data-act="fail" ' + id + '>Fehler</button>';
+    else if (s.st === 'asking' || s.st === 'error') sim = '<button data-act="resume" ' + id + '>Läuft wieder</button>';
+
+    const sumAgent = you ? 'durch dich' : (s.type || 'ohne Typ') + ' · ' + SHORT[e.model] + ' · ' + ELBL[e.effort];
+    const sumAuto = you ? 'wartet auf dich' : 'starten: ' + (s.autoStart === 'inherit' ? 'wie Umsetzung' : s.autoStart === 'on' ? 'an' : 'aus') + ' · weiter: ' + (s.autoResume ? 'an' : 'aus') + ' · Fehler: ' + { stop: 'anhalten', retry1: '1×', retry3: 'bis 3×' }[s.onError];
+    return '<div class="card"><div><b>Lane ' + s.lane + ' · ' + s.name + '</b> · <span class="' + d.cls + '">' + d.text + '</span></div>' +
+      '<div class="purpose">' + purpose + '</div>' +
+      section('ablauf', 'Ablauf', s.after.length + ' Vorgänger · ' + succ(s.id).length + ' Nachfolger', ablauf) +
+      section('auftrag', you ? 'Anweisung' : 'Auftrag', s.prompt.length + ' Zeichen · ' + s.notes.length + ' Änderung(en) durch Vorgänger', auftrag) +
+      section('agent', you ? 'Bearbeiter' : 'Agent', sumAgent, agent) +
+      section('automatik', 'Automatik', sumAuto, automatik) +
+      '<div class="hint lockinfo">' + lockinfo + '</div>' +
+      (sim ? '<div class="simrow">Simulation:' + sim + '</div>' : '') + '</div>';
+  }
+
+  function proposalHtml() {
+    const p = proposal, t = TYPES[p.type], o = p.orig;
+    const was = (k, fmt) => (p[k] !== o[k] ? ' <span class="hint">Vorschlag war: ' + fmt(o[k]) + '</span>' : '');
+    const fm = (v) => (v ? SHORT[v] : 'Standard');
+    const fe = (v) => (v ? ELBL[v] : 'Standard');
+    return '<div class="change"><b>Plan ändern?</b> Session #6 (Review Core) schlägt vor:' +
+      '<div class="ln"><span class="lbl">Neue Station</span><b>' + esc(p.stage) + '</b> in einer neuen Lane</div>' +
+      '<div class="ln"><span class="lbl">Ablauf</span>wartet auf <span class="chip">Review Core</span> · danach → <span class="chip">Gesamt-Review</span>, das dann auf Doku statt auf Review Core wartet</div>' +
+      '<div class="ln"><span class="lbl">Typ</span>' + seg('prop-set', 'data-f="type"', p.type, TYPE_ORDER.map((k) => [k, k])) + was('type', (v) => v) + '</div>' +
+      '<div class="hint" style="margin-left:102px">Zweck: ' + t.desc + '</div>' +
+      '<div class="ln"><span class="lbl">Modell</span>' + seg('prop-set', 'data-f="model"', p.model, [['', 'Standard: ' + SHORT[stdOf(p.type, 'model')]], ...MODELS]) + was('model', fm) + '</div>' +
+      '<div class="ln"><span class="lbl">Denkaufwand</span>' + seg('prop-set', 'data-f="effort"', p.effort, [['', 'Standard: ' + ELBL[stdOf(p.type, 'effort')]], ...EFFORTS]) + was('effort', fe) + '</div>' +
+      '<div class="ln"><span class="lbl">Prompt</span></div><textarea class="ta" rows="2" maxlength="1000" data-pf="prompt">' + esc(p.prompt) + '</textarea>' +
+      '<div class="hint">Du kannst den Vorschlag übernehmen, wie er ist, oder Typ, Modell, Denkaufwand und Prompt vorher ändern. Alles Weitere (System-Prompt, Automatik) steht nach dem Übernehmen in der Kartei.</div>' +
+      '<div class="acts"><button class="primary" data-act="proposal-apply"' + (canPropose() ? '' : ' disabled') + '>Übernehmen</button><button data-act="proposal-drop">Verwerfen</button></div></div>';
+  }
+
+  // Beim Tippen in der Kartei oder in der Plan-Karte nicht neu zeichnen: Cursor und Eingabe blieben sonst nicht erhalten.
+  function editing() {
+    const a = document.activeElement;
+    return !!(a && a.matches && a.matches('textarea, input[type="text"]') && a.closest('#body'));
+  }
+
+  function render(force) {
+    if (!force && editing()) { dirty = true; timers(); return; }
+    dirty = false;
+    const total = st.length, done = st.filter((x) => x.st === 'done').length;
+    const memo = {};
+    const groups = {};
+    st.forEach((s) => { (groups[level(s, memo)] = groups[level(s, memo)] || []).push(s); });
+    const rows = Object.keys(groups).map(Number).sort((a, b) => a - b).map((lv) => {
+      const g = groups[lv];
+      const inner = g.map((s) => rowHtml(s) + (s.id === focusId ? cardHtml(s) : '')).join('');
+      return '<div class="stage">Stufe ' + (lv + 1) + (g.length > 1 ? ' · parallel möglich' : '') + '</div>' + (g.length > 1 ? '<div class="par">' + inner + '</div>' : inner);
+    }).join('');
+    $('#bar').innerHTML =
+      '<span class="name">Konstellation</span>' +
+      '<span><span class="fill" style="display:inline-block;vertical-align:middle"><i style="width:' + (total ? (100 * done / total) : 0) + '%"></i></span> ' + done + ' von ' + total + ' fertig' + (done === total ? ' · Umsetzung fertig' : '') + '</span>' +
+      '<label title="Startet jede Station, deren Vorgänger fertig sind, nach dem Countdown von selbst. Einzelne Stationen können abweichen."><input type="checkbox" id="auto"' + (auto ? ' checked' : '') + '> Automatisch starten</label>' +
+      '<label title="Setzt jede Station nach leerem Kontingent und nach einem Fehler selbst fort. Schaltet alle Stationen; einzelne können danach abweichen (letzte Aktion gewinnt)."><input type="checkbox" id="resume"' + (resumeAll ? ' checked' : '') + '> Automatisch weiter</label>' +
+      '<label title="Höchstens so viele Stationen laufen gleichzeitig. Weitere bereite Stationen starten selbst, sobald ein Platz frei wird – nur bei Stationen, die automatisch starten. Ein Klick auf ▶ ignoriert die Grenze.">Parallel max. ' +
+        '<span class="step"><button data-act="par-down" aria-label="weniger"' + (maxPar <= 1 ? ' disabled' : '') + '>−</button><b id="par">' + maxPar + '</b><button data-act="par-up" aria-label="mehr"' + (maxPar >= 6 ? ' disabled' : '') + '>+</button></span></label>' +
+      (waiting().length ? '<span class="ready">Warteschlange: ' + waiting().length + '</span>' : '') +
+      '<span class="sp"></span><button class="mini" data-act="np-open" title="Neue Lane mit Stationen und Constraints anlegen">+ Lane</button><button class="mini" disabled title="Lagebericht: unverändert wie heute">Lagebericht</button>';
+    $('#body').innerHTML = (proposal ? proposalHtml() : '') + rows +
+      '<div class="legend"><span><i class="dot done"></i>fertig</span><span><i class="dot run"></i>läuft</span><span><i class="dot ready"></i>bereit / Countdown</span><span><i class="dot wait"></i>wartet</span><span>' + HAND + 'durch dich</span><span><i class="dot ask"></i>Frage</span><span><i class="dot err"></i>Fehler</span><span><b class="meta" style="margin:0">Opus · hoch</b>Modell · Denkaufwand</span><span><b class="sw on" style="margin:0;display:inline-block">↻</b>Automatisch weiter</span></div>' +
+      (log.length ? '<div class="log"><h4>Änderungen am Plan und Meldungen</h4>' + log.slice(0, 6).map((l) => '<div>' + l + '</div>').join('') + '</div>' : '');
+    renderSim();
+    timers();
+  }
+
+  function renderSim() {
+    const theme = document.documentElement.dataset.theme || 'system';
+    $('#sim').innerHTML =
+      '<b>Szenario</b><button data-act="scn" data-id="mid" aria-pressed="' + (scenario === 'mid') + '">Mitten im Lauf</button><button data-act="scn" data-id="fresh" aria-pressed="' + (scenario === 'fresh') + '">Frisch angelegt</button>' +
+      '<b>Agent</b><button data-act="propose"' + (proposal || !canPropose() ? ' disabled' : '') + '>schlägt Plan-Änderung vor</button>' +
+      '<span class="sp"></span><b>Farbschema</b>' + ['system', 'light', 'dark'].map((t) => '<button data-act="theme" data-id="' + t + '" aria-pressed="' + (theme === t) + '">' + { system: 'System', light: 'Hell', dark: 'Dunkel' }[t] + '</button>').join('');
+  }
+
+  // ---- Neue Lane (der Benutzer ändert den Plan direkt) ----
+  const newStage = (type) => (type === 'you'
+    ? { by: 'you', type: null, stage: 'Handtest', model: '', effort: '', prompt: YOU_HINT }
+    : { by: 'agent', type, stage: TYPES[type].stages[0], model: '', effort: '', prompt: TYPES[type].hint });
+  const stageName = (x) => esc(x.stage.trim()) + ' ' + esc(np.title.trim());
+
+  function buildDraft(prefix) {
+    const key = nextKey();
+    const ids = np.stages.map((_, i) => prefix + i);
+    const added = np.stages.map((x, i) => Object.assign(
+      mk(ids[i], stageName(x), key, 'pending', { by: x.by, type: x.type, model: x.model, effort: x.effort, prompt: x.prompt, after: np.chain ? (i ? [ids[i - 1]] : [...np.preds]) : [...np.preds] }),
+      { isNew: true }));
+    return { key, added, tail: np.chain ? ids.slice(-1) : ids };
+  }
+  // Wendet den Entwurf zeitweise auf den Plan an, damit Stufen und Zyklen mit derselben Rechnung entstehen wie im Plan.
+  function withDraft(fn) {
+    const d = buildDraft('np~');
+    const saved = [...np.succs].map((y) => [y, get(y).after.slice()]);
+    st.push(...d.added);
+    np.succs.forEach((y) => get(y).after.push(...d.tail));
+    try { return fn(d); } finally {
+      st.splice(st.length - d.added.length, d.added.length);
+      saved.forEach(([y, a]) => { get(y).after = a; });
+    }
+  }
+  function npIssues() {
+    const out = [], title = np.title.trim();
+    if (!title) out.push('Der Titel der Lane fehlt.');
+    if (!np.stages.length) out.push('Mindestens eine Station.');
+    if (np.stages.some((x) => !x.stage.trim())) out.push('Eine Station hat keinen Namen.');
+    const names = np.stages.map(stageName);
+    names.forEach((nm, i) => { if (st.some((s) => s.name === nm) || names.indexOf(nm) !== i) out.push('Name schon vergeben: ' + nm + '.'); });
+    np.succs.forEach((y) => {
+      if (get(y).st !== 'pending') out.push(name(y) + ' ist schon gestartet und kann nicht warten.');
+      np.preds.forEach((p) => { const w = path(y, p); if (w) out.push('Zyklus: ' + [...w.map(name), 'neue Lane', name(y)].join(' → ')); });
+    });
+    return out;
+  }
+  function npPreview() {
+    const issues = npIssues();
+    if (issues.length) return issues.map((i) => '<span class="err">' + i + '</span>').join('');
+    const before = {}, m0 = {};
+    st.forEach((s) => { before[s.id] = level(s, m0); });
+    return withDraft((d) => {
+      const m1 = {};
+      const where = d.added.map((s) => s.name + ' → Stufe ' + (level(s, m1) + 1)).join(', ');
+      const moved = st.filter((s) => before[s.id] !== undefined && level(s, m1) !== before[s.id]).map((s) => s.name + ' (Stufe ' + (before[s.id] + 1) + ' → ' + (level(s, m1) + 1) + ')');
+      return 'Lane ' + d.key + ': ' + where + '.' + (np.preds.size ? '' : ' Startstation: darf sofort starten (▶ oder Automatik).') +
+        (moved.length ? '<br>Verschiebt: ' + moved.slice(0, 4).join(', ') + (moved.length > 4 ? ' …' : '') + '.' : '');
+    });
+  }
+  function npHtml() {
+    const blocks = np.stages.map((x, i) => {
+      const t = x.by === 'you' ? null : TYPES[x.type];
+      const cur = x.by === 'you' ? 'you' : x.type;
+      const di = 'data-i="' + i + '"';
+      const e = x.by === 'you' ? '' :
+        '<div class="ln"><span class="lbl">Modell</span>' + seg('np-set', di + ' data-f="model"', x.model, [['', 'Standard: ' + SHORT[stdOf(x.type, 'model')]], ...MODELS]) + '</div>' +
+        '<div class="ln"><span class="lbl">Denkaufwand</span>' + seg('np-set', di + ' data-f="effort"', x.effort, [['', 'Standard: ' + ELBL[stdOf(x.type, 'effort')]], ...EFFORTS]) + '</div>';
+      return '<div class="nps"><div class="ln"><b>Station ' + (i + 1) + '</b>' + seg('np-set', di + ' data-f="type"', cur, [...TYPE_ORDER.map((k) => [k, k]), ['you', 'durch dich']]) +
+        '<input type="text" class="inp" data-npf="stage" ' + di + ' maxlength="40" aria-label="Name der Station" value="' + esc(x.stage) + '"><button class="mini" data-act="np-rm-stage" ' + di + '>entfernen</button></div>' +
+        '<div class="hint">' + (x.by === 'you' ? 'Zweck: <b>Aufgabe für dich</b> – du bekommst die Anweisung und meldest „Erledigt“.' : 'Zweck: <b>' + x.type + '</b> – ' + t.desc) + '</div>' +
+        '<div class="ln"><span class="lbl">' + (x.by === 'you' ? 'Anweisung' : 'Prompt') + '</span></div>' +
+        '<textarea class="ta" rows="2" maxlength="1000" data-npf="prompt" ' + di + '>' + esc(x.prompt) + '</textarea>' + e + '</div>';
+    }).join('');
+    const predChips = st.map((s) => '<button class="chip' + (np.preds.has(s.id) ? ' sel' : '') + '" data-act="np-pred" data-id="' + s.id + '" aria-pressed="' + np.preds.has(s.id) + '">' + s.name + '</button>').join('');
+    const succChips = st.map((s) => '<button class="chip' + (np.succs.has(s.id) ? ' sel' : '') + '" data-act="np-succ" data-id="' + s.id + '" aria-pressed="' + np.succs.has(s.id) + '"' +
+      (s.st !== 'pending' ? ' disabled title="Schon gestartet – Kanten gesperrt"' : '') + '>' + s.name + '</button>').join('');
+    return '<div class="np"><div class="ln"><b>Neue Lane</b><span class="hint">Schlüssel ' + nextKey() + ' (automatisch)</span></div>' +
+      '<div class="ln"><label class="lbl" for="np-title">Titel</label><input type="text" class="inp" id="np-title" maxlength="80" placeholder="z. B. Doku" value="' + esc(np.title) + '"></div>' +
+      blocks +
+      '<div class="ln"><span class="lbl">Station hinzufügen</span>' + [...TYPE_ORDER, 'you'].map((k) => '<button class="chip add" data-act="np-add" data-v="' + k + '">+ ' + (k === 'you' ? 'durch dich' : k) + '</button>').join('') + '</div>' +
+      '<div class="ln"><span class="lbl"></span><label><input type="checkbox" id="np-chain"' + (np.chain ? ' checked' : '') + '> nacheinander (jede Station wartet auf die vorige)</label></div>' +
+      '<div class="ln"><span class="lbl">Wartet auf</span>' + predChips + '</div><div class="ln"><span class="lbl"></span><span class="hint">Leer = Startstation: darf sofort starten.</span></div>' +
+      '<div class="ln"><span class="lbl">Danach</span>' + succChips + '</div><div class="ln"><span class="lbl"></span><span class="hint">Die gewählten Stationen warten dann auch auf diese Lane. Nur Stationen, die noch nicht gestartet sind.</span></div>' +
+      '<div class="hint">Automatik, System-Prompt und Skill stellst du nach dem Anlegen in der Kartei ein; bis dahin gelten die Standardwerte.</div>' +
+      '<div class="np-preview" id="np-preview"></div>' +
+      '<div class="acts"><button class="primary" data-act="np-create" id="np-create">Anlegen</button><button data-act="np-close">Abbrechen</button></div></div>';
+  }
+  function updateNpPreview() {
+    if (!np) return;
+    $('#np-preview').innerHTML = npPreview();
+    $('#np-create').disabled = npIssues().length > 0;
+  }
+  function renderForm() {
+    $('#np').innerHTML = np ? npHtml() : '';
+    updateNpPreview();
+  }
+  function createLane() {
+    if (npIssues().length) return;
+    const d = buildDraft('n' + (++counter) + '_');
+    st.push(...d.added);
+    np.succs.forEach((y) => get(y).after.push(...d.tail));
+    note('Lane ' + d.key + ' „' + esc(np.title.trim()) + '“ angelegt: ' + d.added.map((s) => s.name).join(', ') +
+      (np.preds.size ? '' : ' (Startstation, darf sofort starten)') + (np.succs.size ? '; ' + [...np.succs].map(name).join(', ') + ' wartet jetzt auch darauf.' : '.'));
+    focusId = d.added[0].id; pick = null; np = null;
+  }
+  const toggle = (set, id) => { if (set.has(id)) set.delete(id); else set.add(id); };
+
+  // ---- Ereignisse ----
+  document.addEventListener('click', (e) => {
+    const el = e.target.closest('[data-act]');
+    if (!el) return;
+    const id = el.dataset.id, v = el.dataset.v;
+    const i = Number(el.dataset.i);
+    switch (el.dataset.act) {
+      case 'focus': focusId = id; pick = null; break;
+      case 'start': startStation(get(id)); break;
+      case 'cancel': delete cd[id]; held.add(id); break;
+      case 'userdone': complete(id, false); break;
+      case 'rm-pred': rmEdge(id, focusId); break;
+      case 'rm-succ': rmEdge(focusId, id); break;
+      case 'open-pred': pick = pick === 'pred' ? null : 'pred'; break;
+      case 'open-succ': pick = pick === 'succ' ? null : 'succ'; break;
+      case 'add-pred': addEdge(id, focusId); pick = null; break;
+      case 'add-succ': addEdge(focusId, id); pick = null; break;
+      case 'sec': sec[el.dataset.s] = !sec[el.dataset.s]; break;
+      case 'set': setField(id, el.dataset.f, v); break;
+      case 'row-resume': { const s = get(id); setField(id, 'autoResume', !s.autoResume); e.stopPropagation(); break; }
+      case 'note-rm': {
+        const s = get(id), n = s.notes[i];
+        if (n && n.kind === 'geändert') s.prompt = n.before;
+        s.notes.splice(i, 1);
+        break;
+      }
+      case 'complete': complete(id, false); break;
+      case 'complete-note': complete(id, false, true); break;
+      case 'complete-fix': complete(id, true); break;
+      case 'ask': get(id).st = 'asking'; break;
+      case 'fail': get(id).st = 'error'; break;
+      case 'resume': get(id).st = 'running'; break;
+      case 'par-down': maxPar = Math.max(1, maxPar - 1); break;
+      case 'par-up': maxPar = Math.min(6, maxPar + 1); break;
+      case 'propose': openProposal(); break;
+      case 'prop-set': proposal[el.dataset.f] = v; break;
+      case 'proposal-apply': applyProposal(); break;
+      case 'proposal-drop': proposal = null; break;
+      case 'scn': load(id); return;
+      case 'theme': if (id === 'system') delete document.documentElement.dataset.theme; else document.documentElement.dataset.theme = id; break;
+      case 'np-open': np = { title: '', stages: [newStage('developer'), newStage('reviewer')], chain: true, preds: new Set(), succs: new Set() }; renderForm(); $('#np-title').focus(); return;
+      case 'np-close': np = null; renderForm(); return;
+      case 'np-pred': toggle(np.preds, id); renderForm(); return;
+      case 'np-succ': toggle(np.succs, id); renderForm(); return;
+      case 'np-add': np.stages.push(newStage(v)); renderForm(); return;
+      case 'np-rm-stage': np.stages.splice(i, 1); renderForm(); return;
+      case 'np-set': {
+        const x = np.stages[i], f = el.dataset.f;
+        if (f === 'type') {
+          const oldHint = x.by === 'you' ? YOU_HINT : TYPES[x.type].hint;
+          const oldStage = x.by === 'you' ? 'Handtest' : TYPES[x.type].stages[0];
+          const fresh = newStage(v);
+          x.by = fresh.by; x.type = fresh.type;
+          if (x.prompt === oldHint) x.prompt = fresh.prompt;
+          if (x.stage === oldStage) x.stage = fresh.stage;
+          if (x.by === 'you') { x.model = ''; x.effort = ''; }
+        } else x[f] = v;
+        renderForm(); return;
+      }
+      case 'np-create': createLane(); renderForm(); render(true); tick(); try { document.querySelector('.row.focus').scrollIntoView({ block: 'center' }); } catch (err) { /* ohne Bildlauf */ } return;
+      default: return;
+    }
+    render(true);
+    tick();
+  });
+  document.addEventListener('input', (e) => {
+    const t = e.target, f = t.dataset.f;
+    if (np && t.id === 'np-title') { np.title = t.value; updateNpPreview(); return; }
+    if (np && t.dataset.npf) { np.stages[Number(t.dataset.i)][t.dataset.npf] = t.value; if (t.dataset.npf === 'stage') updateNpPreview(); return; }
+    if (proposal && t.dataset.pf) { proposal[t.dataset.pf] = t.value; return; }
+    if (f === 'res') { drafts['res' + t.dataset.id] = t.value; return; }
+    if (f === 'prompt' || f === 'sysAdd' || f === 'skill') {
+      setField(t.dataset.id, f, t.value);
+      const c = document.querySelector('[data-count="' + t.dataset.id + '"]');
+      if (c && f === 'prompt') c.textContent = t.value.length;
+    }
+  });
+  document.addEventListener('change', (e) => {
+    const t = e.target;
+    if (t.id === 'np-chain') { np.chain = t.checked; updateNpPreview(); return; }
+    if (t.id === 'auto') { auto = t.checked; cd = {}; held.clear(); render(true); tick(); return; }
+    if (t.id === 'resume') {
+      resumeAll = t.checked;
+      st.forEach((s) => { if (s.st !== 'done') s.autoResume = resumeAll; });
+      note('„Automatisch weiter“ für alle Stationen ' + (resumeAll ? 'an' : 'aus') + ' (einzelne Stationen können danach abweichen).');
+      render(true); return;
+    }
+    if (t.dataset.f === 'autoResume') { setField(t.dataset.id, 'autoResume', t.checked); render(true); }
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && np) { np = null; renderForm(); return; }
+    if (e.key === 'Escape' && pick) { pick = null; render(true); return; }
+    if ((e.key === 'Enter' || e.key === ' ') && e.target.matches('.row[data-act]')) { e.preventDefault(); e.target.click(); }
+  });
+
+  load('mid');
+  setInterval(tick, 1000);
+})();
+</script>
+</body>
+</html>

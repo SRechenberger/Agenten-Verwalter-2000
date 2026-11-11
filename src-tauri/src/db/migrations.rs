@@ -5,7 +5,7 @@ use crate::error::CommandError;
 
 /// Eine neue Migration hängt als neue Datei hinten an und verlängert diese Liste;
 /// eine bestehende wird nie geändert, weil sie auf fremden Rechnern schon gelaufen ist.
-const MIGRATIONS: [&str; 24] = [
+const MIGRATIONS: [&str; 25] = [
     include_str!("migrations/001_sessions_and_chat.sql"),
     include_str!("migrations/002_repositories_and_worktrees.sql"),
     include_str!("migrations/003_background.sql"),
@@ -30,7 +30,12 @@ const MIGRATIONS: [&str; 24] = [
     include_str!("migrations/022_agent_types.sql"),
     include_str!("migrations/023_station_agent.sql"),
     include_str!("migrations/024_session_agent_prompt.sql"),
+    include_str!("migrations/025_station_edges.sql"),
 ];
+
+/// Nach dieser Migration leitet Rust die Kanten der Bestandsdaten ab (ADR 061, Regel R1), in
+/// derselben Transaktion.
+const EDGES_MIGRATION: usize = 25;
 
 pub fn run(connection: &mut Connection) -> Result<(), CommandError> {
     let stored_version: u32 = connection.query_row("PRAGMA user_version", [], |row| row.get(0))?;
@@ -43,6 +48,9 @@ pub fn run(connection: &mut Connection) -> Result<(), CommandError> {
     for (index, script) in MIGRATIONS.iter().enumerate().skip(applied) {
         let transaction = connection.transaction()?;
         transaction.execute_batch(script)?;
+        if index + 1 == EDGES_MIGRATION {
+            crate::db::implementations::backfill_edges(&transaction)?;
+        }
         transaction.execute_batch(&format!("PRAGMA user_version = {}", index + 1))?;
         transaction.commit()?;
     }
