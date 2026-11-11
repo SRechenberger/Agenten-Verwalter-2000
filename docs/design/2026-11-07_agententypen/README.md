@@ -1,6 +1,6 @@
 # Design-Entwurf: Agententypen
 
-**Status:** freigegeben am 2026-11-08 mit dem Plan „Agententypen für Stationen“ (Taiga-Story 55, [ADR 060](../../decisions/060-agententypen.md)). Der Entwurf zeigt drei Teile: die Einstellungen (Schritte 1 bis 8), die Planung (Schritte 9 bis 11) und die Umsetzung (Schritte 12 bis 19). Gebaut sind die Einstellungen (Phase 3), die Werkzeuge der Planung (Phase 5, ohne eigene Oberfläche) und die Umsetzung (Phase 6). Wo die Umsetzung abweichen muss, wird erst dieser Entwurf geändert, dann der Code; `mockup.html` bleibt nach der Abnahme unverändert, die Abweichungen stehen unten.
+**Status:** freigegeben am 2026-11-08 mit dem Plan „Agententypen für Stationen“ (Taiga-Story 55, [ADR 060](../../decisions/060-agententypen.md)). Der Entwurf zeigt drei Teile: die Einstellungen (Schritte 1 bis 8), die Planung (Schritte 9 bis 11) und die Umsetzung (Schritte 12 bis 19). Gebaut sind die Einstellungen (Phase 3), die Werkzeuge der Planung (Phase 5, ohne eigene Oberfläche) und die Umsetzung (Phase 6). `mockup.html` ist seit der Abnahme unverändert; wo die gebaute Oberfläche abweicht, stehen die Abweichungen unten, und die Bilder in `umsetzung/` zeigen die gebaute App.
 
 ## Ansehen
 
