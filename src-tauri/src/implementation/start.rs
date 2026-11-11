@@ -219,9 +219,19 @@ fn fire(app: &AppHandle, implementation_id: &str, station_id: &str, token: u64) 
 
 /// Wer den Start auslöst: ▶ versucht eine Station mit Startfehler erneut, der Countdown nicht.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Trigger {
+pub(super) enum Trigger {
     User,
     Countdown,
+}
+
+/// Ob der Auslöser die Station jetzt starten darf. ▶ genügt, dass sie an der Reihe ist, auch mit
+/// Startfehler, sonst ließe sich der Start danach nie erneut versuchen; der Countdown versucht eine
+/// Station mit Startfehler nicht erneut.
+pub(super) fn is_allowed(trigger: Trigger, phases: &[PhaseView], station_id: &str) -> bool {
+    match trigger {
+        Trigger::User => schedule::is_due(phases, station_id),
+        Trigger::Countdown => schedule::may_start(phases, station_id),
+    }
 }
 
 /// ▶: Startet die Station sofort, auch nach einem Startfehler: frische Session, Name, Modell und
@@ -269,11 +279,7 @@ fn start_claimed(
             "Diese Station erledigst du selbst.".to_owned(),
         ));
     }
-    let is_allowed = match trigger {
-        Trigger::User => schedule::is_due(&view.phases, station_id),
-        Trigger::Countdown => schedule::may_start(&view.phases, station_id),
-    };
-    if !is_allowed {
+    if !is_allowed(trigger, &view.phases, station_id) {
         return Err(CommandError::Implementation(
             "Die Vorgänger dieser Station sind noch nicht fertig.".to_owned(),
         ));

@@ -17,7 +17,7 @@ use crate::session_tools::tools::SessionTools;
 use crate::settings::model::OperatingMode;
 use model::{PendingChange, PhaseInput, StationSettings, check_agents, validate};
 use serde_json::{Value, json};
-use start::{StartPlan, start_plan};
+use start::{StartPlan, Trigger, is_allowed, start_plan};
 
 fn station(stage: &str, model: ModelId, skill: &str) -> StationView {
     StationView {
@@ -1640,5 +1640,26 @@ fn tools_list_marks_only_the_agent_types_tool_read_only() {
     assert_eq!(
         marked,
         [json!({ "name": tools::AGENT_TYPES, "annotations": { "readOnlyHint": true } })]
+    );
+}
+
+#[test]
+fn manual_start_retries_a_station_with_a_start_error_and_the_countdown_does_not() {
+    let mut done = station_row("done", 0, "Umsetzung");
+    done.completed_at = Some(1.0);
+    let mut failed = station_row("failed", 1, "Review");
+    failed.start_error = Some("Den Typ „reviewr“ gibt es nicht mehr.".to_owned());
+    let view = view_with(vec![done, failed], &types());
+    assert!(
+        is_allowed(Trigger::User, &view.phases, "failed"),
+        "▶ versucht den Start nach einem Startfehler erneut"
+    );
+    assert!(
+        !is_allowed(Trigger::Countdown, &view.phases, "failed"),
+        "der Countdown versucht ihn nicht erneut"
+    );
+    assert!(
+        !is_allowed(Trigger::User, &view.phases, "done"),
+        "▶ startet keine fertige Station"
     );
 }
