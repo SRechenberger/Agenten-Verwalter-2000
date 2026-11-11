@@ -101,7 +101,8 @@
 
   &__model,
   &__mode,
-  &__browser {
+  &__browser,
+  &__plan {
     display: flex;
     align-items: center;
     border: 0;
@@ -181,6 +182,27 @@
     &--on {
       background: var(--color-accent-subtle);
       color: var(--color-accent);
+    }
+  }
+
+  /* „Plane Vorhaben“: ein Auftrag für den Planungszug, solange das Feld leer ist gesperrt. */
+  &__plan {
+    gap: var(--space-sm);
+    height: 26px;
+    margin-left: var(--space-xs);
+    padding: 0 9px;
+    border-radius: 13px;
+    color: var(--color-fg-secondary);
+    font-size: var(--font-size-xs);
+    white-space: nowrap;
+
+    &:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+
+      &:hover {
+        background: transparent;
+      }
     }
   }
 

@@ -32,6 +32,13 @@ export async function pauseSession(sessionId: string): Promise<void> {
   await invoke('session_pause', { sessionId });
 }
 
+/** „Plane Vorhaben“ (ADR 062): sendet den festen Planungs-Prompt mit `task` als Auftrag; der Zug gilt als Planungszug.
+ *  @throws {import('@/lib/bindings/CommandError').CommandError} `sessionNotFound`, `sessionClosed`,
+ *    `agentStopped`, `implementation` (leerer Auftrag, andere Betriebsart als Claude, offene Rückfrage) */
+export async function startPlanning(sessionId: string, task: string): Promise<void> {
+  await invoke('session_plan_vorhaben', { sessionId, task });
+}
+
 /** Setzt eine pausierte Session mit „Mach weiter.“ fort.
  *  @throws {import('@/lib/bindings/CommandError').CommandError} `sessionNotFound`, `agentStopped` */
 export async function resumeSession(sessionId: string): Promise<void> {
