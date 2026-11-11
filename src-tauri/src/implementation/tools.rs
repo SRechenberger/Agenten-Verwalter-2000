@@ -7,7 +7,8 @@ use tauri::{Emitter, Manager};
 
 use super::model::{
     ImplementationChangedEvent, ImplementationView, MAX_DESCRIPTION_CHARS, MAX_NAME_CHARS,
-    MAX_PROMPT_CHARS, MAX_SOURCE_CHARS, MAX_TITLE_CHARS, PhaseInput, check_length, validate,
+    MAX_PROMPT_CHARS, MAX_SOURCE_CHARS, MAX_TITLE_CHARS, PhaseInput, check_length,
+    check_max_parallel, validate,
 };
 use super::{IMPLEMENTATION_CHANGED_EVENT, changes};
 use crate::agent_types::model::AgentType;
@@ -234,6 +235,9 @@ struct CreateArguments {
     source: Option<String>,
     #[serde(default)]
     phases: Vec<PhaseInput>,
+    // ADR 061; das Schema nennt das Feld erst mit den Werkzeugen der Constraint-Abläufe.
+    #[serde(default)]
+    max_parallel: Option<u32>,
 }
 
 #[derive(Deserialize)]
@@ -273,8 +277,15 @@ fn create(call: &ToolCall, registry: &SessionRegistry) -> Result<ToolResult, Str
     let source = arguments.source.unwrap_or_default();
     check_length("source", source.trim(), 0, MAX_SOURCE_CHARS)?;
     validate(&arguments.phases)?;
+    check_max_parallel(arguments.max_parallel)?;
     let view = registry
-        .create_implementation(call.session_id, &arguments.name, &source, &arguments.phases)
+        .create_implementation(
+            call.session_id,
+            &arguments.name,
+            &source,
+            &arguments.phases,
+            arguments.max_parallel,
+        )
         .map_err(|error| error.to_string())?;
     announce(call, &view);
     // Die erste Station steht bereit (▶): wann die Umsetzung beginnt, entscheidet der Benutzer. Die

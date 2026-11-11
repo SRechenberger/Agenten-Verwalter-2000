@@ -439,6 +439,9 @@ struct Outbox {
     /// Die Antwort endete als abgeschlossen; nach dem Freigeben der Sperre prüft die Warteschlange
     /// der Session-Nachrichten, ob sie zustellt (ADR 052).
     turn_completed: bool,
+    /// Die Session einer Station ist nicht mehr aktiv (fertig, pausiert, Fehler, Abbruch): nach dem
+    /// Freigeben der Sperre plant die Umsetzung ihre Warteschlange neu (ADR 061).
+    station_idle: Option<String>,
 }
 
 impl SessionRegistry {
@@ -2691,6 +2694,15 @@ impl SessionState {
         if status != SessionStatus::Paused {
             self.pause_reason = None;
         }
+        if matches!(
+            status,
+            SessionStatus::Completed
+                | SessionStatus::Paused
+                | SessionStatus::Error
+                | SessionStatus::Cancelled
+        ) {
+            outbox.station_idle.clone_from(&self.station_of);
+        }
         outbox.summary_dirty = true;
         if matches!(
             status,
@@ -3691,6 +3703,9 @@ fn update<R>(
     // Die Session-Sperre ist hier frei: Der Thread der Warteschlange nimmt seine Sperren selbst.
     if outbox.turn_completed {
         session_tools::schedule_inbox_delivery(app, session);
+    }
+    if let Some(implementation_id) = outbox.station_idle.take() {
+        implementation::schedule_station_session_end(app, implementation_id);
     }
     let value = result?;
     outbox.deliver(session)?;

@@ -24,8 +24,8 @@ use crate::sessions::model::SessionStatus;
 use crate::sessions::registry::SessionRegistry;
 use model::{
     ChangeSummary, ChangeView, ImplementationChangedEvent, ImplementationView, MAX_PROMPT_CHARS,
-    MAX_SKILL_CHARS, PendingChange, PhaseInput, PhaseView, StationSettings, StationState,
-    StationView, check_length,
+    MAX_SKILL_CHARS, PendingChange, PhaseInput, PhaseView, StationInput, StationSettings,
+    StationState, StationView, check_length,
 };
 
 pub const IMPLEMENTATION_CHANGED_EVENT: &str = "implementation://changed";
@@ -103,6 +103,51 @@ impl Countdowns {
         self.starting.insert(station_id.to_owned())
     }
 
+    /// Wie `take`, und die Station gilt im selben Schritt als startend (`claim_start`): Dazwischen
+    /// zählte sie sonst nicht gegen `max_parallel` (ADR 061). `false`: Der Countdown galt nicht mehr
+    /// oder die Station startet schon; dann ist nichts beansprucht.
+    pub fn take_for_start(&mut self, station_id: &str, token: u64) -> bool {
+        self.take(station_id, token) && self.claim_start(station_id)
+    }
+
+    /// Zählen und Beginnen unter dieser einen Sperre (ADR 061): beginnt Countdowns für `candidates`
+    /// (bereit, in Startreihenfolge), bis `limit` Stationen aktiv sind; `None` = alle. `stations` sind
+    /// alle Stationen der Umsetzung aus der Ansicht: Eine mit Session zählt nach ihrem Zustand, eine
+    /// ohne nach den Countdowns und Starts hier, die die Ansicht vielleicht noch nicht kannte. Gibt
+    /// (Station, Marke) der begonnenen Countdowns zurück.
+    pub fn begin_within(
+        &mut self,
+        stations: &[&StationView],
+        candidates: &[&str],
+        limit: Option<u32>,
+        ends_at: f64,
+    ) -> Vec<(String, u64)> {
+        let is_pending_here =
+            |id: &str| self.running.contains_key(id) || self.starting.contains(id);
+        let active: usize = stations
+            .iter()
+            .filter(|station: &&&StationView| match station.session_id {
+                Some(_) => station.is_active(),
+                None => is_pending_here(&station.id),
+            })
+            .count();
+        let free: usize = limit.map_or(usize::MAX, |limit: u32| {
+            usize::try_from(limit)
+                .unwrap_or(usize::MAX)
+                .saturating_sub(active)
+        });
+        let fresh: Vec<&str> = candidates
+            .iter()
+            .copied()
+            .filter(|id: &&str| !is_pending_here(id))
+            .take(free)
+            .collect();
+        fresh
+            .into_iter()
+            .map(|id: &str| (id.to_owned(), self.begin(id, ends_at)))
+            .collect()
+    }
+
     pub fn release_start(&mut self, station_id: &str) {
         self.starting.remove(station_id);
     }
@@ -122,6 +167,8 @@ pub struct CompleteOutcome {
     pub next: Vec<StationRef>,
     /// Nichts startet von selbst: Halt, Automatik aus oder eine Station des Benutzers ist dran.
     pub waits_for_user: bool,
+    /// Bereite Stationen, die auf einen freien Platz unter `max_parallel` warten (ADR 061).
+    pub queued: u32,
     pub is_finished: bool,
     pub hint: Option<String>,
 }
@@ -132,6 +179,11 @@ impl CompleteOutcome {
         let mut text = String::from("Station fertig gemeldet.");
         if self.is_finished {
             text.push_str(" Die Umsetzung ist fertig.");
+        } else if self.next.is_empty() && self.queued > 0 {
+            text.push_str(&format!(
+                " Wartend auf einen freien Platz: {} Station(en); sie rücken selbst nach.",
+                self.queued
+            ));
         } else if self.waits_for_user || self.next.is_empty() {
             text.push_str(" Die Umsetzung wartet auf den Benutzer.");
         } else {
@@ -209,7 +261,9 @@ pub fn plan_completion_with_types(
         return Ok((Vec::new(), None));
     }
     if fix_rounds(phase) < MAX_FIX_ROUNDS {
-        return Ok((fix_stations(phase, station, types), None));
+        let mut rows = fix_stations(phase, station, types);
+        chain_followups(view, phase, station, &mut rows);
+        return Ok((rows, None));
     }
     Ok((Vec::new(), Some(FIX_LIMIT_HINT.to_owned())))
 }
@@ -235,12 +289,35 @@ fn after_completion(
         outcome.waits_for_user = true;
     } else if view.auto_start {
         outcome.next = start::schedule_ready(app, implementation_id)?;
-        outcome.waits_for_user = outcome.next.is_empty();
+        outcome.queued = registry.implementation_view(implementation_id)?.queued;
+        outcome.waits_for_user = outcome.next.is_empty() && outcome.queued == 0;
     } else {
         outcome.waits_for_user = true;
     }
     announce(app, &registry.implementation_view(implementation_id)?);
     Ok(outcome)
+}
+
+/// Neuer Haken (ADR 061): Die Session einer Station endet mit Fehler, Abbruch oder ohne
+/// Fertigmeldung. Ihr Platz unter `max_parallel` ist frei, die Warteschlange rückt nach. Ohne Grenze
+/// ändert sich nichts gegenüber früher.
+pub fn station_session_ended(app: &AppHandle, implementation_id: &str) -> Result<(), CommandError> {
+    let view = app
+        .state::<SessionRegistry>()
+        .implementation_view(implementation_id)?;
+    if resumes_queue(&view) {
+        start::schedule_ready(app, implementation_id)?;
+    }
+    Ok(())
+}
+
+/// Plant ein Ereignis außerhalb der Fertigmeldung die Warteschlange neu: nur mit Grenze und
+/// Automatik, ohne Halt, solange die Umsetzung läuft.
+pub fn resumes_queue(view: &ImplementationView) -> bool {
+    view.max_parallel.is_some()
+        && view.auto_start
+        && !view.stop_after_current
+        && view.finished_at.is_none()
 }
 
 fn find_station<'a>(
@@ -334,6 +411,37 @@ pub fn checked_settings(
     })
 }
 
+/// Fix-Runde nach der meldenden Station, das zweite Review nach der Fix-Runde (ADR 061), beide mit
+/// ihrem Vorrang; Kennungen `<Phasenschlüssel>-<n>` mit dem nächsten freien `n`. Wer die meldende
+/// Station in `after` führt, wartet danach auf das zweite Review (`complete_station_with_followups`).
+fn chain_followups(
+    view: &ImplementationView,
+    phase: &PhaseView,
+    reporting: &StationView,
+    rows: &mut [StationRow],
+) {
+    let taken: HashSet<&str> = view
+        .phases
+        .iter()
+        .flat_map(|phase: &PhaseView| phase.stations.iter())
+        .map(|station: &StationView| station.plan_id.as_str())
+        .collect();
+    let mut number: usize = phase.stations.len();
+    let mut previous: String = reporting.plan_id.clone();
+    for row in rows {
+        row.plan_id = loop {
+            number += 1;
+            let candidate = format!("{}-{number}", phase.key);
+            if !taken.contains(candidate.as_str()) {
+                break candidate;
+            }
+        };
+        row.after = vec![previous];
+        row.priority = reporting.priority;
+        previous = row.plan_id.clone();
+    }
+}
+
 fn fix_rounds(phase: &PhaseView) -> usize {
     phase
         .stations
@@ -417,6 +525,9 @@ fn fix_stations(
         prompt: carried.prompt,
         start_error: None,
         edited: false,
+        plan_id: String::new(),
+        after: Vec::new(),
+        priority: 0,
     };
     vec![
         row(FIX_STAGE.to_owned(), FIX_BRIEF.to_owned(), fix_carried),
@@ -474,6 +585,7 @@ pub fn build_view(
         })
         .collect();
     settle_waiting(&mut phases, countdowns);
+    let queued = link_view(&mut phases, row.auto_start, row.max_parallel);
     let all_stations: Vec<&StationView> = phases
         .iter()
         .flat_map(|phase: &PhaseView| phase.stations.iter())
@@ -534,7 +646,37 @@ pub fn build_view(
             .as_deref()
             .and_then(|json: &str| serde_json::from_str::<PendingChange>(json).ok()),
         phases,
+        max_parallel: row.max_parallel,
+        queued,
     }
+}
+
+/// Stufe, Nachfolger und Platz in der Warteschlange jeder Station (ADR 061); gibt die Länge der
+/// Warteschlange zurück.
+fn link_view(phases: &mut [PhaseView], auto_start: bool, max_parallel: Option<u32>) -> u32 {
+    let levels = schedule::levels(phases);
+    let queue = schedule::queue(phases, auto_start, max_parallel);
+    let edges: Vec<(String, Vec<String>)> = phases
+        .iter()
+        .flat_map(|phase: &PhaseView| phase.stations.iter())
+        .map(|station: &StationView| (station.id.clone(), station.after.clone()))
+        .collect();
+    for station in phases
+        .iter_mut()
+        .flat_map(|phase: &mut PhaseView| phase.stations.iter_mut())
+    {
+        station.level = levels.get(&station.plan_id).copied().unwrap_or(1);
+        station.next = edges
+            .iter()
+            .filter(|(_, after): &&(String, Vec<String>)| after.contains(&station.plan_id))
+            .map(|(id, _): &(String, Vec<String>)| id.clone())
+            .collect();
+        station.queue_position = queue
+            .iter()
+            .position(|queued: &String| *queued == station.id)
+            .map(|index: usize| count(index + 1));
+    }
+    count(queue.len())
 }
 
 fn station_view(
@@ -610,6 +752,12 @@ fn station_view(
         agent_effort: resolved.and_then(|resolved: Resolved<'_>| resolved.effort),
         agent_effort_from: resolved.and_then(|resolved: Resolved<'_>| resolved.effort_from),
         start_error: station.start_error.clone(),
+        plan_id: station.plan_id.clone(),
+        after: station.after.clone(),
+        next: Vec::new(),
+        priority: station.priority,
+        level: 1,
+        queue_position: None,
     }
 }
 
@@ -685,15 +833,17 @@ pub fn now_ms() -> f64 {
         .map_or(0.0, |elapsed: Duration| elapsed.as_secs_f64() * 1000.0)
 }
 
-/// Die Zeilen einer neuen Umsetzung aus geprüften Eingaben (`model::validate`).
+/// Die Zeilen einer neuen Umsetzung aus geprüften Eingaben (`model::validate`); Kanten nach `link`,
+/// der Fehler ist der Satz aus `schedule::check_plan`.
 pub fn new_rows(
     project_id: &str,
     created_by_session_id: &str,
     name: &str,
     source: &str,
     inputs: &[PhaseInput],
+    max_parallel: Option<u32>,
     now_ms: f64,
-) -> (ImplementationRow, Vec<PhaseRow>, Vec<StationRow>) {
+) -> Result<(ImplementationRow, Vec<PhaseRow>, Vec<StationRow>), String> {
     let id = uuid::Uuid::new_v4().to_string();
     let row = ImplementationRow {
         id: id.clone(),
@@ -706,9 +856,85 @@ pub fn new_rows(
         auto_start: true,
         stop_after_current: false,
         pending_change: None,
+        max_parallel,
     };
-    let (phases, stations) = phase_rows(&id, inputs, 0);
-    (row, phases, stations)
+    let (phases, mut stations) = phase_rows(&id, inputs, 0);
+    link(&[], inputs, &mut stations)?;
+    Ok((row, phases, stations))
+}
+
+/// Eine bleibende Phase für `link`: ihre Welle und je Station (Plan-Kennung, Vorgänger).
+pub type KeptPhase = (Option<u32>, Vec<(String, Vec<String>)>);
+
+/// Die Phasen, die eine Plan-Änderung nicht ersetzt (begonnene), für `link`.
+pub fn kept_phases(view: &ImplementationView) -> Vec<KeptPhase> {
+    view.phases
+        .iter()
+        .filter(|phase: &&PhaseView| changes::is_begun(phase))
+        .map(|phase: &PhaseView| {
+            let stations = phase
+                .stations
+                .iter()
+                .map(|station: &StationView| (station.plan_id.clone(), station.after.clone()))
+                .collect();
+            (phase.wave, stations)
+        })
+        .collect()
+}
+
+/// Regel R1 (ADR 061) und Prüfung: Nennt keine Station aus `inputs` `after`, bekommen die neuen
+/// Stationen ihre Kanten aus Position und Welle, hinter den bleibenden Phasen `kept`; sonst gelten
+/// ihre Angaben (`phase_rows`), ohne Angabe sind sie Startstationen. Danach wird der ganze Plan
+/// geprüft. `stations` sind die Zeilen aus `phase_rows(…, inputs, …)`, in derselben Reihenfolge;
+/// bleibende Stationen und ihre Kanten ändern sich nie.
+pub fn link(
+    kept: &[KeptPhase],
+    inputs: &[PhaseInput],
+    stations: &mut [StationRow],
+) -> Result<(), String> {
+    let is_new_schema = inputs
+        .iter()
+        .flat_map(|input: &PhaseInput| input.stations.iter())
+        .any(|station: &StationInput| station.after.is_some());
+    if !is_new_schema {
+        let mut waves: Vec<(Option<u32>, Vec<String>)> = kept
+            .iter()
+            .map(|(wave, kept_stations): &KeptPhase| {
+                let ids = kept_stations
+                    .iter()
+                    .map(|(id, _): &(String, Vec<String>)| id.clone())
+                    .collect();
+                (*wave, ids)
+            })
+            .collect();
+        let mut rows = stations.iter();
+        for input in inputs {
+            let ids = rows
+                .by_ref()
+                .take(input.stations.len())
+                .map(|row: &StationRow| row.plan_id.clone())
+                .collect();
+            waves.push((input.wave, ids));
+        }
+        let derived = schedule::legacy_after(&waves);
+        for (station, after) in stations
+            .iter_mut()
+            .zip(derived.into_iter().skip(kept.len()).flatten())
+        {
+            station.after = after;
+        }
+    }
+    let mut plan: Vec<(&str, &[String])> = kept
+        .iter()
+        .flat_map(|(_, kept_stations): &KeptPhase| kept_stations.iter())
+        .map(|(id, after): &(String, Vec<String>)| (id.as_str(), after.as_slice()))
+        .collect();
+    plan.extend(
+        stations
+            .iter()
+            .map(|station: &StationRow| (station.plan_id.as_str(), station.after.as_slice())),
+    );
+    schedule::check_plan(&plan)
 }
 
 /// Phasen und Stationen ab Position `first_position`.
@@ -721,7 +947,7 @@ pub fn phase_rows(
     let mut stations: Vec<StationRow> = Vec::new();
     for (offset, input) in (first_position..).zip(inputs) {
         let phase_id = uuid::Uuid::new_v4().to_string();
-        for (position, station) in (0..).zip(&input.stations) {
+        for (index, (position, station)) in (0..).zip(&input.stations).enumerate() {
             stations.push(StationRow {
                 id: uuid::Uuid::new_v4().to_string(),
                 phase_id: phase_id.clone(),
@@ -741,6 +967,9 @@ pub fn phase_rows(
                 prompt: station.prompt_text(),
                 start_error: None,
                 edited: false,
+                plan_id: station.plan_id(&input.key, index + 1),
+                after: station.after_ids(),
+                priority: station.priority.unwrap_or(0),
             });
         }
         phases.push(PhaseRow {

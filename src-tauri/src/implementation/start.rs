@@ -70,6 +70,7 @@ pub fn first_message(
     if !station.brief.is_empty() {
         lines.push(format!("Auftrag: {}", station.brief));
     }
+    // Nur die Ergebnisse der Vorgänger-Kanten (ADR 061), in Planreihenfolge.
     let predecessors: Vec<String> = view
         .phases
         .iter()
@@ -79,7 +80,9 @@ pub fn first_message(
                 .iter()
                 .map(move |done: &StationView| (candidate, done))
         })
-        .filter(|(_, done): &(&PhaseView, &StationView)| done.state == StationState::Done)
+        .filter(|(_, done): &(&PhaseView, &StationView)| {
+            done.state == StationState::Done && station.after.contains(&done.plan_id)
+        })
         .map(|(candidate, done): (&PhaseView, &StationView)| {
             let number = done
                 .session_number
@@ -141,36 +144,53 @@ pub fn start_plan(
     })
 }
 
-/// Plant für jede Station, die jetzt starten darf, einen Countdown; gibt die geplanten zurück.
-/// Stationen des Benutzers, solche mit laufendem Countdown und solche mit Startfehler bleiben außen
-/// vor.
+/// Plant für Stationen, die jetzt starten dürfen, einen Countdown, nach Vorrang und Planreihenfolge
+/// und höchstens bis `max_parallel` aktive Stationen; gibt die geplanten zurück. Die übrigen bleiben
+/// in der Warteschlange (ADR 061). Stationen des Benutzers, solche mit laufendem Countdown und solche
+/// mit Startfehler bleiben außen vor.
 pub fn schedule_ready(
     app: &AppHandle,
     implementation_id: &str,
 ) -> Result<Vec<StationRef>, CommandError> {
     let registry = app.state::<SessionRegistry>();
     let view = registry.implementation_view(implementation_id)?;
+    let due = schedule::due_for_countdown(&view.phases);
+    let candidates: Vec<&str> = due
+        .iter()
+        .map(|(_, station): &(&PhaseView, &StationView)| station.id.as_str())
+        .collect();
+    let stations: Vec<&StationView> = view
+        .phases
+        .iter()
+        .flat_map(|phase: &PhaseView| phase.stations.iter())
+        .collect();
+    let ends_at: f64 = now_ms() + START_DELAY.as_secs_f64() * 1000.0;
+    let begun = registry.begin_countdowns(&stations, &candidates, view.max_parallel, ends_at);
     let mut scheduled: Vec<StationRef> = Vec::new();
-    for (phase, station) in schedule::due_for_countdown(&view.phases) {
-        schedule_station(app, implementation_id, &station.id)?;
-        scheduled.push(StationRef {
-            phase_key: phase.key.clone(),
-            stage: station.stage.clone(),
-        });
+    for (station_id, token) in begun {
+        run_timer(app, implementation_id, &station_id, token)?;
+        if let Some((phase, station)) = due
+            .iter()
+            .find(|(_, station): &&(&PhaseView, &StationView)| station.id == station_id)
+        {
+            scheduled.push(StationRef {
+                phase_key: phase.key.clone(),
+                stage: station.stage.clone(),
+            });
+        }
     }
     announce(app, &registry.implementation_view(implementation_id)?);
     Ok(scheduled)
 }
 
-/// Beginnt den Countdown der Station und startet den Zeitgeber.
-fn schedule_station(
+/// Startet den Zeitgeber eines schon begonnenen Countdowns.
+fn run_timer(
     app: &AppHandle,
     implementation_id: &str,
     station_id: &str,
+    token: u64,
 ) -> Result<(), CommandError> {
     let registry = app.state::<SessionRegistry>();
-    let ends_at: f64 = now_ms() + START_DELAY.as_secs_f64() * 1000.0;
-    let token: u64 = registry.begin_countdown(station_id, ends_at);
     let thread_app: AppHandle = app.clone();
     let thread_implementation: String = implementation_id.to_owned();
     let thread_station: String = station_id.to_owned();
@@ -190,15 +210,31 @@ fn schedule_station(
 }
 
 /// Läuft im Thread des Zeitgebers. Die Marke entscheidet, ob der Countdown noch gilt; Abbrechen,
-/// ▶ und Ausschalten der Automatik haben ihn schon entfernt.
+/// ▶ und Ausschalten der Automatik haben ihn schon entfernt. Countdown-Ende und Startanspruch sind
+/// ein Schritt, damit die Station dazwischen nicht als frei zählt (ADR 061).
 fn fire(app: &AppHandle, implementation_id: &str, station_id: &str, token: u64) {
     let registry = app.state::<SessionRegistry>();
-    if !registry.take_countdown(station_id, token) {
+    if !registry.take_countdown_for_start(station_id, token) {
         return;
     }
     let Ok(view) = registry.implementation_view(implementation_id) else {
+        registry.release_start(station_id);
         return;
     };
+    let is_started = !view.stop_after_current
+        && view.auto_start
+        && start_claimed(
+            app,
+            &registry,
+            implementation_id,
+            station_id,
+            Trigger::Countdown,
+        )
+        .is_ok();
+    registry.release_start(station_id);
+    if is_started {
+        return;
+    }
     if view.stop_after_current {
         // „Anhalten nach dieser Session“ greift: der Halt ist eingelöst, nichts startet.
         if let Err(error) =
@@ -206,10 +242,6 @@ fn fire(app: &AppHandle, implementation_id: &str, station_id: &str, token: u64) 
         {
             eprintln!("Halt der Umsetzung nicht gespeichert: {error}");
         }
-    } else if view.auto_start
-        && start(app, implementation_id, station_id, Trigger::Countdown).is_ok()
-    {
-        return;
     }
     // Nicht gestartet: die Station steht wieder bereit (▶), die Oberfläche zeigt das.
     if let Ok(fresh) = registry.implementation_view(implementation_id) {
@@ -234,14 +266,21 @@ pub(super) fn is_allowed(trigger: Trigger, phases: &[PhaseView], station_id: &st
     }
 }
 
-/// ▶: Startet die Station sofort, auch nach einem Startfehler: frische Session, Name, Modell und
-/// Denkaufwand, Bindung, Systemprompt, erste Nachricht. Ein laufender Countdown wird beendet.
+/// ▶: Startet die Station sofort, auch nach einem Startfehler und über `max_parallel` hinaus:
+/// frische Session, Name, Modell und Denkaufwand, Bindung, Systemprompt, erste Nachricht. Ein
+/// laufender Countdown wird beendet. Mit Grenze setzt ▶ danach die Warteschlange fort, etwa nach
+/// einem Neustart (ADR 061).
 pub fn start_now(
     app: &AppHandle,
     implementation_id: &str,
     station_id: &str,
 ) -> Result<(), CommandError> {
-    start(app, implementation_id, station_id, Trigger::User)
+    start(app, implementation_id, station_id, Trigger::User)?;
+    let registry = app.state::<SessionRegistry>();
+    if super::resumes_queue(&registry.implementation_view(implementation_id)?) {
+        schedule_ready(app, implementation_id)?;
+    }
+    Ok(())
 }
 
 fn start(

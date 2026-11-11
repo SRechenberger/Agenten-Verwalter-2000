@@ -16,4 +16,4 @@ question: string | null,
 /**
  * Laufzeit der Session in ms (abgeschlossene Abschnitte + laufender).
  */
-runningMs: number, agent: string | null, effort: Effort | null, prompt: string | null, agentType: string | null, agentModel: ModelId | null, agentModelFrom: AgentValueSource | null, agentEffort: Effort | null, agentEffortFrom: AgentValueSource | null, startError: string | null, };
+runningMs: number, agent: string | null, effort: Effort | null, prompt: string | null, agentType: string | null, agentModel: ModelId | null, agentModelFrom: AgentValueSource | null, agentEffort: Effort | null, agentEffortFrom: AgentValueSource | null, startError: string | null, planId: string, after: Array<string>, next: Array<string>, priority: number, level: number, queuePosition: number | null, };
