@@ -1,34 +1,105 @@
 name: release
 
+# Ein PR `release/v<X.Y.Z>` → `main` baut den Kandidaten `v<X.Y.Z>-candidate` (Vorab-Release), jeder Push darauf ersetzt ihn.
+# Sein Merge legt `v<X.Y.Z>` mit den Dateien des Kandidaten an und entfernt den Kandidaten. Ein PR, der ohne Merge schließt, entfernt ihn auch.
+# Ein Tag oder PR, den `GITHUB_TOKEN` anlegt, startet keinen Lauf: Das Release entsteht deshalb im Lauf, der den Merge sieht.
 on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened, closed]
   push:
-    tags: ['v*.*.*']
+    branches: [main]
   # Probelauf über "Run workflow": baut alle Plattformen, legt kein Release an.
   workflow_dispatch:
 
 permissions:
   contents: write
 
+# Je Kopf-Branch ein Lauf; nur ein neuer Push auf den PR bricht einen laufenden Kandidaten ab, nie ein Release.
+concurrency:
+  group: release-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
+  # Das Tor wählt die Betriebsart: candidate, release, probe, drop oder none (nichts zu tun).
+  # Werte aus dem Ereignis kommen nur über `env` ins Skript, nie als `${{ … }}` im `run:`.
   gate:
     runs-on: ubuntu-latest
+    outputs:
+      mode: ${{ steps.gate.outputs.mode }}
+      version: ${{ steps.gate.outputs.version }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          # Bei einem PR der Kopf des Branches, nicht der Test-Merge.
+          ref: ${{ github.event.pull_request.head.sha }}
       - uses: actions/setup-node@v7
         with:
           node-version: 24
-      - name: Tag und Version stimmen überein
+      - name: Betriebsart und Version
+        id: gate
         shell: bash
+        env:
+          EVENT: ${{ github.event_name }}
+          ACTION: ${{ github.event.action }}
+          MERGED: ${{ github.event.pull_request.merged }}
+          HEAD_REF: ${{ github.head_ref }}
         run: |
-          node scripts/version.ts check
-          version=$(node scripts/version.ts get)
-          if [ "$GITHUB_EVENT_NAME" = push ] && [ "$GITHUB_REF_NAME" != "v$version" ]; then
-            echo "Der Tag $GITHUB_REF_NAME passt nicht zur Version $version auf diesem Commit, kein Release."
-            exit 1
-          fi
+          mode=none
+          version=
+          case "$EVENT" in
+            workflow_dispatch)
+              mode=probe
+              ;;
+            push)
+              node scripts/version.ts check
+              version=$(node scripts/version.ts get)
+              # Ohne --exit-code: ein Netzfehler lässt den Schritt scheitern, statt wie "kein Tag" auszusehen.
+              tag=$(git ls-remote --tags origin "refs/tags/v$version" | cut -f1)
+              if [ -n "$tag" ] && [ "$tag" != "$GITHUB_SHA" ]; then
+                echo "::error::v$version ist schon veröffentlicht, auf einem anderen Stand als diesem: kein Release."
+                exit 1
+              fi
+              mode=release
+              ;;
+            pull_request)
+              branch='^release/v([0-9]+\.[0-9]+\.[0-9]+)$'
+              if [ "$ACTION" = closed ]; then
+                # Das Release macht der push-Lauf; schließt der PR ohne Merge, fällt der Kandidat weg.
+                if [ "$MERGED" != true ] && [[ "$HEAD_REF" =~ $branch ]]; then
+                  mode=drop
+                  version=${BASH_REMATCH[1]}
+                fi
+              else
+                if [[ ! "$HEAD_REF" =~ $branch ]]; then
+                  echo "::error::Nach main gehen nur Branches release/v<X.Y.Z>, dieser heißt $HEAD_REF."
+                  exit 1
+                fi
+                version=${BASH_REMATCH[1]}
+                if ! computed=$(node scripts/version.ts next origin/main 2>&1); then
+                  echo "::error::${computed//$'\n'/ }"
+                  exit 1
+                fi
+                if [ "$computed" != "$version" ]; then
+                  echo "::error::Aus den Annotationen seit main folgt $computed, der Branch muss release/v$computed heißen, nicht $HEAD_REF."
+                  exit 1
+                fi
+                have=$(node scripts/version.ts get 2>&1) || true
+                if [ "$have" != "$version" ]; then
+                  echo "::error::Die Dateien tragen nicht die Version $version, pnpm bump $version setzt alle vier Stellen: ${have//$'\n'/ }"
+                  exit 1
+                fi
+                mode=candidate
+              fi
+              ;;
+          esac
+          echo "mode=$mode" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
 
   build:
     needs: gate
+    if: needs.gate.outputs.mode == 'candidate' || needs.gate.outputs.mode == 'probe'
     name: build (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     # macOS und Linux sind Zusatz: ein Fehlschlag dort hält das Windows-Release nicht auf.
@@ -50,6 +121,8 @@ jobs:
             optional: true
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
       - name: Linux-Abhängigkeiten
         if: runner.os == 'Linux'
         run: |
@@ -98,9 +171,9 @@ jobs:
           path: out/*
           if-no-files-found: error
 
-  release:
-    needs: build
-    if: github.event_name == 'push'
+  candidate:
+    needs: [gate, build]
+    if: needs.gate.outputs.mode == 'candidate'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
@@ -108,9 +181,89 @@ jobs:
           pattern: release-*
           path: out
           merge-multiple: true
-      - name: Release anlegen
+      - name: Kandidat ersetzen
+        shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          VERSION: ${{ needs.gate.outputs.version }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
+          # Entfernt Release und Tag, jedes für sich: ein Tag ohne Release lenkt sonst `--target` ab. Fehlen ist kein Fehler.
+          drop() {
+            if gh release view "$1" > /dev/null 2>&1; then
+              gh release delete "$1" --yes --cleanup-tag
+            fi
+            if gh api "repos/$GH_REPO/git/ref/tags/$1" > /dev/null 2>&1; then
+              gh api -X DELETE "repos/$GH_REPO/git/refs/tags/$1"
+            fi
+          }
           ls -l out
-          gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --title "$GITHUB_REF_NAME" --verify-tag --generate-notes out/*
+          tag="v$VERSION-candidate"
+          drop "$tag"
+          gh release create "$tag" --target "$HEAD_SHA" --prerelease --title "$tag" --notes "Kandidat für v$VERSION, wird beim Release ersetzt." out/*
+
+  release:
+    needs: gate
+    if: needs.gate.outputs.mode == 'release'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Release anlegen
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          VERSION: ${{ needs.gate.outputs.version }}
+        run: |
+          drop() {
+            if gh release view "$1" > /dev/null 2>&1; then
+              gh release delete "$1" --yes --cleanup-tag
+            fi
+            if gh api "repos/$GH_REPO/git/ref/tags/$1" > /dev/null 2>&1; then
+              gh api -X DELETE "repos/$GH_REPO/git/refs/tags/$1"
+            fi
+          }
+          tag="v$VERSION"
+          candidate="$tag-candidate"
+          # Gibt es das Release schon, bleibt nur der Kandidat zu entfernen: so führt jede Wiederholung zum selben Ergebnis.
+          if ! gh release view "$tag" > /dev/null 2>&1; then
+            commit=$(git ls-remote --tags origin "refs/tags/$candidate" | cut -f1)
+            if [ -z "$commit" ]; then
+              echo "::error::Kein Kandidat $candidate: den PR erneut bauen lassen, bevor er gemergt wird. Kein Release."
+              exit 1
+            fi
+            if [ "$(git rev-parse "$commit^{tree}")" != "$(git rev-parse 'HEAD^{tree}')" ]; then
+              echo "::error::main weicht vom Kandidaten $candidate ab, kein Release."
+              exit 1
+            fi
+            gh release download "$candidate" -D out
+            ls -l out
+            prev=$(gh release view --json tagName --jq .tagName)
+            gh release create "$tag" --target "$GITHUB_SHA" --title "$tag" --generate-notes --notes-start-tag "$prev" out/*
+          fi
+          drop "$candidate"
+
+  drop:
+    needs: gate
+    if: needs.gate.outputs.mode == 'drop'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Kandidat entfernen
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          VERSION: ${{ needs.gate.outputs.version }}
+        run: |
+          drop() {
+            if gh release view "$1" > /dev/null 2>&1; then
+              gh release delete "$1" --yes --cleanup-tag
+            fi
+            if gh api "repos/$GH_REPO/git/ref/tags/$1" > /dev/null 2>&1; then
+              gh api -X DELETE "repos/$GH_REPO/git/refs/tags/$1"
+            fi
+          }
+          drop "v$VERSION-candidate"

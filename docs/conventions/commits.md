@@ -23,9 +23,18 @@
 
 ## Branches
 
-- Ein Branch je logischer Änderung, abgezweigt von `main`: `<präfix>/<thema>` in Kleinbuchstaben, ASCII, Wörter mit Bindestrich, Umlaute als `ae`, `oe`, `ue`
+- Ein Branch je logischer Änderung, abgezweigt von `dev`: `<präfix>/<thema>` in Kleinbuchstaben, ASCII, Wörter mit Bindestrich, Umlaute als `ae`, `oe`, `ue`
 - Das Präfix ist der Commit-Type der Hauptänderung: `feature/` für `feat`, sonst `fix/`, `docs/`, `refactor/`, `chore/`
 - Beispiele: `feature/unveraenderte-zeilen`, `docs/bau-voraussetzungen`
+- Ausnahme ist `release/v<X.Y.Z>`, der Branch eines Releases ([releases.md](releases.md)): Er zweigt von `dev` ab, als Hotfix von `main`.
+
+## Pull Requests
+
+- Ziel ist `dev`. Nur ein Release-PR `release/v<X.Y.Z>` geht nach `main` ([releases.md](releases.md)).
+- Der Titel ist eine Betreffzeile nach diesem Format plus `[MAJOR]`, `[MINOR]` oder `[PATCH]`, höchstens 72 Zeichen samt Annotation, zum Beispiel `feat(chat): Nachricht kürzen [MINOR]`. Ohne Annotation ist der Check `annotation` rot.
+- Der Squash übernimmt den Titel als Betreff (GitHub hängt ` (#N)` an), und aus den Annotationen seit dem letzten Release folgt die nächste Version.
+- Welche Annotation: ein Bruch ist `[MAJOR]`, eine neue Funktion `[MINOR]`, eine Fehlerbehebung, Doku oder CI `[PATCH]`.
+- Merge-Methode je Ziel: nach `dev` **Squash**, nach `main` **Merge-Commit**, die Rückführung `release/v<X.Y.Z>` → `dev` **Merge-Commit**.
 
 ## Critical Rules
 
