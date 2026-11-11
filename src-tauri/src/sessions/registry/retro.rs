@@ -10,13 +10,18 @@ use std::thread;
 use tauri::{AppHandle, Emitter};
 
 use super::{Session, SessionRegistry, now_ms, project_not_found};
-use crate::agents::claude::print::{HaikuRequest, PrintProgram, ask_model, print_program};
+use crate::agents::claude::print::{
+    HaikuRequest, PrintProgram, ask_haiku, ask_model, print_program,
+};
 use crate::agents::event::ModelId;
 use crate::db::tool_details;
 use crate::error::CommandError;
 use crate::retro::findings::{self, SessionResult};
 use crate::retro::model::{RetroExport, RetroProgress, SessionFindings, ToolFindings};
-use crate::retro::prompt::{RETRO_PARALLEL, RETRO_TIMEOUT, SESSION_SCHEMA, SESSION_SYSTEM_PROMPT};
+use crate::retro::prompt::{
+    RETRO_PARALLEL, RETRO_TIMEOUT, SESSION_SCHEMA, SESSION_SYSTEM_PROMPT, TOOLS_SCHEMA,
+    TOOLS_SYSTEM_PROMPT,
+};
 use crate::retro::tools::{self, SessionTrace, TOOLS_FILE};
 use crate::retro::tools_report;
 use crate::retro::traces::{self, HookBlock};
@@ -131,12 +136,18 @@ impl SessionRegistry {
                 tools::write_trace_files(&folder, trace).map_err(write_error)?;
             }
         }
-        let traces: Vec<SessionTrace> = prepared
-            .iter_mut()
-            .filter_map(|session: &mut PreparedSession| session.trace.take())
-            .collect();
 
-        let outcomes = ask_all(app, project_id, program, &prepared);
+        let answers = ask_all(app, project_id, program, &prepared);
+        let mut traces: Vec<SessionTrace> = Vec::new();
+        let mut tool_retros: Vec<Option<Result<ToolFindings, String>>> = Vec::new();
+        let mut outcomes: Vec<MiniRetro> = Vec::with_capacity(answers.len());
+        for (session, (outcome, tool_retro)) in prepared.iter_mut().zip(answers) {
+            outcomes.push(outcome);
+            if let Some(trace) = session.trace.take() {
+                traces.push(trace);
+                tool_retros.push(tool_retro);
+            }
+        }
         let results: Vec<SessionResult> = prepared
             .into_iter()
             .zip(outcomes)
@@ -169,9 +180,7 @@ impl SessionRegistry {
             findings::render(project_name, &results),
         )
         .map_err(write_error)?;
-        // Ohne Werkzeug-Retro je Session: `werkzeuge.md` hat dann nur Teil A.
-        let tool_retros: Vec<Option<Result<ToolFindings, String>>> =
-            (0..traces.len()).map(|_| None).collect();
+        // Ein Fehlschlag der Werkzeug-Retro steht nur in Teil B und zählt nicht in `failed_count`.
         fs::write(
             folder.join(TOOLS_FILE),
             tools_report::render(project_name, &traces, &tool_retros),
@@ -274,33 +283,40 @@ fn prepare_session(session: &Session) -> Option<PreparedSession> {
     })
 }
 
-/// Die Mini-Retros in Blöcken zu `RETRO_PARALLEL` Threads; das Ergebnis steht an derselben
-/// Stelle wie die Session in `prepared`.
+/// Mini-Retro und Werkzeug-Retro einer Session; die zweite ist `None`, wenn die Spur fehlt.
+type SessionAnswer = (MiniRetro, Option<Result<ToolFindings, String>>);
+
+/// Die Retros in Blöcken zu `RETRO_PARALLEL` Threads, je Session erst die Mini-Retro, dann die
+/// Werkzeug-Retro; das Ergebnis steht an derselben Stelle wie die Session in `prepared`.
 fn ask_all(
     app: &AppHandle,
     project_id: &str,
     program: &PrintProgram,
     prepared: &[PreparedSession],
-) -> Vec<MiniRetro> {
+) -> Vec<SessionAnswer> {
     let total = prepared
         .iter()
         .filter(|session: &&PreparedSession| session.texts.is_ok())
-        .count();
+        .count()
+        * 2;
     let total = u32::try_from(total).unwrap_or(u32::MAX);
     let done = AtomicU32::new(0);
     emit_progress(app, project_id, 0, total);
 
-    let mut outcomes: Vec<MiniRetro> = Vec::with_capacity(prepared.len());
+    let mut outcomes: Vec<SessionAnswer> = Vec::with_capacity(prepared.len());
     for block in prepared.chunks(RETRO_PARALLEL) {
         thread::scope(|scope: &thread::Scope<'_, '_>| {
-            let handles: Vec<io::Result<thread::ScopedJoinHandle<'_, MiniRetro>>> = block
+            let handles: Vec<io::Result<thread::ScopedJoinHandle<'_, SessionAnswer>>> = block
                 .iter()
                 .map(|session: &PreparedSession| {
                     let done = &done;
                     thread::Builder::new()
                         .name("retro-session".to_owned())
                         .spawn_scoped(scope, move || {
-                            let texts = session.texts.as_ref().map_err(String::clone)?;
+                            let texts = match session.texts.as_ref() {
+                                Ok(texts) => texts,
+                                Err(error) => return (Err(error.clone()), None),
+                            };
                             let outcome = ask_model::<SessionFindings>(
                                 app,
                                 program,
@@ -314,16 +330,34 @@ fn ask_all(
                             );
                             let finished = done.fetch_add(1, Ordering::SeqCst) + 1;
                             emit_progress(app, project_id, finished, total);
-                            outcome
+                            let tool_retro = session.trace.as_ref().map(|trace: &SessionTrace| {
+                                let retro = ask_haiku::<ToolFindings>(
+                                    app,
+                                    program,
+                                    &HaikuRequest {
+                                        system_prompt: TOOLS_SYSTEM_PROMPT,
+                                        json_schema: TOOLS_SCHEMA,
+                                        input: &tools::haiku_input(trace),
+                                        timeout: RETRO_TIMEOUT,
+                                    },
+                                );
+                                let finished = done.fetch_add(1, Ordering::SeqCst) + 1;
+                                emit_progress(app, project_id, finished, total);
+                                retro
+                            });
+                            (outcome, tool_retro)
                         })
                 })
                 .collect();
             for handle in handles {
                 let outcome = match handle {
-                    Ok(handle) => handle
-                        .join()
-                        .unwrap_or_else(|_| Err("Mini-Retro abgestürzt.".to_owned())),
-                    Err(error) => Err(format!("Mini-Retro startet nicht: {error}")),
+                    Ok(handle) => handle.join().unwrap_or_else(|_| {
+                        (
+                            Err("Mini-Retro abgestürzt.".to_owned()),
+                            Some(Err("Werkzeug-Retro abgestürzt.".to_owned())),
+                        )
+                    }),
+                    Err(error) => (Err(format!("Mini-Retro startet nicht: {error}")), None),
                 };
                 outcomes.push(outcome);
             }
