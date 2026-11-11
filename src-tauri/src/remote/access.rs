@@ -109,6 +109,7 @@ const TABLE: &[(Class, Option<IdKind>, &[&str])] = &[
             "git_suggest_message",
             "mcp_reconnect",
             "mcp_toggle",
+            "session_plan_vorhaben",
             "session_pause",
             "session_resume",
             "session_cancel",
