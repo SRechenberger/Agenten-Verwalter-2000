@@ -83,7 +83,7 @@ Features: `projects` (Vorhaben), `terminal`, `sessions`, `tldr`, `chat`, `attach
 | Fokus-Selektor für Menüs und Dialoge | `src/lib/focus.ts` | — |
 | Sidebar-Zeilen (Gruppe: Umbenennen, Löschen; Vorhaben: In Gruppe verschieben, Umbenennen, Archivieren; Session: Umbenennen, Löschen mit Bestätigung) | `src/app/SidebarGroup.tsx` (Gruppenkopf), `src/app/SidebarProject.tsx` (Vorhaben-Zeile), `src/app/SidebarItem.tsx` (Session-Zeile im Baum, `RenameField`), `src/app/SessionDeleteDialog.tsx`; Core `delete_session` in `sessions/registry.rs` | — |
 | Anzeige-Texte für Modell, Modus, Denkaufwand | `src/lib/labels.ts` | — |
-| Version an ihren vier Stellen prüfen und setzen (`pnpm version:check`, `pnpm bump <X.Y.Z>`, siehe `docs/conventions/releases.md`) | `scripts/version.ts` | — |
+| Version an ihren vier Stellen prüfen und setzen, die nächste aus den Annotationen errechnen und die Regel prüfen (`pnpm version:check`, `pnpm bump <X.Y.Z>`, `node scripts/version.ts next <ref>`, `selftest`, siehe `docs/conventions/releases.md`) | `scripts/version.ts` | — |
 
 ## Wo was wohnt — Faustregeln
 

@@ -1,0 +1,26 @@
+name: annotation
+
+# Ein PR nach `dev` (und ein Fix-PR nach `release/**`) trägt `[MAJOR]`, `[MINOR]` oder `[PATCH]` im Titel:
+# daraus errechnet `node scripts/version.ts next` die nächste Version. Eigene Datei, damit eine Titeländerung
+# nicht den Windows-Check neu startet.
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+    branches: [dev, 'release/**']
+
+jobs:
+  annotation:
+    # Die Rückführung `release/v<X.Y.Z>` → `dev` ist ein Merge-Commit und braucht keine Annotation.
+    if: ${{ !startsWith(github.head_ref, 'release/') }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Titel trägt eine Annotation
+        shell: bash
+        env:
+          TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          # Dieselbe Regel wie `nextVersion` in scripts/version.ts: großgeschrieben, in eckigen Klammern, an beliebiger Stelle.
+          if ! grep -qE '\[(MAJOR|MINOR|PATCH)\]' <<< "$TITLE"; then
+            echo "::error::Der PR-Titel braucht [MAJOR], [MINOR] oder [PATCH], großgeschrieben und in eckigen Klammern: Bruch → MAJOR, neue Funktion → MINOR, Fehlerbehebung, Doku oder CI → PATCH."
+            exit 1
+          fi
