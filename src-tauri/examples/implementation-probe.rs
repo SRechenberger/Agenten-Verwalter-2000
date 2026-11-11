@@ -973,17 +973,23 @@ fn selftest(path: &Path) -> Result<bool, String> {
         counted == 2,
     );
 
-    // Neustart: Countdowns liegen nur im Speicher; die frische Ansicht zeigt keine, und erst ein
-    // Ereignis (Start, Automatik) plant neu.
-    let restarted = plan_view(&database, &queued)?;
-    let is_paused = restarted
+    // Neustart: Die Sessions sind pausiert, Countdowns liegen nur im Speicher. Geprüft wird die
+    // geladene Ansicht: kein Countdown, d bereit, bis ▶ oder die Automatik neu plant. Dass das Laden
+    // keinen Haken auslöst (`restore` pausiert ohne `set_status`), prüft dieser Fall nicht.
+    let restarted = view_with(
+        &database,
+        &queued,
+        &HashMap::new(),
+        &[("b", SessionStatus::Paused), ("c", SessionStatus::Paused)],
+    )?;
+    let has_no_countdown = restarted
         .phases
         .iter()
         .flat_map(|phase: &PhaseView| phase.stations.iter())
         .all(|station: &StationView| station.state != StationState::Countdown);
     all &= check(
-        "Warteschlange, Neustart pausiert: keine Countdowns nach dem Laden",
-        is_paused && Countdowns::default().ends().is_empty(),
+        "Warteschlange, Neustart: geladene Ansicht ohne Countdown, d bleibt bereit",
+        has_no_countdown && due(&restarted) == ["d"],
     );
 
     Ok(all)

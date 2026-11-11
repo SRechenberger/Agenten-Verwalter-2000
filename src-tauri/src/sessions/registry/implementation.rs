@@ -416,16 +416,22 @@ impl SessionRegistry {
     }
 
     /// Zählt die aktiven Stationen und beginnt Countdowns bis zur Grenze unter der Sperre der
-    /// Countdowns (`Countdowns::begin_within`, ADR 061).
+    /// Countdowns (`Countdowns::begin_if_current`, ADR 061); `None`: Die Ansicht ist veraltet.
     pub fn begin_countdowns(
         &self,
+        seen: u64,
         stations: &[&StationView],
         candidates: &[&str],
         max_parallel: Option<u32>,
         ends_at: f64,
-    ) -> Vec<(String, u64)> {
+    ) -> Option<Vec<(String, u64)>> {
         self.lock_countdowns()
-            .begin_within(stations, candidates, max_parallel, ends_at)
+            .begin_if_current(seen, stations, candidates, max_parallel, ends_at)
+    }
+
+    /// Vor der Ansicht lesen, die `begin_countdowns` bekommt.
+    pub fn start_releases(&self) -> u64 {
+        self.lock_countdowns().releases()
     }
 
     /// Countdown-Ende und Startanspruch in einem Schritt (`Countdowns::take_for_start`).

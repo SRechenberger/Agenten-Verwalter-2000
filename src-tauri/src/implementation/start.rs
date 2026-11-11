@@ -153,19 +153,27 @@ pub fn schedule_ready(
     implementation_id: &str,
 ) -> Result<Vec<StationRef>, CommandError> {
     let registry = app.state::<SessionRegistry>();
-    let view = registry.implementation_view(implementation_id)?;
+    // Endet dazwischen ein Start, ist die Ansicht veraltet: neu lesen (ADR 061).
+    let (view, begun) = loop {
+        let seen: u64 = registry.start_releases();
+        let view = registry.implementation_view(implementation_id)?;
+        let stations: Vec<&StationView> = view
+            .phases
+            .iter()
+            .flat_map(|phase: &PhaseView| phase.stations.iter())
+            .collect();
+        let candidates: Vec<&str> = schedule::due_for_countdown(&view.phases)
+            .into_iter()
+            .map(|(_, station): (&PhaseView, &StationView)| station.id.as_str())
+            .collect();
+        let ends_at: f64 = now_ms() + START_DELAY.as_secs_f64() * 1000.0;
+        if let Some(begun) =
+            registry.begin_countdowns(seen, &stations, &candidates, view.max_parallel, ends_at)
+        {
+            break (view, begun);
+        }
+    };
     let due = schedule::due_for_countdown(&view.phases);
-    let candidates: Vec<&str> = due
-        .iter()
-        .map(|(_, station): &(&PhaseView, &StationView)| station.id.as_str())
-        .collect();
-    let stations: Vec<&StationView> = view
-        .phases
-        .iter()
-        .flat_map(|phase: &PhaseView| phase.stations.iter())
-        .collect();
-    let ends_at: f64 = now_ms() + START_DELAY.as_secs_f64() * 1000.0;
-    let begun = registry.begin_countdowns(&stations, &candidates, view.max_parallel, ends_at);
     let mut scheduled: Vec<StationRef> = Vec::new();
     for (station_id, token) in begun {
         run_timer(app, implementation_id, &station_id, token)?;
@@ -245,7 +253,14 @@ fn fire(app: &AppHandle, implementation_id: &str, station_id: &str, token: u64) 
     }
     // Nicht gestartet: die Station steht wieder bereit (▶), die Oberfläche zeigt das.
     if let Ok(fresh) = registry.implementation_view(implementation_id) {
-        announce(app, &fresh);
+        if super::resumes_queue_after_start_error(&fresh, station_id) {
+            // Der Platz ist frei: die Warteschlange rückt nach; `schedule_ready` meldet die Ansicht.
+            if let Err(error) = schedule_ready(app, implementation_id) {
+                eprintln!("Warteschlange nach Startfehler nicht neu geplant: {error}");
+            }
+        } else {
+            announce(app, &fresh);
+        }
     }
 }
 

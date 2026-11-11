@@ -62,6 +62,9 @@ pub struct Countdowns {
     running: HashMap<String, (u64, f64)>,
     /// Stationen, deren Session gerade angelegt wird.
     starting: HashSet<String>,
+    /// Zahl der freigegebenen Starts: Ändert sie sich zwischen Ansicht und Zählen, ist die Ansicht
+    /// veraltet (`begin_if_current`).
+    releases: u64,
 }
 
 impl Countdowns {
@@ -150,6 +153,25 @@ impl Countdowns {
 
     pub fn release_start(&mut self, station_id: &str) {
         self.starting.remove(station_id);
+        self.releases += 1;
+    }
+
+    pub fn releases(&self) -> u64 {
+        self.releases
+    }
+
+    /// `begin_within`, aber nur, wenn seit `seen` (gelesen vor der Ansicht) kein Start freigegeben
+    /// wurde; sonst `None`, und der Aufrufer liest die Ansicht neu. Eine Station, deren Start nach
+    /// dem Lesen endet, zählte sonst weder nach der Ansicht (noch ohne Session) noch hier (ADR 061).
+    pub fn begin_if_current(
+        &mut self,
+        seen: u64,
+        stations: &[&StationView],
+        candidates: &[&str],
+        limit: Option<u32>,
+        ends_at: f64,
+    ) -> Option<Vec<(String, u64)>> {
+        (self.releases == seen).then(|| self.begin_within(stations, candidates, limit, ends_at))
     }
 }
 
@@ -318,6 +340,16 @@ pub fn resumes_queue(view: &ImplementationView) -> bool {
         && view.auto_start
         && !view.stop_after_current
         && view.finished_at.is_none()
+}
+
+/// Ein Countdown endete in einem Startfehler: Der Platz ist frei, aber keine Session endet, also
+/// greift der Haken nicht, und die Warteschlange rückt hier nach (ADR 061). Nur nach gespeichertem
+/// Startfehler, denn den lässt `due_for_countdown` aus: Die Station wird nicht erneut versucht, eine
+/// Schleife entsteht nicht.
+pub fn resumes_queue_after_start_error(view: &ImplementationView, station_id: &str) -> bool {
+    resumes_queue(view)
+        && find_station(view, station_id)
+            .is_some_and(|(_, station): (&PhaseView, &StationView)| station.start_error.is_some())
 }
 
 fn find_station<'a>(

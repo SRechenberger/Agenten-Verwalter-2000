@@ -2341,3 +2341,105 @@ fn station_inserted_between_a_and_b_by_plan_change_makes_b_wait_without_changing
         [edge("1a-1", &["1-1"]), edge("2-1", &["1a-1"])]
     );
 }
+
+#[test]
+fn queue_moves_up_when_a_countdown_ends_in_a_start_error() {
+    let mut failed = node("a", &[]);
+    failed.start_error = Some("Den Typ „reviewr“ gibt es nicht mehr.".to_owned());
+    let rows = vec![failed, node("b", &[])];
+    assert!(resumes_queue_after_start_error(
+        &limited_view(rows.clone(), Some(1), true, &[]),
+        "a"
+    ));
+    assert!(
+        !resumes_queue_after_start_error(&limited_view(rows.clone(), Some(1), true, &[]), "b"),
+        "ohne gespeicherten Startfehler nicht: sonst versuchte der Countdown es endlos"
+    );
+    assert!(
+        !resumes_queue_after_start_error(&limited_view(rows, None, true, &[]), "a"),
+        "ohne Grenze wie früher"
+    );
+}
+
+#[test]
+fn a_running_countdown_is_not_begun_again() {
+    let view = limited_view(vec![node("a", &[]), node("b", &[])], Some(2), true, &[]);
+    let stations: Vec<&StationView> = view.phases[0].stations.iter().collect();
+    let mut countdowns = Countdowns::default();
+    let [(_, token)] = &countdowns.begin_within(&stations, &["a"], Some(2), 1.0)[..] else {
+        panic!("Erwartet: ein Countdown");
+    };
+    let again: Vec<String> = countdowns
+        .begin_within(&stations, &["a", "b"], Some(2), 2.0)
+        .into_iter()
+        .map(|(id, _): (String, u64)| id)
+        .collect();
+    assert_eq!(again, ["b"], "a zählt schon, nur b beginnt");
+    assert!(
+        countdowns.take("a", *token),
+        "a's Countdown läuft unverändert weiter"
+    );
+}
+
+#[test]
+fn a_station_with_an_active_session_counts_against_the_limit() {
+    let mut view = limited_view(
+        vec![node("a", &[]), node("b", &[]), node("c", &[])],
+        Some(2),
+        true,
+        &[],
+    );
+    let running = &mut view.phases[0].stations[0];
+    running.session_id = Some("session-a".to_owned());
+    running.state = StationState::Running;
+    let stations: Vec<&StationView> = view.phases[0].stations.iter().collect();
+    let begun: Vec<String> = Countdowns::default()
+        .begin_within(&stations, &["b", "c"], Some(2), 1.0)
+        .into_iter()
+        .map(|(id, _): (String, u64)| id)
+        .collect();
+    assert_eq!(begun, ["b"]);
+}
+
+#[test]
+fn counting_against_a_view_read_before_a_start_ended_begins_nothing() {
+    let view = limited_view(vec![node("a", &[]), node("b", &[])], Some(1), true, &[]);
+    let stations: Vec<&StationView> = view.phases[0].stations.iter().collect();
+    let mut countdowns = Countdowns::default();
+    assert!(countdowns.claim_start("a"));
+    let seen = countdowns.releases();
+    // Die Ansicht oben kennt a's Session noch nicht; jetzt endet a's Start.
+    countdowns.release_start("a");
+    assert_eq!(
+        countdowns.begin_if_current(seen, &stations, &["b"], Some(1), 1.0),
+        None,
+        "veraltete Ansicht: neu lesen statt b über die Grenze zu starten"
+    );
+    let fresh = countdowns.releases();
+    assert_eq!(
+        countdowns
+            .begin_if_current(fresh, &stations, &["b"], Some(1), 1.0)
+            .map(|begun: Vec<(String, u64)>| begun.len()),
+        Some(1)
+    );
+}
+
+#[test]
+fn queue_is_not_replanned_while_stop_after_current_is_set() {
+    let mut view = limited_view(vec![node("a", &[])], Some(1), true, &[]);
+    view.stop_after_current = true;
+    assert!(!resumes_queue(&view));
+}
+
+#[test]
+fn fix_round_and_second_review_inherit_the_priority_of_the_review() {
+    let mut review = node("review", &["build"]);
+    review.priority = 3;
+    let view = graph(vec![finished(node("build", &[])), review]);
+    let (followups, _) = plan_completion(&view, "review", true).expect("Fertigmeldung gültig");
+    let priorities: Vec<i32> = followups
+        .iter()
+        .map(|row: &StationRow| row.priority)
+        .collect();
+    assert_eq!(priorities, [3, 3]);
+}
