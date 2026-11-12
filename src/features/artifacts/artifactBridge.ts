@@ -56,3 +56,24 @@ export function parsePick(data: unknown): ArtifactPick | null {
   }
   return { selector, snippet, label, rect: { x, y, width, height } };
 }
+
+/** Gespiegelt aus `OUTSIDE_PROTOCOLS` in `src-tauri/src/artifacts/bridge.js`; mehr erlaubt auch
+ *  `opener:default` nicht. */
+const OUTSIDE_PROTOCOLS: readonly string[] = ['http:', 'https:', 'mailto:'];
+const URL_LIMIT = 4096;
+
+/** Adresse aus einer `open`-Nachricht der Brücke, wenn sie in den Standardbrowser darf, sonst `null`.
+ *  Die Seite im Rahmen ist nicht vertrauenswürdig: Protokoll und Länge prüft erst diese Stelle. */
+export function parseOpenRequest(data: unknown): string | null {
+  if (typeof data !== 'object' || data === null) return null;
+  const message = data as unknown as Record<string, unknown>;
+  if (message.verwalter !== 1 || message.type !== 'open') return null;
+  if (typeof message.url !== 'string' || message.url.length > URL_LIMIT) return null;
+  try {
+    const url: URL = new URL(message.url);
+    if (!OUTSIDE_PROTOCOLS.includes(url.protocol)) return null;
+    return url.href;
+  } catch {
+    return null;
+  }
+}
