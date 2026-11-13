@@ -295,6 +295,8 @@ pub fn run() {
             commands::implementation::implementation_set_max_parallel,
             commands::implementation::implementation_start_station,
             commands::implementation::implementation_set_station_agent,
+            commands::implementation::implementation_set_station_options,
+            commands::implementation::implementation_remove_brief_change,
             commands::implementation::implementation_cancel_countdown,
             commands::implementation::implementation_apply_change,
             commands::implementation::implementation_complete_station,

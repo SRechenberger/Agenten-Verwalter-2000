@@ -5,7 +5,7 @@
 ## Branches und PRs
 
 - Feature-Branches zweigen von `dev` ab ([commits.md](commits.md)).
-- Ein PR nach `dev` wird per **Squash** gemergt. Sein Titel trägt `[MAJOR]`, `[MINOR]` oder `[PATCH]`, sonst ist der Check `annotation` rot; der Squash nimmt den Titel als Betreff.
+- Ein PR nach `dev` wird per **Squash** (bevorzugt) oder per **Merge-Commit** gemergt; Rebase-Merge ist aus. Sein Titel trägt `[MAJOR]`, `[MINOR]` oder `[PATCH]`, sonst ist der Check `annotation` rot; Squash und Merge-Commit nehmen den Titel als Betreff. Bei einem Merge-Commit kommen auch die einzelnen Commits des Branches auf `dev`, und eine Annotation in ihrem Betreff zählt mit. Deshalb tragen nur PR-Titel Annotationen.
 - `release/v<X.Y.Z>` → `main` wird mit **Merge-Commit** gemergt, nie per Squash: Nach einem Squash wäre der Release-Stand kein Vorfahr von `dev`, und der nächste Release-PR rechnete vom alten Abzweig aus.
 - Danach geht `release/v<X.Y.Z>` **immer** per PR mit Merge-Commit zurück nach `dev`, auch ohne Fix. Der Versions-Commit liegt sonst nur auf dem Release-Branch, und beim nächsten Release kollidieren die vier Versionszeilen.
 - Den Release-Branch erst nach der Rückführung löschen.
@@ -14,7 +14,7 @@
 
 **Die Version steigt nur auf einem Release-Branch.** Ein PR nach `dev` ändert sie nie. Welche Nummer das Release trägt, folgt aus den Annotationen der Betreffzeilen seit dem letzten Release: Basis ist die Version in `package.json` auf `main`, gezählt werden die Commits auf dem Release-Branch, die `main` noch nicht hat.
 
-Eine Betreffzeile trägt eine Annotation, wenn sie `[MAJOR]`, `[MINOR]` oder `[PATCH]` enthält, genau so geschrieben, großgeschrieben und in eckigen Klammern, an beliebiger Stelle (GitHub hängt ` (#N)` an den Squash-Betreff). Ein nacktes „PATCH“ zählt nicht, denn Commit-Texte sprechen von HTTP-`PATCH`. Der Versions-Commit trägt keine Annotation. Ein Merge-Commit trägt den PR-Titel als Betreff (siehe „GitHub-Einstellungen“): Kommt ein PR nach `dev` versehentlich per Merge-Commit, zählt seine Annotation also trotzdem. Deshalb trägt der Titel einer Rückführung keine Annotation.
+Eine Betreffzeile trägt eine Annotation, wenn sie `[MAJOR]`, `[MINOR]` oder `[PATCH]` enthält, genau so geschrieben, großgeschrieben und in eckigen Klammern, an beliebiger Stelle (GitHub hängt ` (#N)` an den Squash-Betreff). Ein nacktes „PATCH“ zählt nicht, denn Commit-Texte sprechen von HTTP-`PATCH`. Der Versions-Commit trägt keine Annotation. Ein Merge-Commit trägt den PR-Titel als Betreff (siehe „GitHub-Einstellungen“): Kommt ein PR nach `dev` per Merge-Commit, zählt seine Annotation also trotzdem. Deshalb trägt der Titel einer Rückführung keine Annotation.
 
 | Annotationen seit dem letzten Release | Nächste Version |
 |---|---|
@@ -84,10 +84,13 @@ Der Ablauf baut auf diesen Einstellungen des Repositories auf:
 | Standard-Branch | `dev` |
 | Squash-Merge | Betreff = PR-Titel, Body = PR-Text |
 | Merge-Commit | Betreff = PR-Titel, Body = PR-Text |
+| Rebase-Merge | aus |
 | Branch nach dem Merge löschen (`delete_branch_on_merge`) | aus |
 | Ruleset `dev` | PR nötig; erlaubt sind Squash und Merge-Commit; Pflicht-Checks `check` und `annotation` (beide von GitHub Actions); kein Force-Push; Löschen gesperrt; keine Ausnahme |
 | Ruleset `main` | PR nötig; nur Merge-Commit; Pflicht-Checks `check`, `gate`, `build (windows-latest)` und `candidate`; kein Force-Push; Löschen gesperrt; Ausnahme für die Admin-Rolle |
 | `release/*` | kein Ruleset |
+
+Ein übersprungener Pflicht-Check zählt als bestanden. So bleibt eine Rückführung mergebar, obwohl `annotation` für Köpfe `release/*` übersprungen wird.
 
 Die Pflicht-Checks hängen an den Job-Namen in `check.yml`, `annotation.yml` und `release.yml`. Wer einen Job umbenennt, passt das Ruleset an, sonst wartet jeder PR auf einen Check, den es nicht mehr gibt. `delete_branch_on_merge` bleibt aus, weil der Release-Branch nach dem Merge nach `main` noch zurück nach `dev` muss.
 

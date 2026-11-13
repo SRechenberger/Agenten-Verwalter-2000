@@ -151,6 +151,8 @@ const TABLE: &[(Class, Option<IdKind>, &[&str])] = &[
             "implementation_set_max_parallel",
             "implementation_start_station",
             "implementation_set_station_agent",
+            "implementation_set_station_options",
+            "implementation_remove_brief_change",
             "implementation_cancel_countdown",
             "implementation_apply_change",
             "implementation_complete_station",

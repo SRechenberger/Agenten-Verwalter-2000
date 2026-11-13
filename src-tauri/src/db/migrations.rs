@@ -5,7 +5,7 @@ use crate::error::CommandError;
 
 /// Eine neue Migration hängt als neue Datei hinten an und verlängert diese Liste;
 /// eine bestehende wird nie geändert, weil sie auf fremden Rechnern schon gelaufen ist.
-const MIGRATIONS: [&str; 25] = [
+const MIGRATIONS: [&str; 26] = [
     include_str!("migrations/001_sessions_and_chat.sql"),
     include_str!("migrations/002_repositories_and_worktrees.sql"),
     include_str!("migrations/003_background.sql"),
@@ -31,6 +31,7 @@ const MIGRATIONS: [&str; 25] = [
     include_str!("migrations/023_station_agent.sql"),
     include_str!("migrations/024_session_agent_prompt.sql"),
     include_str!("migrations/025_station_edges.sql"),
+    include_str!("migrations/026_station_options.sql"),
 ];
 
 /// Nach dieser Migration leitet Rust die Kanten der Bestandsdaten ab (ADR 061, Regel R1), in

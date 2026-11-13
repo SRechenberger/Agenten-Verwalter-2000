@@ -24,8 +24,9 @@ use crate::error::CommandError;
 use crate::sessions::model::SessionStatus;
 use crate::sessions::registry::SessionRegistry;
 use model::{
-    ChangeSummary, ChangeView, ImplementationChangedEvent, ImplementationView, MAX_PROMPT_CHARS,
-    MAX_SKILL_CHARS, PendingChange, PhaseInput, PhaseView, StationInput, StationSettings,
+    BriefChange, BriefChangeKind, ChangeSummary, ChangeView, ImplementationChangedEvent,
+    ImplementationView, MAX_BRIEF_CHARS, MAX_PROMPT_CHARS, MAX_SKILL_CHARS, OnError, PendingChange,
+    PhaseInput, PhaseView, PredecessorsMay, StationInput, StationOptions, StationSettings,
     StationState, StationView, check_length,
 };
 
@@ -51,7 +52,20 @@ const FIX_BRIEF: &str = "Behebe die Befunde der vorigen Review-Station (siehe Vo
 const FIX_LIMIT_HINT: &str = "Zwei Fix-Runden sind durch; frag den Benutzer (🔴).";
 const NOT_IN_IMPLEMENTATION: &str = "Diese Station gehört nicht zur Umsetzung.";
 /// Session vorhanden oder fertig gemeldet: Ihre Einstellungen gelten nicht mehr.
-pub const STATION_BEGUN: &str = "Die Station hat schon begonnen.";
+pub const STATION_BEGUN: &str = "Die Station hat schon begonnen: Typ, Modell, Denkaufwand, Zusatztext \
+     und Skill sind festgeschrieben.";
+/// Der Auftrag samt Änderungen ist mit dem Start festgeschrieben (ADR 061).
+pub const BRIEF_BEGUN: &str =
+    "brief: Die Station hat schon begonnen; ihr Auftrag ist festgeschrieben.";
+const STATION_FINISHED: &str = "Die Station ist fertig: „Automatisch starten“, „Bei Fehler“ und \
+     „Vorgänger dürfen“ sind nur lesbar.";
+const OPTIONS_BEGUN: &str = "Die Station hat inzwischen begonnen oder ist fertig: „Automatisch \
+     starten“ und „Vorgänger dürfen“ sind festgeschrieben.";
+const UNKNOWN_BRIEF_CHANGE: &str = "Diese Änderung am Auftrag gibt es nicht.";
+/// Die erste Nachricht nach einem Neustart wegen „Bei Fehler“ (ADR 061): dieselbe Session setzt fort.
+pub const RESTART_MESSAGE: &str = "Der vorige Lauf dieser Station endete mit einem Fehler; der \
+     Verwalter startet sie neu („Bei Fehler“). Setze die Arbeit fort und melde die Station mit dem \
+     Werkzeug implementation_complete_station fertig.";
 const STATION_OF_USER: &str = "Diese Station erledigst du selbst.";
 
 /// Countdowns und Startsperren der Stationen; liegt in der `SessionRegistry` (eigene Sperre, nie
@@ -131,7 +145,8 @@ impl Countdowns {
         let active: usize = stations
             .iter()
             .filter(|station: &&&StationView| match station.session_id {
-                Some(_) => station.is_active(),
+                // Auch mit Session: Ein Neustart nach Fehler hält hier den Start (ADR 061).
+                Some(_) => station.is_active() || is_pending_here(&station.id),
                 None => is_pending_here(&station.id),
             })
             .count();
@@ -310,7 +325,7 @@ fn after_completion(
     } else if view.stop_after_current {
         registry.store_implementation_flags(implementation_id, false, false, None)?;
         outcome.waits_for_user = true;
-    } else if view.auto_start {
+    } else if is_automatic(&view) {
         outcome.next = start::schedule_ready(app, implementation_id)?;
         outcome.queued = registry.implementation_view(implementation_id)?.queued;
         outcome.waits_for_user = outcome.next.is_empty() && outcome.queued == 0;
@@ -322,9 +337,11 @@ fn after_completion(
 }
 
 /// Neuer Haken (ADR 061): Die Session einer Station endet mit Fehler, Abbruch oder ohne
-/// Fertigmeldung. Ihr Platz unter `max_parallel` ist frei, die Warteschlange rückt nach. Ohne Grenze
-/// ändert sich nichts gegenüber früher.
+/// Fertigmeldung. Erlaubt „Bei Fehler“ es, startet die Station zuerst neu und behält ihren Platz;
+/// sonst ist ihr Platz unter `max_parallel` frei, die Warteschlange rückt nach. Ohne Grenze und ohne
+/// „Bei Fehler“ ändert sich nichts gegenüber früher.
 pub fn station_session_ended(app: &AppHandle, implementation_id: &str) -> Result<(), CommandError> {
+    start::restart_failed(app, implementation_id)?;
     let view = app
         .state::<SessionRegistry>()
         .implementation_view(implementation_id)?;
@@ -334,13 +351,39 @@ pub fn station_session_ended(app: &AppHandle, implementation_id: &str) -> Result
     Ok(())
 }
 
+/// Startet irgendeine Station von selbst: die Automatik der Umsetzung oder „Automatisch starten“ einer
+/// Station (ADR 061).
+pub fn is_automatic(view: &ImplementationView) -> bool {
+    view.auto_start
+        || view
+            .phases
+            .iter()
+            .flat_map(|phase: &PhaseView| phase.stations.iter())
+            .any(|station: &StationView| station.auto_start == Some(true))
+}
+
+/// Hat der Benutzer die Umsetzung begonnen: Eine Station hat eine Session. Vorher startet nichts von
+/// selbst.
+pub fn has_begun(view: &ImplementationView) -> bool {
+    view.phases
+        .iter()
+        .flat_map(|phase: &PhaseView| phase.stations.iter())
+        .any(|station: &StationView| station.session_id.is_some())
+}
+
 /// Plant ein Ereignis außerhalb der Fertigmeldung die Warteschlange neu: nur mit Grenze und
 /// Automatik, ohne Halt, solange die Umsetzung läuft.
 pub fn resumes_queue(view: &ImplementationView) -> bool {
     view.max_parallel.is_some()
-        && view.auto_start
+        && is_automatic(view)
         && !view.stop_after_current
         && view.finished_at.is_none()
+}
+
+/// Ein Schalter der Automatik geht aus (Umsetzung oder Station): Der beendete Countdown gibt seinen
+/// Platz frei, und eine Station mit eigenem „an“ aus der Warteschlange rückt nach (ADR 061).
+pub fn refills_after_switch_off(view: &ImplementationView) -> bool {
+    has_begun(view) && resumes_queue(view)
 }
 
 /// Ein Countdown endete in einem Startfehler: Der Platz ist frei, aber keine Session endet, also
@@ -444,6 +487,200 @@ pub fn checked_settings(
     })
 }
 
+/// „Automatisch starten“, „Bei Fehler“ und „Vorgänger dürfen“ einer Station (ADR 061): setzt alle drei,
+/// die Marke `edited` und meldet die Ansicht. Aus: Ein laufender Countdown der Station endet, sein Platz
+/// geht an die Warteschlange. An: Hat die Umsetzung begonnen, plant sie neu.
+pub fn set_station_options(
+    app: &AppHandle,
+    implementation_id: &str,
+    station_id: &str,
+    options: &StationOptions,
+) -> Result<(), CommandError> {
+    let registry = app.state::<SessionRegistry>();
+    checked_options(
+        &registry.implementation_view(implementation_id)?,
+        station_id,
+        options,
+    )?;
+    if !registry.store_station_options(station_id, options)? {
+        return Err(CommandError::Implementation(OPTIONS_BEGUN.to_owned()));
+    }
+    let view = registry.implementation_view(implementation_id)?;
+    let (_, station) = station_in(&view, station_id)?;
+    let reschedules = if station.starts_automatically {
+        has_begun(&view) && !view.stop_after_current && view.finished_at.is_none()
+    } else {
+        let _ = registry.cancel_countdown(station_id);
+        refills_after_switch_off(&view)
+    };
+    if reschedules {
+        // Meldet die Ansicht selbst.
+        start::schedule_ready(app, implementation_id)?;
+        return Ok(());
+    }
+    announce(app, &registry.implementation_view(implementation_id)?);
+    Ok(())
+}
+
+/// Sperren nach Zustand (ADR 061): bis zum Start alles änderbar; danach sind „Automatisch starten“ und
+/// „Vorgänger dürfen“ festgeschrieben, „Bei Fehler“ bleibt bis zum Ende änderbar; eine fertige Station
+/// ist nur lesbar. Der Satz nennt das Feld.
+pub fn checked_options(
+    view: &ImplementationView,
+    station_id: &str,
+    options: &StationOptions,
+) -> Result<(), CommandError> {
+    let (_, station) = station_in(view, station_id)?;
+    if station.by_user {
+        return Err(CommandError::Implementation(STATION_OF_USER.to_owned()));
+    }
+    if station.completed_at.is_some() {
+        return Err(CommandError::Implementation(STATION_FINISHED.to_owned()));
+    }
+    if station.session_id.is_none() {
+        return Ok(());
+    }
+    let locked = [
+        (
+            "auto_start",
+            "Automatisch starten",
+            station.auto_start != options.auto_start,
+        ),
+        (
+            "predecessors_may",
+            "Vorgänger dürfen",
+            station.predecessors_may != options.predecessors_may,
+        ),
+    ];
+    match locked
+        .iter()
+        .find(|(_, _, is_changed): &&(&str, &str, bool)| *is_changed)
+    {
+        Some((field, label, _)) => Err(CommandError::Implementation(format!(
+            "{field}: Die Station hat schon begonnen; „{label}“ ist festgeschrieben."
+        ))),
+        None => Ok(()),
+    }
+}
+
+/// `handoff`-Kern (ADR 061): Die Änderungen am Auftrag der wartenden Station nach einem Hinweis eines
+/// Vorgängers. Eine Ergänzung erlauben „nur ergänzen“ und „ergänzen und ändern“, einen Ersatz nur
+/// „ergänzen und ändern“; „nicht anfassen“ lehnt beides ab. Der Satz nennt das Feld; der Auftrag
+/// bleibt dann, wie er ist.
+pub fn amended_brief_changes(
+    station: &StationRow,
+    change: BriefChange,
+) -> Result<Vec<BriefChange>, String> {
+    if station.session_id.is_some() || station.completed_at.is_some() {
+        return Err(BRIEF_BEGUN.to_owned());
+    }
+    match (station.predecessors_may, change.kind) {
+        (PredecessorsMay::HandsOff, _) => Err(format!(
+            "predecessors_may: Die Station „{}“ lässt ihren Auftrag nicht anfassen.",
+            station.plan_id
+        )),
+        (PredecessorsMay::Append, BriefChangeKind::Replace) => Err(format!(
+            "predecessors_may: Die Station „{}“ erlaubt nur Ergänzungen, keinen Ersatz des Auftrags.",
+            station.plan_id
+        )),
+        _ => {
+            check_length("text", change.text.trim(), 1, MAX_BRIEF_CHARS)?;
+            let mut changes = station.brief_changes.clone();
+            changes.push(BriefChange {
+                text: change.text.trim().to_owned(),
+                ..change
+            });
+            checked_fold(station, changes)
+        }
+    }
+}
+
+/// „Entfernen“ einer Ergänzung bzw. „Zurücksetzen“ eines Ersatzes: dieselbe Wirkung, bis zum Start.
+pub fn without_brief_change(
+    station: &StationRow,
+    change_id: &str,
+) -> Result<Vec<BriefChange>, String> {
+    if station.session_id.is_some() || station.completed_at.is_some() {
+        return Err(BRIEF_BEGUN.to_owned());
+    }
+    if !station
+        .brief_changes
+        .iter()
+        .any(|change: &BriefChange| change.id == change_id)
+    {
+        return Err(UNKNOWN_BRIEF_CHANGE.to_owned());
+    }
+    checked_fold(
+        station,
+        station
+            .brief_changes
+            .iter()
+            .filter(|change: &&BriefChange| change.id != change_id)
+            .cloned()
+            .collect(),
+    )
+}
+
+/// Der Auftrag samt Änderungen bleibt wie der Auftrag selbst bei höchstens 1000 Zeichen (ADR 061).
+/// Auch Entfernen kann ihn verlängern: ein zurückgesetzter Ersatz bringt den Text davor zurück.
+fn checked_fold(
+    station: &StationRow,
+    changes: Vec<BriefChange>,
+) -> Result<Vec<BriefChange>, String> {
+    let length = model::effective_brief(&station.brief, &changes)
+        .chars()
+        .count();
+    if length > MAX_BRIEF_CHARS {
+        return Err(format!(
+            "brief_changes: Der Auftrag samt Änderungen hätte {length} Zeichen, höchstens {MAX_BRIEF_CHARS}."
+        ));
+    }
+    Ok(changes)
+}
+
+/// Ein Vorgänger (`source_station_id`) ergänzt oder ersetzt den Auftrag der Station `station_id`
+/// (ADR 061); Prüfung und Schreiben in einem Schritt (`amended_brief_changes`). Die Werkzeug-Seite
+/// wählt die Stationen.
+pub fn amend_brief(
+    app: &AppHandle,
+    implementation_id: &str,
+    station_id: &str,
+    source_station_id: &str,
+    kind: BriefChangeKind,
+    text: &str,
+) -> Result<(), CommandError> {
+    let registry = app.state::<SessionRegistry>();
+    let view = registry.implementation_view(implementation_id)?;
+    station_in(&view, source_station_id)?;
+    let change = BriefChange {
+        id: uuid::Uuid::new_v4().to_string(),
+        kind,
+        text: text.to_owned(),
+        source_station_id: source_station_id.to_owned(),
+        at: now_ms(),
+    };
+    registry.edit_brief_changes(implementation_id, station_id, |station: &StationRow| {
+        amended_brief_changes(station, change)
+    })?;
+    announce(app, &registry.implementation_view(implementation_id)?);
+    Ok(())
+}
+
+/// Entfernt bzw. setzt eine Änderung am Auftrag zurück (Oberfläche).
+pub fn remove_brief_change(
+    app: &AppHandle,
+    implementation_id: &str,
+    station_id: &str,
+    change_id: &str,
+) -> Result<(), CommandError> {
+    let registry = app.state::<SessionRegistry>();
+    registry.edit_brief_changes(implementation_id, station_id, |station: &StationRow| {
+        without_brief_change(station, change_id)
+    })?;
+    announce(app, &registry.implementation_view(implementation_id)?);
+    Ok(())
+}
+
 /// Fix-Runde nach der meldenden Station, das zweite Review nach der Fix-Runde (ADR 061), beide mit
 /// ihrem Vorrang; Kennungen `<Phasenschlüssel>-<n>` mit dem nächsten freien `n`. Wer die meldende
 /// Station in `after` führt, wartet danach auf das zweite Review (`complete_station_with_followups`).
@@ -491,6 +728,9 @@ struct Carried {
     agent: Option<String>,
     effort: Option<Effort>,
     prompt: Option<String>,
+    auto_start: Option<bool>,
+    on_error: OnError,
+    predecessors_may: PredecessorsMay,
 }
 
 impl Carried {
@@ -501,6 +741,9 @@ impl Carried {
             agent: station.agent.clone(),
             effort: station.effort,
             prompt: station.prompt.clone(),
+            auto_start: station.auto_start,
+            on_error: station.on_error,
+            predecessors_may: station.predecessors_may,
         }
     }
 }
@@ -561,6 +804,11 @@ fn fix_stations(
         plan_id: String::new(),
         after: Vec::new(),
         priority: 0,
+        auto_start: carried.auto_start,
+        on_error: carried.on_error,
+        predecessors_may: carried.predecessors_may,
+        brief_changes: Vec::new(),
+        restarts: 0,
     };
     vec![
         row(FIX_STAGE.to_owned(), FIX_BRIEF.to_owned(), fix_carried),
@@ -586,6 +834,9 @@ pub struct SessionLive {
     pub unread: bool,
     /// Ein Hintergrund-Befehl läuft nach der abgegebenen Antwort noch (ADR 032).
     pub awaits_script: bool,
+    /// Der Status `Error` kam in diesem Lauf der App (nicht aus der Datenbank): Nur dann startet „Bei
+    /// Fehler“ die Station neu (ADR 061, Critical Rule 4).
+    pub is_fresh_error: bool,
 }
 
 /// Baut die Ansicht aus den Zeilen. `live` enthält die Sessions der Stationen, `numbers` die
@@ -613,12 +864,12 @@ pub fn build_view(
                 .stations
                 .iter()
                 .filter(|station: &&StationRow| station.phase_id == phase.id)
-                .map(|station: &StationRow| station_view(station, live, types))
+                .map(|station: &StationRow| station_view(station, row, live, types))
                 .collect(),
         })
         .collect();
     settle_waiting(&mut phases, countdowns);
-    let queued = link_view(&mut phases, row.auto_start, row.max_parallel);
+    let queued = link_view(&mut phases, row.max_parallel);
     let all_stations: Vec<&StationView> = phases
         .iter()
         .flat_map(|phase: &PhaseView| phase.stations.iter())
@@ -686,9 +937,9 @@ pub fn build_view(
 
 /// Stufe, Nachfolger und Platz in der Warteschlange jeder Station (ADR 061); gibt die Länge der
 /// Warteschlange zurück.
-fn link_view(phases: &mut [PhaseView], auto_start: bool, max_parallel: Option<u32>) -> u32 {
+fn link_view(phases: &mut [PhaseView], max_parallel: Option<u32>) -> u32 {
     let levels = schedule::levels(phases);
-    let queue = schedule::queue(phases, auto_start, max_parallel);
+    let queue = schedule::queue(phases, max_parallel);
     let edges: Vec<(String, Vec<String>)> = phases
         .iter()
         .flat_map(|phase: &PhaseView| phase.stations.iter())
@@ -714,6 +965,7 @@ fn link_view(phases: &mut [PhaseView], auto_start: bool, max_parallel: Option<u3
 
 fn station_view(
     station: &StationRow,
+    implementation: &ImplementationRow,
     live: &HashMap<String, SessionLive>,
     types: &[AgentType],
 ) -> StationView {
@@ -752,6 +1004,12 @@ fn station_view(
             state_of(session.status, session.awaits_script)
         })
     };
+    // Kein Neustart nach Halt oder Ende, und keiner für einen Fehler von vor dem App-Neustart.
+    let restarting = state == StationState::Error
+        && session.is_some_and(|session: &SessionLive| session.is_fresh_error)
+        && station.restarts < station.on_error.max_restarts()
+        && !implementation.stop_after_current
+        && implementation.finished_at.is_none();
     StationView {
         id: station.id.clone(),
         position: station.position,
@@ -791,6 +1049,13 @@ fn station_view(
         priority: station.priority,
         level: 1,
         queue_position: None,
+        auto_start: station.auto_start,
+        starts_automatically: station.auto_start.unwrap_or(implementation.auto_start),
+        on_error: station.on_error,
+        restarts: station.restarts,
+        predecessors_may: station.predecessors_may,
+        brief_changes: station.brief_changes.clone(),
+        restarting,
     }
 }
 
@@ -1003,6 +1268,11 @@ pub fn phase_rows(
                 plan_id: station.plan_id(&input.key, index + 1),
                 after: station.after_ids(),
                 priority: station.priority.unwrap_or(0),
+                auto_start: station.auto_start,
+                on_error: station.on_error.unwrap_or_default(),
+                predecessors_may: station.predecessors_may.unwrap_or_default(),
+                brief_changes: Vec::new(),
+                restarts: 0,
             });
         }
         phases.push(PhaseRow {
