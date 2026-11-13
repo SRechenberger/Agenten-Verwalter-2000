@@ -4,11 +4,11 @@ use tauri::AppHandle;
 
 use crate::error::CommandError;
 use crate::implementation::model::{
-    ImplementationView, InquiryCreated, PhaseView, StationOptions, StationSettings, StationView,
-    check_max_parallel,
+    ImplementationView, InquiryCreated, PhaseView, PlanEdit, StationOptions, StationSettings,
+    StationView, check_max_parallel,
 };
 use crate::implementation::{
-    self, announce, changes, has_begun, is_automatic, now_ms, refills_after_switch_off, start,
+    self, announce, changes, edit, has_begun, is_automatic, now_ms, refills_after_switch_off, start,
 };
 use crate::remote::client::RemoteClients;
 use crate::remote::guest;
@@ -195,6 +195,17 @@ pub async fn implementation_apply_change(
     accept: bool,
 ) -> Result<(), CommandError> {
     changes::decide(&app, &id, accept)
+}
+
+/// Der Benutzer ändert den Plan direkt (ADR 061, Werkzeuge): dasselbe Delta und dieselbe Prüfung wie
+/// `implementation_edit`, ohne Karte, etwa Kanten-Chips oder „Neue Lane“. Plant danach neu.
+#[tauri::command]
+pub async fn implementation_edit_plan(
+    app: AppHandle,
+    id: String,
+    edit: PlanEdit,
+) -> Result<(), CommandError> {
+    edit::apply(&app, &id, &edit, None)
 }
 
 /// „Erledigt“ für eine Station des Benutzers.

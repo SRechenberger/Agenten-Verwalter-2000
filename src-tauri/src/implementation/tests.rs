@@ -3242,3 +3242,508 @@ fn the_brief_with_its_changes_stays_within_the_brief_limit() {
     assert!(refused.is_err_and(|message: String| message.starts_with("brief_changes: ")));
     assert!(without_brief_change(&station, "added").is_ok());
 }
+
+// Werkzeuge der Constraint-Abläufe (ADR 061, Werkzeuge): Schema, Delta, Übergabe, Lagebericht.
+
+fn delta(edit: Value) -> model::PlanEdit {
+    serde_json::from_value(edit).expect("Delta lesbar")
+}
+
+/// Rechnet das Delta gegen die Ansicht dieser Stationen (eine Lane „1“).
+fn edited_with(rows: Vec<StationRow>, edit: Value) -> Result<edit::EditedPlan, String> {
+    let view = graph(rows.clone());
+    edit::edited_plan("implementation", &view.phases, &rows, &delta(edit), &[])
+}
+
+fn after_in(rows: &[StationRow], id: &str) -> Vec<String> {
+    rows.iter()
+        .find(|row: &&StationRow| row.plan_id == id)
+        .map(|row: &StationRow| row.after.clone())
+        .unwrap_or_default()
+}
+
+#[test]
+fn create_schema_names_id_after_priority_max_parallel_and_lanes() {
+    let spec = tool("implementation_create");
+    let station =
+        &spec.input_schema["properties"]["phases"]["items"]["properties"]["stations"]["items"];
+    for field in ["id", "after", "priority"] {
+        assert!(
+            station["properties"][field].is_object(),
+            "Station nennt {field}"
+        );
+    }
+    let properties = &spec.input_schema["properties"];
+    assert_eq!(properties["max_parallel"]["minimum"], json!(1));
+    assert!(properties["lanes"].is_object());
+    assert_eq!(spec.input_schema["required"], json!(["name"]));
+    for field in ["auto_start", "on_error", "predecessors_may", "autoStart"] {
+        assert!(
+            station["properties"][field].is_null(),
+            "{field} setzt nur der Benutzer"
+        );
+    }
+}
+
+#[test]
+fn edit_tool_is_listed_and_not_read_only() {
+    let spec = tool("implementation_edit");
+    assert!(spec.description.contains("übernimmt"));
+    for field in ["lanes", "add", "change", "remove", "max_parallel"] {
+        assert!(
+            spec.input_schema["properties"][field].is_object(),
+            "{field}"
+        );
+    }
+    assert!(!tools::ImplementationTools.is_read_only("implementation_edit"));
+    assert!(!tools::side_may_call("implementation_edit"));
+}
+
+#[test]
+fn lanes_reads_like_phases_in_an_edit_and_a_stored_proposal() {
+    let lanes: Vec<PhaseInput> = inputs(json!([{ "key": "1", "title": "L", "stations": [
+        { "stage": "Test" },
+    ] }]));
+    let edit = delta(json!({ "lanes": lanes, "maxParallel": 2 }));
+    let pending = PendingChange {
+        session_id: "s".to_owned(),
+        session_number: 1,
+        at: 1.0,
+        summary: model::ChangeSummary::default(),
+        phases: Vec::new(),
+        edit: Some(edit.clone()),
+    };
+    let stored = serde_json::to_string(&pending).expect("JSON");
+    let read: PendingChange = serde_json::from_str(&stored).expect("lesbar");
+    assert_eq!(read.edit, Some(edit));
+    let old: PendingChange = serde_json::from_value(json!({
+        "sessionId": "s", "sessionNumber": 1, "at": 1.0,
+        "summary": { "added": ["2"], "moved": [], "removed": [] }, "phases": [],
+    }))
+    .expect("ein gespeicherter Vorschlag ohne die neuen Felder bleibt lesbar");
+    assert_eq!(
+        (old.edit, old.summary.changed),
+        (None, Vec::<String>::new())
+    );
+}
+
+#[test]
+fn tools_refuse_the_three_options_only_the_user_sets() {
+    let phases = inputs(json!([{ "key": "1", "title": "L", "stations": [
+        { "stage": "Test" },
+        { "stage": "Review", "onError": "restartOnce" },
+    ] }]));
+    assert_eq!(
+        model::refuse_user_options(&model::stations_in("phases", &phases)),
+        Err(
+            "phases[0].stations[1].on_error: setzt nur der Benutzer, nicht das Werkzeug."
+                .to_owned()
+        )
+    );
+    let edit = delta(json!({ "add": [{ "lane": "1", "stage": "PR", "autoStart": true }] }));
+    assert_eq!(
+        model::refuse_user_options(&edit.new_stations()),
+        Err("add[0].auto_start: setzt nur der Benutzer, nicht das Werkzeug.".to_owned())
+    );
+}
+
+#[test]
+fn edit_inserts_a_station_between_a_and_b() {
+    let mut b = node("b", &["a"]);
+    b.position = 1;
+    let rows = vec![node("a", &[]), b];
+    let edited = edited_with(
+        rows,
+        json!({
+            "add": [{ "lane": "1", "stage": "Test", "after": ["a"] }],
+            "change": [{ "id": "b", "after": ["1-1"] }],
+        }),
+    )
+    .expect("gültig");
+    assert_eq!(edited.inserted.len(), 1);
+    let inserted = &edited.inserted[0];
+    assert_eq!(
+        (
+            inserted.plan_id.as_str(),
+            &inserted.after,
+            inserted.position
+        ),
+        ("1-1", &vec!["a".to_owned()], 2),
+        "freie Kennung <Lane>-<n>, am Ende der Lane"
+    );
+    assert_eq!(after_in(&edited.updated, "b"), ["1-1"]);
+    assert_eq!(edited.summary.added, ["1-1"]);
+    assert_eq!(edited.summary.changed, ["b"]);
+}
+
+#[test]
+fn edit_removing_a_station_hands_its_predecessors_to_its_successors() {
+    let rows = vec![
+        node("a", &[]),
+        node("x", &["a"]),
+        node("b", &["x", "a"]),
+        node("c", &["x"]),
+    ];
+    let edited = edited_with(rows, json!({ "remove": ["x"] })).expect("gültig");
+    assert_eq!(edited.removed, ["x"]);
+    assert_eq!(after_in(&edited.updated, "b"), ["a"], "ohne Doppel");
+    assert_eq!(after_in(&edited.updated, "c"), ["a"]);
+}
+
+#[test]
+fn edit_never_touches_a_begun_or_finished_station() {
+    let mut running = node("b", &["a"]);
+    running.session_id = Some("session".to_owned());
+    let rows = vec![finished(node("a", &[])), running, node("c", &["b"])];
+    assert_eq!(
+        edited_with(rows.clone(), json!({ "remove": ["a"] })).map(|_| ()),
+        Err(
+            "remove[0]: Station „a“ hat schon begonnen; sie und ihre Kanten bleiben, wie sie sind."
+                .to_owned()
+        )
+    );
+    assert!(
+        edited_with(
+            rows.clone(),
+            json!({ "change": [{ "id": "b", "brief": "Neu." }] })
+        )
+        .is_err_and(|error: String| error.starts_with("change[0].id: Station „b“"))
+    );
+    assert!(edited_with(rows, json!({ "change": [{ "id": "c", "after": ["a"] }] })).is_ok());
+}
+
+#[test]
+fn edit_rejects_a_cycle_naming_the_stations() {
+    let rows = vec![node("a", &[]), node("b", &["a"])];
+    assert_eq!(
+        edited_with(rows, json!({ "change": [{ "id": "a", "after": ["b"] }] })).map(|_| ()),
+        Err("Zyklus: a → b → a".to_owned())
+    );
+}
+
+#[test]
+fn edit_errors_name_the_field() {
+    let rows = vec![node("a", &[])];
+    let cases = [
+        (
+            json!({}),
+            "Die Änderung ist leer: nenne lanes, add, change, remove oder max_parallel.",
+        ),
+        (
+            json!({ "remove": ["zz"] }),
+            "remove[0]: Unbekannte Kennung „zz“.",
+        ),
+        (
+            json!({ "add": [{ "lane": "9", "stage": "T" }] }),
+            "add[0].lane: Lane „9“ gibt es nicht.",
+        ),
+        (
+            json!({ "add": [{ "lane": "1", "stage": "" }] }),
+            "add[0].stage: darf nicht leer sein",
+        ),
+        (
+            json!({ "lanes": [{ "key": "1", "title": "T", "stations": [{ "stage": "T" }] }] }),
+            "lanes[0].key: Lane „1“ gibt es schon.",
+        ),
+        (
+            json!({ "change": [{ "id": "a", "model": "gpt" }] }),
+            "change[0].model: unbekanntes Modell „gpt“ (fable, opusplan, opus, sonnet, haiku)",
+        ),
+    ];
+    for (edit, expected) in cases {
+        assert_eq!(
+            edited_with(rows.clone(), edit.clone()).map(|_| ()),
+            Err(expected.to_owned()),
+            "{edit}"
+        );
+    }
+}
+
+#[test]
+fn edit_with_a_new_brief_drops_the_changes_of_predecessors() {
+    let mut waiting = node("b", &["a"]);
+    waiting.brief = "Alt.".to_owned();
+    waiting.brief_changes = vec![change("1", BriefChangeKind::Append, "Notiz.")];
+    let edited = edited_with(
+        vec![node("a", &[]), waiting],
+        json!({ "change": [{ "id": "b", "brief": " Neu. ", "prompt": "" }] }),
+    )
+    .expect("gültig");
+    let updated = &edited.updated[0];
+    assert_eq!(
+        (
+            updated.brief.as_str(),
+            updated.brief_changes.len(),
+            &updated.prompt
+        ),
+        ("Neu.", 0, &None)
+    );
+}
+
+#[test]
+fn edit_max_parallel_zero_lifts_the_limit_and_new_lanes_are_marked_new() {
+    let edited = edited_with(
+        vec![node("a", &[])],
+        json!({
+            "maxParallel": 0,
+            "lanes": [{ "key": "2", "title": "Neu", "stations": [{ "stage": "T", "after": ["a"] }] }],
+        }),
+    )
+    .expect("gültig");
+    assert_eq!(edited.max_parallel, Some(None));
+    assert_eq!(edited.phases[0].mark, Some(model::PhaseMark::New));
+    assert_eq!(after_in(&edited.inserted, "2-1"), ["a"]);
+    assert_eq!(
+        edited_with(vec![node("a", &[])], json!({ "maxParallel": 3 }))
+            .map(|edited: edit::EditedPlan| edited.max_parallel),
+        Ok(Some(Some(3)))
+    );
+}
+
+fn note(text: &str) -> model::Handoff {
+    model::Handoff {
+        note: Some(text.to_owned()),
+        replace: Vec::new(),
+    }
+}
+
+#[test]
+fn handoff_note_reaches_only_waiting_successors() {
+    let mut running = node("running", &["a"]);
+    running.session_id = Some("session".to_owned());
+    let rows = vec![
+        node("a", &[]),
+        node("b", &["a"]),
+        running,
+        node("later", &["b"]),
+    ];
+    let changes = handoff_changes(&rows, "a", &[], &note("Achte auf X."), 1.0).expect("gültig");
+    let targets: Vec<&str> = changes
+        .iter()
+        .map(|(_, plan_id, _): &(String, String, BriefChange)| plan_id.as_str())
+        .collect();
+    assert_eq!(targets, ["b"]);
+    assert_eq!(changes[0].2.source_station_id, "a");
+}
+
+#[test]
+fn handoff_with_a_fix_round_goes_to_the_fix_round() {
+    let rows = vec![node("a", &[]), node("b", &["a"])];
+    let mut fix_round = node("1-3", &["a"]);
+    fix_round.id = "fix".to_owned();
+    let changes = handoff_changes(
+        &rows,
+        "a",
+        std::slice::from_ref(&fix_round),
+        &note("Befund 1."),
+        1.0,
+    )
+    .expect("gültig");
+    assert_eq!(changes.len(), 1);
+    assert_eq!(changes[0].0, "fix");
+}
+
+#[test]
+fn handoff_refused_by_hands_off_or_append_only_names_the_field() {
+    let mut off = node("b", &["a"]);
+    off.predecessors_may = PredecessorsMay::HandsOff;
+    assert_eq!(
+        handoff_changes(&[node("a", &[]), off], "a", &[], &note("X."), 1.0).map(|_| ()),
+        Err("predecessors_may: Die Station „b“ lässt ihren Auftrag nicht anfassen.".to_owned())
+    );
+    let replace = model::Handoff {
+        note: None,
+        replace: vec![("b".to_owned(), "Neu.".to_owned())],
+    };
+    let rows = vec![node("a", &[]), node("b", &["a"])];
+    assert!(
+        handoff_changes(&rows, "a", &[], &replace, 1.0)
+            .is_err_and(|error: String| error.starts_with("predecessors_may: "))
+    );
+    let elsewhere = model::Handoff {
+        note: None,
+        replace: vec![("a".to_owned(), "Neu.".to_owned())],
+    };
+    assert_eq!(
+        handoff_changes(&rows, "a", &[], &elsewhere, 1.0).map(|_| ()),
+        Err("handoff.replace[0].id: „a“ ist kein wartender Nachfolger dieser Station.".to_owned())
+    );
+}
+
+#[test]
+fn handoff_replace_comes_before_the_note_where_change_is_allowed() {
+    let mut open = node("b", &["a"]);
+    open.brief = "Alt.".to_owned();
+    open.predecessors_may = PredecessorsMay::AppendAndChange;
+    let handoff = model::Handoff {
+        note: Some("Notiz.".to_owned()),
+        replace: vec![("b".to_owned(), "Neu.".to_owned())],
+    };
+    let changes =
+        handoff_changes(&[node("a", &[]), open], "a", &[], &handoff, 1.0).expect("gültig");
+    let folded: Vec<BriefChange> = changes
+        .into_iter()
+        .map(|(_, _, change): (String, String, BriefChange)| change)
+        .collect();
+    assert_eq!(model::effective_brief("Alt.", &folded), "Neu.\nNotiz.");
+}
+
+#[test]
+fn completion_answer_names_the_successors_the_handoff_changed() {
+    let outcome = CompleteOutcome {
+        waits_for_user: true,
+        handed: vec![
+            ("b".to_owned(), BriefChangeKind::Append),
+            ("c".to_owned(), BriefChangeKind::Append),
+            ("c".to_owned(), BriefChangeKind::Replace),
+        ],
+        ..CompleteOutcome::default()
+    };
+    assert!(
+        outcome
+            .text()
+            .contains("Übergabenotiz ergänzt bei: b, c. Auftrag ersetzt bei: c."),
+        "{}",
+        outcome.text()
+    );
+    let unused = CompleteOutcome {
+        handoff_unused: true,
+        ..CompleteOutcome::default()
+    };
+    assert!(
+        unused
+            .text()
+            .contains("Die Übergabenotiz ist nirgends angekommen.")
+    );
+}
+
+#[test]
+fn report_names_lanes_start_stations_limit_and_edges() {
+    let view = limited_view(
+        vec![
+            finished(node("a", &[])),
+            node("b", &["a"]),
+            node("c", &["a"]),
+        ],
+        Some(1),
+        true,
+        &[],
+    );
+    let text = report::text(&view, 0.0, false);
+    for expected in [
+        "Stand: Lane 1 von 1",
+        "Parallel: höchstens 1 · Warteschlange: 1",
+        "Startstationen: a",
+        "Lane 1 · Umsetzung — Ergebnis a",
+        "  a — Lane 1 · Umsetzung · Stufe 1 · fertig · wartet auf: – · danach: b, c",
+        "  c — Lane 1 · Umsetzung · Stufe 2 · Warteschlange 1 · wartet auf: a · danach: –",
+    ] {
+        assert!(text.contains(expected), "{expected}\n{text}");
+    }
+    assert!(!text.contains("Phase"), "{text}");
+}
+
+#[test]
+fn first_message_explains_the_handoff_and_names_its_sources() {
+    let mut target = node("b", &["a"]);
+    target.brief = "Prüfe.".to_owned();
+    target.brief_changes = vec![BriefChange {
+        source_station_id: "a".to_owned(),
+        ..change("1", BriefChangeKind::Append, "Achte auf X.")
+    }];
+    let view = graph(vec![finished(node("a", &[])), target]);
+    let message = start::first_message(&view, &view.phases[0], shown(&view, "b"), &[]);
+    assert!(
+        message.contains("Auftrag: Prüfe.\nAchte auf X."),
+        "{message}"
+    );
+    assert!(
+        message.contains("Der Auftrag enthält Übergabenotizen von: Phase 1 · Umsetzung."),
+        "{message}"
+    );
+    assert!(message.contains("als Übergabenotiz mit"), "{message}");
+}
+
+#[test]
+fn edit_plan_command_is_class_c_in_the_access_table() {
+    use crate::remote::access::{Class, class_of};
+    assert_eq!(class_of("implementation_edit_plan"), Some(Class::HostWrite));
+}
+
+// Fix-Runde 1 der Werkzeuge (ADR 061, Werkzeuge).
+
+#[test]
+fn edit_summary_names_a_changed_max_parallel() {
+    let summary_of = |edit: Value| -> model::ChangeSummary {
+        edited_with(vec![node("a", &[])], edit)
+            .expect("gültig")
+            .summary
+    };
+    assert_eq!(
+        changes::describe(&summary_of(json!({ "maxParallel": 3 }))),
+        "parallel höchstens 3"
+    );
+    assert_eq!(
+        changes::describe(&summary_of(json!({ "maxParallel": 0 }))),
+        "parallel unbegrenzt"
+    );
+    let with_station = summary_of(json!({
+        "add": [{ "lane": "1", "stage": "Test" }],
+        "maxParallel": 2,
+    }));
+    assert_eq!(
+        changes::describe(&with_station),
+        "neu 1-1, parallel höchstens 2"
+    );
+    let stored: model::ChangeSummary =
+        serde_json::from_str(&serde_json::to_string(&with_station).expect("JSON")).expect("lesbar");
+    assert_eq!(stored.max_parallel, Some(2), "die Karte bekommt die Grenze");
+    assert_eq!(
+        summary_of(json!({ "remove": ["a"] })).max_parallel,
+        None,
+        "ohne Grenze im Delta keine Grenze in der Zusammenfassung"
+    );
+}
+
+#[test]
+fn report_lists_only_stations_without_predecessors_as_start_stations() {
+    let view = graph(vec![node("a", &[]), node("b", &["a"]), node("c", &[])]);
+    let text = report::text(&view, 0.0, false);
+    assert!(
+        text.lines()
+            .any(|line: &str| line == "Startstationen: a, c"),
+        "{text}"
+    );
+}
+
+#[test]
+fn edit_removing_the_last_station_of_a_lane_removes_the_lane() {
+    let emptied = edited_with(vec![node("a", &[])], json!({ "remove": ["a"] })).expect("gültig");
+    assert_eq!(emptied.removed_phases.len(), 1);
+    let kept = edited_with(
+        vec![node("a", &[]), node("b", &["a"])],
+        json!({ "remove": ["b"] }),
+    )
+    .expect("gültig");
+    assert!(kept.removed_phases.is_empty());
+}
+
+#[test]
+fn edit_never_reuses_the_plan_id_of_a_station_removed_in_the_same_edit() {
+    let edited = edited_with(
+        vec![node("a", &[]), node("1-1", &["a"])],
+        json!({ "remove": ["1-1"], "add": [{ "lane": "1", "stage": "Test", "after": ["a"] }] }),
+    )
+    .expect("gültig");
+    assert_eq!(edited.summary.added, ["1-2"]);
+}
+
+#[test]
+fn tools_refuse_predecessors_may() {
+    let edit =
+        delta(json!({ "add": [{ "lane": "1", "stage": "PR", "predecessorsMay": "handsOff" }] }));
+    assert_eq!(
+        model::refuse_user_options(&edit.new_stations()),
+        Err("add[0].predecessors_may: setzt nur der Benutzer, nicht das Werkzeug.".to_owned())
+    );
+}

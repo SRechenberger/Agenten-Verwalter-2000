@@ -299,6 +299,7 @@ pub fn run() {
             commands::implementation::implementation_remove_brief_change,
             commands::implementation::implementation_cancel_countdown,
             commands::implementation::implementation_apply_change,
+            commands::implementation::implementation_edit_plan,
             commands::implementation::implementation_complete_station,
             commands::terminal::terminal_list,
             commands::terminal::terminal_open,

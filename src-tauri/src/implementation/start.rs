@@ -7,7 +7,7 @@ use std::thread;
 
 use tauri::{AppHandle, Manager};
 
-use super::model::{ImplementationView, PhaseView, StationState, StationView};
+use super::model::{BriefChange, ImplementationView, PhaseView, StationState, StationView};
 use super::{START_DELAY, StationRef, announce, now_ms, schedule, station_in};
 use crate::agent_types::model::{AgentType, AgentValueSource};
 use crate::agent_types::prompt::{Folders, PromptError};
@@ -19,9 +19,13 @@ use crate::sessions::model::SessionSummary;
 use crate::sessions::registry::SessionRegistry;
 use crate::settings::model::OperatingMode;
 
+// Wie man fertig meldet, samt Übergabenotiz (ADR 061, Werkzeuge); die Felder nennt die Beschreibung
+// des Werkzeugs, nicht dieser Text.
 const FIRST_MESSAGE_FOOTER: &str = "Melde diese Station mit dem Werkzeug \
-    implementation_complete_station fertig, mit einer Zeile Ergebnis. Endet deine Antwort ohne \
-    diese Meldung, wartet die Umsetzung auf den Benutzer. Gib keine Einstiegszeile aus.";
+    implementation_complete_station fertig, mit einer Zeile Ergebnis. Was ein wartender Nachfolger \
+    darüber hinaus wissen muss, gibst du dort als Übergabenotiz mit; wie, steht in der Beschreibung \
+    des Werkzeugs. Endet deine Antwort ohne diese Meldung, wartet die Umsetzung auf den Benutzer. Gib \
+    keine Einstiegszeile aus.";
 
 /// Die erste Nachricht der Session einer Station. `/<skill>` steht allein in der ersten Zeile,
 /// weil die Kommandozeile einen Befehl nur am Anfang erkennt: der Skill der Station, sonst der erste
@@ -71,6 +75,32 @@ pub fn first_message(
     let brief = station.effective_brief();
     if !brief.is_empty() {
         lines.push(format!("Auftrag: {brief}"));
+    }
+    // Woher die Übergabenotizen im Auftrag stammen.
+    let sources: Vec<String> = view
+        .phases
+        .iter()
+        .flat_map(|candidate: &PhaseView| {
+            candidate
+                .stations
+                .iter()
+                .map(move |source: &StationView| (candidate, source))
+        })
+        .filter(|(_, source): &(&PhaseView, &StationView)| {
+            station
+                .brief_changes
+                .iter()
+                .any(|change: &BriefChange| change.source_station_id == source.id)
+        })
+        .map(|(candidate, source): (&PhaseView, &StationView)| {
+            format!("Phase {} · {}", candidate.key, source.stage)
+        })
+        .collect();
+    if !sources.is_empty() {
+        lines.push(format!(
+            "Der Auftrag enthält Übergabenotizen von: {}.",
+            sources.join(", ")
+        ));
     }
     // Nur die Ergebnisse der Vorgänger-Kanten (ADR 061), in Planreihenfolge.
     let predecessors: Vec<String> = view

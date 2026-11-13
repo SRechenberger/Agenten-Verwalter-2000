@@ -248,6 +248,14 @@ pub struct ChangeSummary {
     pub added: Vec<String>,
     pub moved: Vec<String>,
     pub removed: Vec<String>,
+    // ADR 061, Werkzeuge: Plan-Kennungen der Stationen, die eine Änderung als Delta (`PlanEdit`) ändert;
+    // `added` und `removed` nennen dort neue Lanes und Plan-Kennungen.
+    #[serde(default)]
+    pub changed: Vec<String>,
+    // Neue Grenze aus dem Delta, 0 = unbegrenzt; fehlt, wenn das Delta sie nicht ändert.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub max_parallel: Option<u32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
@@ -274,6 +282,107 @@ pub struct PendingChange {
     pub at: f64,
     pub summary: ChangeSummary,
     pub phases: Vec<PhaseInput>,
+    // ADR 061, Werkzeuge: Vorschlag von `implementation_edit`; dann ist `phases` leer.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub edit: Option<PlanEdit>,
+}
+
+// Eine Plan-Änderung als Delta (ADR 061, Werkzeuge): `implementation_edit` schlägt sie vor, der Befehl
+// `implementation_edit_plan` wendet sie für den Benutzer direkt an. Reihenfolge: entfernen (die
+// Nachfolger erben die Vorgänger), ändern, Stationen an bestehende Lanes hängen, neue Lanes hinter die
+// bestehenden, dann `max_parallel` (0 = unbegrenzt). Eine Station ohne `after` ist eine Startstation;
+// Position und Welle gelten hier nicht.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct PlanEdit {
+    #[serde(default)]
+    pub lanes: Vec<PhaseInput>,
+    #[serde(default)]
+    pub add: Vec<StationAddition>,
+    #[serde(default)]
+    pub change: Vec<StationPatch>,
+    #[serde(default)]
+    pub remove: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub max_parallel: Option<u32>,
+}
+
+impl PlanEdit {
+    pub fn is_empty(&self) -> bool {
+        self.lanes.is_empty()
+            && self.add.is_empty()
+            && self.change.is_empty()
+            && self.remove.is_empty()
+            && self.max_parallel.is_none()
+    }
+
+    /// Alle Stationen, die das Delta neu anlegt, mit dem Feld, unter dem sie stehen.
+    pub fn new_stations(&self) -> Vec<(String, &StationInput)> {
+        let mut stations = stations_in("lanes", &self.lanes);
+        stations.extend(self.add.iter().enumerate().map(
+            |(index, addition): (usize, &StationAddition)| {
+                (format!("add[{index}]"), &addition.station)
+            },
+        ));
+        stations
+    }
+}
+
+// Eine neue Station in der Lane `lane` (Schlüssel), mit den Feldern von `implementation_create`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct StationAddition {
+    #[serde(default)]
+    pub lane: String,
+    #[serde(flatten)]
+    pub station: StationInput,
+}
+
+// Die Änderung einer nicht gestarteten Station über ihre Plan-Kennung `id`; ein fehlendes Feld bleibt.
+// Ein neuer `brief` verwirft die Änderungen durch Vorgänger, ein leerer `prompt` löscht den Zusatztext.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct StationPatch {
+    #[serde(default)]
+    pub id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub stage: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub brief: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub after: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub priority: Option<i32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub agent: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional, type = "'fable' | 'opusplan' | 'opus' | 'sonnet' | 'haiku'")]
+    pub model: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional, type = "'low' | 'medium' | 'high' | 'xhigh' | 'max'")]
+    pub effort: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub prompt: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub skill: Option<String>,
+}
+
+/// Die Übergabenotiz einer Fertigmeldung (ADR 061, Werkzeuge): `note` ergänzt den Auftrag jedes
+/// wartenden Nachfolgers, `replace` ersetzt ihn bei einzelnen (Plan-Kennung, Text). Nur im Werkzeug,
+/// nicht über die Tauri-Grenze.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Handoff {
+    pub note: Option<String>,
+    pub replace: Vec<(String, String)>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
@@ -317,7 +426,7 @@ pub struct ImplementationChangedEvent {
 
 /// Eine Phase, wie der Agent sie übergibt. Fehlende Texte werden leer gelesen, damit `validate`
 /// das Feld beim Namen nennt statt eines allgemeinen Fehlers beim Lesen.
-#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct PhaseInput {
     #[serde(default)]
@@ -334,7 +443,7 @@ pub struct PhaseInput {
     pub stations: Vec<StationInput>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct StationInput {
     #[serde(default)]
@@ -474,9 +583,15 @@ pub fn validate(phases: &[PhaseInput]) -> Result<(), String> {
     if phases.is_empty() {
         return Err("phases: mindestens eine Phase".to_owned());
     }
+    validate_in("phases", phases)
+}
+
+/// Wie `validate`, unter dem Feldnamen `root` (`lanes` in `implementation_edit`); eine leere Liste ist
+/// hier erlaubt.
+pub fn validate_in(root: &str, phases: &[PhaseInput]) -> Result<(), String> {
     let mut keys: Vec<&str> = Vec::with_capacity(phases.len());
     for (index, phase) in phases.iter().enumerate() {
-        let field = format!("phases[{index}]");
+        let field = format!("{root}[{index}]");
         let key = phase.key.trim();
         check_length(&format!("{field}.key"), key, 1, MAX_KEY_CHARS)?;
         if keys.contains(&key) {
@@ -510,7 +625,8 @@ pub fn validate(phases: &[PhaseInput]) -> Result<(), String> {
     Ok(())
 }
 
-fn validate_station(field: &str, station: &StationInput) -> Result<(), String> {
+/// Prüft eine Station; `field` ist der Feldname, unter dem sie steht.
+pub fn validate_station(field: &str, station: &StationInput) -> Result<(), String> {
     check_length(
         &format!("{field}.stage"),
         station.stage.trim(),
@@ -575,32 +691,75 @@ pub fn check_max_parallel(max_parallel: Option<u32>) -> Result<(), String> {
 pub fn check_agents(phases: &[PhaseInput], types: &[AgentType]) -> Result<(), String> {
     for (index, phase) in phases.iter().enumerate() {
         for (station_index, station) in phase.stations.iter().enumerate() {
-            let Some(agent) = station.agent.as_deref() else {
-                continue;
-            };
-            if types
-                .iter()
-                .any(|agent_type: &AgentType| name_key(&agent_type.name) == name_key(agent))
-            {
-                continue;
+            if let Some(agent) = station.agent.as_deref() {
+                check_agent(
+                    &format!("phases[{index}].stations[{station_index}]"),
+                    agent,
+                    types,
+                )?;
             }
-            let names: Vec<&str> = types
-                .iter()
-                .map(|agent_type: &AgentType| agent_type.name.as_str())
-                .collect();
-            let known = if names.is_empty() {
-                "keine".to_owned()
-            } else {
-                names.join(", ")
-            };
+        }
+    }
+    Ok(())
+}
+
+/// Wie `check_agents` für eine Station unter dem Feldnamen `field`.
+pub fn check_agent(field: &str, agent: &str, types: &[AgentType]) -> Result<(), String> {
+    if types
+        .iter()
+        .any(|agent_type: &AgentType| name_key(&agent_type.name) == name_key(agent))
+    {
+        return Ok(());
+    }
+    let names: Vec<&str> = types
+        .iter()
+        .map(|agent_type: &AgentType| agent_type.name.as_str())
+        .collect();
+    let known = if names.is_empty() {
+        "keine".to_owned()
+    } else {
+        names.join(", ")
+    };
+    Err(format!(
+        "{field}.agent: unbekannter Agententyp „{}“; bekannt: {known}",
+        agent.trim()
+    ))
+}
+
+/// „Automatisch starten“, „Bei Fehler“ und „Vorgänger dürfen“ setzt nur der Benutzer (ADR 061): Die
+/// Werkzeuge lehnen eine Station ab, die eines davon nennt. `stations` sind (Feldname, Station).
+pub fn refuse_user_options(stations: &[(String, &StationInput)]) -> Result<(), String> {
+    for (field, station) in stations {
+        let named = [
+            ("auto_start", station.auto_start.is_some()),
+            ("on_error", station.on_error.is_some()),
+            ("predecessors_may", station.predecessors_may.is_some()),
+        ];
+        if let Some((name, _)) = named.iter().find(|(_, is_named): &&(&str, bool)| *is_named) {
             return Err(format!(
-                "phases[{index}].stations[{station_index}].agent: unbekannter Agententyp „{}“; \
-                 bekannt: {known}",
-                agent.trim()
+                "{field}.{name}: setzt nur der Benutzer, nicht das Werkzeug."
             ));
         }
     }
     Ok(())
+}
+
+/// Die Stationen aller Phasen mit ihrem Feldnamen unter `root`.
+pub fn stations_in<'a>(root: &str, phases: &'a [PhaseInput]) -> Vec<(String, &'a StationInput)> {
+    phases
+        .iter()
+        .enumerate()
+        .flat_map(|(index, phase): (usize, &'a PhaseInput)| {
+            phase.stations.iter().enumerate().map(
+                move |(station_index, station): (usize, &'a StationInput)| {
+                    (
+                        format!("{root}[{index}].stations[{station_index}]"),
+                        station,
+                    )
+                },
+            )
+        })
+        .collect()
 }
 
 pub fn check_length(field: &str, text: &str, min: usize, max: usize) -> Result<(), String> {

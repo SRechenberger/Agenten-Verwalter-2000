@@ -77,16 +77,22 @@ pub fn diff(view: &ImplementationView, proposed: &[PhaseInput]) -> Result<Change
 
 /// Die Unterschiede als Satzteil für den Agenten und den Lagebericht: „neu 5/6, entfallen 7“.
 pub fn describe(summary: &ChangeSummary) -> String {
-    let groups: [(&str, &Vec<String>); 3] = [
+    let groups: [(&str, &Vec<String>); 4] = [
         ("neu", &summary.added),
         ("vorgezogen", &summary.moved),
+        ("geändert", &summary.changed),
         ("entfallen", &summary.removed),
     ];
-    let parts: Vec<String> = groups
+    let mut parts: Vec<String> = groups
         .iter()
         .filter(|(_, keys): &&(&str, &Vec<String>)| !keys.is_empty())
         .map(|(label, keys): &(&str, &Vec<String>)| format!("{label} {}", keys.join("/")))
         .collect();
+    match summary.max_parallel {
+        Some(0) => parts.push("parallel unbegrenzt".to_owned()),
+        Some(limit) => parts.push(format!("parallel höchstens {limit}")),
+        None => {}
+    }
     if parts.is_empty() {
         return "gleiche Phasen, Stationen neu gefasst".to_owned();
     }
@@ -123,6 +129,7 @@ pub fn propose(app: &AppHandle, session_id: &str, inputs: &[PhaseInput]) -> Resu
         at: now_ms(),
         summary: summary.clone(),
         phases: inputs.to_vec(),
+        edit: None,
     };
     registry
         .store_pending_change(&view.id, Some(&pending))
@@ -148,6 +155,10 @@ pub fn decide(app: &AppHandle, implementation_id: &str, accept: bool) -> Result<
         registry.store_pending_change(implementation_id, None)?;
         announce(app, &registry.implementation_view(implementation_id)?);
         return Ok(());
+    }
+    // Ein Delta von `implementation_edit` wird gegen den Stand von jetzt neu gerechnet und geprüft.
+    if let Some(edit) = &pending.edit {
+        return super::edit::apply(app, implementation_id, edit, Some(&pending.session_id));
     }
     // Seit dem Vorschlag kann eine Phase begonnen haben: gegen den heutigen Stand neu rechnen.
     let summary = diff(&view, &pending.phases).map_err(CommandError::Implementation)?;

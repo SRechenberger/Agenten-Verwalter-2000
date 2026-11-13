@@ -7,6 +7,7 @@ use crate::agent_types::name_key;
 use crate::agents::event::{Effort, ModelId};
 use crate::db::{enum_from_text, enum_to_text};
 use crate::error::CommandError;
+use crate::implementation::edit::EditedPlan;
 use crate::implementation::model::{
     BriefChange, OnError, PhaseMark, PredecessorsMay, StationOptions, StationSettings,
 };
@@ -867,6 +868,84 @@ pub fn replace_upcoming_phases(
     set_pending_change(&transaction, implementation_id, None)?;
     transaction.commit()?;
     Ok(())
+}
+
+/// Wendet eine Plan-Änderung als Delta in einem Zug an (ADR 061, Werkzeuge): entfernt und ändert nur
+/// Stationen, die weder eine Session haben noch fertig sind, löscht danach leere Lanes, legt neue Lanes
+/// hinter die bestehenden und die neuen Stationen an und setzt `max_parallel`. Mit `change` (ein
+/// übernommener Vorschlag) hält sie die Änderung fest und verwirft den Vorschlag. `false`: Eine Station
+/// hat inzwischen begonnen; nichts ist geschrieben.
+pub fn apply_plan_edit(
+    connection: &mut Connection,
+    implementation_id: &str,
+    edited: &EditedPlan,
+    change: Option<&ChangeRow>,
+) -> Result<bool, CommandError> {
+    let transaction = connection.transaction()?;
+    for station_id in &edited.removed {
+        let removed = transaction.execute(
+            "DELETE FROM implementation_stations \
+             WHERE id = ?1 AND session_id IS NULL AND completed_at IS NULL",
+            params![station_id],
+        )?;
+        if removed != 1 {
+            return Ok(false);
+        }
+    }
+    for station in &edited.updated {
+        let changed = transaction.execute(
+            "UPDATE implementation_stations SET stage = ?2, model = ?3, skill = ?4, brief = ?5, \
+                 agent = ?6, effort = ?7, prompt = ?8, after_ids = ?9, priority = ?10, \
+                 brief_changes = ?11 \
+             WHERE id = ?1 AND session_id IS NULL AND completed_at IS NULL",
+            params![
+                station.id,
+                station.stage,
+                station.model.as_ref().map(enum_to_text).transpose()?,
+                station.skill,
+                station.brief,
+                station.agent,
+                station.effort.as_ref().map(enum_to_text).transpose()?,
+                station.prompt,
+                after_json(&station.after)?,
+                station.priority,
+                changes_json(&station.brief_changes)?,
+            ],
+        )?;
+        if changed != 1 {
+            return Ok(false);
+        }
+    }
+    for phase_id in &edited.removed_phases {
+        transaction.execute(
+            "DELETE FROM implementation_phases WHERE id = ?1",
+            params![phase_id],
+        )?;
+    }
+    let first_position: u32 = transaction.query_row(
+        "SELECT COALESCE(MAX(position) + 1, 0) FROM implementation_phases \
+         WHERE implementation_id = ?1",
+        params![implementation_id],
+        |row| row.get(0),
+    )?;
+    let shifted: Vec<PhaseRow> = edited
+        .phases
+        .iter()
+        .map(|phase: &PhaseRow| PhaseRow {
+            position: first_position + phase.position,
+            ..phase.clone()
+        })
+        .collect();
+    insert_phases(&transaction, &shifted, &edited.inserted)?;
+    if let Some(max_parallel) = edited.max_parallel {
+        set_max_parallel(&transaction, implementation_id, max_parallel)?;
+    }
+    if let Some(change) = change {
+        insert_change(&transaction, change)?;
+        set_pending_change(&transaction, implementation_id, None)?;
+    }
+    transaction.commit()?;
+    Ok(true)
 }
 
 /// Nimmt die Marke „neu“/„vorgezogen“ von der Phase, sobald ihre erste Station startet.
