@@ -18,6 +18,7 @@ import {
   NO_TYPE_LABEL,
   OPEN_CHAT_LABEL,
   OPEN_CHAT_TITLE,
+  patchSetsText,
   PLAN_CHANGED_TITLE,
   PLAN_PROPOSAL_TITLE,
   PROPOSAL_EMPTY_BRIEF,
@@ -32,6 +33,7 @@ import {
   standardOption,
   TYPE_LABEL,
 } from '@/features/implementation/implementationTexts';
+import type { StationRef } from '@/features/implementation/implementationOrder';
 import { SegmentGroup, type SegmentOption } from '@/features/implementation/SegmentGroup';
 import {
   draftValue,
@@ -51,6 +53,7 @@ import type { PlanEdit } from '@/lib/bindings/PlanEdit';
 import type { SessionSummary } from '@/lib/bindings/SessionSummary';
 import type { StationAddition } from '@/lib/bindings/StationAddition';
 import type { StationInput } from '@/lib/bindings/StationInput';
+import type { StationPatch } from '@/lib/bindings/StationPatch';
 import { EFFORT_OPTIONS, MODEL_OPTIONS } from '@/lib/labels';
 import './PlanChangeCard.css';
 import './StationCard.css';
@@ -63,7 +66,7 @@ interface ProposedValues {
   brief: string;
 }
 
-/** Eine neue Station des Vorschlags mit den Werten, die der Benutzer vor dem Übernehmen gesetzt hat.
+/** Eine neue oder geänderte Station des Vorschlags mit den Werten, die der Benutzer vor dem Übernehmen gesetzt hat.
  *  `planId` ist die Kennung, falls der Vorschlag sie nennt; sonst findet der Aufrufer die Station über
  *  Lane und Name unter den neuen. */
 export interface ProposalOverride extends ProposedValues {
@@ -73,9 +76,17 @@ export interface ProposalOverride extends ProposedValues {
   changed: Record<keyof ProposedValues, boolean>;
 }
 
+/** Eine neue oder geänderte Station des Vorschlags mit den Werten, die er für sie vorsieht. */
 interface ProposedStation {
   lane: string;
-  input: StationInput | StationAddition;
+  stage: string;
+  planId: string | null;
+  values: ProposedValues;
+  /** Nur bei einer bestehenden Station: was der Vorschlag an ihr ändert. */
+  patch: StationPatch | null;
+  /** Änderbar: alle vier Werte; bei einer Station durch dich nur der Auftrag (sie hat keinen Typ, kein
+   *  Modell, keinen Denkaufwand); keiner, wenn die geänderte Station im Plan fehlt. */
+  fields: 'all' | 'brief' | 'none';
 }
 
 interface PlanChangeCardProps {
@@ -86,8 +97,11 @@ interface PlanChangeCardProps {
   summary: ChangeSummary;
   stationsBefore: number;
   stationsAfter: number;
-  /** Delta des Vorschlags (`implementation_edit`); seine neuen Stationen sind vor dem Übernehmen änderbar. */
+  /** Delta des Vorschlags (`implementation_edit`); seine neuen und geänderten Stationen sind vor dem
+   *  Übernehmen änderbar. */
   edit?: PlanEdit | null;
+  /** Die Stationen heute; aus ihnen liest die Karte die Werte, die eine Änderung nicht setzt. */
+  stations?: readonly StationRef[];
   projectId?: string;
   sessions?: readonly SessionSummary[];
   onApply?: (accept: boolean) => void;
@@ -98,30 +112,65 @@ interface PlanChangeCardProps {
 }
 
 const NO_SESSIONS: readonly SessionSummary[] = [];
+const NO_STATIONS: readonly StationRef[] = [];
 
-/** Die neuen Stationen eines Deltas, die ein Agent bearbeitet; Stationen durch den Benutzer haben keine
- *  dieser Werte. */
-function proposedStations(edit: PlanEdit | null): ProposedStation[] {
+function newStation(lane: string, input: StationInput | StationAddition): ProposedStation {
+  return {
+    lane,
+    stage: input.stage,
+    planId: input.id ?? null,
+    values: {
+      agent: input.agent ?? null,
+      model: input.model ?? null,
+      effort: input.effort ?? null,
+      brief: input.brief ?? '',
+    },
+    patch: null,
+    fields: 'all',
+  };
+}
+
+/** Eine geänderte Station: ihre heutigen Werte, überschrieben von denen, die die Änderung setzt. */
+function patchedStation(patch: StationPatch, stations: readonly StationRef[]): ProposedStation {
+  const ref: StationRef | undefined = stations.find(
+    (candidate: StationRef) => candidate.station.planId === patch.id,
+  );
+  return {
+    lane: ref?.phase.key ?? '?',
+    stage: patch.stage ?? ref?.station.stage ?? patch.id,
+    planId: patch.id,
+    values: {
+      agent: patch.agent ?? ref?.station.agent ?? null,
+      model: patch.model ?? ref?.station.model ?? null,
+      effort: patch.effort ?? ref?.station.effort ?? null,
+      brief: patch.brief ?? ref?.station.brief ?? '',
+    },
+    patch,
+    fields: ref === undefined ? 'none' : ref.station.byUser ? 'brief' : 'all',
+  };
+}
+
+/** Die neuen Stationen eines Deltas, die ein Agent bearbeitet (Stationen durch den Benutzer haben keine
+ *  dieser Werte), und die Stationen, die es ändert. */
+function proposedStations(
+  edit: PlanEdit | null,
+  stations: readonly StationRef[],
+): ProposedStation[] {
   if (edit === null) {
     return [];
   }
-  const added: ProposedStation[] = edit.add.map((input: StationAddition) => ({
-    lane: input.lane,
-    input,
-  }));
+  const added: ProposedStation[] = edit.add
+    .filter((input: StationAddition) => input.by !== 'you')
+    .map((input: StationAddition) => newStation(input.lane, input));
   const inLanes: ProposedStation[] = edit.lanes.flatMap((lane: PhaseInput) =>
-    lane.stations.map((input: StationInput) => ({ lane: lane.key, input })),
+    lane.stations
+      .filter((input: StationInput) => input.by !== 'you')
+      .map((input: StationInput) => newStation(lane.key, input)),
   );
-  return [...added, ...inLanes].filter((station: ProposedStation) => station.input.by !== 'you');
-}
-
-function valuesOf(input: StationInput | StationAddition): ProposedValues {
-  return {
-    agent: input.agent ?? null,
-    model: input.model ?? null,
-    effort: input.effort ?? null,
-    brief: input.brief ?? '',
-  };
+  const changed: ProposedStation[] = edit.change.map((patch: StationPatch) =>
+    patchedStation(patch, stations),
+  );
+  return [...added, ...inLanes, ...changed];
 }
 
 const MODEL_CHOICES: readonly SegmentOption<ModelId | null>[] = MODEL_OPTIONS.map(
@@ -138,7 +187,8 @@ const EFFORT_CHOICES: readonly SegmentOption<Effort | null>[] = EFFORT_OPTIONS.m
 );
 
 /** Die Karte zu einer Plan-Änderung: der Vorschlag „Plan ändern?“ oder die übernommene „Plan geändert“.
- *  Beim Vorschlag sind Typ, Modell, Denkaufwand und Auftrag jeder neuen Station vor dem Übernehmen änderbar. */
+ *  Beim Vorschlag sind Typ, Modell, Denkaufwand und Auftrag jeder neuen und jeder geänderten Station vor dem
+ *  Übernehmen änderbar. */
 export function PlanChangeCard({
   kind,
   sessionNumber,
@@ -147,6 +197,7 @@ export function PlanChangeCard({
   stationsBefore,
   stationsAfter,
   edit = null,
+  stations = NO_STATIONS,
   projectId = '',
   sessions = NO_SESSIONS,
   onApply,
@@ -155,9 +206,9 @@ export function PlanChangeCard({
   isLocked = false,
 }: PlanChangeCardProps): ReactElement {
   const isProposal: boolean = kind === 'proposal';
-  const proposed: ProposedStation[] = isProposal ? proposedStations(edit) : [];
+  const proposed: ProposedStation[] = isProposal ? proposedStations(edit, stations) : [];
   const [drafts, setDrafts] = useState<ProposedValues[]>(() =>
-    proposed.map((station: ProposedStation) => valuesOf(station.input)),
+    proposed.map((station: ProposedStation) => station.values),
   );
   const { agentTypes } = useAgentTypes();
   const operatingMode = useOperatingMode(projectId === '' ? null : projectId);
@@ -171,7 +222,7 @@ export function PlanChangeCard({
       if (draft === undefined) {
         return [];
       }
-      const original: ProposedValues = valuesOf(station.input);
+      const original: ProposedValues = station.values;
       const changed: Record<keyof ProposedValues, boolean> = {
         agent: draft.agent !== original.agent,
         model: draft.model !== original.model,
@@ -185,8 +236,8 @@ export function PlanChangeCard({
         {
           ...draft,
           lane: station.lane,
-          stage: station.input.stage,
-          planId: station.input.id ?? null,
+          stage: station.stage,
+          planId: station.planId,
           changed,
         },
       ];
@@ -210,8 +261,43 @@ export function PlanChangeCard({
     if (draft === undefined) {
       return null;
     }
-    const original: ProposedValues = valuesOf(station.input);
-    const byStage: AgentType | null = typeForStage(types, station.input.stage);
+    const key = `${station.lane}-${station.stage}-${String(index)}`;
+    const head: ReactElement = <b>{proposedStationHead(station.stage, station.lane)}</b>;
+    const sets: ReactElement | null =
+      station.patch === null ? null : (
+        <p className="station-card__hint">{patchSetsText(station.patch)}</p>
+      );
+    const original: ProposedValues = station.values;
+    const brief: ReactElement = (
+      <>
+        <span className="station-card__label">{BRIEF_LABEL}</span>
+        <textarea
+          className="station-card__textarea"
+          rows={2}
+          maxLength={MAX_BRIEF_CHARS}
+          aria-label={BRIEF_LABEL}
+          value={draft.brief}
+          disabled={isLocked}
+          onChange={(event): void => {
+            update(index, { brief: event.target.value });
+          }}
+        />
+        {renderWas(
+          draft.brief !== original.brief,
+          original.brief === '' ? PROPOSAL_EMPTY_BRIEF : original.brief,
+        )}
+      </>
+    );
+    if (station.fields !== 'all') {
+      return (
+        <div key={key} className="plan-change-card__station">
+          {head}
+          {sets}
+          {station.fields === 'brief' && brief}
+        </div>
+      );
+    }
+    const byStage: AgentType | null = typeForStage(types, station.stage);
     const chosen: AgentType | null = draft.agent === null ? byStage : typeNamed(types, draft.agent);
     const baseModel: AgentValue<ModelId> | null = draftValue(
       null,
@@ -233,11 +319,9 @@ export function PlanChangeCard({
       typeOptions.push({ id: draft.agent, label: draft.agent });
     }
     return (
-      <div
-        key={`${station.lane}-${station.input.stage}-${String(index)}`}
-        className="plan-change-card__station"
-      >
-        <b>{proposedStationHead(station.input.stage, station.lane)}</b>
+      <div key={key} className="plan-change-card__station">
+        {head}
+        {sets}
         <div className="station-card__line">
           <span className="station-card__label">{TYPE_LABEL}</span>
           <SegmentGroup<string | null>
@@ -302,22 +386,7 @@ export function PlanChangeCard({
             original.effort === null ? PROPOSAL_STANDARD : shortEffort(original.effort),
           )}
         </div>
-        <span className="station-card__label">{BRIEF_LABEL}</span>
-        <textarea
-          className="station-card__textarea"
-          rows={2}
-          maxLength={MAX_BRIEF_CHARS}
-          aria-label={BRIEF_LABEL}
-          value={draft.brief}
-          disabled={isLocked}
-          onChange={(event): void => {
-            update(index, { brief: event.target.value });
-          }}
-        />
-        {renderWas(
-          draft.brief !== original.brief,
-          original.brief === '' ? PROPOSAL_EMPTY_BRIEF : original.brief,
-        )}
+        {brief}
       </div>
     );
   }

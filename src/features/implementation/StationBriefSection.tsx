@@ -7,6 +7,7 @@ import {
   BRIEF_CHANGE_BEFORE,
   BRIEF_EDIT_DROPS_CHANGES,
   BRIEF_LABEL,
+  BRIEF_NOT_SAVED,
   briefChangeAction,
   briefChangeLead,
   briefCounter,
@@ -17,6 +18,8 @@ import {
   INSTRUCTION_LABEL,
   MAX_BRIEF_CHARS,
   NO_BRIEF_CHANGES,
+  NOT_REMOVED,
+  NOT_SAVED,
   PREDECESSORS_MAY_LABEL,
   PREDECESSORS_MAY_OPTIONS,
   RESULT_LABEL,
@@ -122,7 +125,7 @@ export function StationBriefSection({
   function saveBrief(brief: string): void {
     run(
       () => editPlan(implementationId, patchEdit({ id: station.planId, brief })),
-      'Auftrag nicht gespeichert',
+      BRIEF_NOT_SAVED,
     );
   }
 
@@ -134,7 +137,7 @@ export function StationBriefSection({
           onError: station.onError,
           predecessorsMay,
         }),
-      'Nicht gespeichert',
+      NOT_SAVED,
     );
   }
 
@@ -154,10 +157,7 @@ export function StationBriefSection({
             className="station-card__mini"
             disabled={isLocked}
             onClick={(): void => {
-              run(
-                () => removeBriefChange(implementationId, station.id, change.id),
-                'Nicht entfernt',
-              );
+              run(() => removeBriefChange(implementationId, station.id, change.id), NOT_REMOVED);
             }}
           >
             {briefChangeAction(change.kind)}

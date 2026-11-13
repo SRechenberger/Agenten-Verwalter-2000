@@ -25,6 +25,7 @@ import {
   duplicateStage,
   EFFORT_LABEL,
   INSTRUCTION_LABEL,
+  LANE_NOT_CREATED,
   LANE_TITLE_LABEL,
   LANE_TITLE_PLACEHOLDER,
   laneKeyHint,
@@ -88,6 +89,8 @@ interface NewLaneFormProps {
   agentTypes: readonly AgentType[];
   sessions: readonly SessionSummary[];
   run: ActionError['run'];
+  /** Gesperrt, solange ein anderes Gerät das Vorhaben steuert oder der Host fehlt. */
+  isLocked: boolean;
   onClose: () => void;
   /** Die Lane ist angelegt; die Plan-Kennung ihrer ersten Station soll in den Fokus. */
   onCreated: (firstPlanId: string) => void;
@@ -189,6 +192,7 @@ export function NewLaneForm({
   agentTypes,
   sessions,
   run,
+  isLocked,
   onClose,
   onCreated,
 }: NewLaneFormProps): ReactElement {
@@ -348,7 +352,7 @@ export function NewLaneForm({
         editPlan(implementation.id, edit).then((): void => {
           onCreated(first);
         }),
-      'Lane nicht angelegt',
+      LANE_NOT_CREATED,
     );
   }
 
@@ -624,7 +628,7 @@ export function NewLaneForm({
         <button
           type="button"
           className="station-card__button station-card__button--primary"
-          disabled={problems.length > 0}
+          disabled={isLocked || problems.length > 0}
           onClick={create}
         >
           {CREATE_LANE_LABEL}

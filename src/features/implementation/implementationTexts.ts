@@ -5,6 +5,7 @@ import type { ModelId } from '@/lib/bindings/ModelId';
 import type { OnError } from '@/lib/bindings/OnError';
 import type { PhaseMark } from '@/lib/bindings/PhaseMark';
 import type { PredecessorsMay } from '@/lib/bindings/PredecessorsMay';
+import type { StationPatch } from '@/lib/bindings/StationPatch';
 import type { StationView } from '@/lib/bindings/StationView';
 import { effortLabel, modelName } from '@/lib/labels';
 import type { ValueSource } from '@/features/implementation/stationAgent';
@@ -656,6 +657,39 @@ export function proposalWas(text: string): string {
 }
 
 export const PROPOSAL_STANDARD = 'Standard';
+
+/** „Ändert: Wartet auf → c2, u1 · Modell · Auftrag“: was eine Änderung an einer bestehenden Station setzt. */
+export function patchSetsText(patch: StationPatch): string {
+  const parts: string[] = [];
+  if (patch.stage !== undefined) {
+    parts.push(`Name → ${patch.stage}`);
+  }
+  if (patch.after !== undefined) {
+    parts.push(`${WAITS_ON_LABEL} → ${keysText(patch.after)}`);
+  }
+  if (patch.priority !== undefined) {
+    parts.push(`Priorität → ${String(patch.priority)}`);
+  }
+  if (patch.agent !== undefined) {
+    parts.push(TYPE_LABEL);
+  }
+  if (patch.model !== undefined) {
+    parts.push(MODEL_LABEL);
+  }
+  if (patch.effort !== undefined) {
+    parts.push(EFFORT_LABEL);
+  }
+  if (patch.brief !== undefined) {
+    parts.push(BRIEF_LABEL);
+  }
+  if (patch.prompt !== undefined) {
+    parts.push(ADDITION_LABEL);
+  }
+  if (patch.skill !== undefined) {
+    parts.push(`${SKILL_LABEL} → ${patch.skill}`);
+  }
+  return `Ändert: ${parts.length === 0 ? 'nichts' : parts.join(' · ')}`;
+}
 export const PROPOSAL_EMPTY_BRIEF = '(leer)';
 export const PROPOSAL_HINT =
   'Du kannst den Vorschlag übernehmen, wie er ist, oder Typ, Modell, Denkaufwand und Auftrag vorher ändern. Alles Weitere (System-Prompt, Automatik) steht nach dem Übernehmen in der Kartei.';
@@ -666,3 +700,18 @@ export const MAX_PARALLEL_CHANGE_LABEL = 'Parallel max.';
 export const MAX_BRIEF_CHARS = 1000;
 export const BRIEF_EDIT_DROPS_CHANGES =
   'Ein geänderter Auftrag verwirft die Änderungen durch Vorgänger.';
+
+// ---- Fehlermeldungen der Befehle ----
+
+export const START_FAILED = 'Start fehlgeschlagen';
+export const APPLY_FAILED = 'Übernehmen fehlgeschlagen';
+export const NOT_SAVED = 'Nicht gespeichert';
+export const BRIEF_NOT_SAVED = 'Auftrag nicht gespeichert';
+export const NOT_REMOVED = 'Nicht entfernt';
+export const EDGE_NOT_CHANGED = 'Kante nicht geändert';
+export const LANE_NOT_CREATED = 'Lane nicht angelegt';
+
+/** Eine Station des übernommenen Vorschlags fehlt im Plan danach. */
+export function stationNotFound(stage: string, lane: string): string {
+  return `Station „${stage}“ in Lane ${lane} nicht gefunden`;
+}

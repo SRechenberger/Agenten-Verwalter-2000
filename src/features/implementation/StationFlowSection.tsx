@@ -16,6 +16,7 @@ import {
   ADD_PREDECESSOR_LABEL,
   ADD_SUCCESSOR_LABEL,
   cycleText,
+  EDGE_NOT_CHANGED,
   FLOW_HINT,
   flowSummary,
   LOCKED_EDGE_TITLE,
@@ -78,7 +79,7 @@ export function StationFlowSection({
     setPick(null);
     run(
       () => editPlan(implementationId, patchEdit({ id: waiter.planId, after })),
-      'Kante nicht geändert',
+      EDGE_NOT_CHANGED,
     );
   }
 

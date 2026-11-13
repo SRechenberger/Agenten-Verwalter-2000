@@ -3,11 +3,12 @@ import { CardSection } from '@/features/implementation/CardSection';
 import { isBegun } from '@/features/implementation/implementationOrder';
 import {
   AUTO_START_STATION_LABEL,
+  AUTOMATION_SUMMARY_BY_USER,
+  automationSummary,
   autoStartHint,
   autoStartOptions,
-  automationSummary,
-  AUTOMATION_SUMMARY_BY_USER,
   BY_USER_AUTOMATION_HINT,
+  NOT_SAVED,
   ON_ERROR_HINT,
   ON_ERROR_LABEL,
   ON_ERROR_OPTIONS,
@@ -63,7 +64,7 @@ export function StationAutomationSection({
           predecessorsMay: station.predecessorsMay,
           ...patch,
         }),
-      'Nicht gespeichert',
+      NOT_SAVED,
     );
   }
 

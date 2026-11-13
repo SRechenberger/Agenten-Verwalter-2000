@@ -165,6 +165,7 @@ export function CardStack({
           stationsBefore={implementation.stationsTotal}
           stationsAfter={stationsAfterProposal(implementation, pending)}
           edit={pending.edit ?? null}
+          stations={refs}
           projectId={implementation.projectId}
           sessions={sessions}
           onApply={onApplyChange}

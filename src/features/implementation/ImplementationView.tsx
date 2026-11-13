@@ -15,6 +15,11 @@ import {
   type StationRef,
 } from '@/features/implementation/implementationOrder';
 import { patchEdit } from '@/features/implementation/implementationGraph';
+import {
+  APPLY_FAILED,
+  START_FAILED,
+  stationNotFound,
+} from '@/features/implementation/implementationTexts';
 import { NewLaneForm } from '@/features/implementation/NewLaneForm';
 import type { ProposalOverride } from '@/features/implementation/PlanChangeCard';
 import { ReportPanel } from '@/features/implementation/ReportPanel';
@@ -97,7 +102,7 @@ async function freshStations(implementationId: string): Promise<StationRef[]> {
 
 /** „Übernehmen“ mit geänderten Werten: erst der Vorschlag wie vorgeschlagen (damit die Plan-Änderung mit
  *  ihrer Quelle vermerkt ist), dann Typ, Modell und Denkaufwand je Station und der Auftrag als Delta. Die
- *  neuen Stationen findet die Funktion über ihre Kennung oder über Lane und Name unter den neuen. */
+ *  Stationen findet die Funktion über ihre Kennung, neue ohne Kennung über Lane und Name unter den neuen. */
 async function applyEditedProposal(
   implementationId: string,
   before: ReadonlySet<string>,
@@ -118,7 +123,7 @@ async function applyEditedProposal(
           : ref.station.planId === override.planId),
     );
     if (target === undefined) {
-      throw new Error(`Station „${override.stage}“ in Lane ${override.lane} nicht gefunden`);
+      throw new Error(stationNotFound(override.stage, override.lane));
     }
     used.add(target.station.planId);
     const { station } = target;
@@ -319,7 +324,7 @@ export function ImplementationView({
           openStationChanges(stationId);
         }}
         onStart={(stationId: string): void => {
-          run(() => startStation(implementationId, stationId), 'Start fehlgeschlagen');
+          run(() => startStation(implementationId, stationId), START_FAILED);
         }}
         onCancelCountdown={(stationId: string): void => {
           run(() => cancelStationCountdown(implementationId, stationId));
@@ -328,17 +333,11 @@ export function ImplementationView({
           run(() => completeStationByUser(implementationId, stationId, result));
         }}
         onApplyChange={(accept: boolean): void => {
-          run(
-            () => applyImplementationChange(implementationId, accept),
-            'Übernehmen fehlgeschlagen',
-          );
+          run(() => applyImplementationChange(implementationId, accept), APPLY_FAILED);
         }}
         onApplyEdited={(overrides: readonly ProposalOverride[]): void => {
           const before = new Set<string>(stations.map((ref: StationRef) => ref.station.planId));
-          run(
-            () => applyEditedProposal(implementationId, before, overrides),
-            'Übernehmen fehlgeschlagen',
-          );
+          run(() => applyEditedProposal(implementationId, before, overrides), APPLY_FAILED);
         }}
         run={run}
       />
@@ -363,7 +362,7 @@ export function ImplementationView({
             }}
             onOpenChat={openChat}
             onStart={(stationId: string): void => {
-              run(() => startStation(implementationId, stationId), 'Start fehlgeschlagen');
+              run(() => startStation(implementationId, stationId), START_FAILED);
             }}
             onCancelCountdown={(stationId: string): void => {
               run(() => cancelStationCountdown(implementationId, stationId));
@@ -418,6 +417,7 @@ export function ImplementationView({
           agentTypes={agentTypes ?? []}
           sessions={sessions}
           run={run}
+          isLocked={isLocked}
           onClose={(): void => {
             setIsNewLaneOpen(false);
           }}

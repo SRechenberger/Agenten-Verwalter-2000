@@ -9,6 +9,7 @@ import {
   MODEL_LABEL,
   NO_SYSTEM_PROMPT,
   NO_TYPE_LABEL,
+  NOT_SAVED,
   runsWithText,
   SECTION_AGENT,
   SECTION_WORKER,
@@ -143,7 +144,7 @@ export function StationAgentSection({
           prompt: next.prompt === null ? null : emptyAsNull(next.prompt),
           skill: next.skill === null ? null : emptyAsNull(next.skill.trim()),
         }),
-      'Nicht gespeichert',
+      NOT_SAVED,
     );
   }
 

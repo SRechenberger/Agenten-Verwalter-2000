@@ -16,6 +16,7 @@ Lint, Typecheck und Build sind die Qualitätsschranke dieses Projekts — Tests 
 
 ```text
 pnpm version:check Abgleich der vier Versionsstellen, dazu der Selbsttest der Versionsregel (`selftest`)
+pnpm selftest      Selbsttest der Kanten-Regeln der Oberfläche (Stufe, Weg, Zyklus; implementationGraph.selftest.ts)
 pnpm lint          ESLint
 pnpm typecheck     tsc für App und Vite-Konfiguration
 pnpm format:check  Prettier
