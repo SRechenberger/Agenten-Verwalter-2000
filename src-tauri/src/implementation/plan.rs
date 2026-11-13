@@ -76,13 +76,30 @@ pub enum GuardStep {
 }
 
 /// Die Entscheidung des Wächters am Ende eines abgeschlossenen Zugs. `None`: kein Planungszug, oder
-/// „Trotzdem weiter“ hat die Prüfung beendet.
+/// der Hinweis hat die Prüfung schon beendet.
 pub fn guard_step(guard: Option<&PlanGuard>) -> GuardStep {
     match guard {
         None => GuardStep::Nothing,
         Some(guard) if guard.called => GuardStep::Nothing,
         Some(guard) if guard.reminders < MAX_PLAN_REMINDERS => GuardStep::Remind,
         Some(_) => GuardStep::Notice,
+    }
+}
+
+/// Rückt den Wächter am Ende eines abgeschlossenen Zugs weiter: Eine Erinnerung zählt mit, der
+/// Hinweis nimmt ihn weg und gibt ihn heraus (sein Auftrag gehört in den Hinweis). Damit endet die
+/// Prüfung dieses Zugs schon mit dem Hinweis; „Trotzdem weiter“ erledigt nur noch den Hinweis.
+pub fn advance_guard(guard: &mut Option<PlanGuard>) -> (GuardStep, Option<PlanGuard>) {
+    let step = guard_step(guard.as_ref());
+    match step {
+        GuardStep::Nothing => (step, None),
+        GuardStep::Remind => {
+            if let Some(guard) = guard {
+                guard.reminders += 1;
+            }
+            (step, None)
+        }
+        GuardStep::Notice => (step, guard.take()),
     }
 }
 

@@ -59,7 +59,7 @@ use crate::filesystem::workspace::{home_dir, new_session_workspace, stored_sessi
 use crate::git::model::GitBusySession;
 use crate::implementation::Countdowns;
 use crate::implementation::plan::{
-    self, GuardStep, PLAN_REMINDER_TEXT, PlanGuard, guard_step, plan_prompt,
+    self, GuardStep, PLAN_REMINDER_TEXT, PlanGuard, advance_guard, plan_prompt,
 };
 use crate::mcp::model::{McpAction, McpActionError, McpAuthWait, McpChangedEvent, McpServer};
 use crate::mcp_access::{McpAccess, ProcessKind};
@@ -1264,9 +1264,10 @@ impl SessionRegistry {
     }
 
     /// Eine Aktion auf dem Hinweis „Kein Plan im Umsetzungstool“ an `seq` (ADR 062). `retry`
-    /// („Erneut“): ein neuer Planungszug mit demselben Auftrag; sonst („Trotzdem weiter“) endet die
-    /// Prüfung. In beiden Fällen verliert der Hinweis seine Knöpfe, bei „Erneut“ erst, wenn der neue
-    /// Zug läuft.
+    /// („Erneut“): ein neuer Planungszug mit demselben Auftrag; sonst („Trotzdem weiter“) wird nur der
+    /// Hinweis erledigt, denn seine Prüfung endete schon mit ihm. Der Hinweis verliert unter der
+    /// Sperre seine Knöpfe, bevor der neue Zug beginnt: Ein zweiter Klick, etwa beim Gast (ADR 059),
+    /// findet ihn erledigt. Kommt der Zug nicht zustande, bekommt der Hinweis die Knöpfe zurück.
     pub fn settle_plan_notice(
         &self,
         app: &AppHandle,
@@ -1276,36 +1277,42 @@ impl SessionRegistry {
         device: Option<&str>,
     ) -> Result<(), CommandError> {
         let session = self.get(session_id)?;
-        let task: String = match session.lock_loaded()?.entries.get(seq as usize) {
-            Some(ChatEntry::Notice {
-                notice: Notice::PlanMissing { task, .. },
-                ..
-            }) => task.clone(),
-            _ => return Err(CommandError::Implementation(PLAN_NOTICE_GONE.to_owned())),
-        };
-        if retry {
-            self.plan_vorhaben(app, session_id, &task, device)?;
-        }
-        update(
-            app,
-            &session,
-            |state: &mut SessionState, outbox: &mut Outbox| {
-                if !retry {
-                    state.plan_guard = None;
-                }
-                state.replace_entry(
-                    outbox,
-                    ChatEntry::Notice {
-                        seq,
-                        notice: Notice::PlanMissing {
-                            task,
-                            settled: true,
+        let mark = |settled: bool| {
+            update(
+                app,
+                &session,
+                |state: &mut SessionState, outbox: &mut Outbox| {
+                    let task: String = match state.entries.get(seq as usize) {
+                        Some(ChatEntry::Notice {
+                            notice: Notice::PlanMissing { task, settled: was },
+                            ..
+                        }) if *was != settled => task.clone(),
+                        _ => {
+                            return Err(CommandError::Implementation(PLAN_NOTICE_GONE.to_owned()));
+                        }
+                    };
+                    state.replace_entry(
+                        outbox,
+                        ChatEntry::Notice {
+                            seq,
+                            notice: Notice::PlanMissing {
+                                task: task.clone(),
+                                settled,
+                            },
                         },
-                    },
-                );
-                Ok(())
-            },
-        )
+                    );
+                    Ok(task)
+                },
+            )
+        };
+        let task: String = mark(true)?;
+        if retry && let Err(error) = self.plan_vorhaben(app, session_id, &task, device) {
+            if let Err(undo) = mark(false) {
+                session.log_line(format!("Hinweis nicht zurückgesetzt: {undo}"));
+            }
+            return Err(error);
+        }
+        Ok(())
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -3580,18 +3587,9 @@ impl SessionState {
         if !self.rests() {
             return;
         }
-        match guard_step(self.plan_guard.as_ref()) {
-            GuardStep::Nothing => {}
-            GuardStep::Remind => {
-                if let Some(guard) = &mut self.plan_guard {
-                    guard.reminders += 1;
-                }
-                outbox.plan_reminder = true;
-            }
-            GuardStep::Notice => {
-                let Some(guard) = self.plan_guard.take() else {
-                    return;
-                };
+        match advance_guard(&mut self.plan_guard) {
+            (GuardStep::Remind, _) => outbox.plan_reminder = true,
+            (GuardStep::Notice, Some(guard)) => {
                 self.push_entry(outbox, |seq: u32| ChatEntry::Notice {
                     seq,
                     notice: Notice::PlanMissing {
@@ -3600,6 +3598,7 @@ impl SessionState {
                     },
                 });
             }
+            _ => {}
         }
     }
 

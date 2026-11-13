@@ -1763,16 +1763,35 @@ fn guard_reminds_twice_then_shows_the_notice() {
 }
 
 #[test]
-fn continue_anyway_ends_the_check() {
-    // „Trotzdem weiter“ nimmt den Wächter weg; danach geschieht am Zugende nichts mehr.
-    let mut guard = Some(plan::PlanGuard {
-        task: "Baue etwas.".to_owned(),
-        called: false,
-        reminders: plan::MAX_PLAN_REMINDERS,
-    });
-    assert_eq!(plan::guard_step(guard.as_ref()), plan::GuardStep::Notice);
-    guard = None;
-    assert_eq!(plan::guard_step(guard.as_ref()), plan::GuardStep::Nothing);
+fn the_notice_ends_the_check_so_continue_anyway_only_settles_it() {
+    // Am Zugende zählt der Wächter die Erinnerungen selbst mit; der Hinweis nimmt ihn weg. Danach
+    // geschieht am Zugende nichts mehr, und „Trotzdem weiter“ hat keinen Wächter mehr zu beenden,
+    // auch nicht den eines neueren Planungszugs.
+    let mut guard = Some(plan::PlanGuard::new("Baue etwas."));
+    let mut steps = Vec::new();
+    let mut handed_out = None;
+    for _ in 0..4 {
+        let (step, taken) = plan::advance_guard(&mut guard);
+        steps.push(step);
+        if taken.is_some() {
+            handed_out = taken;
+        }
+    }
+    assert_eq!(
+        steps,
+        [
+            plan::GuardStep::Remind,
+            plan::GuardStep::Remind,
+            plan::GuardStep::Notice,
+            plan::GuardStep::Nothing
+        ]
+    );
+    assert_eq!(guard, None, "der Hinweis beendet die Prüfung");
+    assert_eq!(
+        handed_out.map(|guard: plan::PlanGuard| guard.task),
+        Some("Baue etwas.".to_owned()),
+        "der Hinweis bekommt den Auftrag für „Erneut“"
+    );
 }
 
 #[test]

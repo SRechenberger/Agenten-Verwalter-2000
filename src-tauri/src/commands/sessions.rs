@@ -53,8 +53,8 @@ pub async fn session_plan_vorhaben(
 }
 
 /// Eine Aktion auf dem Hinweis „Kein Plan im Umsetzungstool“ (ADR 062): `retry` („Erneut“) startet
-/// einen neuen Planungszug mit demselben Auftrag, sonst („Trotzdem weiter“) endet die Prüfung.
-/// `origin`: wie bei `chat_send`.
+/// einen neuen Planungszug mit demselben Auftrag, sonst („Trotzdem weiter“) wird nur der Hinweis
+/// erledigt. `origin`: wie bei `chat_send`.
 #[tauri::command]
 pub async fn session_plan_settle(
     app: tauri::AppHandle,
