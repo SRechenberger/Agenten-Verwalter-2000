@@ -1,6 +1,6 @@
 # 062 — „Plane Vorhaben“: der Einstieg mit festem Planungs-Prompt
 
-**Status:** angenommen, Phase 1 umgesetzt (Einstieg und Merker); der Wächter folgt in Phase 2 der Story (Taiga #81) · **Datum:** 2026-11-11
+**Status:** angenommen, Phase 1 (Einstieg und Merker) und Phase 2 (Wächter) der Story (Taiga #81) umgesetzt · **Datum:** 2026-11-11
 
 ## Kontext
 
@@ -16,7 +16,16 @@ Die Story (Taiga #81) verlangt eine ausdrückliche Aktion „Plane Vorhaben“: 
 - **Keine Feldnamen:** Der Prompt nennt kein Feld des Schemas. Die Beschreibung von `implementation_create` ist ihre einzige Quelle; Phase 76.2 der Story zu den Constraint-Abläufen ändert das Schema, ohne den Prompt anzufassen. Ein Test hält das fest (`after`, `wave`, `phases`, `max_parallel` kommen nicht vor).
 - **Wortlaut:** Der feste Teil steht in der ersten Person („Ich möchte ein Vorhaben planen …“), denn der Benutzer hat den Knopf gedrückt. Ein Satz, der wie eine fremde Anweisung klingt, lehnt das kleinste Modell ab ([ADR 052](052-session-werkzeuge.md), Messung an Haiku). Der Wortlaut ist hier **nicht** an Haiku gemessen; das tut Phase 3 der Story.
 - **Darstellung:** Der Verlauf zeigt nur den Auftrag des Benutzers, nicht den festen Teil (Chat zuerst); der Agent bekommt den ganzen Prompt. Der Name der Session entsteht aus dem Auftrag.
-- **Merker „Planungszug“:** `SessionState::planning_turn`, nur im Speicher (keine Spalte, keine Migration). Jeder neue Zug setzt ihn neu (`start_turn`): `true` nur durch „Plane Vorhaben“. Die Antwort auf eine Rückfrage lässt ihn stehen, denn der Zug läuft weiter. `SessionRegistry::is_planning_turn(session_id)` liest ihn; das ist die Schnittstelle zu Phase 2. Nach einem Neustart der App ist er gelöscht (Critical Rule 4: nichts startet von selbst).
+- **Merker „Planungszug“:** `SessionState::plan_guard` (bis Phase 2 `planning_turn`), nur im Speicher (keine Spalte, keine Migration). Jeder neue Zug setzt ihn neu (`start_turn`): gesetzt nur durch „Plane Vorhaben“. Die Antwort auf eine Rückfrage lässt ihn stehen, denn der Zug läuft weiter. `SessionRegistry::is_planning_turn(session_id)` liest ihn; das ist die Schnittstelle zu Phase 2. Nach einem Neustart der App ist er gelöscht (Critical Rule 4: nichts startet von selbst).
+
+## Nachtrag: der Wächter (Phase 2)
+
+- **Erkennen:** `apply_event` sieht jeden Werkzeugaufruf des Hauptagenten als `ToolStarted`. Heißt er `mcp__verwalter__implementation_create` oder `mcp__verwalter__implementation_set_phases` (`plan::is_plan_tool`), gilt der Planungszug als erfüllt. Nur der Name zählt, nicht das Ergebnis: Ein abgelehnter Plan (etwa ein Zyklus) kommt als Fehler beim Agenten an, der ihn dann verbessert; so hängt der Wächter an keinem Schema. Aufrufe von Subagenten zählen nicht, ebenso wenig gleichnamige Werkzeuge eines anderen MCP-Servers.
+- **Entscheidung:** `plan::guard_step` ist rein: kein Wächter → nichts; Aufruf gesehen → nichts; weniger als `MAX_PLAN_REMINDERS` (2) Erinnerungen → erinnern; sonst der Hinweis. Sie läuft in `check_plan` am Ende eines **abgeschlossenen** Zugs, und nur, wenn die Session ruht (kein laufender Subagent, kein erwartetes Skript): Sonst setzt der Agent von selbst fort. Ein Zug, der mit Fehler, Abbruch, Pause oder am Kontingent endet, löst nichts aus.
+- **Erinnern:** Die feste Erinnerung `PLAN_REMINDER_TEXT` (erste Person, nennt das Werkzeug) geht wie `RESUME_TEXT` von „Automatisch fortsetzen“ als Nachricht des Benutzers in den Verlauf und an den Agenten, über `start_turn` mit `PlanTurn::Reminder`: Der Wächter bleibt mit seinem Zähler stehen. Sie geht in einem eigenen Thread hinaus (`schedule_plan_reminder`, wie die Warteschlange der Session-Nachrichten); unter der Sperre prüft `send_plan_reminder` noch einmal, dass die Session ruht und der Wächter noch wartet. Wer dazwischen sendet, beendet die Prüfung, und die Erinnerung entfällt. `auto_resume.rs` bleibt unberührt: Ein gemeinsamer Baustein wäre nicht kleiner, denn der Zeitgeber dort wartet auf eine Uhr.
+- **Hinweis:** Nach der zweiten Erinnerung steht im Verlauf `Notice::PlanMissing` mit dem Auftrag: „Kein Plan im Umsetzungstool.“ mit **Erneut** (ein neuer Planungszug mit demselben Auftrag, wie „Plane Vorhaben“) und **Trotzdem weiter** (beendet die Prüfung). Beide über `session_plan_settle(session_id, seq, retry, origin)` (Klasse C, Herkunft wie `session_plan_vorhaben`); danach trägt der Hinweis `settled` und keine Knöpfe mehr, bei „Erneut“ erst, wenn der neue Zug läuft. Der Wächter endet schon mit dem Hinweis; ein Zug, den die Kommandozeile danach von selbst beginnt, bringt keinen zweiten.
+- **Neustart:** Der Wächter liegt nur im Speicher. Nach einem Neustart prüft nichts, und nichts startet von selbst (Critical Rule 4). Der gespeicherte Hinweis behält „Erneut“, denn er trägt den Auftrag; „Trotzdem weiter“ nimmt dann nur die Knöpfe weg.
+- **Grenzen:** Eine Frage des Agenten als Fließtext beendet den Zug und löst eine Erinnerung aus; die Erinnerung bittet deshalb, Fragen mit `AskUserQuestion` zu stellen (die lässt den Zug offen). „Automatisch fortsetzen“ nach leerem Kontingent sendet `RESUME_TEXT` als gewöhnlichen Zug und beendet die Prüfung. Die Wirkung misst Phase 3 der Story an Haiku.
 
 ## Verworfen
 
@@ -26,6 +35,6 @@ Die Story (Taiga #81) verlangt eine ausdrückliche Aktion „Plane Vorhaben“: 
 
 ## Folgen
 
-- Phase 2: Der Wächter liest `is_planning_turn` am Ende des Zugs und die Werkzeugaufrufe im Strom; für seine Erinnerungen braucht er einen Sendeweg, der den Merker erhält (`send_turn` mit `planning`).
+- Phase 2: Der Wächter liest seinen Merker am Ende des Zugs und die Werkzeugaufrufe im Strom; seine Erinnerungen gehen über `start_turn` mit `PlanTurn::Reminder`, das den Merker erhält (siehe Nachtrag).
 - Wer das Schema von `implementation_create` ändert, ändert nur dessen Beschreibung; der Prompt verweist darauf.
 - Die Werkzeuge des Verwalters hat nur die Betriebsart Claude (`session_tools` in `start_process`); „Plane Vorhaben“ gibt es deshalb nur dort.

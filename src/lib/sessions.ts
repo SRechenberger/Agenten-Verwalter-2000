@@ -39,6 +39,18 @@ export async function startPlanning(sessionId: string, task: string): Promise<vo
   await invoke('session_plan_vorhaben', { sessionId, task });
 }
 
+/** Aktion auf dem Hinweis „Kein Plan im Umsetzungstool“ an `seq` (ADR 062): `retry` („Erneut“) startet einen
+ *  neuen Planungszug mit demselben Auftrag, sonst („Trotzdem weiter“) endet die Prüfung.
+ *  @throws {import('@/lib/bindings/CommandError').CommandError} `sessionNotFound`, `sessionClosed`,
+ *    `agentStopped`, `implementation` (Hinweis nicht mehr da, andere Betriebsart als Claude, offene Rückfrage) */
+export async function settlePlanNotice(
+  sessionId: string,
+  seq: number,
+  retry: boolean,
+): Promise<void> {
+  await invoke('session_plan_settle', { sessionId, seq, retry });
+}
+
 /** Setzt eine pausierte Session mit „Mach weiter.“ fort.
  *  @throws {import('@/lib/bindings/CommandError').CommandError} `sessionNotFound`, `agentStopped` */
 export async function resumeSession(sessionId: string): Promise<void> {

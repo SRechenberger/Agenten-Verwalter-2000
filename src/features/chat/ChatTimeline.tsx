@@ -519,6 +519,7 @@ export function ChatTimeline({
         return (
           <NoticeBlock
             sessionId={session.id}
+            seq={entry.seq}
             notice={entry.notice}
             isExpanded={expandedKeys.has(key)}
             onToggle={(): void => {
