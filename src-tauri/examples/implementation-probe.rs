@@ -54,7 +54,7 @@ use verwalter_lib::implementation::report::Extras;
 use verwalter_lib::implementation::{
     Countdowns, STATION_BEGUN, SessionLive, amended_brief_changes, build_view, changes,
     checked_options, checked_settings, handoff_changes, kept_phases, link, new_rows, now_ms,
-    plan_completion, plan_completion_with_types, report, schedule, start,
+    plan_completion, plan_completion_with_types, report, schedule, start, wake,
 };
 use verwalter_lib::sessions::model::SessionStatus;
 
@@ -249,6 +249,7 @@ Hinweis: {text}"
             )
         })
         .unwrap_or_default();
+    let wakes = wake_lines(&before, &after, station_id, result, fix_needed);
     let next = if startable.is_empty() {
         "  (keine)".to_owned()
     } else {
@@ -265,10 +266,47 @@ NACHHER
 {}
 
 Darf starten:
-{next}{hint_line}",
+{next}{wakes}{hint_line}",
         report::text(&before, now_ms(), false),
         report::text(&after, now_ms(), false),
     ))
+}
+
+/// Die Nachrichten, die der Verwalter nach dieser Fertigmeldung dem Ersteller schickt (ADR 061),
+/// durch dieselbe Entscheidung wie die App, mit einem Ersteller, der da ist.
+fn wake_lines(
+    before: &ImplementationView,
+    after: &ImplementationView,
+    station_id: &str,
+    result: &str,
+    fix_needed: bool,
+) -> String {
+    let is_finished = after.stations_done == after.stations_total;
+    let Some((phase, station)) = before.phases.iter().find_map(|phase| {
+        phase
+            .stations
+            .iter()
+            .find(|station| station.id == station_id)
+            .map(|station| (phase, station))
+    }) else {
+        return String::new();
+    };
+    let facts = wake::WakeFacts {
+        implementation: before.name.clone(),
+        lane: phase.key.clone(),
+        stage: station.stage.clone(),
+        text: result.trim().to_owned(),
+    };
+    let mut claimed = std::collections::HashSet::new();
+    let lines: Vec<String> = wake::events_after_completion(station_id, fix_needed, is_finished)
+        .iter()
+        .filter_map(|event| wake::decide(event, &facts, true, &mut claimed))
+        .map(|text: String| format!("  {text}"))
+        .collect();
+    if lines.is_empty() {
+        return "\n\nWeckt den Ersteller: nein".to_owned();
+    }
+    format!("\n\nWeckt den Ersteller:\n{}", lines.join("\n"))
 }
 
 fn types_of(database: &Database) -> Result<Vec<AgentType>, String> {
@@ -1000,6 +1038,7 @@ fn selftest(path: &Path) -> Result<bool, String> {
     all &= station_options(&database)?;
     all &= plan_edits(&database)?;
     all &= handoffs(&database)?;
+    all &= wakes();
     Ok(all)
 }
 
@@ -1426,4 +1465,41 @@ fn station_options(database: &Database) -> Result<bool, String> {
             && station(&after_app_restart, "failing").is_some_and(|failed| !failed.restarting),
     );
     Ok(all)
+}
+
+/// Ersteller wecken (ADR 061): Ereignis → Nachricht oder keine, durch dieselbe Entscheidung wie die App.
+fn wakes() -> bool {
+    let mut all = true;
+    let facts = wake::WakeFacts {
+        implementation: "Probe".to_owned(),
+        lane: "1".to_owned(),
+        stage: "Review".to_owned(),
+        text: "2 Befunde".to_owned(),
+    };
+    let finished = wake::WakeEvent::Finished {
+        station_id: "s1".to_owned(),
+    };
+    let mut claimed = std::collections::HashSet::new();
+    let first = wake::decide(&finished, &facts, true, &mut claimed);
+    all &= check(
+        "Ersteller wecken: Umsetzung fertig meldet mit Quelle und Ergebnis",
+        first.is_some_and(|text| {
+            text.starts_with("Meldung des Verwalters") && text.contains("2 Befunde")
+        }),
+    );
+    all &= check(
+        "Ersteller wecken: dasselbe Ereignis ein zweites Mal meldet nichts",
+        wake::decide(&finished, &facts, true, &mut claimed).is_none(),
+    );
+    let mut none = std::collections::HashSet::new();
+    all &= check(
+        "Ersteller wecken: ohne Ersteller keine Nachricht und kein Anspruch",
+        wake::decide(&finished, &facts, false, &mut none).is_none() && none.is_empty(),
+    );
+    all &= check(
+        "Ersteller wecken: Befund und Ende zugleich sind zwei Ereignisse, ohne beides keines",
+        wake::events_after_completion("s1", true, true).len() == 2
+            && wake::events_after_completion("s1", false, false).is_empty(),
+    );
+    all
 }
