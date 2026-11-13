@@ -2,61 +2,48 @@ import { useState } from 'react';
 import type { ReactElement } from 'react';
 import { AgentTypeDialog } from '@/features/agenttypes/AgentTypeDialog';
 import { useAgentTypes } from '@/features/agenttypes/useAgentTypes';
-import type { StationRef } from '@/features/implementation/implementationOrder';
+import { isBegun, type StationRef } from '@/features/implementation/implementationOrder';
 import {
-  AGENT_LEAD_NEXT,
-  AGENT_LEAD_STARTED,
-  AGENT_TYPE_TITLE,
   CANCEL_COUNTDOWN_LABEL,
   CANCEL_COUNTDOWN_TITLE,
-  DELETED_TYPE_TITLE,
-  DONE_BY_USER_LABEL,
-  DONE_BY_USER_RESULT,
-  DONE_BY_USER_TITLE,
   EDIT_TYPE_LABEL,
   EDIT_TYPE_TITLE,
-  EFFORT_LIKE_SESSION,
-  EFFORT_LIKE_SESSION_TITLE,
-  MODEL_LIKE_SESSION,
-  MODEL_LIKE_SESSION_TITLE,
-  NO_TYPE_LABEL,
-  NO_TYPE_TITLE,
+  lockInfo,
   OPEN_CHAT_LABEL,
   OPEN_CHAT_TITLE,
-  SKILL_CHIP_TITLE,
+  PURPOSE_BY_USER,
+  PURPOSE_BY_USER_TEXT,
+  PURPOSE_LEAD,
+  PURPOSE_NO_TYPE,
+  PURPOSE_NO_TYPE_TEXT,
+  rowStateText,
   START_FAILED_HINT,
   START_FAILED_LEAD,
   START_NOW_LABEL,
   START_NOW_TITLE,
-  STATION_SETTINGS_LABEL,
-  STATION_SETTINGS_TITLE,
-  deletedTypeText,
-  promptChipText,
-  promptChipTitle,
-  sourceSmall,
-  sourceTitle,
-  stateText,
 } from '@/features/implementation/implementationTexts';
-import {
-  cardAgentFacts,
-  isClaude,
-  typeNamed,
-  type AgentValue,
-  type CardAgentFacts,
-} from '@/features/implementation/stationAgent';
-import { StationSettingsDialog } from '@/features/implementation/StationSettingsDialog';
+import { StationAgentSection } from '@/features/implementation/StationAgentSection';
+import { StationAutomationSection } from '@/features/implementation/StationAutomationSection';
+import { StationBriefSection } from '@/features/implementation/StationBriefSection';
+import { StationFlowSection } from '@/features/implementation/StationFlowSection';
+import { typeNamed, typeOfStation } from '@/features/implementation/stationAgent';
 import { stationTone } from '@/features/implementation/stationState';
-import { stationPromptLength } from '@/lib/agentTypes';
 import type { AgentType } from '@/lib/bindings/AgentType';
-import type { Effort } from '@/lib/bindings/Effort';
 import type { OperatingMode } from '@/lib/bindings/OperatingMode';
 import type { SessionSummary } from '@/lib/bindings/SessionSummary';
-import { effortLabel, modelName } from '@/lib/labels';
+import type { ActionError } from '@/lib/useActionError';
 import './StationCard.css';
+
+/** Die vier Abschnitte der Kartei. */
+export type CardSectionKey = 'flow' | 'brief' | 'agent' | 'automation';
 
 interface StationCardProps {
   implementationId: string;
   stationRef: StationRef;
+  /** Alle Stationen in der Reihenfolge der Zeitleiste: Chips und Zyklen. */
+  refs: readonly StationRef[];
+  /** Schalter „Automatisch starten“ der Leiste. */
+  isImplementationAutomatic: boolean;
   now: number;
   /** Nur die Betriebsart Claude wendet Modell und Denkaufwand der Typen an. */
   operatingMode: OperatingMode;
@@ -66,6 +53,11 @@ interface StationCardProps {
   ruleSession: SessionSummary | null;
   /** Dateien unter „Alle“ in der Session dieser Station; `null` ohne Session oder Changes. */
   changesCount: number | null;
+  /** Aufgeklappte Abschnitte; gelten für jede Station, bis der Benutzer sie umschaltet. */
+  openSections: Record<CardSectionKey, boolean>;
+  onToggleSection: (key: CardSectionKey) => void;
+  run: ActionError['run'];
+  onFocus: (stationId: string) => void;
   onOpenChat: (stationId: string) => void;
   onShowChanges: (stationId: string) => void;
   onStart: (stationId: string) => void;
@@ -75,127 +67,70 @@ interface StationCardProps {
   isLocked: boolean;
 }
 
-/** Die große Karte der Station im Fokus. Fragen werden im Chat beantwortet, nicht hier. */
+/** Die Kartei der Station im Fokus (Entwurf 1): Kopf mit Zweck, darunter Ablauf, Auftrag, Agent und
+ *  Automatik. Fragen werden im Chat beantwortet, nicht hier. */
 export function StationCard({
+  implementationId,
   stationRef,
+  refs,
+  isImplementationAutomatic,
   now,
+  operatingMode,
+  session,
+  ruleSession,
   changesCount,
+  openSections,
+  onToggleSection,
+  run,
+  onFocus,
   onOpenChat,
   onShowChanges,
   onStart,
   onCancelCountdown,
   onCompleteByUser,
   isLocked,
-  implementationId,
-  operatingMode,
-  session,
-  ruleSession,
 }: StationCardProps): ReactElement {
   const { station, phase } = stationRef;
   const number: string = station.sessionNumber === null ? '' : `#${String(station.sessionNumber)}`;
   const { agentTypes } = useAgentTypes();
-  const [dialog, setDialog] = useState<'settings' | 'type' | null>(null);
-  // Der Typ, den „Typ bearbeiten“ öffnet: der, als der die Station starten will. Ein Typ, den es nicht mehr
-  // gibt, hat keinen Dialog; dort hilft „Einstellungen“.
+  const [isTypeDialogOpen, setIsTypeDialogOpen] = useState<boolean>(false);
+  const types: readonly AgentType[] = agentTypes ?? [];
+  const type: AgentType | null = station.byUser ? null : typeOfStation(types, station);
+  // Der Typ, den „Typ bearbeiten“ öffnet: der, als der die Station starten will.
   const editableType: AgentType | null =
-    station.agentType === null ? null : typeNamed(agentTypes ?? [], station.agentType);
-  const canEditSettings: boolean =
-    !station.byUser &&
-    station.sessionId === null &&
-    (station.state === 'pending' || station.state === 'ready' || station.state === 'countdown');
-
-  /** Ein Wert der Zeile: Name, kleiner Zusatz mit der Herkunft (nur Station und Regel), Tooltip. */
-  function renderValue<T>(
-    value: AgentValue<T> | null,
-    text: (value: T) => string,
-    like: { text: string; title: string },
-  ): ReactElement {
-    if (value === null) {
-      const isClaudeMode: boolean = isClaude(operatingMode);
-      return (
-        <span
-          className="station-card__fact station-card__fact--rule"
-          title={isClaudeMode ? sourceTitle('rule', null) : like.title}
-        >
-          {like.text}
-        </span>
-      );
-    }
-    const small: string | null = sourceSmall(value.source);
-    const tone: string = value.source === 'station' ? ' station-card__fact--set' : '';
-    const rule: string = value.source === 'rule' ? ' station-card__fact--rule' : '';
-    return (
-      <span
-        className={`station-card__fact${tone}${rule}`}
-        title={sourceTitle(value.source, ruleSession?.number ?? null)}
-      >
-        {text(value.value)}
-        {small !== null && <small className="station-card__fact-source">{small}</small>}
-      </span>
-    );
+    station.agentType === null ? null : typeNamed(types, station.agentType);
+  let lockPhase: 'open' | 'started' | 'done' = 'open';
+  if (station.state === 'done') {
+    lockPhase = 'done';
+  } else if (isBegun(station)) {
+    lockPhase = 'started';
   }
 
-  function renderType(): ReactElement {
-    if (station.agentType !== null) {
-      return (
-        <span className="station-card__fact station-card__fact--type" title={AGENT_TYPE_TITLE}>
-          {station.agentType}
-        </span>
-      );
-    }
-    // Vor dem Start nennt `agent` einen Typ, den die Auflösung nicht fand: Er ist gelöscht.
-    if (station.agent !== null && station.sessionId === null) {
-      return (
-        <span className="station-card__fact station-card__fact--none" title={DELETED_TYPE_TITLE}>
-          {deletedTypeText(station.agent)}
-        </span>
-      );
-    }
-    return (
-      <span className="station-card__fact station-card__fact--none" title={NO_TYPE_TITLE}>
-        {NO_TYPE_LABEL}
-      </span>
-    );
+  function toggle(key: CardSectionKey): () => void {
+    return (): void => {
+      onToggleSection(key);
+    };
   }
 
-  /** „startet als developer · Opus 5.5 · Denkaufwand Max Station · /skill · Zusatztext · 140 Zeichen“. */
-  function renderAgent(): ReactElement | null {
+  function renderPurpose(): ReactElement {
     if (station.byUser) {
-      return null;
+      return (
+        <p className="station-card__purpose">
+          {PURPOSE_LEAD} <b>{PURPOSE_BY_USER}</b> {PURPOSE_BY_USER_TEXT}
+        </p>
+      );
     }
-    const facts: CardAgentFacts = cardAgentFacts(station, operatingMode, session, ruleSession);
-    const text: string = station.prompt?.trim() ?? '';
+    if (type === null) {
+      return (
+        <p className="station-card__purpose">
+          {PURPOSE_LEAD} <b>{PURPOSE_NO_TYPE}</b> {PURPOSE_NO_TYPE_TEXT}
+        </p>
+      );
+    }
     return (
-      <div className="station-card__agent">
-        <span className="station-card__lead">
-          {facts.isStarted ? AGENT_LEAD_STARTED : AGENT_LEAD_NEXT}
-        </span>
-        {renderType()}
-        {renderValue(facts.model, modelName, {
-          text: MODEL_LIKE_SESSION,
-          title: MODEL_LIKE_SESSION_TITLE,
-        })}
-        {renderValue(facts.effort, (effort: Effort) => `Denkaufwand ${effortLabel(effort)}`, {
-          text: EFFORT_LIKE_SESSION,
-          title: EFFORT_LIKE_SESSION_TITLE,
-        })}
-        {station.skill !== null && (
-          <span
-            className="station-card__fact station-card__fact--set station-card__fact--skill"
-            title={SKILL_CHIP_TITLE}
-          >
-            /{station.skill}
-          </span>
-        )}
-        {text !== '' && (
-          <span
-            className="station-card__fact station-card__fact--set"
-            title={promptChipTitle(station.prompt ?? '')}
-          >
-            {promptChipText(stationPromptLength(text))}
-          </span>
-        )}
-      </div>
+      <p className="station-card__purpose">
+        {PURPOSE_LEAD} <b>{type.name}</b> – {type.description}
+      </p>
     );
   }
 
@@ -225,60 +160,35 @@ export function StationCard({
     return <p className="station-card__result">{station.result}</p>;
   }
 
-  function renderChatButton(): ReactElement | null {
-    if (station.sessionId === null) {
-      return null;
-    }
+  function renderActions(): ReactElement {
+    const isStartable: boolean = station.state === 'ready' || station.state === 'countdown';
     return (
-      <button
-        type="button"
-        className="station-card__button station-card__button--primary"
-        title={OPEN_CHAT_TITLE}
-        onClick={(): void => {
-          onOpenChat(station.id);
-        }}
-      >
-        {OPEN_CHAT_LABEL}
-      </button>
-    );
-  }
-
-  function renderDoneButton(): ReactElement | null {
-    if (!station.byUser || station.state !== 'waitsForYou') {
-      return null;
-    }
-    return (
-      <button
-        type="button"
-        className="station-card__button station-card__button--primary"
-        title={DONE_BY_USER_TITLE}
-        disabled={isLocked}
-        onClick={(): void => {
-          onCompleteByUser(station.id, DONE_BY_USER_RESULT);
-        }}
-      >
-        {DONE_BY_USER_LABEL}
-      </button>
-    );
-  }
-
-  function renderStartButtons(): ReactElement | null {
-    if (station.state !== 'ready' && station.state !== 'countdown') {
-      return null;
-    }
-    return (
-      <>
-        <button
-          type="button"
-          className="station-card__button station-card__button--primary"
-          title={START_NOW_TITLE}
-          disabled={isLocked}
-          onClick={(): void => {
-            onStart(station.id);
-          }}
-        >
-          {START_NOW_LABEL}
-        </button>
+      <div className="station-card__actions">
+        {station.sessionId !== null && (
+          <button
+            type="button"
+            className="station-card__button station-card__button--primary"
+            title={OPEN_CHAT_TITLE}
+            onClick={(): void => {
+              onOpenChat(station.id);
+            }}
+          >
+            {OPEN_CHAT_LABEL}
+          </button>
+        )}
+        {isStartable && (
+          <button
+            type="button"
+            className="station-card__button station-card__button--primary"
+            title={START_NOW_TITLE}
+            disabled={isLocked}
+            onClick={(): void => {
+              onStart(station.id);
+            }}
+          >
+            {START_NOW_LABEL}
+          </button>
+        )}
         {station.state === 'countdown' && (
           <button
             type="button"
@@ -292,115 +202,104 @@ export function StationCard({
             {CANCEL_COUNTDOWN_LABEL}
           </button>
         )}
-      </>
-    );
-  }
-
-  function renderSettingsButtons(): ReactElement | null {
-    if (!canEditSettings) {
-      return null;
-    }
-    return (
-      <>
-        <button
-          type="button"
-          className="station-card__button"
-          title={STATION_SETTINGS_TITLE}
-          disabled={isLocked}
-          onClick={(): void => {
-            setDialog('settings');
-          }}
-        >
-          {STATION_SETTINGS_LABEL}
-        </button>
         {station.startError !== null && editableType !== null && (
           <button
             type="button"
             className="station-card__button"
             title={EDIT_TYPE_TITLE}
             onClick={(): void => {
-              setDialog('type');
+              setIsTypeDialogOpen(true);
             }}
           >
             {EDIT_TYPE_LABEL}
           </button>
         )}
-      </>
-    );
-  }
-
-  function renderDialog(): ReactElement | null {
-    if (dialog === 'settings' && canEditSettings) {
-      return (
-        <StationSettingsDialog
-          implementationId={implementationId}
-          phaseKey={phase.key}
-          station={station}
-          agentTypes={agentTypes}
-          operatingMode={operatingMode}
-          rule={ruleSession}
-          onClose={(): void => {
-            setDialog(null);
-          }}
-        />
-      );
-    }
-    if (dialog === 'type' && editableType !== null) {
-      return (
-        <AgentTypeDialog
-          agentType={editableType}
-          onClose={(): void => {
-            setDialog(null);
-          }}
-        />
-      );
-    }
-    return null;
-  }
-
-  function renderChangesButton(): ReactElement | null {
-    if (changesCount === null || station.sessionId === null) {
-      return null;
-    }
-    return (
-      <button
-        type="button"
-        className="station-card__button"
-        title="Zeigt die geänderten Dateien dieser Session"
-        onClick={(): void => {
-          onShowChanges(station.id);
-        }}
-      >
-        Changes · {String(changesCount)} Dateien
-      </button>
+        {changesCount !== null && station.sessionId !== null && (
+          <button
+            type="button"
+            className="station-card__button"
+            title="Zeigt die geänderten Dateien dieser Session"
+            onClick={(): void => {
+              onShowChanges(station.id);
+            }}
+          >
+            Changes · {String(changesCount)} Dateien
+          </button>
+        )}
+      </div>
     );
   }
 
   return (
     <article
       className={`station-card station-card--${stationTone(station)}`}
-      aria-label={`Phase ${phase.key} · ${station.stage}`}
+      aria-label={`Lane ${phase.key} · ${station.stage}`}
     >
       <div className="station-card__head">
         <b className="station-card__title">
-          Phase {phase.key} · {station.stage}
+          Lane {phase.key} · {station.stage}
         </b>
         <span className="station-card__number">{number}</span>
       </div>
       <p className="station-card__phase">{phase.title}</p>
-      <p className="station-card__state">{stateText(station, now)}</p>
-      {renderAgent()}
+      <p className="station-card__state">{rowStateText(station, now)}</p>
+      {renderPurpose()}
       {renderFail()}
       {renderQuestion()}
       {renderResult()}
-      <div className="station-card__actions">
-        {renderChatButton()}
-        {renderStartButtons()}
-        {renderSettingsButtons()}
-        {renderDoneButton()}
-        {renderChangesButton()}
+      {renderActions()}
+      <div className="station-card__sections">
+        <StationFlowSection
+          implementationId={implementationId}
+          stationRef={stationRef}
+          refs={refs}
+          isOpen={openSections.flow}
+          onToggle={toggle('flow')}
+          isLocked={isLocked}
+          run={run}
+          onFocus={onFocus}
+        />
+        <StationBriefSection
+          implementationId={implementationId}
+          stationRef={stationRef}
+          refs={refs}
+          isOpen={openSections.brief}
+          onToggle={toggle('brief')}
+          isLocked={isLocked}
+          run={run}
+          onCompleteByUser={onCompleteByUser}
+        />
+        <StationAgentSection
+          implementationId={implementationId}
+          stationRef={stationRef}
+          agentTypes={agentTypes}
+          operatingMode={operatingMode}
+          session={session}
+          ruleSession={ruleSession}
+          isOpen={openSections.agent}
+          onToggle={toggle('agent')}
+          isLocked={isLocked}
+          run={run}
+        />
+        <StationAutomationSection
+          implementationId={implementationId}
+          station={station}
+          isImplementationAutomatic={isImplementationAutomatic}
+          isOpen={openSections.automation}
+          onToggle={toggle('automation')}
+          isLocked={isLocked}
+          run={run}
+        />
       </div>
-      {renderDialog()}
+      <p className="station-card__lockinfo">{lockInfo(lockPhase)}</p>
+      {isTypeDialogOpen && editableType !== null && (
+        <AgentTypeDialog
+          agentType={editableType}
+          onClose={(): void => {
+            setIsTypeDialogOpen(false);
+          }}
+        />
+      )}
     </article>
   );
 }

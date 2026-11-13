@@ -1,7 +1,8 @@
 .implementation-view {
   display: grid;
   flex-grow: 1;
-  grid-template-columns: 300px minmax(0, 1fr);
+  /* Die Zeitleiste trägt Lane, Modell, Marken und Kanten-Chips je Zeile: so breit wie die Kartei. */
+  grid-template-columns: minmax(380px, 1fr) minmax(0, 1fr);
   grid-template-rows: minmax(0, 1fr);
   min-height: 0;
 

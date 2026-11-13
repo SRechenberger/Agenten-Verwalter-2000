@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import type { ReactElement } from 'react';
 import {
   changeIdOf,
@@ -15,9 +16,9 @@ import {
   SHOW_PENDING_TITLE,
   stationMeta,
 } from '@/features/implementation/implementationTexts';
-import { PlanChangeCard } from '@/features/implementation/PlanChangeCard';
+import { PlanChangeCard, type ProposalOverride } from '@/features/implementation/PlanChangeCard';
 import { latestSessionOf } from '@/features/implementation/stationAgent';
-import { StationCard } from '@/features/implementation/StationCard';
+import { StationCard, type CardSectionKey } from '@/features/implementation/StationCard';
 import { StationDot } from '@/features/implementation/StationDot';
 import { useOperatingMode } from '@/features/remote/useOperatingMode';
 import { useProjectLocked } from '@/features/remote/useProjectAccess';
@@ -29,6 +30,7 @@ import type { PhaseInput } from '@/lib/bindings/PhaseInput';
 import type { PhaseView } from '@/lib/bindings/PhaseView';
 import type { SessionSummary } from '@/lib/bindings/SessionSummary';
 import type { StationView } from '@/lib/bindings/StationView';
+import type { ActionError } from '@/lib/useActionError';
 import './CardStack.css';
 
 interface CardStackProps {
@@ -50,6 +52,9 @@ interface CardStackProps {
   onCancelCountdown: (stationId: string) => void;
   onCompleteByUser: (stationId: string, result: string) => void;
   onApplyChange: (accept: boolean) => void;
+  /** „Übernehmen“ mit geänderten Werten des Vorschlags (`PlanChangeCard`). */
+  onApplyEdited: (overrides: readonly ProposalOverride[]) => void;
+  run: ActionError['run'];
 }
 
 function isBegun(phase: PhaseView): boolean {
@@ -58,8 +63,25 @@ function isBegun(phase: PhaseView): boolean {
   );
 }
 
-/** Stationen nach einer Übernahme: die begonnener Phasen plus die des Vorschlags. */
+const ALL_OPEN: Record<CardSectionKey, boolean> = {
+  flow: true,
+  brief: true,
+  agent: true,
+  automation: true,
+};
+
+/** Stationen nach einer Übernahme. Ein Delta (`implementation_edit`) zählt neue und entfernte Stationen
+ *  zum heutigen Stand; ein Vorschlag ganzer Phasen ersetzt die nicht begonnenen. */
 function stationsAfterProposal(implementation: ImplementationView, pending: PendingChange): number {
+  if (pending.edit !== undefined) {
+    const lanes: number = pending.edit.lanes.reduce(
+      (sum: number, lane: PhaseInput) => sum + lane.stations.length,
+      0,
+    );
+    return (
+      implementation.stationsTotal + pending.edit.add.length + lanes - pending.edit.remove.length
+    );
+  }
   const kept: number = implementation.phases
     .filter(isBegun)
     .reduce((sum: number, phase: PhaseView) => sum + phase.stations.length, 0);
@@ -87,7 +109,10 @@ export function CardStack({
   onCancelCountdown,
   onCompleteByUser,
   onApplyChange,
+  onApplyEdited,
+  run,
 }: CardStackProps): ReactElement | null {
+  const [openSections, setOpenSections] = useState<Record<CardSectionKey, boolean>>(ALL_OPEN);
   // Ein anderes Gerät steuert das Vorhaben, oder der Host fehlt: Die Karten zeigen, die Knöpfe ruhen.
   const isLocked: boolean = useProjectLocked(implementation.projectId);
   const operatingMode: OperatingMode = useOperatingMode(implementation.projectId);
@@ -97,7 +122,8 @@ export function CardStack({
     changeId === null
       ? undefined
       : implementation.changes.find((change: ChangeView) => change.id === changeId);
-  const focusedStation: StationRef | undefined = flatStations(implementation).find(
+  const refs: StationRef[] = flatStations(implementation);
+  const focusedStation: StationRef | undefined = refs.find(
     (ref: StationRef) => ref.station.id === focusedId,
   );
   const around: StationNeighbors = neighbors(implementation, focusedId);
@@ -115,7 +141,7 @@ export function CardStack({
       >
         <StationDot station={ref.station} />
         <span className="card-stack__small-title">
-          {ref.phase.key} · {ref.station.stage}
+          Lane {ref.phase.key} · {ref.station.stage}
           {ref.station.agentType !== null && (
             <span className="card-stack__small-agent" title={AGENT_TYPE_NAME_TITLE}>
               {ref.station.agentType}
@@ -131,13 +157,18 @@ export function CardStack({
     if (focusedId === PENDING_FOCUS && pending !== null) {
       return (
         <PlanChangeCard
+          key={pending.at}
           kind="proposal"
           sessionNumber={pending.sessionNumber}
           at={pending.at}
           summary={pending.summary}
           stationsBefore={implementation.stationsTotal}
           stationsAfter={stationsAfterProposal(implementation, pending)}
+          edit={pending.edit ?? null}
+          projectId={implementation.projectId}
+          sessions={sessions}
           onApply={onApplyChange}
+          onApplyEdited={onApplyEdited}
           isLocked={isLocked}
         />
       );
@@ -166,6 +197,8 @@ export function CardStack({
         key={focusedStation.station.id}
         implementationId={implementation.id}
         stationRef={focusedStation}
+        refs={refs}
+        isImplementationAutomatic={implementation.autoStart}
         now={now}
         operatingMode={operatingMode}
         session={
@@ -175,6 +208,15 @@ export function CardStack({
         }
         ruleSession={latestSessionOf(sessions, implementation.projectId)}
         changesCount={changesCount}
+        openSections={openSections}
+        onToggleSection={(key: CardSectionKey): void => {
+          setOpenSections((current: Record<CardSectionKey, boolean>) => ({
+            ...current,
+            [key]: !current[key],
+          }));
+        }}
+        run={run}
+        onFocus={onFocus}
         onOpenChat={onOpenChat}
         onShowChanges={onShowChanges}
         onStart={onStart}

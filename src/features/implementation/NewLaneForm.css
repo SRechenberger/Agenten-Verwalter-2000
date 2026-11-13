@@ -1,0 +1,39 @@
+/* „+ Lane“ unter der Leiste: dieselben Bausteine wie die Kartei, ohne Zustandsrand. */
+.new-lane {
+  flex-shrink: 0;
+  max-height: 60vh;
+  margin: var(--space-md) var(--space-3xl);
+  overflow-y: auto;
+  border-left-width: 1px;
+  font-size: var(--font-size-xs);
+
+  &__station {
+    display: grid;
+    gap: var(--space-xs);
+    padding: var(--space-md) var(--space-lg);
+    border: 1px solid var(--color-border-subtle);
+    border-radius: var(--radius-lg);
+    background: var(--color-bg-base);
+  }
+
+  &__check {
+    align-items: center;
+  }
+
+  &__chip--selected {
+    border-style: solid;
+    border-color: var(--color-accent);
+    background: var(--color-bg-selected);
+    color: var(--color-accent-text);
+  }
+
+  &__preview {
+    display: grid;
+    gap: 2px;
+    color: var(--color-fg-muted);
+  }
+
+  &__problem {
+    color: var(--color-status-error);
+  }
+}
