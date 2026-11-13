@@ -1,6 +1,6 @@
 # 062 — „Plane Vorhaben“: der Einstieg mit festem Planungs-Prompt
 
-**Status:** angenommen, Phase 1 (Einstieg und Merker), Phase 2 (Wächter) und Phase 3 (Messung an Haiku) der Story (Taiga #81) umgesetzt · **Datum:** 2026-11-11
+**Status:** angenommen, umgesetzt: Einstieg und Merker, Wächter und Messung an Haiku (Story Taiga #81); die Abnahme in der echten App steht aus · **Datum:** 2026-11-11
 
 ## Kontext
 
@@ -16,7 +16,7 @@ Die Story (Taiga #81) verlangt eine ausdrückliche Aktion „Plane Vorhaben“: 
 - **Keine Feldnamen:** Der Prompt nennt kein Feld des Schemas. Die Beschreibung von `implementation_create` ist ihre einzige Quelle; Phase 76.2 der Story zu den Constraint-Abläufen ändert das Schema, ohne den Prompt anzufassen. Ein Test hält das fest (`after`, `wave`, `phases`, `max_parallel` kommen nicht vor).
 - **Wortlaut:** Der feste Teil steht in der ersten Person („Ich möchte ein Vorhaben planen …“), denn der Benutzer hat den Knopf gedrückt. Ein Satz, der wie eine fremde Anweisung klingt, lehnt das kleinste Modell ab ([ADR 052](052-session-werkzeuge.md), Messung an Haiku). Der Wortlaut ist in Phase 1 **nicht** an Haiku gemessen; das hat Phase 3 nachgeholt (Nachtrag „Wächter, Messung“).
 - **Darstellung:** Der Verlauf zeigt nur den Auftrag des Benutzers, nicht den festen Teil (Chat zuerst); der Agent bekommt den ganzen Prompt. Der Name der Session entsteht aus dem Auftrag.
-- **Merker „Planungszug“:** `SessionState::plan_guard` (bis Phase 2 `planning_turn`), nur im Speicher (keine Spalte, keine Migration). Jeder neue Zug setzt ihn neu (`start_turn`): gesetzt nur durch „Plane Vorhaben“. Die Antwort auf eine Rückfrage lässt ihn stehen, denn der Zug läuft weiter. `SessionRegistry::is_planning_turn(session_id)` liest ihn; das ist die Schnittstelle zu Phase 2. Nach einem Neustart der App ist er gelöscht (Critical Rule 4: nichts startet von selbst).
+- **Merker „Planungszug“:** `SessionState::plan_guard` (bis Phase 2 `planning_turn`), nur im Speicher (keine Spalte, keine Migration). Jeder neue Zug setzt ihn neu (`start_turn`): gesetzt nur durch „Plane Vorhaben“. Die Antwort auf eine Rückfrage lässt ihn stehen, denn der Zug läuft weiter. `SessionRegistry::is_planning_turn(session_id)` liest ihn; der Wächter liest `plan_guard` seither selbst (`check_plan`, `apply_event`), `is_planning_turn` hat keinen Aufrufer mehr. Nach einem Neustart der App ist er gelöscht (Critical Rule 4: nichts startet von selbst).
 
 ## Nachtrag: der Wächter (Phase 2)
 

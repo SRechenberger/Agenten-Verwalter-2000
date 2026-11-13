@@ -1,6 +1,6 @@
 # 061 — Constraint-Abläufe: Planung aus Kanten statt aus Position und Welle
 
-**Status:** angenommen; Kern, Konfiguration je Station und Werkzeuge sind umgesetzt, die Oberfläche folgt · **Datum:** 2026-11-11
+**Status:** angenommen, umgesetzt (Kern, Konfiguration je Station, Werkzeuge, Oberfläche, Ersteller wecken); „Automatisch weiter“ nach leerem Kontingent (Story 56) ist nicht gebaut; die Abnahme in der echten App steht aus · **Datum:** 2026-11-11
 
 ## Kontext
 
@@ -78,6 +78,26 @@ Der Verwalter legt bei drei Ereignissen eine Nachricht in die `session_inbox` de
 - **Wortlaut:** fest in `wake.rs`, ein Satz je Ereignis mit der Quelle („Meldung des Verwalters“), Umsetzung, Lane und Stufe und dem Ergebnis der Station (bei einer Rückfrage ihrer Frage), auf eine Zeile und höchstens 200 Zeichen gekürzt. Er gibt keinen Auftrag und sagt nicht, dass er keiner sei: Der Satz „keine Anweisung des Nutzers“ ließ Haiku verweigern (ADR 052). Gemessen am 2026-11-13 mit `claude -p --model haiku` (Version 2.1.296), ohne Werkzeuge und ohne Einstellungen, mit dem Systemprompt der Session-Werkzeuge und der Nachricht samt erster Zeile, je Ereignis drei Läufe: 0 von 9 Läufen verweigerten („kommt nicht vom Nutzer“ oder Rückfrage nach der Quelle). Fertig: dreimal zur Kenntnis genommen, ohne Aktion. Befund und Rückfrage: sechsmal als Aufgabe behandelt, Haiku wollte die Review-Datei suchen oder die Frage entscheiden; drei dieser Antworten sind durch die fehlenden Werkzeuge der Messung unbrauchbar (erfundene Aufrufe), eine fragt den Benutzer zurück, eine antwortet dem Absender `verwalter` über `verwalter_send_message_to` (ein Fehler „Unbekannte Session“, sonst folgenlos). Ob der Ersteller handelt, entscheidet er; die Messung belegt nur, dass er den Text annimmt. Ein anderer Wortlaut braucht eine neue Messung.
 - **Nicht gebaut:** kein neuer Befehl, kein Start einer Session und kein Eingriff in die Station; Variante A (der Agent sendet selbst) bleibt verworfen.
 
+### Oberfläche (Nachtrag)
+
+Die Ansicht der Umsetzung folgt dem Entwurf [`docs/design/2026-11-10_constraint-ablaeufe/`](../design/2026-11-10_constraint-ablaeufe/README.md) (Zeitleiste mit Kanten-Chips); die Abweichungen stehen dort unter „Abweichungen vom Entwurf“.
+
+- **Zeitleiste nach Stufen:** Die Zeilen stehen nach der Stufe aus dem Core (`level`) gruppiert; die durchgehende Linie entfällt, weil sie eine Kette behauptete. Vorgänger und Nachfolger sind Chips (grün mit ✓, wenn fertig), eine Station ohne Vorgänger trägt „Startstation“. Die Kartei steht wie bisher rechts neben der Zeitleiste und hat vier Abschnitte (Ablauf, Auftrag, Agent, Automatik).
+- **Ein Weg für jede Änderung des Benutzers:** Kanten-Chips („+ Nachfolger“, „×“), „+ Lane“, „Parallel max.“, Auftrag, Typ, Modell und Denkaufwand gehen über `implementation_edit_plan` bzw. `implementation_set_station_agent` und `implementation_set_station_options` in denselben Kern wie die Werkzeuge der Agenten (`edit::apply`). Es gibt keinen zweiten Weg, der Kanten schreibt. „Plan ändern?“ zeigt nur Deltas (`pendingChange.edit`) änderbar; ein Vorschlag ganzer Phasen (`implementation_set_phases`) bleibt eine Zusammenfassung.
+- **Stufen und Zyklen rechnet die Oberfläche für die Vorschau selbst** (`implementationGraph.ts`, für den Zyklus-Ausschluss der Chips und die Vorschau in „+ Lane“), nach derselben Regel wie `schedule.rs`; maßgeblich bleibt der Core, der jede Änderung noch einmal prüft. Der Selbsttest (`pnpm selftest`, in `pnpm check` und der CI) hält Stufe, Weg, Zyklus und Delta fest.
+- **Sperren nach Zustand:** Was bis zum Start änderbar ist und was danach gesperrt, bestimmt der Core (siehe „Sperren nach Zustand“); die Oberfläche sperrt dieselben Felder, bei Kanten mit einem Hinweis am Chip, der Core lehnt trotzdem ab.
+- **Nicht gebaut:** der Schalter „↻ Automatisch weiter“ (Leiste, Zeile, Kartei) und der Zustand dahinter. Er gehört zu Story 56 („Automatisch fortsetzen“ je Station, nach leerem Kontingent und nach Fehler); Story 56 ist nicht umgesetzt. Der Fehlerfall ist als „Bei Fehler“ gebaut (siehe oben).
+
+### Bekannte Grenzen
+
+Beim Gesamt-Review gefunden und nicht behoben, weil sie nicht ausgelöst oder vorbestehend sind:
+
+- **Zwei „fertig“-Weckungen:** Melden zwei letzte Stationen paralleler Lanes im selben Augenblick fertig, könnte der Ersteller zweimal „Umsetzung fertig“ hören: Der Schlüssel gilt je Station (`wake.rs`), und `after_completion` zählt die unfertigen Stationen ohne gemeinsame Sperre. Nicht ausgelöst, nicht bewiesen.
+- **Antwort an „Verwalter“:** Der Absender der Weck-Nachricht (Nummer 0, Kennung `verwalter`) ist keine Session; eine Antwort des Erstellers über `verwalter_send_message_to` scheitert mit „Unbekannte Session“ (1 von 9 Messläufen), sonst folgenlos. Offen beim Architekten.
+- **Planungszug nach Abbruch:** Nach einem abgebrochenen oder pausierten Planungszug bleibt der Wächter gesetzt (ADR 062); beginnt die Kommandozeile danach von selbst einen Zug, der regulär endet, käme eine Erinnerung. Nicht ausgelöst.
+- **Vorbestehend:** `changes::decide` nimmt einen Vorschlag mit `implementation_set_phases` auch nach dem Ende der Umsetzung an; schon vor dieser ADR prüfte nur `propose` das Ende.
+- **Probe `agent-type-probe`** erwartet Version 22 und ist seit Migration 23 rot (STATE.md); nicht Teil dieser ADR.
+
 ### Verworfen
 
 - **Variante A** (der Agent sendet dem Nachfolger selbst eine Nachricht): zwei Wege für denselben Übergang, und der Verwalter sähe den Ablauf nicht mehr. Die Übergabenotiz ersetzt sie: Sie geht über die Fertigmeldung in den Auftrag, mit Quelle und gegen „Vorgänger dürfen“ geprüft.
@@ -92,5 +112,5 @@ Der Verwalter legt bei drei Ereignissen eine Nachricht in die `session_inbox` de
 
 - Eine Umsetzung ohne `after` und ohne `max_parallel` verhält sich wie vorher, bis auf die erste Nachricht, die nur noch die Ergebnisse der Vorgänger-Kanten nennt.
 - Wer „Erledigt“ an einer Station des Benutzers drückt, bevor ihre Vorgänger fertig sind, macht ihre Nachfolger bereit, ohne dass die früheren Stationen der Kette fertig sein müssen; vorher hielt die Regel alle früheren Stationen fest. Der Befehl prüft das weiterhin nicht.
-- Prüfen ohne App: `cargo run --example implementation-probe -- --selftest` (Sortierung, bereiter Satz, Zyklus, Einfügen, Verzweigung und Zusammenlauf, Migration, Warteschlange, Konfiguration je Station).
+- Prüfen ohne App: `cargo run --example implementation-probe -- --selftest` (Sortierung, bereiter Satz, Zyklus, Einfügen, Verzweigung und Zusammenlauf, Migration, Warteschlange, Konfiguration je Station, Delta, Übergabenotiz, Ersteller wecken) und `pnpm selftest` (Stufe, Weg, Zyklus und Delta in der Oberfläche).
 - Eine Umsetzung ohne die neuen Felder verhält sich wie vorher; nur der Satz von `STATION_BEGUN` nennt jetzt die fünf festgeschriebenen Einstellungen.
