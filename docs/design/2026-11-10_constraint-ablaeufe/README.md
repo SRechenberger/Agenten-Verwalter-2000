@@ -89,4 +89,6 @@ Der Vorschlag eines Agenten (neue Station samt Kanten) zeigt **Typ, Modell, Denk
 
 ## Abweichungen vom Entwurf
 
-_noch keine._
+- **„Automatisch weiter“ nach leerem Kontingent fehlt** (Core, 2026-11-11): weder als Schalter der Umsetzung noch je Station noch als Zustand. Es hängt an Story 56, die noch nicht umgesetzt ist. „Bei Fehler“ (anhalten, 1×, bis 3× neu starten) und „Automatisch starten“ je Station stehen im Core.
+- **„Neu starten“ heißt: dieselbe Session.** Der Verwalter startet den Agenten der Session neu und schickt eine Nachricht zum Fortsetzen; die Station bleibt an ihre Session gebunden, die Momentaufnahme des Starts bleibt. Nach einem App-Neustart startet nichts neu.
+- **Eine Plan-Änderung, die eine wartende Station ersetzt, verwirft deren Änderungen am Auftrag:** Den neuen Auftrag gibt der Planer.

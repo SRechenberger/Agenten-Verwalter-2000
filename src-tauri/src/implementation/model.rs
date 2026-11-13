@@ -119,20 +119,114 @@ pub struct StationView {
     pub priority: i32,
     pub level: u32,
     pub queue_position: Option<u32>,
+    // Ab hier ADR 061, Station konfigurierbar: „Automatisch starten“ der Station (`None` = wie die
+    // Umsetzung) und der wirksame Wert, „Bei Fehler“ mit der Zahl der Neustarts, „Vorgänger dürfen“,
+    // die Änderungen am Auftrag (`brief` bleibt der ursprüngliche) und ob die Station gleich neu
+    // startet (Fehler in diesem Lauf der App, Neustarts übrig; ihr Platz bleibt belegt).
+    pub auto_start: Option<bool>,
+    pub starts_automatically: bool,
+    pub on_error: OnError,
+    pub restarts: u32,
+    pub predecessors_may: PredecessorsMay,
+    pub brief_changes: Vec<BriefChange>,
+    pub restarting: bool,
 }
 
 impl StationView {
-    /// Zählt gegen `max_parallel` (ADR 061).
+    /// Zählt gegen `max_parallel` (ADR 061); eine Station, die nach einem Fehler neu startet, behält
+    /// ihren Platz.
     pub fn is_active(&self) -> bool {
-        matches!(
-            self.state,
-            StationState::Countdown
-                | StationState::Starting
-                | StationState::Running
-                | StationState::WaitsForScript
-                | StationState::Asking
-        )
+        self.restarting
+            || matches!(
+                self.state,
+                StationState::Countdown
+                    | StationState::Starting
+                    | StationState::Running
+                    | StationState::WaitsForScript
+                    | StationState::Asking
+            )
     }
+
+    /// Der Auftrag samt Änderungen durch Vorgänger, wie die erste Nachricht ihn sendet.
+    pub fn effective_brief(&self) -> String {
+        effective_brief(&self.brief, &self.brief_changes)
+    }
+}
+
+// „Bei Fehler“ (ADR 061): Endet die Session der Station mit Fehler, startet der Verwalter sie so oft
+// neu, danach wartet sie auf den Benutzer.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub enum OnError {
+    #[default]
+    Halt,
+    RestartOnce,
+    RestartUpToThree,
+}
+
+impl OnError {
+    pub fn max_restarts(self) -> u32 {
+        match self {
+            OnError::Halt => 0,
+            OnError::RestartOnce => 1,
+            OnError::RestartUpToThree => 3,
+        }
+    }
+}
+
+// „Vorgänger dürfen“ (ADR 061): was ein Vorgänger per `handoff` am Auftrag der Station tun darf.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub enum PredecessorsMay {
+    #[default]
+    Append,
+    AppendAndChange,
+    HandsOff,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub enum BriefChangeKind {
+    Append,
+    Replace,
+}
+
+// Eine Änderung am Auftrag mit Quelle (ADR 061): `source_station_id` ist die `id` der Station, von der
+// sie kommt, `at` ms seit der Epoche. Bis zum Start lässt sie sich entfernen (Ergänzung) bzw.
+// zurücksetzen (Ersatz).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct BriefChange {
+    pub id: String,
+    pub kind: BriefChangeKind,
+    pub text: String,
+    pub source_station_id: String,
+    #[ts(type = "number")]
+    pub at: f64,
+}
+
+/// Der Auftrag nach den Änderungen in ihrer Reihenfolge: Eine Ergänzung hängt eine Zeile an, ein Ersatz
+/// ersetzt den Text bis dahin.
+pub fn effective_brief(brief: &str, changes: &[BriefChange]) -> String {
+    changes.iter().fold(
+        brief.to_owned(),
+        |text: String, change: &BriefChange| match change.kind {
+            BriefChangeKind::Replace => change.text.clone(),
+            BriefChangeKind::Append if text.is_empty() => change.text.clone(),
+            BriefChangeKind::Append => format!("{text}\n{}", change.text),
+        },
+    )
+}
+
+// Die Einstellungen von „Automatik“ und „Vorgänger dürfen“ einer Station (ADR 061):
+// `implementation_set_station_options` ersetzt alle drei auf einmal. Nur der Benutzer setzt sie.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct StationOptions {
+    // `None` = wie die Umsetzung.
+    pub auto_start: Option<bool>,
+    pub on_error: OnError,
+    pub predecessors_may: PredecessorsMay,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
@@ -281,6 +375,17 @@ pub struct StationInput {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub priority: Option<i32>,
+    // Ab hier ADR 061, Station konfigurierbar; ohne Angabe wie die Umsetzung, „anhalten“ und „nur
+    // ergänzen“.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub auto_start: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub on_error: Option<OnError>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub predecessors_may: Option<PredecessorsMay>,
 }
 
 /// Die Einstellungen einer Station von der Karte (ADR 060): `implementation_set_station_agent`

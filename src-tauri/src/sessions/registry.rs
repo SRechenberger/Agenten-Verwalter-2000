@@ -266,6 +266,9 @@ struct SessionState {
     auto_chain: u32,
     /// Begründung von `Paused` (ADR 051); nur im Speicher, gesetzt nur zusammen mit `Paused`.
     pause_reason: Option<PauseReason>,
+    /// Der Status `Error` kam in diesem Lauf der App; nur im Speicher. „Bei Fehler“ einer Station startet
+    /// nur dann neu, nach einem App-Neustart nicht (ADR 061).
+    fresh_error: bool,
     /// `tool_use`-IDs der Session-Werkzeuge, die `gate` schon gesehen hat. Nur im Speicher.
     seen_tool_uses: HashSet<String>,
     /// Marke von „Automatisch fortsetzen“: jedes Umlegen erhöht sie, der Zeitgeber vergleicht sie. Nur
@@ -2265,6 +2268,7 @@ impl SessionState {
             handoff_lines: Vec::new(),
             auto_chain: 0,
             pause_reason: None,
+            fresh_error: false,
             seen_tool_uses: HashSet::new(),
             auto_resume_token: 0,
             seen_at: now,
@@ -2759,6 +2763,7 @@ impl SessionState {
         if status != SessionStatus::Paused {
             self.pause_reason = None;
         }
+        self.fresh_error = status == SessionStatus::Error;
         if matches!(
             status,
             SessionStatus::Completed

@@ -7,10 +7,10 @@ use std::collections::HashMap;
 use tauri::{AppHandle, Manager};
 
 use super::model::{
-    ChangeSummary, ImplementationView, PendingChange, PhaseInput, PhaseMark, PhaseView,
-    StationState, StationView, check_agents, validate,
+    ChangeSummary, ImplementationView, OnError, PendingChange, PhaseInput, PhaseMark, PhaseView,
+    PredecessorsMay, StationState, StationView, check_agents, validate,
 };
-use super::{announce, kept_phases, link, now_ms, phase_rows, start};
+use super::{announce, has_begun, is_automatic, kept_phases, link, now_ms, phase_rows, start};
 use crate::db::implementations::{ChangeRow, PhaseRow, StationRow};
 use crate::error::CommandError;
 use crate::sessions::registry::SessionRegistry;
@@ -202,12 +202,7 @@ fn apply(
     announce(app, &fresh);
     // Eine Umsetzung, deren erste Station der Benutzer noch nicht gestartet hat, beginnt auch nach
     // einer Plan-Änderung nicht von selbst.
-    let has_begun: bool = fresh
-        .phases
-        .iter()
-        .flat_map(|phase: &PhaseView| phase.stations.iter())
-        .any(|station: &StationView| station.session_id.is_some());
-    if has_begun && fresh.auto_start && !fresh.stop_after_current {
+    if has_begun(&fresh) && is_automatic(&fresh) && !fresh.stop_after_current {
         start::schedule_ready(app, &view.id)?;
     }
     Ok(())
@@ -241,7 +236,8 @@ pub fn replacement_rows(
 /// Station nimmt von der ersetzten mit gleichem Phasenschlüssel, gleicher Stufe (wörtlich) und
 /// gleicher laufender Nummer unter den Stationen dieser Stufe in der Phase `agent`, `model`,
 /// `effort`, `prompt` und `skill`, wenn die ersetzte `edited` trägt und die Eingabe den Wert nicht
-/// nennt; sie trägt dann selbst `edited`. Was der Planer nennt, gilt. Läuft nach `keep_known_ids`:
+/// nennt, dazu „Automatisch starten“, „Bei Fehler“ und „Vorgänger dürfen“, wenn die Eingabe den
+/// Standard lässt (ADR 061); sie trägt dann selbst `edited`. Was der Planer nennt, gilt. Läuft nach `keep_known_ids`:
 /// Eine Phase mit bekanntem Schlüssel hat dann die `id` der ersetzten, gleicher Schlüssel heißt also
 /// gleiche `phase_id`.
 pub fn keep_settings(removed: &[StationRow], stations: &mut [StationRow]) {
@@ -270,6 +266,13 @@ pub fn keep_settings(removed: &[StationRow], stations: &mut [StationRow]) {
         station.effort = station.effort.or(old.effort);
         station.prompt = station.prompt.take().or_else(|| old.prompt.clone());
         station.skill = station.skill.take().or_else(|| old.skill.clone());
+        station.auto_start = station.auto_start.or(old.auto_start);
+        if station.on_error == OnError::default() {
+            station.on_error = old.on_error;
+        }
+        if station.predecessors_may == PredecessorsMay::default() {
+            station.predecessors_may = old.predecessors_may;
+        }
         station.edited = true;
     }
 }

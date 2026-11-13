@@ -67,8 +67,10 @@ pub fn first_message(
     if !phase.description.is_empty() {
         lines.push(format!("Phase: {}", phase.description));
     }
-    if !station.brief.is_empty() {
-        lines.push(format!("Auftrag: {}", station.brief));
+    // Samt Änderungen durch Vorgänger (ADR 061).
+    let brief = station.effective_brief();
+    if !brief.is_empty() {
+        lines.push(format!("Auftrag: {brief}"));
     }
     // Nur die Ergebnisse der Vorgänger-Kanten (ADR 061), in Planreihenfolge.
     let predecessors: Vec<String> = view
@@ -229,8 +231,11 @@ fn fire(app: &AppHandle, implementation_id: &str, station_id: &str, token: u64) 
         registry.release_start(station_id);
         return;
     };
+    // Der wirksame Wert der Station: Ihr „Automatisch starten“ kann seit dem Countdown aus sein.
+    let starts_automatically = super::find_station(&view, station_id)
+        .is_some_and(|(_, station): (&PhaseView, &StationView)| station.starts_automatically);
     let is_started = !view.stop_after_current
-        && view.auto_start
+        && starts_automatically
         && start_claimed(
             app,
             &registry,
@@ -262,6 +267,60 @@ fn fire(app: &AppHandle, implementation_id: &str, station_id: &str, token: u64) 
             announce(app, &fresh);
         }
     }
+}
+
+/// „Bei Fehler“ (ADR 061): Startet jede Station neu, deren Session in diesem Lauf der App mit Fehler
+/// endete und die noch Neustarts übrig hat (`StationView::restarting`). Neu starten heißt: dieselbe
+/// Session, ihr Agent wird neu gestartet (`SessionRegistry::restart`) und bekommt `RESTART_MESSAGE`;
+/// die Bindung Station–Session und die Momentaufnahme des Starts bleiben. Der Startanspruch hält ihren
+/// Platz unter `max_parallel` bis zur Nachricht, der Zähler `restarts` steigt vor dem Versuch, damit
+/// zwei Aufrufer nicht zweimal neu starten und ein scheiternder Versuch die Neustarts verbraucht.
+pub fn restart_failed(app: &AppHandle, implementation_id: &str) -> Result<(), CommandError> {
+    let registry = app.state::<SessionRegistry>();
+    loop {
+        let view = registry.implementation_view(implementation_id)?;
+        let Some(station) = view
+            .phases
+            .iter()
+            .flat_map(|phase: &PhaseView| phase.stations.iter())
+            .find(|station: &&StationView| station.restarting)
+        else {
+            return Ok(());
+        };
+        let Some(session_id) = station.session_id.as_deref() else {
+            return Ok(());
+        };
+        // Ein anderer Aufrufer startet sie schon.
+        if registry
+            .claim_start(implementation_id, &station.id)
+            .is_err()
+        {
+            return Ok(());
+        }
+        let restarted = restart_claimed(app, &registry, &station.id, session_id, station.restarts);
+        registry.release_start(&station.id);
+        if let Err(error) = restarted {
+            registry.log_session_line(
+                session_id,
+                format!("Neustart nach Fehler gescheitert: {error}"),
+            );
+        }
+        announce(app, &registry.implementation_view(implementation_id)?);
+    }
+}
+
+fn restart_claimed(
+    app: &AppHandle,
+    registry: &SessionRegistry,
+    station_id: &str,
+    session_id: &str,
+    seen: u32,
+) -> Result<(), CommandError> {
+    if !registry.count_restart(station_id, seen)? {
+        return Ok(());
+    }
+    registry.restart(app, session_id)?;
+    registry.send(app, session_id, super::RESTART_MESSAGE, &[], &[], None)
 }
 
 /// Wer den Start auslöst: ▶ versucht eine Station mit Startfehler erneut, der Countdown nicht.

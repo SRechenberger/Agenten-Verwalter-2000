@@ -22,7 +22,8 @@
 //! Fehler als `FEHLER: <Satz>`.
 //! `… --example implementation-probe -- --selftest` prüft die Planung aus Kanten (ADR 061) gegen eine
 //! **eigene temporäre** Datenbank: Sortierung, bereiter Satz, Zyklus, Einfügen, Verzweigung und
-//! Zusammenlauf, Migration aus Position und Welle, Warteschlange. Je Fall eine Zeile `PASS`/`FAIL`,
+//! Zusammenlauf, Migration aus Position und Welle, Warteschlange, dazu die Konfiguration je Station
+//! (Automatisch starten, Sperren nach Zustand, Vorgänger dürfen, Bei Fehler). Je Fall eine Zeile `PASS`/`FAIL`,
 //! Exit 1 bei einem Fehlschlag.
 use std::collections::HashMap;
 use std::env;
@@ -41,7 +42,8 @@ use verwalter_lib::db::sessions::{self, SessionRow};
 use verwalter_lib::error::CommandError;
 use verwalter_lib::file_links::LinkRoots;
 use verwalter_lib::implementation::model::{
-    ImplementationView, PhaseView, StationSettings, StationState, StationView,
+    BriefChange, BriefChangeKind, ImplementationView, OnError, PhaseView, PredecessorsMay,
+    StationOptions, StationSettings, StationState, StationView,
 };
 use verwalter_lib::implementation::model::{
     MAX_NAME_CHARS, MAX_SOURCE_CHARS, PhaseInput, check_agents, check_length, check_max_parallel,
@@ -49,8 +51,9 @@ use verwalter_lib::implementation::model::{
 };
 use verwalter_lib::implementation::report::Extras;
 use verwalter_lib::implementation::{
-    Countdowns, STATION_BEGUN, SessionLive, build_view, changes, checked_settings, kept_phases,
-    link, new_rows, now_ms, plan_completion, plan_completion_with_types, report, schedule,
+    Countdowns, STATION_BEGUN, SessionLive, amended_brief_changes, build_view, changes,
+    checked_options, checked_settings, kept_phases, link, new_rows, now_ms, plan_completion,
+    plan_completion_with_types, report, schedule, start,
 };
 use verwalter_lib::sessions::model::SessionStatus;
 
@@ -594,6 +597,7 @@ fn view_with(
                 last_activity_at: 0.0,
                 unread: false,
                 awaits_script: false,
+                is_fresh_error: false,
             },
         );
     }
@@ -992,5 +996,217 @@ fn selftest(path: &Path) -> Result<bool, String> {
         has_no_countdown && due(&restarted) == ["d"],
     );
 
+    all &= station_options(&database)?;
+    Ok(all)
+}
+
+/// Die Ansicht, in der die Session von `plan_id` mit Fehler endete (`fresh`: in diesem Lauf der App).
+fn view_failed(
+    database: &Database,
+    implementation_id: &str,
+    plan_id: &str,
+    fresh: bool,
+) -> Result<ImplementationView, String> {
+    let mut stored: StoredImplementation = database
+        .with(|connection| implementations::load(connection, implementation_id))
+        .map_err(|error| error.to_string())?
+        .ok_or_else(|| format!("Umsetzung nicht gefunden: {implementation_id}"))?;
+    let station = stored
+        .stations
+        .iter_mut()
+        .find(|station: &&mut StationRow| station.plan_id == plan_id)
+        .ok_or_else(|| format!("keine Station {plan_id}"))?;
+    station.session_id = Some("session-failed".to_owned());
+    let live = HashMap::from([(
+        "session-failed".to_owned(),
+        SessionLive {
+            status: SessionStatus::Error,
+            number: 1,
+            running_ms: 0.0,
+            question: None,
+            last_activity_at: 0.0,
+            unread: false,
+            awaits_script: false,
+            is_fresh_error: fresh,
+        },
+    )]);
+    Ok(build_view(
+        &stored,
+        &live,
+        &HashMap::new(),
+        &HashMap::new(),
+        &[],
+    ))
+}
+
+fn stored_row(
+    database: &Database,
+    implementation_id: &str,
+    plan_id: &str,
+) -> Result<StationRow, String> {
+    rows_of(database, implementation_id)?
+        .into_iter()
+        .find(|row: &StationRow| row.plan_id == plan_id)
+        .ok_or_else(|| format!("keine Station {plan_id}"))
+}
+
+/// Station konfigurierbar (ADR 061): Automatisch starten je Station, Sperren nach Zustand, die drei
+/// Stufen von „Vorgänger dürfen“, der Zähler von „Bei Fehler“ samt Platz in der Warteschlange.
+fn station_options(database: &Database) -> Result<bool, String> {
+    let mut all = true;
+    let plan = phases_of(serde_json::json!([{ "key": "1", "title": "O", "stations": [
+        { "stage": "A", "id": "on", "after": [], "autoStart": true },
+        { "stage": "B", "id": "off", "after": [], "autoStart": false },
+        { "stage": "C", "id": "inherits", "after": [] },
+    ] }]))?;
+    let implementation = create_in(database, &plan, None)?;
+    let set_auto = |enabled: bool| {
+        database
+            .with(|connection| {
+                implementations::set_flags(connection, &implementation, enabled, false, None)
+            })
+            .map_err(|error| error.to_string())
+    };
+    set_auto(false)?;
+    let without = due(&plan_view(database, &implementation)?);
+    set_auto(true)?;
+    let with = due(&plan_view(database, &implementation)?);
+    all &= check(
+        "Automatisch starten je Station: an trotz Umsetzung aus, aus trotz Umsetzung an",
+        without == ["on"] && with == ["on", "inherits"],
+    );
+
+    // Sperren: vor dem Start alle drei, danach nur „Bei Fehler“, fertig nichts.
+    let off_id = id_of(&plan_view(database, &implementation)?, "off");
+    let write = |options: StationOptions| {
+        database
+            .with(|connection| implementations::set_station_options(connection, &off_id, &options))
+            .map_err(|error| error.to_string())
+    };
+    let changed = StationOptions {
+        auto_start: None,
+        on_error: OnError::RestartOnce,
+        predecessors_may: PredecessorsMay::HandsOff,
+    };
+    let before_start = checked_options(&plan_view(database, &implementation)?, &off_id, &changed)
+        .is_ok()
+        && write(changed)?;
+    let started = view_with(
+        database,
+        &implementation,
+        &HashMap::new(),
+        &[("off", SessionStatus::Running)],
+    )?;
+    let locked = StationOptions {
+        auto_start: Some(true),
+        ..changed
+    };
+    let on_error_only = StationOptions {
+        on_error: OnError::RestartUpToThree,
+        ..changed
+    };
+    let after_start = checked_options(&started, &off_id, &locked)
+        .is_err_and(|error| error.to_string().contains("auto_start: "))
+        && checked_options(&started, &off_id, &on_error_only).is_ok();
+    mark_done(database, &started, "off")?;
+    let finished = checked_options(
+        &plan_view(database, &implementation)?,
+        &off_id,
+        &on_error_only,
+    )
+    .is_err()
+        && !write(on_error_only)?;
+    all &= check(
+        "Sperren nach Zustand: vor dem Start alles, nach dem Start nur Bei Fehler, fertig nichts",
+        before_start && after_start && finished,
+    );
+
+    // Vorgänger dürfen: nur ergänzen, ergänzen und ändern, nicht anfassen.
+    let handoff = create_in(
+        database,
+        &phases_of(serde_json::json!([{ "key": "1", "title": "H", "stations": [
+            { "stage": "Umsetzung", "id": "build", "after": [] },
+            { "stage": "Review", "id": "append", "after": ["build"], "brief": "Prüfe." },
+            { "stage": "Review", "id": "change", "after": ["build"], "brief": "Prüfe.",
+              "predecessorsMay": "appendAndChange" },
+            { "stage": "Review", "id": "off", "after": ["build"], "brief": "Prüfe.",
+              "predecessorsMay": "handsOff" },
+        ] }]))?,
+        None,
+    )?;
+    let hint = |kind: BriefChangeKind| BriefChange {
+        id: "hint".to_owned(),
+        kind,
+        text: "Achte auf die Migration.".to_owned(),
+        source_station_id: "build".to_owned(),
+        at: now_ms(),
+    };
+    let row = |plan_id: &str| stored_row(database, &handoff, plan_id);
+    let append = amended_brief_changes(&row("append")?, hint(BriefChangeKind::Append));
+    let append_replace = amended_brief_changes(&row("append")?, hint(BriefChangeKind::Replace));
+    let change = amended_brief_changes(&row("change")?, hint(BriefChangeKind::Replace));
+    let hands_off = amended_brief_changes(&row("off")?, hint(BriefChangeKind::Append));
+    let append_id = row("append")?.id;
+    if let Ok(changes) = &append {
+        database
+            .with(|connection| implementations::set_brief_changes(connection, &append_id, changes))
+            .map_err(|error| error.to_string())?;
+    }
+    mark_done(database, &plan_view(database, &handoff)?, "build")?;
+    let view = plan_view(database, &handoff)?;
+    let message = station(&view, "append")
+        .map(|target| start::first_message(&view, &view.phases[0], target, &[]))
+        .unwrap_or_default();
+    all &= check(
+        "Vorgänger dürfen: ergänzen erlaubt, Ersatz nur bei „ergänzen und ändern“, „nicht anfassen“ lehnt ab",
+        append.is_ok()
+            && append_replace.is_err_and(|message| message.starts_with("predecessors_may: "))
+            && change.is_ok()
+            && hands_off.is_err_and(|message| message.starts_with("predecessors_may: "))
+            && message.contains("Auftrag: Prüfe.\nAchte auf die Migration."),
+    );
+
+    // Bei Fehler: Zähler und Platz.
+    let failing = create_in(
+        database,
+        &phases_of(serde_json::json!([{ "key": "1", "title": "E", "stations": [
+            { "stage": "A", "id": "failing", "after": [], "onError": "restartUpToThree" },
+            { "stage": "B", "id": "waiting", "after": [] },
+        ] }]))?,
+        Some(1),
+    )?;
+    let failing_id = id_of(&plan_view(database, &failing)?, "failing");
+    let mut restarts_seen: Vec<bool> = Vec::new();
+    let mut held_place = true;
+    for seen in 0..4 {
+        let view = view_failed(database, &failing, "failing", true)?;
+        let is_restarting = station(&view, "failing").is_some_and(|failed| failed.restarting);
+        restarts_seen.push(is_restarting);
+        held_place &= is_restarting == (view.queued == 1);
+        let begun = begin(&Mutex::new(Countdowns::default()), &view);
+        held_place &= is_restarting == begun.is_empty();
+        // Wie `restart_failed`: Gezählt wird nur ein Neustart, der ansteht.
+        if is_restarting {
+            held_place &= database
+                .with(|connection| implementations::count_restart(connection, &failing_id, seen))
+                .map_err(|error| error.to_string())?;
+        }
+    }
+    database
+        .with(|connection| {
+            connection.execute(
+                "UPDATE implementation_stations SET restarts = 0 WHERE id = ?1",
+                [&failing_id],
+            )?;
+            Ok(())
+        })
+        .map_err(|error| error.to_string())?;
+    let after_app_restart = view_failed(database, &failing, "failing", false)?;
+    all &= check(
+        "Bei Fehler: bis 3× neu starten, Platz belegt solange, danach frei; nach App-Neustart kein Neustart",
+        restarts_seen == [true, true, true, false]
+            && held_place
+            && station(&after_app_restart, "failing").is_some_and(|failed| !failed.restarting),
+    );
     Ok(all)
 }

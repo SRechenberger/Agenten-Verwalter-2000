@@ -7,7 +7,9 @@ use crate::agent_types::name_key;
 use crate::agents::event::{Effort, ModelId};
 use crate::db::{enum_from_text, enum_to_text};
 use crate::error::CommandError;
-use crate::implementation::model::{PhaseMark, StationSettings};
+use crate::implementation::model::{
+    BriefChange, OnError, PhaseMark, PredecessorsMay, StationOptions, StationSettings,
+};
 use crate::implementation::schedule;
 
 #[derive(Debug, Clone)]
@@ -71,6 +73,14 @@ pub struct StationRow {
     pub after: Vec<String>,
     /// Vorrang unter bereiten Stationen, höher zuerst.
     pub priority: i32,
+    /// „Automatisch starten“ der Station; `None` = wie die Umsetzung (ADR 061, Station konfigurierbar).
+    pub auto_start: Option<bool>,
+    pub on_error: OnError,
+    pub predecessors_may: PredecessorsMay,
+    /// Änderungen am Auftrag durch Vorgänger, in ihrer Reihenfolge; in der Datenbank als JSON-Liste.
+    pub brief_changes: Vec<BriefChange>,
+    /// Neustarts nach einem Fehler, die „Bei Fehler“ schon verbraucht hat.
+    pub restarts: u32,
 }
 
 #[derive(Debug, Clone)]
@@ -101,7 +111,8 @@ const PHASE_COLUMNS: &str = "id, implementation_id, position, key, title, descri
 /// Die Reihenfolge muss mit `StoredStation::read` übereinstimmen.
 const STATION_COLUMNS: &str = "s.id, s.phase_id, s.position, s.stage, s.model, s.by_user, \
      s.skill, s.brief, s.session_id, s.started_at, s.completed_at, s.result, s.agent, \
-     s.agent_used, s.effort, s.prompt, s.start_error, s.edited, s.plan_id, s.after_ids, s.priority";
+     s.agent_used, s.effort, s.prompt, s.start_error, s.edited, s.plan_id, s.after_ids, s.priority, \
+     s.auto_start, s.on_error, s.predecessors_may, s.brief_changes, s.restarts";
 
 /// Legt die Umsetzung mit ihren Phasen und Stationen in einem Zug an.
 pub fn insert(
@@ -162,9 +173,10 @@ fn insert_phases(
         connection.execute(
             "INSERT INTO implementation_stations (id, phase_id, position, stage, model, by_user, \
                  skill, brief, session_id, started_at, completed_at, result, agent, agent_used, \
-                 effort, prompt, start_error, edited, plan_id, after_ids, priority) \
+                 effort, prompt, start_error, edited, plan_id, after_ids, priority, auto_start, \
+                 on_error, predecessors_may, brief_changes, restarts) \
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, \
-                 ?19, ?20, ?21)",
+                 ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26)",
             params![
                 station.id,
                 station.phase_id,
@@ -187,6 +199,11 @@ fn insert_phases(
                 station.plan_id,
                 after_json(&station.after)?,
                 station.priority,
+                station.auto_start,
+                enum_to_text(&station.on_error)?,
+                enum_to_text(&station.predecessors_may)?,
+                changes_json(&station.brief_changes)?,
+                station.restarts,
             ],
         )?;
     }
@@ -195,6 +212,10 @@ fn insert_phases(
 
 fn after_json(after: &[String]) -> Result<String, CommandError> {
     serde_json::to_string(after).map_err(|error| CommandError::Database(error.to_string()))
+}
+
+fn changes_json(changes: &[BriefChange]) -> Result<String, CommandError> {
+    serde_json::to_string(changes).map_err(|error| CommandError::Database(error.to_string()))
 }
 
 /// Alle Umsetzungen, neueste zuerst.
@@ -369,13 +390,16 @@ impl StoredPhase {
     }
 }
 
-/// Die Zeile, wie sie in der Datenbank steht; `model`, `effort` und `after` werden erst danach
-/// umgewandelt.
+/// Die Zeile, wie sie in der Datenbank steht; `model`, `effort`, `after`, `on_error`,
+/// `predecessors_may` und `brief_changes` werden erst danach umgewandelt.
 struct StoredStation {
     row: StationRow,
     model: Option<String>,
     effort: Option<String>,
     after: String,
+    on_error: String,
+    predecessors_may: String,
+    brief_changes: String,
 }
 
 impl StoredStation {
@@ -403,10 +427,18 @@ impl StoredStation {
                 plan_id: row.get(18)?,
                 after: Vec::new(),
                 priority: row.get(20)?,
+                auto_start: row.get(21)?,
+                on_error: OnError::default(),
+                predecessors_may: PredecessorsMay::default(),
+                brief_changes: Vec::new(),
+                restarts: row.get(25)?,
             },
             model: row.get(4)?,
             effort: row.get(14)?,
             after: row.get(19)?,
+            on_error: row.get(22)?,
+            predecessors_may: row.get(23)?,
+            brief_changes: row.get(24)?,
         })
     }
 
@@ -415,6 +447,10 @@ impl StoredStation {
             model: self.model.as_deref().map(enum_from_text).transpose()?,
             effort: self.effort.as_deref().map(enum_from_text).transpose()?,
             after: serde_json::from_str(&self.after)
+                .map_err(|error| CommandError::Database(error.to_string()))?,
+            on_error: enum_from_text(&self.on_error)?,
+            predecessors_may: enum_from_text(&self.predecessors_may)?,
+            brief_changes: serde_json::from_str(&self.brief_changes)
                 .map_err(|error| CommandError::Database(error.to_string()))?,
             ..self.row
         })
@@ -498,6 +534,60 @@ pub fn set_station_settings(
     Ok(changed == 1)
 }
 
+/// Schreibt „Automatisch starten“, „Bei Fehler“ und „Vorgänger dürfen“ samt Marke `edited` in einem
+/// Schritt (ADR 061): bis zum Start alle drei, danach nur „Bei Fehler“, nie an einer fertigen Station.
+/// `false`: Die Station ist inzwischen fertig oder hat begonnen und der Aufruf ändert einen der zwei
+/// festgeschriebenen Werte; nichts ist geschrieben.
+pub fn set_station_options(
+    connection: &Connection,
+    station_id: &str,
+    options: &StationOptions,
+) -> Result<bool, CommandError> {
+    let changed = connection.execute(
+        "UPDATE implementation_stations \
+         SET auto_start = ?2, on_error = ?3, predecessors_may = ?4, edited = 1 \
+         WHERE id = ?1 AND completed_at IS NULL \
+             AND (session_id IS NULL OR (auto_start IS ?2 AND predecessors_may = ?4))",
+        params![
+            station_id,
+            options.auto_start,
+            enum_to_text(&options.on_error)?,
+            enum_to_text(&options.predecessors_may)?,
+        ],
+    )?;
+    Ok(changed == 1)
+}
+
+/// Ersetzt die Änderungen am Auftrag einer Station, nur solange sie weder eine Session hat noch fertig
+/// ist. `false`: Sie hat inzwischen begonnen, nichts ist geschrieben.
+pub fn set_brief_changes(
+    connection: &Connection,
+    station_id: &str,
+    changes: &[BriefChange],
+) -> Result<bool, CommandError> {
+    let changed = connection.execute(
+        "UPDATE implementation_stations SET brief_changes = ?2 \
+         WHERE id = ?1 AND session_id IS NULL AND completed_at IS NULL",
+        params![station_id, changes_json(changes)?],
+    )?;
+    Ok(changed == 1)
+}
+
+/// Zählt einen Neustart nach einem Fehler, nur wenn noch `seen` gezählt sind: Von zwei gleichzeitigen
+/// Aufrufern startet so nur einer neu. `false`: Ein anderer war schneller, oder die Station ist fertig.
+pub fn count_restart(
+    connection: &Connection,
+    station_id: &str,
+    seen: u32,
+) -> Result<bool, CommandError> {
+    let changed = connection.execute(
+        "UPDATE implementation_stations SET restarts = restarts + 1 \
+         WHERE id = ?1 AND restarts = ?2 AND completed_at IS NULL",
+        params![station_id, seen],
+    )?;
+    Ok(changed == 1)
+}
+
 /// Führt das Feld `agent` noch nicht gestarteter Stationen auf den neuen Namen eines Typs nach (N4).
 /// Verglichen wird wie bei der Auflösung (`name_key`), deshalb in Rust und nicht mit `lower()`, das
 /// nur ASCII kennt.
@@ -565,8 +655,9 @@ pub fn complete_station_with_followups(
             transaction.execute(
                 "INSERT INTO implementation_stations (id, phase_id, position, stage, model, \
                      by_user, skill, brief, agent, agent_used, effort, prompt, start_error, edited, \
-                     plan_id, after_ids, priority) \
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
+                     plan_id, after_ids, priority, auto_start, on_error, predecessors_may) \
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, \
+                     ?18, ?19, ?20)",
                 params![
                     followup.id,
                     phase_id,
@@ -585,6 +676,9 @@ pub fn complete_station_with_followups(
                     followup.plan_id,
                     after_json(&followup.after)?,
                     followup.priority,
+                    followup.auto_start,
+                    enum_to_text(&followup.on_error)?,
+                    enum_to_text(&followup.predecessors_may)?,
                 ],
             )?;
         }

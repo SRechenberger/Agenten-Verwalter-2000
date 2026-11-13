@@ -1,6 +1,6 @@
 # 061 — Constraint-Abläufe: Planung aus Kanten statt aus Position und Welle
 
-**Status:** angenommen; der Kern ist umgesetzt, Werkzeuge, Oberfläche und Konfiguration je Station folgen · **Datum:** 2026-11-11
+**Status:** angenommen; Kern und Konfiguration je Station sind umgesetzt, Werkzeuge und Oberfläche folgen · **Datum:** 2026-11-11
 
 ## Kontext
 
@@ -43,15 +43,30 @@ Die Story (Taiga #76) verlangt, dass ein Plan nur Stationen und ihre Bedingungen
 - **Nach einem Neustart** startet die Warteschlange nicht von selbst (Critical Rule 4): Countdowns liegen nur im Speicher, beim Laden plant nichts. ▶ oder Umlegen der Automatik setzt sie fort.
 - Die Grenze gilt je Umsetzung, nicht über Vorhaben hinweg.
 
+### Station konfigurierbar (Nachtrag)
+
+Jede Station trägt die Konfiguration des Entwurfs, soweit sie noch fehlte. „Automatisch weiter“ nach leerem Kontingent (Story 56) gehört nicht dazu, es ist nicht gebaut.
+
+- **Felder** (`StationInput` mit `serde(default)`, `StationRow`, `StationView`; Migration 26): `auto_start: Option<bool>` („Automatisch starten“: `None` = wie die Umsetzung), `on_error: OnError` (`Halt` Standard, `RestartOnce`, `RestartUpToThree`), `predecessors_may: PredecessorsMay` (`Append` Standard „nur ergänzen“, `AppendAndChange` „ergänzen und ändern“, `HandsOff` „nicht anfassen“), `brief_changes: Vec<BriefChange>` (je Eintrag `id`, `kind` `Append`/`Replace`, `text`, `source_station_id` = `id` der Quelle, `at`), `restarts` (verbrauchte Neustarts). Die Ansicht trägt dazu `starts_automatically` (wirksamer Wert) und `restarting`. In JSON heißen die Werte `halt`, `restartOnce`, `restartUpToThree`, `append`, `appendAndChange`, `handsOff`.
+- **Setzen nur durch den Benutzer:** eigener Befehl `implementation_set_station_options` (`StationOptions`: alle drei auf einmal, setzt `edited`), weil „Bei Fehler“ anders als die fünf Einstellungen aus ADR 060 nach dem Start änderbar bleibt; `implementation_set_station_agent` bleibt unverändert. `implementation_remove_brief_change` entfernt eine Ergänzung bzw. setzt einen Ersatz zurück. Beide in Klasse C wie die übrigen Befehle der Umsetzung. `StationInput` nimmt die drei Felder an (für Pläne des Benutzers); dass das MCP-Werkzeug sie ablehnt, regelt die Werkzeug-Seite. Eine Plan-Änderung behält sie an einer angepassten Station (`edited`), wenn die Eingabe den Standard lässt; Fix-Runde und zweites Review übernehmen sie von ihrer Vorlage.
+- **Wirksames „Automatisch starten“:** der Wert der Station, sonst der der Umsetzung. `due_for_countdown` nimmt nur Stationen mit wirksamer Automatik, die Warteschlange also auch; `fire` startet nur, wenn er beim Auslösen noch gilt. Nach einer Fertigmeldung, beim Ändern von `max_parallel`, nach einer Plan-Änderung und im Haken wird geplant, sobald die Umsetzung oder irgendeine Station Automatik hat (`is_automatic`). Ausschalten der Umsetzung beendet nur die Countdowns der Stationen ohne eigenes „an“; ▶ bleibt immer möglich und ignoriert die Grenze.
+- **Sperren nach Zustand:** Bis zum Start ist alles änderbar. Mit Session sind Auftrag (samt Änderungen), Typ, Modell, Denkaufwand, Zusatztext, Skill, `after`, „Automatisch starten“ und „Vorgänger dürfen“ festgeschrieben, „Bei Fehler“ bleibt bis zur Fertigmeldung änderbar; eine fertige Station ist nur lesbar. Der Satz der Ablehnung nennt das Feld („auto_start: …“, „predecessors_may: …“, „brief: …“; `STATION_BEGUN` nennt die fünf Einstellungen). Das Schreiben prüft die Sperre in derselben Anweisung noch einmal, damit ein Start zwischen Prüfung und Schreiben nichts durchlässt. `after` begonnener Stationen ändert schon die Plan-Änderung nie.
+- **Auflösung und Momentaufnahme:** nichts Neues. Vor dem Start trägt die Ansicht Typ, Modell und Denkaufwand mit Quelle, danach liest die Oberfläche Modell und Denkaufwand der Session (ADR 060).
+- **`handoff`-Kern:** `amended_brief_changes` prüft an der gespeicherten Zeile: nicht begonnen, „nicht anfassen“ lehnt alles ab, „nur ergänzen“ jeden Ersatz, der Text 1 bis 1000 Zeichen; der Auftrag bleibt bei einer Ablehnung, wie er ist. `amend_brief` liest, prüft und schreibt unter einer Datenbank-Sperre. Gespeichert bleibt der ursprüngliche `brief`; `effective_brief` faltet die Änderungen in ihrer Reihenfolge (Ergänzung: neue Zeile, Ersatz: ersetzt den Text bis dahin), und die erste Nachricht sendet diesen Text. Welche Stationen ein Hinweis trifft (die wartenden Nachfolger), wählt die Werkzeug-Seite; der Kern prüft nur, dass die Quelle zur Umsetzung gehört. Ersetzt eine Plan-Änderung eine wartende Station, gehen ihre Änderungen am Auftrag verloren: Den neuen Auftrag gibt der Planer.
+- **Bei Fehler neu starten:** Neu starten heißt **dieselbe Session**: Der Haken („Session endet“) ruft vor dem Planen der Warteschlange `start::restart_failed`; der startet den Agenten der Session neu (`SessionRegistry::restart`, wie der Knopf „Neu starten“) und schickt `RESTART_MESSAGE`. Die Bindung Station–Session, die Momentaufnahme des Starts und der Verlauf bleiben; eine frische Session hätte die Bindung lösen und die alte Session von der Station trennen müssen. Neu gestartet wird nur, wenn der Fehler in diesem Lauf der App kam (Merker `fresh_error` an der Session, nur im Speicher; Critical Rule 4), Neustarts übrig sind, kein Halt gesetzt und die Umsetzung nicht fertig ist; ein Abbruch durch den Benutzer (`Cancelled`) startet nichts. Der Zähler `restarts` steigt vor dem Versuch und nur, wenn er noch den gelesenen Stand hat: Zwei Aufrufer starten nicht zweimal, und ein scheiternder Versuch verbraucht einen Neustart. Danach wartet die Station auf den Benutzer.
+- **Platz in der Warteschlange:** Solange der Neustart ansteht, zählt die Station als aktiv (`StationView::is_active` mit `restarting`), schon unter der Session-Sperre gelesen, also ohne Lücke zwischen Fehler und Haken. Während des Neustarts hält der Startanspruch (`claim_start`) den Platz, auch in dem Moment, in dem `restart` die Session pausiert: `begin_within` zählt eine Station mit Session auch, solange ihr Start beansprucht ist.
+
 ### Verworfen
 
 - **Variante A** (der Agent sendet dem Nachfolger selbst eine Nachricht): zwei Wege für denselben Übergang, und der Verwalter sähe den Ablauf nicht mehr.
 - **Gespeichertes `next`:** zwei Wahrheiten; ein Einfügen müsste den Vorgänger umschreiben.
 - **Wellen als Quelle der Planung:** Sie bleiben nur als Eingabe des alten Schemas, aus der R1 Kanten macht.
+- **Neustart in einer frischen Session:** löste die Bindung Station–Session und ließe eine zweite Session derselben Station zurück, die noch fertig melden könnte.
 - **Eine eigene Sperre für die Planung** (um Ansicht und Countdowns zusammen): Sie läge über Datenbank- und Session-Sperren; das Zählen unter der Sperre der Countdowns genügt, weil eine veraltete Ansicht nur zu wenig plant; den einen Fall, in dem sie zu viel plante (ein Start endet dazwischen), fängt der Zähler der Freigaben.
 
 ## Konsequenzen
 
 - Eine Umsetzung ohne `after` und ohne `max_parallel` verhält sich wie vorher, bis auf die erste Nachricht, die nur noch die Ergebnisse der Vorgänger-Kanten nennt.
 - Wer „Erledigt“ an einer Station des Benutzers drückt, bevor ihre Vorgänger fertig sind, macht ihre Nachfolger bereit, ohne dass die früheren Stationen der Kette fertig sein müssen; vorher hielt die Regel alle früheren Stationen fest. Der Befehl prüft das weiterhin nicht.
-- Prüfen ohne App: `cargo run --example implementation-probe -- --selftest` (Sortierung, bereiter Satz, Zyklus, Einfügen, Verzweigung und Zusammenlauf, Migration, Warteschlange).
+- Prüfen ohne App: `cargo run --example implementation-probe -- --selftest` (Sortierung, bereiter Satz, Zyklus, Einfügen, Verzweigung und Zusammenlauf, Migration, Warteschlange, Konfiguration je Station).
+- Eine Umsetzung ohne die neuen Felder verhält sich wie vorher; nur der Satz von `STATION_BEGUN` nennt jetzt die fünf festgeschriebenen Einstellungen.

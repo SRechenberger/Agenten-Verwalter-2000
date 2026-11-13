@@ -160,8 +160,9 @@ pub fn may_start(phases: &[PhaseView], station_id: &str) -> bool {
             .any(|station: &StationView| station.id == station_id && station.start_error.is_none())
 }
 
-/// Die Stationen, für die der automatische Start jetzt einen Countdown planen darf: bereit, nicht vom
-/// Benutzer und ohne Startfehler; zuerst höherer Vorrang, dann die Planreihenfolge.
+/// Die Stationen, für die der automatische Start jetzt einen Countdown planen darf: bereit, mit
+/// wirksamem „Automatisch starten“ (der Station, sonst der Umsetzung), nicht vom Benutzer und ohne
+/// Startfehler; zuerst höherer Vorrang, dann die Planreihenfolge.
 pub fn due_for_countdown(phases: &[PhaseView]) -> Vec<(&PhaseView, &StationView)> {
     let mut due: Vec<(&PhaseView, &StationView)> = phases
         .iter()
@@ -173,6 +174,7 @@ pub fn due_for_countdown(phases: &[PhaseView]) -> Vec<(&PhaseView, &StationView)
         })
         .filter(|(_, station): &(&PhaseView, &StationView)| {
             station.state == StationState::Ready
+                && station.starts_automatically
                 && !station.by_user
                 && may_start(phases, &station.id)
         })
@@ -182,10 +184,10 @@ pub fn due_for_countdown(phases: &[PhaseView]) -> Vec<(&PhaseView, &StationView)
     due
 }
 
-/// Die Warteschlange (ADR 061): nur mit Automatik und Grenze die bereiten Stationen, die über die
+/// Die Warteschlange (ADR 061): nur mit Grenze die bereiten Stationen mit Automatik, die über die
 /// freien Plätze hinaus warten, in der Reihenfolge, in der sie nachrücken (`id`).
-pub fn queue(phases: &[PhaseView], auto_start: bool, max_parallel: Option<u32>) -> Vec<String> {
-    let Some(limit) = max_parallel.filter(|_| auto_start) else {
+pub fn queue(phases: &[PhaseView], max_parallel: Option<u32>) -> Vec<String> {
+    let Some(limit) = max_parallel else {
         return Vec::new();
     };
     let active = all_stations(phases)
