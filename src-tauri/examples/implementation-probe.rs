@@ -41,9 +41,10 @@ use verwalter_lib::db::implementations::{self, StationRow, StoredImplementation}
 use verwalter_lib::db::sessions::{self, SessionRow};
 use verwalter_lib::error::CommandError;
 use verwalter_lib::file_links::LinkRoots;
+use verwalter_lib::implementation::edit::edited_plan;
 use verwalter_lib::implementation::model::{
-    BriefChange, BriefChangeKind, ImplementationView, OnError, PhaseView, PredecessorsMay,
-    StationOptions, StationSettings, StationState, StationView,
+    BriefChange, BriefChangeKind, Handoff, ImplementationView, OnError, PhaseView, PlanEdit,
+    PredecessorsMay, StationOptions, StationSettings, StationState, StationView, effective_brief,
 };
 use verwalter_lib::implementation::model::{
     MAX_NAME_CHARS, MAX_SOURCE_CHARS, PhaseInput, check_agents, check_length, check_max_parallel,
@@ -52,8 +53,8 @@ use verwalter_lib::implementation::model::{
 use verwalter_lib::implementation::report::Extras;
 use verwalter_lib::implementation::{
     Countdowns, STATION_BEGUN, SessionLive, amended_brief_changes, build_view, changes,
-    checked_options, checked_settings, kept_phases, link, new_rows, now_ms, plan_completion,
-    plan_completion_with_types, report, schedule, start,
+    checked_options, checked_settings, handoff_changes, kept_phases, link, new_rows, now_ms,
+    plan_completion, plan_completion_with_types, report, schedule, start,
 };
 use verwalter_lib::sessions::model::SessionStatus;
 
@@ -65,7 +66,7 @@ struct CreateInput {
     name: String,
     #[serde(default)]
     source: Option<String>,
-    #[serde(default)]
+    #[serde(default, alias = "lanes")]
     phases: Vec<PhaseInput>,
     #[serde(default)]
     max_parallel: Option<u32>,
@@ -73,7 +74,7 @@ struct CreateInput {
 
 #[derive(Deserialize)]
 struct SetPhasesInput {
-    #[serde(default)]
+    #[serde(default, alias = "lanes")]
     phases: Vec<PhaseInput>,
 }
 
@@ -997,6 +998,188 @@ fn selftest(path: &Path) -> Result<bool, String> {
     );
 
     all &= station_options(&database)?;
+    all &= plan_edits(&database)?;
+    all &= handoffs(&database)?;
+    Ok(all)
+}
+
+/// Rechnet ein Delta gegen die gespeicherten Zeilen (`started`: diese Stationen haben eine Session)
+/// und schreibt es wie `implementation_edit_plan`.
+fn edit_in(
+    database: &Database,
+    implementation_id: &str,
+    edit: serde_json::Value,
+    started: &[&str],
+) -> Result<Result<(), String>, String> {
+    let edit: PlanEdit =
+        serde_json::from_value(edit).map_err(|error| format!("Eingabe nicht lesbar: {error}"))?;
+    let view = plan_view(database, implementation_id)?;
+    let mut rows = rows_of(database, implementation_id)?;
+    for row in rows
+        .iter_mut()
+        .filter(|row: &&mut StationRow| started.contains(&row.plan_id.as_str()))
+    {
+        row.session_id = Some(format!("session-{}", row.plan_id));
+    }
+    let edited = match edited_plan(implementation_id, &view.phases, &rows, &edit, &[]) {
+        Ok(edited) => edited,
+        Err(error) => return Ok(Err(error)),
+    };
+    let is_written = database
+        .with(|connection| {
+            implementations::apply_plan_edit(connection, implementation_id, &edited, None)
+        })
+        .map_err(|error| error.to_string())?;
+    Ok(is_written
+        .then_some(())
+        .ok_or_else(|| "nicht geschrieben".to_owned()))
+}
+
+fn after_of(view: &ImplementationView, plan_id: &str) -> Vec<String> {
+    station(view, plan_id).map_or_else(Vec::new, |station: &StationView| station.after.clone())
+}
+
+/// `implementation_edit` und `implementation_edit_plan` (ADR 061, Werkzeuge): Delta → Plan, Zyklus,
+/// nur nicht gestartete Stationen.
+fn plan_edits(database: &Database) -> Result<bool, String> {
+    let mut all = true;
+    let plan = create_in(
+        database,
+        &phases_of(serde_json::json!([{ "key": "1", "title": "E", "stations": [
+            { "stage": "Umsetzung", "id": "a", "after": [] },
+            { "stage": "Review", "id": "b", "after": ["a"] },
+        ] }]))?,
+        None,
+    )?;
+    let applied = edit_in(
+        database,
+        &plan,
+        serde_json::json!({
+            "add": [{ "lane": "1", "stage": "Test", "id": "x", "after": ["a"] }],
+            "change": [{ "id": "b", "after": ["x"] }],
+            "lanes": [{ "key": "2", "title": "Neu", "stations": [
+                { "stage": "PR", "after": ["b"] },
+            ] }],
+            "maxParallel": 2,
+        }),
+        &[],
+    )?;
+    let view = plan_view(database, &plan)?;
+    mark_done(database, &view, "a")?;
+    let after_a = plan_view(database, &plan)?;
+    all &= check(
+        "Bearbeiten: Delta → Plan (Station eingefügt, Kante geändert, neue Lane, Grenze)",
+        applied.is_ok()
+            && after_of(&view, "x") == ["a"]
+            && after_of(&view, "b") == ["x"]
+            && after_of(&view, "2-1") == ["b"]
+            && view.max_parallel == Some(2)
+            && view.phases.len() == 2
+            && due(&after_a) == ["x"],
+    );
+
+    let cycle = edit_in(
+        database,
+        &plan,
+        serde_json::json!({ "change": [{ "id": "x", "after": ["b"] }] }),
+        &[],
+    )?;
+    all &= check(
+        "Bearbeiten: Zyklus wird mit den Stationen abgelehnt, nichts geschrieben",
+        cycle
+            .as_ref()
+            .is_err_and(|error| error == "Zyklus: b → x → b")
+            && after_of(&plan_view(database, &plan)?, "x") == ["a"],
+    );
+
+    let begun = edit_in(
+        database,
+        &plan,
+        serde_json::json!({ "change": [{ "id": "x", "brief": "Neu." }] }),
+        &["x"],
+    )?;
+    let removed = edit_in(database, &plan, serde_json::json!({ "remove": ["x"] }), &[])?;
+    let done = edit_in(database, &plan, serde_json::json!({ "remove": ["a"] }), &[])?;
+    let after_remove = plan_view(database, &plan)?;
+    all &= check(
+        "Bearbeiten: gestartete und fertige Stationen bleiben, Nachfolger einer entfernten erben ihre Vorgänger",
+        begun
+            .as_ref()
+            .is_err_and(|error| error.starts_with("change[0].id: Station „x“ hat schon begonnen"))
+            && removed.is_ok()
+            && done.is_err()
+            && station(&after_remove, "x").is_none()
+            && after_of(&after_remove, "b") == ["a"],
+    );
+    Ok(all)
+}
+
+/// Übergabenotiz an der Fertigmeldung (ADR 061, Werkzeuge): die drei Stufen von „Vorgänger dürfen“.
+fn handoffs(database: &Database) -> Result<bool, String> {
+    let mut all = true;
+    let plan = create_in(
+        database,
+        &phases_of(serde_json::json!([{ "key": "1", "title": "H", "stations": [
+            { "stage": "Umsetzung", "id": "build", "after": [] },
+            { "stage": "Review", "id": "append", "after": ["build"], "brief": "Prüfe." },
+            { "stage": "Review", "id": "change", "after": ["build"], "brief": "Prüfe.",
+              "predecessorsMay": "appendAndChange" },
+            { "stage": "Review", "id": "off", "after": ["build"], "brief": "Prüfe.",
+              "predecessorsMay": "handsOff" },
+            { "stage": "PR", "id": "later", "after": ["append"] },
+        ] }]))?,
+        None,
+    )?;
+    let rows = rows_of(database, &plan)?;
+    let build = id_of(&plan_view(database, &plan)?, "build");
+    let note = |text: &str| Handoff {
+        note: Some(text.to_owned()),
+        replace: Vec::new(),
+    };
+    let hands_off = handoff_changes(&rows, &build, &[], &note("Achte auf X."), now_ms());
+    let without_off: Vec<StationRow> = rows
+        .iter()
+        .filter(|row: &&StationRow| row.plan_id != "off")
+        .cloned()
+        .collect();
+    let appended = handoff_changes(&without_off, &build, &[], &note("Achte auf X."), now_ms());
+    let replace = |plan_id: &str| Handoff {
+        note: Some("Achte auf X.".to_owned()),
+        replace: vec![(plan_id.to_owned(), "Prüfe nur die Migration.".to_owned())],
+    };
+    let replaced = handoff_changes(&without_off, &build, &[], &replace("change"), now_ms());
+    let append_only = handoff_changes(&without_off, &build, &[], &replace("append"), now_ms());
+    let not_next = handoff_changes(&without_off, &build, &[], &replace("later"), now_ms());
+    let targets = |changes: &[(String, String, BriefChange)]| -> Vec<String> {
+        changes
+            .iter()
+            .map(|(_, plan_id, change): &(String, String, BriefChange)| {
+                format!("{plan_id}:{:?}", change.kind)
+            })
+            .collect()
+    };
+    let change_brief = replaced.as_ref().map_or_else(
+        |_| String::new(),
+        |changes: &Vec<(String, String, BriefChange)>| {
+            let folded: Vec<BriefChange> = changes
+                .iter()
+                .filter(|(_, plan_id, _): &&(String, String, BriefChange)| plan_id == "change")
+                .map(|(_, _, change): &(String, String, BriefChange)| change.clone())
+                .collect();
+            effective_brief("Prüfe.", &folded)
+        },
+    );
+    all &= check(
+        "Übergabe: nur ergänzen und ergänzen und ändern ergänzen, nicht anfassen lehnt ab, Ersatz nur mit Erlaubnis",
+        hands_off.is_err_and(|error| error.starts_with("predecessors_may: Die Station „off“"))
+            && appended
+                .as_ref()
+                .is_ok_and(|changes| targets(changes) == ["append:Append", "change:Append"])
+            && change_brief == "Prüfe nur die Migration.\nAchte auf X."
+            && append_only
+                .is_err_and(|error| error.starts_with("predecessors_may: Die Station „append“"))
+            && not_next.is_err_and(|error| error.starts_with("handoff.replace[0].id: ")),
+    );
     Ok(all)
 }
 

@@ -155,6 +155,7 @@ const TABLE: &[(Class, Option<IdKind>, &[&str])] = &[
             "implementation_remove_brief_change",
             "implementation_cancel_countdown",
             "implementation_apply_change",
+            "implementation_edit_plan",
             "implementation_complete_station",
         ],
     ),

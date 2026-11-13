@@ -1,5 +1,6 @@
 //! Umsetzung eines Plans: Phasen, Stationen, Werkzeuge für den Agenten (ADR 048).
 pub mod changes;
+pub mod edit;
 pub mod model;
 pub mod plan;
 pub mod report;
@@ -24,7 +25,7 @@ use crate::error::CommandError;
 use crate::sessions::model::SessionStatus;
 use crate::sessions::registry::SessionRegistry;
 use model::{
-    BriefChange, BriefChangeKind, ChangeSummary, ChangeView, ImplementationChangedEvent,
+    BriefChange, BriefChangeKind, ChangeSummary, ChangeView, Handoff, ImplementationChangedEvent,
     ImplementationView, MAX_BRIEF_CHARS, MAX_PROMPT_CHARS, MAX_SKILL_CHARS, OnError, PendingChange,
     PhaseInput, PhaseView, PredecessorsMay, StationInput, StationOptions, StationSettings,
     StationState, StationView, check_length,
@@ -209,6 +210,10 @@ pub struct CompleteOutcome {
     pub queued: u32,
     pub is_finished: bool,
     pub hint: Option<String>,
+    /// Nachfolger, deren Auftrag die Übergabenotiz geändert hat (Plan-Kennung, Art; ADR 061).
+    pub handed: Vec<(String, BriefChangeKind)>,
+    /// Eine Übergabenotiz kam mit, aber kein Nachfolger wartet.
+    pub handoff_unused: bool,
 }
 
 impl CompleteOutcome {
@@ -228,9 +233,26 @@ impl CompleteOutcome {
             let names: Vec<String> = self
                 .next
                 .iter()
-                .map(|next: &StationRef| format!("Phase {} · {}", next.phase_key, next.stage))
+                .map(|next: &StationRef| format!("Lane {} · {}", next.phase_key, next.stage))
                 .collect();
             text.push_str(&format!(" Als Nächstes startet: {}.", names.join(", ")));
+        }
+        for (kind, label) in [
+            (BriefChangeKind::Append, "Übergabenotiz ergänzt bei"),
+            (BriefChangeKind::Replace, "Auftrag ersetzt bei"),
+        ] {
+            let ids: Vec<&str> = self
+                .handed
+                .iter()
+                .filter(|(_, handed_kind): &&(String, BriefChangeKind)| *handed_kind == kind)
+                .map(|(plan_id, _): &(String, BriefChangeKind)| plan_id.as_str())
+                .collect();
+            if !ids.is_empty() {
+                text.push_str(&format!(" {label}: {}.", ids.join(", ")));
+            }
+        }
+        if self.handoff_unused {
+            text.push_str(" Kein Nachfolger wartet: Die Übergabenotiz ist nirgends angekommen.");
         }
         if let Some(hint) = &self.hint {
             text.push(' ');
@@ -261,15 +283,121 @@ pub fn complete_station(
     result: &str,
     fix_needed: bool,
 ) -> Result<CompleteOutcome, CommandError> {
+    complete_station_with_handoff(
+        app,
+        implementation_id,
+        station_id,
+        result,
+        fix_needed,
+        &Handoff::default(),
+    )
+}
+
+/// Wie `complete_station`, mit Übergabenotiz (ADR 061, Werkzeuge): Sie ändert den Auftrag der
+/// wartenden Nachfolger, bevor sie geplant werden. Lehnt ein Nachfolger sie ab, ist nichts gemeldet.
+pub fn complete_station_with_handoff(
+    app: &AppHandle,
+    implementation_id: &str,
+    station_id: &str,
+    result: &str,
+    fix_needed: bool,
+    handoff: &Handoff,
+) -> Result<CompleteOutcome, CommandError> {
     let registry = app.state::<SessionRegistry>();
     let view = registry.implementation_view(implementation_id)?;
     let types = registry.agent_types()?;
     let (followups, hint) = plan_completion_with_types(&view, station_id, fix_needed, &types)
         .map_err(CommandError::Implementation)?;
+    let rows = registry.station_rows(implementation_id)?;
+    let changes = handoff_changes(&rows, station_id, &followups, handoff, now_ms())
+        .map_err(CommandError::Implementation)?;
     registry.store_station_completion(station_id, result.trim(), &followups)?;
+    let mut handed: Vec<(String, BriefChangeKind)> = Vec::new();
+    for (target_id, plan_id, change) in changes {
+        let kind = change.kind;
+        // Ein Nachfolger, der seit der Prüfung begonnen hat, behält seinen Auftrag.
+        let written =
+            registry.edit_brief_changes(implementation_id, &target_id, |row: &StationRow| {
+                amended_brief_changes(row, change)
+            });
+        if written.is_ok() && !handed.contains(&(plan_id.clone(), kind)) {
+            handed.push((plan_id, kind));
+        }
+    }
     let mut outcome = after_completion(app, &registry, implementation_id)?;
     outcome.hint = hint;
+    outcome.handoff_unused = handoff.note.is_some() && handed.is_empty();
+    outcome.handed = handed;
     Ok(outcome)
+}
+
+/// Die Änderungen am Auftrag, die eine Übergabenotiz bewirkt (ADR 061, Werkzeuge): `note` ergänzt jeden
+/// wartenden Nachfolger der meldenden Station (`after` nennt sie, keine Session, nicht fertig), ein
+/// Eintrag in `replace` ersetzt den Auftrag dieses einen davor. Hängt die Meldung eine Fix-Runde ein
+/// (`followups`), ist sie der einzige Nachfolger. Geprüft wie beim Schreiben (`amended_brief_changes`);
+/// der erste abgelehnte Satz ist der Fehler. Gibt (Station, Plan-Kennung, Änderung) in Schreibreihenfolge
+/// zurück.
+pub fn handoff_changes(
+    rows: &[StationRow],
+    station_id: &str,
+    followups: &[StationRow],
+    handoff: &Handoff,
+    at: f64,
+) -> Result<Vec<(String, String, BriefChange)>, String> {
+    if handoff.note.is_none() && handoff.replace.is_empty() {
+        return Ok(Vec::new());
+    }
+    let reporting = rows
+        .iter()
+        .find(|row: &&StationRow| row.id == station_id)
+        .ok_or_else(|| NOT_IN_IMPLEMENTATION.to_owned())?;
+    let targets: Vec<&StationRow> = match followups.first() {
+        Some(fix_round) => vec![fix_round],
+        None => rows
+            .iter()
+            .filter(|row: &&StationRow| {
+                row.session_id.is_none()
+                    && row.completed_at.is_none()
+                    && row.after.contains(&reporting.plan_id)
+            })
+            .collect(),
+    };
+    for (index, (plan_id, _)) in handoff.replace.iter().enumerate() {
+        let plan_id = plan_id.trim();
+        if !targets
+            .iter()
+            .any(|target: &&StationRow| target.plan_id == plan_id)
+        {
+            return Err(format!(
+                "handoff.replace[{index}].id: „{plan_id}“ ist kein wartender Nachfolger dieser Station."
+            ));
+        }
+    }
+    let mut planned: Vec<(String, String, BriefChange)> = Vec::new();
+    for target in targets {
+        let replacements = handoff
+            .replace
+            .iter()
+            .filter(|(plan_id, _): &&(String, String)| plan_id.trim() == target.plan_id)
+            .map(|(_, text): &(String, String)| (BriefChangeKind::Replace, text));
+        let note = handoff
+            .note
+            .iter()
+            .map(|text: &String| (BriefChangeKind::Append, text));
+        let mut row = target.clone();
+        for (kind, text) in replacements.chain(note) {
+            let change = BriefChange {
+                id: uuid::Uuid::new_v4().to_string(),
+                kind,
+                text: text.clone(),
+                source_station_id: station_id.to_owned(),
+                at,
+            };
+            row.brief_changes = amended_brief_changes(&row, change.clone())?;
+            planned.push((target.id.clone(), target.plan_id.clone(), change));
+        }
+    }
+    Ok(planned)
 }
 
 /// Prüft die Fertigmeldung und liefert die Stationen, die dahinter einzuhängen sind (Fix-Runde und
@@ -1246,34 +1374,12 @@ pub fn phase_rows(
     for (offset, input) in (first_position..).zip(inputs) {
         let phase_id = uuid::Uuid::new_v4().to_string();
         for (index, (position, station)) in (0..).zip(&input.stations).enumerate() {
-            stations.push(StationRow {
-                id: uuid::Uuid::new_v4().to_string(),
-                phase_id: phase_id.clone(),
+            stations.push(station_row(
+                &phase_id,
                 position,
-                stage: station.stage.trim().to_owned(),
-                model: station.model_id(),
-                by_user: station.is_by_user(),
-                skill: station.skill_name(),
-                brief: station.brief.clone().unwrap_or_default().trim().to_owned(),
-                session_id: None,
-                started_at: None,
-                completed_at: None,
-                result: None,
-                agent: station.agent_name(),
-                agent_used: None,
-                effort: station.effort_level(),
-                prompt: station.prompt_text(),
-                start_error: None,
-                edited: false,
-                plan_id: station.plan_id(&input.key, index + 1),
-                after: station.after_ids(),
-                priority: station.priority.unwrap_or(0),
-                auto_start: station.auto_start,
-                on_error: station.on_error.unwrap_or_default(),
-                predecessors_may: station.predecessors_may.unwrap_or_default(),
-                brief_changes: Vec::new(),
-                restarts: 0,
-            });
+                station.plan_id(&input.key, index + 1),
+                station,
+            ));
         }
         phases.push(PhaseRow {
             id: phase_id,
@@ -1292,4 +1398,41 @@ pub fn phase_rows(
         });
     }
     (phases, stations)
+}
+
+/// Die Zeile einer neuen Station aus einer geprüften Eingabe.
+pub fn station_row(
+    phase_id: &str,
+    position: u32,
+    plan_id: String,
+    station: &StationInput,
+) -> StationRow {
+    StationRow {
+        id: uuid::Uuid::new_v4().to_string(),
+        phase_id: phase_id.to_owned(),
+        position,
+        stage: station.stage.trim().to_owned(),
+        model: station.model_id(),
+        by_user: station.is_by_user(),
+        skill: station.skill_name(),
+        brief: station.brief.clone().unwrap_or_default().trim().to_owned(),
+        session_id: None,
+        started_at: None,
+        completed_at: None,
+        result: None,
+        agent: station.agent_name(),
+        agent_used: None,
+        effort: station.effort_level(),
+        prompt: station.prompt_text(),
+        start_error: None,
+        edited: false,
+        plan_id,
+        after: station.after_ids(),
+        priority: station.priority.unwrap_or(0),
+        auto_start: station.auto_start,
+        on_error: station.on_error.unwrap_or_default(),
+        predecessors_may: station.predecessors_may.unwrap_or_default(),
+        brief_changes: Vec::new(),
+        restarts: 0,
+    }
 }

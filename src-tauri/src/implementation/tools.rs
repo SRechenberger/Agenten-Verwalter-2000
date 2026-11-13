@@ -1,16 +1,19 @@
 //! Werkzeuge der Umsetzung im MCP-Zugang (ADR 048): der Agent legt eine Umsetzung an, liest ihren
-//! Lagebericht und beschreibt Phasen; der Planer liest die Agententypen (ADR 060). Jeder Aufruf
-//! wirkt im Vorhaben der aufrufenden Session.
+//! Lagebericht, beschreibt Lanes und schlägt Plan-Änderungen vor; der Planer liest die Agententypen
+//! (ADR 060). Jeder Aufruf wirkt im Vorhaben der aufrufenden Session. Die Beschreibung von
+//! `implementation_create` ist die einzige Quelle der Feldnamen (ADR 061, Werkzeuge); im Code heißen
+//! Lanes weiter Phasen.
 use serde::Deserialize;
 use serde_json::{Value, json};
 use tauri::{Emitter, Manager};
 
 use super::model::{
-    ImplementationChangedEvent, ImplementationView, MAX_DESCRIPTION_CHARS, MAX_NAME_CHARS,
-    MAX_PROMPT_CHARS, MAX_SOURCE_CHARS, MAX_TITLE_CHARS, PhaseInput, check_length,
-    check_max_parallel, validate,
+    Handoff, ImplementationChangedEvent, ImplementationView, MAX_BRIEF_CHARS,
+    MAX_DESCRIPTION_CHARS, MAX_NAME_CHARS, MAX_PLAN_ID_CHARS, MAX_PROMPT_CHARS, MAX_SOURCE_CHARS,
+    MAX_TITLE_CHARS, PhaseInput, PlanEdit, StationAddition, StationPatch, check_length,
+    check_max_parallel, refuse_user_options, stations_in, validate,
 };
-use super::{IMPLEMENTATION_CHANGED_EVENT, changes};
+use super::{IMPLEMENTATION_CHANGED_EVENT, changes, edit};
 use crate::agent_types::model::AgentType;
 use crate::error::CommandError;
 use crate::mcp_access::ProcessKind;
@@ -21,6 +24,8 @@ use crate::sessions::registry::SessionRegistry;
 pub const CREATE: &str = "implementation_create";
 const GET: &str = "implementation_get";
 pub const SET_PHASES: &str = "implementation_set_phases";
+/// Schlägt eine Plan-Änderung als Delta vor (ADR 061, Werkzeuge).
+pub const EDIT: &str = "implementation_edit";
 const DESCRIBE_PHASE: &str = "implementation_describe_phase";
 const COMPLETE_STATION: &str = "implementation_complete_station";
 /// Liest die Agententypen für den Planer (ADR 060); `session_tools_prompt` nennt es beim Namen.
@@ -43,10 +48,7 @@ impl ToolSet for ImplementationTools {
         vec![
             ToolSpec {
                 name: CREATE,
-                description: "Legt nach der Freigabe eines Plans die Umsetzung in diesem Vorhaben \
-                              an: Phasen in Plan-Reihenfolge, je Phase Stationen (z. B. Test, \
-                              Umsetzung, Review), die der Verwalter nacheinander als frische \
-                              Sessions startet. Liefert den Lagebericht.",
+                description: CREATE_DESCRIPTION,
                 input_schema: json!({
                     "type": "object",
                     "properties": {
@@ -57,16 +59,19 @@ impl ToolSet for ImplementationTools {
                             "description": "Woher der Plan stammt, z. B. Pfad des Plan-Ordners",
                         },
                         "phases": phases_schema(),
+                        "lanes": { "description": "Gleichwertiger Name für phases; nenne nur eines von beiden" },
+                        "max_parallel": { "type": "integer", "minimum": 1, "description": "Höchstens so viele Stationen laufen gleichzeitig; ohne das Feld unbegrenzt. Weitere bereite Stationen warten in einer Warteschlange und rücken selbst nach" },
                     },
-                    "required": ["name", "phases"],
+                    "required": ["name"],
                     "additionalProperties": false,
                 }),
             },
             ToolSpec {
                 name: GET,
                 description: "Liefert den Lagebericht der Umsetzung, zu der diese Session gehört \
-                              (sonst der neuesten des Vorhabens): Stand, was läuft, was fertig \
-                              ist, was offen ist.",
+                              (sonst der neuesten des Vorhabens): Stand, Grenze und Warteschlange, \
+                              Startstationen, was läuft, was fertig ist, was offen ist, und je \
+                              Station ihre Lane, Stufe, Vorgänger und Nachfolger.",
                 input_schema: json!({
                     "type": "object",
                     "properties": {},
@@ -103,9 +108,64 @@ impl ToolSet for ImplementationTools {
                 }),
             },
             ToolSpec {
+                name: EDIT,
+                description: "Schlägt eine Änderung am Plan dieser Umsetzung vor, als Delta statt \
+                              der vollen Liste; sie wirkt erst, wenn der Benutzer sie auf der Karte \
+                              „Plan ändern?“ übernimmt, und ersetzt einen offenen Vorschlag. \
+                              `remove` entfernt nicht gestartete Stationen (ihre Nachfolger warten \
+                              danach auf deren Vorgänger), `change` ändert nicht gestartete Stationen \
+                              (nur die genannten Felder; ein neuer `brief` verwirft Ergänzungen der \
+                              Vorgänger), `add` hängt Stationen an eine bestehende Lane, `lanes` \
+                              legt neue Lanes an, `max_parallel` setzt die Grenze (0 = unbegrenzt). \
+                              Die Felder einer Station sind die von implementation_create; eine \
+                              Station ohne `after` ist eine Startstation. Typ, Modell, Denkaufwand \
+                              und Zusatztext änderst du nur, wenn der Benutzer es will. Gestartete \
+                              und fertige Stationen bleiben, wie sie sind.",
+                input_schema: json!({
+                    "type": "object",
+                    "properties": {
+                        "lanes": phases_schema(),
+                        "add": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "lane": { "type": "string", "minLength": 1, "description": "Schlüssel der Lane, an deren Ende die Station kommt" },
+                                },
+                                "required": ["lane", "stage"],
+                                "description": "Eine Station wie in implementation_create, dazu `lane`",
+                            },
+                        },
+                        "change": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "id": { "type": "string", "minLength": 1, "description": "Kennung der Station" },
+                                    "stage": { "type": "string" },
+                                    "brief": { "type": "string" },
+                                    "after": { "type": "array", "items": { "type": "string" } },
+                                    "priority": { "type": "integer" },
+                                    "agent": { "type": "string" },
+                                    "model": { "type": "string" },
+                                    "effort": { "type": "string" },
+                                    "prompt": { "type": "string", "description": "Leer: kein Zusatztext" },
+                                    "skill": { "type": "string" },
+                                },
+                                "required": ["id"],
+                                "additionalProperties": false,
+                            },
+                        },
+                        "remove": { "type": "array", "items": { "type": "string" }, "description": "Kennungen der Stationen" },
+                        "max_parallel": { "type": "integer", "minimum": 0 },
+                    },
+                    "additionalProperties": false,
+                }),
+            },
+            ToolSpec {
                 name: DESCRIBE_PHASE,
-                description: "Ändert Titel und/oder Beschreibung einer Phase der Umsetzung, auch \
-                              einer fertigen.",
+                description: "Ändert Titel und/oder Beschreibung einer Lane der Umsetzung, auch \
+                              einer fertigen; `key` ist ihr Schlüssel.",
                 input_schema: json!({
                     "type": "object",
                     "properties": {
@@ -120,12 +180,38 @@ impl ToolSet for ImplementationTools {
             ToolSpec {
                 name: COMPLETE_STATION,
                 description: "Meldet die Station dieser Session fertig, mit einer Zeile Ergebnis; \
-                              `fix_needed` bei einem Review, das eine Fix-Runde braucht.",
+                              `fix_needed` bei einem Review, das eine Fix-Runde braucht. Was ein \
+                              wartender Nachfolger zusätzlich wissen muss, gibst du als `handoff` \
+                              mit: `note` ergänzt den Auftrag jedes wartenden Nachfolgers (mit \
+                              `fix_needed` den der Fix-Runde); `replace` ändert den Auftrag eines \
+                              Nachfolgers statt ihn zu ergänzen, nur wo die Station es erlaubt. Lehnt \
+                              ein Nachfolger ab, ist nichts gemeldet und der Fehler nennt das Feld; \
+                              melde dann ohne `handoff`. Die Antwort nennt, wessen Auftrag sich \
+                              geändert hat. Dem Nachfolger selbst schreibst du nicht.",
                 input_schema: json!({
                     "type": "object",
                     "properties": {
                         "result": { "type": "string", "minLength": 1, "maxLength": MAX_RESULT_CHARS },
                         "fix_needed": { "type": "boolean" },
+                        "handoff": {
+                            "type": "object",
+                            "properties": {
+                                "note": { "type": "string", "minLength": 1, "maxLength": MAX_BRIEF_CHARS, "description": "Übergabenotiz; ergänzt den Auftrag jedes wartenden Nachfolgers" },
+                                "replace": {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "object",
+                                        "properties": {
+                                            "id": { "type": "string", "minLength": 1, "description": "Kennung eines wartenden Nachfolgers" },
+                                            "text": { "type": "string", "minLength": 1, "maxLength": MAX_BRIEF_CHARS, "description": "Neuer Auftrag dieses Nachfolgers" },
+                                        },
+                                        "required": ["id", "text"],
+                                        "additionalProperties": false,
+                                    },
+                                },
+                            },
+                            "additionalProperties": false,
+                        },
                     },
                     "required": ["result"],
                     "additionalProperties": false,
@@ -158,6 +244,7 @@ impl ToolSet for ImplementationTools {
             DESCRIBE_PHASE => describe_phase(call, &registry),
             COMPLETE_STATION => complete_station(call, &registry),
             SET_PHASES => set_phases(call),
+            EDIT => edit_plan(call),
             other => Err(format!("Unbekanntes Werkzeug: {other}")),
         };
         outcome.unwrap_or_else(ToolResult::Err)
@@ -191,6 +278,19 @@ pub(super) fn agent_types_answer(types: &[AgentType]) -> ToolResult {
     }
 }
 
+/// Was `implementation_create` tut und wie ein Plan aussieht; die Feldnamen stehen nur hier und im Schema.
+const CREATE_DESCRIPTION: &str = "Legt nach der Freigabe eines Plans die Umsetzung in diesem \
+     Vorhaben an: Lanes (`phases`, gleichwertig `lanes`) in Plan-Reihenfolge, je Lane Stationen (z. B. \
+     Test, Umsetzung, Review), die der Verwalter als frische Sessions startet. Die Reihenfolge kommt aus \
+     Kanten: Eine Station hat eine Kennung `id` (ohne Angabe `<Lane-Schlüssel>-<Nummer>`, die Nummer \
+     1-basiert in der Lane) und nennt in `after` die Kennungen der Stationen, auf die sie wartet; ohne \
+     `after` ist sie eine Startstation und darf sofort und parallel zu anderen starten. Unter bereiten \
+     Stationen startet höhere `priority` zuerst. `max_parallel` begrenzt, wie viele gleichzeitig \
+     laufen. Nennt keine Station `after`, gilt das alte Schema: Stationen einer Lane nacheinander, \
+     aufeinanderfolgende Lanes mit derselben `wave` gleichzeitig, sonst eine nach der anderen. Zyklen, \
+     unbekannte Kennungen und Selbstverweise lehnt der Verwalter mit einem Satz ab, der die Stationen \
+     nennt. Liefert den Lagebericht samt Startstationen.";
+
 fn phases_schema() -> Value {
     json!({
         "type": "array",
@@ -198,10 +298,10 @@ fn phases_schema() -> Value {
         "items": {
             "type": "object",
             "properties": {
-                "key": { "type": "string", "minLength": 1, "maxLength": 12, "description": "Nummer der Phase, eindeutig, z. B. \"3\" oder \"3a\"" },
+                "key": { "type": "string", "minLength": 1, "maxLength": 12, "description": "Schlüssel der Lane, eindeutig, z. B. \"3\" oder \"3a\"" },
                 "title": { "type": "string", "minLength": 1, "maxLength": 80 },
                 "description": { "type": "string", "maxLength": 500 },
-                "wave": { "type": "integer", "minimum": 1, "description": "Aufeinanderfolgende Phasen derselben Welle laufen parallel" },
+                "wave": { "type": "integer", "minimum": 1, "description": "Nur ohne after: Aufeinanderfolgende Lanes derselben Welle laufen parallel" },
                 "stations": {
                     "type": "array",
                     "minItems": 1,
@@ -216,6 +316,9 @@ fn phases_schema() -> Value {
                             "by": { "type": "string", "enum": ["agent", "you"], "description": "\"you\": der Benutzer erledigt die Station selbst" },
                             "skill": { "type": "string", "minLength": 1, "maxLength": 40, "description": "Skill ohne \"/\", mit dem die Session beginnt; abweichend vom ersten Skill des Typs" },
                             "brief": { "type": "string", "maxLength": 1000, "description": "Auftrag an die Session" },
+                            "id": { "type": "string", "minLength": 1, "maxLength": MAX_PLAN_ID_CHARS, "description": "Kennung der Station, im Plan eindeutig; ohne Angabe <Lane-Schlüssel>-<Nummer>" },
+                            "after": { "type": "array", "items": { "type": "string" }, "description": "Kennungen der Stationen, auf die diese wartet; leer oder ohne das Feld: Startstation" },
+                            "priority": { "type": "integer", "description": "Vorrang unter bereiten Stationen, höher zuerst; Standard 0" },
                         },
                         "required": ["stage"],
                         "additionalProperties": false,
@@ -228,27 +331,44 @@ fn phases_schema() -> Value {
     })
 }
 
+// `lanes` ist ein gleichwertiger Name für `phases` (ADR 061, Werkzeuge); beide zugleich scheitern.
 #[derive(Deserialize)]
 struct CreateArguments {
     #[serde(default)]
     name: String,
     #[serde(default)]
     source: Option<String>,
-    #[serde(default)]
+    #[serde(default, alias = "lanes")]
     phases: Vec<PhaseInput>,
-    // ADR 061; das Schema nennt das Feld erst mit den Werkzeugen der Constraint-Abläufe.
     #[serde(default)]
     max_parallel: Option<u32>,
 }
 
 #[derive(Deserialize)]
 struct SetPhasesArguments {
-    #[serde(default)]
+    #[serde(default, alias = "lanes")]
     phases: Vec<PhaseInput>,
+}
+
+// Die Eingabe von `implementation_edit` mit den Feldnamen der Werkzeuge; `PlanEdit` ist dieselbe
+// Änderung über die Tauri-Grenze.
+#[derive(Deserialize)]
+struct EditArguments {
+    #[serde(default)]
+    lanes: Vec<PhaseInput>,
+    #[serde(default)]
+    add: Vec<StationAddition>,
+    #[serde(default)]
+    change: Vec<StationPatch>,
+    #[serde(default)]
+    remove: Vec<String>,
+    #[serde(default)]
+    max_parallel: Option<u32>,
 }
 
 fn set_phases(call: &ToolCall) -> Result<ToolResult, String> {
     let arguments: SetPhasesArguments = parse(call.arguments)?;
+    refuse_user_options(&stations_in("phases", &arguments.phases))?;
     let text = changes::propose(call.app, call.session_id, &arguments.phases)?;
     let structured = call
         .app
@@ -272,12 +392,32 @@ struct DescribeArguments {
     description: Option<String>,
 }
 
+/// `implementation_edit`: Typ, Modell, Denkaufwand und Zusatztext ändert ein Agent nur so, als
+/// Vorschlag, den der Benutzer übernimmt; die drei Einstellungen nur des Benutzers gar nicht.
+fn edit_plan(call: &ToolCall) -> Result<ToolResult, String> {
+    let arguments: EditArguments = parse(call.arguments)?;
+    let edit = PlanEdit {
+        lanes: arguments.lanes,
+        add: arguments.add,
+        change: arguments.change,
+        remove: arguments.remove,
+        max_parallel: arguments.max_parallel,
+    };
+    refuse_user_options(&edit.new_stations())?;
+    let text = edit::propose(call.app, call.session_id, &edit)?;
+    Ok(ToolResult::Ok {
+        text,
+        structured: None,
+    })
+}
+
 fn create(call: &ToolCall, registry: &SessionRegistry) -> Result<ToolResult, String> {
     let arguments: CreateArguments = parse(call.arguments)?;
     check_length("name", arguments.name.trim(), 1, MAX_NAME_CHARS)?;
     let source = arguments.source.unwrap_or_default();
     check_length("source", source.trim(), 0, MAX_SOURCE_CHARS)?;
     validate(&arguments.phases)?;
+    refuse_user_options(&stations_in("phases", &arguments.phases))?;
     check_max_parallel(arguments.max_parallel)?;
     let view = registry
         .create_implementation(
@@ -321,7 +461,7 @@ fn describe_phase(call: &ToolCall, registry: &SessionRegistry) -> Result<ToolRes
         .map_err(|error| error.to_string())?;
     announce(call, &view);
     Ok(ToolResult::Ok {
-        text: format!("Phase {key} beschrieben."),
+        text: format!("Lane {key} beschrieben."),
         structured: None,
     })
 }
@@ -332,24 +472,77 @@ struct CompleteArguments {
     result: String,
     #[serde(default)]
     fix_needed: bool,
+    #[serde(default)]
+    handoff: Option<HandoffArguments>,
+}
+
+#[derive(Deserialize)]
+struct HandoffArguments {
+    #[serde(default)]
+    note: Option<String>,
+    #[serde(default)]
+    replace: Vec<ReplaceArguments>,
+}
+
+#[derive(Deserialize)]
+struct ReplaceArguments {
+    #[serde(default)]
+    id: String,
+    #[serde(default)]
+    text: String,
+}
+
+/// Die Übergabenotiz, Längen geprüft mit dem Feld im Satz.
+fn checked_handoff(arguments: Option<HandoffArguments>) -> Result<Handoff, String> {
+    let Some(arguments) = arguments else {
+        return Ok(Handoff::default());
+    };
+    if let Some(note) = &arguments.note {
+        check_length("handoff.note", note.trim(), 1, MAX_BRIEF_CHARS)?;
+    }
+    for (index, replacement) in arguments.replace.iter().enumerate() {
+        let field = format!("handoff.replace[{index}]");
+        check_length(
+            &format!("{field}.id"),
+            replacement.id.trim(),
+            1,
+            MAX_PLAN_ID_CHARS,
+        )?;
+        check_length(
+            &format!("{field}.text"),
+            replacement.text.trim(),
+            1,
+            MAX_BRIEF_CHARS,
+        )?;
+    }
+    Ok(Handoff {
+        note: arguments.note,
+        replace: arguments
+            .replace
+            .into_iter()
+            .map(|replacement: ReplaceArguments| (replacement.id, replacement.text))
+            .collect(),
+    })
 }
 
 /// Die Station wird über die aufrufende Session gefunden, nie über eine Angabe des Agenten.
 fn complete_station(call: &ToolCall, registry: &SessionRegistry) -> Result<ToolResult, String> {
     let arguments: CompleteArguments = parse(call.arguments)?;
     check_length("result", arguments.result.trim(), 1, MAX_RESULT_CHARS)?;
+    let handoff = checked_handoff(arguments.handoff)?;
     let Some((implementation_id, station_id)) = registry
         .station_of_session(call.session_id)
         .map_err(|error| error.to_string())?
     else {
         return Err(NOT_A_STATION.to_owned());
     };
-    let outcome = super::complete_station(
+    let outcome = super::complete_station_with_handoff(
         call.app,
         &implementation_id,
         &station_id,
         &arguments.result,
         arguments.fix_needed,
+        &handoff,
     )
     .map_err(|error| error.to_string())?;
     Ok(ToolResult::Ok {

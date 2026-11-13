@@ -24,6 +24,7 @@ use crate::db::implementations::{
 };
 use crate::error::CommandError;
 use crate::file_links;
+use crate::implementation::edit::EditedPlan;
 use crate::implementation::model::{
     BriefChange, ImplementationView, InquiryCreated, PendingChange, PhaseInput, PhaseView,
     StationOptions, StationSettings, StationView, check_agents,
@@ -451,6 +452,19 @@ impl SessionRegistry {
                 stations,
                 change,
             )
+        })
+    }
+
+    /// Schreibt eine Plan-Änderung als Delta (`apply_plan_edit`); `false`: Eine Station hat inzwischen
+    /// begonnen, nichts ist geschrieben.
+    pub fn store_plan_edit(
+        &self,
+        implementation_id: &str,
+        edited: &EditedPlan,
+        change: Option<&ChangeRow>,
+    ) -> Result<bool, CommandError> {
+        self.database.with(|connection| {
+            implementation_rows::apply_plan_edit(connection, implementation_id, edited, change)
         })
     }
 
