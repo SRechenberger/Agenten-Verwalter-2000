@@ -38,9 +38,10 @@ use verwalter_lib::{
         GitOpenTarget, GitOperation, GitOwnCommit, GitSessionStatus, GitSwitchMode,
     },
     implementation::model::{
-        ChangeSummary, ChangeView, ImplementationChangedEvent, ImplementationView, InquiryCreated,
-        PendingChange, PhaseInput, PhaseMark, PhaseView, StationInput, StationSettings,
-        StationState, StationView,
+        BriefChange, BriefChangeKind, ChangeSummary, ChangeView, ImplementationChangedEvent,
+        ImplementationView, InquiryCreated, OnError, PendingChange, PhaseInput, PhaseMark,
+        PhaseView, PredecessorsMay, StationInput, StationOptions, StationSettings, StationState,
+        StationView,
     },
     lmstudio::model::{LocalModel, LocalModelKind, LocalModels},
     mcp::model::{
@@ -234,6 +235,11 @@ fn main() -> Result<(), ts_rs::ExportError> {
     PhaseInput::export_all(&cfg)?;
     StationInput::export_all(&cfg)?;
     StationSettings::export_all(&cfg)?;
+    StationOptions::export_all(&cfg)?;
+    OnError::export_all(&cfg)?;
+    PredecessorsMay::export_all(&cfg)?;
+    BriefChange::export_all(&cfg)?;
+    BriefChangeKind::export_all(&cfg)?;
     ImplementationView::export_all(&cfg)?;
     ImplementationChangedEvent::export_all(&cfg)?;
     InquiryCreated::export_all(&cfg)?;

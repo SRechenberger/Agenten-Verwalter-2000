@@ -25,8 +25,8 @@ use crate::db::implementations::{
 use crate::error::CommandError;
 use crate::file_links;
 use crate::implementation::model::{
-    ImplementationView, InquiryCreated, PendingChange, PhaseInput, PhaseView, StationSettings,
-    StationView, check_agents,
+    BriefChange, ImplementationView, InquiryCreated, PendingChange, PhaseInput, PhaseView,
+    StationOptions, StationSettings, StationView, check_agents,
 };
 use crate::implementation::report::{self, Extras};
 use crate::implementation::{
@@ -292,6 +292,55 @@ impl SessionRegistry {
             return Err(CommandError::Implementation(STATION_BEGUN.to_owned()));
         }
         Ok(())
+    }
+
+    /// Schreibt „Automatisch starten“, „Bei Fehler“ und „Vorgänger dürfen“ samt `edited` (ADR 061);
+    /// `false`, wenn die Station inzwischen fertig ist oder einen festgeschriebenen Wert ändern würde.
+    pub fn store_station_options(
+        &self,
+        station_id: &str,
+        options: &StationOptions,
+    ) -> Result<bool, CommandError> {
+        self.database.with(|connection| {
+            implementation_rows::set_station_options(connection, station_id, options)
+        })
+    }
+
+    /// Liest die Station und schreibt ihre Änderungen am Auftrag unter derselben Datenbank-Sperre
+    /// (ADR 061): `edit` prüft an der gespeicherten Zeile und liefert die neue Liste oder den Satz für
+    /// den Fehler.
+    pub fn edit_brief_changes(
+        &self,
+        implementation_id: &str,
+        station_id: &str,
+        edit: impl FnOnce(&StationRow) -> Result<Vec<BriefChange>, String>,
+    ) -> Result<(), CommandError> {
+        self.database.with(|connection| {
+            let stored = implementation_rows::load(connection, implementation_id)?;
+            let Some(station) = stored.as_ref().and_then(|stored: &StoredImplementation| {
+                stored
+                    .stations
+                    .iter()
+                    .find(|station: &&StationRow| station.id == station_id)
+            }) else {
+                return Err(CommandError::Implementation(
+                    "Diese Station gehört nicht zur Umsetzung.".to_owned(),
+                ));
+            };
+            let changes = edit(station).map_err(CommandError::Implementation)?;
+            if !implementation_rows::set_brief_changes(connection, station_id, &changes)? {
+                return Err(CommandError::Implementation(
+                    implementation::BRIEF_BEGUN.to_owned(),
+                ));
+            }
+            Ok(())
+        })
+    }
+
+    /// Zählt einen Neustart nach Fehler, wenn noch `seen` gezählt sind (`count_restart`).
+    pub fn count_restart(&self, station_id: &str, seen: u32) -> Result<bool, CommandError> {
+        self.database
+            .with(|connection| implementation_rows::count_restart(connection, station_id, seen))
     }
 
     /// Die gespeicherten Stationen der Umsetzung; anders als die Ansicht mit der Marke `edited`.
@@ -653,5 +702,6 @@ fn live_of(session: &Session, now: f64) -> SessionLive {
         last_activity_at: state.last_activity_at,
         unread: state.last_activity_at > state.seen_at,
         awaits_script: state.awaited_script().is_some(),
+        is_fresh_error: state.fresh_error,
     }
 }

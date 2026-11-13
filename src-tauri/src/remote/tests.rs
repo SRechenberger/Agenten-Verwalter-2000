@@ -261,6 +261,11 @@ fn registry_with_two_implementations() -> SessionRegistry {
                         plan_id: String::new(),
                         after: Vec::new(),
                         priority: 0,
+                        auto_start: None,
+                        on_error: Default::default(),
+                        predecessors_may: Default::default(),
+                        brief_changes: Vec::new(),
+                        restarts: 0,
                     }],
                 )?;
             }

@@ -52,6 +52,13 @@ fn station(stage: &str, model: ModelId, skill: &str) -> StationView {
         priority: 0,
         level: 0,
         queue_position: None,
+        auto_start: None,
+        starts_automatically: false,
+        on_error: Default::default(),
+        restarts: 0,
+        predecessors_may: Default::default(),
+        brief_changes: Vec::new(),
+        restarting: false,
     }
 }
 
@@ -626,6 +633,11 @@ fn station_row(id: &str, position: u32, stage: &str) -> StationRow {
         plan_id: String::new(),
         after: Vec::new(),
         priority: 0,
+        auto_start: None,
+        on_error: Default::default(),
+        predecessors_may: Default::default(),
+        brief_changes: Vec::new(),
+        restarts: 0,
     }
 }
 
@@ -2493,4 +2505,632 @@ fn fix_round_and_second_review_inherit_the_priority_of_the_review() {
         .map(|row: &StationRow| row.priority)
         .collect();
     assert_eq!(priorities, [3, 3]);
+}
+
+// Ab hier ADR 061, Station konfigurierbar: Automatik je Station, Sperren nach Zustand, „Vorgänger
+// dürfen“ samt Änderungen am Auftrag und „Bei Fehler“.
+
+/// Wie `limited_view`, dazu Sessions der genannten Stationen als (Station, Status, Fehler in diesem
+/// Lauf der App).
+fn view_with_sessions(
+    stations: Vec<StationRow>,
+    max_parallel: Option<u32>,
+    auto_start: bool,
+    sessions: &[(&str, SessionStatus, bool)],
+) -> ImplementationView {
+    let mut stations = stations;
+    let mut live: HashMap<String, SessionLive> = HashMap::new();
+    for &(id, status, is_fresh_error) in sessions {
+        let station = stations
+            .iter_mut()
+            .find(|station: &&mut StationRow| station.id == id)
+            .expect("Station vorhanden");
+        let session_id = format!("session-{id}");
+        station.session_id = Some(session_id.clone());
+        live.insert(
+            session_id,
+            SessionLive {
+                status,
+                number: 1,
+                running_ms: 0.0,
+                question: None,
+                last_activity_at: 0.0,
+                unread: false,
+                awaits_script: false,
+                is_fresh_error,
+            },
+        );
+    }
+    let stored = StoredImplementation {
+        row: ImplementationRow {
+            max_parallel,
+            auto_start,
+            ..implementation_row()
+        },
+        phases: vec![phase_row()],
+        stations: (0..)
+            .zip(stations)
+            .map(|(position, mut station): (u32, StationRow)| {
+                station.position = position;
+                station
+            })
+            .collect(),
+        changes: Vec::new(),
+    };
+    build_view(&stored, &live, &HashMap::new(), &HashMap::new(), &[])
+}
+
+fn with_auto_start(mut row: StationRow, auto_start: Option<bool>) -> StationRow {
+    row.auto_start = auto_start;
+    row
+}
+
+#[test]
+fn station_auto_start_on_schedules_it_although_the_implementation_has_no_automation() {
+    let view = limited_view(
+        vec![
+            with_auto_start(node("on", &[]), Some(true)),
+            node("inherits", &[]),
+        ],
+        None,
+        false,
+        &[],
+    );
+    assert_eq!(due_ids(&view), ["on"]);
+    assert!(is_automatic(&view));
+}
+
+#[test]
+fn station_auto_start_off_keeps_it_out_of_countdown_and_queue() {
+    let view = limited_view(
+        vec![
+            with_auto_start(node("off", &[]), Some(false)),
+            node("a", &[]),
+            node("b", &[]),
+        ],
+        Some(1),
+        true,
+        &[],
+    );
+    assert_eq!(due_ids(&view), ["a", "b"]);
+    assert_eq!(
+        view.queued, 1,
+        "nur b wartet, off steht nicht in der Warteschlange"
+    );
+    assert_eq!(shown(&view, "off").queue_position, None);
+    assert!(!shown(&view, "off").starts_automatically);
+    assert_eq!(
+        shown(&view, "off").state,
+        StationState::Ready,
+        "▶ bleibt möglich"
+    );
+}
+
+#[test]
+fn without_any_automation_there_is_no_queue_and_no_replanning() {
+    let view = limited_view(vec![node("a", &[]), node("b", &[])], Some(1), false, &[]);
+    assert!(due_ids(&view).is_empty());
+    assert_eq!(view.queued, 0);
+    assert!(!resumes_queue(&view));
+    let view = limited_view(
+        vec![with_auto_start(node("a", &[]), Some(true)), node("b", &[])],
+        Some(1),
+        false,
+        &[],
+    );
+    assert!(
+        resumes_queue(&view),
+        "eine Station mit Automatik setzt die Warteschlange fort"
+    );
+}
+
+fn options(
+    auto_start: Option<bool>,
+    on_error: OnError,
+    predecessors_may: PredecessorsMay,
+) -> StationOptions {
+    StationOptions {
+        auto_start,
+        on_error,
+        predecessors_may,
+    }
+}
+
+fn options_refusal(result: Result<(), CommandError>) -> String {
+    match result {
+        Err(CommandError::Implementation(message)) => message,
+        other => panic!("Erwartet: eine Ablehnung, nicht {other:?}"),
+    }
+}
+
+#[test]
+fn options_of_a_waiting_station_are_all_changeable() {
+    let view = graph(vec![node("a", &[])]);
+    let all_changed = options(
+        Some(false),
+        OnError::RestartUpToThree,
+        PredecessorsMay::HandsOff,
+    );
+    assert!(checked_options(&view, "a", &all_changed).is_ok());
+    let database = database_with(&[node("a", &[])]);
+    let is_written = database
+        .with(|connection| implementation_rows::set_station_options(connection, "a", &all_changed))
+        .expect("schreibbar");
+    let [stored] = &stored_stations(&database)[..] else {
+        panic!("Erwartet: eine Station");
+    };
+    assert!(is_written);
+    assert_eq!(
+        (
+            stored.auto_start,
+            stored.on_error,
+            stored.predecessors_may,
+            stored.edited
+        ),
+        (
+            Some(false),
+            OnError::RestartUpToThree,
+            PredecessorsMay::HandsOff,
+            true
+        )
+    );
+}
+
+#[test]
+fn after_the_start_only_on_error_stays_changeable_and_a_lock_names_its_field() {
+    let mut started = node("a", &[]);
+    started.session_id = Some("session".to_owned());
+    let view = graph(vec![started.clone()]);
+    assert!(
+        checked_options(
+            &view,
+            "a",
+            &options(None, OnError::RestartOnce, PredecessorsMay::Append)
+        )
+        .is_ok()
+    );
+    assert!(
+        options_refusal(checked_options(
+            &view,
+            "a",
+            &options(Some(true), OnError::Halt, PredecessorsMay::Append)
+        ))
+        .starts_with("auto_start: ")
+    );
+    assert!(
+        options_refusal(checked_options(
+            &view,
+            "a",
+            &options(None, OnError::Halt, PredecessorsMay::AppendAndChange)
+        ))
+        .starts_with("predecessors_may: ")
+    );
+
+    // Auch wenn die Session erst nach der Prüfung kommt: Der festgeschriebene Wert bleibt.
+    let database = database_with(&[started]);
+    let write = |options: StationOptions| {
+        database
+            .with(|connection| implementation_rows::set_station_options(connection, "a", &options))
+            .expect("schreibbar")
+    };
+    assert!(!write(options(
+        Some(false),
+        OnError::Halt,
+        PredecessorsMay::Append
+    )));
+    assert!(write(options(
+        None,
+        OnError::RestartOnce,
+        PredecessorsMay::Append
+    )));
+    assert_eq!(stored_stations(&database)[0].on_error, OnError::RestartOnce);
+}
+
+#[test]
+fn a_finished_station_is_read_only() {
+    let view = graph(vec![finished(node("a", &[]))]);
+    assert!(
+        options_refusal(checked_options(&view, "a", &StationOptions::default()))
+            .contains("Bei Fehler")
+    );
+    let database = database_with(&[finished(node("a", &[]))]);
+    let is_written = database
+        .with(|connection| {
+            implementation_rows::set_station_options(connection, "a", &StationOptions::default())
+        })
+        .expect("schreibbar");
+    assert!(!is_written);
+}
+
+#[test]
+fn set_station_agent_refusal_names_the_locked_fields() {
+    for field in ["Typ", "Modell", "Denkaufwand", "Zusatztext", "Skill"] {
+        assert!(STATION_BEGUN.contains(field), "{field}");
+    }
+}
+
+fn change(id: &str, kind: BriefChangeKind, text: &str) -> BriefChange {
+    BriefChange {
+        id: id.to_owned(),
+        kind,
+        text: text.to_owned(),
+        source_station_id: "build".to_owned(),
+        at: 1.0,
+    }
+}
+
+fn may(predecessors_may: PredecessorsMay) -> StationRow {
+    let mut row = node("review", &["build"]);
+    row.brief = "Prüfe den Diff.".to_owned();
+    row.predecessors_may = predecessors_may;
+    row
+}
+
+#[test]
+fn predecessors_may_append_allows_an_addition_but_no_replacement() {
+    let station = may(PredecessorsMay::Append);
+    let changes = amended_brief_changes(
+        &station,
+        change("1", BriefChangeKind::Append, "  Achte auf die Migration.  "),
+    )
+    .expect("Ergänzung erlaubt");
+    assert_eq!(changes[0].text, "Achte auf die Migration.");
+    assert_eq!(changes[0].source_station_id, "build");
+    let refused = amended_brief_changes(&station, change("2", BriefChangeKind::Replace, "Neu."));
+    assert!(refused.is_err_and(|message: String| message.starts_with("predecessors_may: ")));
+}
+
+#[test]
+fn predecessors_may_append_and_change_allows_a_replacement() {
+    let mut station = may(PredecessorsMay::AppendAndChange);
+    station.brief_changes = amended_brief_changes(
+        &station,
+        change("1", BriefChangeKind::Append, "Erst ergänzt."),
+    )
+    .expect("Ergänzung erlaubt");
+    station.brief_changes = amended_brief_changes(
+        &station,
+        change("2", BriefChangeKind::Replace, "Prüfe nur die Tests."),
+    )
+    .expect("Ersatz erlaubt");
+    station.brief_changes = amended_brief_changes(
+        &station,
+        change("3", BriefChangeKind::Append, "Und die Doku."),
+    )
+    .expect("Ergänzung erlaubt");
+    assert_eq!(
+        model::effective_brief(&station.brief, &station.brief_changes),
+        "Prüfe nur die Tests.\nUnd die Doku."
+    );
+}
+
+#[test]
+fn predecessors_may_hands_off_refuses_every_change_naming_the_field() {
+    let station = may(PredecessorsMay::HandsOff);
+    for kind in [BriefChangeKind::Append, BriefChangeKind::Replace] {
+        let refused = amended_brief_changes(&station, change("1", kind, "Text"));
+        assert!(
+            refused.is_err_and(|message: String| message.starts_with("predecessors_may: ")),
+            "{kind:?}"
+        );
+    }
+}
+
+#[test]
+fn brief_changes_are_removable_until_the_start_and_reset_restores_the_original() {
+    let mut station = may(PredecessorsMay::AppendAndChange);
+    station.brief_changes = vec![
+        change("added", BriefChangeKind::Append, "Ergänzt."),
+        change("replaced", BriefChangeKind::Replace, "Ersetzt."),
+    ];
+    let reset = without_brief_change(&station, "replaced").expect("vor dem Start");
+    assert_eq!(
+        model::effective_brief(&station.brief, &reset),
+        "Prüfe den Diff.\nErgänzt."
+    );
+    let removed = without_brief_change(&station, "added").expect("vor dem Start");
+    assert_eq!(model::effective_brief(&station.brief, &removed), "Ersetzt.");
+    assert_eq!(
+        without_brief_change(&station, "unknown"),
+        Err(UNKNOWN_BRIEF_CHANGE.to_owned())
+    );
+
+    station.session_id = Some("session".to_owned());
+    assert_eq!(
+        without_brief_change(&station, "added"),
+        Err(BRIEF_BEGUN.to_owned())
+    );
+    assert_eq!(
+        amended_brief_changes(&station, change("3", BriefChangeKind::Append, "Spät.")),
+        Err(BRIEF_BEGUN.to_owned())
+    );
+}
+
+#[test]
+fn first_message_sends_the_brief_with_the_changes_of_predecessors() {
+    let mut station = may(PredecessorsMay::Append);
+    station.brief_changes = vec![change(
+        "1",
+        BriefChangeKind::Append,
+        "Achte auf die Migration.",
+    )];
+    let view = graph(vec![finished(node("build", &[])), station]);
+    let message = start::first_message(&view, &view.phases[0], shown(&view, "review"), &[]);
+    assert!(
+        message.contains("Auftrag: Prüfe den Diff.\nAchte auf die Migration."),
+        "{message}"
+    );
+}
+
+#[test]
+fn stored_station_keeps_options_brief_changes_and_restarts() {
+    let mut station = may(PredecessorsMay::AppendAndChange);
+    station.auto_start = Some(false);
+    station.on_error = OnError::RestartOnce;
+    station.brief_changes = vec![change("1", BriefChangeKind::Replace, "Ersetzt.")];
+    station.restarts = 1;
+    let database = database_with(&[station.clone()]);
+    let [stored] = &stored_stations(&database)[..] else {
+        panic!("Erwartet: eine Station");
+    };
+    assert_eq!(
+        (
+            stored.auto_start,
+            stored.on_error,
+            stored.predecessors_may,
+            &stored.brief_changes,
+            stored.restarts
+        ),
+        (
+            Some(false),
+            OnError::RestartOnce,
+            PredecessorsMay::AppendAndChange,
+            &station.brief_changes,
+            1
+        )
+    );
+}
+
+fn failing(on_error: OnError, restarts: u32) -> StationRow {
+    let mut row = node("failing", &[]);
+    row.on_error = on_error;
+    row.restarts = restarts;
+    row
+}
+
+#[test]
+fn on_error_restarts_a_fresh_failure_and_keeps_its_place_in_the_queue() {
+    let view = view_with_sessions(
+        vec![failing(OnError::RestartOnce, 0), node("waiting", &[])],
+        Some(1),
+        true,
+        &[("failing", SessionStatus::Error, true)],
+    );
+    let failed = shown(&view, "failing");
+    assert!(failed.restarting && failed.is_active());
+    assert_eq!(view.queued, 1, "waiting bleibt in der Warteschlange");
+    let stations: Vec<&StationView> = view.phases[0].stations.iter().collect();
+    assert!(
+        Countdowns::default()
+            .begin_within(&stations, &["waiting"], Some(1), 1.0)
+            .is_empty()
+    );
+}
+
+#[test]
+fn on_error_counts_its_restarts_and_then_waits_for_the_user() {
+    for (on_error, restarts, is_restarting) in [
+        (OnError::Halt, 0, false),
+        (OnError::RestartOnce, 0, true),
+        (OnError::RestartOnce, 1, false),
+        (OnError::RestartUpToThree, 2, true),
+        (OnError::RestartUpToThree, 3, false),
+    ] {
+        let view = view_with_sessions(
+            vec![failing(on_error, restarts), node("waiting", &[])],
+            Some(1),
+            true,
+            &[("failing", SessionStatus::Error, true)],
+        );
+        assert_eq!(
+            shown(&view, "failing").restarting,
+            is_restarting,
+            "{on_error:?} nach {restarts}"
+        );
+        assert_eq!(
+            view.queued,
+            u32::from(is_restarting),
+            "{on_error:?} nach {restarts}"
+        );
+    }
+}
+
+#[test]
+fn on_error_does_not_restart_after_an_app_restart_a_cancel_or_a_halt() {
+    let restarting = |view: &ImplementationView| shown(view, "failing").restarting;
+    let loaded = view_with_sessions(
+        vec![failing(OnError::RestartOnce, 0)],
+        None,
+        true,
+        &[("failing", SessionStatus::Error, false)],
+    );
+    assert!(
+        !restarting(&loaded),
+        "Fehler aus der Datenbank: Critical Rule 4"
+    );
+    let cancelled = view_with_sessions(
+        vec![failing(OnError::RestartOnce, 0)],
+        None,
+        true,
+        &[("failing", SessionStatus::Cancelled, false)],
+    );
+    assert!(!restarting(&cancelled), "Abbruch durch den Benutzer");
+    let mut stored = StoredImplementation {
+        row: ImplementationRow {
+            stop_after_current: true,
+            ..implementation_row()
+        },
+        phases: vec![phase_row()],
+        stations: vec![failing(OnError::RestartOnce, 0)],
+        changes: Vec::new(),
+    };
+    stored.stations[0].session_id = Some("session".to_owned());
+    let live: HashMap<String, SessionLive> = HashMap::from([(
+        "session".to_owned(),
+        SessionLive {
+            status: SessionStatus::Error,
+            number: 1,
+            running_ms: 0.0,
+            question: None,
+            last_activity_at: 0.0,
+            unread: false,
+            awaits_script: false,
+            is_fresh_error: true,
+        },
+    )]);
+    let halted = build_view(&stored, &live, &HashMap::new(), &HashMap::new(), &[]);
+    assert!(!restarting(&halted), "„Anhalten nach dieser Session“");
+}
+
+#[test]
+fn a_restart_is_counted_once_even_when_two_callers_race() {
+    let mut station = failing(OnError::RestartUpToThree, 0);
+    station.session_id = Some("session".to_owned());
+    let database = database_with(&[station]);
+    let count = |seen: u32| {
+        database
+            .with(|connection| implementation_rows::count_restart(connection, "failing", seen))
+            .expect("schreibbar")
+    };
+    assert!(count(0));
+    assert!(!count(0), "der zweite mit demselben Stand verliert");
+    assert!(count(1));
+    assert_eq!(stored_stations(&database)[0].restarts, 2);
+}
+
+#[test]
+fn plan_change_keeps_the_options_of_an_edited_station() {
+    let mut old = edited(planned("review", 0, "Review"));
+    old.auto_start = Some(false);
+    old.on_error = OnError::RestartOnce;
+    old.predecessors_may = PredecessorsMay::HandsOff;
+    let mut fresh = planned("new", 0, "Review");
+    changes::keep_settings(&[old], std::slice::from_mut(&mut fresh));
+    assert_eq!(
+        (fresh.auto_start, fresh.on_error, fresh.predecessors_may),
+        (Some(false), OnError::RestartOnce, PredecessorsMay::HandsOff)
+    );
+}
+
+#[test]
+fn new_station_options_are_class_c_in_the_access_table() {
+    use crate::remote::access::{Class, class_of};
+    for command in [
+        "implementation_set_station_options",
+        "implementation_remove_brief_change",
+    ] {
+        assert_eq!(class_of(command), Some(Class::HostWrite), "{command}");
+    }
+}
+
+#[test]
+fn a_claimed_restart_keeps_its_place_while_the_session_is_briefly_paused() {
+    // `SessionRegistry::restart` setzt die Session auf pausiert, bevor die Nachricht sie startet.
+    let view = view_with_sessions(
+        vec![failing(OnError::RestartOnce, 1), node("waiting", &[])],
+        Some(1),
+        true,
+        &[("failing", SessionStatus::Paused, false)],
+    );
+    let stations: Vec<&StationView> = view.phases[0].stations.iter().collect();
+    let mut countdowns = Countdowns::default();
+    assert!(countdowns.claim_start("failing"));
+    assert!(
+        countdowns
+            .begin_within(&stations, &["waiting"], Some(1), 1.0)
+            .is_empty()
+    );
+    countdowns.release_start("failing");
+    assert_eq!(
+        countdowns
+            .begin_within(&stations, &["waiting"], Some(1), 1.0)
+            .len(),
+        1
+    );
+}
+
+#[test]
+fn switching_automatic_off_frees_the_place_for_a_queued_station_with_its_own_on() {
+    let mut begun = finished(node("build", &[]));
+    begun.session_id = Some("session".to_owned());
+    let mut own_on = node("b", &[]);
+    own_on.auto_start = Some(true);
+    // Die Umsetzung ist aus, der Countdown von „a“ ist eben beendet.
+    let view = limited_view(
+        vec![begun.clone(), node("a", &[]), own_on.clone()],
+        Some(1),
+        false,
+        &[],
+    );
+    assert!(refills_after_switch_off(&view));
+    assert_eq!(due_ids(&view), ["b"]);
+
+    let without_own_on = limited_view(vec![begun.clone(), node("a", &[])], Some(1), false, &[]);
+    assert!(!refills_after_switch_off(&without_own_on));
+    let without_limit = limited_view(vec![begun, own_on.clone()], None, false, &[]);
+    assert!(
+        !refills_after_switch_off(&without_limit),
+        "ohne Grenze läuft ihr Countdown schon"
+    );
+    let not_begun = limited_view(vec![node("a", &[]), own_on], Some(1), false, &[]);
+    assert!(
+        !refills_after_switch_off(&not_begun),
+        "vor dem Start startet nichts von selbst"
+    );
+}
+
+#[test]
+fn a_started_station_refuses_a_late_write_of_predecessors_may() {
+    let mut started = node("a", &[]);
+    started.session_id = Some("session".to_owned());
+    let database = database_with(&[started]);
+    let is_written = database
+        .with(|connection| {
+            implementation_rows::set_station_options(
+                connection,
+                "a",
+                &options(None, OnError::Halt, PredecessorsMay::HandsOff),
+            )
+        })
+        .expect("schreibbar");
+    assert!(!is_written);
+    assert_eq!(
+        stored_stations(&database)[0].predecessors_may,
+        PredecessorsMay::Append
+    );
+}
+
+#[test]
+fn the_brief_with_its_changes_stays_within_the_brief_limit() {
+    let mut station = may(PredecessorsMay::AppendAndChange);
+    station.brief = "x".repeat(MAX_BRIEF_CHARS - 10);
+    let refused = amended_brief_changes(
+        &station,
+        change("1", BriefChangeKind::Append, &"y".repeat(10)),
+    );
+    assert!(refused.is_err_and(|message: String| message.starts_with("brief_changes: ")));
+    station.brief_changes = amended_brief_changes(
+        &station,
+        change("1", BriefChangeKind::Append, &"y".repeat(9)),
+    )
+    .expect("genau 1000 Zeichen");
+
+    // Zurücksetzen eines Ersatzes brächte den langen Text davor zurück.
+    station.brief_changes = vec![
+        change("replaced", BriefChangeKind::Replace, "Kurz."),
+        change("added", BriefChangeKind::Append, &"z".repeat(20)),
+    ];
+    let refused = without_brief_change(&station, "replaced");
+    assert!(refused.is_err_and(|message: String| message.starts_with("brief_changes: ")));
+    assert!(without_brief_change(&station, "added").is_ok());
 }
