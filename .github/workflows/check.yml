@@ -21,6 +21,7 @@ jobs:
           workspaces: src-tauri
       - run: pnpm install --frozen-lockfile
       - run: pnpm version:check
+      - run: pnpm selftest
       - run: pnpm lint
       - run: pnpm typecheck
       - run: pnpm format:check

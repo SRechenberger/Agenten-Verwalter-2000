@@ -75,64 +75,6 @@
     color: var(--color-fg-secondary);
   }
 
-  /* Typ, Modell und Denkaufwand als Zeile aus Chips (Entwurf, Schritt 12 bis 19). */
-  &__agent {
-    display: flex;
-    flex-wrap: wrap;
-    gap: var(--space-sm);
-    align-items: center;
-  }
-
-  &__lead {
-    margin-right: var(--space-2xs);
-    color: var(--color-fg-muted);
-    font-size: var(--font-size-xs);
-  }
-
-  &__fact {
-    display: inline-flex;
-    gap: 5px;
-    align-items: center;
-    box-sizing: border-box;
-    height: 22px;
-    padding: 0 9px;
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius-full);
-    color: var(--color-fg-primary);
-    font-size: var(--font-size-xs);
-    white-space: nowrap;
-
-    &--type {
-      font-weight: 600;
-    }
-
-    /* „kein Typ“ und ein gelöschter Typ: gestrichelt, damit niemand einen Typ vermutet. */
-    &--none {
-      border-style: dashed;
-      color: var(--color-fg-muted);
-    }
-
-    &--rule {
-      color: var(--color-fg-secondary);
-    }
-
-    /* Eine Abweichung der Station vom Typ. */
-    &--set {
-      border-color: color-mix(in srgb, var(--color-accent) 45%, var(--color-border));
-      background: var(--color-accent-subtle);
-    }
-
-    &--skill {
-      font-family: var(--font-mono);
-      font-size: 11.5px;
-    }
-  }
-
-  &__fact-source {
-    color: var(--color-fg-muted);
-    font-size: 10.5px;
-  }
-
   &__fail {
     margin: 0;
     padding: var(--space-md) var(--space-xl);
@@ -193,6 +135,252 @@
         color: var(--color-fg-on-accent);
         opacity: 0.9;
       }
+    }
+  }
+
+  &__purpose {
+    margin: 0;
+    color: var(--color-fg-muted);
+    font-size: var(--font-size-xs);
+
+    & b {
+      color: var(--color-fg-primary);
+    }
+  }
+
+  /* Kartei nach Entwurf 1: vier Abschnitte mit Kopfzeile, die die Werte auch zugeklappt zeigt. */
+  &__sections {
+    display: grid;
+    font-size: var(--font-size-xs);
+  }
+
+  &__section {
+    padding-top: var(--space-xs);
+    border-top: 1px solid var(--color-border-subtle);
+  }
+
+  &__section-head {
+    width: 100%;
+    padding: var(--space-2xs) 0;
+    border: 0;
+    background: none;
+    color: var(--color-fg-primary);
+    font: inherit;
+    font-weight: 600;
+    text-align: left;
+    cursor: pointer;
+
+    &:focus-visible {
+      outline: 2px solid var(--color-accent);
+      outline-offset: 2px;
+    }
+  }
+
+  &__caret {
+    display: inline-block;
+    width: 12px;
+    color: var(--color-fg-muted);
+  }
+
+  &__summary {
+    margin-left: var(--space-md);
+    color: var(--color-fg-muted);
+    font-weight: 400;
+  }
+
+  &__section-body {
+    display: grid;
+    gap: var(--space-xs);
+    padding: var(--space-2xs) 0 var(--space-md) var(--space-xl);
+  }
+
+  &__line {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 3px var(--space-sm);
+    align-items: baseline;
+  }
+
+  &__label {
+    min-width: 96px;
+    color: var(--color-fg-muted);
+  }
+
+  &__hint,
+  &__lockinfo {
+    margin: 0;
+    color: var(--color-fg-muted);
+    font-size: var(--font-size-2xs);
+  }
+
+  &__lockinfo {
+    padding-top: var(--space-sm);
+    border-top: 1px dashed var(--color-border);
+  }
+
+  &__chip {
+    display: inline-flex;
+    align-items: center;
+    padding: 0 7px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-full);
+    background: var(--color-bg-base);
+    color: var(--color-fg-muted);
+    font: inherit;
+    font-size: var(--font-size-2xs);
+    line-height: 1.5;
+
+    &--edit {
+      color: var(--color-fg-primary);
+    }
+
+    &--lock {
+      opacity: 0.75;
+    }
+
+    &--add {
+      border-style: dashed;
+      color: var(--color-fg-primary);
+      cursor: pointer;
+
+      &:hover:not(:disabled) {
+        border-color: var(--color-accent);
+      }
+    }
+
+    &:disabled {
+      cursor: not-allowed;
+      opacity: 0.45;
+    }
+  }
+
+  &__chip-name,
+  &__chip-remove {
+    padding: 0;
+    border: 0;
+    background: none;
+    color: inherit;
+    font: inherit;
+    cursor: pointer;
+  }
+
+  &__chip-remove {
+    padding-left: var(--space-xs);
+    color: var(--color-fg-muted);
+
+    &:hover:not(:disabled) {
+      color: var(--color-status-error);
+    }
+  }
+
+  &__pick {
+    display: grid;
+    gap: 1px;
+    max-width: 460px;
+    margin: 2px 0 var(--space-xs) 102px;
+    padding: var(--space-xs);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    background: var(--color-bg-base);
+  }
+
+  &__pick-item {
+    padding: 2px 6px;
+    border: 0;
+    border-radius: var(--radius-sm);
+    background: none;
+    color: var(--color-fg-primary);
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+
+    &:hover:not(:disabled) {
+      background: var(--color-bg-hover);
+    }
+
+    &:disabled {
+      cursor: not-allowed;
+      opacity: 0.5;
+    }
+
+    & small {
+      display: block;
+      color: var(--color-fg-muted);
+      font-size: var(--font-size-2xs);
+    }
+  }
+
+  &__textarea,
+  &__input {
+    box-sizing: border-box;
+    padding: var(--space-xs) var(--space-md);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    background: var(--color-bg-base);
+    color: var(--color-fg-primary);
+    font: inherit;
+
+    &:disabled {
+      background: var(--color-bg-surface);
+      color: var(--color-fg-muted);
+    }
+  }
+
+  &__textarea {
+    width: 100%;
+    min-height: 56px;
+    resize: vertical;
+  }
+
+  &__input {
+    min-width: 200px;
+  }
+
+  &__system {
+    max-height: 8em;
+    overflow-y: auto;
+    padding: var(--space-xs) var(--space-md);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    background: var(--color-bg-base);
+    color: var(--color-fg-muted);
+    white-space: pre-wrap;
+  }
+
+  /* Änderung durch einen Vorgänger: links ein Strich, „vorher“ durchgestrichen. */
+  &__note {
+    display: grid;
+    gap: 2px;
+    justify-items: start;
+    padding: 3px var(--space-md);
+    border-left: 3px solid var(--color-status-handoff);
+    border-radius: 0 var(--radius-md) var(--radius-md) 0;
+    background: var(--color-bg-base);
+  }
+
+  &__note-was {
+    color: var(--color-fg-muted);
+    text-decoration: line-through;
+    white-space: pre-wrap;
+  }
+
+  &__note-text {
+    white-space: pre-wrap;
+  }
+
+  &__mini {
+    padding: 0 7px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    background: var(--color-bg-base);
+    color: var(--color-fg-primary);
+    font: inherit;
+    font-size: var(--font-size-2xs);
+    line-height: 1.5;
+    cursor: pointer;
+
+    &:hover:not(:disabled) {
+      border-color: var(--color-accent);
     }
   }
 }
