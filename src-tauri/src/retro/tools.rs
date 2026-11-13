@@ -370,22 +370,37 @@ pub fn build_trace(
 /// Gibt Sessions mit doppelter Nummer eine eindeutige Kennung (`7-1a2b3c`), damit ihre Dateien
 /// sich nicht überschreiben und der Querschnitt sie getrennt zählt.
 pub fn assign_labels(traces: &mut [&mut SessionTrace]) {
+    let identities: Vec<(u32, &str)> = traces
+        .iter()
+        .map(|trace: &&mut SessionTrace| (trace.number, trace.id.as_str()))
+        .collect();
+    let labels = unique_labels(&identities);
+    for (trace, label) in traces.iter_mut().zip(labels) {
+        trace.label = label;
+    }
+}
+
+/// Die Kennung je Session (Nummer, ID) in derselben Reihenfolge: die Nummer, bei doppelter
+/// Nummer `7-1a2b3c`. Gilt für `session-<K>.md` und `spur-<K>.md` gleichermaßen.
+pub fn unique_labels(identities: &[(u32, &str)]) -> Vec<String> {
     let mut counts: HashMap<u32, usize> = HashMap::new();
-    for trace in traces.iter() {
-        *counts.entry(trace.number).or_default() += 1;
+    for (number, _) in identities {
+        *counts.entry(*number).or_default() += 1;
     }
-    for trace in traces.iter_mut() {
-        if counts.get(&trace.number).copied().unwrap_or(0) < 2 {
-            continue;
-        }
-        let short_id: String = trace
-            .id
-            .chars()
-            .filter(|character: &char| character.is_ascii_alphanumeric())
-            .take(LABEL_ID_CHARS)
-            .collect();
-        trace.label = format!("{}-{short_id}", trace.number);
-    }
+    identities
+        .iter()
+        .map(|(number, id): &(u32, &str)| {
+            if counts.get(number).copied().unwrap_or(0) < 2 {
+                return number.to_string();
+            }
+            let short_id: String = id
+                .chars()
+                .filter(|character: &char| character.is_ascii_alphanumeric())
+                .take(LABEL_ID_CHARS)
+                .collect();
+            format!("{number}-{short_id}")
+        })
+        .collect()
 }
 
 /// Was der Verlauf und `tool_details` über einen Aufruf wissen.
@@ -867,4 +882,20 @@ pub fn write_trace_files(folder: &Path, trace: &SessionTrace) -> io::Result<()> 
         fs::write(directory.join(name), body)?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::unique_labels;
+
+    #[test]
+    fn unique_number_keeps_plain_label() {
+        assert_eq!(unique_labels(&[(1, "a"), (2, "b")]), ["1", "2"]);
+    }
+
+    #[test]
+    fn parallel_stations_get_distinct_labels() {
+        let labels = unique_labels(&[(8, "25411a-xx"), (3, "c"), (8, "a79553-yy")]);
+        assert_eq!(labels, ["8-25411a", "3", "8-a79553"]);
+    }
 }

@@ -42,6 +42,9 @@ type MiniRetro = Result<SessionFindings, String>;
 /// Eine einbezogene Session, bevor ihre Mini-Retro läuft.
 struct PreparedSession {
     number: u32,
+    id: String,
+    /// Kennung der Dateien (`session-<label>.md`); erst nach `unique_labels` eindeutig.
+    label: String,
     name: String,
     status: SessionStatus,
     model: ModelId,
@@ -122,14 +125,24 @@ impl SessionRegistry {
         let run_name = format!("lauf-{}", now_ms() as u64);
         let folder = workspace.join(RETRO_DIR).join(&run_name);
         fs::create_dir_all(&folder).map_err(write_error)?;
-        let mut unlabeled: Vec<&mut SessionTrace> = prepared
-            .iter_mut()
-            .filter_map(|session: &mut PreparedSession| session.trace.as_mut())
-            .collect();
-        tools::assign_labels(&mut unlabeled);
+        // Parallele Stationen eines Vorhabens teilen sich eine Nummer: Verlauf und Spur
+        // brauchen dieselbe eindeutige Kennung, sonst überschreibt eine die andere.
+        let labels = {
+            let identities: Vec<(u32, &str)> = prepared
+                .iter()
+                .map(|session: &PreparedSession| (session.number, session.id.as_str()))
+                .collect();
+            tools::unique_labels(&identities)
+        };
+        for (session, label) in prepared.iter_mut().zip(labels) {
+            if let Some(trace) = session.trace.as_mut() {
+                trace.label.clone_from(&label);
+            }
+            session.label = label;
+        }
         for session in &prepared {
             if let Ok(texts) = &session.texts {
-                let path = folder.join(format!("session-{}.md", session.number));
+                let path = folder.join(format!("session-{}.md", session.label));
                 fs::write(path, &texts.file).map_err(write_error)?;
             }
             if let Some(trace) = &session.trace {
@@ -154,6 +167,7 @@ impl SessionRegistry {
             .map(
                 |(session, outcome): (PreparedSession, MiniRetro)| SessionResult {
                     number: session.number,
+                    label: session.label,
                     name: session.name,
                     status: session.status,
                     model: session.model,
@@ -210,6 +224,8 @@ fn prepare_session(session: &Session) -> Option<PreparedSession> {
         Err(error) => {
             return Some(PreparedSession {
                 number: session.number,
+                id: session.id.clone(),
+                label: session.number.to_string(),
                 name,
                 status,
                 model,
@@ -235,6 +251,8 @@ fn prepare_session(session: &Session) -> Option<PreparedSession> {
         Err(error) => {
             return Some(PreparedSession {
                 number: session.number,
+                id: session.id.clone(),
+                label: session.number.to_string(),
                 name,
                 status,
                 model,
@@ -271,6 +289,8 @@ fn prepare_session(session: &Session) -> Option<PreparedSession> {
     );
     Some(PreparedSession {
         number: session.number,
+        id: session.id.clone(),
+        label: session.number.to_string(),
         name: state.name.clone(),
         status: state.status,
         model: state.model,
