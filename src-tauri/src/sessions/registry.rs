@@ -58,7 +58,9 @@ use crate::error::CommandError;
 use crate::filesystem::workspace::{home_dir, new_session_workspace, stored_session_workspace};
 use crate::git::model::GitBusySession;
 use crate::implementation::Countdowns;
-use crate::implementation::plan::plan_prompt;
+use crate::implementation::plan::{
+    self, GuardStep, PLAN_REMINDER_TEXT, PlanGuard, advance_guard, plan_prompt,
+};
 use crate::mcp::model::{McpAction, McpActionError, McpAuthWait, McpChangedEvent, McpServer};
 use crate::mcp_access::{McpAccess, ProcessKind};
 use crate::notices::model::{Denial, Notice};
@@ -124,6 +126,7 @@ const PLAN_NEEDS_CLAUDE: &str = "„Plane Vorhaben“ gibt es nur in der Betrieb
      hat die Session die Werkzeuge des Verwalters.";
 const PLAN_ANSWER_FIRST: &str = "Beantworte zuerst die Rückfrage des Agenten; „Plane Vorhaben“ \
      beginnt einen neuen Zug.";
+const PLAN_NOTICE_GONE: &str = "Dieser Hinweis „Kein Plan im Umsetzungstool“ ist nicht mehr da.";
 /// Satz an den Agenten, wenn eine andere Session im selben Schreib-Ordner arbeitet (ADR 037).
 const OVERLAP_HINT: &str = "Hinweis des Verwalters: Eine andere Session arbeitet gerade im selben Ordner ({folder}, Session „{name}“). Ihre uncommitteten Änderungen dort sind nicht deine.";
 const ANSWER_SEPARATOR: &str = " · ";
@@ -363,9 +366,10 @@ struct SessionState {
     /// Lagebericht (ohne Zeile „Lage“), den diese Rückfrage zuletzt als Anhang bekam; nur im
     /// Speicher — nach einem Neustart hängt das nächste Senden den Bericht neu an.
     last_report: Option<String>,
-    /// Der laufende Zug begann mit „Plane Vorhaben“ (ADR 062); nur im Speicher. Jeder neue Zug setzt
-    /// ihn neu, die Antwort auf eine Rückfrage lässt ihn stehen. Phase 81.2 hängt den Wächter daran.
-    planning_turn: bool,
+    /// Der Wächter des laufenden Zugs, wenn er mit „Plane Vorhaben“ begann (ADR 062); nur im
+    /// Speicher. Jeder neue Zug setzt ihn neu, die Antwort auf eine Rückfrage und eine Erinnerung des
+    /// Wächters lassen ihn stehen.
+    plan_guard: Option<PlanGuard>,
 }
 
 /// Eine Session, wie `SessionRegistry::restore` sie aus der Datenbank liest.
@@ -412,11 +416,22 @@ enum TurnOrigin<'a> {
         device: Option<&'a str>,
         /// „Plane Vorhaben“ (ADR 062): Der Agent bekommt `plan_prompt` mit dem Text, der Chat zeigt
         /// nur den Text.
-        planning: bool,
+        planning: PlanTurn,
     },
     Session {
         sender: &'a SessionRef,
     },
+}
+
+/// Wie ein Zug zum Wächter steht (ADR 062).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PlanTurn {
+    /// Ein gewöhnlicher Zug: Er beendet die Prüfung.
+    No,
+    /// „Plane Vorhaben“: ein neuer Wächter.
+    Start,
+    /// Die Erinnerung des Wächters: Er bleibt mit seinem Zähler.
+    Reminder,
 }
 
 /// Was nach dem Freigeben der Sperre hinausgeht.
@@ -457,6 +472,9 @@ struct Outbox {
     /// Die Session einer Station ist nicht mehr aktiv (fertig, pausiert, Fehler, Abbruch): nach dem
     /// Freigeben der Sperre plant die Umsetzung ihre Warteschlange neu (ADR 061).
     station_idle: Option<String>,
+    /// Der Wächter erinnert an `implementation_create`; nach dem Freigeben der Sperre geht die
+    /// Erinnerung hinaus (ADR 062).
+    plan_reminder: bool,
 }
 
 impl SessionRegistry {
@@ -1178,7 +1196,7 @@ impl SessionRegistry {
             attachment_ids,
             comments,
             device,
-            false,
+            PlanTurn::No,
         )
     }
 
@@ -1199,12 +1217,105 @@ impl SessionRegistry {
         if settings::load(&self.database)?.operating_mode != OperatingMode::Claude {
             return Err(CommandError::Implementation(PLAN_NEEDS_CLAUDE.to_owned()));
         }
-        self.send_turn(app, session_id, task, &[], &[], device, true)
+        self.send_turn(app, session_id, task, &[], &[], device, PlanTurn::Start)
     }
 
     /// Ob der laufende Zug der Session ein Planungszug ist (ADR 062).
     pub fn is_planning_turn(&self, session_id: &str) -> Result<bool, CommandError> {
-        Ok(self.get(session_id)?.lock().planning_turn)
+        Ok(self.get(session_id)?.lock().plan_guard.is_some())
+    }
+
+    /// Die Erinnerung des Wächters (ADR 062): geht wie eine Nachricht des Benutzers an den Agenten,
+    /// aber nur, wenn die Session noch ruht und ihr Wächter noch wartet. Wer dazwischen etwas sendet,
+    /// beendet die Prüfung; dann geht nichts hinaus.
+    fn send_plan_reminder(&self, app: &AppHandle, session: &Arc<Session>) {
+        let input = self.prepare_turn(session, PLAN_REMINDER_TEXT);
+        let sent = update(
+            app,
+            session,
+            |state: &mut SessionState, outbox: &mut Outbox| {
+                let is_waiting = state
+                    .plan_guard
+                    .as_ref()
+                    .is_some_and(|guard: &PlanGuard| !guard.called);
+                if !is_waiting || !state.rests() {
+                    return Ok(());
+                }
+                start_turn(
+                    app,
+                    session,
+                    state,
+                    outbox,
+                    input,
+                    PLAN_REMINDER_TEXT,
+                    TurnOrigin::User {
+                        attachment_ids: &[],
+                        comments: &[],
+                        folders: &[],
+                        skill: None,
+                        report_update: None,
+                        device: None,
+                        planning: PlanTurn::Reminder,
+                    },
+                )?;
+                Ok(())
+            },
+        );
+        if let Err(error) = sent {
+            session.log_line(format!("Erinnerung des Wächters nicht gesendet: {error}"));
+        }
+    }
+
+    /// Eine Aktion auf dem Hinweis „Kein Plan im Umsetzungstool“ an `seq` (ADR 062). `retry`
+    /// („Erneut“): ein neuer Planungszug mit demselben Auftrag; sonst („Trotzdem weiter“) wird nur der
+    /// Hinweis erledigt, denn seine Prüfung endete schon mit ihm. Der Hinweis verliert unter der
+    /// Sperre seine Knöpfe, bevor der neue Zug beginnt: Ein zweiter Klick, etwa beim Gast (ADR 059),
+    /// findet ihn erledigt. Kommt der Zug nicht zustande, bekommt der Hinweis die Knöpfe zurück.
+    pub fn settle_plan_notice(
+        &self,
+        app: &AppHandle,
+        session_id: &str,
+        seq: u32,
+        retry: bool,
+        device: Option<&str>,
+    ) -> Result<(), CommandError> {
+        let session = self.get(session_id)?;
+        let mark = |settled: bool| {
+            update(
+                app,
+                &session,
+                |state: &mut SessionState, outbox: &mut Outbox| {
+                    let task: String = match state.entries.get(seq as usize) {
+                        Some(ChatEntry::Notice {
+                            notice: Notice::PlanMissing { task, settled: was },
+                            ..
+                        }) if *was != settled => task.clone(),
+                        _ => {
+                            return Err(CommandError::Implementation(PLAN_NOTICE_GONE.to_owned()));
+                        }
+                    };
+                    state.replace_entry(
+                        outbox,
+                        ChatEntry::Notice {
+                            seq,
+                            notice: Notice::PlanMissing {
+                                task: task.clone(),
+                                settled,
+                            },
+                        },
+                    );
+                    Ok(task)
+                },
+            )
+        };
+        let task: String = mark(true)?;
+        if retry && let Err(error) = self.plan_vorhaben(app, session_id, &task, device) {
+            if let Err(undo) = mark(false) {
+                session.log_line(format!("Hinweis nicht zurückgesetzt: {undo}"));
+            }
+            return Err(error);
+        }
+        Ok(())
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -1216,7 +1327,7 @@ impl SessionRegistry {
         attachment_ids: &[String],
         comments: &[ReviewComment],
         device: Option<&str>,
-        planning: bool,
+        planning: PlanTurn,
     ) -> Result<(), CommandError> {
         let session = self.get(session_id)?;
         review::validate(comments)?;
@@ -1252,7 +1363,7 @@ impl SessionRegistry {
                 }
                 if !state.pending.is_empty() {
                     // Der Planungs-Prompt wäre hier nur der Text einer Antwort.
-                    if planning {
+                    if planning != PlanTurn::No {
                         return Err(CommandError::Implementation(PLAN_ANSWER_FIRST.to_owned()));
                     }
                     // Die Antwort auf eine Rückfrage ist reiner Text — Anhänge und Kommentare hätten
@@ -2321,7 +2432,7 @@ impl SessionState {
             inquiry_of: None,
             agent_prompt: None,
             last_report: None,
-            planning_turn: false,
+            plan_guard: None,
         }
     }
 
@@ -3017,6 +3128,11 @@ impl SessionState {
                 for path in &used_paths {
                     self.turn_sources.push_path(path);
                 }
+                if let Some(guard) = &mut self.plan_guard
+                    && plan::is_plan_tool(&tool)
+                {
+                    guard.called = true;
+                }
                 let is_write: bool = tool == "Write";
                 let entry_tool_use_id = tool_use_id.clone();
                 let seq = self.push_entry(outbox, |seq: u32| ChatEntry::Tool {
@@ -3465,7 +3581,29 @@ impl SessionState {
             TurnEnd::Completed => {
                 self.set_status(outbox, SessionStatus::Completed);
                 outbox.turn_completed = true;
+                self.check_plan(outbox);
             }
+        }
+    }
+
+    /// Der Wächter am Ende eines abgeschlossenen Zugs (ADR 062). Arbeitet noch ein Subagent oder ein
+    /// Skript, setzt der Agent von selbst fort: Dann ist der Zug noch nicht zu Ende.
+    fn check_plan(&mut self, outbox: &mut Outbox) {
+        if !self.rests() {
+            return;
+        }
+        match advance_guard(&mut self.plan_guard) {
+            (GuardStep::Remind, _) => outbox.plan_reminder = true,
+            (GuardStep::Notice, Some(guard)) => {
+                self.push_entry(outbox, |seq: u32| ChatEntry::Notice {
+                    seq,
+                    notice: Notice::PlanMissing {
+                        task: guard.task,
+                        settled: false,
+                    },
+                });
+            }
+            _ => {}
         }
     }
 
@@ -3777,9 +3915,29 @@ fn update<R>(
     if let Some(implementation_id) = outbox.station_idle.take() {
         implementation::schedule_station_session_end(app, implementation_id);
     }
+    if outbox.plan_reminder {
+        schedule_plan_reminder(app, session);
+    }
     let value = result?;
     outbox.deliver(session)?;
     Ok(value)
+}
+
+/// Die Erinnerung des Wächters geht in einem eigenen Thread hinaus, wie die Warteschlange der
+/// Session-Nachrichten: `update` läuft hier oft im Lesethread des Agenten.
+fn schedule_plan_reminder(app: &AppHandle, session: &Arc<Session>) {
+    let thread_app = app.clone();
+    let thread_session = Arc::clone(session);
+    let spawned = thread::Builder::new()
+        .name("plan-reminder".to_owned())
+        .spawn(move || {
+            thread_app
+                .state::<SessionRegistry>()
+                .send_plan_reminder(&thread_app, &thread_session);
+        });
+    if let Err(error) = spawned {
+        session.log_line(format!("Erinnerung des Wächters nicht gestartet: {error}"));
+    }
 }
 
 /// Ohne Anhänge bleibt die Nachricht ein String wie vor den Anhängen.
@@ -3961,7 +4119,10 @@ fn start_turn(
         }
         _ => text,
     };
-    let is_planning = matches!(origin, TurnOrigin::User { planning: true, .. });
+    let plan_turn: PlanTurn = match origin {
+        TurnOrigin::User { planning, .. } => planning,
+        TurnOrigin::Session { .. } => PlanTurn::No,
+    };
     let (titled, line) = match origin {
         TurnOrigin::User {
             attachment_ids,
@@ -4006,7 +4167,7 @@ fn start_turn(
             let mut agent_attachments = sent_attachments.clone();
             agent_attachments.extend(extra_attachments);
             let planned: String;
-            let for_agent: &str = if planning {
+            let for_agent: &str = if planning == PlanTurn::Start {
                 planned = plan_prompt(sent_text);
                 &planned
             } else {
@@ -4049,7 +4210,11 @@ fn start_turn(
         .as_ref()
         .map(|found: &SessionOverlap| found.key.clone());
     state.pause_reason = None;
-    state.planning_turn = is_planning;
+    match plan_turn {
+        PlanTurn::No => state.plan_guard = None,
+        PlanTurn::Start => state.plan_guard = Some(PlanGuard::new(text)),
+        PlanTurn::Reminder => {}
+    }
     state.set_status(outbox, SessionStatus::Running);
     outbox.write(state, line)?;
     Ok(titled)

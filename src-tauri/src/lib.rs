@@ -201,6 +201,7 @@ pub fn run() {
             commands::sessions::session_overlaps,
             commands::sessions::session_create_in_project,
             commands::sessions::session_plan_vorhaben,
+            commands::sessions::session_plan_settle,
             commands::sessions::session_pause,
             commands::sessions::session_resume,
             commands::sessions::session_cancel,

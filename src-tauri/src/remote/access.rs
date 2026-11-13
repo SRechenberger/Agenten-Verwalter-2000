@@ -110,6 +110,7 @@ const TABLE: &[(Class, Option<IdKind>, &[&str])] = &[
             "mcp_reconnect",
             "mcp_toggle",
             "session_plan_vorhaben",
+            "session_plan_settle",
             "session_pause",
             "session_resume",
             "session_cancel",

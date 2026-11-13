@@ -20,7 +20,7 @@ use crate::sessions::registry::SessionRegistry;
 /// Legt die Umsetzung an; `plan::plan_prompt` nennt es beim Namen.
 pub const CREATE: &str = "implementation_create";
 const GET: &str = "implementation_get";
-const SET_PHASES: &str = "implementation_set_phases";
+pub const SET_PHASES: &str = "implementation_set_phases";
 const DESCRIBE_PHASE: &str = "implementation_describe_phase";
 const COMPLETE_STATION: &str = "implementation_complete_station";
 /// Liest die Agententypen für den Planer (ADR 060); `session_tools_prompt` nennt es beim Namen.

@@ -4,11 +4,15 @@ import { useNow } from '@/features/background/useNow';
 import { CompactDivider } from '@/features/notices/CompactDivider';
 import { InfoIcon, LockIcon, ModelSwitchIcon, ShieldIcon } from '@/features/notices/NoticeIcons';
 import { NoticeLine } from '@/features/notices/NoticeLine';
+import { PlanMissingActions } from '@/features/notices/PlanMissingActions';
 import { QuotaResumeSwitch } from '@/features/notices/QuotaResumeSwitch';
 import {
   INFO_LEAD,
   MODEL_SWITCH_LEAD,
   MODE_CHANGED_LEAD,
+  PLAN_MISSING_LEAD,
+  PLAN_MISSING_SETTLED,
+  PLAN_MISSING_TEXT,
   QUOTA_LEAD,
   isFallbackRevert,
   modeChangedText,
@@ -36,6 +40,8 @@ const NO_SEQS: readonly number[] = [];
 
 interface NoticeBlockProps {
   sessionId: string;
+  /** `seq` des Eintrags; damit adressieren die Knöpfe von „Kein Plan im Umsetzungstool“ ihren Hinweis. */
+  seq: number;
   notice: Notice;
   isExpanded: boolean;
   onToggle: () => void;
@@ -55,6 +61,7 @@ interface NoticeBlockProps {
 
 export function NoticeBlock({
   sessionId,
+  seq,
   notice,
   isExpanded,
   onToggle,
@@ -166,6 +173,19 @@ export function NoticeBlock({
           icon={<InfoIcon size={ICON_SIZE} />}
           lead={REPORT_UPDATED_LEAD}
           text={reportUpdatedText(notice.at, notice.summary)}
+        />
+      );
+    case 'planMissing':
+      return (
+        <NoticeLine
+          variant="warn"
+          icon={<SeverityIcon severity="caution" size={ICON_SIZE} />}
+          lead={PLAN_MISSING_LEAD}
+          text={PLAN_MISSING_TEXT}
+          detail={notice.settled ? PLAN_MISSING_SETTLED : undefined}
+          control={
+            notice.settled ? undefined : <PlanMissingActions sessionId={sessionId} seq={seq} />
+          }
         />
       );
     case 'turnSummary': {

@@ -1726,6 +1726,114 @@ fn plan_prompt_embeds_the_task_unchanged_at_the_end() {
     );
 }
 
+// Der Wächter von „Plane Vorhaben“ (ADR 062): Erinnerung, Hinweis, nur der Werkzeugname.
+
+#[test]
+fn guard_does_nothing_for_a_turn_without_the_planning_marker() {
+    assert_eq!(plan::guard_step(None), plan::GuardStep::Nothing);
+}
+
+#[test]
+fn guard_does_nothing_once_create_or_set_phases_was_called() {
+    for tool in [
+        "mcp__verwalter__implementation_create",
+        "mcp__verwalter__implementation_set_phases",
+    ] {
+        let mut guard = plan::PlanGuard::new("Baue etwas.");
+        guard.called = plan::is_plan_tool(tool);
+        assert_eq!(
+            plan::guard_step(Some(&guard)),
+            plan::GuardStep::Nothing,
+            "{tool} beendet die Prüfung"
+        );
+        // Auch nach Erinnerungen: Der Aufruf im Erinnerungszug zählt.
+        guard.reminders = plan::MAX_PLAN_REMINDERS;
+        assert_eq!(plan::guard_step(Some(&guard)), plan::GuardStep::Nothing);
+    }
+}
+
+#[test]
+fn guard_reminds_twice_then_shows_the_notice() {
+    let mut guard = plan::PlanGuard::new("Baue etwas.");
+    let mut steps = Vec::new();
+    loop {
+        let step = plan::guard_step(Some(&guard));
+        steps.push(step);
+        if step != plan::GuardStep::Remind {
+            break;
+        }
+        guard.reminders += 1;
+    }
+    assert_eq!(
+        steps,
+        [
+            plan::GuardStep::Remind,
+            plan::GuardStep::Remind,
+            plan::GuardStep::Notice
+        ]
+    );
+}
+
+#[test]
+fn the_notice_ends_the_check_so_continue_anyway_only_settles_it() {
+    // Am Zugende zählt der Wächter die Erinnerungen selbst mit; der Hinweis nimmt ihn weg. Danach
+    // geschieht am Zugende nichts mehr, und „Trotzdem weiter“ hat keinen Wächter mehr zu beenden,
+    // auch nicht den eines neueren Planungszugs.
+    let mut guard = Some(plan::PlanGuard::new("Baue etwas."));
+    let mut steps = Vec::new();
+    let mut handed_out = None;
+    for _ in 0..4 {
+        let (step, taken) = plan::advance_guard(&mut guard);
+        steps.push(step);
+        if taken.is_some() {
+            handed_out = taken;
+        }
+    }
+    assert_eq!(
+        steps,
+        [
+            plan::GuardStep::Remind,
+            plan::GuardStep::Remind,
+            plan::GuardStep::Notice,
+            plan::GuardStep::Nothing
+        ]
+    );
+    assert_eq!(guard, None, "der Hinweis beendet die Prüfung");
+    assert_eq!(
+        handed_out.map(|guard: plan::PlanGuard| guard.task),
+        Some("Baue etwas.".to_owned()),
+        "der Hinweis bekommt den Auftrag für „Erneut“"
+    );
+}
+
+#[test]
+fn plan_tool_counts_only_the_two_tools_of_the_verwalter() {
+    for tool in [
+        "mcp__verwalter__implementation_create",
+        "mcp__verwalter__implementation_set_phases",
+    ] {
+        assert!(plan::is_plan_tool(tool), "{tool} zählt");
+    }
+    for tool in [
+        "implementation_create",
+        "mcp__andere__implementation_create",
+        "mcp__verwalter__implementation_get",
+        "mcp__verwalter__implementation_agent_types",
+        "mcp__verwalter__implementation_create_x",
+        "Write",
+    ] {
+        assert!(!plan::is_plan_tool(tool), "{tool} zählt nicht");
+    }
+}
+
+#[test]
+fn plan_reminder_names_the_create_tool() {
+    assert!(
+        plan::PLAN_REMINDER_TEXT.contains("mcp__verwalter__implementation_create"),
+        "die Erinnerung nennt das Werkzeug mit dem Namen, unter dem der Agent es kennt"
+    );
+}
+
 // Constraint-Abläufe (ADR 061): Kanten, bereiter Satz, Stufe, Warteschlange, Migration.
 
 /// Eine Station mit Plan-Kennung `id` (zugleich ihre `id`) und diesen Vorgängern.
