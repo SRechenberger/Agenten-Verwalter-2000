@@ -53,7 +53,10 @@ pub fn edited_plan(
         return Err(EMPTY_EDIT.to_owned());
     }
     let mut plan: Vec<StationRow> = rows.to_vec();
-    let mut summary = ChangeSummary::default();
+    let mut summary = ChangeSummary {
+        max_parallel: edit.max_parallel,
+        ..ChangeSummary::default()
+    };
     let mut touched: HashSet<String> = HashSet::new();
     let mut removed: Vec<String> = Vec::new();
     for (index, plan_id) in edit.remove.iter().enumerate() {

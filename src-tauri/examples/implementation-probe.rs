@@ -37,7 +37,7 @@ use serde::Deserialize;
 use verwalter_lib::agent_types::{self, model::AgentType, model::AgentValueSource};
 use verwalter_lib::db::Database;
 use verwalter_lib::db::agent_types as agent_type_rows;
-use verwalter_lib::db::implementations::{self, StationRow, StoredImplementation};
+use verwalter_lib::db::implementations::{self, PhaseRow, StationRow, StoredImplementation};
 use verwalter_lib::db::sessions::{self, SessionRow};
 use verwalter_lib::error::CommandError;
 use verwalter_lib::file_links::LinkRoots;
@@ -1077,6 +1077,21 @@ fn plan_edits(database: &Database) -> Result<bool, String> {
             && view.phases.len() == 2
             && due(&after_a) == ["x"],
     );
+    let stored = database
+        .with(|connection| implementations::load(connection, &plan))
+        .map_err(|error| error.to_string())?
+        .ok_or_else(|| format!("Umsetzung nicht gefunden: {plan}"))?;
+    let position_of = |key: &str| {
+        stored
+            .phases
+            .iter()
+            .find(|phase: &&PhaseRow| phase.key == key)
+            .map(|phase: &PhaseRow| phase.position)
+    };
+    all &= check(
+        "Bearbeiten: eine neue Lane steht hinter den bestehenden",
+        matches!((position_of("1"), position_of("2")), (Some(first), Some(new)) if new > first),
+    );
 
     let cycle = edit_in(
         database,
@@ -1110,6 +1125,25 @@ fn plan_edits(database: &Database) -> Result<bool, String> {
             && done.is_err()
             && station(&after_remove, "x").is_none()
             && after_of(&after_remove, "b") == ["a"],
+    );
+
+    // Die Zeilen zeigen a noch wartend, gespeichert ist a fertig: begonnen, während gerechnet wurde.
+    let mut stale = rows_of(database, &plan)?;
+    for row in stale
+        .iter_mut()
+        .filter(|row: &&mut StationRow| row.plan_id == "a")
+    {
+        row.completed_at = None;
+    }
+    let edit: PlanEdit = serde_json::from_value(serde_json::json!({ "remove": ["a"] }))
+        .map_err(|error| format!("Eingabe nicht lesbar: {error}"))?;
+    let edited = edited_plan(&plan, &after_remove.phases, &stale, &edit, &[])?;
+    let is_written = database
+        .with(|connection| implementations::apply_plan_edit(connection, &plan, &edited, None))
+        .map_err(|error| error.to_string())?;
+    all &= check(
+        "Bearbeiten: der Speicher entfernt keine Station, die inzwischen begonnen hat",
+        !is_written && station(&plan_view(database, &plan)?, "a").is_some(),
     );
     Ok(all)
 }

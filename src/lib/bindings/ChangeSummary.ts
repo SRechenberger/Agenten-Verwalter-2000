@@ -3,4 +3,4 @@
 /**
  * Schlüssel der Phasen, die eine Plan-Änderung hinzufügt, vorzieht oder streicht.
  */
-export type ChangeSummary = { added: Array<string>, moved: Array<string>, removed: Array<string>, changed: Array<string>, };
+export type ChangeSummary = { added: Array<string>, moved: Array<string>, removed: Array<string>, changed: Array<string>, maxParallel?: number, };

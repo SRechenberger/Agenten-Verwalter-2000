@@ -252,6 +252,10 @@ pub struct ChangeSummary {
     // `added` und `removed` nennen dort neue Lanes und Plan-Kennungen.
     #[serde(default)]
     pub changed: Vec<String>,
+    // Neue Grenze aus dem Delta, 0 = unbegrenzt; fehlt, wenn das Delta sie nicht ändert.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub max_parallel: Option<u32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]

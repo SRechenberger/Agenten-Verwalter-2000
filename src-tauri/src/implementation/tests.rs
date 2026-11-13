@@ -3669,3 +3669,81 @@ fn edit_plan_command_is_class_c_in_the_access_table() {
     use crate::remote::access::{Class, class_of};
     assert_eq!(class_of("implementation_edit_plan"), Some(Class::HostWrite));
 }
+
+// Fix-Runde 1 der Werkzeuge (ADR 061, Werkzeuge).
+
+#[test]
+fn edit_summary_names_a_changed_max_parallel() {
+    let summary_of = |edit: Value| -> model::ChangeSummary {
+        edited_with(vec![node("a", &[])], edit)
+            .expect("gültig")
+            .summary
+    };
+    assert_eq!(
+        changes::describe(&summary_of(json!({ "maxParallel": 3 }))),
+        "parallel höchstens 3"
+    );
+    assert_eq!(
+        changes::describe(&summary_of(json!({ "maxParallel": 0 }))),
+        "parallel unbegrenzt"
+    );
+    let with_station = summary_of(json!({
+        "add": [{ "lane": "1", "stage": "Test" }],
+        "maxParallel": 2,
+    }));
+    assert_eq!(
+        changes::describe(&with_station),
+        "neu 1-1, parallel höchstens 2"
+    );
+    let stored: model::ChangeSummary =
+        serde_json::from_str(&serde_json::to_string(&with_station).expect("JSON")).expect("lesbar");
+    assert_eq!(stored.max_parallel, Some(2), "die Karte bekommt die Grenze");
+    assert_eq!(
+        summary_of(json!({ "remove": ["a"] })).max_parallel,
+        None,
+        "ohne Grenze im Delta keine Grenze in der Zusammenfassung"
+    );
+}
+
+#[test]
+fn report_lists_only_stations_without_predecessors_as_start_stations() {
+    let view = graph(vec![node("a", &[]), node("b", &["a"]), node("c", &[])]);
+    let text = report::text(&view, 0.0, false);
+    assert!(
+        text.lines()
+            .any(|line: &str| line == "Startstationen: a, c"),
+        "{text}"
+    );
+}
+
+#[test]
+fn edit_removing_the_last_station_of_a_lane_removes_the_lane() {
+    let emptied = edited_with(vec![node("a", &[])], json!({ "remove": ["a"] })).expect("gültig");
+    assert_eq!(emptied.removed_phases.len(), 1);
+    let kept = edited_with(
+        vec![node("a", &[]), node("b", &["a"])],
+        json!({ "remove": ["b"] }),
+    )
+    .expect("gültig");
+    assert!(kept.removed_phases.is_empty());
+}
+
+#[test]
+fn edit_never_reuses_the_plan_id_of_a_station_removed_in_the_same_edit() {
+    let edited = edited_with(
+        vec![node("a", &[]), node("1-1", &["a"])],
+        json!({ "remove": ["1-1"], "add": [{ "lane": "1", "stage": "Test", "after": ["a"] }] }),
+    )
+    .expect("gültig");
+    assert_eq!(edited.summary.added, ["1-2"]);
+}
+
+#[test]
+fn tools_refuse_predecessors_may() {
+    let edit =
+        delta(json!({ "add": [{ "lane": "1", "stage": "PR", "predecessorsMay": "handsOff" }] }));
+    assert_eq!(
+        model::refuse_user_options(&edit.new_stations()),
+        Err("add[0].predecessors_may: setzt nur der Benutzer, nicht das Werkzeug.".to_owned())
+    );
+}

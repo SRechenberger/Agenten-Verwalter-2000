@@ -83,11 +83,16 @@ pub fn describe(summary: &ChangeSummary) -> String {
         ("geändert", &summary.changed),
         ("entfallen", &summary.removed),
     ];
-    let parts: Vec<String> = groups
+    let mut parts: Vec<String> = groups
         .iter()
         .filter(|(_, keys): &&(&str, &Vec<String>)| !keys.is_empty())
         .map(|(label, keys): &(&str, &Vec<String>)| format!("{label} {}", keys.join("/")))
         .collect();
+    match summary.max_parallel {
+        Some(0) => parts.push("parallel unbegrenzt".to_owned()),
+        Some(limit) => parts.push(format!("parallel höchstens {limit}")),
+        None => {}
+    }
     if parts.is_empty() {
         return "gleiche Phasen, Stationen neu gefasst".to_owned();
     }
