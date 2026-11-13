@@ -472,6 +472,9 @@ struct Outbox {
     /// Die Session einer Station ist nicht mehr aktiv (fertig, pausiert, Fehler, Abbruch): nach dem
     /// Freigeben der Sperre plant die Umsetzung ihre Warteschlange neu (ADR 061).
     station_idle: Option<String>,
+    /// Die Session einer Station hat eine Rückfrage gestellt (Umsetzung, Kennung der Rückfrage): nach
+    /// dem Freigeben der Sperre weckt die Umsetzung ihren Ersteller (ADR 061).
+    station_asks: Option<(String, String)>,
     /// Der Wächter erinnert an `implementation_create`; nach dem Freigeben der Sperre geht die
     /// Erinnerung hinaus (ADR 062).
     plan_reminder: bool,
@@ -3507,6 +3510,7 @@ impl SessionState {
         tool: Option<session_tools::PendingTool>,
     ) {
         let entry_request_id = request_id.clone();
+        let wake_request_id = request_id.clone();
         let entry_questions = questions.clone();
         let tool_request = tool
             .as_ref()
@@ -3534,7 +3538,12 @@ impl SessionState {
                 tool,
             },
         ));
+        // Nur der Wechsel in „fragt“ ist ein Ereignis: Eine zweite Frage bei offener ersten wartet mit.
+        let begins_asking = self.status != SessionStatus::Waiting;
         self.set_status(outbox, SessionStatus::Waiting);
+        if begins_asking && let Some(implementation_id) = &self.station_of {
+            outbox.station_asks = Some((implementation_id.clone(), wake_request_id));
+        }
     }
 
     fn end_turn(
@@ -3914,6 +3923,14 @@ fn update<R>(
     }
     if let Some(implementation_id) = outbox.station_idle.take() {
         implementation::schedule_station_session_end(app, implementation_id);
+    }
+    if let Some((implementation_id, request_id)) = outbox.station_asks.take() {
+        implementation::schedule_station_question(
+            app,
+            implementation_id,
+            session.id.clone(),
+            request_id,
+        );
     }
     if outbox.plan_reminder {
         schedule_plan_reminder(app, session);
