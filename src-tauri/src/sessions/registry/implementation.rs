@@ -30,6 +30,7 @@ use crate::implementation::model::{
     StationOptions, StationSettings, StationView, check_agents,
 };
 use crate::implementation::report::{self, Extras};
+use crate::implementation::wake::{self, WakeEvent, WakeFacts};
 use crate::implementation::{
     self, Countdowns, STATION_BEGUN, SessionLive, build_view, new_rows, station_in,
 };
@@ -545,6 +546,41 @@ impl SessionRegistry {
         self.lock_countdowns().release_start(station_id);
     }
 
+    /// Ersteller wecken (ADR 061): legt die Nachricht zu `event` auf demselben Weg wie
+    /// `verwalter_send_message_to` in die Warteschlange der Session, die die Umsetzung angelegt hat.
+    /// Keine Nachricht, wenn sie fehlt (gelöscht, archiviert) oder das Ereignis schon meldete
+    /// (`wake::decide`). Nie unter einer Sperre aufrufen: Die Zustellung kann einen Agenten starten.
+    pub fn wake_creator(
+        &self,
+        app: &AppHandle,
+        implementation_id: &str,
+        event: &WakeEvent,
+        facts: &WakeFacts,
+    ) {
+        let creator: Option<Arc<Session>> = self
+            .database
+            .with(|connection| implementation_rows::load(connection, implementation_id))
+            .ok()
+            .flatten()
+            .and_then(|stored: StoredImplementation| stored.row.created_by_session_id)
+            .and_then(|id: String| self.get(&id).ok());
+        let text = wake::decide(
+            event,
+            facts,
+            creator.is_some(),
+            &mut self.lock_countdowns().woken,
+        );
+        let (Some(creator), Some(text)) = (creator, text) else {
+            return;
+        };
+        let (status, reason) = self.deliver(app, &creator, &wake::sender(), &text, 0);
+        if let Some(reason) = reason {
+            creator.log_line(format!(
+                "Meldung des Verwalters nicht zugestellt ({status}): {reason}"
+            ));
+        }
+    }
+
     fn lock_countdowns(&self) -> MutexGuard<'_, Countdowns> {
         self.implementation_countdowns
             .lock()
@@ -688,6 +724,32 @@ pub(super) fn schedule_station_session_end(app: &AppHandle, implementation_id: S
         });
     if let Err(error) = spawned {
         eprintln!("Warteschlange der Umsetzung nicht geplant: {error}");
+    }
+}
+
+/// Der Haken nach einer Rückfrage einer Station (ADR 061): weckt den Ersteller, im eigenen Thread aus
+/// demselben Grund wie `schedule_station_session_end`.
+pub(super) fn schedule_station_question(
+    app: &AppHandle,
+    implementation_id: String,
+    session_id: String,
+    request_id: String,
+) {
+    let thread_app = app.clone();
+    let spawned = thread::Builder::new()
+        .name("implementation-wake".to_owned())
+        .spawn(move || {
+            if let Err(error) = implementation::wake_creator_of_question(
+                &thread_app,
+                &implementation_id,
+                &session_id,
+                &request_id,
+            ) {
+                eprintln!("Ersteller der Umsetzung nicht geweckt: {error}");
+            }
+        });
+    if let Err(error) = spawned {
+        eprintln!("Ersteller der Umsetzung nicht geweckt: {error}");
     }
 }
 

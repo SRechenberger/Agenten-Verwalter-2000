@@ -7,6 +7,7 @@ pub mod report;
 pub mod schedule;
 pub mod start;
 pub mod tools;
+pub mod wake;
 
 #[cfg(test)]
 mod tests;
@@ -81,6 +82,8 @@ pub struct Countdowns {
     /// Zahl der freigegebenen Starts: Ändert sie sich zwischen Ansicht und Zählen, ist die Ansicht
     /// veraltet (`begin_if_current`).
     releases: u64,
+    /// Ereignisse, die den Ersteller schon geweckt haben (`wake::decide`, ADR 061).
+    pub(crate) woken: HashSet<String>,
 }
 
 impl Countdowns {
@@ -325,6 +328,7 @@ pub fn complete_station_with_handoff(
         }
     }
     let mut outcome = after_completion(app, &registry, implementation_id)?;
+    wake_creator_after_completion(app, &view, station_id, result.trim(), fix_needed, &outcome);
     outcome.hint = hint;
     outcome.handoff_unused = handoff.note.is_some() && handed.is_empty();
     outcome.handed = handed;
@@ -462,6 +466,83 @@ fn after_completion(
     }
     announce(app, &registry.implementation_view(implementation_id)?);
     Ok(outcome)
+}
+
+/// Ersteller wecken (ADR 061): Nach der Fertigmeldung geht je Ereignis eine Nachricht an die Session,
+/// die die Umsetzung angelegt hat. Im eigenen Thread, denn die Zustellung kann einen Agenten starten.
+/// `view` ist die Ansicht vor der Meldung, daher findet sich die Station noch.
+fn wake_creator_after_completion(
+    app: &AppHandle,
+    view: &ImplementationView,
+    station_id: &str,
+    result: &str,
+    fix_needed: bool,
+    outcome: &CompleteOutcome,
+) {
+    let events = wake::events_after_completion(station_id, fix_needed, outcome.is_finished);
+    let Some((phase, station)) = find_station(view, station_id) else {
+        return;
+    };
+    if events.is_empty() {
+        return;
+    }
+    let facts = wake::WakeFacts {
+        implementation: view.name.clone(),
+        lane: phase.key.clone(),
+        stage: station.stage.clone(),
+        text: result.to_owned(),
+    };
+    let implementation_id = view.id.clone();
+    let thread_app = app.clone();
+    let spawned = std::thread::Builder::new()
+        .name("implementation-wake".to_owned())
+        .spawn(move || {
+            let registry = thread_app.state::<SessionRegistry>();
+            for event in &events {
+                registry.wake_creator(&thread_app, &implementation_id, event, &facts);
+            }
+        });
+    if let Err(error) = spawned {
+        eprintln!("Ersteller der Umsetzung nicht geweckt: {error}");
+    }
+}
+
+/// Ersteller wecken, Rückfrage (ADR 061): Die Session einer Station hat eine Frage gestellt. Gilt nur,
+/// solange die Station noch fragt; eine schon beantwortete Frage meldet nichts mehr.
+pub fn wake_creator_of_question(
+    app: &AppHandle,
+    implementation_id: &str,
+    session_id: &str,
+    request_id: &str,
+) -> Result<(), CommandError> {
+    let registry = app.state::<SessionRegistry>();
+    let view = registry.implementation_view(implementation_id)?;
+    let asking = view
+        .phases
+        .iter()
+        .flat_map(|phase: &PhaseView| phase.stations.iter().map(move |station| (phase, station)))
+        .find(|(_, station): &(&PhaseView, &StationView)| {
+            station.session_id.as_deref() == Some(session_id)
+        })
+        .filter(|(_, station): &(&PhaseView, &StationView)| station.state == StationState::Asking);
+    let Some((phase, station)) = asking else {
+        return Ok(());
+    };
+    registry.wake_creator(
+        app,
+        implementation_id,
+        &wake::WakeEvent::Asking {
+            station_id: station.id.clone(),
+            request_id: request_id.to_owned(),
+        },
+        &wake::WakeFacts {
+            implementation: view.name.clone(),
+            lane: phase.key.clone(),
+            stage: station.stage.clone(),
+            text: station.question.clone().unwrap_or_default(),
+        },
+    );
+    Ok(())
 }
 
 /// Neuer Haken (ADR 061): Die Session einer Station endet mit Fehler, Abbruch oder ohne
