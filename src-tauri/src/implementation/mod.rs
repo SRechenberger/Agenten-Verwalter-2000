@@ -380,6 +380,12 @@ pub fn resumes_queue(view: &ImplementationView) -> bool {
         && view.finished_at.is_none()
 }
 
+/// Ein Schalter der Automatik geht aus (Umsetzung oder Station): Der beendete Countdown gibt seinen
+/// Platz frei, und eine Station mit eigenem „an“ aus der Warteschlange rückt nach (ADR 061).
+pub fn refills_after_switch_off(view: &ImplementationView) -> bool {
+    has_begun(view) && resumes_queue(view)
+}
+
 /// Ein Countdown endete in einem Startfehler: Der Platz ist frei, aber keine Session endet, also
 /// greift der Haken nicht, und die Warteschlange rückt hier nach (ADR 061). Nur nach gespeichertem
 /// Startfehler, denn den lässt `due_for_countdown` aus: Die Station wird nicht erneut versucht, eine
@@ -482,8 +488,8 @@ pub fn checked_settings(
 }
 
 /// „Automatisch starten“, „Bei Fehler“ und „Vorgänger dürfen“ einer Station (ADR 061): setzt alle drei,
-/// die Marke `edited` und meldet die Ansicht. Aus: Ein laufender Countdown der Station endet. An: Hat
-/// die Umsetzung begonnen, plant sie neu.
+/// die Marke `edited` und meldet die Ansicht. Aus: Ein laufender Countdown der Station endet, sein Platz
+/// geht an die Warteschlange. An: Hat die Umsetzung begonnen, plant sie neu.
 pub fn set_station_options(
     app: &AppHandle,
     implementation_id: &str,
@@ -501,9 +507,13 @@ pub fn set_station_options(
     }
     let view = registry.implementation_view(implementation_id)?;
     let (_, station) = station_in(&view, station_id)?;
-    if !station.starts_automatically {
+    let reschedules = if station.starts_automatically {
+        has_begun(&view) && !view.stop_after_current && view.finished_at.is_none()
+    } else {
         let _ = registry.cancel_countdown(station_id);
-    } else if has_begun(&view) && !view.stop_after_current && view.finished_at.is_none() {
+        refills_after_switch_off(&view)
+    };
+    if reschedules {
         // Meldet die Ansicht selbst.
         start::schedule_ready(app, implementation_id)?;
         return Ok(());
@@ -580,7 +590,7 @@ pub fn amended_brief_changes(
                 text: change.text.trim().to_owned(),
                 ..change
             });
-            Ok(changes)
+            checked_fold(station, changes)
         }
     }
 }
@@ -600,12 +610,32 @@ pub fn without_brief_change(
     {
         return Err(UNKNOWN_BRIEF_CHANGE.to_owned());
     }
-    Ok(station
-        .brief_changes
-        .iter()
-        .filter(|change: &&BriefChange| change.id != change_id)
-        .cloned()
-        .collect())
+    checked_fold(
+        station,
+        station
+            .brief_changes
+            .iter()
+            .filter(|change: &&BriefChange| change.id != change_id)
+            .cloned()
+            .collect(),
+    )
+}
+
+/// Der Auftrag samt Änderungen bleibt wie der Auftrag selbst bei höchstens 1000 Zeichen (ADR 061).
+/// Auch Entfernen kann ihn verlängern: ein zurückgesetzter Ersatz bringt den Text davor zurück.
+fn checked_fold(
+    station: &StationRow,
+    changes: Vec<BriefChange>,
+) -> Result<Vec<BriefChange>, String> {
+    let length = model::effective_brief(&station.brief, &changes)
+        .chars()
+        .count();
+    if length > MAX_BRIEF_CHARS {
+        return Err(format!(
+            "brief_changes: Der Auftrag samt Änderungen hätte {length} Zeichen, höchstens {MAX_BRIEF_CHARS}."
+        ));
+    }
+    Ok(changes)
 }
 
 /// Ein Vorgänger (`source_station_id`) ergänzt oder ersetzt den Auftrag der Station `station_id`

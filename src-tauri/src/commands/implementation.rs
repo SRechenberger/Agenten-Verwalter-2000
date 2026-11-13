@@ -7,7 +7,9 @@ use crate::implementation::model::{
     ImplementationView, InquiryCreated, PhaseView, StationOptions, StationSettings, StationView,
     check_max_parallel,
 };
-use crate::implementation::{self, announce, changes, has_begun, is_automatic, now_ms, start};
+use crate::implementation::{
+    self, announce, changes, has_begun, is_automatic, now_ms, refills_after_switch_off, start,
+};
 use crate::remote::client::RemoteClients;
 use crate::remote::guest;
 use crate::sessions::registry::SessionRegistry;
@@ -59,7 +61,8 @@ pub async fn implementation_rename(
 }
 
 /// Schaltet „Automatisch weiter“. Aus: laufende Countdowns enden, außer an Stationen, deren
-/// „Automatisch starten“ an ist (ADR 061). An: Stationen, die starten dürfen, bekommen einen Countdown.
+/// „Automatisch starten“ an ist; deren Warteschlange rückt in die frei gewordenen Plätze (ADR 061).
+/// An: Stationen, die starten dürfen, bekommen einen Countdown.
 #[tauri::command]
 pub async fn implementation_set_auto_start(
     app: AppHandle,
@@ -80,6 +83,9 @@ pub async fn implementation_set_auto_start(
             .filter(|station: &&StationView| !station.starts_automatically)
         {
             let _ = registry.cancel_countdown(&station.id);
+        }
+        if refills_after_switch_off(&registry.implementation_view(&id)?) {
+            start::schedule_ready(&app, &id)?;
         }
     }
     announce(&app, &registry.implementation_view(&id)?);

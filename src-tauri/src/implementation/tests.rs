@@ -3058,3 +3058,79 @@ fn a_claimed_restart_keeps_its_place_while_the_session_is_briefly_paused() {
         1
     );
 }
+
+#[test]
+fn switching_automatic_off_frees_the_place_for_a_queued_station_with_its_own_on() {
+    let mut begun = finished(node("build", &[]));
+    begun.session_id = Some("session".to_owned());
+    let mut own_on = node("b", &[]);
+    own_on.auto_start = Some(true);
+    // Die Umsetzung ist aus, der Countdown von „a“ ist eben beendet.
+    let view = limited_view(
+        vec![begun.clone(), node("a", &[]), own_on.clone()],
+        Some(1),
+        false,
+        &[],
+    );
+    assert!(refills_after_switch_off(&view));
+    assert_eq!(due_ids(&view), ["b"]);
+
+    let without_own_on = limited_view(vec![begun.clone(), node("a", &[])], Some(1), false, &[]);
+    assert!(!refills_after_switch_off(&without_own_on));
+    let without_limit = limited_view(vec![begun, own_on.clone()], None, false, &[]);
+    assert!(
+        !refills_after_switch_off(&without_limit),
+        "ohne Grenze läuft ihr Countdown schon"
+    );
+    let not_begun = limited_view(vec![node("a", &[]), own_on], Some(1), false, &[]);
+    assert!(
+        !refills_after_switch_off(&not_begun),
+        "vor dem Start startet nichts von selbst"
+    );
+}
+
+#[test]
+fn a_started_station_refuses_a_late_write_of_predecessors_may() {
+    let mut started = node("a", &[]);
+    started.session_id = Some("session".to_owned());
+    let database = database_with(&[started]);
+    let is_written = database
+        .with(|connection| {
+            implementation_rows::set_station_options(
+                connection,
+                "a",
+                &options(None, OnError::Halt, PredecessorsMay::HandsOff),
+            )
+        })
+        .expect("schreibbar");
+    assert!(!is_written);
+    assert_eq!(
+        stored_stations(&database)[0].predecessors_may,
+        PredecessorsMay::Append
+    );
+}
+
+#[test]
+fn the_brief_with_its_changes_stays_within_the_brief_limit() {
+    let mut station = may(PredecessorsMay::AppendAndChange);
+    station.brief = "x".repeat(MAX_BRIEF_CHARS - 10);
+    let refused = amended_brief_changes(
+        &station,
+        change("1", BriefChangeKind::Append, &"y".repeat(10)),
+    );
+    assert!(refused.is_err_and(|message: String| message.starts_with("brief_changes: ")));
+    station.brief_changes = amended_brief_changes(
+        &station,
+        change("1", BriefChangeKind::Append, &"y".repeat(9)),
+    )
+    .expect("genau 1000 Zeichen");
+
+    // Zurücksetzen eines Ersatzes brächte den langen Text davor zurück.
+    station.brief_changes = vec![
+        change("replaced", BriefChangeKind::Replace, "Kurz."),
+        change("added", BriefChangeKind::Append, &"z".repeat(20)),
+    ];
+    let refused = without_brief_change(&station, "replaced");
+    assert!(refused.is_err_and(|message: String| message.starts_with("brief_changes: ")));
+    assert!(without_brief_change(&station, "added").is_ok());
+}
