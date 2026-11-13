@@ -4,6 +4,7 @@
 import {
   cycleWith,
   levelsOf,
+  nextLaneKey,
   pathBetween,
   patchEdit,
   type PlanNode,
@@ -74,6 +75,16 @@ const CASES: { name: string; actual: () => unknown; expected: unknown }[] = [
     name: 'patch_edit_only_changes_stations',
     actual: () => JSON.stringify(patchEdit({ id: 'g1', brief: 'x' })),
     expected: '{"lanes":[],"add":[],"change":[{"id":"g1","brief":"x"}],"remove":[]}',
+  },
+  {
+    name: 'next_lane_key_skips_the_lanes_of_an_open_proposal',
+    actual: () => nextLaneKey(['1', '2', '5']),
+    expected: '6',
+  },
+  {
+    name: 'next_lane_key_is_one_for_no_lane_and_ignores_names_without_a_number',
+    actual: () => nextLaneKey(['a', 'x']),
+    expected: '1',
   },
 ];
 

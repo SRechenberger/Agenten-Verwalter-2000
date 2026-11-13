@@ -287,6 +287,9 @@ impl SessionRegistry {
         station_id: &str,
         settings: &StationSettings,
     ) -> Result<(), CommandError> {
+        if self.is_starting(station_id) {
+            return Err(CommandError::Implementation(STATION_BEGUN.to_owned()));
+        }
         let is_written = self.database.with(|connection| {
             implementation_rows::set_station_settings(connection, station_id, settings)
         })?;
@@ -329,6 +332,11 @@ impl SessionRegistry {
                     "Diese Station gehört nicht zur Umsetzung.".to_owned(),
                 ));
             };
+            if station.session_id.is_none() && self.is_starting(station_id) {
+                return Err(CommandError::Implementation(
+                    implementation::BRIEF_BEGUN.to_owned(),
+                ));
+            }
             let changes = edit(station).map_err(CommandError::Implementation)?;
             if !implementation_rows::set_brief_changes(connection, station_id, &changes)? {
                 return Err(CommandError::Implementation(
@@ -444,6 +452,17 @@ impl SessionRegistry {
         stations: &[StationRow],
         change: Option<&ChangeRow>,
     ) -> Result<(), CommandError> {
+        let stored = self.station_rows(implementation_id)?;
+        if self.is_any_starting(
+            stored
+                .iter()
+                .filter(|station: &&StationRow| removed_phase_ids.contains(&station.phase_id))
+                .map(|station: &StationRow| station.id.as_str()),
+        ) {
+            return Err(CommandError::Implementation(
+                implementation::edit::BEGUN_MEANWHILE.to_owned(),
+            ));
+        }
         self.database.with(|connection| {
             implementation_rows::replace_upcoming_phases(
                 connection,
@@ -464,6 +483,15 @@ impl SessionRegistry {
         edited: &EditedPlan,
         change: Option<&ChangeRow>,
     ) -> Result<bool, CommandError> {
+        if self.is_any_starting(
+            edited
+                .removed
+                .iter()
+                .chain(edited.updated.iter().map(|row: &StationRow| &row.id))
+                .map(String::as_str),
+        ) {
+            return Ok(false);
+        }
         self.database.with(|connection| {
             implementation_rows::apply_plan_edit(connection, implementation_id, edited, change)
         })
@@ -513,6 +541,16 @@ impl SessionRegistry {
         self.lock_countdowns().cancel(station_id)
     }
 
+    /// Ein eingelöster Halt (ADR 061) nimmt den Stationen mit Fehler den anstehenden Neustart: Die
+    /// Session gilt nicht mehr als Fehler dieses Laufs, und kein späterer Haken startet sie neu.
+    pub fn forget_fresh_errors(&self, session_ids: &[String]) {
+        for id in session_ids {
+            if let Ok(session) = self.get(id) {
+                session.lock().fresh_error = false;
+            }
+        }
+    }
+
     /// „Abbrechen“ von außen: Eine Station einer fremden Umsetzung läuft weiter. Gibt die Umsetzung
     /// nach dem Abbruch zurück.
     pub fn cancel_countdown_of(
@@ -540,6 +578,21 @@ impl SessionRegistry {
             ));
         }
         Ok(())
+    }
+
+    /// Eine Station ohne Session startet gerade (`claim_start`): Sie gilt als begonnen, auch wenn die
+    /// Zeile noch keine `session_id` hat. Schreibt zwischen Anspruch und Bindung jemand ihre Werte oder
+    /// nimmt sie aus dem Plan, weichen die gespeicherten Werte von der Momentaufnahme des Starts ab
+    /// (ADR 061).
+    pub fn is_starting(&self, station_id: &str) -> bool {
+        self.lock_countdowns().is_starting(station_id)
+    }
+
+    fn is_any_starting<'a>(&self, station_ids: impl IntoIterator<Item = &'a str>) -> bool {
+        let countdowns = self.lock_countdowns();
+        station_ids
+            .into_iter()
+            .any(|station_id: &str| countdowns.is_starting(station_id))
     }
 
     pub fn release_start(&self, station_id: &str) {

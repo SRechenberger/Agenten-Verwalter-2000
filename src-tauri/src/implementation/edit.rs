@@ -12,7 +12,9 @@ use super::model::{
     StationPatch, StationState, StationView, check_agent, stations_in, validate_in,
     validate_station,
 };
-use super::{announce, has_begun, is_automatic, now_ms, phase_rows, schedule, start, station_row};
+use super::{
+    announce, now_ms, phase_rows, replans_after_plan_change, schedule, start, station_row,
+};
 use crate::agent_types::model::AgentType;
 use crate::db::implementations::{ChangeRow, PhaseRow, StationRow};
 use crate::error::CommandError;
@@ -21,7 +23,7 @@ use crate::sessions::registry::SessionRegistry;
 const EMPTY_EDIT: &str =
     "Die Änderung ist leer: nenne lanes, add, change, remove oder max_parallel.";
 const IS_FINISHED: &str = "Die Umsetzung ist fertig; es gibt nichts mehr zu ändern.";
-const BEGUN_MEANWHILE: &str =
+pub const BEGUN_MEANWHILE: &str =
     "Eine Station hat inzwischen begonnen; die Änderung ist nicht übernommen.";
 
 /// Was ein Delta an den gespeicherten Zeilen ändert. `phases` sind die neuen Lanes (Positionen ab 0,
@@ -327,16 +329,17 @@ pub fn apply(
         let _ = registry.cancel_countdown(station_id);
     }
     let change = proposed_by.map(|session_id: &str| change_row(&view, &edited, session_id));
-    if !registry.store_plan_edit(&view.id, &edited, change.as_ref())? {
+    let stored = registry.store_plan_edit(&view.id, &edited, change.as_ref());
+    if !matches!(stored, Ok(true)) {
+        // Die Countdowns sind schon beendet: Ihre Plätze gehen an die Warteschlange.
+        super::replan_after_failed_change(app, &view.id);
+    }
+    if !stored? {
         return Err(CommandError::Implementation(BEGUN_MEANWHILE.to_owned()));
     }
     let fresh = registry.implementation_view(&view.id)?;
     announce(app, &fresh);
-    if has_begun(&fresh)
-        && is_automatic(&fresh)
-        && !fresh.stop_after_current
-        && fresh.finished_at.is_none()
-    {
+    if replans_after_plan_change(&fresh) {
         start::schedule_ready(app, &view.id)?;
     }
     Ok(())

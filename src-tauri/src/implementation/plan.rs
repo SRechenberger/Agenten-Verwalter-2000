@@ -3,7 +3,7 @@
 //! `implementation_create` ist ihre einzige Quelle, damit sich das Schema ändern lässt, ohne dass
 //! der Text bricht. Dazu der Wächter: Er prüft am Ende eines Planungszugs, ob der Plan angelegt
 //! wurde, und erinnert sonst den Agenten.
-use super::tools::{AGENT_TYPES, CREATE, SET_PHASES};
+use super::tools::{AGENT_TYPES, CREATE, EDIT, SET_PHASES};
 use crate::mcp_access::AGENT_TOOL_PREFIX;
 
 /// Die Nachricht an die planende Session: der Auftrag des Benutzers, unverändert, hinter dem festen
@@ -51,7 +51,7 @@ pub const PLAN_REMINDER_TEXT: &str = "Ich sehe noch keinen Plan im Umsetzungstoo
 pub struct PlanGuard {
     /// Der Auftrag des Benutzers, für „Erneut“.
     pub task: String,
-    /// `implementation_create` oder `implementation_set_phases` wurde aufgerufen.
+    /// `implementation_create`, `implementation_set_phases` oder `implementation_edit` wurde aufgerufen.
     pub called: bool,
     /// Schon gesendete Erinnerungen.
     pub reminders: u8,
@@ -104,7 +104,9 @@ pub fn advance_guard(guard: &mut Option<PlanGuard>) -> (GuardStep, Option<PlanGu
 }
 
 /// Nur der Name zählt, nicht das Ergebnis des Aufrufs; so gilt der Wächter für jedes Schema.
+/// `implementation_edit` zählt mit: In einem Vorhaben mit unfertiger Umsetzung lehnt
+/// `implementation_create` immer ab, und der Plan kommt als Vorschlag auf die Karte „Plan ändern?“.
 pub fn is_plan_tool(tool: &str) -> bool {
     tool.strip_prefix(AGENT_TOOL_PREFIX)
-        .is_some_and(|name: &str| name == CREATE || name == SET_PHASES)
+        .is_some_and(|name: &str| name == CREATE || name == SET_PHASES || name == EDIT)
 }

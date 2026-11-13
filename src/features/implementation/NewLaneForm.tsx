@@ -2,6 +2,7 @@ import { useState } from 'react';
 import type { ReactElement } from 'react';
 import {
   levelsOf,
+  nextLaneKey,
   nodesOf,
   pathBetween,
   type PlanNode,
@@ -72,6 +73,7 @@ import type { AgentType } from '@/lib/bindings/AgentType';
 import type { Effort } from '@/lib/bindings/Effort';
 import type { ImplementationView } from '@/lib/bindings/ImplementationView';
 import type { ModelId } from '@/lib/bindings/ModelId';
+import type { PhaseInput } from '@/lib/bindings/PhaseInput';
 import type { PhaseView } from '@/lib/bindings/PhaseView';
 import type { PlanEdit } from '@/lib/bindings/PlanEdit';
 import type { SessionSummary } from '@/lib/bindings/SessionSummary';
@@ -137,16 +139,16 @@ function freshStation(worker: Worker, types: readonly AgentType[]): DraftStation
   return { worker, ...defaults(worker, types), model: null, effort: null };
 }
 
-/** Nächster freier Schlüssel: eins über dem höchsten Zahlenschlüssel. */
-function nextLaneKey(phases: readonly PhaseView[]): string {
-  const numbers: number[] = phases
-    .map((phase: PhaseView) => Number.parseInt(phase.key, 10))
-    .filter((value: number) => Number.isFinite(value));
-  let candidate: number = Math.max(0, ...numbers) + 1;
-  while (phases.some((phase: PhaseView) => phase.key === String(candidate))) {
-    candidate += 1;
+/** Die Schlüssel der Lanes, die ein offener Vorschlag anlegt; sie zählen als vergeben, denn ein
+ *  direkter Eingriff lässt den Vorschlag stehen (ADR 061). */
+function proposedLaneKeys(implementation: ImplementationView): string[] {
+  const pending = implementation.pendingChange;
+  if (pending === null) {
+    return [];
   }
-  return String(candidate);
+  return [...pending.phases, ...(pending.edit?.lanes ?? [])].map((lane: PhaseInput) =>
+    lane.key.trim(),
+  );
 }
 
 /** `<Lane>-<n>` mit den kleinsten `n`, die im Plan noch frei sind (wie `free_plan_id` im Core). */
@@ -213,7 +215,10 @@ export function NewLaneForm({
   const byPlanId = new Map<string, StationRef>(
     refs.map((ref: StationRef) => [ref.station.planId, ref]),
   );
-  const key: string = nextLaneKey(implementation.phases);
+  const key: string = nextLaneKey([
+    ...implementation.phases.map((phase: PhaseView) => phase.key),
+    ...proposedLaneKeys(implementation),
+  ]);
   const ids: string[] = freeIds(
     key,
     stations.length,

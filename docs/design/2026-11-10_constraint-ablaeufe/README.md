@@ -1,6 +1,6 @@
 # Design-Entwurf: Umsetzung mit Constraints (Zeitleiste mit Kanten-Chips)
 
-**Status:** gewählt am 2026-11-10, Entwurf 1 von dreien (Zeitleiste mit Kanten-Chips); überarbeitet am 2026-11-11 nach dem Review des Nutzers (Lane statt Phase, Konfiguration der Station). Entwurf 2 (Schichten-Graph) und 3 (Board nach Bereitschaft) sind verworfen bzw. zurückgestellt und stehen hier nicht. Gilt für die Ansicht der Umsetzung ([ADR 048](../../decisions/048-umsetzung.md)), sobald Stationen Constraints tragen; bis dahin bleibt die heutige Zeitleiste.
+**Status:** gewählt am 2026-11-10, Entwurf 1 von dreien (Zeitleiste mit Kanten-Chips); überarbeitet am 2026-11-11 nach dem Review des Nutzers (Lane statt Phase, Konfiguration der Station). Entwurf 2 (Schichten-Graph) und 3 (Board nach Bereitschaft) sind verworfen bzw. zurückgestellt und stehen hier nicht. Gilt für die Ansicht der Umsetzung ([ADR 048](../../decisions/048-umsetzung.md)); seit ADR 061 umgesetzt (Abweichungen unten).
 
 ## Ansehen
 
@@ -10,7 +10,7 @@
 
 ## Begriffe
 
-- **Lane** ersetzt in der Oberfläche den Begriff „Phase (Umsetzung)“: ein Strang aus Stationen mit Schlüssel und Titel, rein gliedernd. Die Reihenfolge kommt aus den Constraints, nicht aus der Lane. Folgen für Glossar, ADR 048 und die Werkzeuge (`phases`, `key`, `wave`) sind noch nicht gezogen.
+- **Lane** ersetzt in der Oberfläche den Begriff „Phase (Umsetzung)“: ein Strang aus Stationen mit Schlüssel und Titel, rein gliedernd. Die Reihenfolge kommt aus den Constraints, nicht aus der Lane. Glossar, ADR 048 und ADR 061 führen sie nach; in Code und Werkzeugen heißen die Felder weiter `phases`, `key`, `wave` ([ADR 061](../../decisions/061-constraint-ablaeufe.md)).
 - **Stufe** (Zeitleiste): die errechnete Ebene einer Station im Graphen; Stationen derselben Stufe sind „parallel möglich“.
 - **Automatisch starten** (Leiste und je Station): die Station startet nach ihren Vorgängern von selbst (Countdown). Heißt in der App heute „Automatisch weiter“ (`auto_start`).
 - **Automatisch weiter** (Leiste und je Station): die Station setzt nach leerem Kontingent und nach einem Fehler selbst fort. Entspricht „Automatisch fortsetzen“ aus Story 56, erweitert um den Fehlerfall. Die zwei Schalter heißen so, weil der Nutzer sie im Review so unterschieden hat; das weicht von den Beschriftungen heute ab.
@@ -79,7 +79,7 @@ Der Vorschlag eines Agenten (neue Station samt Kanten) zeigt **Typ, Modell, Denk
 - Ein von Hand gestartetes ▶ ignoriert „Parallel max.“. Ob das so bleibt, ist offen.
 - Die Stufe einer Station ist die längste Kette bis zu ihr (Wurzeln = Stufe 1); die Reihenfolge innerhalb einer Stufe ist die Planreihenfolge.
 - „Plan ändern?“ gibt es nur für Agenten; der Benutzer ändert Kanten und Werte direkt.
-- **Die Warteschlange ist im Core nicht vorhanden** und hier nur simuliert (ein Sekunden-Tick im Browser). Was der Core dafür braucht, steht in der Story „Constraintbasierte Umsetzungsabläufe“: `max_parallel` am Plan; `schedule_ready` zählt aktive Stationen und startet nur die freien Plätze, in Planreihenfolge; Zählen und `begin_countdown` unter einer Sperre; neuer Haken, wenn eine Station-Session endet, ohne fertig gemeldet zu sein. Nach einem Neustart pausiert sie (Critical Rule 4). Die Grenze gilt je Umsetzung, das Kontingent ist kontoweit (ADR 051).
+- **Die Warteschlange ist im Mock nur simuliert** (ein Sekunden-Tick im Browser); der Core hat sie seit ADR 061. Was er dafür braucht, stand in der Story „Constraintbasierte Umsetzungsabläufe“: `max_parallel` am Plan; `schedule_ready` zählt aktive Stationen und startet nur die freien Plätze, in Planreihenfolge; Zählen und `begin_countdown` unter einer Sperre; neuer Haken, wenn eine Station-Session endet, ohne fertig gemeldet zu sein. Nach einem Neustart pausiert sie (Critical Rule 4). Die Grenze gilt je Umsetzung, das Kontingent ist kontoweit (ADR 051).
 - Eingaben in der Kartei und in der Plan-Karte werden beim Tippen nicht neu gezeichnet; der Mock zeichnet erst nach dem Verlassen des Felds nach.
 
 ## Platzhalter im Entwurf
@@ -104,3 +104,12 @@ Der Vorschlag eines Agenten (neue Station samt Kanten) zeigt **Typ, Modell, Denk
 - **„bereit“ und der Strich einer Änderung durch Vorgänger stehen in der Akzentfarbe** (wie der Countdown im Rest der App), nicht in Bernstein; Bernstein trägt „fragt“ und „wartet auf dich“.
 - **„neu“ steht an jeder Station einer neuen Lane**, solange die Lane die Marke trägt (Core, `PhaseMark`); der Mock markiert die Station.
 - **Im Lauf zeigt die App keinen Countdown nach einem Neustart** (Critical Rule 4): Die Zeile heißt dann „bereit“ mit ▶, nicht „startet in … s“.
+
+Abweichungen aus dem Core und den Werkzeugen, die der Entwurf nicht zeigt (Gesamt-Review, 2026-11-13):
+
+- **Im Delta gilt Regel R1 nicht.** Eine Station ohne `after` ist in einem Delta (`implementation_edit`, `lanes` und `add`) eine Startstation, auch neben der Station davor in ihrer Lane. Das Schema der neuen Lanes hat deshalb kein `wave`; „Plan ändern?“ nennt je neuer Station „Startstation: beginnt sofort, auch neben anderen“ bzw. „Wartet auf: …“. Stationen „durch dich“ im Vorschlag zeigt die Karte nicht, auch sie starten ohne `after` sofort.
+- **„Übernehmen mit Änderungen“ sind zwei Schritte:** Zuerst wird der Vorschlag übernommen, dann setzt die App die Änderungen des Benutzers. Scheitert eine, bleiben die übrigen erhalten, und die Meldung sagt, dass der Vorschlag schon übernommen ist.
+- **„+ Lane“ zählt die Lanes eines offenen Vorschlags beim nächsten Schlüssel mit**, denn ein direkter Eingriff lässt den Vorschlag stehen.
+- **Die Weck-Nachricht an den Ersteller** (Entwurf: „wird benachrichtigt“) kommt vom „Verwalter“ (Nummer 0, Kennung `verwalter`), keiner Session; eine Antwort darauf scheitert mit „Unbekannte Session“. Sind die Fix-Runden erschöpft und folgt keine Station mehr, kommen „Befund“ und „Umsetzung fertig“ als zwei Nachrichten.
+- **Erste Nachricht einer Station und Sessionnamen sagen weiter „Phase“**, nicht „Lane“, weil vorhandene Tests den Text festhalten; Lagebericht und Oberfläche sagen „Lane“.
+- **„Plane Vorhaben“** (Story Taiga #81, nicht im Entwurf gezeigt): nur der Knopf in der Eingabeleiste, kein Befehl `/plane`; der Wächter heißt im Code `plan_guard` und zählt auch `implementation_edit` als Planaufruf ([ADR 062](../../decisions/062-plane-vorhaben.md)).

@@ -280,9 +280,7 @@ fn fire(app: &AppHandle, implementation_id: &str, station_id: &str, token: u64) 
     }
     if view.stop_after_current {
         // „Anhalten nach dieser Session“ greift: der Halt ist eingelöst, nichts startet.
-        if let Err(error) =
-            registry.store_implementation_flags(implementation_id, false, false, view.finished_at)
-        {
+        if let Err(error) = super::consume_halt(&registry, &view, view.finished_at) {
             eprintln!("Halt der Umsetzung nicht gespeichert: {error}");
         }
     }

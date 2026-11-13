@@ -126,6 +126,10 @@ pub async fn implementation_set_stop_after_current(
 ) -> Result<(), CommandError> {
     let view = registry.implementation_view(&id)?;
     registry.store_implementation_flags(&id, view.auto_start, enabled, view.finished_at)?;
+    if !enabled {
+        // Ein Neustart nach Fehler, den der Halt aufhielt, hat sonst keinen Auslöser mehr.
+        start::restart_failed(&app, &id)?;
+    }
     announce(&app, &registry.implementation_view(&id)?);
     Ok(())
 }
