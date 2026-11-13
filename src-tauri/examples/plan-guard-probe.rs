@@ -12,7 +12,7 @@
 //! gewöhnliche Nachricht (prüft den Aufbau, ohne einen Planungslauf zu verbrauchen).
 //! Je Lauf eine Zeile: Plan angelegt (`implementation_create`/`implementation_set_phases` gerufen),
 //! schon im ersten Zug, Zahl der Erinnerungen, Hinweis, Zahl der Züge, Rückfragen, Dauer, Kosten;
-//! dazu `runs.jsonl` und der rohe Strom je Lauf (`run-NN-<arm>.jsonl`) im Ausgabeordner.
+//! dazu `runs.jsonl` und der rohe Strom je Lauf (`run-NN-<arm>/stream.jsonl`) im Ausgabeordner.
 //! `--selftest` prüft Ablauf und MCP-Stand-in mit einer Attrappe statt der Kommandozeile
 //! (`PASS`/`FAIL` je Fall, Exit 1 bei einem Fehlschlag).
 use std::collections::BTreeSet;
@@ -538,7 +538,9 @@ impl MockMcp {
             }))
             .map_err(std::io::Error::other)?,
         )?;
-        // Die Agententypen aus einer eigenen leeren Datenbank (Standardtypen der Migrationen).
+        // Die Agententypen aus einer eigenen frischen Datenbank. Die Migrationen legen keine an
+        // (ADR 060): Das Modell sieht eine leere Liste, die Messung gilt also für ein Vorhaben ohne
+        // eingerichtete Typen (ADR 062, „Grenzen der Stichprobe“).
         let database = Database::open(&dir.join("probe.db"))
             .map_err(|error| std::io::Error::other(format!("Wegwerf-Datenbank: {error}")))?;
         let types = agent_types::list(&database)
@@ -890,9 +892,10 @@ fn agent_type_rows_list(database: &Database) -> Vec<verwalter_lib::agent_types::
 }
 
 /// Eine Attrappe, die je Nachricht einen Zug beendet und bei der Nachricht `$1` ein Werkzeug `$2`
-/// aufruft (`$3` = `1`: von einem Subagenten). Die Argumente kommen als `leading_args`.
+/// aufruft (`$3` = `1`: von einem Subagenten; `$4` = `rejected`: die Antwort auf den Aufruf ist ein
+/// Fehler, `failed`: der Zug endet mit `is_error`). Die Argumente kommen als `leading_args`.
 const FAKE_CLAUDE: &str = r#"#!/bin/sh
-call_at=$1; tool=$2; sub=$3
+call_at=$1; tool=$2; sub=$3; mode=$4
 n=0
 while IFS= read -r line; do
   n=$((n+1))
@@ -900,10 +903,14 @@ while IFS= read -r line; do
     parent=null
     [ "$sub" = 1 ] && parent='"toolu_parent"'
     printf '{"type":"assistant","parent_tool_use_id":%s,"message":{"id":"m%s","content":[{"type":"tool_use","id":"t%s","name":"%s","input":{}}]}}\n' "$parent" "$n" "$n" "$tool"
-    printf '{"type":"user","parent_tool_use_id":null,"message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t%s","content":"ok"}]}}\n' "$n"
+    is_error=false
+    [ "$mode" = rejected ] && is_error=true
+    printf '{"type":"user","parent_tool_use_id":null,"message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t%s","content":"ok","is_error":%s}]}}\n' "$n" "$is_error"
   fi
   printf '{"type":"assistant","parent_tool_use_id":null,"message":{"id":"x%s","content":[{"type":"text","text":"Zug %s"}]}}\n' "$n" "$n"
-  printf '{"type":"result","subtype":"success","is_error":false,"result":"Zug %s","total_cost_usd":0.01}\n' "$n"
+  is_error=false
+  [ "$mode" = failed ] && is_error=true
+  printf '{"type":"result","subtype":"success","is_error":%s,"result":"Zug %s","total_cost_usd":0.01}\n' "$is_error" "$n"
 done
 "#;
 
@@ -912,7 +919,7 @@ fn check_flow(dir: &Path, check: &mut impl FnMut(&str, bool)) {
     let script = dir.join("fake-claude.sh");
     fs::write(&script, FAKE_CLAUDE).expect("Attrappe schreiben");
     fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).expect("Attrappe ausführbar");
-    let run = |arm: Arm, number: u32, call_at: u32, tool: &str, parent: bool| {
+    let run_with = |arm: Arm, number: u32, call_at: u32, tool: &str, parent: bool, mode: &str| {
         let config = Config {
             out: dir.join("flow"),
             mode: Mode::Auto,
@@ -924,10 +931,14 @@ fn check_flow(dir: &Path, check: &mut impl FnMut(&str, bool)) {
                 call_at.to_string(),
                 tool.to_owned(),
                 if parent { "1" } else { "0" }.to_owned(),
+                mode.to_owned(),
             ],
             timeout: Duration::from_secs(20),
         };
         run_once(&config, arm, number)
+    };
+    let run = |arm: Arm, number: u32, call_at: u32, tool: &str, parent: bool| {
+        run_with(arm, number, call_at, tool, parent, "")
     };
     let create = "mcp__verwalter__implementation_create";
     let none = run(Arm::With, 1, 0, create, false);
@@ -974,5 +985,15 @@ fn check_flow(dir: &Path, check: &mut impl FnMut(&str, bool)) {
     check(
         "a tool of the same name from another server does not count",
         !foreign.called && foreign.notice,
+    );
+    let rejected = run_with(Arm::With, 7, 1, create, false, "rejected");
+    check(
+        "a plan answered with an error counts as called but not as accepted",
+        rejected.called && !rejected.plan_accepted && rejected.reminders == 0,
+    );
+    let failed = run_with(Arm::With, 8, 0, create, false, "failed");
+    check(
+        "a turn that ends with is_error ends the run as error without reminder or notice",
+        failed.ending == "error" && failed.reminders == 0 && !failed.notice && failed.turns == 1,
     );
 }
