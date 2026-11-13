@@ -18,6 +18,7 @@ import { patchEdit } from '@/features/implementation/implementationGraph';
 import {
   APPLY_FAILED,
   START_FAILED,
+  proposalAppliedWithFailures,
   stationNotFound,
 } from '@/features/implementation/implementationTexts';
 import { NewLaneForm } from '@/features/implementation/NewLaneForm';
@@ -28,6 +29,7 @@ import { useProjectLocked } from '@/features/remote/useProjectAccess';
 import type { ImplementationView as Implementation } from '@/lib/bindings/ImplementationView';
 import type { SessionSummary } from '@/lib/bindings/SessionSummary';
 import type { StationPatch } from '@/lib/bindings/StationPatch';
+import { commandErrorText } from '@/lib/errors';
 import {
   applyImplementationChange,
   cancelStationCountdown,
@@ -112,36 +114,52 @@ async function applyEditedProposal(
   const refs: StationRef[] = await freshStations(implementationId);
   const used = new Set<string>();
   const briefs: StationPatch[] = [];
+  const failures: string[] = [];
   for (const override of overrides) {
+    // Der Core speichert den Namen gekürzt.
+    const stage: string = override.stage.trim();
     const target: StationRef | undefined = refs.find(
       (ref: StationRef) =>
         !used.has(ref.station.planId) &&
         (override.planId === null
           ? !before.has(ref.station.planId) &&
             ref.phase.key === override.lane &&
-            ref.station.stage === override.stage
+            ref.station.stage === stage
           : ref.station.planId === override.planId),
     );
     if (target === undefined) {
-      throw new Error(stationNotFound(override.stage, override.lane));
+      failures.push(stationNotFound(stage, override.lane));
+      continue;
     }
     used.add(target.station.planId);
     const { station } = target;
     if (override.changed.agent || override.changed.model || override.changed.effort) {
-      await setStationAgent(implementationId, station.id, {
-        agent: override.agent,
-        model: override.model,
-        effort: override.effort,
-        prompt: station.prompt,
-        skill: station.skill,
-      });
+      try {
+        await setStationAgent(implementationId, station.id, {
+          agent: override.agent,
+          model: override.model,
+          effort: override.effort,
+          prompt: station.prompt,
+          skill: station.skill,
+        });
+      } catch (reason: unknown) {
+        failures.push(`${stage} (Lane ${override.lane}): ${commandErrorText(reason)}`);
+        continue;
+      }
     }
     if (override.changed.brief) {
       briefs.push({ id: station.planId, brief: override.brief });
     }
   }
   if (briefs.length > 0) {
-    await editPlan(implementationId, patchEdit(...briefs));
+    try {
+      await editPlan(implementationId, patchEdit(...briefs));
+    } catch (reason: unknown) {
+      failures.push(commandErrorText(reason));
+    }
+  }
+  if (failures.length > 0) {
+    throw new Error(proposalAppliedWithFailures(failures));
   }
 }
 

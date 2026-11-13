@@ -85,3 +85,16 @@ export function cycleWith(
 export function patchEdit(...patches: StationPatch[]): PlanEdit {
   return { lanes: [], add: [], change: patches, remove: [] };
 }
+
+/** Nächster freier Schlüssel einer Lane: eins über dem höchsten Zahlenschlüssel. `taken` sind die Schlüssel
+ *  der bestehenden Lanes und die der Lanes eines offenen Vorschlags. */
+export function nextLaneKey(taken: readonly string[]): string {
+  const numbers: number[] = taken
+    .map((key: string) => Number.parseInt(key, 10))
+    .filter((value: number) => Number.isFinite(value));
+  let candidate: number = Math.max(0, ...numbers) + 1;
+  while (taken.includes(String(candidate))) {
+    candidate += 1;
+  }
+  return String(candidate);
+}

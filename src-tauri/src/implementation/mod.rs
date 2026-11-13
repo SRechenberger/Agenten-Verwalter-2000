@@ -121,6 +121,12 @@ impl Countdowns {
             .collect()
     }
 
+    /// Die Station startet gerade (`claim_start`), ihre Session ist noch nicht gebunden: Alle Sperren nach
+    /// Zustand lesen `session_id` und hielten sie sonst für unbegonnen.
+    pub fn is_starting(&self, station_id: &str) -> bool {
+        self.starting.contains(station_id)
+    }
+
     pub fn claim_start(&mut self, station_id: &str) -> bool {
         self.starting.insert(station_id.to_owned())
     }
@@ -438,6 +444,28 @@ pub fn plan_completion_with_types(
     Ok((Vec::new(), Some(FIX_LIMIT_HINT.to_owned())))
 }
 
+/// Sessions der Stationen mit Fehler, auch wenn ein Halt ihren Neustart gerade verbietet.
+fn errored_sessions(view: &ImplementationView) -> Vec<String> {
+    view.phases
+        .iter()
+        .flat_map(|phase: &PhaseView| phase.stations.iter())
+        .filter(|station: &&StationView| station.state == StationState::Error)
+        .filter_map(|station: &StationView| station.session_id.clone())
+        .collect()
+}
+
+/// „Anhalten nach dieser Session“ greift (ADR 061): Der Halt ist eingelöst und nichts startet mehr,
+/// auch kein Neustart nach Fehler. Sonst startete ihn der Haken am Ende dieser Session, nachdem der Halt
+/// gelöscht ist.
+pub fn consume_halt(
+    registry: &SessionRegistry,
+    view: &ImplementationView,
+    finished_at: Option<f64>,
+) -> Result<(), CommandError> {
+    registry.forget_fresh_errors(&errored_sessions(view));
+    registry.store_implementation_flags(&view.id, false, false, finished_at)
+}
+
 /// Stellt nach einer Fertigmeldung fest, was kommt: Ende, Halt oder die nächsten Stationen.
 fn after_completion(
     app: &AppHandle,
@@ -455,7 +483,7 @@ fn after_completion(
         )?;
         outcome.is_finished = true;
     } else if view.stop_after_current {
-        registry.store_implementation_flags(implementation_id, false, false, None)?;
+        consume_halt(registry, &view, None)?;
         outcome.waits_for_user = true;
     } else if is_automatic(&view) {
         outcome.next = start::schedule_ready(app, implementation_id)?;
@@ -578,6 +606,29 @@ pub fn has_begun(view: &ImplementationView) -> bool {
         .iter()
         .flat_map(|phase: &PhaseView| phase.stations.iter())
         .any(|station: &StationView| station.session_id.is_some())
+}
+
+/// Plant eine Änderung am Plan (Delta, Plan-Änderung, Kanten) neu: Die Umsetzung hat begonnen und die
+/// Automatik ist an, kein Halt, nicht beendet.
+pub fn replans_after_plan_change(view: &ImplementationView) -> bool {
+    has_begun(view) && is_automatic(view) && !view.stop_after_current && view.finished_at.is_none()
+}
+
+/// Eine Änderung am Plan scheiterte, nachdem sie Countdowns beendet hatte: Die Stationen stehen auf
+/// „bereit“, und ohne dieses Planen bliebe die Umsetzung trotz Automatik stehen, bis ein anderes Ereignis
+/// kommt (ADR 061).
+pub fn replan_after_failed_change(app: &AppHandle, implementation_id: &str) {
+    let Ok(view) = app
+        .state::<SessionRegistry>()
+        .implementation_view(implementation_id)
+    else {
+        return;
+    };
+    if replans_after_plan_change(&view)
+        && let Err(error) = start::schedule_ready(app, implementation_id)
+    {
+        eprintln!("Warteschlange nach gescheiterter Änderung nicht neu geplant: {error}");
+    }
 }
 
 /// Plant ein Ereignis außerhalb der Fertigmeldung die Warteschlange neu: nur mit Grenze und
@@ -706,14 +757,17 @@ pub fn set_station_options(
     options: &StationOptions,
 ) -> Result<(), CommandError> {
     let registry = app.state::<SessionRegistry>();
-    checked_options(
-        &registry.implementation_view(implementation_id)?,
-        station_id,
-        options,
-    )?;
+    let view = registry.implementation_view(implementation_id)?;
+    checked_options(&view, station_id, options)?;
+    // Zwischen Startanspruch und Bindung hat die Station noch keine Session, ist aber begonnen.
+    if station_in(&view, station_id)?.1.session_id.is_none() && registry.is_starting(station_id) {
+        return Err(CommandError::Implementation(OPTIONS_BEGUN.to_owned()));
+    }
     if !registry.store_station_options(station_id, options)? {
         return Err(CommandError::Implementation(OPTIONS_BEGUN.to_owned()));
     }
+    // Wer nun neu startet, braucht den Auslöser, den sonst das Ende einer Session gäbe.
+    start::restart_failed(app, implementation_id)?;
     let view = registry.implementation_view(implementation_id)?;
     let (_, station) = station_in(&view, station_id)?;
     let reschedules = if station.starts_automatically {

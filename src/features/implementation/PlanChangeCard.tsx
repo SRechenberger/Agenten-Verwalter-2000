@@ -27,6 +27,7 @@ import {
   proposalLead,
   proposalWas,
   proposedStationHead,
+  proposedWaitsText,
   PURPOSE_LEAD,
   shortEffort,
   shortModel,
@@ -81,6 +82,8 @@ interface ProposedStation {
   lane: string;
   stage: string;
   planId: string | null;
+  /** Nur bei einer neuen Station: die Kennungen, auf die sie wartet (leer: Startstation). */
+  after: readonly string[] | null;
   values: ProposedValues;
   /** Nur bei einer bestehenden Station: was der Vorschlag an ihr ändert. */
   patch: StationPatch | null;
@@ -119,6 +122,7 @@ function newStation(lane: string, input: StationInput | StationAddition): Propos
     lane,
     stage: input.stage,
     planId: input.id ?? null,
+    after: input.after ?? [],
     values: {
       agent: input.agent ?? null,
       model: input.model ?? null,
@@ -139,6 +143,7 @@ function patchedStation(patch: StationPatch, stations: readonly StationRef[]): P
     lane: ref?.phase.key ?? '?',
     stage: patch.stage ?? ref?.station.stage ?? patch.id,
     planId: patch.id,
+    after: null,
     values: {
       agent: patch.agent ?? ref?.station.agent ?? null,
       model: patch.model ?? ref?.station.model ?? null,
@@ -264,7 +269,9 @@ export function PlanChangeCard({
     const key = `${station.lane}-${station.stage}-${String(index)}`;
     const head: ReactElement = <b>{proposedStationHead(station.stage, station.lane)}</b>;
     const sets: ReactElement | null =
-      station.patch === null ? null : (
+      station.patch === null ? (
+        <p className="station-card__hint">{proposedWaitsText(station.after ?? [])}</p>
+      ) : (
         <p className="station-card__hint">{patchSetsText(station.patch)}</p>
       );
     const original: ProposedValues = station.values;

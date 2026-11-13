@@ -58,7 +58,7 @@ impl ToolSet for ImplementationTools {
                             "maxLength": MAX_SOURCE_CHARS,
                             "description": "Woher der Plan stammt, z. B. Pfad des Plan-Ordners",
                         },
-                        "phases": phases_schema(),
+                        "phases": phases_schema(false),
                         "lanes": { "description": "Gleichwertiger Name für phases; nenne nur eines von beiden" },
                         "max_parallel": { "type": "integer", "minimum": 1, "description": "Höchstens so viele Stationen laufen gleichzeitig; ohne das Feld unbegrenzt. Weitere bereite Stationen warten in einer Warteschlange und rücken selbst nach" },
                     },
@@ -102,7 +102,7 @@ impl ToolSet for ImplementationTools {
                               verwirft sie.",
                 input_schema: json!({
                     "type": "object",
-                    "properties": { "phases": phases_schema() },
+                    "properties": { "phases": phases_schema(false) },
                     "required": ["phases"],
                     "additionalProperties": false,
                 }),
@@ -117,14 +117,15 @@ impl ToolSet for ImplementationTools {
                               (nur die genannten Felder; ein neuer `brief` verwirft Ergänzungen der \
                               Vorgänger), `add` hängt Stationen an eine bestehende Lane, `lanes` \
                               legt neue Lanes an, `max_parallel` setzt die Grenze (0 = unbegrenzt). \
-                              Die Felder einer Station sind die von implementation_create; eine \
-                              Station ohne `after` ist eine Startstation. Typ, Modell, Denkaufwand \
+                              Die Felder einer Station sind die von implementation_create, aber ohne \
+                              `wave`; eine Station ohne `after` ist eine Startstation und startet \
+                              sofort, auch neben der Station davor in ihrer Lane. Typ, Modell, Denkaufwand \
                               und Zusatztext änderst du nur, wenn der Benutzer es will. Gestartete \
                               und fertige Stationen bleiben, wie sie sind.",
                 input_schema: json!({
                     "type": "object",
                     "properties": {
-                        "lanes": phases_schema(),
+                        "lanes": phases_schema(true),
                         "add": {
                             "type": "array",
                             "items": {
@@ -291,7 +292,21 @@ const CREATE_DESCRIPTION: &str = "Legt nach der Freigabe eines Plans die Umsetzu
      unbekannte Kennungen und Selbstverweise lehnt der Verwalter mit einem Satz ab, der die Stationen \
      nennt. Liefert den Lagebericht samt Startstationen.";
 
-fn phases_schema() -> Value {
+/// `is_delta`: die neuen Lanes von `implementation_edit`. Dort gilt nur das Kanten-Schema (ADR 061): Es gibt
+/// keine `wave`, und eine Station ohne `after` startet sofort, auch neben der Station davor.
+fn phases_schema(is_delta: bool) -> Value {
+    let mut schema = phases_schema_with_wave();
+    let lane = &mut schema["items"]["properties"];
+    if is_delta {
+        lane.as_object_mut().expect("Objekt").remove("wave");
+        lane["stations"]["items"]["properties"]["after"]["description"] = json!(
+            "Kennungen der Stationen, auf die diese wartet; ohne das Feld ist sie eine Startstation und startet sofort, auch neben der Station davor in ihrer Lane: nenne die davor, wenn sie warten soll"
+        );
+    }
+    schema
+}
+
+fn phases_schema_with_wave() -> Value {
     json!({
         "type": "array",
         "minItems": 1,

@@ -1827,6 +1827,46 @@ fn plan_tool_counts_only_the_two_tools_of_the_verwalter() {
 }
 
 #[test]
+fn plan_tool_counts_the_edit_tool_because_create_refuses_in_a_running_implementation() {
+    assert!(plan::is_plan_tool("mcp__verwalter__implementation_edit"));
+    assert!(!plan::is_plan_tool("implementation_edit"));
+}
+
+#[test]
+fn a_failed_plan_change_replans_only_a_begun_automatic_implementation() {
+    let begun = view_with_sessions(
+        vec![node("a", &[]), node("b", &["a"])],
+        None,
+        true,
+        &[("a", SessionStatus::Running, false)],
+    );
+    assert!(replans_after_plan_change(&begun));
+    let not_begun = view_with_sessions(vec![node("a", &[])], None, true, &[]);
+    assert!(!replans_after_plan_change(&not_begun), "nichts begonnen");
+    let manual = view_with_sessions(
+        vec![node("a", &[])],
+        None,
+        false,
+        &[("a", SessionStatus::Running, false)],
+    );
+    assert!(!replans_after_plan_change(&manual), "ohne Automatik");
+}
+
+#[test]
+fn a_station_counts_as_starting_between_the_claim_and_its_release() {
+    let mut countdowns = Countdowns::default();
+    assert!(!countdowns.is_starting("a"));
+    assert!(countdowns.claim_start("a"));
+    assert!(
+        countdowns.is_starting("a"),
+        "die Sperren nach Zustand brauchen das"
+    );
+    assert!(!countdowns.is_starting("b"));
+    countdowns.release_start("a");
+    assert!(!countdowns.is_starting("a"));
+}
+
+#[test]
 fn plan_reminder_names_the_create_tool() {
     assert!(
         plan::PLAN_REMINDER_TEXT.contains("mcp__verwalter__implementation_create"),
@@ -3117,6 +3157,29 @@ fn a_restart_is_counted_once_even_when_two_callers_race() {
 }
 
 #[test]
+fn a_redeemed_halt_drops_the_pending_restart_of_every_failed_station() {
+    let view = view_with_sessions(
+        vec![
+            failing(OnError::RestartOnce, 0),
+            node("running", &[]),
+            node("stopping", &[]),
+        ],
+        None,
+        true,
+        &[
+            ("failing", SessionStatus::Error, true),
+            ("running", SessionStatus::Running, false),
+            ("stopping", SessionStatus::Error, true),
+        ],
+    );
+    assert_eq!(
+        errored_sessions(&view),
+        ["session-failing", "session-stopping"],
+        "nur Stationen mit Fehler, ob sie neu starten würden oder nicht"
+    );
+}
+
+#[test]
 fn plan_change_keeps_the_options_of_an_edited_station() {
     let mut old = edited(planned("review", 0, "Review"));
     old.auto_start = Some(false);
@@ -3297,6 +3360,28 @@ fn edit_tool_is_listed_and_not_read_only() {
     }
     assert!(!tools::ImplementationTools.is_read_only("implementation_edit"));
     assert!(!tools::side_may_call("implementation_edit"));
+}
+
+#[test]
+fn new_lanes_of_an_edit_offer_no_wave_because_the_delta_knows_only_edges() {
+    let lane = |name: &str, tool_name: &str| {
+        let spec = tool(tool_name);
+        let items = &spec.input_schema["properties"][name]["items"]["properties"];
+        (
+            items["wave"].clone(),
+            items["stations"]["items"]["properties"]["after"]["description"].clone(),
+        )
+    };
+    let (wave, after) = lane("lanes", "implementation_edit");
+    assert!(wave.is_null(), "im Delta gibt es keine Welle");
+    assert!(
+        after
+            .as_str()
+            .is_some_and(|text: &str| text.contains("startet sofort")),
+        "after sagt, dass eine Station ohne Vorgänger sofort startet"
+    );
+    assert!(lane("phases", "implementation_create").0.is_object());
+    assert!(lane("phases", "implementation_set_phases").0.is_object());
 }
 
 #[test]

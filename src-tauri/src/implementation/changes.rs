@@ -10,7 +10,7 @@ use super::model::{
     ChangeSummary, ImplementationView, OnError, PendingChange, PhaseInput, PhaseMark, PhaseView,
     PredecessorsMay, StationState, StationView, check_agents, validate,
 };
-use super::{announce, has_begun, is_automatic, kept_phases, link, now_ms, phase_rows, start};
+use super::{announce, kept_phases, link, now_ms, phase_rows, replans_after_plan_change, start};
 use crate::db::implementations::{ChangeRow, PhaseRow, StationRow};
 use crate::error::CommandError;
 use crate::sessions::registry::SessionRegistry;
@@ -189,17 +189,18 @@ fn apply(
         .iter()
         .filter(|phase: &&PhaseView| !is_begun(phase))
         .collect();
+    // Die gespeicherten Zeilen von jetzt: Was der Benutzer seit dem Vorschlag auf der Karte gesetzt
+    // hat, zählt mit.
+    let rows = registry.station_rows(&view.id)?;
+    let (mut phases, mut stations) = replacement_rows(&view.id, inputs, &removed, &rows);
+    link(&kept_phases(view), inputs, &mut stations).map_err(CommandError::Implementation)?;
+    // Erst nach der Prüfung: Eine abgelehnte Änderung lässt die Countdowns stehen.
     for station in removed
         .iter()
         .flat_map(|phase: &&PhaseView| phase.stations.iter())
     {
         let _ = registry.cancel_countdown(&station.id);
     }
-    // Die gespeicherten Zeilen von jetzt: Was der Benutzer seit dem Vorschlag auf der Karte gesetzt
-    // hat, zählt mit.
-    let rows = registry.station_rows(&view.id)?;
-    let (mut phases, mut stations) = replacement_rows(&view.id, inputs, &removed, &rows);
-    link(&kept_phases(view), inputs, &mut stations).map_err(CommandError::Implementation)?;
     set_marks(&removed, record.as_ref(), &mut phases);
     let change = record
         .as_ref()
@@ -208,12 +209,17 @@ fn apply(
         .iter()
         .map(|phase: &&PhaseView| phase.id.clone())
         .collect();
-    registry.store_plan_change(&view.id, &removed_ids, &phases, &stations, change.as_ref())?;
+    if let Err(error) =
+        registry.store_plan_change(&view.id, &removed_ids, &phases, &stations, change.as_ref())
+    {
+        super::replan_after_failed_change(app, &view.id);
+        return Err(error);
+    }
     let fresh = registry.implementation_view(&view.id)?;
     announce(app, &fresh);
     // Eine Umsetzung, deren erste Station der Benutzer noch nicht gestartet hat, beginnt auch nach
     // einer Plan-Änderung nicht von selbst.
-    if has_begun(&fresh) && is_automatic(&fresh) && !fresh.stop_after_current {
+    if replans_after_plan_change(&fresh) {
         start::schedule_ready(app, &view.id)?;
     }
     Ok(())

@@ -690,6 +690,12 @@ export function patchSetsText(patch: StationPatch): string {
   }
   return `Ändert: ${parts.length === 0 ? 'nichts' : parts.join(' · ')}`;
 }
+/** Was eine neue Station im Plan tut: ohne Vorgänger startet sie sofort, auch neben der Station davor. */
+export function proposedWaitsText(after: readonly string[]): string {
+  return after.length === 0
+    ? 'Startstation: beginnt sofort, auch neben anderen'
+    : `${WAITS_ON_LABEL}: ${keysText(after)}`;
+}
 export const PROPOSAL_EMPTY_BRIEF = '(leer)';
 export const PROPOSAL_HINT =
   'Du kannst den Vorschlag übernehmen, wie er ist, oder Typ, Modell, Denkaufwand und Auftrag vorher ändern. Alles Weitere (System-Prompt, Automatik) steht nach dem Übernehmen in der Kartei.';
@@ -710,6 +716,11 @@ export const BRIEF_NOT_SAVED = 'Auftrag nicht gespeichert';
 export const NOT_REMOVED = 'Nicht entfernt';
 export const EDGE_NOT_CHANGED = 'Kante nicht geändert';
 export const LANE_NOT_CREATED = 'Lane nicht angelegt';
+
+/** Der Vorschlag ist übernommen, aber nicht jede Änderung des Benutzers daran ging durch. */
+export function proposalAppliedWithFailures(failures: readonly string[]): string {
+  return `Der Vorschlag ist übernommen, aber nicht alle deine Änderungen: ${failures.join('; ')}`;
+}
 
 /** Eine Station des übernommenen Vorschlags fehlt im Plan danach. */
 export function stationNotFound(stage: string, lane: string): string {
