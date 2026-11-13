@@ -784,11 +784,10 @@ fn selftest() -> ExitCode {
     let dir = env::temp_dir().join(format!("plan-guard-probe-{}", uuid::Uuid::new_v4()));
     let _ = fs::create_dir_all(&dir);
     check_mock(&dir, &mut check);
-    if cfg!(unix) {
-        check_flow(&dir, &mut check);
-    } else {
-        println!("SKIP Ablauf mit Attrappe (nur unter Unix)");
-    }
+    #[cfg(unix)]
+    check_flow(&dir, &mut check);
+    #[cfg(not(unix))]
+    println!("SKIP Ablauf mit Attrappe (nur unter Unix)");
     let _ = fs::remove_dir_all(&dir);
     if failures == 0 {
         ExitCode::SUCCESS
@@ -894,6 +893,7 @@ fn agent_type_rows_list(database: &Database) -> Vec<verwalter_lib::agent_types::
 /// Eine Attrappe, die je Nachricht einen Zug beendet und bei der Nachricht `$1` ein Werkzeug `$2`
 /// aufruft (`$3` = `1`: von einem Subagenten; `$4` = `rejected`: die Antwort auf den Aufruf ist ein
 /// Fehler, `failed`: der Zug endet mit `is_error`). Die Argumente kommen als `leading_args`.
+#[cfg(unix)]
 const FAKE_CLAUDE: &str = r#"#!/bin/sh
 call_at=$1; tool=$2; sub=$3; mode=$4
 n=0
@@ -914,6 +914,7 @@ while IFS= read -r line; do
 done
 "#;
 
+#[cfg(unix)]
 fn check_flow(dir: &Path, check: &mut impl FnMut(&str, bool)) {
     use std::os::unix::fs::PermissionsExt;
     let script = dir.join("fake-claude.sh");
