@@ -7,6 +7,7 @@ import { Switch } from '@/components/Switch';
 import type { QuestionEntry, ToolDraft, ToolEdit } from '@/features/chat/questionDraft';
 import { SelectButton } from '@/features/settings/SelectButton';
 import { useProjectLocked } from '@/features/remote/useProjectAccess';
+import { answerAgentTypeProposal } from '@/lib/agentTypes';
 import type { Effort } from '@/lib/bindings/Effort';
 import type { ModelId } from '@/lib/bindings/ModelId';
 import type { QuestionAnswer } from '@/lib/bindings/QuestionAnswer';
@@ -28,9 +29,14 @@ const ANSWER_OF_OPTION: Readonly<Record<string, string>> = {
   Ablehnen: 'Abgelehnt',
 };
 
+/** Ein Aufruf eines Session-Werkzeugs; ein Vorschlag eines Agententyps hat seinen eigenen Kasten. */
+type SessionToolCall = Exclude<ToolRequest, { kind: 'agentType' }>;
+type AgentTypeProposal = Extract<ToolRequest, { kind: 'agentType' }>;
+
 interface SessionToolBlockProps {
   entry: QuestionEntry;
   request: ToolRequest;
+  sessionId: string;
   projectId: string;
   /** Selbstfreigabe des Vorhabens; `null`, solange das Vorhaben nicht geladen ist. */
   selfRelease: SelfRelease | null;
@@ -41,8 +47,24 @@ interface SessionToolBlockProps {
   onDraft: (next: ToolDraft) => void;
 }
 
+/** Kasten eines Werkzeugs, das auf die Entscheidung wartet. */
+export function SessionToolBlock(props: SessionToolBlockProps): ReactElement {
+  const { request } = props;
+  if (request.kind === 'agentType') {
+    return (
+      <AgentTypeProposalBlock
+        entry={props.entry}
+        request={request}
+        sessionId={props.sessionId}
+        isSending={props.isSending}
+      />
+    );
+  }
+  return <SessionToolCallBlock {...props} request={request} />;
+}
+
 /** Kasten eines Session-Werkzeugs: zeigt den Aufruf und lässt ihn erlauben, ablehnen oder ändern. */
-export function SessionToolBlock({
+function SessionToolCallBlock({
   entry,
   request,
   projectId,
@@ -52,7 +74,7 @@ export function SessionToolBlock({
   onPick,
   onSubmit,
   onDraft,
-}: SessionToolBlockProps): ReactElement {
+}: SessionToolBlockProps & { request: SessionToolCall }): ReactElement {
   const [isModelMenuOpen, setIsModelMenuOpen] = useState<boolean>(false);
   const [isSaving, setIsSaving] = useState<boolean>(false);
   const isProjectLocked: boolean = useProjectLocked(projectId);
@@ -308,8 +330,85 @@ export function SessionToolBlock({
   );
 }
 
+interface AgentTypeProposalBlockProps {
+  entry: QuestionEntry;
+  request: AgentTypeProposal;
+  sessionId: string;
+  isSending: boolean;
+}
+
+/** Vorläufiger Kasten eines Vorschlags (ADR 063, D7): nennt den Typ und kann nur verwerfen, damit kein
+ *  Agent hängen bleibt. Übernehmen geht allein über `agent_type_proposal_answer`, nie über `chat_answer`. */
+function AgentTypeProposalBlock({
+  entry,
+  request,
+  sessionId,
+  isSending,
+}: AgentTypeProposalBlockProps): ReactElement {
+  const [isRejecting, setIsRejecting] = useState<boolean>(false);
+  const [rejectError, setRejectError] = useState<string | null>(null);
+  const isAnswered: boolean = entry.answer !== null;
+  const question: string =
+    request.base === null
+      ? `Claude schlägt einen neuen Agententyp „${request.proposal.name}“ vor.`
+      : `Claude schlägt eine Änderung an „${request.base.name}“ vor.`;
+
+  function reject(): void {
+    setIsRejecting(true);
+    setRejectError(null);
+    answerAgentTypeProposal(sessionId, entry.requestId, { kind: 'reject', reason: '' })
+      .catch((reason: unknown) => {
+        console.error('Vorschlag nicht verworfen', reason);
+        setRejectError(`Nicht verworfen: ${commandErrorText(reason)}`);
+      })
+      .finally(() => {
+        setIsRejecting(false);
+      });
+  }
+
+  return (
+    <div
+      className={`question-block session-tool${isAnswered ? ' question-block--answered' : ''}`}
+      role="group"
+      aria-label="Vorschlag eines Agententyps"
+    >
+      <div className="question-block__head">
+        <StatusIcon status={isAnswered ? 'completed' : 'waiting'} size={12} />
+        <span>{isAnswered ? 'Claude hat gefragt' : 'Claude wartet auf deine Entscheidung'}</span>
+      </div>
+      <div className="question-block__question">
+        <p className="question-block__text">{question}</p>
+      </div>
+      {!isAnswered && (
+        <div className="question-block__options">
+          <button
+            type="button"
+            className="question-block__option"
+            disabled={isSending || isRejecting}
+            onClick={reject}
+          >
+            <span className="question-block__label">
+              <span className="question-block__option-name">Verwerfen</span>
+            </span>
+          </button>
+        </div>
+      )}
+      {rejectError !== null && (
+        <p className="session-tool__error" role="alert">
+          {rejectError}
+        </p>
+      )}
+      <div className="question-block__footer session-tool__footer">
+        {isAnswered
+          ? `Antwort: ${entry.answer ?? ''}`
+          : 'Text im Eingabefeld unten verwirft den Vorschlag mit dieser Begründung.'}
+      </div>
+    </div>
+  );
+}
+
 /** `null`: Der Aufruf hat keinen Text zum Ändern; der Core würde es abweisen. */
-function startEdit(request: ToolRequest): ToolEdit | null {
+function startEdit(request: SessionToolCall): ToolEdit | null {
   switch (request.kind) {
     case 'sendMessage':
       return { kind: 'edit', message: request.message, model: null, effort: null };
@@ -325,7 +424,7 @@ function startEdit(request: ToolRequest): ToolEdit | null {
   }
 }
 
-function releaseKey(request: ToolRequest): 'messages' | 'tldr' | 'openSession' {
+function releaseKey(request: SessionToolCall): 'messages' | 'tldr' | 'openSession' {
   switch (request.kind) {
     case 'sendMessage':
       return 'messages';
