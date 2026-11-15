@@ -1305,6 +1305,7 @@ impl SessionRegistry {
                                 task: task.clone(),
                                 settled,
                             },
+                            at: None,
                         },
                     );
                     Ok(task)
@@ -1679,6 +1680,7 @@ impl SessionRegistry {
                             to: model,
                             recache_tokens: tokens,
                         },
+                        at: None,
                     });
                 }
                 state.context_window = model.initial_context_window();
@@ -2639,6 +2641,7 @@ impl SessionState {
                 post_tokens,
                 summary: None,
             },
+            at: None,
         }));
         let Some(cache) = self.prompt_cache.as_mut() else {
             return;
@@ -2671,7 +2674,14 @@ impl SessionState {
             post_tokens: *post_tokens,
             summary: Some(text),
         };
-        self.replace_entry(outbox, ChatEntry::Notice { seq, notice });
+        self.replace_entry(
+            outbox,
+            ChatEntry::Notice {
+                seq,
+                notice,
+                at: None,
+            },
+        );
     }
 
     /// Hält ein Ausweichen auf ein anderes Modell fest. Bei `retry` und `sticky` antwortet Claude
@@ -2701,6 +2711,7 @@ impl SessionState {
                 direction,
                 text,
             },
+            at: None,
         });
         if self.fallback_model != next_fallback {
             self.fallback_model = next_fallback;
@@ -2727,6 +2738,7 @@ impl SessionState {
                 from: previous,
                 to: mode,
             },
+            at: None,
         });
     }
 
@@ -2896,10 +2908,12 @@ impl SessionState {
         }
     }
 
-    /// Hängt einen Eintrag an; `build` bekommt seine `seq`.
+    /// Hängt einen Eintrag an; `build` bekommt seine `seq`. Hier bekommt er seinen Zeitpunkt: Wer
+    /// einen Eintrag baut, schreibt `at: None`.
     fn push_entry(&mut self, outbox: &mut Outbox, build: impl FnOnce(u32) -> ChatEntry) -> u32 {
         let seq = u32::try_from(self.entries.len()).unwrap_or(u32::MAX);
-        let entry = build(seq);
+        let mut entry = build(seq);
+        entry.stamp(now_ms());
         self.entries.push(entry.clone());
         outbox.entries.push(entry);
         seq
@@ -2977,10 +2991,12 @@ impl SessionState {
         titled
     }
 
-    fn replace_entry(&mut self, outbox: &mut Outbox, entry: ChatEntry) {
+    /// Ersetzt einen Eintrag und behält dabei seinen Zeitpunkt.
+    fn replace_entry(&mut self, outbox: &mut Outbox, mut entry: ChatEntry) {
         let Some(slot) = self.entries.get_mut(entry.seq() as usize) else {
             return;
         };
+        entry.keep_time_of(slot);
         *slot = entry.clone();
         outbox.entries.push(entry);
     }
@@ -3045,9 +3061,20 @@ impl SessionState {
 
     fn update_todos(&mut self, outbox: &mut Outbox, items: Vec<TodoItem>) {
         match self.todos_seq {
-            Some(seq) => self.replace_entry(outbox, ChatEntry::Todos { seq, items }),
+            Some(seq) => self.replace_entry(
+                outbox,
+                ChatEntry::Todos {
+                    seq,
+                    items,
+                    at: None,
+                },
+            ),
             None => {
-                let seq = self.push_entry(outbox, |seq: u32| ChatEntry::Todos { seq, items });
+                let seq = self.push_entry(outbox, |seq: u32| ChatEntry::Todos {
+                    seq,
+                    items,
+                    at: None,
+                });
                 self.todos_seq = Some(seq);
             }
         }
@@ -3103,6 +3130,7 @@ impl SessionState {
                     seq,
                     text,
                     unsourced: Vec::new(),
+                    at: None,
                 });
                 self.turn_texts.push(seq);
             }
@@ -3112,6 +3140,7 @@ impl SessionState {
                     seq,
                     text,
                     seconds,
+                    at: None,
                 });
             }
             AgentEvent::ToolStarted {
@@ -3144,6 +3173,7 @@ impl SessionState {
                     tool,
                     target,
                     state: ToolState::Running,
+                    at: None,
                 });
                 self.tool_seqs.insert(tool_use_id, seq);
                 if is_write {
@@ -3217,6 +3247,7 @@ impl SessionState {
                 self.push_entry(outbox, |seq: u32| ChatEntry::Notice {
                     seq,
                     notice: Notice::Info { text },
+                    at: None,
                 });
             }
             AgentEvent::PermissionMode(raw) => self.note_permission_mode(outbox, &raw),
@@ -3379,6 +3410,7 @@ impl SessionState {
                 path: path.clone(),
                 file,
                 artifact_kind,
+                at: None,
             });
         }
     }
@@ -3527,6 +3559,7 @@ impl SessionState {
             tool_request,
             chain_limited,
             origin: None,
+            at: None,
         });
         self.pending.push((
             request_id,
@@ -3584,6 +3617,7 @@ impl SessionState {
                     seq,
                     title: "Fehler vom Agenten".to_owned(),
                     text,
+                    at: None,
                 });
                 self.set_status(outbox, SessionStatus::Error);
             }
@@ -3610,6 +3644,7 @@ impl SessionState {
                         task: guard.task,
                         settled: false,
                     },
+                    at: None,
                 });
             }
             _ => {}
@@ -3646,6 +3681,7 @@ impl SessionState {
                 seq,
                 text: text.clone(),
                 unsourced,
+                at: None,
             };
             self.replace_entry(outbox, entry);
             marked.push(seq);
@@ -3685,6 +3721,7 @@ impl SessionState {
                 cost_usd,
                 unsourced,
             },
+            at: None,
         });
     }
 
@@ -3705,6 +3742,7 @@ impl SessionState {
         self.push_entry(outbox, |seq: u32| ChatEntry::Notice {
             seq,
             notice: Notice::QuotaExhausted { text, resets_at },
+            at: None,
         });
         self.pause_after_interrupt(outbox);
         self.pause_reason = Some(PauseReason::Quota {
@@ -3773,6 +3811,7 @@ impl SessionState {
             seq,
             title: "Automatisches Fortsetzen fehlgeschlagen".to_owned(),
             text: message,
+            at: None,
         });
     }
 
@@ -3796,6 +3835,7 @@ impl SessionState {
             seq,
             title: "Agent beendet".to_owned(),
             text: format!("Claude wurde unerwartet beendet (Exit-Code {code})."),
+            at: None,
         });
         self.set_status(outbox, SessionStatus::Error);
     }
@@ -4206,6 +4246,7 @@ fn start_turn(
                         at: found.at,
                         summary: found.summary.clone(),
                     },
+                    at: None,
                 });
             }
             (titled, line)
@@ -4300,6 +4341,7 @@ fn start_process(
             text: "Diese Session lief bisher in einer anderen Betriebsart. Der Agent kennt den 
                    bisherigen Verlauf nicht — schreib ihm kurz, worum es geht."
                 .to_owned(),
+            at: None,
         });
     }
     let repositories = session.repositories();
@@ -4316,6 +4358,7 @@ fn start_process(
                     text: format!(
                         "{name}: {reason} Der Agent arbeitet ohne dieses Repository weiter."
                     ),
+                    at: None,
                 });
             }
         }
@@ -4616,5 +4659,91 @@ fn answer_line(
         QuestionAnswer::Edit { .. } => Err(CommandError::Internal(
             "Antwort passt nicht zur Rückfrage".to_owned(),
         )),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::agents::event::tests::old_payloads;
+
+    fn entries_without_time() -> Vec<ChatEntry> {
+        old_payloads()
+            .into_iter()
+            .map(|json| serde_json::from_str(json).expect("alter Payload liest"))
+            .collect()
+    }
+
+    fn state() -> SessionState {
+        SessionState::new(
+            "Test".to_owned(),
+            ModelId::Sonnet,
+            Effort::Medium,
+            Mode::Manual,
+        )
+    }
+
+    #[test]
+    fn push_entry_stamps_every_kind() {
+        let mut state = state();
+        let mut outbox = Outbox::default();
+        let before = now_ms();
+        for entry in entries_without_time() {
+            // Die Reihenfolge der Payloads ist die der `seq`.
+            state.push_entry(&mut outbox, |_seq: u32| entry);
+        }
+        assert_eq!(state.entries.len(), 10);
+        for entry in state.entries.iter().chain(outbox.entries.iter()) {
+            let at = entry.at().expect("jede Art hat einen Zeitpunkt");
+            // Die Nachrichten bringen ihr `sent_at` aus dem alten Payload mit, die acht anderen den Stempel.
+            if !matches!(
+                entry,
+                ChatEntry::User { .. } | ChatEntry::SessionMessage { .. }
+            ) {
+                assert!(at >= before, "seq {}", entry.seq());
+            }
+        }
+    }
+
+    #[test]
+    fn push_entry_keeps_a_time_the_builder_set() {
+        let mut state = state();
+        let mut outbox = Outbox::default();
+        state.push_entry(&mut outbox, |seq: u32| ChatEntry::Error {
+            seq,
+            title: "t".to_owned(),
+            text: "x".to_owned(),
+            at: Some(5.0),
+        });
+        assert_eq!(state.entries[0].at(), Some(5.0));
+    }
+
+    #[test]
+    fn replace_entry_keeps_the_time_of_the_old_entry() {
+        let mut state = state();
+        let mut outbox = Outbox::default();
+        let seq = state.push_entry(&mut outbox, |seq: u32| ChatEntry::Todos {
+            seq,
+            items: Vec::new(),
+            at: Some(5.0),
+        });
+        state.todos_seq = Some(seq);
+        state.update_todos(&mut outbox, Vec::new());
+        assert_eq!(state.entries[seq as usize].at(), Some(5.0));
+        assert_eq!(outbox.entries.last().and_then(ChatEntry::at), Some(5.0));
+    }
+
+    #[test]
+    fn replace_entry_does_not_invent_a_time_for_an_old_entry() {
+        let mut state = state();
+        let mut outbox = Outbox::default();
+        state.entries.push(ChatEntry::Todos {
+            seq: 0,
+            items: Vec::new(),
+            at: None,
+        });
+        state.todos_seq = Some(0);
+        state.update_todos(&mut outbox, Vec::new());
+        assert_eq!(state.entries[0].at(), None);
     }
 }
