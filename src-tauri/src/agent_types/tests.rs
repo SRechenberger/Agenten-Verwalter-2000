@@ -898,6 +898,8 @@ fn folder_instead_of_file_is_unreadable_and_not_opened() {
     with_scratch_folder("folder", |folder: &Path| {
         let inner = folder.join("ordner");
         fs::create_dir(&inner).expect("Ordner");
+        let error = read_bounded(&inner).expect_err("ein Ordner ist keine Datei");
+        assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
         assert_eq!(
             bounded_message(folder, &inner),
             format!(
