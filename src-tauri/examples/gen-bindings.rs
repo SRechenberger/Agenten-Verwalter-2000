@@ -25,6 +25,7 @@ use verwalter_lib::{
     },
     cli_update::model::{CliUpdateOutcome, CliVersionStatus},
     codex::models::{CodexModel, CodexModels},
+    commands::agent_types::ProposalDecision,
     commands::app::AppInfo,
     context::model::{
         ContextBreakdown, ContextCategory, ContextChangedEvent, ContextFile, SessionContext,
@@ -262,5 +263,6 @@ fn main() -> Result<(), ts_rs::ExportError> {
     FieldError::export_all(&cfg)?;
     AgentTypeSaved::export_all(&cfg)?;
     AgentValueSource::export_all(&cfg)?;
+    ProposalDecision::export_all(&cfg)?;
     Ok(())
 }

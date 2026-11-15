@@ -98,6 +98,9 @@ mod remote;
 mod restore;
 mod retro;
 mod session_tools;
+// Rein; die Tests der Agententypen prüfen daran, dass `chat_answer` keinen Vorschlag beantwortet.
+#[cfg(test)]
+pub(crate) use session_tools::tool_answer_label;
 mod side;
 mod terminal;
 mod tldr;
@@ -4529,6 +4532,10 @@ fn answer_oldest_with_text(
     text: &str,
     device: Option<&str>,
 ) -> Result<(), CommandError> {
+    // Ein Vorschlag eines Agententyps kennt keine Ablehnung über `apply_answer` (ADR 063).
+    if session_tools::reject_proposal_with_text(state, outbox, 0, text, device) {
+        return Ok(());
+    }
     let Some((request_id, request)) = state.pending.first() else {
         return Ok(());
     };

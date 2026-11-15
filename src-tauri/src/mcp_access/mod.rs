@@ -22,6 +22,7 @@ use std::time::Duration;
 use serde_json::json;
 use tauri::AppHandle;
 
+use crate::agent_types::tools::AgentTypeTools;
 use crate::artifacts::tools::ArtifactTools;
 use crate::filesystem::workspace::data_dir;
 use crate::implementation::tools::ImplementationTools;
@@ -53,6 +54,7 @@ pub fn tool_sets() -> Vec<Box<dyn ToolSet>> {
         Box::new(ArtifactTools),
         Box::new(SessionTools),
         Box::new(ImplementationTools),
+        Box::new(AgentTypeTools),
     ]
 }
 
