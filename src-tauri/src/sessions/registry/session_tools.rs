@@ -927,3 +927,6 @@ pub(super) fn reject_proposal_with_text(
 fn text_of(error: CommandError) -> String {
     error.to_string()
 }
+
+#[cfg(test)]
+mod agent_types;

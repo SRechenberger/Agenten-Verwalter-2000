@@ -294,6 +294,21 @@ fn the_server_overwrites_the_origin_a_guest_sends_with_the_device_name() {
 }
 
 #[test]
+fn the_server_overwrites_the_origin_a_guest_sends_with_an_agent_type_proposal_answer() {
+    let scratch = Scratch::new();
+    let host = Stub::new(&scratch);
+    call(
+        &host,
+        &held_by_a(),
+        "a",
+        "agent_type_proposal_answer",
+        json!({ "sessionId": OWN_SESSION, "origin": "Vorgetäuscht" }),
+    )
+    .expect("Befehl");
+    assert_eq!(host.invoked()[0].1["origin"], "Gerät a");
+}
+
+#[test]
 fn the_server_adds_the_origin_when_the_guest_sends_none() {
     let scratch = Scratch::new();
     let host = Stub::new(&scratch);
