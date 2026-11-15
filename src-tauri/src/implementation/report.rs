@@ -227,6 +227,7 @@ fn state_label(state: StationState) -> &'static str {
         StationState::Countdown => "Countdown",
         StationState::Starting | StationState::Running => "läuft",
         StationState::WaitsForScript => "wartet auf einen Hintergrund-Befehl",
+        StationState::WaitsForQuota => "setzt automatisch fort",
         StationState::Asking => "fragt",
         StationState::WaitsForYou => "wartet auf dich",
         StationState::Done => "fertig",
@@ -261,6 +262,7 @@ fn now_lines(view: &ImplementationView) -> Vec<String> {
         let label = match station.state {
             StationState::Starting | StationState::Running => "läuft",
             StationState::WaitsForScript => "wartet auf einen Hintergrund-Befehl",
+            StationState::WaitsForQuota => "setzt automatisch fort",
             StationState::Asking => "fragt dich:",
             StationState::WaitsForYou => "wartet auf dich",
             StationState::Error => "Fehler",

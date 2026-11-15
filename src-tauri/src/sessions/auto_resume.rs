@@ -1,5 +1,6 @@
 //! Automatisch fortsetzen: schickt nach dem Zurücksetzen des Kontingents den Fortsetz-Text an die
-//! pausierte Session (ADR 051). Nur im Speicher: ein Neustart der App verliert Schalter und Zeitgeber.
+//! pausierte Session (ADR 051). Zeitgeber und Schalter der Session nur im Speicher: ein Neustart der
+//! App verliert sie; der Wert je Umsetzung und Station steht in der Datenbank (ADR 064).
 
 use std::thread;
 use std::time::Duration;

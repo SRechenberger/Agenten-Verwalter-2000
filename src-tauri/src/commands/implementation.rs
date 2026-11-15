@@ -116,6 +116,29 @@ pub async fn implementation_set_max_parallel(
     Ok(())
 }
 
+/// „Automatisch fortsetzen“ der Umsetzung nach aufgebrauchtem Kontingent (ADR 064): Die letzte Aktion
+/// gewinnt, alle nicht fertigen Stationen folgen; die Zeitgeber pausierter Stationen gehen an bzw. aus.
+#[tauri::command]
+pub async fn implementation_set_auto_resume(
+    app: AppHandle,
+    id: String,
+    enabled: bool,
+) -> Result<(), CommandError> {
+    implementation::set_auto_resume(&app, &id, enabled)
+}
+
+/// „Automatisch fortsetzen“ einer Station (ADR 064), `None` = wie die Umsetzung; bis sie fertig ist,
+/// auch mit Session. Nur der Benutzer setzt ihn.
+#[tauri::command]
+pub async fn implementation_set_station_auto_resume(
+    app: AppHandle,
+    id: String,
+    station_id: String,
+    value: Option<bool>,
+) -> Result<(), CommandError> {
+    implementation::set_station_auto_resume(&app, &id, &station_id, value)
+}
+
 /// „Anhalten nach dieser Session“: die nächste Fertigmeldung startet nichts mehr.
 #[tauri::command]
 pub async fn implementation_set_stop_after_current(

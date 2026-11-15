@@ -1,6 +1,6 @@
 # 051 — Aufgebrauchtes Kontingent als Warnung, Session pausiert mit Begründung
 
-**Status:** angenommen · **Datum:** 2026-11-03
+**Status:** angenommen, erweitert durch [ADR 064](064-automatisch-fortsetzen.md) („Automatisch fortsetzen“ je Umsetzung und Station, gespeichert) · **Datum:** 2026-11-03
 
 ## Kontext
 

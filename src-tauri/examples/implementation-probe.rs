@@ -23,8 +23,9 @@
 //! `… --example implementation-probe -- --selftest` prüft die Planung aus Kanten (ADR 061) gegen eine
 //! **eigene temporäre** Datenbank: Sortierung, bereiter Satz, Zyklus, Einfügen, Verzweigung und
 //! Zusammenlauf, Migration aus Position und Welle, Warteschlange, dazu die Konfiguration je Station
-//! (Automatisch starten, Sperren nach Zustand, Vorgänger dürfen, Bei Fehler). Je Fall eine Zeile `PASS`/`FAIL`,
-//! Exit 1 bei einem Fehlschlag.
+//! (Automatisch starten, Sperren nach Zustand, Vorgänger dürfen, Bei Fehler) und „Automatisch
+//! fortsetzen“ nach dem Kontingent (ADR 064). Je Fall eine Zeile `PASS`/`FAIL`, Exit 1 bei einem
+//! Fehlschlag.
 use std::collections::HashMap;
 use std::env;
 use std::fs;
@@ -52,9 +53,10 @@ use verwalter_lib::implementation::model::{
 };
 use verwalter_lib::implementation::report::Extras;
 use verwalter_lib::implementation::{
-    Countdowns, STATION_BEGUN, SessionLive, amended_brief_changes, build_view, changes,
-    checked_options, checked_settings, handoff_changes, kept_phases, link, new_rows, now_ms,
-    plan_completion, plan_completion_with_types, report, schedule, start, wake,
+    Countdowns, STATION_BEGUN, SessionLive, amended_brief_changes, arms_on_new_pause, build_view,
+    changes, checked_options, checked_settings, continues_after_quota, handoff_changes,
+    kept_phases, link, new_rows, now_ms, plan_completion, plan_completion_with_types, report,
+    schedule, start, wake,
 };
 use verwalter_lib::sessions::model::SessionStatus;
 
@@ -201,6 +203,7 @@ fn create(database_path: &Path, session_id: &str, json_file: &Path) -> Result<St
                 &input.phases,
                 input.max_parallel,
                 now_ms(),
+                false,
             )
             .map_err(CommandError::Implementation)?;
             implementations::insert(connection, &implementation, &phases, &stations)?;
@@ -595,6 +598,7 @@ fn create_in(
         phases,
         max_parallel,
         now_ms(),
+        false,
     )?;
     database
         .with(|connection| {
@@ -610,6 +614,18 @@ fn view_with(
     implementation_id: &str,
     countdowns: &HashMap<String, f64>,
     sessions: &[(&str, SessionStatus)],
+) -> Result<ImplementationView, String> {
+    view_with_quota(database, implementation_id, countdowns, sessions, &[])
+}
+
+/// Wie `view_with`; die Sessions der Stationen in `waiting_for_quota` pausieren mit scharfem Zeitgeber
+/// von „Automatisch fortsetzen“ (ADR 064).
+fn view_with_quota(
+    database: &Database,
+    implementation_id: &str,
+    countdowns: &HashMap<String, f64>,
+    sessions: &[(&str, SessionStatus)],
+    waiting_for_quota: &[&str],
 ) -> Result<ImplementationView, String> {
     let mut stored: StoredImplementation = database
         .with(|connection| implementations::load(connection, implementation_id))
@@ -637,6 +653,7 @@ fn view_with(
                 unread: false,
                 awaits_script: false,
                 is_fresh_error: false,
+                waits_for_quota: waiting_for_quota.contains(plan_id),
             },
         );
     }
@@ -1036,6 +1053,7 @@ fn selftest(path: &Path) -> Result<bool, String> {
     );
 
     all &= station_options(&database)?;
+    all &= auto_resume(&database, path)?;
     all &= plan_edits(&database)?;
     all &= handoffs(&database)?;
     all &= wakes();
@@ -1284,6 +1302,7 @@ fn view_failed(
             unread: false,
             awaits_script: false,
             is_fresh_error: fresh,
+            waits_for_quota: false,
         },
     )]);
     Ok(build_view(
@@ -1308,6 +1327,112 @@ fn stored_row(
 
 /// Station konfigurierbar (ADR 061): Automatisch starten je Station, Sperren nach Zustand, die drei
 /// Stufen von „Vorgänger dürfen“, der Zähler von „Bei Fehler“ samt Platz in der Warteschlange.
+/// „Automatisch fortsetzen“ (ADR 064): wirksamer Wert, letzte Aktion gewinnt, Platz in der
+/// Warteschlange, Schutz vor einer Schleife, Neustart.
+fn auto_resume(database: &Database, path: &Path) -> Result<bool, String> {
+    let mut all = true;
+    let plan = phases_of(serde_json::json!([{ "key": "1", "title": "Q", "stations": [
+        { "stage": "A", "id": "a", "after": [] },
+        { "stage": "B", "id": "b", "after": [] },
+        { "stage": "C", "id": "c", "after": [] },
+    ] }]))?;
+    let implementation = create_in(database, &plan, Some(1))?;
+    let view = plan_view(database, &implementation)?;
+    let (a, b) = (id_of(&view, "a"), id_of(&view, "b"));
+    let write_station = |station_id: &str, value: Option<bool>| {
+        database
+            .with(|connection| {
+                implementations::set_station_auto_resume(connection, station_id, value)
+            })
+            .map_err(|error| error.to_string())
+    };
+    let write_implementation = |enabled: bool| {
+        database
+            .with(|connection| {
+                implementations::set_auto_resume(connection, &implementation, enabled)
+            })
+            .map_err(|error| error.to_string())
+    };
+    let effective = |view: &ImplementationView| {
+        ["a", "b", "c"].map(|plan_id: &str| {
+            station(view, plan_id)
+                .is_some_and(|station: &StationView| station.resumes_automatically)
+        })
+    };
+    let fresh = effective(&plan_view(database, &implementation)?);
+    write_station(&a, Some(true))?;
+    write_station(&b, Some(false))?;
+    write_implementation(false)?;
+    let after_switch_off = effective(&plan_view(database, &implementation)?);
+    write_station(&a, Some(false))?;
+    write_station(&b, Some(true))?;
+    let station_values = effective(&plan_view(database, &implementation)?);
+    write_implementation(true)?;
+    let switched_on = plan_view(database, &implementation)?;
+    all &= check(
+        "Automatisch fortsetzen: neu aus, Station vor Umsetzung, Schalter der Umsetzung gewinnt zuletzt",
+        fresh == [false, false, false]
+            && after_switch_off == [false, false, false]
+            && station_values == [false, true, false]
+            && effective(&switched_on) == [true, true, true]
+            && switched_on.auto_resume,
+    );
+
+    let waiting = view_with_quota(
+        database,
+        &implementation,
+        &HashMap::new(),
+        &[("a", SessionStatus::Paused)],
+        &["a"],
+    )?;
+    let disarmed = view_with(
+        database,
+        &implementation,
+        &HashMap::new(),
+        &[("a", SessionStatus::Paused)],
+    )?;
+    let holds = station(&waiting, "a").is_some_and(|station: &StationView| {
+        station.state == StationState::WaitsForQuota && station.is_active()
+    }) && waiting.queued == 2;
+    let frees = station(&disarmed, "a")
+        .is_some_and(|station: &StationView| station.state == StationState::WaitsForYou)
+        && disarmed.queued == 1;
+    all &= check(
+        "Automatisch fortsetzen: wartet auf das Kontingent hält den Platz, aus gibt ihn frei",
+        holds && frees,
+    );
+
+    let now = now_ms();
+    let open = station(&switched_on, "c").ok_or("keine Station c")?;
+    mark_done(database, &switched_on, "c")?;
+    let done_view = plan_view(database, &implementation)?;
+    let done = station(&done_view, "c").ok_or("keine Station c")?;
+    all &= check(
+        "Automatisch fortsetzen: neue Pause nur mit Rücksetzzeit in der Zukunft, fertig nie",
+        arms_on_new_pause(open, now + 60_000.0, now)
+            && !arms_on_new_pause(open, now - 1.0, now)
+            && !continues_after_quota(true, None, now)
+            && !arms_on_new_pause(done, now + 60_000.0, now),
+    );
+
+    write_station(&a, Some(false))?;
+    let reopened = Database::open(path).map_err(|error| error.to_string())?;
+    let restarted = view_with(
+        &reopened,
+        &implementation,
+        &HashMap::new(),
+        &[("a", SessionStatus::Paused)],
+    )?;
+    all &= check(
+        "Automatisch fortsetzen, Neustart: Werte bleiben, keine Station wartet auf das Kontingent",
+        restarted.auto_resume
+            && effective(&restarted) == [false, true, true]
+            && station(&restarted, "a")
+                .is_some_and(|station: &StationView| station.state == StationState::WaitsForYou),
+    );
+    Ok(all)
+}
+
 fn station_options(database: &Database) -> Result<bool, String> {
     let mut all = true;
     let plan = phases_of(serde_json::json!([{ "key": "1", "title": "O", "stations": [

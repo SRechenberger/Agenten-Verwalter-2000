@@ -254,7 +254,7 @@ pub fn replacement_rows(
 /// gleicher laufender Nummer unter den Stationen dieser Stufe in der Phase `agent`, `model`,
 /// `effort`, `prompt` und `skill`, wenn die ersetzte `edited` trägt und die Eingabe den Wert nicht
 /// nennt, dazu „Automatisch starten“, „Bei Fehler“ und „Vorgänger dürfen“, wenn die Eingabe den
-/// Standard lässt (ADR 061); sie trägt dann selbst `edited`. Was der Planer nennt, gilt. Läuft nach `keep_known_ids`:
+/// Standard lässt (ADR 061), und „Automatisch fortsetzen“ (ADR 064); sie trägt dann selbst `edited`. Was der Planer nennt, gilt. Läuft nach `keep_known_ids`:
 /// Eine Phase mit bekanntem Schlüssel hat dann die `id` der ersetzten, gleicher Schlüssel heißt also
 /// gleiche `phase_id`.
 pub fn keep_settings(removed: &[StationRow], stations: &mut [StationRow]) {
@@ -284,6 +284,7 @@ pub fn keep_settings(removed: &[StationRow], stations: &mut [StationRow]) {
         station.prompt = station.prompt.take().or_else(|| old.prompt.clone());
         station.skill = station.skill.take().or_else(|| old.skill.clone());
         station.auto_start = station.auto_start.or(old.auto_start);
+        station.auto_resume = station.auto_resume.or(old.auto_resume);
         if station.on_error == OnError::default() {
             station.on_error = old.on_error;
         }

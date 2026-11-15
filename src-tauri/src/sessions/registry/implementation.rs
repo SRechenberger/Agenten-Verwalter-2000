@@ -34,7 +34,7 @@ use crate::implementation::wake::{self, WakeEvent, WakeFacts};
 use crate::implementation::{
     self, Countdowns, STATION_BEGUN, SessionLive, build_view, new_rows, station_in,
 };
-use crate::sessions::model::SessionStatus;
+use crate::sessions::model::{PauseReason, SessionStatus};
 use crate::settings::{self, model::OperatingMode};
 use crate::worktrees::SessionRepository;
 
@@ -131,6 +131,7 @@ impl SessionRegistry {
         max_parallel: Option<u32>,
     ) -> Result<ImplementationView, CommandError> {
         let project_id = self.get(session_id)?.project_id.clone();
+        let default_auto_resume = settings::load(&self.database)?.default_auto_resume;
         let (row, phase_rows, station_rows) = new_rows(
             &project_id,
             session_id,
@@ -139,6 +140,7 @@ impl SessionRegistry {
             phases,
             max_parallel,
             now_ms(),
+            default_auto_resume,
         )
         .map_err(CommandError::Implementation)?;
         self.database.with(|connection| {
@@ -397,6 +399,44 @@ impl SessionRegistry {
                 finished_at,
             )
         })
+    }
+
+    /// „Automatisch fortsetzen“ der Umsetzung; die nicht fertigen Stationen stehen danach auf „wie die
+    /// Umsetzung“ (ADR 064).
+    pub fn store_auto_resume(
+        &self,
+        implementation_id: &str,
+        enabled: bool,
+    ) -> Result<(), CommandError> {
+        self.database.with(|connection| {
+            implementation_rows::set_auto_resume(connection, implementation_id, enabled)
+        })
+    }
+
+    /// „Automatisch fortsetzen“ einer Station (ADR 064); `false`, wenn sie fertig ist oder dem Benutzer
+    /// gehört.
+    pub fn store_station_auto_resume(
+        &self,
+        station_id: &str,
+        value: Option<bool>,
+    ) -> Result<bool, CommandError> {
+        self.database.with(|connection| {
+            implementation_rows::set_station_auto_resume(connection, station_id, value)
+        })
+    }
+
+    /// Die Rücksetzzeit, wenn die Session am Kontingent pausiert, die Zeit bekannt ist und ihr Zeitgeber
+    /// noch nicht scharf ist (ADR 064); kurz unter ihrer Sperre, sonst `None`.
+    pub fn unarmed_quota_pause(&self, session_id: &str) -> Option<f64> {
+        let session = self.get(session_id).ok()?;
+        let state = session.lock();
+        match state.pause_reason {
+            Some(PauseReason::Quota {
+                resets_at: Some(resets_at),
+                auto_resume: false,
+            }) if state.status == SessionStatus::Paused => Some(resets_at),
+            _ => None,
+        }
     }
 
     /// Setzt `max_parallel` (ADR 061); `None` = unbegrenzt.
@@ -764,14 +804,34 @@ impl SessionRegistry {
 
 /// Der Haken nach dem Ende einer Station-Session (ADR 061) in einem eigenen Thread: Er nimmt seine
 /// Sperren selbst, und `update` kann unter anderen Sperren gerufen sein.
-pub(super) fn schedule_station_session_end(app: &AppHandle, implementation_id: String) {
+pub(super) fn schedule_station_session_end(
+    app: &AppHandle,
+    implementation_id: String,
+    session_id: String,
+) {
     let thread_app = app.clone();
     let spawned = thread::Builder::new()
         .name("implementation-queue".to_owned())
         .spawn(move || {
             if let Err(error) =
-                implementation::station_session_ended(&thread_app, &implementation_id)
+                implementation::station_session_ended(&thread_app, &implementation_id, &session_id)
             {
+                eprintln!("Warteschlange der Umsetzung nicht neu geplant: {error}");
+            }
+        });
+    if let Err(error) = spawned {
+        eprintln!("Warteschlange der Umsetzung nicht geplant: {error}");
+    }
+}
+
+/// Der Zeitgeber einer Station ging ohne neuen Status aus (ADR 064): plant die Warteschlange neu, im
+/// eigenen Thread aus demselben Grund wie `schedule_station_session_end`.
+pub(super) fn schedule_station_disarmed(app: &AppHandle, implementation_id: String) {
+    let thread_app = app.clone();
+    let spawned = thread::Builder::new()
+        .name("implementation-queue".to_owned())
+        .spawn(move || {
+            if let Err(error) = implementation::station_disarmed(&thread_app, &implementation_id) {
                 eprintln!("Warteschlange der Umsetzung nicht neu geplant: {error}");
             }
         });
@@ -832,5 +892,13 @@ fn live_of(session: &Session, now: f64) -> SessionLive {
         unread: state.last_activity_at > state.seen_at,
         awaits_script: state.awaited_script().is_some(),
         is_fresh_error: state.fresh_error,
+        waits_for_quota: state.status == SessionStatus::Paused
+            && matches!(
+                state.pause_reason,
+                Some(PauseReason::Quota {
+                    auto_resume: true,
+                    ..
+                })
+            ),
     }
 }

@@ -228,6 +228,8 @@ export function stateText(station: StationView, now: number): string {
       return `läuft seit ${durationText(runningFor(station, now))}`;
     case 'waitsForScript':
       return 'wartet auf einen Hintergrund-Befehl, etwa den Testlauf';
+    case 'waitsForQuota':
+      return 'setzt automatisch fort';
     case 'asking':
       return 'fragt dich';
     case 'waitsForYou':
@@ -257,6 +259,8 @@ export function stationMeta(station: StationView, now: number): string {
       return `läuft ${durationText(runningFor(station, now))}`;
     case 'waitsForScript':
       return 'Skript läuft';
+    case 'waitsForQuota':
+      return 'setzt automatisch fort';
     case 'asking':
       return 'fragt';
     case 'waitsForYou':
@@ -373,6 +377,8 @@ export function rowStateText(station: StationView, now: number): string {
       return `läuft · ${durationText(runningFor(station, now))}`;
     case 'waitsForScript':
       return 'Skript läuft';
+    case 'waitsForQuota':
+      return 'setzt automatisch fort';
     case 'asking':
       return 'Frage offen';
     case 'waitsForYou':
