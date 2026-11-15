@@ -63,6 +63,10 @@ pub enum Notice {
     /// (ADR 048). `at` ist der Stand des Berichts in Millisekunden seit 1970, `summary` die
     /// kürzeste Änderung („Phase 2 fertig“).
     ReportUpdated { at: f64, summary: String },
+    /// Ein Planungszug endete auch nach den Erinnerungen des Wächters ohne `implementation_create`
+    /// (ADR 062). `task` ist der Auftrag für „Erneut“; `settled`, sobald „Erneut“ oder „Trotzdem
+    /// weiter“ gewählt ist.
+    PlanMissing { task: String, settled: bool },
     /// Ende einer Antwort mit abgelehnten Aufrufen oder Kosten.
     TurnSummary {
         denials: Vec<Denial>,

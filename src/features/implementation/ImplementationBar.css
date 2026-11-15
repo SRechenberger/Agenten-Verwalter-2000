@@ -39,6 +39,48 @@
     align-items: center;
   }
 
+  /* „Parallel max.“ als Zähler (− n +) statt Auswahlliste. */
+  &__step {
+    display: inline-flex;
+    align-items: center;
+    overflow: hidden;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    background: var(--color-bg-base);
+    color: var(--color-fg-primary);
+
+    & > button {
+      width: 22px;
+      padding: 0;
+      border: 0;
+      background: var(--color-bg-hover);
+      color: inherit;
+      font: inherit;
+      line-height: 20px;
+      cursor: pointer;
+
+      &:hover:not(:disabled) {
+        background: var(--color-bg-selected);
+      }
+
+      &:disabled {
+        cursor: not-allowed;
+        opacity: 0.5;
+      }
+    }
+
+    & > b {
+      min-width: 22px;
+      font-weight: 600;
+      text-align: center;
+    }
+  }
+
+  &__queue {
+    color: var(--color-status-handoff);
+    white-space: nowrap;
+  }
+
   &__actions {
     display: inline-flex;
     flex-wrap: wrap;

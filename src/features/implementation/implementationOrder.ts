@@ -1,4 +1,4 @@
-import { stationTone, urgencyRank, type StationTone } from '@/features/implementation/stationState';
+import { urgencyRank } from '@/features/implementation/stationState';
 import type { ChangeView } from '@/lib/bindings/ChangeView';
 import type { ImplementationView } from '@/lib/bindings/ImplementationView';
 import type { PhaseView } from '@/lib/bindings/PhaseView';
@@ -9,8 +9,6 @@ import type { StationView } from '@/lib/bindings/StationView';
  *  Änderungen unter `change:<ID>`. */
 export const PENDING_FOCUS = 'plan:pending';
 const CHANGE_PREFIX = 'change:';
-/** Spuren einer Welle; ab der vierten Phase teilt sich eine Phase die dritte Spur. */
-const MAX_LANE = 3;
 /** Zustände, in denen eine Station gerade Arbeit hat oder vom Benutzer braucht. */
 const ACTIVE_STATES: readonly StationState[] = [
   'running',
@@ -34,87 +32,45 @@ export interface StationNeighbors {
   next: StationRef[];
 }
 
-/** Aufeinanderfolgende Phasen derselben Welle; eine Phase ohne Welle ist eine Gruppe für sich. */
-export interface PhaseGroup {
-  phases: PhaseView[];
-  /** Nummer der Welle; `null`, wenn die Gruppe nur eine Phase hat. */
-  wave: number | null;
-}
-
 export function changeFocusId(change: ChangeView): string {
   return `${CHANGE_PREFIX}${change.id}`;
+}
+
+/** Hat die Station eine Session oder ist sie fertig? Dann sind Auftrag, Agent und Kanten fest (ADR 061). */
+export function isBegun(station: StationView): boolean {
+  return station.sessionId !== null || station.completedAt !== null;
+}
+
+/** Name einer Station in Chips und Sätzen: die Stufe, bei gleichen Namen in mehreren Lanes mit Lane
+ *  („Review · Lane 2“). */
+export function stationName(ref: StationRef, refs: readonly StationRef[]): string {
+  const isShared: boolean = refs.some(
+    (other: StationRef) =>
+      other.station.id !== ref.station.id && other.station.stage === ref.station.stage,
+  );
+  return isShared ? `${ref.station.stage} · Lane ${ref.phase.key}` : ref.station.stage;
 }
 
 export function changeIdOf(focusId: string): string | null {
   return focusId.startsWith(CHANGE_PREFIX) ? focusId.slice(CHANGE_PREFIX.length) : null;
 }
 
-/** Alle Stationen in Plan-Reihenfolge, jede mit ihrer Phase. */
+/** Alle Stationen in der Reihenfolge der Zeitleiste, jede mit ihrer Lane: nach Stufe (`level`), innerhalb
+ *  einer Stufe in Plan-Reihenfolge; das ist eine topologische Reihenfolge der Kanten (ADR 061). */
 export function flatStations(implementation: ImplementationView): StationRef[] {
-  const refs: StationRef[] = [];
+  const inPlan: Omit<StationRef, 'index'>[] = [];
   for (const phase of implementation.phases) {
     for (const station of phase.stations) {
-      refs.push({ station, phase, index: refs.length });
+      inPlan.push({ station, phase });
     }
   }
-  return refs;
-}
-
-/** Gruppen wie im Core (`schedule::groups`): gleiche Welle in Folge = eine Gruppe. */
-export function phaseGroups(phases: readonly PhaseView[]): PhaseGroup[] {
-  const groups: PhaseGroup[] = [];
-  let previousWave: number | null = null;
-  for (const phase of phases) {
-    const lastGroup: PhaseGroup | undefined = groups[groups.length - 1];
-    if (lastGroup !== undefined && phase.wave !== null && phase.wave === previousWave) {
-      lastGroup.phases.push(phase);
-      lastGroup.wave = phase.wave;
-    } else {
-      groups.push({ phases: [phase], wave: null });
-    }
-    previousWave = phase.wave;
-  }
-  return groups;
-}
-
-/** Spur (1–3) der Phase an Stelle `index` einer Welle. */
-export function laneOf(index: number): number {
-  return Math.min(index, MAX_LANE - 1) + 1;
-}
-
-/** Stationen sind fertig, wenn jede gemeldet ist. */
-function isPhaseDone(phase: PhaseView): boolean {
-  return phase.stations.every((station: StationView) => station.state === 'done');
-}
-
-/** Farbe der Linie, die bei jeder Station von oben ankommt: grün bis zur letzten fertigen, dann in der
- *  Farbe der aktuellen (der ersten nicht fertigen ihrer Phase, sobald alle Gruppen davor fertig sind),
- *  sonst grau. */
-export function stationTones(implementation: ImplementationView): Map<string, StationTone> {
-  const tones = new Map<string, StationTone>();
-  let isReached = true;
-  for (const group of phaseGroups(implementation.phases)) {
-    for (const phase of group.phases) {
-      let hasCurrent = false;
-      for (const station of phase.stations) {
-        tones.set(station.id, toneOf(station, isReached && !hasCurrent));
-        hasCurrent = hasCurrent || station.state !== 'done';
-      }
-    }
-    isReached = isReached && group.phases.every(isPhaseDone);
-  }
-  return tones;
-}
-
-function toneOf(station: StationView, isCurrent: boolean): StationTone {
-  if (station.state === 'done') {
-    return 'done';
-  }
-  if (isCurrent) {
-    const tone: StationTone = stationTone(station);
-    return tone === 'done' ? 'todo' : tone;
-  }
-  return 'todo';
+  // `sort` ist stabil (ES2019): Gleiche Stufe behält die Plan-Reihenfolge.
+  return inPlan
+    .sort(
+      (a: Omit<StationRef, 'index'>, b: Omit<StationRef, 'index'>) =>
+        a.station.level - b.station.level,
+    )
+    .map((ref: Omit<StationRef, 'index'>, index: number): StationRef => ({ ...ref, index }));
 }
 
 /** Die Station, die vorn liegt, solange niemand gewählt hat: die dringendste, bei Gleichstand die
@@ -187,15 +143,9 @@ function otherActive(refs: readonly StationRef[], focused: StationRef): StationR
   );
 }
 
-/** Wie viele Phasen der laufenden Gruppe gerade arbeiten oder fragen („2 Spuren aktiv“). */
+/** Wie viele Lanes gerade arbeiten oder fragen („2 Lanes aktiv“). */
 export function activeLaneCount(implementation: ImplementationView): number {
-  const group: PhaseGroup | undefined = phaseGroups(implementation.phases).find(
-    (candidate: PhaseGroup) => !candidate.phases.every(isPhaseDone),
-  );
-  if (group === undefined) {
-    return 0;
-  }
-  return group.phases.filter((phase: PhaseView) =>
+  return implementation.phases.filter((phase: PhaseView) =>
     phase.stations.some((station: StationView) => ACTIVE_STATES.includes(station.state)),
   ).length;
 }

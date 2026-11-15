@@ -6,10 +6,10 @@ import type { OperatingMode } from '@/lib/bindings/OperatingMode';
 import type { SessionSummary } from '@/lib/bindings/SessionSummary';
 import type { StationView } from '@/lib/bindings/StationView';
 
-// Was die Karte und der Dialog einer Station über ihren Typ, ihr Modell und ihren Denkaufwand sagen
+// Was die Zeile und die Kartei einer Station über ihren Typ, ihr Modell und ihren Denkaufwand sagen
 // (ADR 060; Plan „Agententypen für Stationen“, Abschnitte 4.3 und 4.5). Die Karte liest die
-// Auflösung, die der Core vor dem Start in `StationView` liefert; nur die Vorschau im Dialog rechnet
-// sie für einen Entwurf selbst nach, denn der Core kennt den Entwurf nicht.
+// Auflösung, die der Core vor dem Start in `StationView` liefert; nur „Standard: …“ in der Kartei rechnet
+// den Wert ohne Abweichung der Station selbst nach, denn der Core liefert nur den aufgelösten.
 
 /** Woher ein Wert kommt: Station, Typ oder die allgemeine Regel. */
 export type ValueSource = AgentValueSource | 'rule';
@@ -137,30 +137,6 @@ export function cardAgentFacts(
   };
 }
 
-/** Die fünf Einstellungen, wie der Dialog sie hält; leer heißt „wie der Typ“ (Typ: „nach Stationsname“). */
-export interface StationDraft {
-  agent: string;
-  model: ModelId | null;
-  effort: Effort | null;
-  prompt: string;
-  skill: string;
-}
-
-/** Der Typ, als der die Station mit diesem Entwurf liefe. `missing` ist der Name, den der Entwurf nennt und
- *  den es nicht gibt (ein gelöschter Typ); der Start scheiterte dann. */
-export interface DraftType {
-  type: AgentType | null;
-  missing: string | null;
-}
-
-export function draftType(types: readonly AgentType[], stage: string, agent: string): DraftType {
-  if (agent.trim() === '') {
-    return { type: typeForStage(types, stage), missing: null };
-  }
-  const named: AgentType | null = typeNamed(types, agent);
-  return { type: named, missing: named === null ? agent.trim() : null };
-}
-
 /** Wert nach der Auflösung des Entwurfs (Abschnitt 4.3 mit 4.5): Station, sonst Typ (nur in Claude), sonst Regel
  *  (nur in Claude; sonst gilt „wie die Session“, `null`). */
 export function draftValue<T extends string>(
@@ -181,18 +157,9 @@ export function draftValue<T extends string>(
   return rule === null ? null : { value: rule, source: 'rule' };
 }
 
-/** Der Skill, mit dem die Station startet, und woher er kommt. */
-export interface DraftSkill {
-  name: string;
-  source: 'station' | 'type';
-}
-
-/** Der Skill, mit dem die Station startet: ihr eigener, sonst der erste des Typs. */
-export function draftSkill(skill: string, type: AgentType | null): DraftSkill | null {
-  const own: string = skill.trim().replace(/^\//, '');
-  if (own !== '') {
-    return { name: own, source: 'station' };
-  }
-  const first: string | undefined = type?.skills[0];
-  return first === undefined ? null : { name: first, source: 'type' };
+/** Der Typ, als den die Kartei die Station zeigt: gestartet der der Session, sonst der gewählte oder der
+ *  nach dem Stationsnamen. */
+export function typeOfStation(types: readonly AgentType[], station: StationView): AgentType | null {
+  const name: string | null = station.agentType ?? station.agent;
+  return name === null ? typeForStage(types, station.stage) : typeNamed(types, name);
 }

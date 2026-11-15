@@ -4,9 +4,12 @@ use tauri::AppHandle;
 
 use crate::error::CommandError;
 use crate::implementation::model::{
-    ImplementationView, InquiryCreated, PhaseView, StationSettings, StationView,
+    ImplementationView, InquiryCreated, PhaseView, PlanEdit, StationOptions, StationSettings,
+    StationView, check_max_parallel,
 };
-use crate::implementation::{self, announce, changes, now_ms, start};
+use crate::implementation::{
+    self, announce, changes, edit, has_begun, is_automatic, now_ms, refills_after_switch_off, start,
+};
 use crate::remote::client::RemoteClients;
 use crate::remote::guest;
 use crate::sessions::registry::SessionRegistry;
@@ -57,8 +60,9 @@ pub async fn implementation_rename(
     Ok(())
 }
 
-/// Schaltet „Automatisch weiter“. Aus: laufende Countdowns enden. An: Stationen, die starten
-/// dürfen, bekommen einen Countdown.
+/// Schaltet „Automatisch weiter“. Aus: laufende Countdowns enden, außer an Stationen, deren
+/// „Automatisch starten“ an ist; deren Warteschlange rückt in die frei gewordenen Plätze (ADR 061).
+/// An: Stationen, die starten dürfen, bekommen einen Countdown.
 #[tauri::command]
 pub async fn implementation_set_auto_start(
     app: AppHandle,
@@ -71,13 +75,42 @@ pub async fn implementation_set_auto_start(
     if enabled {
         start::schedule_ready(&app, &id)?;
     } else {
-        for station in view
+        for station in registry
+            .implementation_view(&id)?
             .phases
             .iter()
             .flat_map(|phase: &PhaseView| phase.stations.iter())
+            .filter(|station: &&StationView| !station.starts_automatically)
         {
             let _ = registry.cancel_countdown(&station.id);
         }
+        if refills_after_switch_off(&registry.implementation_view(&id)?) {
+            start::schedule_ready(&app, &id)?;
+        }
+    }
+    announce(&app, &registry.implementation_view(&id)?);
+    Ok(())
+}
+
+/// „Parallel max.“ (ADR 061): Grenze gleichzeitig aktiver Stationen, `None` = unbegrenzt. Plant die
+/// Warteschlange neu, sobald die Umsetzung begonnen hat und die Automatik an ist.
+#[tauri::command]
+pub async fn implementation_set_max_parallel(
+    app: AppHandle,
+    registry: tauri::State<'_, SessionRegistry>,
+    id: String,
+    max_parallel: Option<u32>,
+) -> Result<(), CommandError> {
+    check_max_parallel(max_parallel).map_err(CommandError::Implementation)?;
+    registry.implementation_view(&id)?;
+    registry.store_max_parallel(&id, max_parallel)?;
+    let view = registry.implementation_view(&id)?;
+    if has_begun(&view)
+        && is_automatic(&view)
+        && !view.stop_after_current
+        && view.finished_at.is_none()
+    {
+        start::schedule_ready(&app, &id)?;
     }
     announce(&app, &registry.implementation_view(&id)?);
     Ok(())
@@ -93,6 +126,10 @@ pub async fn implementation_set_stop_after_current(
 ) -> Result<(), CommandError> {
     let view = registry.implementation_view(&id)?;
     registry.store_implementation_flags(&id, view.auto_start, enabled, view.finished_at)?;
+    if !enabled {
+        // Ein Neustart nach Fehler, den der Halt aufhielt, hat sonst keinen Auslöser mehr.
+        start::restart_failed(&app, &id)?;
+    }
     announce(&app, &registry.implementation_view(&id)?);
     Ok(())
 }
@@ -119,6 +156,29 @@ pub async fn implementation_set_station_agent(
     implementation::set_station_agent(&app, &id, &station_id, &settings)
 }
 
+/// „Automatisch starten“, „Bei Fehler“ und „Vorgänger dürfen“ einer Station (ADR 061); nur der Benutzer
+/// setzt sie. Nach dem Start bleibt nur „Bei Fehler“ änderbar, eine fertige Station ist nur lesbar.
+#[tauri::command]
+pub async fn implementation_set_station_options(
+    app: AppHandle,
+    id: String,
+    station_id: String,
+    options: StationOptions,
+) -> Result<(), CommandError> {
+    implementation::set_station_options(&app, &id, &station_id, &options)
+}
+
+/// „Entfernen“ einer Ergänzung bzw. „Zurücksetzen“ eines Ersatzes am Auftrag, bis zum Start (ADR 061).
+#[tauri::command]
+pub async fn implementation_remove_brief_change(
+    app: AppHandle,
+    id: String,
+    station_id: String,
+    change_id: String,
+) -> Result<(), CommandError> {
+    implementation::remove_brief_change(&app, &id, &station_id, &change_id)
+}
+
 /// „Abbrechen“: der Countdown endet, die Station bleibt bereit.
 #[tauri::command]
 pub async fn implementation_cancel_countdown(
@@ -139,6 +199,17 @@ pub async fn implementation_apply_change(
     accept: bool,
 ) -> Result<(), CommandError> {
     changes::decide(&app, &id, accept)
+}
+
+/// Der Benutzer ändert den Plan direkt (ADR 061, Werkzeuge): dasselbe Delta und dieselbe Prüfung wie
+/// `implementation_edit`, ohne Karte, etwa Kanten-Chips oder „Neue Lane“. Plant danach neu.
+#[tauri::command]
+pub async fn implementation_edit_plan(
+    app: AppHandle,
+    id: String,
+    edit: PlanEdit,
+) -> Result<(), CommandError> {
+    edit::apply(&app, &id, &edit, None)
 }
 
 /// „Erledigt“ für eine Station des Benutzers.

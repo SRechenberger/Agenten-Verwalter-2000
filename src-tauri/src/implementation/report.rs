@@ -51,12 +51,24 @@ pub fn text_with(
         lines.push(format!("Ziel: {goal}"));
     }
     lines.push(format!(
-        "Stand: Phase {} von {} · {} von {} Sessions fertig",
+        "Stand: Lane {} von {} · {} von {} Sessions fertig",
         view.current_phase,
         view.phases.len(),
         view.stations_done,
         view.stations_total
     ));
+    lines.push(match view.max_parallel {
+        Some(limit) => format!(
+            "Parallel: höchstens {limit} · Warteschlange: {}",
+            view.queued
+        ),
+        None => "Parallel: unbegrenzt".to_owned(),
+    });
+    let starts: Vec<&str> = stations(view)
+        .filter(|(_, station): &(&PhaseView, &StationView)| station.after.is_empty())
+        .map(|(_, station): (&PhaseView, &StationView)| station.plan_id.as_str())
+        .collect();
+    lines.push(format!("Startstationen: {}", list_or_none(&starts)));
     push_section(&mut lines, "Jetzt", now_lines(view), "nichts läuft");
     push_section(&mut lines, "Fertig", done_lines(view), "noch nichts");
     let open = open_summary(view);
@@ -66,6 +78,7 @@ pub fn text_with(
         lines.push(format!("Offen: {open}"));
     }
     push_section(&mut lines, "Plan-Änderungen", change_lines(view), "keine");
+    push_section(&mut lines, "Stationen", plan_lines(view), "keine");
     if let Some(count) = extras.changed_files {
         lines.push(format!("Geänderte Dateien: {count}"));
     }
@@ -178,6 +191,56 @@ fn change_lines(view: &ImplementationView) -> Vec<String> {
     entries
 }
 
+/// Je Station: Kennung, Lane, Stufe, Zustand (mit Platz in der Warteschlange), Vorgänger und Nachfolger
+/// als Kennungen (ADR 061).
+fn plan_lines(view: &ImplementationView) -> Vec<String> {
+    let plan_id_of = |id: &String| -> Option<&str> {
+        stations(view)
+            .find(|(_, other): &(&PhaseView, &StationView)| other.id == *id)
+            .map(|(_, other): (&PhaseView, &StationView)| other.plan_id.as_str())
+    };
+    stations(view)
+        .map(|(phase, station): (&PhaseView, &StationView)| {
+            let next: Vec<&str> = station.next.iter().filter_map(plan_id_of).collect();
+            let after: Vec<&str> = station.after.iter().map(String::as_str).collect();
+            let state = match station.queue_position {
+                Some(place) => format!("Warteschlange {place}"),
+                None => state_label(station.state).to_owned(),
+            };
+            format!(
+                "{} — Lane {} · {} · Stufe {} · {state} · wartet auf: {} · danach: {}",
+                station.plan_id,
+                phase.key,
+                station.stage,
+                station.level,
+                list_or_none(&after),
+                list_or_none(&next)
+            )
+        })
+        .collect()
+}
+
+fn state_label(state: StationState) -> &'static str {
+    match state {
+        StationState::Pending => "wartet",
+        StationState::Ready => "bereit",
+        StationState::Countdown => "Countdown",
+        StationState::Starting | StationState::Running => "läuft",
+        StationState::WaitsForScript => "wartet auf einen Hintergrund-Befehl",
+        StationState::Asking => "fragt",
+        StationState::WaitsForYou => "wartet auf dich",
+        StationState::Done => "fertig",
+        StationState::Error => "Fehler",
+    }
+}
+
+fn list_or_none(ids: &[&str]) -> String {
+    if ids.is_empty() {
+        return "–".to_owned();
+    }
+    ids.join(", ")
+}
+
 fn push_section(lines: &mut Vec<String>, title: &str, entries: Vec<String>, empty: &str) {
     if entries.is_empty() {
         lines.push(format!("{title}: {empty}"));
@@ -204,7 +267,7 @@ fn now_lines(view: &ImplementationView) -> Vec<String> {
             _ => continue,
         };
         entries.push(format!(
-            "Phase {} · {}{} {label}",
+            "Lane {} · {}{} {label}",
             phase.key,
             station.stage,
             number_in_brackets(station)
@@ -225,13 +288,13 @@ fn done_lines(view: &ImplementationView) -> Vec<String> {
                 .map(|number: u32| format!(" #{number}"))
                 .unwrap_or_default();
             let result = station.result.as_deref().unwrap_or("ohne Ergebnis");
-            format!("Phase {} · {}{number} — {result}", phase.key, station.stage)
+            format!("Lane {} · {}{number} — {result}", phase.key, station.stage)
         })
         .collect()
 }
 
-/// Kommende Stationen gruppiert: „Phase 2 Review · Phase 3–5 · Abschluss“. Ganz offene Phasen mit
-/// Nummer in Folge werden zusammengezogen, teils offene nennen ihre offenen Stufen.
+/// Kommende Stationen gruppiert: „Lane 2 Review · Lane 3–5 · Abschluss“. Ganz offene Lanes mit
+/// Nummer in Folge werden zusammengezogen, teils offene nennen ihre offenen Stationen.
 pub fn open_summary(view: &ImplementationView) -> String {
     let mut parts: Vec<String> = Vec::new();
     let mut run: Vec<&str> = Vec::new();
@@ -272,11 +335,11 @@ fn flush_run(parts: &mut Vec<String>, run: &mut Vec<&str>) {
     run.clear();
 }
 
-/// „Phase 3“ für einen Schlüssel, der mit einer Ziffer beginnt; sonst der Schlüssel selbst
+/// „Lane 3“ für einen Schlüssel, der mit einer Ziffer beginnt; sonst der Schlüssel selbst
 /// („Abschluss“).
 fn phase_label(key: &str) -> String {
     if is_numbered(key) {
-        format!("Phase {key}")
+        format!("Lane {key}")
     } else {
         key.to_owned()
     }

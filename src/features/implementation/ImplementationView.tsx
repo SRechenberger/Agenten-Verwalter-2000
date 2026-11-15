@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { ReactElement, ReactNode } from 'react';
+import { useAgentTypes } from '@/features/agenttypes/useAgentTypes';
 import { useNow } from '@/features/background/useNow';
 import { countChangedFiles } from '@/features/changes/changesScope';
 import { useSessionChanges } from '@/features/changes/useSessionChanges';
@@ -13,18 +14,33 @@ import {
   isFocusValid,
   type StationRef,
 } from '@/features/implementation/implementationOrder';
+import { patchEdit } from '@/features/implementation/implementationGraph';
+import {
+  APPLY_FAILED,
+  START_FAILED,
+  proposalAppliedWithFailures,
+  stationNotFound,
+} from '@/features/implementation/implementationTexts';
+import { NewLaneForm } from '@/features/implementation/NewLaneForm';
+import type { ProposalOverride } from '@/features/implementation/PlanChangeCard';
 import { ReportPanel } from '@/features/implementation/ReportPanel';
 import { Timeline } from '@/features/implementation/Timeline';
 import { useProjectLocked } from '@/features/remote/useProjectAccess';
 import type { ImplementationView as Implementation } from '@/lib/bindings/ImplementationView';
 import type { SessionSummary } from '@/lib/bindings/SessionSummary';
+import type { StationPatch } from '@/lib/bindings/StationPatch';
+import { commandErrorText } from '@/lib/errors';
 import {
   applyImplementationChange,
   cancelStationCountdown,
   completeStationByUser,
+  editPlan,
+  listImplementations,
   loadImplementationReport,
   setImplementationAutoStart,
   setImplementationStopAfterCurrent,
+  setMaxParallel,
+  setStationAgent,
   startStation,
 } from '@/lib/implementation';
 import { useActionError } from '@/lib/useActionError';
@@ -78,6 +94,75 @@ function arrowStep(key: string): number {
   return key === 'ArrowUp' ? -1 : 0;
 }
 
+/** Die Stationen einer Umsetzung, wie der Core sie jetzt hält; nach einem Befehl, bevor das Ereignis da ist. */
+async function freshStations(implementationId: string): Promise<StationRef[]> {
+  const fresh: Implementation | undefined = (await listImplementations()).find(
+    (candidate: Implementation) => candidate.id === implementationId,
+  );
+  return fresh === undefined ? [] : flatStations(fresh);
+}
+
+/** „Übernehmen“ mit geänderten Werten: erst der Vorschlag wie vorgeschlagen (damit die Plan-Änderung mit
+ *  ihrer Quelle vermerkt ist), dann Typ, Modell und Denkaufwand je Station und der Auftrag als Delta. Die
+ *  Stationen findet die Funktion über ihre Kennung, neue ohne Kennung über Lane und Name unter den neuen. */
+async function applyEditedProposal(
+  implementationId: string,
+  before: ReadonlySet<string>,
+  overrides: readonly ProposalOverride[],
+): Promise<void> {
+  await applyImplementationChange(implementationId, true);
+  const refs: StationRef[] = await freshStations(implementationId);
+  const used = new Set<string>();
+  const briefs: StationPatch[] = [];
+  const failures: string[] = [];
+  for (const override of overrides) {
+    // Der Core speichert den Namen gekürzt.
+    const stage: string = override.stage.trim();
+    const target: StationRef | undefined = refs.find(
+      (ref: StationRef) =>
+        !used.has(ref.station.planId) &&
+        (override.planId === null
+          ? !before.has(ref.station.planId) &&
+            ref.phase.key === override.lane &&
+            ref.station.stage === stage
+          : ref.station.planId === override.planId),
+    );
+    if (target === undefined) {
+      failures.push(stationNotFound(stage, override.lane));
+      continue;
+    }
+    used.add(target.station.planId);
+    const { station } = target;
+    if (override.changed.agent || override.changed.model || override.changed.effort) {
+      try {
+        await setStationAgent(implementationId, station.id, {
+          agent: override.agent,
+          model: override.model,
+          effort: override.effort,
+          prompt: station.prompt,
+          skill: station.skill,
+        });
+      } catch (reason: unknown) {
+        failures.push(`${stage} (Lane ${override.lane}): ${commandErrorText(reason)}`);
+        continue;
+      }
+    }
+    if (override.changed.brief) {
+      briefs.push({ id: station.planId, brief: override.brief });
+    }
+  }
+  if (briefs.length > 0) {
+    try {
+      await editPlan(implementationId, patchEdit(...briefs));
+    } catch (reason: unknown) {
+      failures.push(commandErrorText(reason));
+    }
+  }
+  if (failures.length > 0) {
+    throw new Error(proposalAppliedWithFailures(failures));
+  }
+}
+
 /** Hauptfläche einer Umsetzung (ADR 048): Kopfzeile, darunter Zeitleiste mit Kartei oder die Changes. */
 export function ImplementationView({
   implementation,
@@ -98,6 +183,7 @@ export function ImplementationView({
   const [report, setReport] = useState<string | null>(null);
   const [isReportBusy, setIsReportBusy] = useState<boolean>(false);
   const [isInquiryBusy, setIsInquiryBusy] = useState<boolean>(false);
+  const [isNewLaneOpen, setIsNewLaneOpen] = useState<boolean>(false);
   const storedFocus: string | undefined = useImplementationStore(
     (state) => state.focused[implementation.id],
   );
@@ -107,6 +193,7 @@ export function ImplementationView({
   const showSessionView = useSessionsStore((state) => state.showView);
   const { error: actionError, run } = useActionError(implementation.id);
   const isLocked: boolean = useProjectLocked(implementation.projectId);
+  const { agentTypes } = useAgentTypes();
 
   const stations: StationRef[] = useMemo(() => flatStations(implementation), [implementation]);
   const isFlow: boolean = !(activeView === 'changes' && hasChanges);
@@ -189,6 +276,19 @@ export function ImplementationView({
     );
   }
 
+  /** Die neue Lane steht an ihrer Stufe; ihre erste Station kommt in den Fokus. */
+  function focusCreated(firstPlanId: string): void {
+    setIsNewLaneOpen(false);
+    run(async (): Promise<void> => {
+      const created: StationRef | undefined = (await freshStations(implementationId)).find(
+        (ref: StationRef) => ref.station.planId === firstPlanId,
+      );
+      if (created !== undefined) {
+        setFocused(implementationId, created.station.id);
+      }
+    });
+  }
+
   function openChat(stationId: string): void {
     const sessionId: string | null =
       stations.find((ref: StationRef) => ref.station.id === stationId)?.station.sessionId ?? null;
@@ -242,7 +342,7 @@ export function ImplementationView({
           openStationChanges(stationId);
         }}
         onStart={(stationId: string): void => {
-          run(() => startStation(implementationId, stationId), 'Start fehlgeschlagen');
+          run(() => startStation(implementationId, stationId), START_FAILED);
         }}
         onCancelCountdown={(stationId: string): void => {
           run(() => cancelStationCountdown(implementationId, stationId));
@@ -251,11 +351,13 @@ export function ImplementationView({
           run(() => completeStationByUser(implementationId, stationId, result));
         }}
         onApplyChange={(accept: boolean): void => {
-          run(
-            () => applyImplementationChange(implementationId, accept),
-            'Übernehmen fehlgeschlagen',
-          );
+          run(() => applyImplementationChange(implementationId, accept), APPLY_FAILED);
         }}
+        onApplyEdited={(overrides: readonly ProposalOverride[]): void => {
+          const before = new Set<string>(stations.map((ref: StationRef) => ref.station.planId));
+          run(() => applyEditedProposal(implementationId, before, overrides), APPLY_FAILED);
+        }}
+        run={run}
       />
     );
   }
@@ -271,10 +373,18 @@ export function ImplementationView({
             implementation={implementation}
             focusedId={focusedId}
             now={now}
+            sessions={sessions}
+            isLocked={isLocked}
             onFocus={(focusId: string): void => {
               setFocused(implementationId, focusId);
             }}
             onOpenChat={openChat}
+            onStart={(stationId: string): void => {
+              run(() => startStation(implementationId, stationId), START_FAILED);
+            }}
+            onCancelCountdown={(stationId: string): void => {
+              run(() => cancelStationCountdown(implementationId, stationId));
+            }}
           />
         </div>
         <div className="implementation-view__cards">{renderCards()}</div>
@@ -310,8 +420,28 @@ export function ImplementationView({
         onSetStopAfterCurrent={(enabled: boolean): void => {
           run(() => setImplementationStopAfterCurrent(implementationId, enabled));
         }}
+        onSetMaxParallel={(maxParallel: number | null): void => {
+          run(() => setMaxParallel(implementationId, maxParallel));
+        }}
+        isNewLaneOpen={isNewLaneOpen}
+        onToggleNewLane={(): void => {
+          setIsNewLaneOpen(!isNewLaneOpen);
+        }}
       />
       {renderActionError()}
+      {isNewLaneOpen && isFlow && (
+        <NewLaneForm
+          implementation={implementation}
+          agentTypes={agentTypes ?? []}
+          sessions={sessions}
+          run={run}
+          isLocked={isLocked}
+          onClose={(): void => {
+            setIsNewLaneOpen(false);
+          }}
+          onCreated={focusCreated}
+        />
+      )}
       {renderBody()}
       {report !== null && (
         <ReportPanel

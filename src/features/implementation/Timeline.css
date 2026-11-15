@@ -1,145 +1,123 @@
 .timeline {
-  --timeline-rail: 26px;
-  --timeline-gutter: var(--timeline-rail);
-  --lane-shift: 0px;
-  --lane-step: 12px;
-
   display: flex;
   flex-direction: column;
-  padding: var(--space-xl) var(--space-xl) var(--space-4xl) 14px;
+  padding: var(--space-md) var(--space-xl) var(--space-4xl) var(--space-xl);
 
-  &__row {
-    position: relative;
-  }
-
-  &__line {
-    position: absolute;
-    left: calc(var(--timeline-rail) / 2 + var(--lane-shift) - 1px);
-    z-index: 0;
-    width: 2px;
-    pointer-events: none;
-
-    &--above {
-      top: 0;
-      height: 50%;
-    }
-
-    &--below {
-      top: 50%;
-      bottom: 0;
-    }
-
-    &--full {
-      top: 0;
-      bottom: 0;
-    }
-
-    &--done {
-      background: var(--color-status-completed);
-    }
-
-    &--run {
-      background: var(--color-status-running);
-    }
-
-    &--wait {
-      background: var(--color-status-waiting);
-    }
-
-    &--error {
-      background: var(--color-status-error);
-    }
-
-    &--todo {
-      background: var(--color-border);
-    }
-  }
-
-  &__phase {
-    display: grid;
-    grid-template-columns: var(--timeline-gutter) minmax(0, 1fr) auto;
+  /* Stufe: Überschrift mit einer feinen Linie bis zum Rand. */
+  &__stage {
+    display: flex;
     gap: var(--space-md);
-    align-items: baseline;
-    padding: var(--space-2xl) var(--space-sm) var(--space-xs) 0;
-  }
-
-  &__phase-title {
-    grid-column: 2;
-    min-width: 0;
-    overflow: hidden;
-    color: var(--color-fg-primary);
-    font-size: var(--font-size-md);
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  &__phase-key {
-    margin-right: var(--space-sm);
+    align-items: center;
+    margin: var(--space-xl) 0 var(--space-2xs);
     color: var(--color-fg-muted);
     font-size: var(--font-size-2xs);
     font-weight: 600;
-    letter-spacing: 0.08em;
+    letter-spacing: 0.04em;
     text-transform: uppercase;
+
+    &::after {
+      content: '';
+      flex: 1;
+      height: 1px;
+      background: var(--color-border-subtle);
+    }
   }
 
-  &__station {
-    display: grid;
-    grid-template-columns: var(--timeline-gutter) minmax(0, 1fr) auto;
-    gap: var(--space-md);
-    align-items: center;
-    box-sizing: border-box;
-    width: 100%;
-    padding: 5px var(--space-md) 5px 0;
-    border: 0;
-    border-radius: var(--radius-lg);
-    background: transparent;
-    color: var(--color-fg-secondary);
-    font: inherit;
-    font-size: var(--font-size-sm);
-    text-align: left;
-    cursor: pointer;
+  /* „parallel möglich“: ein Strich links, keine durchgehende Linie zwischen den Zeilen. */
+  &__rows--parallel {
+    margin-left: var(--space-2xs);
+    padding-left: var(--space-md);
+    border-left: 2px solid var(--color-border);
+  }
 
-    & > .station-dot {
-      justify-self: start;
-      margin-left: calc(var(--timeline-rail) / 2 + var(--lane-shift) - 6px);
-    }
+  &__row {
+    display: grid;
+    grid-template-columns: 14px minmax(0, 1fr) auto;
+    gap: 1px var(--space-lg);
+    align-items: center;
+    padding: 5px var(--space-md);
+    border-radius: var(--radius-lg);
 
     &:hover {
       background: var(--color-bg-hover);
     }
 
-    &:focus-visible {
-      outline: 2px solid var(--color-accent);
-      outline-offset: -2px;
-    }
-
     &--focused {
       background: var(--color-bg-selected);
-      color: var(--color-fg-primary);
-      font-weight: 600;
+      outline: 1px solid var(--color-accent);
     }
   }
 
-  &__label {
+  &__title {
+    display: flex;
+    gap: var(--space-sm);
+    align-items: baseline;
+    min-width: 0;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--color-fg-primary);
+    font: inherit;
+    font-size: var(--font-size-sm);
+    text-align: left;
+    cursor: pointer;
+
+    &:focus-visible {
+      outline: 2px solid var(--color-accent);
+      outline-offset: 2px;
+    }
+  }
+
+  &__name {
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
 
-  /* Der Typ der Station, klein und gedämpft hinter dem Namen (Plan „Agententypen“, N6). */
-  &__agent {
-    margin-left: var(--space-md);
-    color: var(--color-fg-muted);
-    font-size: var(--font-size-2xs);
-    font-weight: 400;
+  &__row--focused &__name {
+    font-weight: 600;
   }
 
-  &__meta {
+  &__meta,
+  &__mark,
+  &__new {
+    flex-shrink: 0;
+    padding: 0 7px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-full);
+    background: var(--color-bg-base);
     color: var(--color-fg-muted);
     font-size: var(--font-size-2xs);
-    font-weight: 400;
     white-space: nowrap;
+  }
+
+  &__new {
+    border-color: var(--color-accent);
+    color: var(--color-accent-text);
+    font-weight: 600;
+  }
+
+  &__state {
+    color: var(--color-fg-muted);
+    font-size: var(--font-size-2xs);
+    text-align: right;
+    white-space: nowrap;
+
+    &--done {
+      color: var(--color-status-completed);
+    }
+
+    &--running,
+    &--starting,
+    &--waitsForScript {
+      color: var(--color-status-running);
+    }
+
+    &--ready,
+    &--countdown {
+      color: var(--color-status-handoff);
+    }
 
     &--asking,
     &--waitsForYou {
@@ -150,92 +128,77 @@
     &--error,
     &--failed {
       color: var(--color-status-error);
-    }
-
-    &--failed {
       font-weight: 600;
     }
   }
 
-  &__lane--1 {
-    --lane-shift: 0px;
-  }
+  /* ▶, „Abbrechen“, „Öffnen“: klein, ohne die Zeilenhöhe zu ändern. */
+  &__mini {
+    margin-left: var(--space-md);
+    padding: 0 7px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    background: var(--color-bg-base);
+    color: var(--color-fg-primary);
+    font: inherit;
+    font-size: var(--font-size-2xs);
+    font-weight: 400;
+    line-height: 1.5;
+    cursor: pointer;
 
-  &__lane--2 {
-    --lane-shift: var(--lane-step);
-  }
-
-  &__lane--3 {
-    --lane-shift: calc(var(--lane-step) * 2);
-  }
-
-  &__group {
-    display: contents;
-
-    &--lanes2 {
-      --timeline-gutter: calc(var(--timeline-rail) + var(--lane-step));
+    &:hover:not(:disabled) {
+      border-color: var(--color-accent);
     }
 
-    &--lanes3 {
-      --timeline-gutter: calc(var(--timeline-rail) + var(--lane-step) * 2);
+    &:disabled {
+      cursor: not-allowed;
+      opacity: 0.5;
     }
   }
 
-  &__wave {
-    display: grid;
-    grid-template-columns: var(--timeline-gutter) minmax(0, 1fr);
-    padding: var(--space-2xl) var(--space-sm) var(--space-xs) 0;
-  }
-
-  &__wave-title {
-    grid-column: 2;
+  &__sub {
+    grid-column: 2 / 4;
     color: var(--color-fg-muted);
     font-size: var(--font-size-2xs);
-    font-weight: 600;
-    letter-spacing: 0.07em;
-    text-transform: uppercase;
   }
 
-  /* Die Linien der Spuren laufen vor der nächsten Phase zur gemeinsamen Linie zusammen. */
-  &__merge {
-    height: 14px;
-  }
-
-  &__merge-bar {
-    position: absolute;
-    bottom: 0;
-    left: calc(var(--timeline-rail) / 2 - 1px);
-    height: 2px;
-
-    &--lanes2 {
-      width: calc(var(--lane-step) + 2px);
-    }
-
-    &--lanes3 {
-      width: calc(var(--lane-step) * 2 + 2px);
-    }
-  }
-
-  &__phase-mark {
-    margin-left: var(--space-md);
-    padding: 1px var(--space-md);
-    border: 1px solid var(--color-accent);
+  &__chip {
+    display: inline-block;
+    margin: 1px 3px 1px 0;
+    padding: 0 7px;
+    border: 1px solid var(--color-border);
     border-radius: var(--radius-full);
-    color: var(--color-accent-text);
+    background: var(--color-bg-base);
+    color: var(--color-fg-muted);
+    font: inherit;
     font-size: var(--font-size-2xs);
-    font-weight: 600;
-    letter-spacing: 0.04em;
-    text-transform: none;
+    line-height: 1.5;
+    cursor: pointer;
+
+    &:hover {
+      border-color: var(--color-accent);
+      color: var(--color-fg-primary);
+    }
+
+    &--ok {
+      border-color: var(--color-status-completed);
+      color: var(--color-status-completed);
+    }
+
+    &--static {
+      cursor: default;
+
+      &:hover {
+        border-color: var(--color-border);
+        color: var(--color-fg-muted);
+      }
+    }
   }
 
   &__marker-icon {
-    z-index: 1;
-    justify-self: start;
-    margin-left: calc(var(--timeline-rail) / 2 + var(--lane-shift) - 6px);
     color: var(--color-accent-text);
     font-size: var(--font-size-md);
     line-height: 12px;
-    background: var(--color-bg-base);
   }
 
   &__empty {

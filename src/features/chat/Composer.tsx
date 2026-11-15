@@ -57,6 +57,7 @@ import {
   setSessionEffort,
   setSessionMode,
   setSessionModel,
+  startPlanning,
 } from '@/lib/sessions';
 import { useAttachmentsStore } from '@/stores/attachments';
 import { useChatStore } from '@/stores/chat';
@@ -83,6 +84,13 @@ const BROWSER_TITLE_ON =
   'Browser-Zugriff an — der Agent darf deinen Chrome bedienen (Erweiterung „Claude in Chrome“ nötig). Klicken schaltet ab.';
 const BROWSER_TITLE_OFF =
   'Browser-Zugriff aus — klicken erlaubt dem Agenten, deinen Chrome zu bedienen (Erweiterung „Claude in Chrome“ nötig).';
+const PLAN_LABEL = 'Plane Vorhaben';
+const PLAN_TITLE =
+  'Plane Vorhaben — der Verwalter setzt die erste Nachricht: dein Text wird der Auftrag, der Plan kommt als Umsetzung. Anhänge und Kommentare gehen nicht mit.';
+const PLAN_TITLE_EMPTY = 'Schreib zuerst den Auftrag ins Feld.';
+const PLAN_TITLE_WAITING = 'Beantworte zuerst die Rückfrage des Agenten.';
+const PLAN_TITLE_NO_TOOLS =
+  'Plane Vorhaben gibt es nur in der Betriebsart „Claude“: Nur dort hat die Session die Werkzeuge des Verwalters.';
 const ATTACH_TITLE = 'Bilder und Dateien hinzufügen';
 const ATTACH_TITLE_WHILE_WAITING = 'Anhänge gehen erst, wenn die Rückfrage beantwortet ist';
 
@@ -154,6 +162,22 @@ function ComposerForm({ session, onSessionCreated }: ComposerProps): ReactElemen
   const isWaiting: boolean = session.status === 'waiting';
   const hasContent: boolean = draft.trim() !== '' || pending.length > 0 || collected.length > 0;
   const canSend: boolean = hasContent && !isSending && !isLocked && !isDictating;
+  // Der Planungs-Prompt verweist auf die Werkzeuge des Verwalters; die hat nur die Betriebsart Claude.
+  const canPlan: boolean =
+    draft.trim() !== '' &&
+    !isSending &&
+    !isLocked &&
+    !isWaiting &&
+    !isDictating &&
+    operatingMode === 'claude';
+  let planTitle: string = PLAN_TITLE;
+  if (operatingMode !== 'claude') {
+    planTitle = PLAN_TITLE_NO_TOOLS;
+  } else if (isWaiting) {
+    planTitle = PLAN_TITLE_WAITING;
+  } else if (draft.trim() === '') {
+    planTitle = PLAN_TITLE_EMPTY;
+  }
   const currentMode = modeOption(session.mode);
   // Nach einer Markierung durch den Sicherheitsfilter antwortet nur die Claude-Kommandozeile mit einem Ersatzmodell.
   const fallbackModel: string | null = isCodex || isLocal ? null : session.fallbackModel;
@@ -231,6 +255,26 @@ function ComposerForm({ session, onSessionCreated }: ComposerProps): ReactElemen
       .then(() => {
         useAttachmentsStore.getState().clearIds(session.id, attachmentIds);
         useReviewStore.getState().clearIds(session.id, commentIds);
+        // Wurde während des Sendens weitergetippt, bleibt der neuere Text erhalten.
+        if ((useChatStore.getState().drafts[session.id] ?? '') === draft) {
+          clearDraft(session.id);
+        }
+      })
+      .catch(report)
+      .finally(() => {
+        setIsSending(false);
+      });
+  }
+
+  function plan(): void {
+    if (!canPlan) {
+      return;
+    }
+    const task: string = draft.trim();
+    setIsSending(true);
+    setErrorMessage(null);
+    startPlanning(session.id, task)
+      .then(() => {
         // Wurde während des Sendens weitergetippt, bleibt der neuere Text erhalten.
         if ((useChatStore.getState().drafts[session.id] ?? '') === draft) {
           clearDraft(session.id);
@@ -488,6 +532,17 @@ function ComposerForm({ session, onSessionCreated }: ComposerProps): ReactElemen
               )}
             </div>
           )}
+          <button
+            type="button"
+            className="composer__plan"
+            aria-label={PLAN_LABEL}
+            title={planTitle}
+            disabled={!canPlan}
+            onClick={plan}
+          >
+            <PlanIcon />
+            <span>{PLAN_LABEL}</span>
+          </button>
           {isRemote && (
             <span className="composer__host-mode" title="Betriebsart des Hosts">
               {operatingModeLabel(operatingMode)} · Host
@@ -687,6 +742,24 @@ function GlobeIcon(): ReactElement {
     >
       <circle cx="7" cy="7" r="5.5" />
       <path d="M1.5 7h11M7 1.5c1.6 1.6 2.4 3.4 2.4 5.5S8.6 10.9 7 12.5C5.4 10.9 4.6 9.1 4.6 7S5.4 3.1 7 1.5Z" />
+    </svg>
+  );
+}
+
+function PlanIcon(): ReactElement {
+  return (
+    <svg
+      width="13"
+      height="13"
+      viewBox="0 0 14 14"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.3"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M2 3.5h10M2 7h6.5M2 10.5h4M10 9l1.2 1.2L13 8.4" />
     </svg>
   );
 }

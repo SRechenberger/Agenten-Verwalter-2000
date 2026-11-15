@@ -38,4 +38,28 @@
     border: 2px solid var(--color-border);
     background: var(--color-bg-base);
   }
+
+  /* Hand statt Punkt: keine Füllung, die Farbe trägt den Zustand. */
+  &--hand {
+    width: 14px;
+    height: 14px;
+    border-radius: 0;
+    color: var(--color-fg-muted);
+  }
+
+  &--hand-done {
+    color: var(--color-status-completed);
+  }
+
+  &--hand-wait {
+    color: var(--color-status-waiting);
+  }
+
+  &--hand-run {
+    color: var(--color-status-running);
+  }
+
+  &--hand-error {
+    color: var(--color-status-error);
+  }
 }

@@ -46,6 +46,19 @@ fn station(stage: &str, model: ModelId, skill: &str) -> StationView {
         agent_effort: None,
         agent_effort_from: None,
         start_error: None,
+        plan_id: String::new(),
+        after: Vec::new(),
+        next: Vec::new(),
+        priority: 0,
+        level: 0,
+        queue_position: None,
+        auto_start: None,
+        starts_automatically: false,
+        on_error: Default::default(),
+        restarts: 0,
+        predecessors_may: Default::default(),
+        brief_changes: Vec::new(),
+        restarting: false,
     }
 }
 
@@ -87,6 +100,8 @@ fn view_of(phase: PhaseView) -> ImplementationView {
         urgency: StationState::Running,
         last_activity_at: 0.0,
         unread: false,
+        max_parallel: None,
+        queued: 0,
     }
 }
 
@@ -578,6 +593,7 @@ fn implementation_row() -> ImplementationRow {
         auto_start: true,
         stop_after_current: false,
         pending_change: None,
+        max_parallel: None,
     }
 }
 
@@ -614,6 +630,14 @@ fn station_row(id: &str, position: u32, stage: &str) -> StationRow {
         prompt: None,
         start_error: None,
         edited: false,
+        plan_id: String::new(),
+        after: Vec::new(),
+        priority: 0,
+        auto_start: None,
+        on_error: Default::default(),
+        predecessors_may: Default::default(),
+        brief_changes: Vec::new(),
+        restarts: 0,
     }
 }
 
@@ -1661,5 +1685,2150 @@ fn manual_start_retries_a_station_with_a_start_error_and_the_countdown_does_not(
     assert!(
         !is_allowed(Trigger::User, &view.phases, "done"),
         "▶ startet keine fertige Station"
+    );
+}
+
+// „Plane Vorhaben“ (ADR 062): der feste Planungs-Prompt.
+
+#[test]
+fn plan_prompt_names_the_tools_the_terms_and_the_pattern() {
+    let prompt = plan::plan_prompt("Baue etwas.");
+    for part in [
+        "implementation_create",
+        "implementation_agent_types",
+        "Lane",
+        "Station",
+        "Test, Umsetzung, Review, PR",
+    ] {
+        assert!(prompt.contains(part), "der Prompt nennt „{part}“ nicht");
+    }
+    // Der Planer liest die Typen vor dem Vorschlag und konfiguriert jede Station einzeln.
+    for part in ["Typ", "Prompt", "Modell", "Denkaufwand"] {
+        assert!(
+            prompt.contains(part),
+            "die Konfiguration nennt „{part}“ nicht"
+        );
+    }
+}
+
+#[test]
+fn plan_prompt_embeds_the_task_unchanged_at_the_end() {
+    let task = "Zeile 1 mit „Umlauten“ und `Code`\n\n  eingerückt: {task} %s\n";
+    let prompt = plan::plan_prompt(task);
+    assert!(
+        prompt.ends_with(task),
+        "der Auftrag steht unverändert am Ende"
+    );
+    assert_eq!(
+        prompt.matches(task).count(),
+        1,
+        "der Auftrag steht genau einmal im Prompt"
+    );
+}
+
+// Der Wächter von „Plane Vorhaben“ (ADR 062): Erinnerung, Hinweis, nur der Werkzeugname.
+
+#[test]
+fn guard_does_nothing_for_a_turn_without_the_planning_marker() {
+    assert_eq!(plan::guard_step(None), plan::GuardStep::Nothing);
+}
+
+#[test]
+fn guard_does_nothing_once_create_or_set_phases_was_called() {
+    for tool in [
+        "mcp__verwalter__implementation_create",
+        "mcp__verwalter__implementation_set_phases",
+    ] {
+        let mut guard = plan::PlanGuard::new("Baue etwas.");
+        guard.called = plan::is_plan_tool(tool);
+        assert_eq!(
+            plan::guard_step(Some(&guard)),
+            plan::GuardStep::Nothing,
+            "{tool} beendet die Prüfung"
+        );
+        // Auch nach Erinnerungen: Der Aufruf im Erinnerungszug zählt.
+        guard.reminders = plan::MAX_PLAN_REMINDERS;
+        assert_eq!(plan::guard_step(Some(&guard)), plan::GuardStep::Nothing);
+    }
+}
+
+#[test]
+fn guard_reminds_twice_then_shows_the_notice() {
+    let mut guard = plan::PlanGuard::new("Baue etwas.");
+    let mut steps = Vec::new();
+    loop {
+        let step = plan::guard_step(Some(&guard));
+        steps.push(step);
+        if step != plan::GuardStep::Remind {
+            break;
+        }
+        guard.reminders += 1;
+    }
+    assert_eq!(
+        steps,
+        [
+            plan::GuardStep::Remind,
+            plan::GuardStep::Remind,
+            plan::GuardStep::Notice
+        ]
+    );
+}
+
+#[test]
+fn the_notice_ends_the_check_so_continue_anyway_only_settles_it() {
+    // Am Zugende zählt der Wächter die Erinnerungen selbst mit; der Hinweis nimmt ihn weg. Danach
+    // geschieht am Zugende nichts mehr, und „Trotzdem weiter“ hat keinen Wächter mehr zu beenden,
+    // auch nicht den eines neueren Planungszugs.
+    let mut guard = Some(plan::PlanGuard::new("Baue etwas."));
+    let mut steps = Vec::new();
+    let mut handed_out = None;
+    for _ in 0..4 {
+        let (step, taken) = plan::advance_guard(&mut guard);
+        steps.push(step);
+        if taken.is_some() {
+            handed_out = taken;
+        }
+    }
+    assert_eq!(
+        steps,
+        [
+            plan::GuardStep::Remind,
+            plan::GuardStep::Remind,
+            plan::GuardStep::Notice,
+            plan::GuardStep::Nothing
+        ]
+    );
+    assert_eq!(guard, None, "der Hinweis beendet die Prüfung");
+    assert_eq!(
+        handed_out.map(|guard: plan::PlanGuard| guard.task),
+        Some("Baue etwas.".to_owned()),
+        "der Hinweis bekommt den Auftrag für „Erneut“"
+    );
+}
+
+#[test]
+fn plan_tool_counts_only_the_two_tools_of_the_verwalter() {
+    for tool in [
+        "mcp__verwalter__implementation_create",
+        "mcp__verwalter__implementation_set_phases",
+    ] {
+        assert!(plan::is_plan_tool(tool), "{tool} zählt");
+    }
+    for tool in [
+        "implementation_create",
+        "mcp__andere__implementation_create",
+        "mcp__verwalter__implementation_get",
+        "mcp__verwalter__implementation_agent_types",
+        "mcp__verwalter__implementation_create_x",
+        "Write",
+    ] {
+        assert!(!plan::is_plan_tool(tool), "{tool} zählt nicht");
+    }
+}
+
+#[test]
+fn plan_tool_counts_the_edit_tool_because_create_refuses_in_a_running_implementation() {
+    assert!(plan::is_plan_tool("mcp__verwalter__implementation_edit"));
+    assert!(!plan::is_plan_tool("implementation_edit"));
+}
+
+#[test]
+fn a_failed_plan_change_replans_only_a_begun_automatic_implementation() {
+    let begun = view_with_sessions(
+        vec![node("a", &[]), node("b", &["a"])],
+        None,
+        true,
+        &[("a", SessionStatus::Running, false)],
+    );
+    assert!(replans_after_plan_change(&begun));
+    let not_begun = view_with_sessions(vec![node("a", &[])], None, true, &[]);
+    assert!(!replans_after_plan_change(&not_begun), "nichts begonnen");
+    let manual = view_with_sessions(
+        vec![node("a", &[])],
+        None,
+        false,
+        &[("a", SessionStatus::Running, false)],
+    );
+    assert!(!replans_after_plan_change(&manual), "ohne Automatik");
+}
+
+#[test]
+fn a_station_counts_as_starting_between_the_claim_and_its_release() {
+    let mut countdowns = Countdowns::default();
+    assert!(!countdowns.is_starting("a"));
+    assert!(countdowns.claim_start("a"));
+    assert!(
+        countdowns.is_starting("a"),
+        "die Sperren nach Zustand brauchen das"
+    );
+    assert!(!countdowns.is_starting("b"));
+    countdowns.release_start("a");
+    assert!(!countdowns.is_starting("a"));
+}
+
+#[test]
+fn plan_reminder_names_the_create_tool() {
+    assert!(
+        plan::PLAN_REMINDER_TEXT.contains("mcp__verwalter__implementation_create"),
+        "die Erinnerung nennt das Werkzeug mit dem Namen, unter dem der Agent es kennt"
+    );
+}
+
+// Constraint-Abläufe (ADR 061): Kanten, bereiter Satz, Stufe, Warteschlange, Migration.
+
+/// Eine Station mit Plan-Kennung `id` (zugleich ihre `id`) und diesen Vorgängern.
+fn node(id: &str, after: &[&str]) -> StationRow {
+    let mut row = station_row(id, 0, "Umsetzung");
+    row.plan_id = id.to_owned();
+    row.after = after
+        .iter()
+        .map(|before: &&str| (*before).to_owned())
+        .collect();
+    row
+}
+
+fn finished(mut row: StationRow) -> StationRow {
+    row.completed_at = Some(1.0);
+    row.result = Some(format!("Ergebnis {}", row.id));
+    row
+}
+
+/// Die Ansicht einer Phase aus diesen Stationen (Positionen in Reihenfolge) mit Grenze, Automatik
+/// und laufenden Countdowns der genannten Stationen.
+fn limited_view(
+    stations: Vec<StationRow>,
+    max_parallel: Option<u32>,
+    auto_start: bool,
+    counting_down: &[&str],
+) -> ImplementationView {
+    let stations: Vec<StationRow> = (0..)
+        .zip(stations)
+        .map(|(position, mut station): (u32, StationRow)| {
+            station.position = position;
+            station
+        })
+        .collect();
+    let stored = StoredImplementation {
+        row: ImplementationRow {
+            max_parallel,
+            auto_start,
+            ..implementation_row()
+        },
+        phases: vec![phase_row()],
+        stations,
+        changes: Vec::new(),
+    };
+    let countdowns: HashMap<String, f64> = counting_down
+        .iter()
+        .map(|id: &&str| ((*id).to_owned(), 5.0))
+        .collect();
+    build_view(&stored, &HashMap::new(), &HashMap::new(), &countdowns, &[])
+}
+
+fn graph(stations: Vec<StationRow>) -> ImplementationView {
+    limited_view(stations, None, true, &[])
+}
+
+fn due_ids(view: &ImplementationView) -> Vec<String> {
+    schedule::due_for_countdown(&view.phases)
+        .into_iter()
+        .map(|(_, station): (&PhaseView, &StationView)| station.id.clone())
+        .collect()
+}
+
+fn shown<'a>(view: &'a ImplementationView, id: &str) -> &'a StationView {
+    view.phases[0]
+        .stations
+        .iter()
+        .find(|station: &&StationView| station.id == id)
+        .expect("Station in der Ansicht")
+}
+
+#[test]
+fn station_is_ready_when_all_its_predecessors_are_done() {
+    let view = graph(vec![
+        finished(node("a", &[])),
+        node("b", &[]),
+        node("join", &["a", "b"]),
+    ]);
+    assert_eq!(due_ids(&view), ["b"], "join wartet auf b");
+    let view = graph(vec![
+        finished(node("a", &[])),
+        finished(node("b", &[])),
+        node("join", &["a", "b"]),
+    ]);
+    assert_eq!(due_ids(&view), ["join"]);
+}
+
+#[test]
+fn branches_start_together_and_the_join_station_waits_for_both() {
+    let plan = |done: &[&str]| {
+        let rows = vec![
+            node("start", &[]),
+            node("left", &["start"]),
+            node("right", &["start"]),
+            node("join", &["left", "right"]),
+        ];
+        graph(
+            rows.into_iter()
+                .map(|row: StationRow| match done.contains(&row.id.as_str()) {
+                    true => finished(row),
+                    false => row,
+                })
+                .collect(),
+        )
+    };
+    assert_eq!(due_ids(&plan(&["start"])), ["left", "right"]);
+    assert_eq!(due_ids(&plan(&["start", "left"])), ["right"]);
+    assert_eq!(due_ids(&plan(&["start", "left", "right"])), ["join"]);
+}
+
+#[test]
+fn ready_stations_are_ordered_by_priority_then_plan_order() {
+    let mut urgent = node("urgent", &[]);
+    urgent.priority = 5;
+    let mut late = node("late", &[]);
+    late.priority = -1;
+    let view = graph(vec![node("first", &[]), late, urgent, node("second", &[])]);
+    assert_eq!(due_ids(&view), ["urgent", "first", "second", "late"]);
+}
+
+#[test]
+fn level_is_the_longest_chain_and_roots_have_level_one() {
+    let view = graph(vec![
+        node("a", &[]),
+        node("b", &["a"]),
+        node("c", &["b"]),
+        node("d", &["a", "c"]),
+        node("e", &[]),
+    ]);
+    let levels: Vec<u32> = view.phases[0]
+        .stations
+        .iter()
+        .map(|station: &StationView| station.level)
+        .collect();
+    assert_eq!(levels, [1, 2, 3, 4, 1]);
+}
+
+#[test]
+fn next_is_derived_from_after_and_names_view_ids() {
+    let view = graph(vec![node("a", &[]), node("b", &["a"]), node("c", &["a"])]);
+    assert_eq!(shown(&view, "a").next, ["b", "c"]);
+    assert!(shown(&view, "b").next.is_empty());
+    assert_eq!(shown(&view, "b").after, ["a"]);
+}
+
+/// `phases` als JSON für `PhaseInput`.
+fn inputs(phases: Value) -> Vec<PhaseInput> {
+    let inputs: Vec<PhaseInput> = serde_json::from_value(phases).expect("Eingabe lesbar");
+    assert_eq!(validate(&inputs), Ok(()));
+    inputs
+}
+
+fn created(phases: Value) -> Result<Vec<StationRow>, String> {
+    new_rows(
+        "project",
+        "session",
+        "Umsetzung",
+        "",
+        &inputs(phases),
+        None,
+        1.0,
+    )
+    .map(|(_, _, stations)| stations)
+}
+
+fn edges(stations: &[StationRow]) -> Vec<(String, Vec<String>)> {
+    stations
+        .iter()
+        .map(|station: &StationRow| (station.plan_id.clone(), station.after.clone()))
+        .collect()
+}
+
+fn edge(id: &str, after: &[&str]) -> (String, Vec<String>) {
+    (
+        id.to_owned(),
+        after
+            .iter()
+            .map(|before: &&str| (*before).to_owned())
+            .collect(),
+    )
+}
+
+#[test]
+fn plan_without_after_derives_edges_from_position_and_wave() {
+    let stations = created(json!([
+        { "key": "1", "title": "A", "stations": [{ "stage": "Test" }, { "stage": "Umsetzung" }] },
+        { "key": "2", "title": "B", "wave": 2, "stations": [{ "stage": "Umsetzung" }] },
+        { "key": "3", "title": "C", "wave": 2, "stations": [{ "stage": "Umsetzung" }, { "stage": "Review" }] },
+        { "key": "4", "title": "D", "stations": [{ "stage": "Umsetzung" }] },
+    ]))
+    .expect("gültiger Plan");
+    assert_eq!(
+        edges(&stations),
+        [
+            edge("1-1", &[]),
+            edge("1-2", &["1-1"]),
+            edge("2-1", &["1-2"]),
+            edge("3-1", &["1-2"]),
+            edge("3-2", &["3-1"]),
+            edge("4-1", &["2-1", "3-2"]),
+        ]
+    );
+}
+
+#[test]
+fn in_a_plan_with_after_a_station_without_after_is_a_start_station() {
+    let stations = created(json!([
+        { "key": "1", "title": "A", "stations": [
+            { "stage": "Test", "id": "test" },
+            { "stage": "Umsetzung", "id": "build", "after": ["test"], "priority": 2 },
+        ] },
+        { "key": "2", "title": "B", "stations": [{ "stage": "Doku" }] },
+    ]))
+    .expect("gültiger Plan");
+    assert_eq!(
+        edges(&stations),
+        [
+            edge("test", &[]),
+            edge("build", &["test"]),
+            edge("2-1", &[])
+        ]
+    );
+    assert_eq!(stations[1].priority, 2);
+}
+
+#[test]
+fn plan_check_rejects_cycle_unknown_id_self_reference_and_duplicate_naming_the_stations() {
+    let plan = |stations: Value| {
+        created(json!([{ "key": "1", "title": "A", "stations": stations }]))
+            .map(|rows| edges(&rows))
+    };
+    assert_eq!(
+        plan(json!([
+            { "stage": "Test", "id": "a", "after": ["c"] },
+            { "stage": "Umsetzung", "id": "b", "after": ["a"] },
+            { "stage": "Review", "id": "c", "after": ["b"] },
+        ])),
+        Err("Zyklus: a → b → c → a".to_owned())
+    );
+    assert_eq!(
+        plan(json!([{ "stage": "Test", "id": "a", "after": ["x"] }])),
+        Err(
+            "Unbekannte Kennung: Station „a“ nennt den Vorgänger „x“, den es im Plan nicht gibt."
+                .to_owned()
+        )
+    );
+    assert_eq!(
+        plan(json!([{ "stage": "Test", "id": "a", "after": ["a"] }])),
+        Err("Selbstverweis: Station „a“ nennt sich selbst als Vorgänger.".to_owned())
+    );
+    assert_eq!(
+        plan(json!([{ "stage": "Test", "id": "a" }, { "stage": "Review", "id": " a " }])),
+        Err("Doppelte Kennung: „a“ steht an mehr als einer Station.".to_owned())
+    );
+}
+
+#[test]
+fn plan_prompt_names_no_field_of_the_schema() {
+    // Die Beschreibung von `implementation_create` ist die einzige Quelle der Feldnamen: Ändert
+    // Phase 76.2 das Schema, darf der Prompt nicht brechen.
+    let prompt = plan::plan_prompt("");
+    for field in ["after", "wave", "phases", "max_parallel"] {
+        assert!(
+            !prompt.to_lowercase().contains(field),
+            "der Prompt nennt das Feld „{field}“"
+        );
+    }
+}
+
+#[test]
+fn station_id_over_40_chars_is_rejected_naming_the_field() {
+    let phases = phases_with_second(&format!(
+        r#"{{"stage":"Review","id":"{}"}}"#,
+        "x".repeat(41)
+    ));
+    assert_eq!(
+        validate(&phases),
+        Err("phases[0].stations[1].id: höchstens 40 Zeichen, nicht 41".to_owned())
+    );
+}
+
+#[test]
+fn max_parallel_of_zero_is_rejected() {
+    assert_eq!(
+        model::check_max_parallel(Some(0)),
+        Err("max_parallel: mindestens 1".to_owned())
+    );
+    assert_eq!(model::check_max_parallel(Some(1)), Ok(()));
+    assert_eq!(model::check_max_parallel(None), Ok(()));
+}
+
+/// Die Regel vor ADR 061 als Vergleich: Gruppen aus Wellen nacheinander, in der Phase der Reihe
+/// nach. `phases` sind (Welle, fertig je Station).
+fn due_by_position_and_wave(
+    phases: &[(Option<u32>, Vec<bool>)],
+    phase: usize,
+    index: usize,
+) -> bool {
+    let mut groups: Vec<Vec<usize>> = Vec::new();
+    let mut current: Option<u32> = None;
+    for (position, (wave, _)) in phases.iter().enumerate() {
+        match groups.last_mut() {
+            Some(group) if wave.is_some() && *wave == current => group.push(position),
+            _ => groups.push(vec![position]),
+        }
+        current = *wave;
+    }
+    for group in groups {
+        if group.contains(&phase) {
+            let done = &phases[phase].1;
+            return !done[index] && done[..index].iter().all(|is_done: &bool| *is_done);
+        }
+        if !group
+            .iter()
+            .all(|&other: &usize| phases[other].1.iter().all(|is_done: &bool| *is_done))
+        {
+            return false;
+        }
+    }
+    false
+}
+
+/// Läuft alle Reihenfolgen der Fertigmeldungen ab und vergleicht an jedem Zwischenstand, welche
+/// Stationen an der Reihe sind: nach Kanten und nach Position und Welle.
+fn assert_same_starts_as_position_and_wave(spec: &[(Option<u32>, usize)]) {
+    let phases: Vec<Value> = spec
+        .iter()
+        .enumerate()
+        .map(|(index, (wave, count)): (usize, &(Option<u32>, usize))| {
+            json!({
+                "key": format!("{}", index + 1),
+                "title": "Phase",
+                "wave": wave,
+                "stations": vec![json!({ "stage": "Umsetzung" }); *count],
+            })
+        })
+        .collect();
+    let (row, phase_rows, station_rows) = new_rows(
+        "project",
+        "session",
+        "Umsetzung",
+        "",
+        &inputs(Value::Array(phases)),
+        None,
+        1.0,
+    )
+    .expect("gültiger Plan");
+    let mut pending: Vec<Vec<Vec<bool>>> = vec![
+        spec.iter()
+            .map(|(_, count): &(Option<u32>, usize)| vec![false; *count])
+            .collect(),
+    ];
+    let mut seen: HashSet<Vec<bool>> = HashSet::new();
+    while let Some(done_by_phase) = pending.pop() {
+        let flat: Vec<bool> = done_by_phase.iter().flatten().copied().collect();
+        if !seen.insert(flat.clone()) {
+            continue;
+        }
+        let stations: Vec<StationRow> = station_rows
+            .iter()
+            .zip(&flat)
+            .map(|(station, is_done): (&StationRow, &bool)| match is_done {
+                true => finished(station.clone()),
+                false => station.clone(),
+            })
+            .collect();
+        let stored = StoredImplementation {
+            row: row.clone(),
+            phases: phase_rows.clone(),
+            stations,
+            changes: Vec::new(),
+        };
+        let view = build_view(
+            &stored,
+            &HashMap::new(),
+            &HashMap::new(),
+            &HashMap::new(),
+            &[],
+        );
+        let reference: Vec<(Option<u32>, Vec<bool>)> = spec
+            .iter()
+            .zip(&done_by_phase)
+            .map(|((wave, _), done): (&(Option<u32>, usize), &Vec<bool>)| (*wave, done.clone()))
+            .collect();
+        for (phase_index, phase) in view.phases.iter().enumerate() {
+            for (index, station) in phase.stations.iter().enumerate() {
+                let by_edges = schedule::is_due(&view.phases, &station.id);
+                let before = due_by_position_and_wave(&reference, phase_index, index);
+                assert_eq!(
+                    by_edges, before,
+                    "Station {} bei Stand {flat:?}",
+                    station.plan_id
+                );
+                if by_edges {
+                    let mut next = done_by_phase.clone();
+                    next[phase_index][index] = true;
+                    pending.push(next);
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn edges_from_position_and_wave_start_stations_exactly_as_before_at_every_step() {
+    assert_same_starts_as_position_and_wave(&[(None, 2), (None, 1), (None, 3)]);
+    assert_same_starts_as_position_and_wave(&[
+        (Some(1), 2),
+        (Some(1), 1),
+        (None, 2),
+        (Some(2), 1),
+        (Some(2), 2),
+        (Some(1), 1),
+    ]);
+}
+
+#[test]
+fn migration_backfills_plan_ids_and_edges_from_position_and_wave() {
+    let database = Database::open(Path::new(":memory:")).expect("Datenbank im Speicher");
+    database
+        .with(|connection| {
+            connection.execute(
+                "INSERT INTO projects (id, name, created_at) VALUES ('project', 'Vorhaben', 1.0)",
+                [],
+            )?;
+            let phases = vec![
+                PhaseRow {
+                    wave: Some(1),
+                    ..phase_keyed("1", 0)
+                },
+                PhaseRow {
+                    wave: Some(1),
+                    ..phase_keyed("2", 1)
+                },
+                phase_keyed("3", 2),
+            ];
+            let stations = vec![
+                in_phase(station_row("s1", 0, "Umsetzung"), "1"),
+                in_phase(station_row("s2", 1, "Review"), "1"),
+                in_phase(station_row("s3", 0, "Umsetzung"), "2"),
+                in_phase(station_row("s4", 0, "PR"), "3"),
+            ];
+            implementation_rows::insert(connection, &implementation_row(), &phases, &stations)?;
+            implementation_rows::backfill_edges(connection)
+        })
+        .expect("Migration gelaufen");
+    assert_eq!(
+        edges(&stored_stations(&database)),
+        [
+            edge("1-1", &[]),
+            edge("1-2", &["1-1"]),
+            edge("2-1", &[]),
+            edge("3-1", &["1-2", "2-1"]),
+        ]
+    );
+}
+
+#[test]
+fn stored_station_keeps_plan_id_after_and_priority_and_the_implementation_its_limit() {
+    let mut station = node("b", &["a"]);
+    station.priority = -3;
+    let database = database_with(&[node("a", &[]), station]);
+    let [_, stored] = &stored_stations(&database)[..] else {
+        panic!("Erwartet: zwei Stationen");
+    };
+    assert_eq!(
+        (&stored.plan_id, &stored.after, stored.priority),
+        (&"b".to_owned(), &vec!["a".to_owned()], -3)
+    );
+    database
+        .with(|connection| {
+            implementation_rows::set_max_parallel(connection, "implementation", Some(2))
+        })
+        .expect("schreibbar");
+    let limit = database
+        .with(|connection| implementation_rows::load(connection, "implementation"))
+        .expect("lesbar")
+        .map(|stored: StoredImplementation| stored.row.max_parallel);
+    assert_eq!(limit, Some(Some(2)));
+}
+
+#[test]
+fn fix_round_hangs_behind_the_review_and_its_successors_wait_for_the_second_review() {
+    let rows = vec![
+        finished(node("build", &[])),
+        node("review", &["build"]),
+        node("pr", &["review"]),
+        node("docs", &["review", "build"]),
+    ];
+    let database = database_with(&rows);
+    let view = graph(rows);
+    let (followups, _) = plan_completion(&view, "review", true).expect("Fertigmeldung gültig");
+    database
+        .with(|connection| {
+            implementation_rows::complete_station_with_followups(
+                connection, "review", 2.0, "Befund", &followups,
+            )
+        })
+        .expect("schreibbar");
+    let stored = stored_stations(&database);
+    let after_of = |stage: &str| -> Vec<String> {
+        stored
+            .iter()
+            .find(|station: &&StationRow| station.id == stage)
+            .map(|station: &StationRow| station.after.clone())
+            .unwrap_or_default()
+    };
+    let fix = &followups[0];
+    let second = &followups[1];
+    assert_eq!(
+        (fix.plan_id.as_str(), &fix.after),
+        ("1-5", &vec!["review".to_owned()])
+    );
+    assert_eq!(
+        (second.plan_id.as_str(), &second.after),
+        ("1-6", &vec!["1-5".to_owned()])
+    );
+    assert_eq!(after_of("pr"), ["1-6"]);
+    assert_eq!(after_of("docs"), ["1-6", "build"]);
+    assert_eq!(after_of("build"), Vec::<String>::new());
+}
+
+#[test]
+fn first_message_names_only_the_results_of_its_predecessors() {
+    let view = graph(vec![
+        finished(node("a", &[])),
+        finished(node("b", &[])),
+        node("c", &["b"]),
+    ]);
+    let phase = &view.phases[0];
+    let message = start::first_message(&view, phase, shown(&view, "c"), &[]);
+    assert!(
+        message.contains("Vorgänger:\n- Phase 1 · Umsetzung: Ergebnis b"),
+        "{message}"
+    );
+    assert!(!message.contains("Ergebnis a"), "{message}");
+}
+
+#[test]
+fn queue_holds_ready_stations_beyond_max_parallel_in_start_order() {
+    let mut urgent = node("urgent", &[]);
+    urgent.priority = 1;
+    let rows = vec![node("a", &[]), node("b", &[]), node("c", &[]), urgent];
+    let view = limited_view(rows.clone(), Some(2), true, &["a"]);
+    assert_eq!(view.queued, 2);
+    let positions: Vec<(&str, Option<u32>)> = view.phases[0]
+        .stations
+        .iter()
+        .map(|station: &StationView| (station.id.as_str(), station.queue_position))
+        .collect();
+    assert_eq!(
+        positions,
+        [
+            ("a", None),
+            ("b", Some(1)),
+            ("c", Some(2)),
+            ("urgent", None)
+        ],
+        "ein Platz frei: urgent zuerst, dann b und c in Planreihenfolge"
+    );
+    let without_automatic = limited_view(rows.clone(), Some(2), false, &["a"]);
+    assert_eq!(
+        without_automatic.queued, 0,
+        "ohne Automatik keine Warteschlange"
+    );
+    assert_eq!(
+        limited_view(rows, None, true, &["a"]).queued,
+        0,
+        "ohne Grenze keine"
+    );
+}
+
+#[test]
+fn counting_and_beginning_under_one_lock_never_exceeds_the_limit() {
+    use std::sync::{Arc, Mutex};
+    let view = limited_view(
+        vec![
+            node("a", &[]),
+            node("b", &[]),
+            node("c", &[]),
+            node("d", &[]),
+        ],
+        Some(2),
+        true,
+        &[],
+    );
+    let countdowns = Arc::new(Mutex::new(Countdowns::default()));
+    let begun: usize = std::thread::scope(|scope| {
+        let handles: Vec<_> = (0..2)
+            .map(|_| {
+                let countdowns = Arc::clone(&countdowns);
+                let view = &view;
+                scope.spawn(move || {
+                    let stations: Vec<&StationView> = view.phases[0].stations.iter().collect();
+                    let candidates: Vec<String> = due_ids(view);
+                    let candidates: Vec<&str> = candidates.iter().map(String::as_str).collect();
+                    countdowns
+                        .lock()
+                        .expect("Sperre")
+                        .begin_within(&stations, &candidates, view.max_parallel, 1.0)
+                        .len()
+                })
+            })
+            .collect();
+        handles
+            .into_iter()
+            .map(|handle| handle.join().expect("Thread"))
+            .sum()
+    });
+    assert_eq!(
+        begun, 2,
+        "zwei gleichzeitige Fertigmeldungen mit demselben Stand"
+    );
+}
+
+#[test]
+fn countdown_ending_into_a_start_keeps_the_station_counted() {
+    let view = limited_view(vec![node("a", &[]), node("b", &[])], Some(1), true, &[]);
+    let stations: Vec<&StationView> = view.phases[0].stations.iter().collect();
+    let mut countdowns = Countdowns::default();
+    let [(_, token)] = &countdowns.begin_within(&stations, &["a", "b"], Some(1), 1.0)[..] else {
+        panic!("Erwartet: ein Countdown");
+    };
+    assert!(countdowns.take_for_start("a", *token));
+    assert!(
+        countdowns
+            .begin_within(&stations, &["a", "b"], Some(1), 1.0)
+            .is_empty(),
+        "a startet und belegt den Platz"
+    );
+    countdowns.release_start("a");
+    assert_eq!(
+        countdowns
+            .begin_within(&stations, &["b"], Some(1), 1.0)
+            .len(),
+        1
+    );
+}
+
+#[test]
+fn queue_is_only_replanned_on_session_end_with_a_limit_and_automatic_start() {
+    let view = |max_parallel: Option<u32>, auto_start: bool| {
+        limited_view(vec![node("a", &[])], max_parallel, auto_start, &[])
+    };
+    assert!(resumes_queue(&view(Some(1), true)));
+    assert!(!resumes_queue(&view(None, true)), "ohne Grenze wie früher");
+    assert!(
+        !resumes_queue(&view(Some(1), false)),
+        "ohne Automatik keine Warteschlange"
+    );
+}
+
+#[test]
+fn plan_change_may_not_close_a_cycle_through_a_kept_station() {
+    let kept: Vec<KeptPhase> = vec![(None, vec![("kept".to_owned(), vec!["new".to_owned()])])];
+    let proposed = inputs(json!([{ "key": "2", "title": "B", "stations": [
+        { "stage": "Umsetzung", "id": "new", "after": ["kept"] },
+    ] }]));
+    let (_, mut stations) = phase_rows("implementation", &proposed, 0);
+    assert_eq!(
+        link(&kept, &proposed, &mut stations),
+        Err("Zyklus: kept → new → kept".to_owned())
+    );
+}
+
+#[test]
+fn station_inserted_between_a_and_b_by_plan_change_makes_b_wait_without_changing_b() {
+    let kept: Vec<KeptPhase> = vec![(None, vec![("1-1".to_owned(), Vec::new())])];
+    let proposed = inputs(json!([
+        { "key": "1a", "title": "Neu", "stations": [{ "stage": "Umsetzung" }] },
+        { "key": "2", "title": "B", "stations": [{ "stage": "Umsetzung" }] },
+    ]));
+    let (_, mut stations) = phase_rows("implementation", &proposed, 0);
+    link(&kept, &proposed, &mut stations).expect("gültiger Plan");
+    assert_eq!(
+        edges(&stations),
+        [edge("1a-1", &["1-1"]), edge("2-1", &["1a-1"])]
+    );
+}
+
+#[test]
+fn queue_moves_up_when_a_countdown_ends_in_a_start_error() {
+    let mut failed = node("a", &[]);
+    failed.start_error = Some("Den Typ „reviewr“ gibt es nicht mehr.".to_owned());
+    let rows = vec![failed, node("b", &[])];
+    assert!(resumes_queue_after_start_error(
+        &limited_view(rows.clone(), Some(1), true, &[]),
+        "a"
+    ));
+    assert!(
+        !resumes_queue_after_start_error(&limited_view(rows.clone(), Some(1), true, &[]), "b"),
+        "ohne gespeicherten Startfehler nicht: sonst versuchte der Countdown es endlos"
+    );
+    assert!(
+        !resumes_queue_after_start_error(&limited_view(rows, None, true, &[]), "a"),
+        "ohne Grenze wie früher"
+    );
+}
+
+#[test]
+fn a_running_countdown_is_not_begun_again() {
+    let view = limited_view(vec![node("a", &[]), node("b", &[])], Some(2), true, &[]);
+    let stations: Vec<&StationView> = view.phases[0].stations.iter().collect();
+    let mut countdowns = Countdowns::default();
+    let [(_, token)] = &countdowns.begin_within(&stations, &["a"], Some(2), 1.0)[..] else {
+        panic!("Erwartet: ein Countdown");
+    };
+    let again: Vec<String> = countdowns
+        .begin_within(&stations, &["a", "b"], Some(2), 2.0)
+        .into_iter()
+        .map(|(id, _): (String, u64)| id)
+        .collect();
+    assert_eq!(again, ["b"], "a zählt schon, nur b beginnt");
+    assert!(
+        countdowns.take("a", *token),
+        "a's Countdown läuft unverändert weiter"
+    );
+}
+
+#[test]
+fn a_station_with_an_active_session_counts_against_the_limit() {
+    let mut view = limited_view(
+        vec![node("a", &[]), node("b", &[]), node("c", &[])],
+        Some(2),
+        true,
+        &[],
+    );
+    let running = &mut view.phases[0].stations[0];
+    running.session_id = Some("session-a".to_owned());
+    running.state = StationState::Running;
+    let stations: Vec<&StationView> = view.phases[0].stations.iter().collect();
+    let begun: Vec<String> = Countdowns::default()
+        .begin_within(&stations, &["b", "c"], Some(2), 1.0)
+        .into_iter()
+        .map(|(id, _): (String, u64)| id)
+        .collect();
+    assert_eq!(begun, ["b"]);
+}
+
+#[test]
+fn counting_against_a_view_read_before_a_start_ended_begins_nothing() {
+    let view = limited_view(vec![node("a", &[]), node("b", &[])], Some(1), true, &[]);
+    let stations: Vec<&StationView> = view.phases[0].stations.iter().collect();
+    let mut countdowns = Countdowns::default();
+    assert!(countdowns.claim_start("a"));
+    let seen = countdowns.releases();
+    // Die Ansicht oben kennt a's Session noch nicht; jetzt endet a's Start.
+    countdowns.release_start("a");
+    assert_eq!(
+        countdowns.begin_if_current(seen, &stations, &["b"], Some(1), 1.0),
+        None,
+        "veraltete Ansicht: neu lesen statt b über die Grenze zu starten"
+    );
+    let fresh = countdowns.releases();
+    assert_eq!(
+        countdowns
+            .begin_if_current(fresh, &stations, &["b"], Some(1), 1.0)
+            .map(|begun: Vec<(String, u64)>| begun.len()),
+        Some(1)
+    );
+}
+
+#[test]
+fn queue_is_not_replanned_while_stop_after_current_is_set() {
+    let mut view = limited_view(vec![node("a", &[])], Some(1), true, &[]);
+    view.stop_after_current = true;
+    assert!(!resumes_queue(&view));
+}
+
+#[test]
+fn fix_round_and_second_review_inherit_the_priority_of_the_review() {
+    let mut review = node("review", &["build"]);
+    review.priority = 3;
+    let view = graph(vec![finished(node("build", &[])), review]);
+    let (followups, _) = plan_completion(&view, "review", true).expect("Fertigmeldung gültig");
+    let priorities: Vec<i32> = followups
+        .iter()
+        .map(|row: &StationRow| row.priority)
+        .collect();
+    assert_eq!(priorities, [3, 3]);
+}
+
+// Ab hier ADR 061, Station konfigurierbar: Automatik je Station, Sperren nach Zustand, „Vorgänger
+// dürfen“ samt Änderungen am Auftrag und „Bei Fehler“.
+
+/// Wie `limited_view`, dazu Sessions der genannten Stationen als (Station, Status, Fehler in diesem
+/// Lauf der App).
+fn view_with_sessions(
+    stations: Vec<StationRow>,
+    max_parallel: Option<u32>,
+    auto_start: bool,
+    sessions: &[(&str, SessionStatus, bool)],
+) -> ImplementationView {
+    let mut stations = stations;
+    let mut live: HashMap<String, SessionLive> = HashMap::new();
+    for &(id, status, is_fresh_error) in sessions {
+        let station = stations
+            .iter_mut()
+            .find(|station: &&mut StationRow| station.id == id)
+            .expect("Station vorhanden");
+        let session_id = format!("session-{id}");
+        station.session_id = Some(session_id.clone());
+        live.insert(
+            session_id,
+            SessionLive {
+                status,
+                number: 1,
+                running_ms: 0.0,
+                question: None,
+                last_activity_at: 0.0,
+                unread: false,
+                awaits_script: false,
+                is_fresh_error,
+            },
+        );
+    }
+    let stored = StoredImplementation {
+        row: ImplementationRow {
+            max_parallel,
+            auto_start,
+            ..implementation_row()
+        },
+        phases: vec![phase_row()],
+        stations: (0..)
+            .zip(stations)
+            .map(|(position, mut station): (u32, StationRow)| {
+                station.position = position;
+                station
+            })
+            .collect(),
+        changes: Vec::new(),
+    };
+    build_view(&stored, &live, &HashMap::new(), &HashMap::new(), &[])
+}
+
+fn with_auto_start(mut row: StationRow, auto_start: Option<bool>) -> StationRow {
+    row.auto_start = auto_start;
+    row
+}
+
+#[test]
+fn station_auto_start_on_schedules_it_although_the_implementation_has_no_automation() {
+    let view = limited_view(
+        vec![
+            with_auto_start(node("on", &[]), Some(true)),
+            node("inherits", &[]),
+        ],
+        None,
+        false,
+        &[],
+    );
+    assert_eq!(due_ids(&view), ["on"]);
+    assert!(is_automatic(&view));
+}
+
+#[test]
+fn station_auto_start_off_keeps_it_out_of_countdown_and_queue() {
+    let view = limited_view(
+        vec![
+            with_auto_start(node("off", &[]), Some(false)),
+            node("a", &[]),
+            node("b", &[]),
+        ],
+        Some(1),
+        true,
+        &[],
+    );
+    assert_eq!(due_ids(&view), ["a", "b"]);
+    assert_eq!(
+        view.queued, 1,
+        "nur b wartet, off steht nicht in der Warteschlange"
+    );
+    assert_eq!(shown(&view, "off").queue_position, None);
+    assert!(!shown(&view, "off").starts_automatically);
+    assert_eq!(
+        shown(&view, "off").state,
+        StationState::Ready,
+        "▶ bleibt möglich"
+    );
+}
+
+#[test]
+fn without_any_automation_there_is_no_queue_and_no_replanning() {
+    let view = limited_view(vec![node("a", &[]), node("b", &[])], Some(1), false, &[]);
+    assert!(due_ids(&view).is_empty());
+    assert_eq!(view.queued, 0);
+    assert!(!resumes_queue(&view));
+    let view = limited_view(
+        vec![with_auto_start(node("a", &[]), Some(true)), node("b", &[])],
+        Some(1),
+        false,
+        &[],
+    );
+    assert!(
+        resumes_queue(&view),
+        "eine Station mit Automatik setzt die Warteschlange fort"
+    );
+}
+
+fn options(
+    auto_start: Option<bool>,
+    on_error: OnError,
+    predecessors_may: PredecessorsMay,
+) -> StationOptions {
+    StationOptions {
+        auto_start,
+        on_error,
+        predecessors_may,
+    }
+}
+
+fn options_refusal(result: Result<(), CommandError>) -> String {
+    match result {
+        Err(CommandError::Implementation(message)) => message,
+        other => panic!("Erwartet: eine Ablehnung, nicht {other:?}"),
+    }
+}
+
+#[test]
+fn options_of_a_waiting_station_are_all_changeable() {
+    let view = graph(vec![node("a", &[])]);
+    let all_changed = options(
+        Some(false),
+        OnError::RestartUpToThree,
+        PredecessorsMay::HandsOff,
+    );
+    assert!(checked_options(&view, "a", &all_changed).is_ok());
+    let database = database_with(&[node("a", &[])]);
+    let is_written = database
+        .with(|connection| implementation_rows::set_station_options(connection, "a", &all_changed))
+        .expect("schreibbar");
+    let [stored] = &stored_stations(&database)[..] else {
+        panic!("Erwartet: eine Station");
+    };
+    assert!(is_written);
+    assert_eq!(
+        (
+            stored.auto_start,
+            stored.on_error,
+            stored.predecessors_may,
+            stored.edited
+        ),
+        (
+            Some(false),
+            OnError::RestartUpToThree,
+            PredecessorsMay::HandsOff,
+            true
+        )
+    );
+}
+
+#[test]
+fn after_the_start_only_on_error_stays_changeable_and_a_lock_names_its_field() {
+    let mut started = node("a", &[]);
+    started.session_id = Some("session".to_owned());
+    let view = graph(vec![started.clone()]);
+    assert!(
+        checked_options(
+            &view,
+            "a",
+            &options(None, OnError::RestartOnce, PredecessorsMay::Append)
+        )
+        .is_ok()
+    );
+    assert!(
+        options_refusal(checked_options(
+            &view,
+            "a",
+            &options(Some(true), OnError::Halt, PredecessorsMay::Append)
+        ))
+        .starts_with("auto_start: ")
+    );
+    assert!(
+        options_refusal(checked_options(
+            &view,
+            "a",
+            &options(None, OnError::Halt, PredecessorsMay::AppendAndChange)
+        ))
+        .starts_with("predecessors_may: ")
+    );
+
+    // Auch wenn die Session erst nach der Prüfung kommt: Der festgeschriebene Wert bleibt.
+    let database = database_with(&[started]);
+    let write = |options: StationOptions| {
+        database
+            .with(|connection| implementation_rows::set_station_options(connection, "a", &options))
+            .expect("schreibbar")
+    };
+    assert!(!write(options(
+        Some(false),
+        OnError::Halt,
+        PredecessorsMay::Append
+    )));
+    assert!(write(options(
+        None,
+        OnError::RestartOnce,
+        PredecessorsMay::Append
+    )));
+    assert_eq!(stored_stations(&database)[0].on_error, OnError::RestartOnce);
+}
+
+#[test]
+fn a_finished_station_is_read_only() {
+    let view = graph(vec![finished(node("a", &[]))]);
+    assert!(
+        options_refusal(checked_options(&view, "a", &StationOptions::default()))
+            .contains("Bei Fehler")
+    );
+    let database = database_with(&[finished(node("a", &[]))]);
+    let is_written = database
+        .with(|connection| {
+            implementation_rows::set_station_options(connection, "a", &StationOptions::default())
+        })
+        .expect("schreibbar");
+    assert!(!is_written);
+}
+
+#[test]
+fn set_station_agent_refusal_names_the_locked_fields() {
+    for field in ["Typ", "Modell", "Denkaufwand", "Zusatztext", "Skill"] {
+        assert!(STATION_BEGUN.contains(field), "{field}");
+    }
+}
+
+fn change(id: &str, kind: BriefChangeKind, text: &str) -> BriefChange {
+    BriefChange {
+        id: id.to_owned(),
+        kind,
+        text: text.to_owned(),
+        source_station_id: "build".to_owned(),
+        at: 1.0,
+    }
+}
+
+fn may(predecessors_may: PredecessorsMay) -> StationRow {
+    let mut row = node("review", &["build"]);
+    row.brief = "Prüfe den Diff.".to_owned();
+    row.predecessors_may = predecessors_may;
+    row
+}
+
+#[test]
+fn predecessors_may_append_allows_an_addition_but_no_replacement() {
+    let station = may(PredecessorsMay::Append);
+    let changes = amended_brief_changes(
+        &station,
+        change("1", BriefChangeKind::Append, "  Achte auf die Migration.  "),
+    )
+    .expect("Ergänzung erlaubt");
+    assert_eq!(changes[0].text, "Achte auf die Migration.");
+    assert_eq!(changes[0].source_station_id, "build");
+    let refused = amended_brief_changes(&station, change("2", BriefChangeKind::Replace, "Neu."));
+    assert!(refused.is_err_and(|message: String| message.starts_with("predecessors_may: ")));
+}
+
+#[test]
+fn predecessors_may_append_and_change_allows_a_replacement() {
+    let mut station = may(PredecessorsMay::AppendAndChange);
+    station.brief_changes = amended_brief_changes(
+        &station,
+        change("1", BriefChangeKind::Append, "Erst ergänzt."),
+    )
+    .expect("Ergänzung erlaubt");
+    station.brief_changes = amended_brief_changes(
+        &station,
+        change("2", BriefChangeKind::Replace, "Prüfe nur die Tests."),
+    )
+    .expect("Ersatz erlaubt");
+    station.brief_changes = amended_brief_changes(
+        &station,
+        change("3", BriefChangeKind::Append, "Und die Doku."),
+    )
+    .expect("Ergänzung erlaubt");
+    assert_eq!(
+        model::effective_brief(&station.brief, &station.brief_changes),
+        "Prüfe nur die Tests.\nUnd die Doku."
+    );
+}
+
+#[test]
+fn predecessors_may_hands_off_refuses_every_change_naming_the_field() {
+    let station = may(PredecessorsMay::HandsOff);
+    for kind in [BriefChangeKind::Append, BriefChangeKind::Replace] {
+        let refused = amended_brief_changes(&station, change("1", kind, "Text"));
+        assert!(
+            refused.is_err_and(|message: String| message.starts_with("predecessors_may: ")),
+            "{kind:?}"
+        );
+    }
+}
+
+#[test]
+fn brief_changes_are_removable_until_the_start_and_reset_restores_the_original() {
+    let mut station = may(PredecessorsMay::AppendAndChange);
+    station.brief_changes = vec![
+        change("added", BriefChangeKind::Append, "Ergänzt."),
+        change("replaced", BriefChangeKind::Replace, "Ersetzt."),
+    ];
+    let reset = without_brief_change(&station, "replaced").expect("vor dem Start");
+    assert_eq!(
+        model::effective_brief(&station.brief, &reset),
+        "Prüfe den Diff.\nErgänzt."
+    );
+    let removed = without_brief_change(&station, "added").expect("vor dem Start");
+    assert_eq!(model::effective_brief(&station.brief, &removed), "Ersetzt.");
+    assert_eq!(
+        without_brief_change(&station, "unknown"),
+        Err(UNKNOWN_BRIEF_CHANGE.to_owned())
+    );
+
+    station.session_id = Some("session".to_owned());
+    assert_eq!(
+        without_brief_change(&station, "added"),
+        Err(BRIEF_BEGUN.to_owned())
+    );
+    assert_eq!(
+        amended_brief_changes(&station, change("3", BriefChangeKind::Append, "Spät.")),
+        Err(BRIEF_BEGUN.to_owned())
+    );
+}
+
+#[test]
+fn first_message_sends_the_brief_with_the_changes_of_predecessors() {
+    let mut station = may(PredecessorsMay::Append);
+    station.brief_changes = vec![change(
+        "1",
+        BriefChangeKind::Append,
+        "Achte auf die Migration.",
+    )];
+    let view = graph(vec![finished(node("build", &[])), station]);
+    let message = start::first_message(&view, &view.phases[0], shown(&view, "review"), &[]);
+    assert!(
+        message.contains("Auftrag: Prüfe den Diff.\nAchte auf die Migration."),
+        "{message}"
+    );
+}
+
+#[test]
+fn stored_station_keeps_options_brief_changes_and_restarts() {
+    let mut station = may(PredecessorsMay::AppendAndChange);
+    station.auto_start = Some(false);
+    station.on_error = OnError::RestartOnce;
+    station.brief_changes = vec![change("1", BriefChangeKind::Replace, "Ersetzt.")];
+    station.restarts = 1;
+    let database = database_with(&[station.clone()]);
+    let [stored] = &stored_stations(&database)[..] else {
+        panic!("Erwartet: eine Station");
+    };
+    assert_eq!(
+        (
+            stored.auto_start,
+            stored.on_error,
+            stored.predecessors_may,
+            &stored.brief_changes,
+            stored.restarts
+        ),
+        (
+            Some(false),
+            OnError::RestartOnce,
+            PredecessorsMay::AppendAndChange,
+            &station.brief_changes,
+            1
+        )
+    );
+}
+
+fn failing(on_error: OnError, restarts: u32) -> StationRow {
+    let mut row = node("failing", &[]);
+    row.on_error = on_error;
+    row.restarts = restarts;
+    row
+}
+
+#[test]
+fn on_error_restarts_a_fresh_failure_and_keeps_its_place_in_the_queue() {
+    let view = view_with_sessions(
+        vec![failing(OnError::RestartOnce, 0), node("waiting", &[])],
+        Some(1),
+        true,
+        &[("failing", SessionStatus::Error, true)],
+    );
+    let failed = shown(&view, "failing");
+    assert!(failed.restarting && failed.is_active());
+    assert_eq!(view.queued, 1, "waiting bleibt in der Warteschlange");
+    let stations: Vec<&StationView> = view.phases[0].stations.iter().collect();
+    assert!(
+        Countdowns::default()
+            .begin_within(&stations, &["waiting"], Some(1), 1.0)
+            .is_empty()
+    );
+}
+
+#[test]
+fn on_error_counts_its_restarts_and_then_waits_for_the_user() {
+    for (on_error, restarts, is_restarting) in [
+        (OnError::Halt, 0, false),
+        (OnError::RestartOnce, 0, true),
+        (OnError::RestartOnce, 1, false),
+        (OnError::RestartUpToThree, 2, true),
+        (OnError::RestartUpToThree, 3, false),
+    ] {
+        let view = view_with_sessions(
+            vec![failing(on_error, restarts), node("waiting", &[])],
+            Some(1),
+            true,
+            &[("failing", SessionStatus::Error, true)],
+        );
+        assert_eq!(
+            shown(&view, "failing").restarting,
+            is_restarting,
+            "{on_error:?} nach {restarts}"
+        );
+        assert_eq!(
+            view.queued,
+            u32::from(is_restarting),
+            "{on_error:?} nach {restarts}"
+        );
+    }
+}
+
+#[test]
+fn on_error_does_not_restart_after_an_app_restart_a_cancel_or_a_halt() {
+    let restarting = |view: &ImplementationView| shown(view, "failing").restarting;
+    let loaded = view_with_sessions(
+        vec![failing(OnError::RestartOnce, 0)],
+        None,
+        true,
+        &[("failing", SessionStatus::Error, false)],
+    );
+    assert!(
+        !restarting(&loaded),
+        "Fehler aus der Datenbank: Critical Rule 4"
+    );
+    let cancelled = view_with_sessions(
+        vec![failing(OnError::RestartOnce, 0)],
+        None,
+        true,
+        &[("failing", SessionStatus::Cancelled, false)],
+    );
+    assert!(!restarting(&cancelled), "Abbruch durch den Benutzer");
+    let mut stored = StoredImplementation {
+        row: ImplementationRow {
+            stop_after_current: true,
+            ..implementation_row()
+        },
+        phases: vec![phase_row()],
+        stations: vec![failing(OnError::RestartOnce, 0)],
+        changes: Vec::new(),
+    };
+    stored.stations[0].session_id = Some("session".to_owned());
+    let live: HashMap<String, SessionLive> = HashMap::from([(
+        "session".to_owned(),
+        SessionLive {
+            status: SessionStatus::Error,
+            number: 1,
+            running_ms: 0.0,
+            question: None,
+            last_activity_at: 0.0,
+            unread: false,
+            awaits_script: false,
+            is_fresh_error: true,
+        },
+    )]);
+    let halted = build_view(&stored, &live, &HashMap::new(), &HashMap::new(), &[]);
+    assert!(!restarting(&halted), "„Anhalten nach dieser Session“");
+}
+
+#[test]
+fn a_restart_is_counted_once_even_when_two_callers_race() {
+    let mut station = failing(OnError::RestartUpToThree, 0);
+    station.session_id = Some("session".to_owned());
+    let database = database_with(&[station]);
+    let count = |seen: u32| {
+        database
+            .with(|connection| implementation_rows::count_restart(connection, "failing", seen))
+            .expect("schreibbar")
+    };
+    assert!(count(0));
+    assert!(!count(0), "der zweite mit demselben Stand verliert");
+    assert!(count(1));
+    assert_eq!(stored_stations(&database)[0].restarts, 2);
+}
+
+#[test]
+fn a_redeemed_halt_drops_the_pending_restart_of_every_failed_station() {
+    let view = view_with_sessions(
+        vec![
+            failing(OnError::RestartOnce, 0),
+            node("running", &[]),
+            node("stopping", &[]),
+        ],
+        None,
+        true,
+        &[
+            ("failing", SessionStatus::Error, true),
+            ("running", SessionStatus::Running, false),
+            ("stopping", SessionStatus::Error, true),
+        ],
+    );
+    assert_eq!(
+        errored_sessions(&view),
+        ["session-failing", "session-stopping"],
+        "nur Stationen mit Fehler, ob sie neu starten würden oder nicht"
+    );
+}
+
+#[test]
+fn plan_change_keeps_the_options_of_an_edited_station() {
+    let mut old = edited(planned("review", 0, "Review"));
+    old.auto_start = Some(false);
+    old.on_error = OnError::RestartOnce;
+    old.predecessors_may = PredecessorsMay::HandsOff;
+    let mut fresh = planned("new", 0, "Review");
+    changes::keep_settings(&[old], std::slice::from_mut(&mut fresh));
+    assert_eq!(
+        (fresh.auto_start, fresh.on_error, fresh.predecessors_may),
+        (Some(false), OnError::RestartOnce, PredecessorsMay::HandsOff)
+    );
+}
+
+#[test]
+fn new_station_options_are_class_c_in_the_access_table() {
+    use crate::remote::access::{Class, class_of};
+    for command in [
+        "implementation_set_station_options",
+        "implementation_remove_brief_change",
+    ] {
+        assert_eq!(class_of(command), Some(Class::HostWrite), "{command}");
+    }
+}
+
+#[test]
+fn a_claimed_restart_keeps_its_place_while_the_session_is_briefly_paused() {
+    // `SessionRegistry::restart` setzt die Session auf pausiert, bevor die Nachricht sie startet.
+    let view = view_with_sessions(
+        vec![failing(OnError::RestartOnce, 1), node("waiting", &[])],
+        Some(1),
+        true,
+        &[("failing", SessionStatus::Paused, false)],
+    );
+    let stations: Vec<&StationView> = view.phases[0].stations.iter().collect();
+    let mut countdowns = Countdowns::default();
+    assert!(countdowns.claim_start("failing"));
+    assert!(
+        countdowns
+            .begin_within(&stations, &["waiting"], Some(1), 1.0)
+            .is_empty()
+    );
+    countdowns.release_start("failing");
+    assert_eq!(
+        countdowns
+            .begin_within(&stations, &["waiting"], Some(1), 1.0)
+            .len(),
+        1
+    );
+}
+
+#[test]
+fn switching_automatic_off_frees_the_place_for_a_queued_station_with_its_own_on() {
+    let mut begun = finished(node("build", &[]));
+    begun.session_id = Some("session".to_owned());
+    let mut own_on = node("b", &[]);
+    own_on.auto_start = Some(true);
+    // Die Umsetzung ist aus, der Countdown von „a“ ist eben beendet.
+    let view = limited_view(
+        vec![begun.clone(), node("a", &[]), own_on.clone()],
+        Some(1),
+        false,
+        &[],
+    );
+    assert!(refills_after_switch_off(&view));
+    assert_eq!(due_ids(&view), ["b"]);
+
+    let without_own_on = limited_view(vec![begun.clone(), node("a", &[])], Some(1), false, &[]);
+    assert!(!refills_after_switch_off(&without_own_on));
+    let without_limit = limited_view(vec![begun, own_on.clone()], None, false, &[]);
+    assert!(
+        !refills_after_switch_off(&without_limit),
+        "ohne Grenze läuft ihr Countdown schon"
+    );
+    let not_begun = limited_view(vec![node("a", &[]), own_on], Some(1), false, &[]);
+    assert!(
+        !refills_after_switch_off(&not_begun),
+        "vor dem Start startet nichts von selbst"
+    );
+}
+
+#[test]
+fn a_started_station_refuses_a_late_write_of_predecessors_may() {
+    let mut started = node("a", &[]);
+    started.session_id = Some("session".to_owned());
+    let database = database_with(&[started]);
+    let is_written = database
+        .with(|connection| {
+            implementation_rows::set_station_options(
+                connection,
+                "a",
+                &options(None, OnError::Halt, PredecessorsMay::HandsOff),
+            )
+        })
+        .expect("schreibbar");
+    assert!(!is_written);
+    assert_eq!(
+        stored_stations(&database)[0].predecessors_may,
+        PredecessorsMay::Append
+    );
+}
+
+#[test]
+fn the_brief_with_its_changes_stays_within_the_brief_limit() {
+    let mut station = may(PredecessorsMay::AppendAndChange);
+    station.brief = "x".repeat(MAX_BRIEF_CHARS - 10);
+    let refused = amended_brief_changes(
+        &station,
+        change("1", BriefChangeKind::Append, &"y".repeat(10)),
+    );
+    assert!(refused.is_err_and(|message: String| message.starts_with("brief_changes: ")));
+    station.brief_changes = amended_brief_changes(
+        &station,
+        change("1", BriefChangeKind::Append, &"y".repeat(9)),
+    )
+    .expect("genau 1000 Zeichen");
+
+    // Zurücksetzen eines Ersatzes brächte den langen Text davor zurück.
+    station.brief_changes = vec![
+        change("replaced", BriefChangeKind::Replace, "Kurz."),
+        change("added", BriefChangeKind::Append, &"z".repeat(20)),
+    ];
+    let refused = without_brief_change(&station, "replaced");
+    assert!(refused.is_err_and(|message: String| message.starts_with("brief_changes: ")));
+    assert!(without_brief_change(&station, "added").is_ok());
+}
+
+// Werkzeuge der Constraint-Abläufe (ADR 061, Werkzeuge): Schema, Delta, Übergabe, Lagebericht.
+
+fn delta(edit: Value) -> model::PlanEdit {
+    serde_json::from_value(edit).expect("Delta lesbar")
+}
+
+/// Rechnet das Delta gegen die Ansicht dieser Stationen (eine Lane „1“).
+fn edited_with(rows: Vec<StationRow>, edit: Value) -> Result<edit::EditedPlan, String> {
+    let view = graph(rows.clone());
+    edit::edited_plan("implementation", &view.phases, &rows, &delta(edit), &[])
+}
+
+fn after_in(rows: &[StationRow], id: &str) -> Vec<String> {
+    rows.iter()
+        .find(|row: &&StationRow| row.plan_id == id)
+        .map(|row: &StationRow| row.after.clone())
+        .unwrap_or_default()
+}
+
+#[test]
+fn create_schema_names_id_after_priority_max_parallel_and_lanes() {
+    let spec = tool("implementation_create");
+    let station =
+        &spec.input_schema["properties"]["phases"]["items"]["properties"]["stations"]["items"];
+    for field in ["id", "after", "priority"] {
+        assert!(
+            station["properties"][field].is_object(),
+            "Station nennt {field}"
+        );
+    }
+    let properties = &spec.input_schema["properties"];
+    assert_eq!(properties["max_parallel"]["minimum"], json!(1));
+    assert!(properties["lanes"].is_object());
+    assert_eq!(spec.input_schema["required"], json!(["name"]));
+    for field in ["auto_start", "on_error", "predecessors_may", "autoStart"] {
+        assert!(
+            station["properties"][field].is_null(),
+            "{field} setzt nur der Benutzer"
+        );
+    }
+}
+
+#[test]
+fn edit_tool_is_listed_and_not_read_only() {
+    let spec = tool("implementation_edit");
+    assert!(spec.description.contains("übernimmt"));
+    for field in ["lanes", "add", "change", "remove", "max_parallel"] {
+        assert!(
+            spec.input_schema["properties"][field].is_object(),
+            "{field}"
+        );
+    }
+    assert!(!tools::ImplementationTools.is_read_only("implementation_edit"));
+    assert!(!tools::side_may_call("implementation_edit"));
+}
+
+#[test]
+fn new_lanes_of_an_edit_offer_no_wave_because_the_delta_knows_only_edges() {
+    let lane = |name: &str, tool_name: &str| {
+        let spec = tool(tool_name);
+        let items = &spec.input_schema["properties"][name]["items"]["properties"];
+        (
+            items["wave"].clone(),
+            items["stations"]["items"]["properties"]["after"]["description"].clone(),
+        )
+    };
+    let (wave, after) = lane("lanes", "implementation_edit");
+    assert!(wave.is_null(), "im Delta gibt es keine Welle");
+    assert!(
+        after
+            .as_str()
+            .is_some_and(|text: &str| text.contains("startet sofort")),
+        "after sagt, dass eine Station ohne Vorgänger sofort startet"
+    );
+    assert!(lane("phases", "implementation_create").0.is_object());
+    assert!(lane("phases", "implementation_set_phases").0.is_object());
+}
+
+#[test]
+fn lanes_reads_like_phases_in_an_edit_and_a_stored_proposal() {
+    let lanes: Vec<PhaseInput> = inputs(json!([{ "key": "1", "title": "L", "stations": [
+        { "stage": "Test" },
+    ] }]));
+    let edit = delta(json!({ "lanes": lanes, "maxParallel": 2 }));
+    let pending = PendingChange {
+        session_id: "s".to_owned(),
+        session_number: 1,
+        at: 1.0,
+        summary: model::ChangeSummary::default(),
+        phases: Vec::new(),
+        edit: Some(edit.clone()),
+    };
+    let stored = serde_json::to_string(&pending).expect("JSON");
+    let read: PendingChange = serde_json::from_str(&stored).expect("lesbar");
+    assert_eq!(read.edit, Some(edit));
+    let old: PendingChange = serde_json::from_value(json!({
+        "sessionId": "s", "sessionNumber": 1, "at": 1.0,
+        "summary": { "added": ["2"], "moved": [], "removed": [] }, "phases": [],
+    }))
+    .expect("ein gespeicherter Vorschlag ohne die neuen Felder bleibt lesbar");
+    assert_eq!(
+        (old.edit, old.summary.changed),
+        (None, Vec::<String>::new())
+    );
+}
+
+#[test]
+fn tools_refuse_the_three_options_only_the_user_sets() {
+    let phases = inputs(json!([{ "key": "1", "title": "L", "stations": [
+        { "stage": "Test" },
+        { "stage": "Review", "onError": "restartOnce" },
+    ] }]));
+    assert_eq!(
+        model::refuse_user_options(&model::stations_in("phases", &phases)),
+        Err(
+            "phases[0].stations[1].on_error: setzt nur der Benutzer, nicht das Werkzeug."
+                .to_owned()
+        )
+    );
+    let edit = delta(json!({ "add": [{ "lane": "1", "stage": "PR", "autoStart": true }] }));
+    assert_eq!(
+        model::refuse_user_options(&edit.new_stations()),
+        Err("add[0].auto_start: setzt nur der Benutzer, nicht das Werkzeug.".to_owned())
+    );
+}
+
+#[test]
+fn edit_inserts_a_station_between_a_and_b() {
+    let mut b = node("b", &["a"]);
+    b.position = 1;
+    let rows = vec![node("a", &[]), b];
+    let edited = edited_with(
+        rows,
+        json!({
+            "add": [{ "lane": "1", "stage": "Test", "after": ["a"] }],
+            "change": [{ "id": "b", "after": ["1-1"] }],
+        }),
+    )
+    .expect("gültig");
+    assert_eq!(edited.inserted.len(), 1);
+    let inserted = &edited.inserted[0];
+    assert_eq!(
+        (
+            inserted.plan_id.as_str(),
+            &inserted.after,
+            inserted.position
+        ),
+        ("1-1", &vec!["a".to_owned()], 2),
+        "freie Kennung <Lane>-<n>, am Ende der Lane"
+    );
+    assert_eq!(after_in(&edited.updated, "b"), ["1-1"]);
+    assert_eq!(edited.summary.added, ["1-1"]);
+    assert_eq!(edited.summary.changed, ["b"]);
+}
+
+#[test]
+fn edit_removing_a_station_hands_its_predecessors_to_its_successors() {
+    let rows = vec![
+        node("a", &[]),
+        node("x", &["a"]),
+        node("b", &["x", "a"]),
+        node("c", &["x"]),
+    ];
+    let edited = edited_with(rows, json!({ "remove": ["x"] })).expect("gültig");
+    assert_eq!(edited.removed, ["x"]);
+    assert_eq!(after_in(&edited.updated, "b"), ["a"], "ohne Doppel");
+    assert_eq!(after_in(&edited.updated, "c"), ["a"]);
+}
+
+#[test]
+fn edit_never_touches_a_begun_or_finished_station() {
+    let mut running = node("b", &["a"]);
+    running.session_id = Some("session".to_owned());
+    let rows = vec![finished(node("a", &[])), running, node("c", &["b"])];
+    assert_eq!(
+        edited_with(rows.clone(), json!({ "remove": ["a"] })).map(|_| ()),
+        Err(
+            "remove[0]: Station „a“ hat schon begonnen; sie und ihre Kanten bleiben, wie sie sind."
+                .to_owned()
+        )
+    );
+    assert!(
+        edited_with(
+            rows.clone(),
+            json!({ "change": [{ "id": "b", "brief": "Neu." }] })
+        )
+        .is_err_and(|error: String| error.starts_with("change[0].id: Station „b“"))
+    );
+    assert!(edited_with(rows, json!({ "change": [{ "id": "c", "after": ["a"] }] })).is_ok());
+}
+
+#[test]
+fn edit_rejects_a_cycle_naming_the_stations() {
+    let rows = vec![node("a", &[]), node("b", &["a"])];
+    assert_eq!(
+        edited_with(rows, json!({ "change": [{ "id": "a", "after": ["b"] }] })).map(|_| ()),
+        Err("Zyklus: a → b → a".to_owned())
+    );
+}
+
+#[test]
+fn edit_errors_name_the_field() {
+    let rows = vec![node("a", &[])];
+    let cases = [
+        (
+            json!({}),
+            "Die Änderung ist leer: nenne lanes, add, change, remove oder max_parallel.",
+        ),
+        (
+            json!({ "remove": ["zz"] }),
+            "remove[0]: Unbekannte Kennung „zz“.",
+        ),
+        (
+            json!({ "add": [{ "lane": "9", "stage": "T" }] }),
+            "add[0].lane: Lane „9“ gibt es nicht.",
+        ),
+        (
+            json!({ "add": [{ "lane": "1", "stage": "" }] }),
+            "add[0].stage: darf nicht leer sein",
+        ),
+        (
+            json!({ "lanes": [{ "key": "1", "title": "T", "stations": [{ "stage": "T" }] }] }),
+            "lanes[0].key: Lane „1“ gibt es schon.",
+        ),
+        (
+            json!({ "change": [{ "id": "a", "model": "gpt" }] }),
+            "change[0].model: unbekanntes Modell „gpt“ (fable, opusplan, opus, sonnet, haiku)",
+        ),
+    ];
+    for (edit, expected) in cases {
+        assert_eq!(
+            edited_with(rows.clone(), edit.clone()).map(|_| ()),
+            Err(expected.to_owned()),
+            "{edit}"
+        );
+    }
+}
+
+#[test]
+fn edit_with_a_new_brief_drops_the_changes_of_predecessors() {
+    let mut waiting = node("b", &["a"]);
+    waiting.brief = "Alt.".to_owned();
+    waiting.brief_changes = vec![change("1", BriefChangeKind::Append, "Notiz.")];
+    let edited = edited_with(
+        vec![node("a", &[]), waiting],
+        json!({ "change": [{ "id": "b", "brief": " Neu. ", "prompt": "" }] }),
+    )
+    .expect("gültig");
+    let updated = &edited.updated[0];
+    assert_eq!(
+        (
+            updated.brief.as_str(),
+            updated.brief_changes.len(),
+            &updated.prompt
+        ),
+        ("Neu.", 0, &None)
+    );
+}
+
+#[test]
+fn edit_max_parallel_zero_lifts_the_limit_and_new_lanes_are_marked_new() {
+    let edited = edited_with(
+        vec![node("a", &[])],
+        json!({
+            "maxParallel": 0,
+            "lanes": [{ "key": "2", "title": "Neu", "stations": [{ "stage": "T", "after": ["a"] }] }],
+        }),
+    )
+    .expect("gültig");
+    assert_eq!(edited.max_parallel, Some(None));
+    assert_eq!(edited.phases[0].mark, Some(model::PhaseMark::New));
+    assert_eq!(after_in(&edited.inserted, "2-1"), ["a"]);
+    assert_eq!(
+        edited_with(vec![node("a", &[])], json!({ "maxParallel": 3 }))
+            .map(|edited: edit::EditedPlan| edited.max_parallel),
+        Ok(Some(Some(3)))
+    );
+}
+
+fn note(text: &str) -> model::Handoff {
+    model::Handoff {
+        note: Some(text.to_owned()),
+        replace: Vec::new(),
+    }
+}
+
+#[test]
+fn handoff_note_reaches_only_waiting_successors() {
+    let mut running = node("running", &["a"]);
+    running.session_id = Some("session".to_owned());
+    let rows = vec![
+        node("a", &[]),
+        node("b", &["a"]),
+        running,
+        node("later", &["b"]),
+    ];
+    let changes = handoff_changes(&rows, "a", &[], &note("Achte auf X."), 1.0).expect("gültig");
+    let targets: Vec<&str> = changes
+        .iter()
+        .map(|(_, plan_id, _): &(String, String, BriefChange)| plan_id.as_str())
+        .collect();
+    assert_eq!(targets, ["b"]);
+    assert_eq!(changes[0].2.source_station_id, "a");
+}
+
+#[test]
+fn handoff_with_a_fix_round_goes_to_the_fix_round() {
+    let rows = vec![node("a", &[]), node("b", &["a"])];
+    let mut fix_round = node("1-3", &["a"]);
+    fix_round.id = "fix".to_owned();
+    let changes = handoff_changes(
+        &rows,
+        "a",
+        std::slice::from_ref(&fix_round),
+        &note("Befund 1."),
+        1.0,
+    )
+    .expect("gültig");
+    assert_eq!(changes.len(), 1);
+    assert_eq!(changes[0].0, "fix");
+}
+
+#[test]
+fn handoff_refused_by_hands_off_or_append_only_names_the_field() {
+    let mut off = node("b", &["a"]);
+    off.predecessors_may = PredecessorsMay::HandsOff;
+    assert_eq!(
+        handoff_changes(&[node("a", &[]), off], "a", &[], &note("X."), 1.0).map(|_| ()),
+        Err("predecessors_may: Die Station „b“ lässt ihren Auftrag nicht anfassen.".to_owned())
+    );
+    let replace = model::Handoff {
+        note: None,
+        replace: vec![("b".to_owned(), "Neu.".to_owned())],
+    };
+    let rows = vec![node("a", &[]), node("b", &["a"])];
+    assert!(
+        handoff_changes(&rows, "a", &[], &replace, 1.0)
+            .is_err_and(|error: String| error.starts_with("predecessors_may: "))
+    );
+    let elsewhere = model::Handoff {
+        note: None,
+        replace: vec![("a".to_owned(), "Neu.".to_owned())],
+    };
+    assert_eq!(
+        handoff_changes(&rows, "a", &[], &elsewhere, 1.0).map(|_| ()),
+        Err("handoff.replace[0].id: „a“ ist kein wartender Nachfolger dieser Station.".to_owned())
+    );
+}
+
+#[test]
+fn handoff_replace_comes_before_the_note_where_change_is_allowed() {
+    let mut open = node("b", &["a"]);
+    open.brief = "Alt.".to_owned();
+    open.predecessors_may = PredecessorsMay::AppendAndChange;
+    let handoff = model::Handoff {
+        note: Some("Notiz.".to_owned()),
+        replace: vec![("b".to_owned(), "Neu.".to_owned())],
+    };
+    let changes =
+        handoff_changes(&[node("a", &[]), open], "a", &[], &handoff, 1.0).expect("gültig");
+    let folded: Vec<BriefChange> = changes
+        .into_iter()
+        .map(|(_, _, change): (String, String, BriefChange)| change)
+        .collect();
+    assert_eq!(model::effective_brief("Alt.", &folded), "Neu.\nNotiz.");
+}
+
+#[test]
+fn completion_answer_names_the_successors_the_handoff_changed() {
+    let outcome = CompleteOutcome {
+        waits_for_user: true,
+        handed: vec![
+            ("b".to_owned(), BriefChangeKind::Append),
+            ("c".to_owned(), BriefChangeKind::Append),
+            ("c".to_owned(), BriefChangeKind::Replace),
+        ],
+        ..CompleteOutcome::default()
+    };
+    assert!(
+        outcome
+            .text()
+            .contains("Übergabenotiz ergänzt bei: b, c. Auftrag ersetzt bei: c."),
+        "{}",
+        outcome.text()
+    );
+    let unused = CompleteOutcome {
+        handoff_unused: true,
+        ..CompleteOutcome::default()
+    };
+    assert!(
+        unused
+            .text()
+            .contains("Die Übergabenotiz ist nirgends angekommen.")
+    );
+}
+
+#[test]
+fn report_names_lanes_start_stations_limit_and_edges() {
+    let view = limited_view(
+        vec![
+            finished(node("a", &[])),
+            node("b", &["a"]),
+            node("c", &["a"]),
+        ],
+        Some(1),
+        true,
+        &[],
+    );
+    let text = report::text(&view, 0.0, false);
+    for expected in [
+        "Stand: Lane 1 von 1",
+        "Parallel: höchstens 1 · Warteschlange: 1",
+        "Startstationen: a",
+        "Lane 1 · Umsetzung — Ergebnis a",
+        "  a — Lane 1 · Umsetzung · Stufe 1 · fertig · wartet auf: – · danach: b, c",
+        "  c — Lane 1 · Umsetzung · Stufe 2 · Warteschlange 1 · wartet auf: a · danach: –",
+    ] {
+        assert!(text.contains(expected), "{expected}\n{text}");
+    }
+    assert!(!text.contains("Phase"), "{text}");
+}
+
+#[test]
+fn first_message_explains_the_handoff_and_names_its_sources() {
+    let mut target = node("b", &["a"]);
+    target.brief = "Prüfe.".to_owned();
+    target.brief_changes = vec![BriefChange {
+        source_station_id: "a".to_owned(),
+        ..change("1", BriefChangeKind::Append, "Achte auf X.")
+    }];
+    let view = graph(vec![finished(node("a", &[])), target]);
+    let message = start::first_message(&view, &view.phases[0], shown(&view, "b"), &[]);
+    assert!(
+        message.contains("Auftrag: Prüfe.\nAchte auf X."),
+        "{message}"
+    );
+    assert!(
+        message.contains("Der Auftrag enthält Übergabenotizen von: Phase 1 · Umsetzung."),
+        "{message}"
+    );
+    assert!(message.contains("als Übergabenotiz mit"), "{message}");
+}
+
+#[test]
+fn edit_plan_command_is_class_c_in_the_access_table() {
+    use crate::remote::access::{Class, class_of};
+    assert_eq!(class_of("implementation_edit_plan"), Some(Class::HostWrite));
+}
+
+// Fix-Runde 1 der Werkzeuge (ADR 061, Werkzeuge).
+
+#[test]
+fn edit_summary_names_a_changed_max_parallel() {
+    let summary_of = |edit: Value| -> model::ChangeSummary {
+        edited_with(vec![node("a", &[])], edit)
+            .expect("gültig")
+            .summary
+    };
+    assert_eq!(
+        changes::describe(&summary_of(json!({ "maxParallel": 3 }))),
+        "parallel höchstens 3"
+    );
+    assert_eq!(
+        changes::describe(&summary_of(json!({ "maxParallel": 0 }))),
+        "parallel unbegrenzt"
+    );
+    let with_station = summary_of(json!({
+        "add": [{ "lane": "1", "stage": "Test" }],
+        "maxParallel": 2,
+    }));
+    assert_eq!(
+        changes::describe(&with_station),
+        "neu 1-1, parallel höchstens 2"
+    );
+    let stored: model::ChangeSummary =
+        serde_json::from_str(&serde_json::to_string(&with_station).expect("JSON")).expect("lesbar");
+    assert_eq!(stored.max_parallel, Some(2), "die Karte bekommt die Grenze");
+    assert_eq!(
+        summary_of(json!({ "remove": ["a"] })).max_parallel,
+        None,
+        "ohne Grenze im Delta keine Grenze in der Zusammenfassung"
+    );
+}
+
+#[test]
+fn report_lists_only_stations_without_predecessors_as_start_stations() {
+    let view = graph(vec![node("a", &[]), node("b", &["a"]), node("c", &[])]);
+    let text = report::text(&view, 0.0, false);
+    assert!(
+        text.lines()
+            .any(|line: &str| line == "Startstationen: a, c"),
+        "{text}"
+    );
+}
+
+#[test]
+fn edit_removing_the_last_station_of_a_lane_removes_the_lane() {
+    let emptied = edited_with(vec![node("a", &[])], json!({ "remove": ["a"] })).expect("gültig");
+    assert_eq!(emptied.removed_phases.len(), 1);
+    let kept = edited_with(
+        vec![node("a", &[]), node("b", &["a"])],
+        json!({ "remove": ["b"] }),
+    )
+    .expect("gültig");
+    assert!(kept.removed_phases.is_empty());
+}
+
+#[test]
+fn edit_never_reuses_the_plan_id_of_a_station_removed_in_the_same_edit() {
+    let edited = edited_with(
+        vec![node("a", &[]), node("1-1", &["a"])],
+        json!({ "remove": ["1-1"], "add": [{ "lane": "1", "stage": "Test", "after": ["a"] }] }),
+    )
+    .expect("gültig");
+    assert_eq!(edited.summary.added, ["1-2"]);
+}
+
+#[test]
+fn tools_refuse_predecessors_may() {
+    let edit =
+        delta(json!({ "add": [{ "lane": "1", "stage": "PR", "predecessorsMay": "handsOff" }] }));
+    assert_eq!(
+        model::refuse_user_options(&edit.new_stations()),
+        Err("add[0].predecessors_may: setzt nur der Benutzer, nicht das Werkzeug.".to_owned())
     );
 }

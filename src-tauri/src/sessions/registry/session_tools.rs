@@ -440,7 +440,7 @@ impl SessionRegistry {
 
     /// Stellt zu oder reiht ein, geprüft unter derselben Session-Sperre wie das Senden. Eine wartende
     /// Nachricht wird nicht überholt. Liefert Status und Grund für das Ergebnis des Werkzeugs.
-    fn deliver(
+    pub(super) fn deliver(
         &self,
         app: &AppHandle,
         target: &Arc<Session>,

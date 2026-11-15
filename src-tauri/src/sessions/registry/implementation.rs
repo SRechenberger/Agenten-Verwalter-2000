@@ -6,6 +6,7 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, MutexGuard, PoisonError};
+use std::thread;
 
 use tauri::AppHandle;
 
@@ -23,13 +24,15 @@ use crate::db::implementations::{
 };
 use crate::error::CommandError;
 use crate::file_links;
+use crate::implementation::edit::EditedPlan;
 use crate::implementation::model::{
-    ImplementationView, InquiryCreated, PendingChange, PhaseInput, PhaseView, StationSettings,
-    check_agents,
+    BriefChange, ImplementationView, InquiryCreated, PendingChange, PhaseInput, PhaseView,
+    StationOptions, StationSettings, StationView, check_agents,
 };
 use crate::implementation::report::{self, Extras};
+use crate::implementation::wake::{self, WakeEvent, WakeFacts};
 use crate::implementation::{
-    Countdowns, STATION_BEGUN, SessionLive, build_view, new_rows, station_in,
+    self, Countdowns, STATION_BEGUN, SessionLive, build_view, new_rows, station_in,
 };
 use crate::sessions::model::SessionStatus;
 use crate::settings::{self, model::OperatingMode};
@@ -125,10 +128,19 @@ impl SessionRegistry {
         name: &str,
         source: &str,
         phases: &[PhaseInput],
+        max_parallel: Option<u32>,
     ) -> Result<ImplementationView, CommandError> {
         let project_id = self.get(session_id)?.project_id.clone();
-        let (row, phase_rows, station_rows) =
-            new_rows(&project_id, session_id, name, source, phases, now_ms());
+        let (row, phase_rows, station_rows) = new_rows(
+            &project_id,
+            session_id,
+            name,
+            source,
+            phases,
+            max_parallel,
+            now_ms(),
+        )
+        .map_err(CommandError::Implementation)?;
         self.database.with(|connection| {
             check_agents(phases, &agent_type_rows::list(connection)?)
                 .map_err(CommandError::Implementation)?;
@@ -275,6 +287,9 @@ impl SessionRegistry {
         station_id: &str,
         settings: &StationSettings,
     ) -> Result<(), CommandError> {
+        if self.is_starting(station_id) {
+            return Err(CommandError::Implementation(STATION_BEGUN.to_owned()));
+        }
         let is_written = self.database.with(|connection| {
             implementation_rows::set_station_settings(connection, station_id, settings)
         })?;
@@ -282,6 +297,60 @@ impl SessionRegistry {
             return Err(CommandError::Implementation(STATION_BEGUN.to_owned()));
         }
         Ok(())
+    }
+
+    /// Schreibt „Automatisch starten“, „Bei Fehler“ und „Vorgänger dürfen“ samt `edited` (ADR 061);
+    /// `false`, wenn die Station inzwischen fertig ist oder einen festgeschriebenen Wert ändern würde.
+    pub fn store_station_options(
+        &self,
+        station_id: &str,
+        options: &StationOptions,
+    ) -> Result<bool, CommandError> {
+        self.database.with(|connection| {
+            implementation_rows::set_station_options(connection, station_id, options)
+        })
+    }
+
+    /// Liest die Station und schreibt ihre Änderungen am Auftrag unter derselben Datenbank-Sperre
+    /// (ADR 061): `edit` prüft an der gespeicherten Zeile und liefert die neue Liste oder den Satz für
+    /// den Fehler.
+    pub fn edit_brief_changes(
+        &self,
+        implementation_id: &str,
+        station_id: &str,
+        edit: impl FnOnce(&StationRow) -> Result<Vec<BriefChange>, String>,
+    ) -> Result<(), CommandError> {
+        self.database.with(|connection| {
+            let stored = implementation_rows::load(connection, implementation_id)?;
+            let Some(station) = stored.as_ref().and_then(|stored: &StoredImplementation| {
+                stored
+                    .stations
+                    .iter()
+                    .find(|station: &&StationRow| station.id == station_id)
+            }) else {
+                return Err(CommandError::Implementation(
+                    "Diese Station gehört nicht zur Umsetzung.".to_owned(),
+                ));
+            };
+            if station.session_id.is_none() && self.is_starting(station_id) {
+                return Err(CommandError::Implementation(
+                    implementation::BRIEF_BEGUN.to_owned(),
+                ));
+            }
+            let changes = edit(station).map_err(CommandError::Implementation)?;
+            if !implementation_rows::set_brief_changes(connection, station_id, &changes)? {
+                return Err(CommandError::Implementation(
+                    implementation::BRIEF_BEGUN.to_owned(),
+                ));
+            }
+            Ok(())
+        })
+    }
+
+    /// Zählt einen Neustart nach Fehler, wenn noch `seen` gezählt sind (`count_restart`).
+    pub fn count_restart(&self, station_id: &str, seen: u32) -> Result<bool, CommandError> {
+        self.database
+            .with(|connection| implementation_rows::count_restart(connection, station_id, seen))
     }
 
     /// Die gespeicherten Stationen der Umsetzung; anders als die Ansicht mit der Marke `edited`.
@@ -330,6 +399,17 @@ impl SessionRegistry {
         })
     }
 
+    /// Setzt `max_parallel` (ADR 061); `None` = unbegrenzt.
+    pub fn store_max_parallel(
+        &self,
+        implementation_id: &str,
+        max_parallel: Option<u32>,
+    ) -> Result<(), CommandError> {
+        self.database.with(|connection| {
+            implementation_rows::set_max_parallel(connection, implementation_id, max_parallel)
+        })
+    }
+
     /// Gibt der Umsetzung den Namen, den der Nutzer gewählt hat.
     pub fn rename_implementation(
         &self,
@@ -372,6 +452,17 @@ impl SessionRegistry {
         stations: &[StationRow],
         change: Option<&ChangeRow>,
     ) -> Result<(), CommandError> {
+        let stored = self.station_rows(implementation_id)?;
+        if self.is_any_starting(
+            stored
+                .iter()
+                .filter(|station: &&StationRow| removed_phase_ids.contains(&station.phase_id))
+                .map(|station: &StationRow| station.id.as_str()),
+        ) {
+            return Err(CommandError::Implementation(
+                implementation::edit::BEGUN_MEANWHILE.to_owned(),
+            ));
+        }
         self.database.with(|connection| {
             implementation_rows::replace_upcoming_phases(
                 connection,
@@ -381,6 +472,28 @@ impl SessionRegistry {
                 stations,
                 change,
             )
+        })
+    }
+
+    /// Schreibt eine Plan-Änderung als Delta (`apply_plan_edit`); `false`: Eine Station hat inzwischen
+    /// begonnen, nichts ist geschrieben.
+    pub fn store_plan_edit(
+        &self,
+        implementation_id: &str,
+        edited: &EditedPlan,
+        change: Option<&ChangeRow>,
+    ) -> Result<bool, CommandError> {
+        if self.is_any_starting(
+            edited
+                .removed
+                .iter()
+                .chain(edited.updated.iter().map(|row: &StationRow| &row.id))
+                .map(String::as_str),
+        ) {
+            return Ok(false);
+        }
+        self.database.with(|connection| {
+            implementation_rows::apply_plan_edit(connection, implementation_id, edited, change)
         })
     }
 
@@ -394,6 +507,30 @@ impl SessionRegistry {
         self.lock_countdowns().begin(station_id, ends_at)
     }
 
+    /// Zählt die aktiven Stationen und beginnt Countdowns bis zur Grenze unter der Sperre der
+    /// Countdowns (`Countdowns::begin_if_current`, ADR 061); `None`: Die Ansicht ist veraltet.
+    pub fn begin_countdowns(
+        &self,
+        seen: u64,
+        stations: &[&StationView],
+        candidates: &[&str],
+        max_parallel: Option<u32>,
+        ends_at: f64,
+    ) -> Option<Vec<(String, u64)>> {
+        self.lock_countdowns()
+            .begin_if_current(seen, stations, candidates, max_parallel, ends_at)
+    }
+
+    /// Vor der Ansicht lesen, die `begin_countdowns` bekommt.
+    pub fn start_releases(&self) -> u64 {
+        self.lock_countdowns().releases()
+    }
+
+    /// Countdown-Ende und Startanspruch in einem Schritt (`Countdowns::take_for_start`).
+    pub fn take_countdown_for_start(&self, station_id: &str, token: u64) -> bool {
+        self.lock_countdowns().take_for_start(station_id, token)
+    }
+
     /// `true`, wenn der Countdown mit dieser Marke noch galt; er ist danach weg.
     pub fn take_countdown(&self, station_id: &str, token: u64) -> bool {
         self.lock_countdowns().take(station_id, token)
@@ -402,6 +539,16 @@ impl SessionRegistry {
     /// `true`, wenn ein Countdown lief.
     pub fn cancel_countdown(&self, station_id: &str) -> bool {
         self.lock_countdowns().cancel(station_id)
+    }
+
+    /// Ein eingelöster Halt (ADR 061) nimmt den Stationen mit Fehler den anstehenden Neustart: Die
+    /// Session gilt nicht mehr als Fehler dieses Laufs, und kein späterer Haken startet sie neu.
+    pub fn forget_fresh_errors(&self, session_ids: &[String]) {
+        for id in session_ids {
+            if let Ok(session) = self.get(id) {
+                session.lock().fresh_error = false;
+            }
+        }
     }
 
     /// „Abbrechen“ von außen: Eine Station einer fremden Umsetzung läuft weiter. Gibt die Umsetzung
@@ -433,8 +580,58 @@ impl SessionRegistry {
         Ok(())
     }
 
+    /// Eine Station ohne Session startet gerade (`claim_start`): Sie gilt als begonnen, auch wenn die
+    /// Zeile noch keine `session_id` hat. Schreibt zwischen Anspruch und Bindung jemand ihre Werte oder
+    /// nimmt sie aus dem Plan, weichen die gespeicherten Werte von der Momentaufnahme des Starts ab
+    /// (ADR 061).
+    pub fn is_starting(&self, station_id: &str) -> bool {
+        self.lock_countdowns().is_starting(station_id)
+    }
+
+    fn is_any_starting<'a>(&self, station_ids: impl IntoIterator<Item = &'a str>) -> bool {
+        let countdowns = self.lock_countdowns();
+        station_ids
+            .into_iter()
+            .any(|station_id: &str| countdowns.is_starting(station_id))
+    }
+
     pub fn release_start(&self, station_id: &str) {
         self.lock_countdowns().release_start(station_id);
+    }
+
+    /// Ersteller wecken (ADR 061): legt die Nachricht zu `event` auf demselben Weg wie
+    /// `verwalter_send_message_to` in die Warteschlange der Session, die die Umsetzung angelegt hat.
+    /// Keine Nachricht, wenn sie fehlt (gelöscht, archiviert) oder das Ereignis schon meldete
+    /// (`wake::decide`). Nie unter einer Sperre aufrufen: Die Zustellung kann einen Agenten starten.
+    pub fn wake_creator(
+        &self,
+        app: &AppHandle,
+        implementation_id: &str,
+        event: &WakeEvent,
+        facts: &WakeFacts,
+    ) {
+        let creator: Option<Arc<Session>> = self
+            .database
+            .with(|connection| implementation_rows::load(connection, implementation_id))
+            .ok()
+            .flatten()
+            .and_then(|stored: StoredImplementation| stored.row.created_by_session_id)
+            .and_then(|id: String| self.get(&id).ok());
+        let text = wake::decide(
+            event,
+            facts,
+            creator.is_some(),
+            &mut self.lock_countdowns().woken,
+        );
+        let (Some(creator), Some(text)) = (creator, text) else {
+            return;
+        };
+        let (status, reason) = self.deliver(app, &creator, &wake::sender(), &text, 0);
+        if let Some(reason) = reason {
+            creator.log_line(format!(
+                "Meldung des Verwalters nicht zugestellt ({status}): {reason}"
+            ));
+        }
     }
 
     fn lock_countdowns(&self) -> MutexGuard<'_, Countdowns> {
@@ -565,6 +762,50 @@ impl SessionRegistry {
     }
 }
 
+/// Der Haken nach dem Ende einer Station-Session (ADR 061) in einem eigenen Thread: Er nimmt seine
+/// Sperren selbst, und `update` kann unter anderen Sperren gerufen sein.
+pub(super) fn schedule_station_session_end(app: &AppHandle, implementation_id: String) {
+    let thread_app = app.clone();
+    let spawned = thread::Builder::new()
+        .name("implementation-queue".to_owned())
+        .spawn(move || {
+            if let Err(error) =
+                implementation::station_session_ended(&thread_app, &implementation_id)
+            {
+                eprintln!("Warteschlange der Umsetzung nicht neu geplant: {error}");
+            }
+        });
+    if let Err(error) = spawned {
+        eprintln!("Warteschlange der Umsetzung nicht geplant: {error}");
+    }
+}
+
+/// Der Haken nach einer Rückfrage einer Station (ADR 061): weckt den Ersteller, im eigenen Thread aus
+/// demselben Grund wie `schedule_station_session_end`.
+pub(super) fn schedule_station_question(
+    app: &AppHandle,
+    implementation_id: String,
+    session_id: String,
+    request_id: String,
+) {
+    let thread_app = app.clone();
+    let spawned = thread::Builder::new()
+        .name("implementation-wake".to_owned())
+        .spawn(move || {
+            if let Err(error) = implementation::wake_creator_of_question(
+                &thread_app,
+                &implementation_id,
+                &session_id,
+                &request_id,
+            ) {
+                eprintln!("Ersteller der Umsetzung nicht geweckt: {error}");
+            }
+        });
+    if let Err(error) = spawned {
+        eprintln!("Ersteller der Umsetzung nicht geweckt: {error}");
+    }
+}
+
 /// Liest unter der Sperre dieser einen Session, ohne den Verlauf zu laden.
 fn live_of(session: &Session, now: f64) -> SessionLive {
     let state = session.lock();
@@ -590,5 +831,6 @@ fn live_of(session: &Session, now: f64) -> SessionLive {
         last_activity_at: state.last_activity_at,
         unread: state.last_activity_at > state.seen_at,
         awaits_script: state.awaited_script().is_some(),
+        is_fresh_error: state.fresh_error,
     }
 }

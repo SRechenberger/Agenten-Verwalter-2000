@@ -7,10 +7,10 @@ use std::collections::HashMap;
 use tauri::{AppHandle, Manager};
 
 use super::model::{
-    ChangeSummary, ImplementationView, PendingChange, PhaseInput, PhaseMark, PhaseView,
-    StationState, StationView, check_agents, validate,
+    ChangeSummary, ImplementationView, OnError, PendingChange, PhaseInput, PhaseMark, PhaseView,
+    PredecessorsMay, StationState, StationView, check_agents, validate,
 };
-use super::{announce, now_ms, phase_rows, start};
+use super::{announce, kept_phases, link, now_ms, phase_rows, replans_after_plan_change, start};
 use crate::db::implementations::{ChangeRow, PhaseRow, StationRow};
 use crate::error::CommandError;
 use crate::sessions::registry::SessionRegistry;
@@ -77,16 +77,22 @@ pub fn diff(view: &ImplementationView, proposed: &[PhaseInput]) -> Result<Change
 
 /// Die Unterschiede als Satzteil für den Agenten und den Lagebericht: „neu 5/6, entfallen 7“.
 pub fn describe(summary: &ChangeSummary) -> String {
-    let groups: [(&str, &Vec<String>); 3] = [
+    let groups: [(&str, &Vec<String>); 4] = [
         ("neu", &summary.added),
         ("vorgezogen", &summary.moved),
+        ("geändert", &summary.changed),
         ("entfallen", &summary.removed),
     ];
-    let parts: Vec<String> = groups
+    let mut parts: Vec<String> = groups
         .iter()
         .filter(|(_, keys): &&(&str, &Vec<String>)| !keys.is_empty())
         .map(|(label, keys): &(&str, &Vec<String>)| format!("{label} {}", keys.join("/")))
         .collect();
+    match summary.max_parallel {
+        Some(0) => parts.push("parallel unbegrenzt".to_owned()),
+        Some(limit) => parts.push(format!("parallel höchstens {limit}")),
+        None => {}
+    }
     if parts.is_empty() {
         return "gleiche Phasen, Stationen neu gefasst".to_owned();
     }
@@ -109,6 +115,9 @@ pub fn propose(app: &AppHandle, session_id: &str, inputs: &[PhaseInput]) -> Resu
         return Err(IS_FINISHED.to_owned());
     }
     let summary = diff(&view, inputs)?;
+    // Kanten und Prüfung wie beim Übernehmen, damit ein Zyklus schon hier abgelehnt wird (ADR 061).
+    let (_, mut stations) = phase_rows(&view.id, inputs, 0);
+    link(&kept_phases(&view), inputs, &mut stations)?;
     if !view.phases.iter().any(is_begun) {
         apply(app, &registry, &view, inputs, None)
             .map_err(|error: CommandError| error.to_string())?;
@@ -120,6 +129,7 @@ pub fn propose(app: &AppHandle, session_id: &str, inputs: &[PhaseInput]) -> Resu
         at: now_ms(),
         summary: summary.clone(),
         phases: inputs.to_vec(),
+        edit: None,
     };
     registry
         .store_pending_change(&view.id, Some(&pending))
@@ -145,6 +155,10 @@ pub fn decide(app: &AppHandle, implementation_id: &str, accept: bool) -> Result<
         registry.store_pending_change(implementation_id, None)?;
         announce(app, &registry.implementation_view(implementation_id)?);
         return Ok(());
+    }
+    // Ein Delta von `implementation_edit` wird gegen den Stand von jetzt neu gerechnet und geprüft.
+    if let Some(edit) = &pending.edit {
+        return super::edit::apply(app, implementation_id, edit, Some(&pending.session_id));
     }
     // Seit dem Vorschlag kann eine Phase begonnen haben: gegen den heutigen Stand neu rechnen.
     let summary = diff(&view, &pending.phases).map_err(CommandError::Implementation)?;
@@ -175,16 +189,18 @@ fn apply(
         .iter()
         .filter(|phase: &&PhaseView| !is_begun(phase))
         .collect();
+    // Die gespeicherten Zeilen von jetzt: Was der Benutzer seit dem Vorschlag auf der Karte gesetzt
+    // hat, zählt mit.
+    let rows = registry.station_rows(&view.id)?;
+    let (mut phases, mut stations) = replacement_rows(&view.id, inputs, &removed, &rows);
+    link(&kept_phases(view), inputs, &mut stations).map_err(CommandError::Implementation)?;
+    // Erst nach der Prüfung: Eine abgelehnte Änderung lässt die Countdowns stehen.
     for station in removed
         .iter()
         .flat_map(|phase: &&PhaseView| phase.stations.iter())
     {
         let _ = registry.cancel_countdown(&station.id);
     }
-    // Die gespeicherten Zeilen von jetzt: Was der Benutzer seit dem Vorschlag auf der Karte gesetzt
-    // hat, zählt mit.
-    let rows = registry.station_rows(&view.id)?;
-    let (mut phases, stations) = replacement_rows(&view.id, inputs, &removed, &rows);
     set_marks(&removed, record.as_ref(), &mut phases);
     let change = record
         .as_ref()
@@ -193,17 +209,17 @@ fn apply(
         .iter()
         .map(|phase: &&PhaseView| phase.id.clone())
         .collect();
-    registry.store_plan_change(&view.id, &removed_ids, &phases, &stations, change.as_ref())?;
+    if let Err(error) =
+        registry.store_plan_change(&view.id, &removed_ids, &phases, &stations, change.as_ref())
+    {
+        super::replan_after_failed_change(app, &view.id);
+        return Err(error);
+    }
     let fresh = registry.implementation_view(&view.id)?;
     announce(app, &fresh);
     // Eine Umsetzung, deren erste Station der Benutzer noch nicht gestartet hat, beginnt auch nach
     // einer Plan-Änderung nicht von selbst.
-    let has_begun: bool = fresh
-        .phases
-        .iter()
-        .flat_map(|phase: &PhaseView| phase.stations.iter())
-        .any(|station: &StationView| station.session_id.is_some());
-    if has_begun && fresh.auto_start && !fresh.stop_after_current {
+    if replans_after_plan_change(&fresh) {
         start::schedule_ready(app, &view.id)?;
     }
     Ok(())
@@ -237,7 +253,8 @@ pub fn replacement_rows(
 /// Station nimmt von der ersetzten mit gleichem Phasenschlüssel, gleicher Stufe (wörtlich) und
 /// gleicher laufender Nummer unter den Stationen dieser Stufe in der Phase `agent`, `model`,
 /// `effort`, `prompt` und `skill`, wenn die ersetzte `edited` trägt und die Eingabe den Wert nicht
-/// nennt; sie trägt dann selbst `edited`. Was der Planer nennt, gilt. Läuft nach `keep_known_ids`:
+/// nennt, dazu „Automatisch starten“, „Bei Fehler“ und „Vorgänger dürfen“, wenn die Eingabe den
+/// Standard lässt (ADR 061); sie trägt dann selbst `edited`. Was der Planer nennt, gilt. Läuft nach `keep_known_ids`:
 /// Eine Phase mit bekanntem Schlüssel hat dann die `id` der ersetzten, gleicher Schlüssel heißt also
 /// gleiche `phase_id`.
 pub fn keep_settings(removed: &[StationRow], stations: &mut [StationRow]) {
@@ -266,6 +283,13 @@ pub fn keep_settings(removed: &[StationRow], stations: &mut [StationRow]) {
         station.effort = station.effort.or(old.effort);
         station.prompt = station.prompt.take().or_else(|| old.prompt.clone());
         station.skill = station.skill.take().or_else(|| old.skill.clone());
+        station.auto_start = station.auto_start.or(old.auto_start);
+        if station.on_error == OnError::default() {
+            station.on_error = old.on_error;
+        }
+        if station.predecessors_may == PredecessorsMay::default() {
+            station.predecessors_may = old.predecessors_may;
+        }
         station.edited = true;
     }
 }

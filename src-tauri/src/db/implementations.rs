@@ -7,7 +7,11 @@ use crate::agent_types::name_key;
 use crate::agents::event::{Effort, ModelId};
 use crate::db::{enum_from_text, enum_to_text};
 use crate::error::CommandError;
-use crate::implementation::model::{PhaseMark, StationSettings};
+use crate::implementation::edit::EditedPlan;
+use crate::implementation::model::{
+    BriefChange, OnError, PhaseMark, PredecessorsMay, StationOptions, StationSettings,
+};
+use crate::implementation::schedule;
 
 #[derive(Debug, Clone)]
 pub struct ImplementationRow {
@@ -22,6 +26,8 @@ pub struct ImplementationRow {
     pub stop_after_current: bool,
     /// `PendingChange` als JSON.
     pub pending_change: Option<String>,
+    /// Grenze gleichzeitig aktiver Stationen (ADR 061); `None` = unbegrenzt.
+    pub max_parallel: Option<u32>,
 }
 
 #[derive(Debug, Clone)]
@@ -62,6 +68,20 @@ pub struct StationRow {
     pub start_error: Option<String>,
     /// Auf der Karte angepasst (N15): Eine Plan-Änderung behält dann, was der Planer nicht nennt.
     pub edited: bool,
+    /// Plan-Kennung, in der Umsetzung eindeutig (ADR 061).
+    pub plan_id: String,
+    /// Plan-Kennungen der Vorgänger; leer = Startstation. In der Datenbank als JSON-Liste.
+    pub after: Vec<String>,
+    /// Vorrang unter bereiten Stationen, höher zuerst.
+    pub priority: i32,
+    /// „Automatisch starten“ der Station; `None` = wie die Umsetzung (ADR 061, Station konfigurierbar).
+    pub auto_start: Option<bool>,
+    pub on_error: OnError,
+    pub predecessors_may: PredecessorsMay,
+    /// Änderungen am Auftrag durch Vorgänger, in ihrer Reihenfolge; in der Datenbank als JSON-Liste.
+    pub brief_changes: Vec<BriefChange>,
+    /// Neustarts nach einem Fehler, die „Bei Fehler“ schon verbraucht hat.
+    pub restarts: u32,
 }
 
 #[derive(Debug, Clone)]
@@ -87,12 +107,13 @@ pub struct StoredImplementation {
 }
 
 const IMPLEMENTATION_COLUMNS: &str = "id, project_id, name, source, created_by_session_id, \
-     created_at, finished_at, auto_start, stop_after_current, pending_change";
+     created_at, finished_at, auto_start, stop_after_current, pending_change, max_parallel";
 const PHASE_COLUMNS: &str = "id, implementation_id, position, key, title, description, wave, mark";
 /// Die Reihenfolge muss mit `StoredStation::read` übereinstimmen.
 const STATION_COLUMNS: &str = "s.id, s.phase_id, s.position, s.stage, s.model, s.by_user, \
      s.skill, s.brief, s.session_id, s.started_at, s.completed_at, s.result, s.agent, \
-     s.agent_used, s.effort, s.prompt, s.start_error, s.edited";
+     s.agent_used, s.effort, s.prompt, s.start_error, s.edited, s.plan_id, s.after_ids, s.priority, \
+     s.auto_start, s.on_error, s.predecessors_may, s.brief_changes, s.restarts";
 
 /// Legt die Umsetzung mit ihren Phasen und Stationen in einem Zug an.
 pub fn insert(
@@ -105,7 +126,7 @@ pub fn insert(
     transaction.execute(
         &format!(
             "INSERT INTO implementations ({IMPLEMENTATION_COLUMNS}) \
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)"
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)"
         ),
         params![
             row.id,
@@ -118,6 +139,7 @@ pub fn insert(
             row.auto_start,
             row.stop_after_current,
             row.pending_change,
+            row.max_parallel,
         ],
     )?;
     insert_phases(&transaction, phases, stations)?;
@@ -152,8 +174,10 @@ fn insert_phases(
         connection.execute(
             "INSERT INTO implementation_stations (id, phase_id, position, stage, model, by_user, \
                  skill, brief, session_id, started_at, completed_at, result, agent, agent_used, \
-                 effort, prompt, start_error, edited) \
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)",
+                 effort, prompt, start_error, edited, plan_id, after_ids, priority, auto_start, \
+                 on_error, predecessors_may, brief_changes, restarts) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, \
+                 ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26)",
             params![
                 station.id,
                 station.phase_id,
@@ -173,10 +197,26 @@ fn insert_phases(
                 station.prompt,
                 station.start_error,
                 station.edited,
+                station.plan_id,
+                after_json(&station.after)?,
+                station.priority,
+                station.auto_start,
+                enum_to_text(&station.on_error)?,
+                enum_to_text(&station.predecessors_may)?,
+                changes_json(&station.brief_changes)?,
+                station.restarts,
             ],
         )?;
     }
     Ok(())
+}
+
+fn after_json(after: &[String]) -> Result<String, CommandError> {
+    serde_json::to_string(after).map_err(|error| CommandError::Database(error.to_string()))
+}
+
+fn changes_json(changes: &[BriefChange]) -> Result<String, CommandError> {
+    serde_json::to_string(changes).map_err(|error| CommandError::Database(error.to_string()))
 }
 
 /// Alle Umsetzungen, neueste zuerst.
@@ -316,6 +356,7 @@ fn read_implementation(row: &Row<'_>) -> rusqlite::Result<ImplementationRow> {
         auto_start: row.get(7)?,
         stop_after_current: row.get(8)?,
         pending_change: row.get(9)?,
+        max_parallel: row.get(10)?,
     })
 }
 
@@ -350,11 +391,16 @@ impl StoredPhase {
     }
 }
 
-/// Die Zeile, wie sie in der Datenbank steht; `model` und `effort` werden erst danach umgewandelt.
+/// Die Zeile, wie sie in der Datenbank steht; `model`, `effort`, `after`, `on_error`,
+/// `predecessors_may` und `brief_changes` werden erst danach umgewandelt.
 struct StoredStation {
     row: StationRow,
     model: Option<String>,
     effort: Option<String>,
+    after: String,
+    on_error: String,
+    predecessors_may: String,
+    brief_changes: String,
 }
 
 impl StoredStation {
@@ -379,9 +425,21 @@ impl StoredStation {
                 prompt: row.get(15)?,
                 start_error: row.get(16)?,
                 edited: row.get(17)?,
+                plan_id: row.get(18)?,
+                after: Vec::new(),
+                priority: row.get(20)?,
+                auto_start: row.get(21)?,
+                on_error: OnError::default(),
+                predecessors_may: PredecessorsMay::default(),
+                brief_changes: Vec::new(),
+                restarts: row.get(25)?,
             },
             model: row.get(4)?,
             effort: row.get(14)?,
+            after: row.get(19)?,
+            on_error: row.get(22)?,
+            predecessors_may: row.get(23)?,
+            brief_changes: row.get(24)?,
         })
     }
 
@@ -389,6 +447,12 @@ impl StoredStation {
         Ok(StationRow {
             model: self.model.as_deref().map(enum_from_text).transpose()?,
             effort: self.effort.as_deref().map(enum_from_text).transpose()?,
+            after: serde_json::from_str(&self.after)
+                .map_err(|error| CommandError::Database(error.to_string()))?,
+            on_error: enum_from_text(&self.on_error)?,
+            predecessors_may: enum_from_text(&self.predecessors_may)?,
+            brief_changes: serde_json::from_str(&self.brief_changes)
+                .map_err(|error| CommandError::Database(error.to_string()))?,
             ..self.row
         })
     }
@@ -471,6 +535,60 @@ pub fn set_station_settings(
     Ok(changed == 1)
 }
 
+/// Schreibt „Automatisch starten“, „Bei Fehler“ und „Vorgänger dürfen“ samt Marke `edited` in einem
+/// Schritt (ADR 061): bis zum Start alle drei, danach nur „Bei Fehler“, nie an einer fertigen Station.
+/// `false`: Die Station ist inzwischen fertig oder hat begonnen und der Aufruf ändert einen der zwei
+/// festgeschriebenen Werte; nichts ist geschrieben.
+pub fn set_station_options(
+    connection: &Connection,
+    station_id: &str,
+    options: &StationOptions,
+) -> Result<bool, CommandError> {
+    let changed = connection.execute(
+        "UPDATE implementation_stations \
+         SET auto_start = ?2, on_error = ?3, predecessors_may = ?4, edited = 1 \
+         WHERE id = ?1 AND completed_at IS NULL \
+             AND (session_id IS NULL OR (auto_start IS ?2 AND predecessors_may = ?4))",
+        params![
+            station_id,
+            options.auto_start,
+            enum_to_text(&options.on_error)?,
+            enum_to_text(&options.predecessors_may)?,
+        ],
+    )?;
+    Ok(changed == 1)
+}
+
+/// Ersetzt die Änderungen am Auftrag einer Station, nur solange sie weder eine Session hat noch fertig
+/// ist. `false`: Sie hat inzwischen begonnen, nichts ist geschrieben.
+pub fn set_brief_changes(
+    connection: &Connection,
+    station_id: &str,
+    changes: &[BriefChange],
+) -> Result<bool, CommandError> {
+    let changed = connection.execute(
+        "UPDATE implementation_stations SET brief_changes = ?2 \
+         WHERE id = ?1 AND session_id IS NULL AND completed_at IS NULL",
+        params![station_id, changes_json(changes)?],
+    )?;
+    Ok(changed == 1)
+}
+
+/// Zählt einen Neustart nach einem Fehler, nur wenn noch `seen` gezählt sind: Von zwei gleichzeitigen
+/// Aufrufern startet so nur einer neu. `false`: Ein anderer war schneller, oder die Station ist fertig.
+pub fn count_restart(
+    connection: &Connection,
+    station_id: &str,
+    seen: u32,
+) -> Result<bool, CommandError> {
+    let changed = connection.execute(
+        "UPDATE implementation_stations SET restarts = restarts + 1 \
+         WHERE id = ?1 AND restarts = ?2 AND completed_at IS NULL",
+        params![station_id, seen],
+    )?;
+    Ok(changed == 1)
+}
+
 /// Führt das Feld `agent` noch nicht gestarteter Stationen auf den neuen Namen eines Typs nach (N4).
 /// Verglichen wird wie bei der Auflösung (`name_key`), deshalb in Rust und nicht mit `lower()`, das
 /// nur ASCII kennt.
@@ -508,7 +626,8 @@ pub fn complete_station(
 }
 
 /// Meldet die Station fertig und hängt `followups` direkt dahinter in dieselbe Phase (Fix-Runde
-/// und zweites Review); alles in einem Zug. Die Stationen dahinter rücken nach.
+/// und zweites Review); alles in einem Zug. Die Stationen dahinter rücken nach, und wer die Station
+/// in `after` führt, wartet danach auf die letzte der `followups` (ADR 061).
 pub fn complete_station_with_followups(
     connection: &mut Connection,
     station_id: &str,
@@ -519,11 +638,14 @@ pub fn complete_station_with_followups(
     let transaction = connection.transaction()?;
     complete_station(&transaction, station_id, completed_at, result)?;
     if !followups.is_empty() {
-        let (phase_id, position): (String, u32) = transaction.query_row(
-            "SELECT phase_id, position FROM implementation_stations WHERE id = ?1",
+        let (phase_id, position, plan_id): (String, u32, String) = transaction.query_row(
+            "SELECT phase_id, position, plan_id FROM implementation_stations WHERE id = ?1",
             params![station_id],
-            |row| Ok((row.get(0)?, row.get(1)?)),
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
         )?;
+        if let Some(last) = followups.last() {
+            hand_over_successors(&transaction, &phase_id, &plan_id, &last.plan_id)?;
+        }
         let shift = u32::try_from(followups.len()).unwrap_or(u32::MAX);
         transaction.execute(
             "UPDATE implementation_stations SET position = position + ?3 \
@@ -533,8 +655,10 @@ pub fn complete_station_with_followups(
         for (offset, followup) in (1..).zip(followups) {
             transaction.execute(
                 "INSERT INTO implementation_stations (id, phase_id, position, stage, model, \
-                     by_user, skill, brief, agent, agent_used, effort, prompt, start_error, edited) \
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
+                     by_user, skill, brief, agent, agent_used, effort, prompt, start_error, edited, \
+                     plan_id, after_ids, priority, auto_start, on_error, predecessors_may) \
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, \
+                     ?18, ?19, ?20)",
                 params![
                     followup.id,
                     phase_id,
@@ -550,11 +674,115 @@ pub fn complete_station_with_followups(
                     followup.prompt,
                     followup.start_error,
                     followup.edited,
+                    followup.plan_id,
+                    after_json(&followup.after)?,
+                    followup.priority,
+                    followup.auto_start,
+                    enum_to_text(&followup.on_error)?,
+                    enum_to_text(&followup.predecessors_may)?,
                 ],
             )?;
         }
     }
     transaction.commit()?;
+    Ok(())
+}
+
+/// Ersetzt `from` durch `to` in den Vorgängern aller Stationen der Umsetzung, zu der die Phase gehört.
+fn hand_over_successors(
+    connection: &Connection,
+    phase_id: &str,
+    from: &str,
+    to: &str,
+) -> Result<(), CommandError> {
+    let mut statement = connection.prepare(
+        "SELECT s.id, s.after_ids FROM implementation_stations s \
+         JOIN implementation_phases p ON p.id = s.phase_id \
+         WHERE p.implementation_id = \
+             (SELECT implementation_id FROM implementation_phases WHERE id = ?1)",
+    )?;
+    let rows: Vec<(String, String)> = statement
+        .query_map(params![phase_id], |row| Ok((row.get(0)?, row.get(1)?)))?
+        .collect::<rusqlite::Result<_>>()?;
+    for (id, json) in rows {
+        let after: Vec<String> = serde_json::from_str(&json)
+            .map_err(|error| CommandError::Database(error.to_string()))?;
+        if !after.iter().any(|before: &String| before == from) {
+            continue;
+        }
+        let handed: Vec<String> = after
+            .into_iter()
+            .map(|before: String| {
+                if before == from {
+                    to.to_owned()
+                } else {
+                    before
+                }
+            })
+            .collect();
+        connection.execute(
+            "UPDATE implementation_stations SET after_ids = ?2 WHERE id = ?1",
+            params![id, after_json(&handed)?],
+        )?;
+    }
+    Ok(())
+}
+
+/// Migration 25 (ADR 061): gibt jeder bestehenden Station die Plan-Kennung
+/// `<Phasenschlüssel>-<Nummer>` und Kanten nach Regel R1 aus Position und Welle
+/// (`schedule::legacy_after`), damit bestehende Umsetzungen unverändert weiterlaufen.
+pub fn backfill_edges(connection: &Connection) -> Result<(), CommandError> {
+    let mut implementation_statement = connection.prepare("SELECT id FROM implementations")?;
+    let implementation_ids: Vec<String> = implementation_statement
+        .query_map([], |row| row.get(0))?
+        .collect::<rusqlite::Result<_>>()?;
+    let mut phase_statement = connection.prepare(
+        "SELECT id, key, wave FROM implementation_phases WHERE implementation_id = ?1 \
+         ORDER BY position",
+    )?;
+    let mut station_statement = connection
+        .prepare("SELECT id FROM implementation_stations WHERE phase_id = ?1 ORDER BY position")?;
+    for implementation_id in implementation_ids {
+        let phases: Vec<(String, String, Option<u32>)> = phase_statement
+            .query_map(params![implementation_id], |row| {
+                Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+            })?
+            .collect::<rusqlite::Result<_>>()?;
+        let mut station_ids: Vec<Vec<String>> = Vec::with_capacity(phases.len());
+        let mut waves: Vec<(Option<u32>, Vec<String>)> = Vec::with_capacity(phases.len());
+        for (phase_id, key, wave) in &phases {
+            let ids: Vec<String> = station_statement
+                .query_map(params![phase_id], |row| row.get(0))?
+                .collect::<rusqlite::Result<_>>()?;
+            let plan_ids = (1..=ids.len())
+                .map(|number: usize| format!("{key}-{number}"))
+                .collect();
+            station_ids.push(ids);
+            waves.push((*wave, plan_ids));
+        }
+        let derived = schedule::legacy_after(&waves);
+        for ((ids, (_, plan_ids)), after_of) in station_ids.iter().zip(&waves).zip(derived) {
+            for ((id, plan_id), after) in ids.iter().zip(plan_ids).zip(after_of) {
+                connection.execute(
+                    "UPDATE implementation_stations SET plan_id = ?2, after_ids = ?3 WHERE id = ?1",
+                    params![id, plan_id, after_json(&after)?],
+                )?;
+            }
+        }
+    }
+    Ok(())
+}
+
+/// `None` = unbegrenzt (ADR 061).
+pub fn set_max_parallel(
+    connection: &Connection,
+    implementation_id: &str,
+    max_parallel: Option<u32>,
+) -> Result<(), CommandError> {
+    connection.execute(
+        "UPDATE implementations SET max_parallel = ?2 WHERE id = ?1",
+        params![implementation_id, max_parallel],
+    )?;
     Ok(())
 }
 
@@ -640,6 +868,84 @@ pub fn replace_upcoming_phases(
     set_pending_change(&transaction, implementation_id, None)?;
     transaction.commit()?;
     Ok(())
+}
+
+/// Wendet eine Plan-Änderung als Delta in einem Zug an (ADR 061, Werkzeuge): entfernt und ändert nur
+/// Stationen, die weder eine Session haben noch fertig sind, löscht danach leere Lanes, legt neue Lanes
+/// hinter die bestehenden und die neuen Stationen an und setzt `max_parallel`. Mit `change` (ein
+/// übernommener Vorschlag) hält sie die Änderung fest und verwirft den Vorschlag. `false`: Eine Station
+/// hat inzwischen begonnen; nichts ist geschrieben.
+pub fn apply_plan_edit(
+    connection: &mut Connection,
+    implementation_id: &str,
+    edited: &EditedPlan,
+    change: Option<&ChangeRow>,
+) -> Result<bool, CommandError> {
+    let transaction = connection.transaction()?;
+    for station_id in &edited.removed {
+        let removed = transaction.execute(
+            "DELETE FROM implementation_stations \
+             WHERE id = ?1 AND session_id IS NULL AND completed_at IS NULL",
+            params![station_id],
+        )?;
+        if removed != 1 {
+            return Ok(false);
+        }
+    }
+    for station in &edited.updated {
+        let changed = transaction.execute(
+            "UPDATE implementation_stations SET stage = ?2, model = ?3, skill = ?4, brief = ?5, \
+                 agent = ?6, effort = ?7, prompt = ?8, after_ids = ?9, priority = ?10, \
+                 brief_changes = ?11 \
+             WHERE id = ?1 AND session_id IS NULL AND completed_at IS NULL",
+            params![
+                station.id,
+                station.stage,
+                station.model.as_ref().map(enum_to_text).transpose()?,
+                station.skill,
+                station.brief,
+                station.agent,
+                station.effort.as_ref().map(enum_to_text).transpose()?,
+                station.prompt,
+                after_json(&station.after)?,
+                station.priority,
+                changes_json(&station.brief_changes)?,
+            ],
+        )?;
+        if changed != 1 {
+            return Ok(false);
+        }
+    }
+    for phase_id in &edited.removed_phases {
+        transaction.execute(
+            "DELETE FROM implementation_phases WHERE id = ?1",
+            params![phase_id],
+        )?;
+    }
+    let first_position: u32 = transaction.query_row(
+        "SELECT COALESCE(MAX(position) + 1, 0) FROM implementation_phases \
+         WHERE implementation_id = ?1",
+        params![implementation_id],
+        |row| row.get(0),
+    )?;
+    let shifted: Vec<PhaseRow> = edited
+        .phases
+        .iter()
+        .map(|phase: &PhaseRow| PhaseRow {
+            position: first_position + phase.position,
+            ..phase.clone()
+        })
+        .collect();
+    insert_phases(&transaction, &shifted, &edited.inserted)?;
+    if let Some(max_parallel) = edited.max_parallel {
+        set_max_parallel(&transaction, implementation_id, max_parallel)?;
+    }
+    if let Some(change) = change {
+        insert_change(&transaction, change)?;
+        set_pending_change(&transaction, implementation_id, None)?;
+    }
+    transaction.commit()?;
+    Ok(true)
 }
 
 /// Nimmt die Marke „neu“/„vorgezogen“ von der Phase, sobald ihre erste Station startet.

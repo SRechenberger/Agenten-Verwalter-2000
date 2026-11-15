@@ -23,6 +23,14 @@ export const QUOTA_RESUME_LABEL = 'Automatisch fortsetzen';
 export const QUOTA_RESUME_TITLE =
   'Schickt dem Agenten kurz nach dem Zurücksetzen die Aufforderung weiterzumachen. Gilt nur, solange die App läuft.';
 export const REPORT_UPDATED_LEAD = 'Lagebericht aktualisiert angehängt';
+export const PLAN_MISSING_LEAD = 'Kein Plan im Umsetzungstool.';
+export const PLAN_MISSING_TEXT =
+  'Der Agent hat auch nach zwei Erinnerungen keine Umsetzung angelegt.';
+export const PLAN_MISSING_SETTLED = 'Erledigt.';
+export const PLAN_RETRY_LABEL = 'Erneut';
+export const PLAN_RETRY_TITLE = 'Startet einen neuen Planungszug mit demselben Auftrag.';
+export const PLAN_CONTINUE_LABEL = 'Trotzdem weiter';
+export const PLAN_CONTINUE_TITLE = 'Beendet die Prüfung für diesen Zug.';
 
 /** „Stand 14:05 · Phase 2 · Test fertig“. */
 export function reportUpdatedText(at: number, summary: string): string {
