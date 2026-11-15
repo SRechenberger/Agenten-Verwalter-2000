@@ -1325,8 +1325,6 @@ fn stored_row(
         .ok_or_else(|| format!("keine Station {plan_id}"))
 }
 
-/// Station konfigurierbar (ADR 061): Automatisch starten je Station, Sperren nach Zustand, die drei
-/// Stufen von „Vorgänger dürfen“, der Zähler von „Bei Fehler“ samt Platz in der Warteschlange.
 /// „Automatisch fortsetzen“ (ADR 064): wirksamer Wert, letzte Aktion gewinnt, Platz in der
 /// Warteschlange, Schutz vor einer Schleife, Neustart.
 fn auto_resume(database: &Database, path: &Path) -> Result<bool, String> {
@@ -1433,6 +1431,8 @@ fn auto_resume(database: &Database, path: &Path) -> Result<bool, String> {
     Ok(all)
 }
 
+/// Station konfigurierbar (ADR 061): Automatisch starten je Station, Sperren nach Zustand, die drei
+/// Stufen von „Vorgänger dürfen“, der Zähler von „Bei Fehler“ samt Platz in der Warteschlange.
 fn station_options(database: &Database) -> Result<bool, String> {
     let mut all = true;
     let plan = phases_of(serde_json::json!([{ "key": "1", "title": "O", "stations": [

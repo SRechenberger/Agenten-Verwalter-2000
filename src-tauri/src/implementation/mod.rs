@@ -586,7 +586,9 @@ pub fn station_session_ended(
     implementation_id: &str,
     session_id: &str,
 ) -> Result<(), CommandError> {
-    arm_new_quota_pause(app, implementation_id, session_id)?;
+    if let Err(error) = arm_new_quota_pause(app, implementation_id, session_id) {
+        eprintln!("Zeitgeber nach der Kontingent-Pause nicht scharf geschaltet: {error}");
+    }
     start::restart_failed(app, implementation_id)?;
     let view = app
         .state::<SessionRegistry>()
@@ -601,7 +603,7 @@ pub fn station_session_ended(
 /// Session kurz (Begründung der Pause), dann die Datenbank ohne Session-Sperre (wirksamer Wert, ob die
 /// Station offen ist), zuletzt `set_auto_resume` mit eigener Session-Sperre. Eine Nachricht des
 /// Benutzers dazwischen räumt die Begründung; dann ist das Scharfschalten ein Fehler, den der Haken
-/// übergeht.
+/// nur loggt: Die Warteschlange plant danach trotzdem.
 fn arm_new_quota_pause(
     app: &AppHandle,
     implementation_id: &str,

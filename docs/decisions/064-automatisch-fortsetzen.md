@@ -34,6 +34,7 @@ Nach einem Neustart der App sind Zeitgeber und Begründung der Pause weg; die Se
 ## Bekannte Grenzen
 
 - **Fenster zwischen Pause und Scharfschalten:** Der Haken läuft in einem eigenen Thread nach der Session-Sperre. Plant in diesem Augenblick ein anderes Ereignis die Warteschlange, sieht es „wartet auf dich“ und kann den Platz vergeben; die Grenze wird dann einmal überschritten. Nicht ausgelöst, aus dem Code gelesen.
+- **Die Schalter-Befehle schalten einen vergebenen Platz wieder scharf:** Sie prüfen die Warteschlange nicht. Pausiert Station A ohne Zeitgeber, rückt B bei Grenze 1 nach und schaltet der Benutzer dann „Automatisch fortsetzen“ ein, zählt A als `WaitsForQuota` wieder als aktiv; die Umsetzung steht dann über „Parallel max.“.
 - **Die Kettenbremse beginnt bei jedem Fortsetzen neu** (siehe oben).
 - **Alle pausierten Stationen feuern im selben Moment:** Sie warten auf dieselbe Rücksetzzeit plus 30 Sekunden; eine Staffelung gibt es nicht.
 - **Der echte Stream einer Kontingent-Sperre ist nie gemessen** (ADR 051); geprüft ist der Kern mit Tests, dem Selbsttest von `implementation-probe` und der Attrappe der Kommandozeile.
