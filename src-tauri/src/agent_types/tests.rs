@@ -3,11 +3,12 @@
 //! Datenbank, ohne Dateisystem und ohne Tauri.
 use std::collections::HashMap;
 use std::env;
+use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
 use super::model::{AgentType, AgentTypeField, AgentTypeInput, AgentValueSource, FieldError};
-use super::prompt::{Folders, PromptError, compose};
+use super::prompt::{Folders, PromptError, compose, read_bounded};
 use super::{StationValues, UnknownAgent, resolve, validate};
 use crate::agents::claude::local::{LocalBackend, LocalProgram};
 use crate::agents::claude::process::{SpawnOptions, common_args};
@@ -816,6 +817,142 @@ fn absolute_path_is_read_where_it_points() {
     let reviewer = reviewer_with("", &[&absolute.to_string_lossy()]);
     let text = compose_with(Some(&reviewer), None, vec![(absolute, Ok("absolut"))]);
     assert_eq!(text, Ok(Some("absolut".to_owned())));
+}
+
+/// Ein eigener Ordner unter dem Temp-Ordner, am Ende von `with_scratch_folder` entfernt.
+fn with_scratch_folder(name: &str, body: impl FnOnce(&Path)) {
+    let folder = env::temp_dir().join(format!("verwalter-prompt-{}-{name}", std::process::id()));
+    let _ = fs::remove_dir_all(&folder);
+    fs::create_dir_all(&folder).expect("Ordner anlegen");
+    body(&folder);
+    let _ = fs::remove_dir_all(&folder);
+}
+
+/// Die Meldung von `compose`, wenn der Typ nur `path` als Datei hat und `read_bounded` liest.
+fn bounded_message(folder: &Path, path: &Path) -> String {
+    let reviewer = reviewer_with("", &[&path.to_string_lossy()]);
+    compose(
+        Some(&reviewer),
+        None,
+        Folders {
+            home: folder,
+            repositories: &[],
+        },
+        read_bounded,
+    )
+    .expect_err("Datei darf nicht gelesen werden")
+    .to_string()
+}
+
+#[test]
+fn read_bounded_reads_a_regular_file() {
+    with_scratch_folder("regular", |folder: &Path| {
+        let file = folder.join("rolle.md");
+        fs::write(&file, "Prüfe streng.").expect("schreiben");
+        assert_eq!(read_bounded(&file).expect("lesbar"), "Prüfe streng.");
+    });
+}
+
+#[test]
+fn read_bounded_reads_exactly_48000_bytes_and_refuses_48001() {
+    with_scratch_folder("limit", |folder: &Path| {
+        let file = folder.join("gross.md");
+        fs::write(&file, "a".repeat(48_000)).expect("schreiben");
+        assert_eq!(
+            read_bounded(&file).expect("48 000 sind erlaubt").len(),
+            48_000
+        );
+        fs::write(&file, "a".repeat(48_001)).expect("schreiben");
+        let error = read_bounded(&file).expect_err("48 001 sind zu viel");
+        assert_eq!(error.kind(), io::ErrorKind::FileTooLarge);
+        assert_eq!(
+            bounded_message(folder, &file),
+            format!(
+                "Die Datei „{}“ aus dem Typ „reviewer“ ist länger als 16 000 Zeichen.",
+                file.display()
+            )
+        );
+    });
+}
+
+#[test]
+fn file_of_16000_three_byte_characters_is_still_read() {
+    with_scratch_folder("three-byte", |folder: &Path| {
+        let file = folder.join("euro.md");
+        fs::write(&file, "€".repeat(16_000)).expect("schreiben");
+        let text = read_bounded(&file).expect("48 000 Bytes sind erlaubt");
+        assert_eq!(text.encode_utf16().count(), 16_000);
+    });
+}
+
+#[test]
+fn read_bounded_reports_a_missing_path_as_not_found() {
+    with_scratch_folder("missing", |folder: &Path| {
+        let error = read_bounded(&folder.join("fehlt.md")).expect_err("Datei fehlt");
+        assert_eq!(error.kind(), io::ErrorKind::NotFound);
+    });
+}
+
+#[test]
+fn folder_instead_of_file_is_unreadable_and_not_opened() {
+    with_scratch_folder("folder", |folder: &Path| {
+        let inner = folder.join("ordner");
+        fs::create_dir(&inner).expect("Ordner");
+        assert_eq!(
+            bounded_message(folder, &inner),
+            format!(
+                "Die Datei „{}“ aus dem Typ „reviewer“ ist nicht lesbar.",
+                inner.display()
+            )
+        );
+    });
+}
+
+#[test]
+fn file_without_utf8_is_unreadable() {
+    with_scratch_folder("binary", |folder: &Path| {
+        let file = folder.join("binaer.md");
+        fs::write(&file, [0xff, 0xfe, 0x00, 0xc3]).expect("schreiben");
+        assert_eq!(
+            bounded_message(folder, &file),
+            format!(
+                "Die Datei „{}“ aus dem Typ „reviewer“ ist nicht lesbar.",
+                file.display()
+            )
+        );
+    });
+}
+
+// Diese Fälle laufen nur gegen `read_bounded`: Mit `fs::read_to_string` würden sie hängen oder den
+// Speicher füllen.
+#[cfg(unix)]
+#[test]
+fn device_link_to_a_device_and_socket_are_unreadable_and_never_read() {
+    use std::os::unix::fs::symlink;
+    use std::os::unix::net::UnixListener;
+
+    with_scratch_folder("special", |folder: &Path| {
+        let link = folder.join("zero-link");
+        symlink("/dev/zero", &link).expect("Verweis");
+        let socket = folder.join("socket");
+        let _listener = UnixListener::bind(&socket).expect("Socket");
+        for path in [Path::new("/dev/zero"), link.as_path(), socket.as_path()] {
+            let error = read_bounded(path).expect_err("keine reguläre Datei");
+            assert_eq!(
+                error.kind(),
+                io::ErrorKind::InvalidInput,
+                "{}",
+                path.display()
+            );
+            assert_eq!(
+                bounded_message(folder, path),
+                format!(
+                    "Die Datei „{}“ aus dem Typ „reviewer“ ist nicht lesbar.",
+                    path.display()
+                )
+            );
+        }
+    });
 }
 
 #[test]
