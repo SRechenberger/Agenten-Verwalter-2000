@@ -31,9 +31,13 @@ import type { SessionSummary } from '@/lib/bindings/SessionSummary';
 import type { StationPatch } from '@/lib/bindings/StationPatch';
 import { commandErrorText } from '@/lib/errors';
 import {
+  applyImplementationCancel,
   applyImplementationChange,
+  cancelImplementation,
   cancelStationCountdown,
   completeStationByUser,
+  deleteImplementation,
+  discardImplementationCancel,
   editPlan,
   listImplementations,
   loadImplementationReport,
@@ -357,6 +361,15 @@ export function ImplementationView({
           const before = new Set<string>(stations.map((ref: StationRef) => ref.station.planId));
           run(() => applyEditedProposal(implementationId, before, overrides), APPLY_FAILED);
         }}
+        onApplyCancel={(accept: boolean): void => {
+          run(
+            () =>
+              accept
+                ? applyImplementationCancel(implementationId)
+                : discardImplementationCancel(implementationId),
+            accept ? 'Bestätigen fehlgeschlagen' : 'Verwerfen fehlgeschlagen',
+          );
+        }}
         run={run}
       />
     );
@@ -407,7 +420,14 @@ export function ImplementationView({
         onToggleTerminal={onToggleTerminal}
       />
       <ImplementationBar
+        key={implementationId}
         implementation={implementation}
+        onCancel={(): void => {
+          run(() => cancelImplementation(implementationId), 'Abbrechen fehlgeschlagen');
+        }}
+        onDelete={(): void => {
+          run(() => deleteImplementation(implementationId), 'Löschen fehlgeschlagen');
+        }}
         isReportShown={report !== null}
         isInquiryBusy={isInquiryBusy}
         isLocked={isLocked}

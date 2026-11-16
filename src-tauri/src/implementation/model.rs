@@ -21,6 +21,8 @@ pub const MAX_BRIEF_CHARS: usize = 1000;
 pub const MAX_PROMPT_CHARS: usize = 4000;
 /// Plan-Kennung einer Station (ADR 061), getrimmt.
 pub const MAX_PLAN_ID_CHARS: usize = 40;
+/// Grund einer Anfrage zum Abbrechen (ADR 066), getrimmt.
+pub const MAX_CANCEL_REASON_CHARS: usize = 300;
 
 /// Eine neue Rückfrage: die Session und der Lagebericht, der als ungesendeter Anhang an ihr hängt.
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
@@ -427,6 +429,31 @@ pub struct ImplementationView {
     pub queued: u32,
     // ADR 064: „Automatisch fortsetzen“ nach aufgebrauchtem Kontingent.
     pub auto_resume: bool,
+    // ADR 066: abgebrochen (dann ist auch `finishedAt` gesetzt) und die offene Anfrage eines Agenten;
+    // solange sie liegt, startet keine Station.
+    #[ts(type = "number | null")]
+    pub cancelled_at: Option<f64>,
+    pub pending_cancel: Option<PendingCancel>,
+}
+
+// Anfrage eines Agenten (`implementation_cancel`), die Umsetzung abzubrechen und bei `delete` danach zu
+// löschen (ADR 066); wirkt erst, wenn der Benutzer sie bestätigt.
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct PendingCancel {
+    pub session_id: String,
+    pub session_number: u32,
+    #[ts(type = "number")]
+    pub at: f64,
+    pub reason: String,
+    pub delete: bool,
+}
+
+// Gesendet als `implementation://removed`, nachdem die Umsetzung gelöscht ist (ADR 066).
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ImplementationRemovedEvent {
+    pub id: String,
 }
 
 /// Gesendet als `implementation://changed`.

@@ -76,6 +76,21 @@
     }
   }
 
+  &__cancelled {
+    color: var(--color-fg-muted);
+    white-space: nowrap;
+  }
+
+  /* Rückfrage vor Abbrechen und Löschen, über die ganze Breite der Leiste. */
+  &__confirm {
+    display: flex;
+    flex: 1 1 100%;
+    flex-wrap: wrap;
+    gap: var(--space-md);
+    align-items: center;
+    color: var(--color-fg-primary);
+  }
+
   &__queue {
     color: var(--color-status-handoff);
     white-space: nowrap;
@@ -132,6 +147,10 @@
       border-color: var(--color-accent);
       background: var(--color-accent-subtle);
       color: var(--color-accent-text);
+    }
+
+    &--danger {
+      border-color: var(--color-status-error);
     }
   }
 }

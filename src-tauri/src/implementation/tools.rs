@@ -9,9 +9,9 @@ use tauri::{Emitter, Manager};
 
 use super::model::{
     Handoff, ImplementationChangedEvent, ImplementationView, MAX_BRIEF_CHARS,
-    MAX_DESCRIPTION_CHARS, MAX_NAME_CHARS, MAX_PLAN_ID_CHARS, MAX_PROMPT_CHARS, MAX_SOURCE_CHARS,
-    MAX_TITLE_CHARS, PhaseInput, PlanEdit, StationAddition, StationPatch, check_length,
-    check_max_parallel, refuse_user_options, stations_in, validate,
+    MAX_CANCEL_REASON_CHARS, MAX_DESCRIPTION_CHARS, MAX_NAME_CHARS, MAX_PLAN_ID_CHARS,
+    MAX_PROMPT_CHARS, MAX_SOURCE_CHARS, MAX_TITLE_CHARS, PhaseInput, PlanEdit, StationAddition,
+    StationPatch, check_length, check_max_parallel, refuse_user_options, stations_in, validate,
 };
 use super::{IMPLEMENTATION_CHANGED_EVENT, changes, edit};
 use crate::agent_types::model::AgentType;
@@ -28,6 +28,8 @@ pub const SET_PHASES: &str = "implementation_set_phases";
 pub const EDIT: &str = "implementation_edit";
 const DESCRIBE_PHASE: &str = "implementation_describe_phase";
 const COMPLETE_STATION: &str = "implementation_complete_station";
+/// Fragt an, die Umsetzung abzubrechen (ADR 066); wirkt erst nach Bestätigen auf der Karte.
+pub const CANCEL: &str = "implementation_cancel";
 /// Liest die Agententypen für den Planer (ADR 060); `session_tools_prompt` nennt es beim Namen.
 pub const AGENT_TYPES: &str = "implementation_agent_types";
 /// Was eine Nebenfrage aufrufen darf: nur Lesendes.
@@ -218,6 +220,32 @@ impl ToolSet for ImplementationTools {
                     "additionalProperties": false,
                 }),
             },
+            ToolSpec {
+                name: CANCEL,
+                description: "Fragt beim Benutzer an, die Umsetzung dieser Session (sonst die \
+                              neueste des Vorhabens) abzubrechen und mit `delete` danach zu \
+                              löschen. Wirkt nicht sofort: Der Benutzer bestätigt oder verwirft \
+                              auf der Karte „Umsetzung abbrechen?“; bis dahin startet keine \
+                              Station. Bestätigt er, stoppen die arbeitenden Stationen, auch diese \
+                              Session, wenn sie eine ist. Sessions und Worktrees bleiben erhalten.",
+                input_schema: json!({
+                    "type": "object",
+                    "properties": {
+                        "reason": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": MAX_CANCEL_REASON_CHARS,
+                            "description": "Warum abbrechen; der Benutzer liest es auf der Karte",
+                        },
+                        "delete": {
+                            "type": "boolean",
+                            "description": "true: nach dem Abbrechen löschen (Lanes, Stationen, Verlauf)",
+                        },
+                    },
+                    "required": ["reason"],
+                    "additionalProperties": false,
+                }),
+            },
         ]
     }
 
@@ -246,6 +274,7 @@ impl ToolSet for ImplementationTools {
             COMPLETE_STATION => complete_station(call, &registry),
             SET_PHASES => set_phases(call),
             EDIT => edit_plan(call),
+            CANCEL => cancel(call, &registry),
             other => Err(format!("Unbekanntes Werkzeug: {other}")),
         };
         outcome.unwrap_or_else(ToolResult::Err)
@@ -562,6 +591,31 @@ fn complete_station(call: &ToolCall, registry: &SessionRegistry) -> Result<ToolR
     .map_err(|error| error.to_string())?;
     Ok(ToolResult::Ok {
         text: outcome.text(),
+        structured: None,
+    })
+}
+
+#[derive(Deserialize)]
+struct CancelArguments {
+    #[serde(default)]
+    reason: String,
+    #[serde(default)]
+    delete: bool,
+}
+
+/// Nur eine Anfrage: Abbrechen und Löschen bestätigt allein der Benutzer (ADR 066).
+fn cancel(call: &ToolCall, registry: &SessionRegistry) -> Result<ToolResult, String> {
+    let arguments: CancelArguments = parse(call.arguments)?;
+    check_length(
+        "reason",
+        arguments.reason.trim(),
+        1,
+        MAX_CANCEL_REASON_CHARS,
+    )?;
+    let view = registry.request_cancel(call.session_id, &arguments.reason, arguments.delete)?;
+    announce(call, &view);
+    Ok(ToolResult::Ok {
+        text: "Anfrage liegt beim Benutzer.".to_owned(),
         structured: None,
     })
 }

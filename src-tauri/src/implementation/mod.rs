@@ -27,12 +27,18 @@ use crate::sessions::model::SessionStatus;
 use crate::sessions::registry::SessionRegistry;
 use model::{
     BriefChange, BriefChangeKind, ChangeSummary, ChangeView, Handoff, ImplementationChangedEvent,
-    ImplementationView, MAX_BRIEF_CHARS, MAX_PROMPT_CHARS, MAX_SKILL_CHARS, OnError, PendingChange,
-    PhaseInput, PhaseView, PredecessorsMay, StationInput, StationOptions, StationSettings,
-    StationState, StationView, check_length,
+    ImplementationRemovedEvent, ImplementationView, MAX_BRIEF_CHARS, MAX_PROMPT_CHARS,
+    MAX_SKILL_CHARS, OnError, PendingCancel, PendingChange, PhaseInput, PhaseView, PredecessorsMay,
+    StationInput, StationOptions, StationSettings, StationState, StationView, check_length,
 };
 
 pub const IMPLEMENTATION_CHANGED_EVENT: &str = "implementation://changed";
+/// Nach dem Löschen einer Umsetzung (ADR 066), mit `ImplementationRemovedEvent`.
+pub const IMPLEMENTATION_REMOVED_EVENT: &str = "implementation://removed";
+/// Fertigmeldung, Start und Neustart einer Station einer abgebrochenen Umsetzung (ADR 066).
+pub const IS_CANCELLED: &str = "Die Umsetzung ist abgebrochen.";
+/// Abbrechen und Anfrage zum Abbrechen einer schon abgeschlossenen Umsetzung (ADR 066).
+pub const ALREADY_FINISHED: &str = "Umsetzung ist schon abgeschlossen.";
 
 /// So lange wartet eine Station nach der Fertigmeldung ihres Vorgängers, bevor sie startet.
 pub const START_DELAY: Duration = Duration::from_secs(10);
@@ -283,6 +289,14 @@ pub fn announce(app: &AppHandle, view: &ImplementationView) {
     );
 }
 
+/// Meldet der Oberfläche, dass die Umsetzung gelöscht ist.
+pub fn announce_removed(app: &AppHandle, id: &str) {
+    let _ = app.emit(
+        IMPLEMENTATION_REMOVED_EVENT,
+        ImplementationRemovedEvent { id: id.to_owned() },
+    );
+}
+
 /// Meldet die Station fertig, hängt bei `fix_needed` Fix-Runde und zweites Review an und plant
 /// die Stationen, die danach starten dürfen. Läuft im MCP-Thread oder im Tauri-Befehl, ohne dass
 /// eine Sperre gehalten wird: die Registry nimmt Datenbank-, Vorhaben- und Session-Sperren selbst,
@@ -430,6 +444,9 @@ pub fn plan_completion_with_types(
     fix_needed: bool,
     types: &[AgentType],
 ) -> Result<(Vec<StationRow>, Option<String>), String> {
+    if view.cancelled_at.is_some() {
+        return Err(format!("{IS_CANCELLED} Es gibt nichts mehr zu melden."));
+    }
     let (phase, station) =
         find_station(view, station_id).ok_or_else(|| NOT_IN_IMPLEMENTATION.to_owned())?;
     if station.state == StationState::Done {
@@ -614,15 +631,7 @@ fn arm_new_quota_pause(
         return Ok(());
     };
     let view = registry.implementation_view(implementation_id)?;
-    let Some(station) = view
-        .phases
-        .iter()
-        .flat_map(|phase: &PhaseView| phase.stations.iter())
-        .find(|station: &&StationView| station.session_id.as_deref() == Some(session_id))
-    else {
-        return Ok(());
-    };
-    if !arms_on_new_pause(station, resets_at, now_ms()) {
+    if !arms_quota_pause(&view, session_id, resets_at, now_ms()) {
         return Ok(());
     }
     match registry.set_auto_resume(app, session_id, true) {
@@ -657,6 +666,28 @@ pub fn arms_on_new_pause(station: &StationView, resets_at_ms: f64, now_ms: f64) 
         && continues_after_quota(station.resumes_automatically, Some(resets_at_ms), now_ms)
 }
 
+/// Eine abgebrochene Umsetzung und eine mit offener Anfrage zum Abbrechen schalten keinen Zeitgeber
+/// scharf (ADR 066): Der Agent arbeitete sonst nach dem Zurücksetzen des Kontingents weiter.
+pub fn may_arm(view: &ImplementationView) -> bool {
+    start::is_held(view).is_none()
+}
+
+/// `arms_on_new_pause` für die Station der Session, wenn die Umsetzung scharf schalten darf.
+pub fn arms_quota_pause(
+    view: &ImplementationView,
+    session_id: &str,
+    resets_at_ms: f64,
+    now_ms: f64,
+) -> bool {
+    may_arm(view)
+        && view
+            .phases
+            .iter()
+            .flat_map(|phase: &PhaseView| phase.stations.iter())
+            .find(|station: &&StationView| station.session_id.as_deref() == Some(session_id))
+            .is_some_and(|station: &StationView| arms_on_new_pause(station, resets_at_ms, now_ms))
+}
+
 /// „Automatisch fortsetzen“ der Umsetzung (ADR 064): schreibt den Wert, setzt alle nicht fertigen
 /// Stationen auf „wie die Umsetzung“ und schaltet die Zeitgeber ihrer pausierten Sessions ohne
 /// Zukunftsprüfung (ein vergangenes Ziel feuert sofort, wie die Karte im Chat).
@@ -675,7 +706,11 @@ pub fn set_auto_resume(
         .flat_map(|phase: &PhaseView| phase.stations.iter())
         .filter(|station: &&StationView| station.completed_at.is_none())
     {
-        switch_timer(app, station, station.resumes_automatically)?;
+        switch_timer(
+            app,
+            station,
+            station.resumes_automatically && may_arm(&view),
+        )?;
     }
     announce(app, &registry.implementation_view(implementation_id)?);
     Ok(())
@@ -702,7 +737,11 @@ pub fn set_station_auto_resume(
     }
     let view = registry.implementation_view(implementation_id)?;
     let (_, station) = station_in(&view, station_id)?;
-    switch_timer(app, station, station.resumes_automatically)?;
+    switch_timer(
+        app,
+        station,
+        station.resumes_automatically && may_arm(&view),
+    )?;
     announce(app, &registry.implementation_view(implementation_id)?);
     Ok(())
 }
@@ -1291,7 +1330,10 @@ pub fn build_view(
                 .collect(),
         })
         .collect();
-    settle_waiting(&mut phases, countdowns);
+    // In einer abgebrochenen Umsetzung startet nichts mehr; ihre offenen Stationen bleiben wartend.
+    if row.cancelled_at.is_none() {
+        settle_waiting(&mut phases, countdowns);
+    }
     let queued = link_view(&mut phases, row.max_parallel);
     let all_stations: Vec<&StationView> = phases
         .iter()
@@ -1356,6 +1398,11 @@ pub fn build_view(
         max_parallel: row.max_parallel,
         queued,
         auto_resume: row.auto_resume,
+        cancelled_at: row.cancelled_at,
+        pending_cancel: row
+            .pending_cancel
+            .as_deref()
+            .and_then(|json: &str| serde_json::from_str::<PendingCancel>(json).ok()),
     }
 }
 
@@ -1432,12 +1479,14 @@ fn station_view(
             )
         })
     };
-    // Kein Neustart nach Halt oder Ende, und keiner für einen Fehler von vor dem App-Neustart.
+    // Kein Neustart nach Halt oder Ende (auch Abbruch), während eine Anfrage zum Abbrechen liegt
+    // (ADR 066), und keiner für einen Fehler von vor dem App-Neustart.
     let restarting = state == StationState::Error
         && session.is_some_and(|session: &SessionLive| session.is_fresh_error)
         && station.restarts < station.on_error.max_restarts()
         && !implementation.stop_after_current
-        && implementation.finished_at.is_none();
+        && implementation.finished_at.is_none()
+        && implementation.pending_cancel.is_none();
     StationView {
         id: station.id.clone(),
         position: station.position,
@@ -1591,6 +1640,8 @@ pub fn new_rows(
         pending_change: None,
         max_parallel,
         auto_resume,
+        cancelled_at: None,
+        pending_cancel: None,
     };
     let (phases, mut stations) = phase_rows(&id, inputs, 0);
     link(&[], inputs, &mut stations)?;

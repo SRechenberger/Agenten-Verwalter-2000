@@ -143,6 +143,31 @@ function otherActive(refs: readonly StationRef[], focused: StationRef): StationR
   );
 }
 
+/** Zustände, in denen die Session einer Station arbeitet oder nach dem Kontingent von selbst
+ *  weiterarbeitet; sie sperren das Löschen (ADR 066). */
+const WORKING_STATES: readonly StationState[] = [
+  'starting',
+  'running',
+  'waitsForScript',
+  'waitsForQuota',
+];
+
+/** Die erste Station mit arbeitender Session; `undefined`, wenn keine arbeitet (wie `working_station`
+ *  im Core, ohne die Starts, die nur der Core sieht). */
+export function workingStation(implementation: ImplementationView): StationRef | undefined {
+  return flatStations(implementation).find((ref: StationRef) =>
+    WORKING_STATES.includes(ref.station.state),
+  );
+}
+
+/** Löschen dürfen nur abgebrochene oder nie begonnene Umsetzungen (wie `may_delete` im Core). */
+export function mayDelete(implementation: ImplementationView): boolean {
+  return (
+    implementation.cancelledAt !== null ||
+    !implementation.phases.some((phase: PhaseView) => phase.stations.some(isBegun))
+  );
+}
+
 /** Wie viele Lanes gerade arbeiten oder fragen („2 Lanes aktiv“). */
 export function activeLaneCount(implementation: ImplementationView): number {
   return implementation.phases.filter((phase: PhaseView) =>

@@ -24,21 +24,26 @@ use crate::db::implementations::{
 };
 use crate::error::CommandError;
 use crate::file_links;
+use crate::implementation::changes as implementation_changes;
 use crate::implementation::edit::EditedPlan;
 use crate::implementation::model::{
-    BriefChange, ImplementationView, InquiryCreated, PendingChange, PhaseInput, PhaseView,
-    StationOptions, StationSettings, StationView, check_agents,
+    BriefChange, ImplementationView, InquiryCreated, PendingCancel, PendingChange, PhaseInput,
+    PhaseView, StationOptions, StationSettings, StationView, check_agents,
 };
 use crate::implementation::report::{self, Extras};
 use crate::implementation::wake::{self, WakeEvent, WakeFacts};
 use crate::implementation::{
-    self, Countdowns, STATION_BEGUN, SessionLive, build_view, new_rows, station_in,
+    self, ALREADY_FINISHED, Countdowns, STATION_BEGUN, SessionLive, build_view, new_rows,
+    station_in,
 };
 use crate::sessions::model::{PauseReason, SessionStatus};
 use crate::settings::{self, model::OperatingMode};
 use crate::worktrees::SessionRepository;
 
 const NO_IMPLEMENTATION: &str = "In diesem Vorhaben gibt es keine Umsetzung.";
+const NOT_DELETABLE: &str = "Nur abgebrochene oder nie gestartete Umsetzungen lassen sich löschen.";
+const NO_CANCEL_REQUEST: &str = "Es liegt keine Anfrage zum Abbrechen vor.";
+const CANCEL_REQUESTED: &str = "Es liegt schon eine Anfrage vor.";
 
 /// Ein neuerer Lagebericht für eine Rückfrage: die Datei und was `send` im Zustand vermerkt.
 pub(super) struct ReportUpdate {
@@ -462,6 +467,155 @@ impl SessionRegistry {
             .with(|connection| implementation_rows::rename(connection, implementation_id, &name))
     }
 
+    /// Bricht die Umsetzung ab (ADR 066): abgeschlossen, Automatik und Halt aus, Vorschlag und Anfrage
+    /// verworfen, Countdowns beendet, dann die Sessions der arbeitenden Stationen gestoppt
+    /// (`changes::sessions_to_stop`). Die Stationen werden erst nach dem Schreiben gelesen: Ein Start,
+    /// der danach bindet, stoppt seine Session selbst (`start::stop_if_cancelled`).
+    pub fn cancel_implementation(
+        &self,
+        app: &AppHandle,
+        id: &str,
+    ) -> Result<ImplementationView, CommandError> {
+        let view = self.implementation_view(id)?;
+        if view.finished_at.is_some() {
+            return Err(CommandError::Implementation(ALREADY_FINISHED.to_owned()));
+        }
+        // Die Bedingung im `UPDATE` deckt eine Fertigmeldung zwischen Lesen und Schreiben.
+        if !self
+            .database
+            .with(|connection| implementation_rows::cancel(connection, id, now_ms()))?
+        {
+            return Err(CommandError::Implementation(ALREADY_FINISHED.to_owned()));
+        }
+        self.cancel_countdowns_of(&view);
+        let written = self.implementation_view(id)?;
+        for session_id in implementation_changes::sessions_to_stop(&written, |station_id: &str| {
+            self.is_starting(station_id)
+        }) {
+            if let Err(error) = self.cancel(app, &session_id) {
+                self.log_session_line(
+                    &session_id,
+                    format!("Beim Abbrechen der Umsetzung nicht gestoppt: {error}"),
+                );
+            }
+        }
+        self.implementation_view(id)
+    }
+
+    /// Löscht eine abgebrochene oder nie begonnene Umsetzung samt Phasen, Stationen und Verlauf
+    /// (ADR 066). Sessions und ihre Worktrees bleiben; was im Speicher auf die Umsetzung zeigt, wird
+    /// geleert. Eine arbeitende Station sperrt, dann ändert sich nichts.
+    pub fn delete_implementation(&self, app: &AppHandle, id: &str) -> Result<(), CommandError> {
+        let view = self.implementation_view(id)?;
+        if let Some((key, stage)) =
+            implementation_changes::working_station(&view, |station_id: &str| {
+                self.is_starting(station_id)
+            })
+        {
+            return Err(CommandError::Implementation(format!(
+                "Station „{stage}“ in Lane {key} läuft noch. Erst stoppen oder abwarten, dann löschen."
+            )));
+        }
+        if !implementation_changes::may_delete(&view) {
+            return Err(CommandError::Implementation(NOT_DELETABLE.to_owned()));
+        }
+        self.cancel_countdowns_of(&view);
+        self.database
+            .with(|connection| implementation_rows::delete(connection, id))?;
+        for member in self.project_members(&view.project_id) {
+            let is_linked: bool = {
+                let state = member.lock();
+                state.station_of.as_deref() == Some(id) || state.inquiry_of.as_deref() == Some(id)
+            };
+            if !is_linked {
+                continue;
+            }
+            update(
+                app,
+                &member,
+                |state: &mut SessionState, outbox: &mut Outbox| {
+                    if state.station_of.as_deref() == Some(id) {
+                        state.station_of = None;
+                    }
+                    if state.inquiry_of.as_deref() == Some(id) {
+                        state.inquiry_of = None;
+                        state.last_report = None;
+                    }
+                    outbox.summary_dirty = true;
+                    Ok(())
+                },
+            )?;
+        }
+        Ok(())
+    }
+
+    /// `implementation_cancel`: legt die Anfrage eines Agenten ab und beendet die Countdowns; sonst
+    /// ändert sich nichts, bis der Benutzer bestätigt (ADR 066).
+    pub fn request_cancel(
+        &self,
+        session_id: &str,
+        reason: &str,
+        delete: bool,
+    ) -> Result<ImplementationView, String> {
+        let view = self
+            .require_implementation_of_session(session_id)
+            .map_err(|error: CommandError| error.to_string())?;
+        if view.finished_at.is_some() {
+            return Err(ALREADY_FINISHED.to_owned());
+        }
+        if delete && !implementation_changes::may_delete(&view) {
+            return Err(NOT_DELETABLE.to_owned());
+        }
+        if view.pending_cancel.is_some() {
+            return Err(CANCEL_REQUESTED.to_owned());
+        }
+        let pending = PendingCancel {
+            session_id: session_id.to_owned(),
+            session_number: self.session_number(session_id),
+            at: now_ms(),
+            reason: reason.trim().to_owned(),
+            delete,
+        };
+        let json = serde_json::to_string(&pending).map_err(|error| error.to_string())?;
+        // Erst ablegen, dann Countdowns beenden: Ein Zeitgeber dazwischen sieht die Anfrage schon.
+        self.database
+            .with(|connection| {
+                implementation_rows::set_pending_cancel(connection, &view.id, Some(&json))
+            })
+            .map_err(|error: CommandError| error.to_string())?;
+        self.cancel_countdowns_of(&view);
+        self.implementation_view(&view.id)
+            .map_err(|error: CommandError| error.to_string())
+    }
+
+    /// „Verwerfen“ der Anfrage; das Neuplanen der Stationen übernimmt der Aufrufer.
+    pub fn discard_cancel(&self, id: &str) -> Result<ImplementationView, CommandError> {
+        let view = self.implementation_view(id)?;
+        if view.pending_cancel.is_none() {
+            return Err(CommandError::Implementation(NO_CANCEL_REQUEST.to_owned()));
+        }
+        self.database
+            .with(|connection| implementation_rows::set_pending_cancel(connection, id, None))?;
+        self.implementation_view(id)
+    }
+
+    /// `true`, wenn die Umsetzung abgebrochen ist; liest die Datenbank, nicht die Ansicht.
+    pub fn is_implementation_cancelled(&self, id: &str) -> Result<bool, CommandError> {
+        self.database
+            .with(|connection| implementation_rows::is_cancelled(connection, id))
+    }
+
+    fn cancel_countdowns_of(&self, view: &ImplementationView) {
+        let mut countdowns = self.lock_countdowns();
+        for station in view
+            .phases
+            .iter()
+            .flat_map(|phase: &PhaseView| phase.stations.iter())
+        {
+            countdowns.cancel(&station.id);
+        }
+    }
+
     /// Nummer der Session im Vorhaben; 0 für eine unbekannte.
     pub fn session_number(&self, session_id: &str) -> u32 {
         self.get(session_id)
@@ -655,6 +809,8 @@ impl SessionRegistry {
             .with(|connection| implementation_rows::load(connection, implementation_id))
             .ok()
             .flatten()
+            // Eine abgebrochene Umsetzung weckt niemanden mehr (ADR 066).
+            .filter(|stored: &StoredImplementation| stored.row.cancelled_at.is_none())
             .and_then(|stored: StoredImplementation| stored.row.created_by_session_id)
             .and_then(|id: String| self.get(&id).ok());
         let text = wake::decide(
