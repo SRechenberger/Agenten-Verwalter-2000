@@ -301,6 +301,15 @@ pub struct SessionIdentity<'a> {
     pub name: &'a str,
 }
 
+/// Ein Schritt der Spur, der mit dieser Nachricht beginnt.
+fn user_step(step: u32, text: &str, normalizer: &Normalizer) -> TraceStep {
+    TraceStep {
+        step,
+        user_text: shorten(&normalizer.paths(text), USER_TEXT_MAX_CHARS),
+        calls: Vec::new(),
+    }
+}
+
 pub fn build_trace(
     identity: &SessionIdentity<'_>,
     entries: &[ChatEntry],
@@ -316,11 +325,14 @@ pub fn build_trace(
         match entry {
             ChatEntry::User { text, .. } => {
                 user_messages += 1;
-                steps.push(TraceStep {
-                    step: user_messages,
-                    user_text: shorten(&normalizer.paths(text), USER_TEXT_MAX_CHARS),
-                    calls: Vec::new(),
-                });
+                steps.push(user_step(user_messages, text, &normalizer));
+            }
+            // Eine Nachricht einer anderen Session löst einen Zug aus wie eine Nutzernachricht
+            // und beginnt einen eigenen Schritt, mit Absender wie im TL;DR.
+            ChatEntry::SessionMessage { text, sender, .. } => {
+                user_messages += 1;
+                let text = format!("Session {} „{}“: {text}", sender.number, sender.title);
+                steps.push(user_step(user_messages, &text, &normalizer));
             }
             ChatEntry::Tool {
                 tool_use_id,
@@ -886,7 +898,12 @@ pub fn write_trace_files(folder: &Path, trace: &SessionTrace) -> io::Result<()> 
 
 #[cfg(test)]
 mod tests {
-    use super::unique_labels;
+    use std::collections::{BTreeMap, HashMap};
+    use std::path::Path;
+
+    use super::{SessionIdentity, build_trace, unique_labels};
+    use crate::agents::event::{ChatEntry, SessionRef, ToolState};
+    use crate::retro::traces::RuleTraces;
 
     #[test]
     fn unique_number_keeps_plain_label() {
@@ -897,5 +914,66 @@ mod tests {
     fn parallel_stations_get_distinct_labels() {
         let labels = unique_labels(&[(8, "25411a-xx"), (3, "c"), (8, "a79553-yy")]);
         assert_eq!(labels, ["8-25411a", "3", "8-a79553"]);
+    }
+
+    #[test]
+    fn session_message_starts_its_own_step_like_a_user_request() {
+        let user = ChatEntry::User {
+            seq: 1,
+            text: "Starte".to_owned(),
+            sent_at: 0.0,
+            attachments: Vec::new(),
+            skill: None,
+            comments: Vec::new(),
+            origin: None,
+        };
+        let message = ChatEntry::SessionMessage {
+            seq: 3,
+            text: "Lane gemeldet".to_owned(),
+            sent_at: 0.0,
+            sender: SessionRef {
+                id: "abc".to_owned(),
+                number: 4,
+                title: "Review".to_owned(),
+            },
+        };
+        let tool = |seq: u32| ChatEntry::Tool {
+            seq,
+            tool_use_id: format!("t{seq}"),
+            tool: "Read".to_owned(),
+            target: "a.rs".to_owned(),
+            state: ToolState::Done,
+        };
+        let entries = [user, tool(2), message, tool(4), tool(5)];
+        let traces = RuleTraces {
+            skills: BTreeMap::new(),
+            hook_blocks: Vec::new(),
+            tool_errors: BTreeMap::new(),
+        };
+        let identity = SessionIdentity {
+            number: 1,
+            id: "id",
+            name: "Architekt",
+        };
+        let trace = build_trace(
+            &identity,
+            &entries,
+            &HashMap::new(),
+            &traces,
+            Path::new("/ws"),
+            None,
+        );
+        let steps: Vec<(u32, &str, usize)> = trace
+            .steps
+            .iter()
+            .map(|step| (step.step, step.user_text.as_str(), step.calls.len()))
+            .collect();
+        assert_eq!(
+            steps,
+            [
+                (1, "Starte", 1),
+                (2, "Session 4 „Review“: Lane gemeldet", 2)
+            ]
+        );
     }
 }

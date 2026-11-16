@@ -29,7 +29,7 @@ Probelauf vom 11.11.2026, von Hand mit einem Python-Skript auf den Transkripten 
 - Kein Schalter in den Einstellungen; die Werkzeug-Retro läuft bei jedem Retro-Lauf mit. Ein Fehlschlag bricht den Lauf nicht ab, zählt nicht in `RetroExport.failed_count` und steht als Zeile in `werkzeuge.md`. `RetroExport` und das Frontend bleiben unverändert.
 - Schwellen: wiederkehrend heißt mindestens 3-mal in mindestens 2 Sessions; ein Inline-Skript hat mindestens 10 Zeilen. Grundwerkzeuge (`Read`, `Grep`, `Glob`, `Edit`, `Write`, `MultiEdit`, `NotebookEdit`, `Skill`, `Agent`) zählen nie für sich als Wiederholung.
 - Ausgaben werden nur als Länge und Kopf geladen (`tool_details::load_summaries`: `length(output)`, `substr(output, 1, 400)`), nie ganz.
-- Keine neuen Tests (Projektkonvention); Beleg je Phase ist die Ausgabe von `retro-probe` gegen eine Kopie der Datenbank.
+- Tests nach den Regeln des Forks (`cargo test --lib`): Kennung bei doppelter Nummer, Nachricht einer anderen Session als eigener Schritt der Spur; Beleg je Phase zusätzlich die Ausgabe von `retro-probe` gegen eine Kopie der Datenbank.
 
 ## Konsequenzen
 
