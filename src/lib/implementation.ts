@@ -116,10 +116,11 @@ export async function deleteImplementation(id: string): Promise<void> {
   await invoke('implementation_delete', { id });
 }
 
-/** „Bestätigen“ der Anfrage eines Agenten: abbrechen, bei `delete` danach löschen.
- *  @throws {import('@/lib/bindings/CommandError').CommandError} `implementation` (keine Anfrage, schon abgeschlossen, Station läuft noch), `database` */
-export async function applyImplementationCancel(id: string): Promise<void> {
-  await invoke('implementation_apply_cancel', { id });
+/** „Bestätigen“ der Anfrage eines Agenten: abbrechen, bei `delete` danach löschen. Ein Grund statt
+ *  `null`: abgebrochen, aber noch nicht löschbar (ein Start hält seinen Anspruch noch).
+ *  @throws {import('@/lib/bindings/CommandError').CommandError} `implementation` (keine Anfrage, schon abgeschlossen), `database` */
+export function applyImplementationCancel(id: string): Promise<string | null> {
+  return invoke<string | null>('implementation_apply_cancel', { id });
 }
 
 /** „Verwerfen“ der Anfrage; die Stationen werden neu geplant.

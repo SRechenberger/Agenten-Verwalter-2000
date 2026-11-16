@@ -605,6 +605,56 @@ impl SessionRegistry {
             .with(|connection| implementation_rows::is_cancelled(connection, id))
     }
 
+    /// Der Zeitgeber von „Automatisch fortsetzen“ feuert (ADR 066): `true`, wenn die Session Station
+    /// einer abgebrochenen Umsetzung ist; dann schickt er nichts, dieselbe Prüfung wie
+    /// `start::stop_if_cancelled`. Die Session-Sperre nur kurz, die Datenbank danach ohne sie.
+    pub fn resume_is_cancelled(&self, session_id: &str) -> Result<bool, CommandError> {
+        let station_of: Option<String> = self.get(session_id)?.lock().station_of.clone();
+        match station_of {
+            Some(id) => self.is_implementation_cancelled(&id),
+            None => Ok(false),
+        }
+    }
+
+    /// Nur für Tests ohne `AppHandle` (ADR 066): eine Session ohne Agent, die als Station an der
+    /// Umsetzung hängt.
+    #[cfg(test)]
+    pub(crate) fn add_station_session_for_test(
+        &self,
+        session_id: &str,
+        project_id: &str,
+        implementation_id: &str,
+        status: SessionStatus,
+    ) {
+        use crate::agents::event::{Effort, Mode, ModelId};
+        let mut state = SessionState::new(
+            "Session 1".to_owned(),
+            ModelId::Sonnet,
+            Effort::High,
+            Mode::Auto,
+        );
+        state.status = status;
+        state.station_of = Some(implementation_id.to_owned());
+        let session = Arc::new(Session {
+            id: session_id.to_owned(),
+            project_id: project_id.to_owned(),
+            number: 1,
+            workspace: PathBuf::new(),
+            repositories: std::sync::RwLock::new(Vec::new()),
+            database: Arc::clone(&self.database),
+            state: std::sync::Mutex::new(state),
+        });
+        self.lock_sessions().insert(session_id.to_owned(), session);
+    }
+
+    /// Nur für Tests: der Status der Session.
+    #[cfg(test)]
+    pub(crate) fn status_for_test(&self, session_id: &str) -> Option<SessionStatus> {
+        self.get(session_id)
+            .ok()
+            .map(|session: Arc<Session>| session.lock().status)
+    }
+
     fn cancel_countdowns_of(&self, view: &ImplementationView) {
         let mut countdowns = self.lock_countdowns();
         for station in view

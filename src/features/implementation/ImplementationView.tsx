@@ -17,6 +17,7 @@ import {
 import { patchEdit } from '@/features/implementation/implementationGraph';
 import {
   APPLY_FAILED,
+  CANCELLED_NOT_DELETED,
   START_FAILED,
   proposalAppliedWithFailures,
   stationNotFound,
@@ -195,7 +196,7 @@ export function ImplementationView({
   const clearFocused = useImplementationStore((state) => state.clearFocused);
   const selectSession = useSessionsStore((state) => state.selectSession);
   const showSessionView = useSessionsStore((state) => state.showView);
-  const { error: actionError, run } = useActionError(implementation.id);
+  const { error: actionError, run, report: reportFailure } = useActionError(implementation.id);
   const isLocked: boolean = useProjectLocked(implementation.projectId);
   const { agentTypes } = useAgentTypes();
 
@@ -362,13 +363,16 @@ export function ImplementationView({
           run(() => applyEditedProposal(implementationId, before, overrides), APPLY_FAILED);
         }}
         onApplyCancel={(accept: boolean): void => {
-          run(
-            () =>
-              accept
-                ? applyImplementationCancel(implementationId)
-                : discardImplementationCancel(implementationId),
-            accept ? 'Bestätigen fehlgeschlagen' : 'Verwerfen fehlgeschlagen',
-          );
+          if (!accept) {
+            run(() => discardImplementationCancel(implementationId), 'Verwerfen fehlgeschlagen');
+            return;
+          }
+          run(async (): Promise<void> => {
+            const notDeleted: string | null = await applyImplementationCancel(implementationId);
+            if (notDeleted !== null) {
+              reportFailure(`${CANCELLED_NOT_DELETED}: ${notDeleted}`);
+            }
+          }, 'Bestätigen fehlgeschlagen');
         }}
         run={run}
       />

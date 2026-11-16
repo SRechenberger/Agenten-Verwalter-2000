@@ -4714,6 +4714,20 @@ fn cancelled_implementation_arms_no_auto_resume() {
         !arms_quota_pause(&cancelled, "session-open", now + 1.0, now),
         "abgebrochen"
     );
+}
+
+#[test]
+fn pending_cancel_arms_no_auto_resume() {
+    let open = || {
+        quota_view(
+            vec![resuming(node("open", &[]), Some(true))],
+            true,
+            None,
+            &[("open", SessionStatus::Paused, false)],
+        )
+    };
+    let now = 1_000.0;
+    assert!(arms_quota_pause(&open(), "session-open", now + 1.0, now));
     let requested = ImplementationView {
         pending_cancel: Some(PendingCancel {
             session_id: "session-open".to_owned(),
@@ -4745,4 +4759,74 @@ fn cancel_writes_nothing_for_a_finished_implementation() {
         .expect("lesbar")
         .expect("Umsetzung vorhanden");
     assert_eq!(stored.row.cancelled_at, Some(5.0));
+}
+
+/// Eine Registry ohne `AppHandle` über dieser Datenbank (aus `database_with`), mit der Session
+/// `session` als Station in diesem Status.
+fn registry_with_station_session(
+    database: Database,
+    status: SessionStatus,
+) -> crate::sessions::registry::SessionRegistry {
+    let registry = crate::sessions::registry::SessionRegistry::new(
+        std::sync::Arc::new(database),
+        std::sync::Arc::new(crate::remote::RemoteControl::default()),
+    );
+    registry.add_station_session_for_test("session", "project", "implementation", status);
+    registry
+}
+
+#[test]
+fn agent_request_via_tool_only_records_pending_cancel() {
+    let registry = registry_with_station_session(
+        database_with(&[station_row("first", 0, "Umsetzung")]),
+        SessionStatus::Running,
+    );
+    let token = registry.begin_countdown("first", 1.0);
+    let view = registry
+        .request_cancel("session", "  Plan überholt  ", true)
+        .expect("Anfrage abgelegt");
+    let pending = view.pending_cancel.expect("Anfrage liegt vor");
+    assert_eq!(
+        (
+            pending.session_id.as_str(),
+            pending.reason.as_str(),
+            pending.delete
+        ),
+        ("session", "Plan überholt", true)
+    );
+    assert_eq!(
+        (view.finished_at, view.cancelled_at),
+        (None, None),
+        "nicht abgebrochen, bevor der Benutzer bestätigt"
+    );
+    assert_eq!(
+        registry.status_for_test("session"),
+        Some(SessionStatus::Running),
+        "keine Session gestoppt"
+    );
+    assert!(
+        !registry.take_countdown("first", token),
+        "die Countdowns sind beendet"
+    );
+    assert!(
+        registry
+            .request_cancel("session", "noch einmal", false)
+            .is_err(),
+        "eine zweite Anfrage scheitert"
+    );
+}
+
+#[test]
+fn auto_resume_timer_of_cancelled_station_sends_nothing() {
+    let open = registry_with_station_session(
+        database_with(&[station_row("first", 0, "Umsetzung")]),
+        SessionStatus::Paused,
+    );
+    assert!(!open.resume_is_cancelled("session").expect("lesbar"));
+    let database = database_with(&[station_row("first", 0, "Umsetzung")]);
+    database
+        .with(|connection| implementation_rows::cancel(connection, "implementation", 5.0))
+        .expect("abgebrochen");
+    let cancelled = registry_with_station_session(database, SessionStatus::Paused);
+    assert!(cancelled.resume_is_cancelled("session").expect("lesbar"));
 }

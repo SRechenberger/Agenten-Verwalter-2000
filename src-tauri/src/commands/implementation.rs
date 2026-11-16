@@ -252,12 +252,14 @@ pub async fn implementation_delete(
 
 /// „Bestätigen“ der Anfrage eines Agenten (ADR 066): abbrechen, bei `delete` danach löschen. Ist die
 /// Umsetzung inzwischen regulär fertig, gibt es nichts mehr abzubrechen: Die Anfrage fällt weg.
+/// `Some(Grund)`: abgebrochen, aber noch nicht löschbar (etwa ein Start, der seinen Anspruch noch
+/// hält); „Löschen…“ geht danach.
 #[tauri::command]
 pub async fn implementation_apply_cancel(
     app: AppHandle,
     registry: tauri::State<'_, SessionRegistry>,
     id: String,
-) -> Result<(), CommandError> {
+) -> Result<Option<String>, CommandError> {
     let view = registry.implementation_view(&id)?;
     let Some(pending) = view.pending_cancel else {
         return Err(CommandError::Implementation(
@@ -269,11 +271,17 @@ pub async fn implementation_apply_cancel(
         return Err(CommandError::Implementation(ALREADY_FINISHED.to_owned()));
     }
     announce(&app, &registry.cancel_implementation(&app, &id)?);
-    if pending.delete {
-        registry.delete_implementation(&app, &id)?;
-        announce_removed(&app, &id);
+    if !pending.delete {
+        return Ok(None);
     }
-    Ok(())
+    // Abgebrochen ist schon; ein Fehler beim Löschen ist kein gescheitertes Bestätigen.
+    match registry.delete_implementation(&app, &id) {
+        Ok(()) => {
+            announce_removed(&app, &id);
+            Ok(None)
+        }
+        Err(error) => Ok(Some(error.to_string())),
+    }
 }
 
 /// „Verwerfen“ der Anfrage (ADR 066): alles wie vorher; was die Anfrage aufhielt, läuft weiter wie

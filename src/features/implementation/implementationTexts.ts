@@ -757,6 +757,8 @@ export const BRIEF_EDIT_DROPS_CHANGES =
 
 export const START_FAILED = 'Start fehlgeschlagen';
 export const APPLY_FAILED = 'Übernehmen fehlgeschlagen';
+/** Bestätigen mit Löschen: abgebrochen ist schon, gelöscht noch nicht (ADR 066). */
+export const CANCELLED_NOT_DELETED = 'Abgebrochen, Löschen noch nicht möglich';
 export const NOT_SAVED = 'Nicht gespeichert';
 export const BRIEF_NOT_SAVED = 'Auftrag nicht gespeichert';
 export const NOT_REMOVED = 'Nicht entfernt';
