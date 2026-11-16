@@ -18,6 +18,7 @@ import {
 import { patchEdit } from '@/features/implementation/implementationGraph';
 import {
   APPLY_FAILED,
+  CANCELLED_NOT_DELETED,
   START_FAILED,
   proposalAppliedWithFailures,
   stationNotFound,
@@ -32,9 +33,13 @@ import type { SessionSummary } from '@/lib/bindings/SessionSummary';
 import type { StationPatch } from '@/lib/bindings/StationPatch';
 import { commandErrorText } from '@/lib/errors';
 import {
+  applyImplementationCancel,
   applyImplementationChange,
+  cancelImplementation,
   cancelStationCountdown,
   completeStationByUser,
+  deleteImplementation,
+  discardImplementationCancel,
   editPlan,
   listImplementations,
   loadImplementationReport,
@@ -199,7 +204,7 @@ export function ImplementationView({
   const clearFocused = useImplementationStore((state) => state.clearFocused);
   const selectSession = useSessionsStore((state) => state.selectSession);
   const showSessionView = useSessionsStore((state) => state.showView);
-  const { error: actionError, run } = useActionError(implementation.id);
+  const { error: actionError, run, report: reportFailure } = useActionError(implementation.id);
   const isLocked: boolean = useProjectLocked(implementation.projectId);
   const { agentTypes } = useAgentTypes();
 
@@ -394,6 +399,18 @@ export function ImplementationView({
           const before = new Set<string>(stations.map((ref: StationRef) => ref.station.planId));
           run(() => applyEditedProposal(implementationId, before, overrides), APPLY_FAILED);
         }}
+        onApplyCancel={(accept: boolean): void => {
+          if (!accept) {
+            run(() => discardImplementationCancel(implementationId), 'Verwerfen fehlgeschlagen');
+            return;
+          }
+          run(async (): Promise<void> => {
+            const notDeleted: string | null = await applyImplementationCancel(implementationId);
+            if (notDeleted !== null) {
+              reportFailure(`${CANCELLED_NOT_DELETED}: ${notDeleted}`);
+            }
+          }, 'Bestätigen fehlgeschlagen');
+        }}
         run={run}
       />
     );
@@ -455,7 +472,14 @@ export function ImplementationView({
         onToggleTerminal={onToggleTerminal}
       />
       <ImplementationBar
+        key={implementationId}
         implementation={implementation}
+        onCancel={(): void => {
+          run(() => cancelImplementation(implementationId), 'Abbrechen fehlgeschlagen');
+        }}
+        onDelete={(): void => {
+          run(() => deleteImplementation(implementationId), 'Löschen fehlgeschlagen');
+        }}
         isReportShown={report !== null}
         isInquiryBusy={isInquiryBusy}
         isLocked={isLocked}

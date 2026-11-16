@@ -27,6 +27,61 @@ pub fn is_begun(phase: &PhaseView) -> bool {
         .any(|station: &StationView| station.session_id.is_some() || station.completed_at.is_some())
 }
 
+/// Die erste Station, deren Session gerade arbeitet, auf das Kontingent wartet (ihr Zeitgeber lässt sie
+/// danach weiterarbeiten, ADR 064) oder angelegt wird (`is_starting`), als (Lane-Schlüssel, Stufe); sie
+/// sperrt das Löschen (ADR 066). Wartet die Session auf den Benutzer, sperrt sie nicht.
+pub fn working_station(
+    view: &ImplementationView,
+    is_starting: impl Fn(&str) -> bool,
+) -> Option<(String, String)> {
+    view.phases.iter().find_map(|phase: &PhaseView| {
+        phase
+            .stations
+            .iter()
+            .find(|station: &&StationView| {
+                matches!(
+                    station.state,
+                    StationState::Starting
+                        | StationState::Running
+                        | StationState::WaitsForScript
+                        | StationState::WaitsForQuota
+                ) || is_starting(&station.id)
+            })
+            .map(|station: &StationView| (phase.key.clone(), station.stage.clone()))
+    })
+}
+
+/// Löschen dürfen nur abgebrochene oder nie begonnene Umsetzungen; eine normal fertige bleibt als
+/// Archiv (ADR 066).
+pub fn may_delete(view: &ImplementationView) -> bool {
+    view.cancelled_at.is_some() || !view.phases.iter().any(is_begun)
+}
+
+/// Die Sessions der Stationen, die Abbrechen stoppt (ADR 066): jede, deren Agent arbeitet oder auf eine
+/// Antwort wartet, jede, die mit scharfem Zeitgeber auf das Kontingent wartet (ADR 064), und jede, die
+/// gerade (neu) startet. Eine Session, die auf den Benutzer wartet, mit
+/// Fehler endete oder fertig ist, bleibt, wie sie ist.
+pub fn sessions_to_stop(
+    view: &ImplementationView,
+    is_starting: impl Fn(&str) -> bool,
+) -> Vec<String> {
+    view.phases
+        .iter()
+        .flat_map(|phase: &PhaseView| phase.stations.iter())
+        .filter(|station: &&StationView| {
+            matches!(
+                station.state,
+                StationState::Starting
+                    | StationState::Running
+                    | StationState::Asking
+                    | StationState::WaitsForScript
+                    | StationState::WaitsForQuota
+            ) || is_starting(&station.id)
+        })
+        .filter_map(|station: &StationView| station.session_id.clone())
+        .collect()
+}
+
 /// Unterschiede zwischen den kommenden Phasen und dem Vorschlag. Fehler, wenn der Vorschlag den
 /// Schlüssel einer begonnenen Phase enthält.
 pub fn diff(view: &ImplementationView, proposed: &[PhaseInput]) -> Result<ChangeSummary, String> {

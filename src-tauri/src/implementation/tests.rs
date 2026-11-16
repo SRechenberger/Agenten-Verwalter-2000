@@ -105,6 +105,8 @@ fn view_of(phase: PhaseView) -> ImplementationView {
         max_parallel: None,
         queued: 0,
         auto_resume: false,
+        cancelled_at: None,
+        pending_cancel: None,
     }
 }
 
@@ -598,6 +600,8 @@ fn implementation_row() -> ImplementationRow {
         pending_change: None,
         max_parallel: None,
         auto_resume: false,
+        cancelled_at: None,
+        pending_cancel: None,
     }
 }
 
@@ -4251,4 +4255,578 @@ fn new_commands_are_class_c_in_the_access_table() {
             "{command}: die Umsetzung entscheidet über das Steuerrecht"
         );
     }
+}
+
+// Umsetzung abbrechen und löschen (ADR 066).
+use model::PendingCancel;
+
+/// Zwei Startstationen mit `max_parallel = 1`: ohne Abbruch zählt eine herunter, die andere wartet in
+/// der Warteschlange.
+fn two_start_stations(
+    row: ImplementationRow,
+    countdowns: &HashMap<String, f64>,
+) -> ImplementationView {
+    let mut first = station_row("first", 0, "Umsetzung");
+    first.plan_id = "1-1".to_owned();
+    let mut second = station_row("second", 1, "Umsetzung");
+    second.plan_id = "1-2".to_owned();
+    let stored = StoredImplementation {
+        row: ImplementationRow {
+            max_parallel: Some(1),
+            ..row
+        },
+        phases: vec![phase_row()],
+        stations: vec![first, second],
+        changes: Vec::new(),
+    };
+    build_view(&stored, &HashMap::new(), &HashMap::new(), countdowns, &[])
+}
+
+fn cancelled_row() -> ImplementationRow {
+    ImplementationRow {
+        finished_at: Some(2.0),
+        cancelled_at: Some(2.0),
+        auto_start: false,
+        ..implementation_row()
+    }
+}
+
+fn pending_cancel(delete: bool) -> PendingCancel {
+    PendingCancel {
+        session_id: "session".to_owned(),
+        session_number: 3,
+        at: 2.0,
+        reason: "Falsch angelegt".to_owned(),
+        delete,
+    }
+}
+
+#[test]
+fn cancelled_implementation_starts_no_queued_station() {
+    let running = two_start_stations(implementation_row(), &HashMap::new());
+    assert_eq!(
+        due_ids(&running),
+        vec!["first".to_owned(), "second".to_owned()]
+    );
+    assert_eq!(
+        running.queued, 1,
+        "ohne Abbruch wartet eine in der Warteschlange"
+    );
+    assert_eq!(start::is_held(&running), None);
+
+    let cancelled = two_start_stations(cancelled_row(), &HashMap::new());
+    assert!(
+        cancelled
+            .phases
+            .iter()
+            .flat_map(|phase: &PhaseView| phase.stations.iter())
+            .all(|station: &StationView| station.state == StationState::Pending),
+        "offene Stationen bleiben wartend, keine wird bereit"
+    );
+    assert!(
+        due_ids(&cancelled).is_empty(),
+        "kein Countdown wird geplant"
+    );
+    assert_eq!(cancelled.queued, 0, "die Warteschlange ist leer");
+    assert_eq!(start::is_held(&cancelled), Some(IS_CANCELLED));
+}
+
+#[test]
+fn cancel_stops_countdown_and_retry() {
+    let countdowns: HashMap<String, f64> = HashMap::from([("first".to_owned(), 99.0)]);
+    let counting = two_start_stations(implementation_row(), &countdowns);
+    assert_eq!(
+        counting.phases[0].stations[0].state,
+        StationState::Countdown
+    );
+    let cancelled = two_start_stations(cancelled_row(), &countdowns);
+    assert_eq!(
+        (
+            cancelled.phases[0].stations[0].state,
+            cancelled.phases[0].stations[0].starts_at
+        ),
+        (StationState::Pending, None),
+        "ein Countdown einer abgebrochenen Umsetzung erscheint nicht mehr"
+    );
+
+    // „Bei Fehler“: Eine Session, die in diesem Lauf mit Fehler endete, startet neu, außer die
+    // Umsetzung ist abgebrochen oder eine Anfrage zum Abbrechen liegt vor.
+    let restarting_with = |row: ImplementationRow| -> bool {
+        let mut failed = station_row("failed", 0, "Umsetzung");
+        failed.session_id = Some("session".to_owned());
+        failed.on_error = OnError::RestartUpToThree;
+        let live = HashMap::from([(
+            "session".to_owned(),
+            SessionLive {
+                status: SessionStatus::Error,
+                number: 1,
+                running_ms: 0.0,
+                question: None,
+                last_activity_at: 1.0,
+                unread: false,
+                awaits_script: false,
+                is_fresh_error: true,
+                waits_for_quota: false,
+            },
+        )]);
+        let stored = StoredImplementation {
+            row,
+            phases: vec![phase_row()],
+            stations: vec![failed],
+            changes: Vec::new(),
+        };
+        build_view(&stored, &live, &HashMap::new(), &HashMap::new(), &[]).phases[0].stations[0]
+            .restarting
+    };
+    assert!(
+        restarting_with(implementation_row()),
+        "ohne Abbruch startet sie neu"
+    );
+    assert!(
+        !restarting_with(cancelled_row()),
+        "abgebrochen: kein Neustart"
+    );
+    let held = ImplementationRow {
+        pending_cancel: Some(serde_json::to_string(&pending_cancel(false)).expect("JSON")),
+        ..implementation_row()
+    };
+    assert!(!restarting_with(held), "Anfrage offen: kein Neustart");
+}
+
+#[test]
+fn cancelled_implementation_refuses_completion_of_its_stations() {
+    let mut view = view_of(phase_with(build_test_review(), 2));
+    view.cancelled_at = Some(2.0);
+    view.finished_at = Some(2.0);
+    let Err(refusal) = plan_completion(&view, "station-2", true) else {
+        panic!("die Fertigmeldung einer abgebrochenen Umsetzung wurde angenommen");
+    };
+    assert!(refusal.starts_with(IS_CANCELLED), "{refusal}");
+}
+
+#[test]
+fn restart_after_cancel_starts_nothing() {
+    let mut first = station_row("first", 0, "Umsetzung");
+    first.plan_id = "1-1".to_owned();
+    let database = database_with(&[first]);
+    database
+        .with(|connection| {
+            implementation_rows::set_pending_change(connection, "implementation", Some("{}"))?;
+            implementation_rows::cancel(connection, "implementation", 5.0)
+        })
+        .expect("abgebrochen");
+    // Wie nach dem Neustart der App: neu gelesen, keine Countdowns, keine laufende Session.
+    let stored = database
+        .with(|connection| implementation_rows::load(connection, "implementation"))
+        .expect("lesbar")
+        .expect("Umsetzung vorhanden");
+    assert_eq!(
+        (
+            stored.row.finished_at,
+            stored.row.cancelled_at,
+            stored.row.auto_start,
+            stored.row.stop_after_current,
+            stored.row.pending_change.as_deref(),
+            stored.row.pending_cancel.as_deref(),
+        ),
+        (Some(5.0), Some(5.0), false, false, None, None)
+    );
+    assert!(
+        database
+            .with(|connection| implementation_rows::is_cancelled(connection, "implementation"))
+            .expect("lesbar")
+    );
+    assert!(
+        database
+            .with(|connection| implementation_rows::unfinished_of_project(connection, "project"))
+            .expect("lesbar")
+            .is_none(),
+        "eine neue Umsetzung im Vorhaben ist möglich"
+    );
+    let view = build_view(
+        &stored,
+        &HashMap::new(),
+        &HashMap::new(),
+        &HashMap::new(),
+        &[],
+    );
+    assert!(due_ids(&view).is_empty());
+    assert_eq!(view.phases[0].stations[0].state, StationState::Pending);
+    assert_eq!(start::is_held(&view), Some(IS_CANCELLED));
+}
+
+#[test]
+fn cancel_stops_working_and_asking_stations_but_not_waiting_failed_or_done_ones() {
+    let with = |id: &str, state: StationState, session: bool| -> StationView {
+        let mut station = station("Umsetzung", ModelId::Sonnet, "implement");
+        station.id = id.to_owned();
+        station.state = state;
+        station.session_id = session.then(|| format!("session-{id}"));
+        station
+    };
+    let view = view_of(PhaseView {
+        stations: vec![
+            with("starting", StationState::Starting, true),
+            with("running", StationState::Running, true),
+            with("asking", StationState::Asking, true),
+            with("script", StationState::WaitsForScript, true),
+            with("waits", StationState::WaitsForYou, true),
+            with("failed", StationState::Error, true),
+            with("restarting", StationState::Error, true),
+            with("done", StationState::Done, true),
+            with("countdown", StationState::Countdown, false),
+        ],
+        ..phase_with(vec![station("x", ModelId::Sonnet, "y")], 0)
+    });
+    let stopped = changes::sessions_to_stop(&view, |id: &str| id == "restarting");
+    assert_eq!(
+        stopped,
+        vec![
+            "session-starting",
+            "session-running",
+            "session-asking",
+            "session-script",
+            "session-restarting",
+        ]
+    );
+    assert_eq!(
+        changes::working_station(&view, |_: &str| false),
+        Some(("1".to_owned(), "Umsetzung".to_owned())),
+        "eine arbeitende Station sperrt das Löschen"
+    );
+    let idle = view_of(PhaseView {
+        stations: vec![
+            with("asking", StationState::Asking, true),
+            with("waits", StationState::WaitsForYou, true),
+        ],
+        ..phase_with(vec![station("x", ModelId::Sonnet, "y")], 0)
+    });
+    assert_eq!(
+        changes::working_station(&idle, |_: &str| false),
+        None,
+        "Rückfrage und Warten sperren nicht"
+    );
+    assert!(
+        changes::working_station(&idle, |id: &str| id == "waits").is_some(),
+        "ein Start sperrt"
+    );
+}
+
+#[test]
+fn only_cancelled_or_unbegun_implementations_may_be_deleted() {
+    let unbegun = view_with(vec![station_row("open", 0, "Umsetzung")], &[]);
+    assert!(changes::may_delete(&unbegun));
+    let mut started = station_row("started", 0, "Umsetzung");
+    started.session_id = Some("session".to_owned());
+    let mut begun = view_with(vec![started], &[]);
+    assert!(
+        !changes::may_delete(&begun),
+        "begonnen und nicht abgebrochen"
+    );
+    begun.finished_at = Some(3.0);
+    assert!(
+        !changes::may_delete(&begun),
+        "regulär fertig bleibt als Archiv"
+    );
+    begun.cancelled_at = Some(3.0);
+    assert!(changes::may_delete(&begun));
+}
+
+#[test]
+fn delete_removes_lanes_stations_and_changes_but_keeps_sessions_and_unlinks_inquiries() {
+    let mut started = station_row("started", 0, "Umsetzung");
+    started.session_id = Some("session".to_owned());
+    let database = database_with(&[started]);
+    database
+        .with(|connection| {
+            connection.execute("UPDATE sessions SET inquiry_of = 'implementation'", [])?;
+            implementation_rows::delete(connection, "implementation")
+        })
+        .expect("gelöscht");
+    let (implementations, phases, stations, sessions, inquiries): (u32, u32, u32, u32, u32) =
+        database
+            .with(|connection| {
+                let count = |sql: &str| -> rusqlite::Result<u32> {
+                    connection.query_row(sql, [], |row| row.get(0))
+                };
+                Ok((
+                    count("SELECT COUNT(*) FROM implementations")?,
+                    count("SELECT COUNT(*) FROM implementation_phases")?,
+                    count("SELECT COUNT(*) FROM implementation_stations")?,
+                    count("SELECT COUNT(*) FROM sessions")?,
+                    count("SELECT COUNT(*) FROM sessions WHERE inquiry_of IS NOT NULL")?,
+                ))
+            })
+            .expect("lesbar");
+    assert_eq!(
+        (implementations, phases, stations, sessions, inquiries),
+        (0, 0, 0, 1, 0)
+    );
+}
+
+#[test]
+fn agent_request_needs_user_confirmation() {
+    let spec = tool(tools::CANCEL);
+    assert_eq!(spec.input_schema["required"], json!(["reason"]));
+    assert_eq!(spec.input_schema["additionalProperties"], json!(false));
+    assert_eq!(
+        (
+            &spec.input_schema["properties"]["reason"]["minLength"],
+            &spec.input_schema["properties"]["reason"]["maxLength"],
+            &spec.input_schema["properties"]["delete"]["type"],
+        ),
+        (&json!(1), &json!(300), &json!("boolean"))
+    );
+    assert!(
+        !tools::side_may_call(tools::CANCEL),
+        "eine Nebenfrage fragt nicht an"
+    );
+    assert!(!tools::ImplementationTools.is_read_only(tools::CANCEL));
+
+    // Die Anfrage liegt nur ab: nicht abgebrochen, nicht fertig, aber nichts startet.
+    let database = database_with(&[station_row("open", 0, "Umsetzung")]);
+    let json = serde_json::to_string(&pending_cancel(true)).expect("JSON");
+    database
+        .with(|connection| {
+            implementation_rows::set_pending_cancel(connection, "implementation", Some(&json))
+        })
+        .expect("abgelegt");
+    let stored = database
+        .with(|connection| implementation_rows::load(connection, "implementation"))
+        .expect("lesbar")
+        .expect("Umsetzung vorhanden");
+    let view = build_view(
+        &stored,
+        &HashMap::new(),
+        &HashMap::new(),
+        &HashMap::new(),
+        &[],
+    );
+    assert_eq!((view.finished_at, view.cancelled_at), (None, None));
+    assert_eq!(
+        view.pending_cancel.as_ref().map(|pending: &PendingCancel| (
+            pending.session_number,
+            pending.reason.as_str(),
+            pending.delete
+        )),
+        Some((3, "Falsch angelegt", true))
+    );
+    assert!(start::is_held(&view).is_some_and(|reason: &str| reason.contains("bestätigen")));
+    let report = report::text_with(&view, 2.0, false, &report::Extras::default());
+    assert!(
+        report.contains(
+            "Anfrage aus #3 wartet auf Bestätigen: abbrechen und löschen — Falsch angelegt"
+        ),
+        "{report}"
+    );
+
+    // „Verwerfen“: Die Anfrage ist weg, und die Station steht wieder für den Start bereit.
+    database
+        .with(|connection| {
+            implementation_rows::set_pending_cancel(connection, "implementation", None)
+        })
+        .expect("verworfen");
+    let stored = database
+        .with(|connection| implementation_rows::load(connection, "implementation"))
+        .expect("lesbar")
+        .expect("Umsetzung vorhanden");
+    let view = build_view(
+        &stored,
+        &HashMap::new(),
+        &HashMap::new(),
+        &HashMap::new(),
+        &[],
+    );
+    assert!(view.pending_cancel.is_none());
+    assert_eq!(start::is_held(&view), None);
+}
+
+#[test]
+fn cancel_and_delete_commands_have_a_class() {
+    use crate::remote::access::{IdKind, TargetId, class_of, ids_of};
+    let countdown = class_of("implementation_cancel_countdown");
+    assert!(countdown.is_some());
+    for command in [
+        "implementation_cancel",
+        "implementation_delete",
+        "implementation_apply_cancel",
+        "implementation_discard_cancel",
+    ] {
+        assert_eq!(
+            class_of(command),
+            countdown,
+            "{command}: steuernd wie der Countdown"
+        );
+        assert_eq!(
+            ids_of(command, &json!({ "id": "implementation" })),
+            vec![TargetId {
+                kind: IdKind::Implementation,
+                value: "implementation".to_owned()
+            }],
+            "{command}: die Umsetzung entscheidet über das Steuerrecht"
+        );
+    }
+}
+
+#[test]
+fn cancel_stops_station_waiting_for_quota() {
+    let view = quota_view(
+        vec![node("waiting", &[]), node("paused", &[])],
+        true,
+        None,
+        &[
+            ("waiting", SessionStatus::Paused, true),
+            ("paused", SessionStatus::Paused, false),
+        ],
+    );
+    assert_eq!(shown(&view, "waiting").state, StationState::WaitsForQuota);
+    assert_eq!(
+        changes::sessions_to_stop(&view, |_: &str| false),
+        vec!["session-waiting".to_owned()],
+        "der Zeitgeber ließe den Agenten nach dem Zurücksetzen weiterarbeiten; wer auf dich wartet, bleibt"
+    );
+    assert_eq!(
+        changes::working_station(&view, |_: &str| false),
+        Some(("1".to_owned(), "Umsetzung".to_owned())),
+        "eine Station, die auf das Kontingent wartet, sperrt das Löschen"
+    );
+}
+
+#[test]
+fn cancelled_implementation_arms_no_auto_resume() {
+    let open = || {
+        quota_view(
+            vec![resuming(node("open", &[]), Some(true))],
+            true,
+            None,
+            &[("open", SessionStatus::Paused, false)],
+        )
+    };
+    let now = 1_000.0;
+    assert!(arms_quota_pause(&open(), "session-open", now + 1.0, now));
+    let cancelled = ImplementationView {
+        finished_at: Some(now),
+        cancelled_at: Some(now),
+        ..open()
+    };
+    assert!(!may_arm(&cancelled));
+    assert!(
+        !arms_quota_pause(&cancelled, "session-open", now + 1.0, now),
+        "abgebrochen"
+    );
+}
+
+#[test]
+fn pending_cancel_arms_no_auto_resume() {
+    let open = || {
+        quota_view(
+            vec![resuming(node("open", &[]), Some(true))],
+            true,
+            None,
+            &[("open", SessionStatus::Paused, false)],
+        )
+    };
+    let now = 1_000.0;
+    assert!(arms_quota_pause(&open(), "session-open", now + 1.0, now));
+    let requested = ImplementationView {
+        pending_cancel: Some(PendingCancel {
+            session_id: "session-open".to_owned(),
+            session_number: 1,
+            at: now,
+            reason: "Plan überholt".to_owned(),
+            delete: false,
+        }),
+        ..open()
+    };
+    assert!(
+        !arms_quota_pause(&requested, "session-open", now + 1.0, now),
+        "Anfrage zum Abbrechen offen"
+    );
+}
+
+#[test]
+fn cancel_writes_nothing_for_a_finished_implementation() {
+    let database = database_with(&[station_row("first", 0, "Umsetzung")]);
+    let cancel = |at: f64| -> bool {
+        database
+            .with(|connection| implementation_rows::cancel(connection, "implementation", at))
+            .expect("schreibbar")
+    };
+    assert!(cancel(5.0));
+    assert!(!cancel(6.0), "schon fertig");
+    let stored = database
+        .with(|connection| implementation_rows::load(connection, "implementation"))
+        .expect("lesbar")
+        .expect("Umsetzung vorhanden");
+    assert_eq!(stored.row.cancelled_at, Some(5.0));
+}
+
+/// Eine Registry ohne `AppHandle` über dieser Datenbank (aus `database_with`), mit der Session
+/// `session` als Station in diesem Status.
+fn registry_with_station_session(
+    database: Database,
+    status: SessionStatus,
+) -> crate::sessions::registry::SessionRegistry {
+    let registry = crate::sessions::registry::SessionRegistry::new(
+        std::sync::Arc::new(database),
+        std::sync::Arc::new(crate::remote::RemoteControl::default()),
+    );
+    registry.add_station_session_for_test("session", "project", "implementation", status);
+    registry
+}
+
+#[test]
+fn agent_request_via_tool_only_records_pending_cancel() {
+    let registry = registry_with_station_session(
+        database_with(&[station_row("first", 0, "Umsetzung")]),
+        SessionStatus::Running,
+    );
+    let token = registry.begin_countdown("first", 1.0);
+    let view = registry
+        .request_cancel("session", "  Plan überholt  ", true)
+        .expect("Anfrage abgelegt");
+    let pending = view.pending_cancel.expect("Anfrage liegt vor");
+    assert_eq!(
+        (
+            pending.session_id.as_str(),
+            pending.reason.as_str(),
+            pending.delete
+        ),
+        ("session", "Plan überholt", true)
+    );
+    assert_eq!(
+        (view.finished_at, view.cancelled_at),
+        (None, None),
+        "nicht abgebrochen, bevor der Benutzer bestätigt"
+    );
+    assert_eq!(
+        registry.status_for_test("session"),
+        Some(SessionStatus::Running),
+        "keine Session gestoppt"
+    );
+    assert!(
+        !registry.take_countdown("first", token),
+        "die Countdowns sind beendet"
+    );
+    assert!(
+        registry
+            .request_cancel("session", "noch einmal", false)
+            .is_err(),
+        "eine zweite Anfrage scheitert"
+    );
+}
+
+#[test]
+fn auto_resume_timer_of_cancelled_station_sends_nothing() {
+    let open = registry_with_station_session(
+        database_with(&[station_row("first", 0, "Umsetzung")]),
+        SessionStatus::Paused,
+    );
+    assert!(!open.resume_is_cancelled("session").expect("lesbar"));
+    let database = database_with(&[station_row("first", 0, "Umsetzung")]);
+    database
+        .with(|connection| implementation_rows::cancel(connection, "implementation", 5.0))
+        .expect("abgebrochen");
+    let cancelled = registry_with_station_session(database, SessionStatus::Paused);
+    assert!(cancelled.resume_is_cancelled("session").expect("lesbar"));
 }

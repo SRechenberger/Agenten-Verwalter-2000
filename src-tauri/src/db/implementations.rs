@@ -30,6 +30,10 @@ pub struct ImplementationRow {
     pub max_parallel: Option<u32>,
     /// „Automatisch fortsetzen“ nach aufgebrauchtem Kontingent (ADR 064).
     pub auto_resume: bool,
+    /// Abgebrochen (ADR 066); dann ist auch `finished_at` gesetzt.
+    pub cancelled_at: Option<f64>,
+    /// `PendingCancel` als JSON.
+    pub pending_cancel: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -111,7 +115,8 @@ pub struct StoredImplementation {
 }
 
 const IMPLEMENTATION_COLUMNS: &str = "id, project_id, name, source, created_by_session_id, \
-     created_at, finished_at, auto_start, stop_after_current, pending_change, max_parallel, auto_resume";
+     created_at, finished_at, auto_start, stop_after_current, pending_change, max_parallel, auto_resume, \
+     cancelled_at, pending_cancel";
 const PHASE_COLUMNS: &str = "id, implementation_id, position, key, title, description, wave, mark";
 /// Die Reihenfolge muss mit `StoredStation::read` übereinstimmen.
 const STATION_COLUMNS: &str = "s.id, s.phase_id, s.position, s.stage, s.model, s.by_user, \
@@ -130,7 +135,7 @@ pub fn insert(
     transaction.execute(
         &format!(
             "INSERT INTO implementations ({IMPLEMENTATION_COLUMNS}) \
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)"
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)"
         ),
         params![
             row.id,
@@ -145,6 +150,8 @@ pub fn insert(
             row.pending_change,
             row.max_parallel,
             row.auto_resume,
+            row.cancelled_at,
+            row.pending_cancel,
         ],
     )?;
     insert_phases(&transaction, phases, stations)?;
@@ -364,6 +371,8 @@ fn read_implementation(row: &Row<'_>) -> rusqlite::Result<ImplementationRow> {
         pending_change: row.get(9)?,
         max_parallel: row.get(10)?,
         auto_resume: row.get(11)?,
+        cancelled_at: row.get(12)?,
+        pending_cancel: row.get(13)?,
     })
 }
 
@@ -861,6 +870,67 @@ pub fn rename(
     connection.execute(
         "UPDATE implementations SET name = ?2 WHERE id = ?1",
         params![implementation_id, name],
+    )?;
+    Ok(())
+}
+
+/// Bricht die Umsetzung ab (ADR 066): abgeschlossen und abgebrochen zugleich, Automatik und Halt
+/// aus, offene Vorschläge und Anfragen verworfen. Phasen, Stationen und Verlauf bleiben. `false`: sie
+/// war schon fertig, nichts ist geschrieben.
+pub fn cancel(
+    connection: &Connection,
+    implementation_id: &str,
+    at: f64,
+) -> Result<bool, CommandError> {
+    let changed = connection.execute(
+        "UPDATE implementations SET finished_at = ?2, cancelled_at = ?2, auto_start = 0, \
+             stop_after_current = 0, pending_change = NULL, pending_cancel = NULL \
+         WHERE id = ?1 AND finished_at IS NULL",
+        params![implementation_id, at],
+    )?;
+    Ok(changed == 1)
+}
+
+/// Löscht die Umsetzung; Phasen, Stationen und Änderungen gehen per Kaskade mit. Rückfragen zeigen
+/// danach auf keine Umsetzung mehr, die Sessions selbst bleiben. Ein Zug.
+pub fn delete(connection: &mut Connection, implementation_id: &str) -> Result<(), CommandError> {
+    let transaction = connection.transaction()?;
+    transaction.execute(
+        "UPDATE sessions SET inquiry_of = NULL WHERE inquiry_of = ?1",
+        params![implementation_id],
+    )?;
+    transaction.execute(
+        "DELETE FROM implementations WHERE id = ?1",
+        params![implementation_id],
+    )?;
+    transaction.commit()?;
+    Ok(())
+}
+
+/// `true`, wenn die Umsetzung abgebrochen ist (ADR 066); eine unbekannte ist es nicht.
+pub fn is_cancelled(
+    connection: &Connection,
+    implementation_id: &str,
+) -> Result<bool, CommandError> {
+    let cancelled_at: Option<Option<f64>> = connection
+        .query_row(
+            "SELECT cancelled_at FROM implementations WHERE id = ?1",
+            params![implementation_id],
+            |row: &Row<'_>| row.get(0),
+        )
+        .optional()?;
+    Ok(cancelled_at.flatten().is_some())
+}
+
+/// `PendingCancel` als JSON; `None` verwirft die Anfrage.
+pub fn set_pending_cancel(
+    connection: &Connection,
+    implementation_id: &str,
+    pending_cancel: Option<&str>,
+) -> Result<(), CommandError> {
+    connection.execute(
+        "UPDATE implementations SET pending_cancel = ?2 WHERE id = ?1",
+        params![implementation_id, pending_cancel],
     )?;
     Ok(())
 }

@@ -229,6 +229,8 @@ fn registry_with_two_implementations() -> SessionRegistry {
                         pending_change: None,
                         max_parallel: None,
                         auto_resume: false,
+                        cancelled_at: None,
+                        pending_cancel: None,
                     },
                     &[PhaseRow {
                         id: format!("phase-{key}"),

@@ -89,6 +89,46 @@ export const APPLY_CHANGE_LABEL = 'Übernehmen';
 export const APPLY_CHANGE_TITLE = 'Übernimmt den Vorschlag mit den Werten, wie sie hier stehen';
 export const DISCARD_CHANGE_LABEL = 'Verwerfen';
 export const DISCARD_CHANGE_TITLE = 'Lässt den Plan, wie er ist';
+export const CANCEL_LABEL = 'Abbrechen…';
+export const CANCEL_TITLE =
+  'Beendet die Umsetzung und stoppt laufende Stationen; die Sessions bleiben, eine neue lässt sich anlegen';
+export const DELETE_LABEL = 'Löschen…';
+export const DELETE_TITLE =
+  'Entfernt die Umsetzung samt Lanes, Stationen und Verlauf; Sessions und Worktrees bleiben';
+export const CONFIRM_CANCEL_LABEL = 'Abbrechen';
+export const CONFIRM_DELETE_LABEL = 'Löschen';
+export const CONFIRM_BACK_LABEL = 'Zurück';
+
+/** Rückfrage in der Leiste vor dem Abbrechen (ADR 066). */
+export function cancelQuestion(name: string): string {
+  return `Umsetzung „${name}“ abbrechen? Laufende Stationen werden gestoppt, die Sessions bleiben, danach lässt sich eine neue Umsetzung anlegen.`;
+}
+
+/** Rückfrage in der Leiste vor dem Löschen (ADR 066). */
+export function deleteQuestion(name: string): string {
+  return `Umsetzung „${name}“ endgültig löschen? Lanes, Stationen und Verlauf gehen verloren, Sessions und Worktrees bleiben.`;
+}
+
+/** „Abgebrochen am 09.11. 14:05“ statt der Schalter in der Leiste. */
+export function cancelledText(at: number): string {
+  return `Abgebrochen am ${stampText(at)}`;
+}
+
+/** Warum „Löschen…“ gesperrt ist, solange eine Station arbeitet (wie im Core, ADR 066). */
+export function deleteBlockedText(laneKey: string, stage: string): string {
+  return `Station „${stage}“ in Lane ${laneKey} läuft noch. Erst stoppen oder abwarten, dann löschen.`;
+}
+
+export const CANCEL_REQUEST_TITLE = 'Umsetzung abbrechen?';
+export const DELETE_REQUEST_TITLE = 'Umsetzung löschen?';
+export const CANCEL_REQUEST_REASON = 'Grund';
+export const CANCEL_REQUEST_HINT =
+  'Bis du bestätigst oder verwirfst, startet keine Station. Bestätigen stoppt laufende Stationen; Sessions und Worktrees bleiben.';
+export const CONFIRM_REQUEST_LABEL = 'Bestätigen';
+export const CONFIRM_REQUEST_TITLE = 'Führt die Anfrage aus';
+export const DISCARD_REQUEST_LABEL = 'Verwerfen';
+export const DISCARD_REQUEST_TITLE =
+  'Lässt die Umsetzung, wie sie ist, und plant die Stationen neu';
 export const SHOW_PENDING_LABEL = 'Vorschlag ansehen';
 export const SHOW_PENDING_TITLE = 'Holt die Karte „Plan ändern?“ nach vorn';
 export const CHANGE_MARKER_TITLE = 'Zeigt diese Plan-Änderung vorn in der Kartei';
@@ -741,6 +781,8 @@ export const BRIEF_EDIT_DROPS_CHANGES =
 
 export const START_FAILED = 'Start fehlgeschlagen';
 export const APPLY_FAILED = 'Übernehmen fehlgeschlagen';
+/** Bestätigen mit Löschen: abgebrochen ist schon, gelöscht noch nicht (ADR 066). */
+export const CANCELLED_NOT_DELETED = 'Abgebrochen, Löschen noch nicht möglich';
 export const NOT_SAVED = 'Nicht gespeichert';
 export const BRIEF_NOT_SAVED = 'Auftrag nicht gespeichert';
 export const NOT_REMOVED = 'Nicht entfernt';
