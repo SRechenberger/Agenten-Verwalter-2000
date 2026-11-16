@@ -317,6 +317,7 @@ pub fn run() {
             commands::agent_types::agent_type_create,
             commands::agent_types::agent_type_update,
             commands::agent_types::agent_type_delete,
+            commands::agent_types::agent_type_proposal_answer,
             commands::environment::environment_status,
             commands::environment::environment_mirror,
             commands::codex::codex_models,

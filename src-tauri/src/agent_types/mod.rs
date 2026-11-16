@@ -1,8 +1,10 @@
 //! Agententypen aus den Einstellungen: Speicher, Prüfung, Auflösung von Typ, Modell und Denkaufwand
-//! einer Station und ihr Systemprompt (ADR 060). Ohne Tauri; das Ereignis sendet der Command.
+//! einer Station und ihr Systemprompt (ADR 060). Ohne Tauri; das Ereignis sendet der Command. Nur
+//! `tools` (Vorschläge per MCP, ADR 063) erreicht über die Registry die Oberfläche.
 pub mod model;
 pub mod prompt;
 pub mod resolve;
+pub mod tools;
 pub mod validate;
 
 #[cfg(test)]
@@ -40,6 +42,15 @@ pub fn update(
     input: &AgentTypeInput,
 ) -> Result<AgentTypeSaved, CommandError> {
     database.with(|connection| agent_type_rows::update(connection, id, input))
+}
+
+/// Übernimmt einen Änderungsvorschlag nur, solange der gespeicherte Typ noch `base` ist (ADR 063).
+pub fn update_if_unchanged(
+    database: &Database,
+    base: &AgentType,
+    input: &AgentTypeInput,
+) -> Result<AgentTypeSaved, CommandError> {
+    database.with(|connection| agent_type_rows::update_if_unchanged(connection, base, input))
 }
 
 pub fn delete(database: &Database, id: &str) -> Result<(), CommandError> {

@@ -14,7 +14,7 @@ use std::process::ExitCode;
 
 use rusqlite::{Connection, OpenFlags};
 use verwalter_lib::agent_types::model::AgentType;
-use verwalter_lib::agent_types::prompt::{Folders, PromptError, compose};
+use verwalter_lib::agent_types::prompt::{Folders, PromptError, compose, read_bounded};
 use verwalter_lib::agent_types::{self, StationValues};
 use verwalter_lib::db::agent_types as agent_type_rows;
 
@@ -60,7 +60,7 @@ fn main() -> ExitCode {
 }
 
 fn read_text(path: &Path) -> io::Result<String> {
-    fs::read_to_string(path)
+    read_bounded(path)
 }
 
 /// Der Typ aus der Datenbank, nach demselben Namensvergleich wie das Feld `agent` einer Station.
@@ -246,5 +246,53 @@ fn selftest(root: &Path) -> io::Result<bool> {
         "ohne text kein systemprompt",
         compose(None, None, folders, read_text) == Ok(None),
     );
+
+    // Fall 5: Der Start liest nur reguläre Dateien und je höchstens 48 000 Bytes (3 je Einheit).
+    write(
+        &repositories[0].join("genau.md"),
+        "€".repeat(16_000).as_bytes(),
+    )?;
+    write(
+        &repositories[0].join("zu-gross.md"),
+        "a".repeat(48_001).as_bytes(),
+    )?;
+    let exact = compose_type(&agent_type("", &["genau.md".to_owned()]), None);
+    all &= report(
+        "datei von 48 000 bytes wird gelesen",
+        exact.is_ok_and(|text| text.is_some_and(|text| text.len() == 48_000)),
+    );
+    let too_large = compose_type(&agent_type("", &["zu-gross.md".to_owned()]), None);
+    all &= report(
+        "datei von 48 001 bytes ist länger als 16 000 zeichen",
+        too_large.map_err(|error: PromptError| error.to_string())
+            == Err(
+                "Die Datei „zu-gross.md“ aus dem Typ „reviewer“ ist länger als 16 000 Zeichen."
+                    .to_owned(),
+            ),
+    );
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::symlink;
+        use std::os::unix::net::UnixListener;
+
+        let link = repositories[0].join("zero-link");
+        symlink("/dev/zero", &link)?;
+        let socket = repositories[0].join("socket");
+        let _listener = UnixListener::bind(&socket)?;
+        for (name, path) in [
+            ("gerät", "/dev/zero"),
+            ("verweis auf ein gerät", "zero-link"),
+            ("socket", "socket"),
+        ] {
+            let outcome = compose_type(&agent_type("", &[path.to_owned()]), None);
+            all &= report(
+                &format!("{name} ist nicht lesbar und wird nie gelesen"),
+                outcome.map_err(|error: PromptError| error.to_string())
+                    == Err(format!(
+                        "Die Datei „{path}“ aus dem Typ „reviewer“ ist nicht lesbar."
+                    )),
+            );
+        }
+    }
     Ok(all)
 }

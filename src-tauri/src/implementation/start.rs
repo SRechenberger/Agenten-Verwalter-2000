@@ -1,8 +1,6 @@
 //! Stationen starten (ADR 048): Countdown, frische Session, erste Nachricht; dazu Typ, Modell,
 //! Denkaufwand, Systemprompt und Skills aus den Agententypen (ADR 060). Alles hier läuft ohne
 //! gehaltene Sperre; die Registry nimmt ihre Sperren selbst, nacheinander.
-use std::fs;
-use std::path::Path;
 use std::thread;
 
 use tauri::{AppHandle, Manager};
@@ -444,7 +442,7 @@ fn start_claimed(
                 agent_type,
                 station.prompt.as_deref(),
                 folders,
-                |path: &Path| fs::read_to_string(path),
+                agent_types::prompt::read_bounded,
             )
             .map_err(|error: PromptError| error.to_string())?;
             Ok((plan, agent_type, agent_prompt))
