@@ -59,6 +59,8 @@ fn station(stage: &str, model: ModelId, skill: &str) -> StationView {
         predecessors_may: Default::default(),
         brief_changes: Vec::new(),
         restarting: false,
+        auto_resume: None,
+        resumes_automatically: false,
     }
 }
 
@@ -102,6 +104,7 @@ fn view_of(phase: PhaseView) -> ImplementationView {
         unread: false,
         max_parallel: None,
         queued: 0,
+        auto_resume: false,
     }
 }
 
@@ -594,6 +597,7 @@ fn implementation_row() -> ImplementationRow {
         stop_after_current: false,
         pending_change: None,
         max_parallel: None,
+        auto_resume: false,
     }
 }
 
@@ -638,6 +642,7 @@ fn station_row(id: &str, position: u32, stage: &str) -> StationRow {
         predecessors_may: Default::default(),
         brief_changes: Vec::new(),
         restarts: 0,
+        auto_resume: None,
     }
 }
 
@@ -2034,6 +2039,7 @@ fn created(phases: Value) -> Result<Vec<StationRow>, String> {
         &inputs(phases),
         None,
         1.0,
+        false,
     )
     .map(|(_, _, stations)| stations)
 }
@@ -2218,6 +2224,7 @@ fn assert_same_starts_as_position_and_wave(spec: &[(Option<u32>, usize)]) {
         &inputs(Value::Array(phases)),
         None,
         1.0,
+        false,
     )
     .expect("gültiger Plan");
     let mut pending: Vec<Vec<Vec<bool>>> = vec![
@@ -2686,6 +2693,7 @@ fn view_with_sessions(
                 unread: false,
                 awaits_script: false,
                 is_fresh_error,
+                waits_for_quota: false,
             },
         );
     }
@@ -3134,6 +3142,7 @@ fn on_error_does_not_restart_after_an_app_restart_a_cancel_or_a_halt() {
             unread: false,
             awaits_script: false,
             is_fresh_error: true,
+            waits_for_quota: false,
         },
     )]);
     let halted = build_view(&stored, &live, &HashMap::new(), &HashMap::new(), &[]);
@@ -3340,7 +3349,14 @@ fn create_schema_names_id_after_priority_max_parallel_and_lanes() {
     assert_eq!(properties["max_parallel"]["minimum"], json!(1));
     assert!(properties["lanes"].is_object());
     assert_eq!(spec.input_schema["required"], json!(["name"]));
-    for field in ["auto_start", "on_error", "predecessors_may", "autoStart"] {
+    for field in [
+        "auto_start",
+        "on_error",
+        "predecessors_may",
+        "autoStart",
+        "auto_resume",
+        "autoResume",
+    ] {
         assert!(
             station["properties"][field].is_null(),
             "{field} setzt nur der Benutzer"
@@ -3831,4 +3847,408 @@ fn tools_refuse_predecessors_may() {
         model::refuse_user_options(&edit.new_stations()),
         Err("add[0].predecessors_may: setzt nur der Benutzer, nicht das Werkzeug.".to_owned())
     );
+}
+
+// Ab hier ADR 064: „Automatisch fortsetzen“ nach aufgebrauchtem Kontingent je Umsetzung und Station.
+
+/// Eine Phase aus diesen Stationen mit „Automatisch fortsetzen“ der Umsetzung, Grenze und Sessions als
+/// (Station, Status, Zeitgeber scharf).
+fn quota_view(
+    stations: Vec<StationRow>,
+    auto_resume: bool,
+    max_parallel: Option<u32>,
+    sessions: &[(&str, SessionStatus, bool)],
+) -> ImplementationView {
+    let mut stations: Vec<StationRow> = (0..)
+        .zip(stations)
+        .map(|(position, mut station): (u32, StationRow)| {
+            station.position = position;
+            station
+        })
+        .collect();
+    let mut live: HashMap<String, SessionLive> = HashMap::new();
+    for &(id, status, waits_for_quota) in sessions {
+        let station = stations
+            .iter_mut()
+            .find(|station: &&mut StationRow| station.id == id)
+            .expect("Station vorhanden");
+        let session_id = format!("session-{id}");
+        station.session_id = Some(session_id.clone());
+        live.insert(
+            session_id,
+            SessionLive {
+                status,
+                number: 1,
+                running_ms: 0.0,
+                question: None,
+                last_activity_at: 0.0,
+                unread: false,
+                awaits_script: false,
+                is_fresh_error: false,
+                waits_for_quota,
+            },
+        );
+    }
+    let stored = StoredImplementation {
+        row: ImplementationRow {
+            auto_resume,
+            max_parallel,
+            ..implementation_row()
+        },
+        phases: vec![phase_row()],
+        stations,
+        changes: Vec::new(),
+    };
+    build_view(&stored, &live, &HashMap::new(), &HashMap::new(), &[])
+}
+
+fn resuming(mut row: StationRow, auto_resume: Option<bool>) -> StationRow {
+    row.auto_resume = auto_resume;
+    row
+}
+
+#[test]
+fn effective_auto_resume_prefers_station_over_implementation() {
+    let stations = || {
+        vec![
+            resuming(node("on", &[]), Some(true)),
+            resuming(node("off", &[]), Some(false)),
+            node("inherits", &[]),
+        ]
+    };
+    let switched_off = quota_view(stations(), false, None, &[]);
+    let switched_on = quota_view(stations(), true, None, &[]);
+    let effective = |view: &ImplementationView| {
+        ["on", "off", "inherits"].map(|id: &str| shown(view, id).resumes_automatically)
+    };
+    assert_eq!(effective(&switched_off), [true, false, false]);
+    assert_eq!(effective(&switched_on), [true, false, true]);
+    assert!(switched_on.auto_resume && !switched_off.auto_resume);
+    assert_eq!(shown(&switched_on, "inherits").auto_resume, None);
+}
+
+#[test]
+fn new_pause_arms_only_with_known_future_reset_time() {
+    let now = 1_000.0;
+    assert!(continues_after_quota(true, Some(now + 1.0), now));
+    assert!(
+        !continues_after_quota(true, None, now),
+        "unbekannte Rücksetzzeit"
+    );
+    assert!(
+        !continues_after_quota(false, Some(now + 1.0), now),
+        "Schalter aus"
+    );
+}
+
+#[test]
+fn past_reset_time_does_not_arm_a_new_pause() {
+    let now = 1_000.0;
+    assert!(!continues_after_quota(true, Some(now - 1.0), now));
+    assert!(
+        !continues_after_quota(true, Some(now), now),
+        "genau jetzt feuerte sofort"
+    );
+}
+
+#[test]
+fn finished_station_never_arms() {
+    let view = quota_view(
+        vec![
+            resuming(finished(node("done", &[])), Some(true)),
+            resuming(node("open", &[]), Some(true)),
+        ],
+        true,
+        None,
+        &[("open", SessionStatus::Paused, false)],
+    );
+    let now = 1_000.0;
+    assert!(!arms_on_new_pause(shown(&view, "done"), now + 1.0, now));
+    assert!(arms_on_new_pause(shown(&view, "open"), now + 1.0, now));
+    assert!(
+        !arms_on_new_pause(shown(&view, "open"), now - 1.0, now),
+        "vergangene Rücksetzzeit"
+    );
+}
+
+#[test]
+fn a_paused_session_waits_for_quota_only_with_an_armed_timer() {
+    assert_eq!(
+        state_of(SessionStatus::Paused, false, true),
+        StationState::WaitsForQuota
+    );
+    assert_eq!(
+        state_of(SessionStatus::Paused, false, false),
+        StationState::WaitsForYou
+    );
+    assert_eq!(
+        state_of(SessionStatus::Completed, false, true),
+        StationState::WaitsForYou,
+        "nur eine Pause wartet auf das Kontingent"
+    );
+}
+
+#[test]
+fn waits_for_quota_counts_as_active_for_the_queue() {
+    let view = quota_view(
+        vec![node("waiting", &[]), node("next", &[])],
+        true,
+        Some(1),
+        &[("waiting", SessionStatus::Paused, true)],
+    );
+    let waiting = shown(&view, "waiting");
+    assert_eq!(waiting.state, StationState::WaitsForQuota);
+    assert!(waiting.is_active());
+    assert_eq!(view.queued, 1, "der Platz bleibt belegt, next wartet");
+    assert_eq!(shown(&view, "next").queue_position, Some(1));
+}
+
+#[test]
+fn disarming_a_waiting_station_frees_its_slot() {
+    let view = quota_view(
+        vec![node("waiting", &[]), node("next", &[])],
+        true,
+        Some(1),
+        &[("waiting", SessionStatus::Paused, false)],
+    );
+    let waiting = shown(&view, "waiting");
+    assert_eq!(waiting.state, StationState::WaitsForYou);
+    assert!(!waiting.is_active());
+    assert_eq!(view.queued, 0, "next rückt nach");
+    assert_eq!(shown(&view, "next").queue_position, None);
+}
+
+#[test]
+fn waits_for_quota_ranks_like_a_running_station_not_ahead_of_the_user() {
+    assert_eq!(
+        StationState::WaitsForQuota.urgency_rank(),
+        StationState::WaitsForScript.urgency_rank()
+    );
+    assert!(StationState::WaitsForQuota.urgency_rank() < StationState::WaitsForYou.urgency_rank());
+}
+
+#[test]
+fn report_names_a_station_that_resumes_automatically() {
+    let view = quota_view(
+        vec![node("waiting", &[])],
+        true,
+        None,
+        &[("waiting", SessionStatus::Paused, true)],
+    );
+    let text = report::text(&view, 0.0, false);
+    assert!(
+        text.contains("Lane 1 · Umsetzung (#1) setzt automatisch fort"),
+        "Abschnitt „Jetzt“: {text}"
+    );
+}
+
+#[test]
+fn setting_implementation_switch_clears_unfinished_station_values() {
+    let database = database_with(&[
+        resuming(node("off", &[]), Some(false)),
+        resuming(finished(node("done", &[])), Some(false)),
+        resuming(node("on", &[]), Some(true)),
+    ]);
+    database
+        .with(|connection| implementation_rows::set_auto_resume(connection, "implementation", true))
+        .expect("schreibbar");
+    let stored = database
+        .with(|connection| implementation_rows::load(connection, "implementation"))
+        .expect("lesbar")
+        .expect("Umsetzung vorhanden");
+    assert!(stored.row.auto_resume);
+    let values: Vec<(&str, Option<bool>)> = stored
+        .stations
+        .iter()
+        .map(|station: &StationRow| (station.id.as_str(), station.auto_resume))
+        .collect();
+    assert_eq!(
+        values,
+        [("off", None), ("done", Some(false)), ("on", None)],
+        "die letzte Aktion gewinnt, eine fertige Station bleibt"
+    );
+}
+
+#[test]
+fn station_value_is_written_until_the_station_is_finished_also_with_a_session() {
+    let mut started = node("started", &[]);
+    started.session_id = Some("session".to_owned());
+    let mut of_user = node("user", &[]);
+    of_user.by_user = true;
+    let database = database_with(&[started, finished(node("done", &[])), of_user]);
+    let write = |id: &str, value: Option<bool>| {
+        database
+            .with(|connection| implementation_rows::set_station_auto_resume(connection, id, value))
+            .expect("schreibbar")
+    };
+    assert!(write("started", Some(true)));
+    assert!(!write("done", Some(true)), "fertig: nur lesbar");
+    assert!(!write("user", Some(true)), "Station des Benutzers");
+    let stored = stored_stations(&database);
+    assert_eq!(stored[0].auto_resume, Some(true));
+    assert!(stored[0].edited);
+    assert_eq!(stored[1].auto_resume, None);
+}
+
+#[test]
+fn stored_rows_keep_auto_resume_of_implementation_and_station() {
+    let database = database_with(&[
+        resuming(node("on", &[]), Some(true)),
+        resuming(node("off", &[]), Some(false)),
+        node("inherits", &[]),
+    ]);
+    let values: Vec<Option<bool>> = stored_stations(&database)
+        .iter()
+        .map(|station: &StationRow| station.auto_resume)
+        .collect();
+    assert_eq!(values, [Some(true), Some(false), None]);
+}
+
+#[test]
+fn migration_027_leaves_existing_implementations_off_and_stations_empty() {
+    let database = Database::open(Path::new(":memory:")).expect("Datenbank im Speicher");
+    let column = |table: &str| -> (Option<String>, bool) {
+        database
+            .with(|connection| {
+                Ok(connection.query_row(
+                    &format!(
+                        "SELECT dflt_value, \"notnull\" FROM pragma_table_info('{table}') \
+                         WHERE name = 'auto_resume'"
+                    ),
+                    [],
+                    |row| Ok((row.get(0)?, row.get(1)?)),
+                )?)
+            })
+            .expect("Spalte vorhanden")
+    };
+    assert_eq!(column("implementations"), (Some("0".to_owned()), true));
+    assert_eq!(column("implementation_stations"), (None, false));
+}
+
+#[test]
+fn new_implementation_copies_default_auto_resume() {
+    let rows = |default: bool| {
+        new_rows(
+            "project",
+            "session",
+            "Umsetzung",
+            "",
+            &inputs(json!([{ "key": "1", "title": "P", "stations": [{ "stage": "Umsetzung" }] }])),
+            None,
+            1.0,
+            default,
+        )
+        .expect("gültiger Plan")
+    };
+    let (on, _, stations) = rows(true);
+    let (off, _, _) = rows(false);
+    assert!(on.auto_resume && !off.auto_resume);
+    assert_eq!(
+        stations[0].auto_resume, None,
+        "die Station folgt der Umsetzung"
+    );
+}
+
+#[test]
+fn existing_implementation_keeps_its_value_when_default_changes() {
+    use crate::settings::{self, model::SettingsChange};
+    let database = database_with(&[node("a", &[])]);
+    assert!(
+        !settings::load(&database)
+            .expect("lesbar")
+            .default_auto_resume
+    );
+    let changed = settings::update(&database, SettingsChange::DefaultAutoResume { value: true })
+        .expect("schreibbar");
+    assert!(changed.default_auto_resume);
+    let stored = database
+        .with(|connection| implementation_rows::load(connection, "implementation"))
+        .expect("lesbar")
+        .expect("Umsetzung vorhanden");
+    assert!(!stored.row.auto_resume);
+}
+
+#[test]
+fn settings_change_default_auto_resume_has_the_json_form_of_its_neighbours() {
+    use crate::settings::model::SettingsChange;
+    let change: SettingsChange =
+        serde_json::from_value(json!({ "kind": "defaultAutoResume", "value": true }))
+            .expect("JSON-Form");
+    assert!(matches!(
+        change,
+        SettingsChange::DefaultAutoResume { value: true }
+    ));
+}
+
+#[test]
+fn fix_round_and_second_review_carry_auto_resume_of_their_template() {
+    let mut build = station("Umsetzung", ModelId::Opus, "implement");
+    build.auto_resume = Some(true);
+    let mut review = station("Review", ModelId::Opus, "review");
+    review.auto_resume = Some(false);
+    let (fix_round, second_review) = fix_round_and_second_review(vec![build, review], 1);
+    assert_eq!(fix_round.auto_resume, Some(true));
+    assert_eq!(second_review.auto_resume, Some(false));
+    let mut row = node("review", &[]);
+    row.session_id = Some("session".to_owned());
+    let database = database_with(&[row]);
+    let followup = StationRow {
+        plan_id: "1-2".to_owned(),
+        ..second_review
+    };
+    database
+        .with(|connection| {
+            implementation_rows::complete_station_with_followups(
+                connection,
+                "review",
+                2.0,
+                "Befund",
+                std::slice::from_ref(&followup),
+            )
+        })
+        .expect("schreibbar");
+    assert_eq!(stored_stations(&database)[1].auto_resume, Some(false));
+}
+
+#[test]
+fn plan_change_keeps_auto_resume_of_an_edited_station() {
+    let old = resuming(edited(planned("review", 0, "Review")), Some(true));
+    let mut fresh = planned("new", 0, "Review");
+    changes::keep_settings(&[old], std::slice::from_mut(&mut fresh));
+    assert_eq!(fresh.auto_resume, Some(true));
+}
+
+#[test]
+fn tool_schemas_do_not_name_auto_resume() {
+    for name in [tools::CREATE, tools::EDIT, tools::SET_PHASES] {
+        let schema = tool(name).input_schema.to_string();
+        for field in ["auto_resume", "autoResume"] {
+            assert!(!schema.contains(field), "{name} nennt {field}");
+        }
+    }
+}
+
+#[test]
+fn new_commands_are_class_c_in_the_access_table() {
+    use crate::remote::access::{Class, IdKind, TargetId, class_of, ids_of};
+    for (command, arguments) in [
+        (
+            "implementation_set_auto_resume",
+            json!({ "id": "implementation", "enabled": true }),
+        ),
+        (
+            "implementation_set_station_auto_resume",
+            json!({ "id": "implementation", "stationId": "station", "value": null }),
+        ),
+    ] {
+        assert_eq!(class_of(command), Some(Class::HostWrite), "{command}");
+        assert_eq!(
+            ids_of(command, &arguments),
+            vec![TargetId {
+                kind: IdKind::Implementation,
+                value: "implementation".to_owned()
+            }],
+            "{command}: die Umsetzung entscheidet über das Steuerrecht"
+        );
+    }
 }

@@ -1,0 +1,43 @@
+# Design-Entwurf: Automatisch fortsetzen nach Kontingent
+
+**Status:** gewählt am 2026-11-15 (Story Taiga #56). Baut auf dem Entwurf 1 der Constraint-Abläufe auf ([2026-11-10_constraint-ablaeufe](../2026-11-10_constraint-ablaeufe/README.md)) und zeigt nur, was neu ist. Gilt für die Ansicht der Umsetzung ([ADR 048](../../decisions/048-umsetzung.md), [ADR 061](../../decisions/061-constraint-ablaeufe.md)) und die Kontingent-Karte im Chat ([ADR 051](../../decisions/051-kontingent-warnung.md)); Entscheidung und Kern: [ADR 064](../../decisions/064-automatisch-fortsetzen.md).
+
+## Ansehen
+
+- Die Datei [mockup.html](mockup.html) ist eigenständig und läuft direkt im Browser (Doppelklick genügt, kein Server nötig).
+- Oben schalten „Szenario“ (Frisch angelegt, Läuft, Kontingent leer mit Schalter an, aus oder gemischt), „Kontingent wird zurückgesetzt“, „Beschriftung“ und „Farbschema“ um. Sprungmarken: `#scen=qon|qoff|qmix|fresh|run&theme=light|dark`. Gestrichelt umrandete Knöpfe und die Leiste darüber sind Simulation und gehören nicht zur App.
+
+## Begriffe
+
+- **Automatisch fortsetzen** (↻): Nach aufgebrauchtem Kontingent setzt eine Station 30 Sekunden nach dem Zurücksetzen von selbst fort. Schalter der Umsetzung in der Leiste, Wert je Station in Zeile und Kartei (wie die Umsetzung, an, aus), Standard in den Einstellungen.
+- **Setzt automatisch fort:** Zustand einer Station, deren Session am Kontingent pausiert und deren Zeitgeber scharf ist.
+- **Automatisch starten** bleibt der Schalter, der die nächste Station nach ihren Vorgängern startet ([ADR 061](../../decisions/061-constraint-ablaeufe.md)); er ist ein anderer Schalter.
+
+## Gezeigt wird
+
+- **Leiste:** der neue Schalter neben „Automatisch starten“; er schaltet alle Stationen, die noch nicht fertig sind.
+- **Zeile und Kartei:** ↻ in der Zeile und im Abschnitt „Automatik“ die Wahl „wie Umsetzung · an · aus“, änderbar bis die Station fertig ist; ein Punkt am ↻ zeigt eine Abweichung von der Umsetzung. Die letzte Aktion gewinnt.
+- **Warnleiste:** steht, solange mindestens eine Station am Kontingent wartet, in beiden Reitern; sie nennt, wie viele fortsetzen, wie viele auf dich warten und wie viele keine Rücksetzzeit kennen, und nach dem Zurücksetzen, wer noch auf dich wartet.
+- **Zustand „setzt automatisch fort“:** grauer Ton mit ↻, nicht Bernstein (Bernstein bleibt „wartet auf dich“); die Station liegt nicht vorn.
+- **Plätze:** Eine Station, die auf das automatische Fortsetzen wartet, hält ihren Platz unter „Parallel max.“; die bereite Station bleibt in der Warteschlange.
+- **Einstellungen:** eine Zeile in der Kategorie „Agent“, ausgeliefert mit „aus“; sie gilt nur für neue Umsetzungen.
+- **Kontingent-Karte im Chat einer Station:** Ihr Schalter schreibt denselben Wert wie ↻ in der Zeile, nur für diese Station; ohne bekannte Rücksetzzeit kein Schalter. Außerhalb einer Umsetzung gilt er nur für diese Pause, wie bisher.
+
+## Entscheidungen des Nutzers
+
+**2026-11-15**
+1. Der Wert wird je Station gespeichert (leer = wie die Umsetzung, an, aus), nicht nur im Speicher der Session; er übersteht den Neustart der App.
+2. „Automatisch fortsetzen“ heißt es überall: Leiste, Warnleiste, Zeile, Kartei, Einstellungen, Karte im Chat. „Automatisch weiter“ aus Entwurf 1 lässt sich im Mock nur noch zum Vergleich umschalten.
+
+## Annahmen im Entwurf
+
+- Der Kern liefert den Zustand und die Werte (Bindings `StationState` mit `waitsForQuota`, `StationView.autoResume` und `resumesAutomatically`, `ImplementationView.autoResume`, `Settings.defaultAutoResume`); die Warnleiste rechnet die Oberfläche aus den Sessions der Stationen.
+- Eine neue Pause übernimmt den Schalter nur bei einer Rücksetzzeit in der Zukunft; nach einem Neustart der App wartet keine Station mehr auf das Kontingent.
+- Rückfragen, die anlegende Session und Sessions außerhalb einer Umsetzung beginnen jede Pause mit „aus“.
+
+## Platzhalter im Entwurf
+
+- Alle Namen, Lanes, Modelle, Zeiten und Zähler sind Beispieldaten; das Zurücksetzen dauert im Mock 6 statt 30 Sekunden.
+- Der Mock rechnet Zustände, Plätze und Warnleiste im Browser selbst; in der App kommen Zustand und Plätze aus dem Core.
+
+## Abweichungen vom Entwurf

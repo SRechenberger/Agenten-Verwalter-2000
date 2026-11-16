@@ -69,6 +69,8 @@ pub const RESTART_MESSAGE: &str = "Der vorige Lauf dieser Station endete mit ein
      Verwalter startet sie neu („Bei Fehler“). Setze die Arbeit fort und melde die Station mit dem \
      Werkzeug implementation_complete_station fertig.";
 const STATION_OF_USER: &str = "Diese Station erledigst du selbst.";
+const AUTO_RESUME_FINISHED: &str =
+    "Die Station ist fertig: „Automatisch fortsetzen“ ist nur lesbar.";
 
 /// Countdowns und Startsperren der Stationen; liegt in der `SessionRegistry` (eigene Sperre, nie
 /// zusammen mit einer anderen gehalten).
@@ -576,8 +578,17 @@ pub fn wake_creator_of_question(
 /// Neuer Haken (ADR 061): Die Session einer Station endet mit Fehler, Abbruch oder ohne
 /// Fertigmeldung. Erlaubt „Bei Fehler“ es, startet die Station zuerst neu und behält ihren Platz;
 /// sonst ist ihr Platz unter `max_parallel` frei, die Warteschlange rückt nach. Ohne Grenze und ohne
-/// „Bei Fehler“ ändert sich nichts gegenüber früher.
-pub fn station_session_ended(app: &AppHandle, implementation_id: &str) -> Result<(), CommandError> {
+/// „Bei Fehler“ ändert sich nichts gegenüber früher. Eine neue Kontingent-Pause schaltet zuerst den
+/// Zeitgeber von „Automatisch fortsetzen“ scharf (ADR 064): Erst danach plant die Warteschlange, sonst
+/// sähe sie „wartet auf dich“ und gäbe den Platz frei.
+pub fn station_session_ended(
+    app: &AppHandle,
+    implementation_id: &str,
+    session_id: &str,
+) -> Result<(), CommandError> {
+    if let Err(error) = arm_new_quota_pause(app, implementation_id, session_id) {
+        eprintln!("Zeitgeber nach der Kontingent-Pause nicht scharf geschaltet: {error}");
+    }
     start::restart_failed(app, implementation_id)?;
     let view = app
         .state::<SessionRegistry>()
@@ -586,6 +597,150 @@ pub fn station_session_ended(app: &AppHandle, implementation_id: &str) -> Result
         start::schedule_ready(app, implementation_id)?;
     }
     Ok(())
+}
+
+/// Die Session einer Station pausiert neu am Kontingent: Sperren nacheinander, nie zugleich — erst die
+/// Session kurz (Begründung der Pause), dann die Datenbank ohne Session-Sperre (wirksamer Wert, ob die
+/// Station offen ist), zuletzt `set_auto_resume` mit eigener Session-Sperre. Eine Nachricht des
+/// Benutzers dazwischen räumt die Begründung; dann ist das Scharfschalten ein Fehler, den der Haken
+/// nur loggt: Die Warteschlange plant danach trotzdem.
+fn arm_new_quota_pause(
+    app: &AppHandle,
+    implementation_id: &str,
+    session_id: &str,
+) -> Result<(), CommandError> {
+    let registry = app.state::<SessionRegistry>();
+    let Some(resets_at) = registry.unarmed_quota_pause(session_id) else {
+        return Ok(());
+    };
+    let view = registry.implementation_view(implementation_id)?;
+    let Some(station) = view
+        .phases
+        .iter()
+        .flat_map(|phase: &PhaseView| phase.stations.iter())
+        .find(|station: &&StationView| station.session_id.as_deref() == Some(session_id))
+    else {
+        return Ok(());
+    };
+    if !arms_on_new_pause(station, resets_at, now_ms()) {
+        return Ok(());
+    }
+    match registry.set_auto_resume(app, session_id, true) {
+        Ok(()) | Err(CommandError::AutoResumeUnavailable(_)) => Ok(()),
+        Err(error) => Err(error),
+    }
+}
+
+/// Der Zeitgeber einer Station ging ohne neuen Status aus („Automatisch fortsetzen“ aus, Senden
+/// gescheitert, ADR 064): Ihr Platz unter `max_parallel` ist frei, die Warteschlange rückt nach. Ruft
+/// den Haken `station_session_ended` bewusst nicht, der schaltete sonst wieder scharf.
+pub fn station_disarmed(app: &AppHandle, implementation_id: &str) -> Result<(), CommandError> {
+    let view = app
+        .state::<SessionRegistry>()
+        .implementation_view(implementation_id)?;
+    if resumes_queue(&view) {
+        start::schedule_ready(app, implementation_id)?;
+    }
+    Ok(())
+}
+
+/// Schaltet eine neue Kontingent-Pause den Zeitgeber scharf (ADR 064): nur wenn „Automatisch
+/// fortsetzen“ wirksam an ist und die Rücksetzzeit bekannt ist und in der Zukunft liegt. Ein Ziel in der
+/// Vergangenheit feuerte sofort und liefe gleich wieder ins Kontingent: Schleife.
+pub fn continues_after_quota(effective: bool, resets_at_ms: Option<f64>, now_ms: f64) -> bool {
+    effective && resets_at_ms.is_some_and(|resets_at: f64| resets_at > now_ms)
+}
+
+/// `continues_after_quota` für eine Station: eine fertig gemeldete schaltet nie scharf.
+pub fn arms_on_new_pause(station: &StationView, resets_at_ms: f64, now_ms: f64) -> bool {
+    station.completed_at.is_none()
+        && continues_after_quota(station.resumes_automatically, Some(resets_at_ms), now_ms)
+}
+
+/// „Automatisch fortsetzen“ der Umsetzung (ADR 064): schreibt den Wert, setzt alle nicht fertigen
+/// Stationen auf „wie die Umsetzung“ und schaltet die Zeitgeber ihrer pausierten Sessions ohne
+/// Zukunftsprüfung (ein vergangenes Ziel feuert sofort, wie die Karte im Chat).
+pub fn set_auto_resume(
+    app: &AppHandle,
+    implementation_id: &str,
+    enabled: bool,
+) -> Result<(), CommandError> {
+    let registry = app.state::<SessionRegistry>();
+    registry.implementation_view(implementation_id)?;
+    registry.store_auto_resume(implementation_id, enabled)?;
+    let view = registry.implementation_view(implementation_id)?;
+    for station in view
+        .phases
+        .iter()
+        .flat_map(|phase: &PhaseView| phase.stations.iter())
+        .filter(|station: &&StationView| station.completed_at.is_none())
+    {
+        switch_timer(app, station, station.resumes_automatically)?;
+    }
+    announce(app, &registry.implementation_view(implementation_id)?);
+    Ok(())
+}
+
+/// „Automatisch fortsetzen“ einer Station (ADR 064), `None` = wie die Umsetzung; bis die Station fertig
+/// ist, auch mit Session. Schaltet den Zeitgeber ihrer pausierten Session nach dem wirksamen Wert.
+pub fn set_station_auto_resume(
+    app: &AppHandle,
+    implementation_id: &str,
+    station_id: &str,
+    value: Option<bool>,
+) -> Result<(), CommandError> {
+    let registry = app.state::<SessionRegistry>();
+    let view = registry.implementation_view(implementation_id)?;
+    let (_, station) = station_in(&view, station_id)?;
+    if station.by_user {
+        return Err(CommandError::Implementation(STATION_OF_USER.to_owned()));
+    }
+    if station.completed_at.is_some() || !registry.store_station_auto_resume(station_id, value)? {
+        return Err(CommandError::Implementation(
+            AUTO_RESUME_FINISHED.to_owned(),
+        ));
+    }
+    let view = registry.implementation_view(implementation_id)?;
+    let (_, station) = station_in(&view, station_id)?;
+    switch_timer(app, station, station.resumes_automatically)?;
+    announce(app, &registry.implementation_view(implementation_id)?);
+    Ok(())
+}
+
+/// Die Karte im Chat (`session_set_auto_resume`) einer Station: Nach dem Schalten der Session
+/// schreibt sie den Wert der Station, solange die Station nicht fertig ist (ADR 064); eine Session
+/// außerhalb einer Umsetzung bleibt wie bisher.
+pub fn set_session_auto_resume(
+    app: &AppHandle,
+    session_id: &str,
+    enabled: bool,
+) -> Result<(), CommandError> {
+    let registry = app.state::<SessionRegistry>();
+    registry.set_auto_resume(app, session_id, enabled)?;
+    let Some((implementation_id, station_id)) = registry.station_of_session(session_id)? else {
+        return Ok(());
+    };
+    if registry.store_station_auto_resume(&station_id, Some(enabled))? {
+        announce(app, &registry.implementation_view(&implementation_id)?);
+    }
+    Ok(())
+}
+
+/// Schaltet den Zeitgeber der Session einer Station; ohne Session, ohne Kontingent-Pause oder mit
+/// verschwundener Session bleibt alles, wie es ist.
+fn switch_timer(app: &AppHandle, station: &StationView, enabled: bool) -> Result<(), CommandError> {
+    let Some(session_id) = &station.session_id else {
+        return Ok(());
+    };
+    match app
+        .state::<SessionRegistry>()
+        .set_auto_resume(app, session_id, enabled)
+    {
+        Ok(()) | Err(CommandError::AutoResumeUnavailable(_) | CommandError::SessionNotFound(_)) => {
+            Ok(())
+        }
+        Err(error) => Err(error),
+    }
 }
 
 /// Startet irgendeine Station von selbst: die Automatik der Umsetzung oder „Automatisch starten“ einer
@@ -994,6 +1149,7 @@ struct Carried {
     auto_start: Option<bool>,
     on_error: OnError,
     predecessors_may: PredecessorsMay,
+    auto_resume: Option<bool>,
 }
 
 impl Carried {
@@ -1007,6 +1163,7 @@ impl Carried {
             auto_start: station.auto_start,
             on_error: station.on_error,
             predecessors_may: station.predecessors_may,
+            auto_resume: station.auto_resume,
         }
     }
 }
@@ -1072,6 +1229,7 @@ fn fix_stations(
         predecessors_may: carried.predecessors_may,
         brief_changes: Vec::new(),
         restarts: 0,
+        auto_resume: carried.auto_resume,
     };
     vec![
         row(FIX_STAGE.to_owned(), FIX_BRIEF.to_owned(), fix_carried),
@@ -1100,6 +1258,8 @@ pub struct SessionLive {
     /// Der Status `Error` kam in diesem Lauf der App (nicht aus der Datenbank): Nur dann startet „Bei
     /// Fehler“ die Station neu (ADR 061, Critical Rule 4).
     pub is_fresh_error: bool,
+    /// Pausiert am Kontingent mit scharfem Zeitgeber von „Automatisch fortsetzen“ (ADR 064).
+    pub waits_for_quota: bool,
 }
 
 /// Baut die Ansicht aus den Zeilen. `live` enthält die Sessions der Stationen, `numbers` die
@@ -1195,6 +1355,7 @@ pub fn build_view(
         phases,
         max_parallel: row.max_parallel,
         queued,
+        auto_resume: row.auto_resume,
     }
 }
 
@@ -1264,7 +1425,11 @@ fn station_view(
         StationState::Done
     } else {
         session.map_or(StationState::Pending, |session: &SessionLive| {
-            state_of(session.status, session.awaits_script)
+            state_of(
+                session.status,
+                session.awaits_script,
+                session.waits_for_quota,
+            )
         })
     };
     // Kein Neustart nach Halt oder Ende, und keiner für einen Fehler von vor dem App-Neustart.
@@ -1319,14 +1484,18 @@ fn station_view(
         predecessors_may: station.predecessors_may,
         brief_changes: station.brief_changes.clone(),
         restarting,
+        auto_resume: station.auto_resume,
+        resumes_automatically: station.auto_resume.unwrap_or(implementation.auto_resume),
     }
 }
 
 /// Fertig heißt gemeldet: eine Antwort ohne Meldung wartet auf den Benutzer — außer ein
-/// Hintergrund-Befehl läuft noch, dann wartet die Station auf den Befehl.
-fn state_of(status: SessionStatus, awaits_script: bool) -> StationState {
+/// Hintergrund-Befehl läuft noch, dann wartet die Station auf den Befehl, oder der Zeitgeber von
+/// „Automatisch fortsetzen“ ist scharf, dann wartet sie auf das Kontingent (ADR 064).
+pub fn state_of(status: SessionStatus, awaits_script: bool, waits_for_quota: bool) -> StationState {
     match status {
         SessionStatus::Completed if awaits_script => StationState::WaitsForScript,
+        SessionStatus::Paused if waits_for_quota => StationState::WaitsForQuota,
         SessionStatus::Starting | SessionStatus::New => StationState::Starting,
         SessionStatus::Running => StationState::Running,
         SessionStatus::Waiting => StationState::Asking,
@@ -1395,7 +1564,9 @@ pub fn now_ms() -> f64 {
 }
 
 /// Die Zeilen einer neuen Umsetzung aus geprüften Eingaben (`model::validate`); Kanten nach `link`,
-/// der Fehler ist der Satz aus `schedule::check_plan`.
+/// der Fehler ist der Satz aus `schedule::check_plan`. `auto_resume` ist der Standardwert aus den
+/// Einstellungen (ADR 064).
+#[allow(clippy::too_many_arguments)]
 pub fn new_rows(
     project_id: &str,
     created_by_session_id: &str,
@@ -1404,6 +1575,7 @@ pub fn new_rows(
     inputs: &[PhaseInput],
     max_parallel: Option<u32>,
     now_ms: f64,
+    auto_resume: bool,
 ) -> Result<(ImplementationRow, Vec<PhaseRow>, Vec<StationRow>), String> {
     let id = uuid::Uuid::new_v4().to_string();
     let row = ImplementationRow {
@@ -1418,6 +1590,7 @@ pub fn new_rows(
         stop_after_current: false,
         pending_change: None,
         max_parallel,
+        auto_resume,
     };
     let (phases, mut stations) = phase_rows(&id, inputs, 0);
     link(&[], inputs, &mut stations)?;
@@ -1569,5 +1742,6 @@ pub fn station_row(
         predecessors_may: station.predecessors_may.unwrap_or_default(),
         brief_changes: Vec::new(),
         restarts: 0,
+        auto_resume: None,
     }
 }

@@ -33,7 +33,7 @@ markUnsourced: boolean,
 /**
  * Selbstfreigabe, die ein neues Vorhaben übernimmt; bestehende bleiben unverändert.
  */
-defaultSelfRelease: SelfRelease, terminalPlacement: TerminalPlacement, 
+defaultSelfRelease: SelfRelease, defaultAutoResume: boolean, terminalPlacement: TerminalPlacement, 
 /**
  * Gezogene Höhe des Terminal-Docks in Pixeln.
  */

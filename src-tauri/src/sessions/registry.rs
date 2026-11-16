@@ -475,6 +475,10 @@ struct Outbox {
     /// Die Session einer Station ist nicht mehr aktiv (fertig, pausiert, Fehler, Abbruch): nach dem
     /// Freigeben der Sperre plant die Umsetzung ihre Warteschlange neu (ADR 061).
     station_idle: Option<String>,
+    /// Der Zeitgeber von „Automatisch fortsetzen“ einer Station ging ohne neuen Status aus (Schalter
+    /// aus, Senden gescheitert): nach dem Freigeben der Sperre plant die Umsetzung ihre Warteschlange
+    /// neu (ADR 064). Nicht `station_idle`: dessen Haken schaltete wieder scharf.
+    station_disarmed: Option<String>,
     /// Die Session einer Station hat eine Rückfrage gestellt (Umsetzung, Kennung der Rückfrage): nach
     /// dem Freigeben der Sperre weckt die Umsetzung ihren Ersteller (ADR 061).
     station_asks: Option<(String, String)>,
@@ -3747,9 +3751,13 @@ impl SessionState {
         if enabled && *auto_resume {
             return Ok(None);
         }
+        let was_armed = *auto_resume;
         *auto_resume = enabled;
         self.auto_resume_token += 1;
         outbox.summary_dirty = true;
+        if was_armed {
+            outbox.station_disarmed.clone_from(&self.station_of);
+        }
         Ok(enabled.then_some(ArmedResume {
             token: self.auto_resume_token,
             resets_at,
@@ -3769,6 +3777,9 @@ impl SessionState {
     fn auto_resume_failed(&mut self, outbox: &mut Outbox, message: String) {
         self.auto_resume_token += 1;
         if let Some(PauseReason::Quota { auto_resume, .. }) = &mut self.pause_reason {
+            if *auto_resume {
+                outbox.station_disarmed.clone_from(&self.station_of);
+            }
             *auto_resume = false;
             outbox.summary_dirty = true;
         }
@@ -3925,7 +3936,10 @@ fn update<R>(
         session_tools::schedule_inbox_delivery(app, session);
     }
     if let Some(implementation_id) = outbox.station_idle.take() {
-        implementation::schedule_station_session_end(app, implementation_id);
+        implementation::schedule_station_session_end(app, implementation_id, session.id.clone());
+    }
+    if let Some(implementation_id) = outbox.station_disarmed.take() {
+        implementation::schedule_station_disarmed(app, implementation_id);
     }
     if let Some((implementation_id, request_id)) = outbox.station_asks.take() {
         implementation::schedule_station_question(

@@ -30,6 +30,7 @@ const KEY_DEFAULT_CODEX_MODEL: &str = "default_codex_model";
 const KEY_MASTER_DIR: &str = "master_dir";
 const KEY_MARK_UNSOURCED: &str = "mark_unsourced";
 const KEY_DEFAULT_SELF_RELEASE: &str = "default_self_release";
+const KEY_DEFAULT_AUTO_RESUME: &str = "default_auto_resume";
 const KEY_TERMINAL_PLACEMENT: &str = "terminal_placement";
 const KEY_TERMINAL_HEIGHT: &str = "terminal_height";
 const KEY_TERMINAL_WIDTH: &str = "terminal_width";
@@ -71,6 +72,7 @@ pub const DEFAULT_SETTINGS: Settings = Settings {
     master_dir: None,
     mark_unsourced: true,
     default_self_release: SelfRelease::OFF,
+    default_auto_resume: false,
     terminal_placement: TerminalPlacement::Bottom,
     terminal_height: 260,
     terminal_width: 460,
@@ -114,6 +116,10 @@ pub fn load(database: &Database) -> Result<Settings, CommandError> {
             .get(KEY_DEFAULT_SELF_RELEASE)
             .and_then(|text: &String| serde_json::from_str(text).ok())
             .unwrap_or(DEFAULT_SETTINGS.default_self_release),
+        default_auto_resume: stored
+            .get(KEY_DEFAULT_AUTO_RESUME)
+            .and_then(|text: &String| text.parse::<bool>().ok())
+            .unwrap_or(DEFAULT_SETTINGS.default_auto_resume),
         terminal_placement: stored_or(
             &stored,
             KEY_TERMINAL_PLACEMENT,
@@ -202,6 +208,9 @@ pub fn update(database: &Database, change: SettingsChange) -> Result<Settings, C
                 let text = serde_json::to_string(&value)
                     .map_err(|error| CommandError::Internal(error.to_string()))?;
                 setting_rows::write(&transaction, KEY_DEFAULT_SELF_RELEASE, &text)?;
+            }
+            SettingsChange::DefaultAutoResume { value } => {
+                setting_rows::write(&transaction, KEY_DEFAULT_AUTO_RESUME, &value.to_string())?;
             }
             SettingsChange::TerminalPlacement { value } => {
                 setting_rows::write(&transaction, KEY_TERMINAL_PLACEMENT, &enum_to_text(&value)?)?;

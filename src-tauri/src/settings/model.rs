@@ -79,6 +79,9 @@ pub struct Settings {
     pub mark_unsourced: bool,
     /// Selbstfreigabe, die ein neues Vorhaben übernimmt; bestehende bleiben unverändert.
     pub default_self_release: SelfRelease,
+    // „Automatisch fortsetzen“, das eine neue Umsetzung übernimmt; bestehende bleiben unverändert
+    // (ADR 064).
+    pub default_auto_resume: bool,
     pub terminal_placement: TerminalPlacement,
     /// Gezogene Höhe des Terminal-Docks in Pixeln.
     pub terminal_height: u32,
@@ -139,6 +142,9 @@ pub enum SettingsChange {
     },
     DefaultSelfRelease {
         value: SelfRelease,
+    },
+    DefaultAutoResume {
+        value: bool,
     },
     TerminalPlacement {
         value: TerminalPlacement,

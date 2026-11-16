@@ -726,6 +726,7 @@ fn create(arguments: &Value, state: &MockState) -> Result<String, String> {
         &arguments.phases,
         arguments.max_parallel,
         now_ms(),
+        false,
     )?;
     check_agents(&arguments.phases, &state.types)?;
     let mut created = state

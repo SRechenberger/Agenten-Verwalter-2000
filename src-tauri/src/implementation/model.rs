@@ -42,6 +42,9 @@ pub enum StationState {
     /// Antwort abgegeben, ein Hintergrund-Befehl (etwa der Testlauf) läuft noch; der Agent setzt
     /// fort, sobald er endet. Der Benutzer muss nichts tun.
     WaitsForScript,
+    // Pausiert am aufgebrauchten Kontingent, der Zeitgeber von „Automatisch fortsetzen“ ist scharf
+    // (ADR 064); der Benutzer muss nichts tun.
+    WaitsForQuota,
     Asking,
     WaitsForYou,
     Done,
@@ -56,7 +59,10 @@ impl StationState {
             StationState::WaitsForYou => 6,
             StationState::Error => 5,
             StationState::Countdown => 4,
-            StationState::Running | StationState::WaitsForScript | StationState::Starting => 3,
+            StationState::Running
+            | StationState::WaitsForScript
+            | StationState::WaitsForQuota
+            | StationState::Starting => 3,
             StationState::Ready => 2,
             StationState::Pending => 1,
             StationState::Done => 0,
@@ -130,11 +136,14 @@ pub struct StationView {
     pub predecessors_may: PredecessorsMay,
     pub brief_changes: Vec<BriefChange>,
     pub restarting: bool,
+    // ADR 064: „Automatisch fortsetzen“ der Station (`None` = wie die Umsetzung) und der wirksame Wert.
+    pub auto_resume: Option<bool>,
+    pub resumes_automatically: bool,
 }
 
 impl StationView {
     /// Zählt gegen `max_parallel` (ADR 061); eine Station, die nach einem Fehler neu startet, behält
-    /// ihren Platz.
+    /// ihren Platz, eine, die auf das Kontingent wartet, auch (ADR 064).
     pub fn is_active(&self) -> bool {
         self.restarting
             || matches!(
@@ -143,6 +152,7 @@ impl StationView {
                     | StationState::Starting
                     | StationState::Running
                     | StationState::WaitsForScript
+                    | StationState::WaitsForQuota
                     | StationState::Asking
             )
     }
@@ -415,6 +425,8 @@ pub struct ImplementationView {
     // der Warteschlange.
     pub max_parallel: Option<u32>,
     pub queued: u32,
+    // ADR 064: „Automatisch fortsetzen“ nach aufgebrauchtem Kontingent.
+    pub auto_resume: bool,
 }
 
 /// Gesendet als `implementation://changed`.

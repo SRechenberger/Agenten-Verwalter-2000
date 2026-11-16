@@ -292,6 +292,8 @@ pub fn run() {
             commands::implementation::implementation_rename,
             commands::implementation::implementation_set_auto_start,
             commands::implementation::implementation_set_stop_after_current,
+            commands::implementation::implementation_set_auto_resume,
+            commands::implementation::implementation_set_station_auto_resume,
             commands::implementation::implementation_set_max_parallel,
             commands::implementation::implementation_start_station,
             commands::implementation::implementation_set_station_agent,
