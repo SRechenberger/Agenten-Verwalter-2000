@@ -483,6 +483,7 @@ export function ChatTimeline({
             entry={entry}
             request={entry.toolRequest}
             sessionId={session.id}
+            sessionNumber={session.number}
             projectId={session.projectId}
             selfRelease={selfRelease}
             draft={toolDrafts.get(entry.requestId) ?? EMPTY_TOOL_DRAFT}

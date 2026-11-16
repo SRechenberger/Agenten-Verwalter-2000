@@ -96,7 +96,7 @@ export const FILES_ADD_BUTTON = 'Hinzufügen';
 export const FILES_PICK_BUTTON = 'Datei wählen …';
 export const FILES_PICK_TITLE = 'Datei für den Typ wählen';
 export const FILES_HINT =
-  'Der Verwalter liest die Dateien beim Start der Station, ohne Frontmatter. Fehlt eine, startet die Station nicht.';
+  'Der Verwalter liest die Dateien beim Start der Station, ohne Frontmatter, nur reguläre Dateien und je höchstens bis zur Grenze von 16 000 Zeichen. Fehlt eine oder passt sie nicht, startet die Station nicht.';
 
 export const SKILLS_LABEL = 'Skills';
 export const SKILLS_PLACEHOLDER = 'Skill, Enter';
@@ -139,6 +139,59 @@ export function saveFailedText(reason: string): string {
 
 export function pickFailedText(reason: string): string {
   return `Dateiauswahl nicht geöffnet: ${reason}`;
+}
+
+// ---- Kasten „Vorschlag eines Agententyps“ (ADR 063, Entwurf: docs/design/2026-11-15_agententypen-mcp/) ----
+
+export const PROPOSAL_ARIA_LABEL = 'Vorschlag eines Agententyps';
+export const PROPOSAL_NEW_TITLE = 'Claude schlägt einen neuen Agententyp vor';
+export const PROPOSAL_WAITING = 'wartet auf dich';
+export const PROPOSAL_DESCRIPTION_LABEL = 'Beschreibung';
+export const PROPOSAL_NONE = 'keine';
+export const PROPOSAL_NO_PROMPT = 'keiner';
+export const PROPOSAL_FILES_NOTE =
+  'Der Start einer Station liest diese Dateien (nur reguläre Dateien, zusammen bis 16 000 Zeichen).';
+export const PROPOSAL_SHOW_ALL = 'Ganz zeigen';
+export const PROPOSAL_COLLAPSE = 'Einklappen';
+export const PROPOSAL_ACCEPT = 'Übernehmen';
+export const PROPOSAL_ACCEPTING = 'Übernimmt …';
+export const PROPOSAL_EDIT = 'Bearbeiten …';
+export const PROPOSAL_REJECT = 'Verwerfen';
+export const PROPOSAL_BACK = 'Zurück';
+export const PROPOSAL_REASON_LABEL = 'Begründung für Claude (optional)';
+/** Freier Text im Eingabefeld verwirft einen offenen Vorschlag (ADR 063); der Kasten sagt es. */
+export const PROPOSAL_FREE_TEXT_HINT =
+  'Text im Eingabefeld unten verwirft den Vorschlag mit dieser Begründung.';
+export const PROPOSAL_CANCELLED_NOTE = 'Der Agent wurde gestoppt; nichts gespeichert.';
+export const PROPOSAL_SHOW = 'Vorschlag zeigen';
+export const PROPOSAL_HIDE = 'Vorschlag ausblenden';
+export const PROPOSAL_OPEN_SETTINGS = 'In den Einstellungen öffnen';
+export const PROPOSAL_DIALOG_TITLE = 'Vorschlag bearbeiten';
+
+export function proposalUpdateTitle(name: string): string {
+  return `Claude schlägt eine Änderung an „${name}“ vor`;
+}
+
+export function proposalAnsweredTitle(name: string): string {
+  return `Agententyp „${name}“`;
+}
+
+/** „Unverändert: Name, Systemprompt, Dateien, Skills.“ */
+export function proposalUnchangedText(labels: readonly string[]): string {
+  return `Unverändert: ${labels.join(', ')}.`;
+}
+
+/** Der Zähler hinter „Ganz zeigen“, gezählt und formatiert wie im Dialog. */
+export function proposalPromptCount(count: string, max: string): string {
+  return `· ${count} / ${max}`;
+}
+
+export function proposalDialogSubtitle(sessionNumber: number): string {
+  return `Vorbefüllt mit dem Vorschlag von Session ${String(sessionNumber)}. Alles lässt sich ändern wie in den Einstellungen; „Übernehmen“ speichert diesen Stand und meldet ihn an Claude.`;
+}
+
+export function proposalFailedText(reason: string): string {
+  return `Nicht beantwortet: ${reason}`;
 }
 
 // ---- Dialog „Typ löschen“ ----
