@@ -17,6 +17,7 @@ import { useProjectArtifacts } from '@/features/artifacts/useProjectArtifacts';
 import { ChatView } from '@/features/chat/ChatView';
 import { useGitStatus } from '@/features/git/useGitStatus';
 import { ImplementationView as ImplementationMain } from '@/features/implementation/ImplementationView';
+import { StationTrail } from '@/features/implementation/StationTrail';
 import { useInquiry } from '@/features/implementation/useInquiry';
 import { useImplementations } from '@/features/implementation/useImplementations';
 import { countChangedFiles } from '@/features/changes/changesScope';
@@ -670,6 +671,12 @@ export function App(): ReactElement {
       return renderOverview(overviewProject, currentSession);
     }
     if (currentSession !== undefined) {
+      const trailImplementation: ImplementationView | undefined =
+        currentSession.stationOf === null
+          ? undefined
+          : implementations.find(
+              (candidate: ImplementationView) => candidate.id === currentSession.stationOf,
+            );
       // Ein Schlüssel für die ganze Ansicht: Kopfzeile, Fehlerleiste und Inhalt wechseln beim Session-Wechsel als Einheit.
       return (
         <Fragment key={currentSession.id}>
@@ -693,6 +700,13 @@ export function App(): ReactElement {
             }}
           />
           <RemoteBanner projectId={currentSession.projectId} />
+          {trailImplementation !== undefined && (
+            <StationTrail
+              implementation={trailImplementation}
+              sessionId={currentSession.id}
+              onOpenImplementation={selectImplementation}
+            />
+          )}
           <SessionActionError sessionId={currentSession.id} />
           {isClaude && <UsageAlertBar />}
           <OverlapBar sessionId={currentSession.id} projectId={currentSession.projectId} />

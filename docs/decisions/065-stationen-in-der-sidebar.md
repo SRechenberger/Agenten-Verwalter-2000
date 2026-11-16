@@ -22,6 +22,7 @@ Die Idee kommt aus Upstream, das in Phasen nacheinander plant. Der Fork plant se
 - **Ein Klick** wählt die Session der Station; eine Station ohne Session (bereit, Countdown, „durch dich“) öffnet die Umsetzung mit ihrer Karte vorn (`useOpenStation`).
 - **Genau eine Markierung:** im Chat einer Station ihre Stationszeile, sonst — fertig oder ohne Zeile — die Zeile ihrer Umsetzung.
 - **Zeile:** Stationsname mit Session-Nummer, Lane-Schlüssel und Kurzzustand (`stationMeta`, Farbe aus `stationTone`, also mit Startfehler); der Tooltip nennt Lane und den Zustand der Zeitleiste (`rowStateText`, mit Platz in der Warteschlange und „startet neu“).
+- **Rückweg-Leiste:** über dem Chat einer Station führt eine schmale Leiste zurück zur Umsetzung, nennt die Lane der Station und führt mit ‹ › zur vorigen bzw. nächsten aktiven Station in der Reihenfolge der Zeitleiste (`StationTrail`). „Vorige“ und „nächste“ heißen dort: früher bzw. später in `flatStations`, also nicht unbedingt Vorgänger oder Nachfolger über eine Kante.
 - Ändert den Punkt „Sidebar“ aus ADR 048: Stationen bekommen weiterhin keine **Session**-Zeile, aktive aber eine Stationszeile.
 
 ## Konsequenzen
