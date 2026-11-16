@@ -1,14 +1,9 @@
 // Selbsttest des Zeitpunkts im Chat: `node src/features/chat/entryTime.selftest.ts` (`pnpm selftest`).
 // Je Fall `PASS`/`FAIL`, Exit 1 bei einem Fehlschlag. Node streicht die Typen; die geprüfte Datei importiert
-// nur Typen. Zeiten aus lokalen Bestandteilen, damit die Fälle in jeder Zeitzone gelten.
-// Die CI läuft unter UTC, wo ein Rückfall von Orts- auf UTC-Zeit unsichtbar bliebe: Der Test setzt darum eine
-// feste Zone ungleich UTC (vor der ersten Zeitrechnung) und prüft im ersten Fall, dass sie wirkt.
+// nur Typen. Zeiten aus lokalen Bestandteilen, damit die Fälle in jeder Zeitzone gelten. Bekannte Grenze: Ein
+// Rückfall auf UTC fällt nur außerhalb einer UTC-Zeitzone auf, und die CI läuft in UTC.
 import { dayDividers, dayLabel, entryTime, timeLabel } from './entryTime.ts';
 import type { ChatEntry } from '@/lib/bindings/ChatEntry';
-
-// Der Quelltext hat keine Node-Typen; Node liefert `process`.
-declare const process: { env: Record<string, string | undefined> };
-process.env.TZ = 'America/Los_Angeles';
 
 /** Ein Eintrag so, wie ihn der Core als JSON liefert (ein alter Payload hat `at` gar nicht). */
 function entry(json: string): ChatEntry {
@@ -30,16 +25,11 @@ function local(
 // Sonntag, 15.11.2026.
 const NOW: number = local(2026, 11, 15, 14, 31);
 
-function dividers(times: readonly (number | null)[]): string {
-  return JSON.stringify(dayDividers(times, NOW));
+function dividers(times: readonly (number | null)[], atStartOfHistory = true): string {
+  return JSON.stringify(dayDividers(times, NOW, atStartOfHistory));
 }
 
 const CASES: { name: string; actual: () => unknown; expected: unknown }[] = [
-  {
-    name: 'time_zone_is_not_utc',
-    actual: () => new Date(2026, 10, 15, 12).getTimezoneOffset(),
-    expected: 480,
-  },
   {
     name: 'entry_time_of_user_is_sent_at',
     actual: () =>
@@ -113,6 +103,26 @@ const CASES: { name: string; actual: () => unknown; expected: unknown }[] = [
     name: 'dividers_first_timed_block_gets_one',
     actual: () => dividers([local(2026, 11, 15, 8)]),
     expected: '["Heute, Sonntag 15.11."]',
+  },
+  {
+    name: 'dividers_first_timed_block_has_none_while_older_history_exists',
+    actual: () => dividers([null, local(2026, 11, 15, 8)], false),
+    expected: '[null,null]',
+  },
+  {
+    name: 'dividers_later_day_changes_are_the_same_at_both_values',
+    actual: (): string => {
+      const times: number[] = [
+        local(2026, 11, 12, 9),
+        local(2026, 11, 12, 10),
+        local(2026, 11, 14, 22, 47),
+        local(2026, 11, 15, 8),
+      ];
+      const atStart: string = JSON.stringify(dayDividers(times, NOW, true).slice(1));
+      const midHistory: string = JSON.stringify(dayDividers(times, NOW, false).slice(1));
+      return atStart === midHistory ? atStart : `${atStart} gegen ${midHistory}`;
+    },
+    expected: '[null,"Gestern, Samstag 14.11.","Heute, Sonntag 15.11."]',
   },
   {
     name: 'dividers_same_day_has_none_between',

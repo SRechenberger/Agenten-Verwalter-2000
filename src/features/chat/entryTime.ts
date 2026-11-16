@@ -54,17 +54,24 @@ export function dayLabel(at: number, now: number): string {
 }
 
 /** Ein Eintrag je Block: der Text des Trenners, wenn der Block eine Zeit hat und sein Tag vom letzten Block
- *  mit Zeit davor abweicht (oder es keinen gibt); sonst `null`. Blöcke ohne Zeit bekommen keinen Trenner und
- *  unterbrechen keinen Tag. */
-export function dayDividers(times: readonly (number | null)[], now: number): (string | null)[] {
+ *  mit Zeit davor abweicht; sonst `null`. Der erste Block mit Zeit hat keinen Vorgänger und bekommt nur dann
+ *  einen, wenn der Verlauf dort beginnt (`atStartOfHistory`): Solange älterer Verlauf nachzuladen ist, könnte
+ *  der Tag darüber weitergehen, und der Trenner entfiele beim Nachladen (die Ansicht spränge um seine Höhe).
+ *  Blöcke ohne Zeit bekommen keinen Trenner und unterbrechen keinen Tag. */
+export function dayDividers(
+  times: readonly (number | null)[],
+  now: number,
+  atStartOfHistory: boolean,
+): (string | null)[] {
   let lastDay: number | null = null;
   return times.map((at: number | null): string | null => {
     if (at === null) {
       return null;
     }
     const day: number = dayNumber(at);
+    const isFirst: boolean = lastDay === null;
     const isNewDay: boolean = day !== lastDay;
     lastDay = day;
-    return isNewDay ? dayLabel(at, now) : null;
+    return isNewDay && (!isFirst || atStartOfHistory) ? dayLabel(at, now) : null;
   });
 }

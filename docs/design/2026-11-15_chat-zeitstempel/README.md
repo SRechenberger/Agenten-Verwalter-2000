@@ -18,8 +18,8 @@
 ## Lage und Format
 
 - Uhrzeit `HH:MM` (Ortszeit, `de-DE`), `--font-size-2xs`, `--color-fg-muted`, bündig mit dem Inhalt (32 px Rand), nicht markierbar.
-- Nachrichten: eigene Zeile über dem Eintrag (14 px Zeile, 4 px Abstand). Alles andere: schwebt beim Überfahren und bei Fokus im Block in der Lücke über dem Block (`top: -11px`) und ändert keine Höhe.
-- Tagestrenner oben im Block-Rahmen, wenn der Tag gegenüber dem letzten Block mit Zeit wechselt, auch vor dem ersten Block mit Zeit; Großbuchstaben, nicht markierbar. In einem anderen Jahr steht das Jahr dabei („Dienstag 30.12.2025“).
+- Nachrichten: eigene Zeile über dem Eintrag (14 px Zeile, 4 px Abstand); ein Block mit Agententext wird 18 px höher, ein Nutzerblock 14 px (sein Außenabstand fällt mit dem Abstand zusammen). Alles andere: schwebt beim Überfahren und bei Fokus im Block in der Lücke über dem Block (`top: -11px`) und ändert keine Höhe.
+- Tagestrenner oben im Block-Rahmen, wenn der Tag gegenüber dem letzten Block mit Zeit wechselt; der erste Block mit Zeit bekommt einen nur, wenn kein älterer Verlauf mehr nachzuladen ist (sonst fiele er beim Nachladen weg); Großbuchstaben, nicht markierbar. In einem anderen Jahr steht das Jahr dabei („Dienstag 30.12.2025“).
 - Eine Werkzeug-Gruppe zeigt die Zeit ihres ersten Aufrufs, eine Hintergrund-Zeile die ihres Aufrufs; der Block „Arbeitet …“ keine.
 
 ## Abweichungen der Umsetzung vom Mock
