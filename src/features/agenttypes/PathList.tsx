@@ -22,6 +22,8 @@ interface PathListProps {
   onAdd: (path: string) => void;
   onRemove: (index: number) => void;
   isInvalid: boolean;
+  /** „Datei wählen …“ anbieten; nicht, wenn der Pfad auf einem anderen Rechner gilt. */
+  canPick: boolean;
 }
 
 /** Die Dateien eines Typs: ein Pfad je Zeile, getippt oder aus dem Dateidialog. Ob die Datei existiert,
@@ -33,6 +35,7 @@ export function PathList({
   onAdd,
   onRemove,
   isInvalid,
+  canPick,
 }: PathListProps): ReactElement {
   const [pickError, setPickError] = useState<string | null>(null);
 
@@ -112,9 +115,11 @@ export function PathList({
         <button type="button" className="settings-view__button" onClick={addTyped}>
           {FILES_ADD_BUTTON}
         </button>
-        <button type="button" className="settings-view__button" onClick={pick}>
-          {FILES_PICK_BUTTON}
-        </button>
+        {canPick && (
+          <button type="button" className="settings-view__button" onClick={pick}>
+            {FILES_PICK_BUTTON}
+          </button>
+        )}
       </div>
       {pickError !== null && (
         <span className="path-list__error" role="alert">

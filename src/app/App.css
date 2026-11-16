@@ -10,6 +10,7 @@
   /* Container für die Umbruchstufen der Kopfzeile: sie richten sich nach der Breite neben der
      Seitenleiste, nicht nach dem Fenster. */
   &__main {
+    position: relative;
     display: flex;
     flex-direction: column;
     flex: 1 1 0;

@@ -643,6 +643,7 @@ impl SessionRegistry {
             repositories: std::sync::RwLock::new(Vec::new()),
             database: Arc::clone(&self.database),
             state: std::sync::Mutex::new(state),
+            deleted: std::sync::atomic::AtomicBool::new(false),
         });
         self.lock_sessions().insert(session_id.to_owned(), session);
     }

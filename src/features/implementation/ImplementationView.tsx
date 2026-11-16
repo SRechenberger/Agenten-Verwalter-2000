@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { ReactElement, ReactNode } from 'react';
 import { useAgentTypes } from '@/features/agenttypes/useAgentTypes';
 import { useNow } from '@/features/background/useNow';
@@ -12,6 +12,7 @@ import {
   flatStations,
   focusOrder,
   isFocusValid,
+  openingLevel,
   type StationRef,
 } from '@/features/implementation/implementationOrder';
 import { patchEdit } from '@/features/implementation/implementationGraph';
@@ -63,6 +64,10 @@ interface ImplementationViewProps {
   sessions: readonly SessionSummary[];
   /** Inhalt des Reiters „Changes“ (Reichweite Vorhaben); gezeigt, wenn er aktiv ist. */
   changes: ReactNode;
+  /** Artefakte aus Sessions der Umsetzung (Stationen und Rückfragen). */
+  artifactCount: number;
+  /** Inhalt des Reiters „Artefakte“; gezeigt, wenn er aktiv ist und es Artefakte gibt. */
+  artifacts: ReactNode;
   /** Legt eine Rückfrage zur Umsetzung an und öffnet sie (`useInquiry`). */
   onNewInquiry: (implementationId: string) => Promise<void>;
   onShowView: (view: ImplementationViewKind) => void;
@@ -177,6 +182,8 @@ export function ImplementationView({
   changesCount,
   sessions,
   changes,
+  artifactCount,
+  artifacts,
   onNewInquiry,
   onShowView,
   onOpenProject,
@@ -189,6 +196,7 @@ export function ImplementationView({
   const [isReportBusy, setIsReportBusy] = useState<boolean>(false);
   const [isInquiryBusy, setIsInquiryBusy] = useState<boolean>(false);
   const [isNewLaneOpen, setIsNewLaneOpen] = useState<boolean>(false);
+  const timelineRef = useRef<HTMLDivElement>(null);
   const storedFocus: string | undefined = useImplementationStore(
     (state) => state.focused[implementation.id],
   );
@@ -201,7 +209,10 @@ export function ImplementationView({
   const { agentTypes } = useAgentTypes();
 
   const stations: StationRef[] = useMemo(() => flatStations(implementation), [implementation]);
-  const isFlow: boolean = !(activeView === 'changes' && hasChanges);
+  // Ohne Repository bzw. ohne Artefakt fällt der Reiter auf den Ablauf zurück.
+  const isChangesShown: boolean = activeView === 'changes' && hasChanges;
+  const isArtifactsShown: boolean = activeView === 'artifacts' && artifactCount > 0;
+  const isFlow: boolean = !isChangesShown && !isArtifactsShown;
   const isTicking: boolean = stations.some((ref: StationRef) =>
     ['running', 'starting', 'waitsForScript', 'countdown'].includes(ref.station.state),
   );
@@ -227,6 +238,26 @@ export function ImplementationView({
   const stationChangesCount: number | null =
     stationChanges === null ? null : countChangedFiles(stationChanges);
 
+  // Beim Öffnen steht die Stufe der ersten aktiven Station oben in der Zeitleiste (ADR 065). Im schmalen
+  // Layout rollt die Zeitleiste nicht selbst, `scrollTop` bleibt dort wirkungslos.
+  useLayoutEffect(() => {
+    const level: number | null = openingLevel(implementation);
+    const container: HTMLDivElement | null = timelineRef.current;
+    if (!isFlow || level === null || container === null) {
+      return;
+    }
+    const anchor: HTMLElement | null = container.querySelector<HTMLElement>(
+      `[data-scroll-anchor="${String(level)}"]`,
+    );
+    if (anchor === null) {
+      return;
+    }
+    container.scrollTop +=
+      anchor.getBoundingClientRect().top - container.getBoundingClientRect().top;
+    // Nur das Öffnen scrollt, nicht jede neue Fassung der Umsetzung.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [implementationId, isFlow]);
+
   useEffect(() => {
     if (!isFlow || focusedId === null) {
       return undefined;
@@ -247,6 +278,12 @@ export function ImplementationView({
       }
       event.preventDefault();
       setFocused(implementationId, target);
+      // Nur die Pfeiltaste holt die Zeile ins Bild; Klick und automatischer Fokus lassen die Zeitleiste stehen.
+      requestAnimationFrame((): void => {
+        timelineRef.current
+          ?.querySelector<HTMLElement>(`[data-focus-id="${CSS.escape(target)}"]`)
+          ?.scrollIntoView({ block: 'nearest' });
+      });
     }
     window.addEventListener('keydown', handleKeyDown);
     return (): void => {
@@ -379,13 +416,23 @@ export function ImplementationView({
     );
   }
 
+  function activeViewShown(): ImplementationViewKind {
+    if (isChangesShown) {
+      return 'changes';
+    }
+    return isArtifactsShown ? 'artifacts' : 'flow';
+  }
+
   function renderBody(): ReactNode {
-    if (!isFlow) {
+    if (isChangesShown) {
       return changes;
+    }
+    if (isArtifactsShown) {
+      return artifacts;
     }
     return (
       <div className="implementation-view">
-        <div className="implementation-view__timeline">
+        <div ref={timelineRef} className="implementation-view__timeline">
           <Timeline
             implementation={implementation}
             focusedId={focusedId}
@@ -414,9 +461,10 @@ export function ImplementationView({
       <ImplementationHeader
         implementation={implementation}
         projectName={projectName}
-        activeView={activeView}
+        activeView={activeViewShown()}
         hasChanges={hasChanges}
         changesCount={changesCount}
+        artifactCount={artifactCount}
         onShowView={onShowView}
         onOpenProject={onOpenProject}
         terminalCount={terminalCount}

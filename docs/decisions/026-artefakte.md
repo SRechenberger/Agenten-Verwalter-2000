@@ -21,7 +21,7 @@ Berichte, Präsentationen, Diagramme und Design-Entwürfe sind als HTML-Seite am
 
 ## Konsequenzen
 
-- Die App-CSP bekommt `frame-src http://127.0.0.1:*` (Port erst zur Laufzeit bekannt); Links nach außen öffnen sich im Rahmen nicht.
+- Die App-CSP bekommt `frame-src http://127.0.0.1:*` (Port erst zur Laufzeit bekannt); Links nach außen öffnen sich im Rahmen nicht. Nachtrag 2026-11-11: Das Brücken-Skript fängt Klicks auf Links nach außen (`http`, `https`, `mailto`) ab und meldet sie per `postMessage`; `ArtifactFrame` prüft Herkunft und Protokoll und öffnet die Adresse im Standardbrowser (höchstens eine je Sekunde). Verweise auf andere Artefakte desselben Servers bleiben im Rahmen. Damit hängt das Verhalten nicht mehr davon ab, wie WebView2 oder WebKitGTK gesperrte Popups behandeln.
 - Adressen der Vorschau gelten nur bis zum nächsten App-Start; die Oberfläche bekommt sie mit jeder Liste neu (`baseUrl`).
 - Andere Programme des Benutzers können den Port finden, brauchen aber den Token; Seiten im `.artefakte`-Ordner sind ohnehin für jedes Programm des Benutzers lesbar.
 - Formulare schicken nichts ab (`form-action 'none'`), Popups gehen nicht.

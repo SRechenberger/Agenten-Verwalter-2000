@@ -129,7 +129,8 @@
     return toc;
   }
 
-  // Popups sind gesperrt (ADR 026): der Link bleibt sichtbar, ein Klick im Rahmen tut nichts Schädliches.
+  // Popups sind gesperrt (ADR 026); Links nach außen fängt die Brücke ab und öffnet der Verwalter im
+  // Standardbrowser. `_blank` hält nur den Rahmen selbst, falls die Brücke fehlt.
   function openLinksOutside(root) {
     root.querySelectorAll('a[href]').forEach((link) => {
       const href = link.getAttribute('href');

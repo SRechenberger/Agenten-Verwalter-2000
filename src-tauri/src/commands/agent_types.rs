@@ -118,7 +118,9 @@ pub async fn agent_type_proposal_answer(
     let emitted = emit_changed(&app, &database);
     // ponytail: Speichern und Antwort liegen nicht unter einer Sperre (D8). Bricht der Agent genau
     // dazwischen ab, bleibt der Typ gespeichert und der Kasten steht auf „Abgebrochen“; das Ergebnis
-    // dieses Befehls nennt trotzdem den gespeicherten Typ.
+    // dieses Befehls nennt trotzdem den gespeicherten Typ. Ebenso, wenn ein zweiter Client (Host und
+    // Gast) dazwischen verwirft: Der Typ ist gespeichert, der Agent bekommt `rejected`, und die Antwort
+    // unten scheitert still. Eine Sperre über beides erst, wenn das in der Praxis vorkommt.
     let result = agent_type_tools::accepted_result(agent_type, &proposal);
     let edited = result["edited"].as_bool().unwrap_or(false);
     let _ = registry.finish_agent_type_proposal(

@@ -72,9 +72,9 @@ export function UserMessage({
           <span className="user-message__skill-word">Skill</span>
           <span className="user-message__skill-name">{skill.name}</span>
           <span className="user-message__skill-note">
-            {skill.origin.kind === 'user'
-              ? 'geladen · aus deinem Benutzerordner'
-              : `geladen · aus ${skill.origin.name}`}
+            {skill.origin.kind === 'user' && 'geladen · aus deinem Benutzerordner'}
+            {skill.origin.kind === 'repository' && `geladen · aus ${skill.origin.name}`}
+            {skill.origin.kind === 'builtin' && 'geladen · mitgeliefert'}
           </span>
         </div>
       )}

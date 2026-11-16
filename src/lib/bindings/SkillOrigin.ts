@@ -3,4 +3,4 @@
 /**
  * Woher ein Skill oder Befehl stammt.
  */
-export type SkillOrigin = { "kind": "user" } | { "kind": "repository", name: string, };
+export type SkillOrigin = { "kind": "user" } | { "kind": "repository", name: string, } | { "kind": "builtin" };

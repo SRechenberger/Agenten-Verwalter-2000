@@ -145,7 +145,17 @@ jobs:
         if: runner.os == 'macOS'
         shell: bash
         run: echo "RUSTFLAGS=-C link-arg=$(clang --print-resource-dir)/lib/darwin/libclang_rt.osx.a" >> "$GITHUB_ENV"
-      - run: pnpm tauri build --bundles ${{ matrix.bundles }}
+      # Tauri lädt NSIS & Co. beim Bündeln von GitHub nach; das liefert gelegentlich 504.
+      # Der Rust-Build bleibt im Cache, ein erneuter Versuch kostet nur das Bündeln.
+      - name: Bauen (mit Wiederholung)
+        shell: bash
+        run: |
+          for attempt in 1 2 3; do
+            pnpm tauri build --bundles ${{ matrix.bundles }} && exit 0
+            echo "Versuch $attempt fehlgeschlagen"
+            sleep $((attempt * 20))
+          done
+          exit 1
       # Die Namen `*-setup.exe` und `*_x64-portable.exe` liest die Update-Funktion des Verwalters
       # (ADR 041) — nicht ändern, ohne `app_update/releases.rs` anzupassen.
       - name: Dateien einsammeln
