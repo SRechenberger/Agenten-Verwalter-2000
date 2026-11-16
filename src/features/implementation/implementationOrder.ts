@@ -17,7 +17,20 @@ const ACTIVE_STATES: readonly StationState[] = [
   'asking',
   'waitsForYou',
 ];
-const NEEDS_USER_STATES: readonly StationState[] = ['asking', 'waitsForYou'];
+/** Zustände, in denen eine Station auf den Benutzer wartet. */
+export const NEEDS_USER_STATES: readonly StationState[] = ['asking', 'waitsForYou'];
+/** Zustände einer aktiven Station: Sidebar, Rückweg-Leiste, Zeitleisten-Sprung (ADR 065). */
+export const LIVE_STATES: readonly StationState[] = [
+  'ready',
+  'countdown',
+  'starting',
+  'running',
+  'waitsForScript',
+  'waitsForQuota',
+  'asking',
+  'waitsForYou',
+  'error',
+];
 
 export interface StationRef {
   station: StationView;
@@ -71,6 +84,13 @@ export function flatStations(implementation: ImplementationView): StationRef[] {
         a.station.level - b.station.level,
     )
     .map((ref: Omit<StationRef, 'index'>, index: number): StationRef => ({ ...ref, index }));
+}
+
+/** Aktive Stationen (ADR 065) in der Reihenfolge der Zeitleiste. */
+export function liveStations(implementation: ImplementationView): StationRef[] {
+  return flatStations(implementation).filter((ref: StationRef) =>
+    LIVE_STATES.includes(ref.station.state),
+  );
 }
 
 /** Die Station, die vorn liegt, solange niemand gewählt hat: die dringendste, bei Gleichstand die
