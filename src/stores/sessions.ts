@@ -7,7 +7,7 @@ export type SessionView = (typeof SESSION_VIEWS)[number];
 export const PROJECT_VIEWS = ['overview', 'changes', 'artifacts'] as const;
 export type ProjectView = (typeof PROJECT_VIEWS)[number];
 
-export const IMPLEMENTATION_VIEWS = ['flow', 'changes'] as const;
+export const IMPLEMENTATION_VIEWS = ['flow', 'changes', 'artifacts'] as const;
 export type ImplementationViewKind = (typeof IMPLEMENTATION_VIEWS)[number];
 
 export type RenameKind = 'session' | 'project' | 'implementation' | 'group';

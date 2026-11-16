@@ -41,6 +41,8 @@ interface ArtifactsViewProps {
   /** `null` in der Übersicht: dort gibt es weder „diese Session“ noch „Im Chat besprechen“. */
   currentSessionId: string | null;
   list: ArtifactList;
+  /** Kopf der Liste; die Umsetzung zeigt nur einen Teil der Artefakte des Vorhabens. */
+  heading?: string;
 }
 
 export function ArtifactsView({
@@ -48,6 +50,7 @@ export function ArtifactsView({
   projectId,
   currentSessionId,
   list,
+  heading = ARTIFACTS_HEADING,
 }: ArtifactsViewProps): ReactElement | null {
   const listWidth = usePanelWidth('artifactsList');
   // Die Dateien liegen beim Host: Sein Standardprogramm und sein Dateimanager laufen an seinem Bildschirm, nicht hier.
@@ -264,7 +267,7 @@ export function ArtifactsView({
       <nav className="artifacts__list" aria-label="Artefakte" style={{ width: listWidth.width }}>
         <div className="artifacts__heading">
           <span>
-            {ARTIFACTS_HEADING} · {list.items.length}
+            {heading} · {list.items.length}
           </span>
           <span className="artifacts__info" title={ARTIFACTS_INFO}>
             ?
