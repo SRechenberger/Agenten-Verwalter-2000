@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { ReactElement, ReactNode } from 'react';
 import { useAgentTypes } from '@/features/agenttypes/useAgentTypes';
 import { useNow } from '@/features/background/useNow';
@@ -12,6 +12,7 @@ import {
   flatStations,
   focusOrder,
   isFocusValid,
+  openingLevel,
   type StationRef,
 } from '@/features/implementation/implementationOrder';
 import { patchEdit } from '@/features/implementation/implementationGraph';
@@ -190,6 +191,7 @@ export function ImplementationView({
   const [isReportBusy, setIsReportBusy] = useState<boolean>(false);
   const [isInquiryBusy, setIsInquiryBusy] = useState<boolean>(false);
   const [isNewLaneOpen, setIsNewLaneOpen] = useState<boolean>(false);
+  const timelineRef = useRef<HTMLDivElement>(null);
   const storedFocus: string | undefined = useImplementationStore(
     (state) => state.focused[implementation.id],
   );
@@ -231,6 +233,26 @@ export function ImplementationView({
   const stationChangesCount: number | null =
     stationChanges === null ? null : countChangedFiles(stationChanges);
 
+  // Beim Öffnen steht die Stufe der ersten aktiven Station oben in der Zeitleiste (ADR 065). Im schmalen
+  // Layout rollt die Zeitleiste nicht selbst, `scrollTop` bleibt dort wirkungslos.
+  useLayoutEffect(() => {
+    const level: number | null = openingLevel(implementation);
+    const container: HTMLDivElement | null = timelineRef.current;
+    if (!isFlow || level === null || container === null) {
+      return;
+    }
+    const anchor: HTMLElement | null = container.querySelector<HTMLElement>(
+      `[data-scroll-anchor="${String(level)}"]`,
+    );
+    if (anchor === null) {
+      return;
+    }
+    container.scrollTop +=
+      anchor.getBoundingClientRect().top - container.getBoundingClientRect().top;
+    // Nur das Öffnen scrollt, nicht jede neue Fassung der Umsetzung.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [implementationId, isFlow]);
+
   useEffect(() => {
     if (!isFlow || focusedId === null) {
       return undefined;
@@ -251,6 +273,12 @@ export function ImplementationView({
       }
       event.preventDefault();
       setFocused(implementationId, target);
+      // Nur die Pfeiltaste holt die Zeile ins Bild; Klick und automatischer Fokus lassen die Zeitleiste stehen.
+      requestAnimationFrame((): void => {
+        timelineRef.current
+          ?.querySelector<HTMLElement>(`[data-focus-id="${CSS.escape(target)}"]`)
+          ?.scrollIntoView({ block: 'nearest' });
+      });
     }
     window.addEventListener('keydown', handleKeyDown);
     return (): void => {
@@ -387,7 +415,7 @@ export function ImplementationView({
     }
     return (
       <div className="implementation-view">
-        <div className="implementation-view__timeline">
+        <div ref={timelineRef} className="implementation-view__timeline">
           <Timeline
             implementation={implementation}
             focusedId={focusedId}

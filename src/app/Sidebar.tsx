@@ -7,7 +7,9 @@ import { SidebarGroup } from '@/app/SidebarGroup';
 import { SidebarImplementation } from '@/app/SidebarImplementation';
 import { SidebarItem } from '@/app/SidebarItem';
 import { SidebarProject } from '@/app/SidebarProject';
+import { SidebarStation } from '@/app/SidebarStation';
 import { useSidebarDrag } from '@/app/useSidebarDrag';
+import { useOpenStation } from '@/features/implementation/useOpenStation';
 import {
   projectActivity,
   sessionsByActivity,
@@ -46,6 +48,7 @@ const ESTIMATED_HEIGHT: Record<SidebarRow['kind'], number> = {
   group: 32,
   project: 44,
   implementation: 26,
+  station: 26,
   session: 26,
   more: 30,
 };
@@ -129,6 +132,7 @@ export function Sidebar({
   const needsEnvironmentAttention: boolean = useEnvironmentStore((state) =>
     needsAttention(state.status),
   );
+  const openStation = useOpenStation();
   const { error: actionError, run, report: reportError } = useActionError('sidebar');
 
   // Solange ein Gast das Vorhaben steuert oder der Host fehlt, lehnt der Core Umbenennen, Archivieren und
@@ -230,6 +234,23 @@ export function Sidebar({
     showProjectOverview,
     isDragging,
   ]);
+
+  // Zeigt die Hauptfläche eine Station ohne eigene Zeile (fertig o. ä.), trägt ihre Umsetzung die Markierung.
+  const stationSessionIds: ReadonlySet<string> = useMemo(
+    () =>
+      new Set<string>(
+        rows.flatMap((row: SidebarRow): string[] =>
+          row.kind === 'station' && row.entry.station.sessionId !== null
+            ? [row.entry.station.sessionId]
+            : [],
+        ),
+      ),
+    [rows],
+  );
+  const activeSession: SessionSummary | undefined =
+    activeSessionId === null
+      ? undefined
+      : sessions.find((session: SessionSummary) => session.id === activeSessionId);
 
   // Ein Vorhaben, das nur aufgeklappt ist, weil es die offene Session, Übersicht oder Umsetzung
   // enthält, bleibt aufgeklappt, wenn der Benutzer woandershin wechselt — zu klappt nur sein Klick.
@@ -442,6 +463,8 @@ export function Sidebar({
         return renderProject(row);
       case 'implementation':
         return renderImplementation(row);
+      case 'station':
+        return renderStation(row);
       case 'session':
         return renderSession(row);
       case 'more':
@@ -545,7 +568,12 @@ export function Sidebar({
       <div className={`sidebar__session${row.isLast ? ' sidebar__session--last' : ''}`}>
         <SidebarImplementation
           implementation={implementation}
-          isActive={implementation.id === activeImplementationId}
+          isActive={
+            implementation.id === activeImplementationId ||
+            (activeSession?.stationOf === implementation.id &&
+              activeSessionId !== null &&
+              !stationSessionIds.has(activeSessionId))
+          }
           isRenaming={
             renaming !== null &&
             renaming.kind === 'implementation' &&
@@ -561,6 +589,27 @@ export function Sidebar({
             commitRename('implementation', implementation.id, name);
           }}
           onCancelRename={stopRename}
+        />
+      </div>
+    );
+  }
+
+  function renderStation(row: Extract<SidebarRow, { kind: 'station' }>): ReactElement {
+    const { entry } = row;
+    const sessionId: string | null = entry.station.sessionId;
+    return (
+      <div className={`sidebar__session${row.isLast ? ' sidebar__session--last' : ''}`}>
+        <SidebarStation
+          entry={entry}
+          isNested={row.isNested}
+          isActive={sessionId !== null && sessionId === activeSessionId}
+          isUnread={
+            sessionId !== null &&
+            (sessions.find((session: SessionSummary) => session.id === sessionId)?.unread ?? false)
+          }
+          onSelect={(): void => {
+            openStation(row.implementationId, entry.station);
+          }}
         />
       </div>
     );
@@ -780,7 +829,10 @@ function estimateHeight(row: SidebarRow | undefined): number {
   if (row === undefined) {
     return ESTIMATED_HEIGHT.session;
   }
-  if ((row.kind === 'session' || row.kind === 'implementation') && row.isLast) {
+  if (
+    (row.kind === 'session' || row.kind === 'implementation' || row.kind === 'station') &&
+    row.isLast
+  ) {
     return ESTIMATED_HEIGHT.session + LAST_SESSION_EXTRA;
   }
   return ESTIMATED_HEIGHT[row.kind];
