@@ -1,6 +1,6 @@
 import { useEffect, useEffectEvent, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { MouseEvent, ReactElement } from 'react';
-import { useVirtualizer, type VirtualItem } from '@tanstack/react-virtual';
+import { useVirtualizer, type VirtualItem, type Virtualizer } from '@tanstack/react-virtual';
 import { FileLinkSessionContext } from '@/components/FileLinkSessionContext';
 import { ArtifactCard } from '@/features/artifacts/ArtifactCard';
 import { BackgroundLine } from '@/features/chat/BackgroundLine';
@@ -104,6 +104,8 @@ interface SelectionMenuState {
 
 interface LayoutMark {
   firstSeq: number | null;
+  /** Schlüssel des ersten Blocks mit Tagestrenner: Setzt ein nachgeladener Tag ihn fort, verliert er ihn. */
+  dividerKey: string | null;
   scrollHeight: number;
 }
 
@@ -143,7 +145,9 @@ export function ChatTimeline({
   const isLocked: boolean = lock !== null;
   const scrollRef = useRef<HTMLDivElement>(null);
   const stickToBottomRef = useRef<boolean>(true);
-  const layoutMarkRef = useRef<LayoutMark>({ firstSeq: null, scrollHeight: 0 });
+  const layoutMarkRef = useRef<LayoutMark>({ firstSeq: null, dividerKey: null, scrollHeight: 0 });
+  // Block, dessen Tagestrenner entfallen ist: seine nächste Höhenänderung gleicht die Liste immer aus.
+  const lostDividerKeyRef = useRef<string | null>(null);
 
   const blocks: ChatBlock[] = useMemo(
     () => buildBlocks(entries, backgroundByToolUseId),
@@ -171,6 +175,25 @@ export function ChatTimeline({
     paddingEnd: SURFACE_PADDING_BOTTOM + bottomInset,
     scrollPaddingStart: topInset,
   });
+  // Ersetzt die Vorgabe der Bibliothek und baut sie nach: Neu gemessene Blöcke über der Ansicht und ganz darüber
+  // liegende (nicht beim Hochscrollen) gleichen aus. Dazu der Block ohne Tagestrenner: Der Trenner steht über allem,
+  // was zu sehen ist; die Vorgabe überginge die Schrumpfung beim Hochscrollen, und die Stelle spränge um die Höhe.
+  useEffect(() => {
+    virtualizer.shouldAdjustScrollPositionOnItemSizeChange = (
+      item: VirtualItem,
+      _delta: number,
+      instance: Virtualizer<HTMLDivElement, Element>,
+    ): boolean => {
+      if (item.key === lostDividerKeyRef.current) {
+        lostDividerKeyRef.current = null;
+        return true;
+      }
+      const offset: number = (instance.scrollOffset ?? 0) + instance.scrollAdjustments;
+      return instance.itemSizeCache.has(item.key)
+        ? item.end <= offset && instance.scrollDirection !== 'backward'
+        : item.start < offset;
+    };
+  }, [virtualizer]);
   const totalSize: number = virtualizer.getTotalSize();
   // Wenig Inhalt klebt unten: alle Blöcke rücken um den freien Platz nach unten.
   const bottomOffset: number = Math.max(0, containerHeight - totalSize);
@@ -232,6 +255,11 @@ export function ChatTimeline({
     }
     const firstSeq: number | null = entries[0]?.seq ?? null;
     const previous: LayoutMark = layoutMarkRef.current;
+    const dividerKey: string | null = blocks[dividers.findIndex((d) => d !== null)]?.key ?? null;
+    const keptIndex: number = blocks.findIndex((block) => block.key === previous.dividerKey);
+    if (keptIndex >= 0 && dividers[keptIndex] === null) {
+      lostDividerKeyRef.current = previous.dividerKey;
+    }
     const isPrepended: boolean =
       previous.firstSeq !== null && firstSeq !== null && firstSeq < previous.firstSeq;
     if (stickToBottomRef.current) {
@@ -239,8 +267,8 @@ export function ChatTimeline({
     } else if (isPrepended) {
       element.scrollTop += element.scrollHeight - previous.scrollHeight;
     }
-    layoutMarkRef.current = { firstSeq, scrollHeight: element.scrollHeight };
-  }, [entries, totalSize, containerHeight]);
+    layoutMarkRef.current = { firstSeq, dividerKey, scrollHeight: element.scrollHeight };
+  }, [entries, blocks, dividers, totalSize, containerHeight]);
 
   // Füllt der Verlauf die Höhe nicht, gibt es kein Scrollen, das Älteres anstößt — dann gleich nachladen.
   // Nach einem Fehler nicht: sonst liefe die Wiederholung in einer Schleife; der nächste Versuch kommt vom Hochscrollen.
