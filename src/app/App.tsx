@@ -12,10 +12,12 @@ import { ArchiveDialog } from '@/features/archive/ArchiveDialog';
 import { BackgroundPanel } from '@/features/background/BackgroundPanel';
 import { countRunning, indexByToolUseId } from '@/features/background/backgroundItems';
 import { useSessionBackground } from '@/features/background/useSessionBackground';
+import { IMPLEMENTATION_ARTIFACTS_HEADING } from '@/features/artifacts/artifactTexts';
 import { ArtifactsView } from '@/features/artifacts/ArtifactsView';
 import { useProjectArtifacts } from '@/features/artifacts/useProjectArtifacts';
 import { ChatView } from '@/features/chat/ChatView';
 import { useGitStatus } from '@/features/git/useGitStatus';
+import { implementationArtifacts } from '@/features/implementation/implementationArtifacts';
 import { ImplementationView as ImplementationMain } from '@/features/implementation/ImplementationView';
 import { StationTrail } from '@/features/implementation/StationTrail';
 import { useInquiry } from '@/features/implementation/useInquiry';
@@ -305,6 +307,14 @@ export function App(): ReactElement {
     isMainReplaced ? null : (currentSession?.projectId ?? null),
   );
   const artifactCount: number = artifacts?.items.length ?? 0;
+  // Die Umsetzung zeigt nur, was Sessions ihrer Stationen und Rückfragen angelegt haben.
+  const implementationArtifactList: ArtifactList | null = useMemo(
+    () =>
+      artifacts === null || shownImplementation === undefined
+        ? null
+        : implementationArtifacts(artifacts, shownImplementation, sessions),
+    [artifacts, shownImplementation, sessions],
+  );
   // Ohne Artefakt fällt die Ansicht auf Chat bzw. Übersicht zurück.
   const isArtifactsView: boolean = isOverview
     ? !isImplementation && projectView === 'artifacts' && artifactCount > 0
@@ -526,9 +536,21 @@ export function App(): ReactElement {
         <ImplementationMain
           implementation={implementation}
           projectName={project.name}
-          activeView={isChangesView ? 'changes' : 'flow'}
+          activeView={implementationView}
           hasChanges={hasProjectRepositories}
           changesCount={changes === null ? null : countChangedFiles(changes)}
+          artifactCount={implementationArtifactList?.items.length ?? 0}
+          artifacts={
+            implementationArtifactList === null ? null : (
+              <ArtifactsView
+                sessionId={latestSession.id}
+                projectId={project.id}
+                currentSessionId={null}
+                list={implementationArtifactList}
+                heading={IMPLEMENTATION_ARTIFACTS_HEADING}
+              />
+            )
+          }
           sessions={sessions}
           changes={
             <ChangesView

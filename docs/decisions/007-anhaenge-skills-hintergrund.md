@@ -30,7 +30,7 @@ Meilenstein 2b ergänzt die Eingabeleiste um Anhänge (Knopf `+`, Hineinziehen, 
 - **(b) Dateisystem.** `init.skills` enthält nur Namen ohne Herkunft und Beschreibung und ist erst bekannt, nachdem der Agent einmal lief; „Neue Session“ braucht die Liste vorher.
 - **Vier Orte, in dieser Reihenfolge:** `~\.claude\skills\<ordner>\SKILL.md`, `~\.claude\commands\<datei>.md` (nur oberste Ebene), dann je Repository der Session `<wurzel>\.claude\skills\…` und `<wurzel>\.claude\commands\…`. `<wurzel>` ist der Worktree, unter „Neue Session“ der Haupt-Checkout.
 - **Name und Beschreibung** aus dem Frontmatter (`name`, `description`); ersatzweise Ordner- bzw. Dateiname und bei Befehlen die erste Textzeile. Beschreibungen werden auf 160 Zeichen gekürzt. Doppelte Namen bleiben beide stehen, die Herkunft unterscheidet sie.
-- **Plugin- und eingebaute Skills stehen nicht im Menü.** Tippen funktioniert trotzdem, die Kommandozeile löst jedes `/name` selbst auf.
+- **Plugin- und eingebaute Skills stehen nicht im Menü** — abgelöst durch ADR 034. Tippen funktioniert trotzdem, die Kommandozeile löst jedes `/name` selbst auf.
 - **Skill-Marke im Verlauf:** Beginnt eine gesendete Nachricht mit `/<name>` aus der Liste der Session, speichert der Core Name und Herkunft am Chat-Eintrag. Die Kommandozeile meldet das Laden nicht selbst.
 - **Session-Befehle** (`/rename`, `/changes`, `/pause`) führt die App selbst aus; sie gehen nie an den Agenten.
 

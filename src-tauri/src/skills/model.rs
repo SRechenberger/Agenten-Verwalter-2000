@@ -10,7 +10,11 @@ use ts_rs::TS;
 )]
 pub enum SkillOrigin {
     User,
-    Repository { name: String },
+    Repository {
+        name: String,
+    },
+    /// Mitgelieferter Befehl der Betriebsart (ADR 034): kommt aus dem Agenten, nicht aus einer Datei.
+    Builtin,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]

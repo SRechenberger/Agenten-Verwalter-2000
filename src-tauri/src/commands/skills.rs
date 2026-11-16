@@ -20,11 +20,12 @@ const SKILL_USE_WINDOW_MS: f64 = 30.0 * 24.0 * 3600.0 * 1000.0;
 #[tauri::command]
 pub async fn skill_list_for_session(
     app: tauri::AppHandle,
+    database: tauri::State<'_, Arc<Database>>,
     registry: tauri::State<'_, SessionRegistry>,
     session_id: String,
 ) -> Result<Vec<SkillInfo>, CommandError> {
     let roots = registry.skill_roots(&session_id)?;
-    Ok(skills::collect(&home_dir(&app)?, &roots))
+    skills::builtin::menu_entries(&database, &home_dir(&app)?, &roots)
 }
 
 /// Aufrufe je Skill in den letzten 30 Tagen (ADR 039).
@@ -55,5 +56,5 @@ pub async fn skill_list_for_repositories(
         .into_iter()
         .map(|row: RepositoryRow| (row.name, PathBuf::from(row.path)))
         .collect();
-    Ok(skills::collect(&home_dir(&app)?, &roots))
+    skills::builtin::menu_entries(&database, &home_dir(&app)?, &roots)
 }

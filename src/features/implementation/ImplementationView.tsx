@@ -59,6 +59,10 @@ interface ImplementationViewProps {
   sessions: readonly SessionSummary[];
   /** Inhalt des Reiters „Changes“ (Reichweite Vorhaben); gezeigt, wenn er aktiv ist. */
   changes: ReactNode;
+  /** Artefakte aus Sessions der Umsetzung (Stationen und Rückfragen). */
+  artifactCount: number;
+  /** Inhalt des Reiters „Artefakte“; gezeigt, wenn er aktiv ist und es Artefakte gibt. */
+  artifacts: ReactNode;
   /** Legt eine Rückfrage zur Umsetzung an und öffnet sie (`useInquiry`). */
   onNewInquiry: (implementationId: string) => Promise<void>;
   onShowView: (view: ImplementationViewKind) => void;
@@ -173,6 +177,8 @@ export function ImplementationView({
   changesCount,
   sessions,
   changes,
+  artifactCount,
+  artifacts,
   onNewInquiry,
   onShowView,
   onOpenProject,
@@ -198,7 +204,10 @@ export function ImplementationView({
   const { agentTypes } = useAgentTypes();
 
   const stations: StationRef[] = useMemo(() => flatStations(implementation), [implementation]);
-  const isFlow: boolean = !(activeView === 'changes' && hasChanges);
+  // Ohne Repository bzw. ohne Artefakt fällt der Reiter auf den Ablauf zurück.
+  const isChangesShown: boolean = activeView === 'changes' && hasChanges;
+  const isArtifactsShown: boolean = activeView === 'artifacts' && artifactCount > 0;
+  const isFlow: boolean = !isChangesShown && !isArtifactsShown;
   const isTicking: boolean = stations.some((ref: StationRef) =>
     ['running', 'starting', 'waitsForScript', 'countdown'].includes(ref.station.state),
   );
@@ -390,9 +399,19 @@ export function ImplementationView({
     );
   }
 
+  function activeViewShown(): ImplementationViewKind {
+    if (isChangesShown) {
+      return 'changes';
+    }
+    return isArtifactsShown ? 'artifacts' : 'flow';
+  }
+
   function renderBody(): ReactNode {
-    if (!isFlow) {
+    if (isChangesShown) {
       return changes;
+    }
+    if (isArtifactsShown) {
+      return artifacts;
     }
     return (
       <div className="implementation-view">
@@ -425,9 +444,10 @@ export function ImplementationView({
       <ImplementationHeader
         implementation={implementation}
         projectName={projectName}
-        activeView={activeView}
+        activeView={activeViewShown()}
         hasChanges={hasChanges}
         changesCount={changesCount}
+        artifactCount={artifactCount}
         onShowView={onShowView}
         onOpenProject={onOpenProject}
         terminalCount={terminalCount}

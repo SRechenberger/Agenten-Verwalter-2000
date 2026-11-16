@@ -252,6 +252,16 @@ export function Sidebar({
       ? undefined
       : sessions.find((session: SessionSummary) => session.id === activeSessionId);
 
+  // Ein Vorhaben, das nur aufgeklappt ist, weil es die offene Session, Übersicht oder Umsetzung
+  // enthält, bleibt aufgeklappt, wenn der Benutzer woandershin wechselt — zu klappt nur sein Klick.
+  useEffect(() => {
+    for (const row of rows) {
+      if (row.kind === 'project' && row.isExpanded && expanded[row.project.id] === undefined) {
+        setExpanded(row.project.id, true);
+      }
+    }
+  }, [rows, expanded, setExpanded]);
+
   // Die Warnung gilt dem React Compiler, den das Projekt nicht nutzt; die Bibliothek schreibt ADR 002 vor.
   // eslint-disable-next-line react-hooks/incompatible-library
   const virtualizer = useVirtualizer({

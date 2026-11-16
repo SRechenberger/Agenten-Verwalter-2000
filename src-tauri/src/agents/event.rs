@@ -424,6 +424,8 @@ pub enum TaskEnd {
 pub enum AgentEvent {
     Ready {
         model: String,
+        /// Liste der Kommandozeile; Autark und Codex schicken keine.
+        slash_commands: Option<Vec<String>>,
     },
     Text(String),
     Thinking {

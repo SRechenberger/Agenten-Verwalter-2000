@@ -3,6 +3,7 @@ import type { Artifact } from '@/lib/bindings/Artifact';
 import type { ArtifactKind } from '@/lib/bindings/ArtifactKind';
 
 export const ARTIFACTS_HEADING = 'Artefakte des Vorhabens';
+export const IMPLEMENTATION_ARTIFACTS_HEADING = 'Artefakte der Umsetzung';
 export const ARTIFACTS_INFO =
   'Dateien und Ordner, die ein Agent dieses Vorhabens zum Ansehen abgelegt hat – Bericht, Dokument, Bild, Diagramm, Video, Ton, Daten. Sie liegen im Ordner .artefakte des Vorhabens, stehen unter der Session, die sie angelegt hat, und aktualisieren sich, sobald der Agent sie neu speichert. Unterordner, deren Name mit _ beginnt, sind Zubehör einer Seite und erscheinen nicht.';
 export const JUST_UPDATED = 'gerade aktualisiert';
