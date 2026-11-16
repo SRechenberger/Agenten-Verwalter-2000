@@ -93,6 +93,16 @@ export function liveStations(implementation: ImplementationView): StationRef[] {
   );
 }
 
+/** Stufe, bei der die Zeitleiste öffnet (ADR 065): die der ersten aktiven Station in der Reihenfolge der
+ *  Zeitleiste, sonst die der ersten nicht fertigen; `null`, wenn alles fertig ist. */
+export function openingLevel(implementation: ImplementationView): number | null {
+  const refs: StationRef[] = flatStations(implementation);
+  const target: StationRef | undefined =
+    refs.find((ref: StationRef) => LIVE_STATES.includes(ref.station.state)) ??
+    refs.find((ref: StationRef) => ref.station.state !== 'done');
+  return target === undefined ? null : target.station.level;
+}
+
 /** Die Station, die vorn liegt, solange niemand gewählt hat: die dringendste, bei Gleichstand die
  *  erste in Plan-Reihenfolge; ist alles fertig, die letzte. */
 function currentStationId(implementation: ImplementationView): string | null {

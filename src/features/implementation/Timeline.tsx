@@ -257,6 +257,7 @@ export function Timeline({
         key={station.id}
         role="listitem"
         className={`timeline__row${isFocused ? ' timeline__row--focused' : ''}`}
+        data-focus-id={station.id}
       >
         <StationDot station={station} />
         <button
@@ -296,6 +297,7 @@ export function Timeline({
         key={focusId}
         role="listitem"
         className={`timeline__row timeline__row--marker${isFocused ? ' timeline__row--focused' : ''}`}
+        data-focus-id={focusId}
       >
         <span className="timeline__marker-icon" aria-hidden="true">
           ⟳
@@ -325,7 +327,11 @@ export function Timeline({
   function renderGroup(group: StageGroup): ReactElement {
     const isParallel: boolean = group.refs.length > 1;
     return (
-      <section key={`stage-${String(group.level)}`} className="timeline__group">
+      <section
+        key={`stage-${String(group.level)}`}
+        className="timeline__group"
+        data-scroll-anchor={group.level}
+      >
         <h3 className="timeline__stage">{stageTitle(group.level, group.refs.length)}</h3>
         <div
           role="list"
