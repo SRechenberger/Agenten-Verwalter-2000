@@ -257,6 +257,10 @@ export function ChatTimeline({
     if (sendingIds.has(oldestOpenQuestion.requestId) || isLocked) {
       return;
     }
+    // Einen Vorschlag beantwortet nur sein Kasten; `chat_answer` wiese „1“ und „2“ ab.
+    if (oldestOpenQuestion.toolRequest?.kind === 'agentType') {
+      return;
+    }
     // Beim Ändern stehen „Erlauben“ und „Ablehnen“ nicht da; eine Ziffer darf den alten Text nicht senden.
     if ((toolDrafts.get(oldestOpenQuestion.requestId)?.edit ?? null) !== null) {
       return;
