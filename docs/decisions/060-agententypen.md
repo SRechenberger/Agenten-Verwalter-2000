@@ -30,7 +30,7 @@ Die Story nannte sie unbestätigt; die Freigabe des Plans am 2026-11-08 bestäti
 | **V10** | Fix-Runde und zweites Review übernehmen `agent`, mit U1 auch `effort` und `prompt`: Ein kritisches Review bleibt kritisch. Ein Typ, der „Fix-Runde“ führt, schlägt den Rückfall. | 2 |
 | **V11** | Die Stationskarte nennt Typ, Modell und Denkaufwand. | 2 (Daten), 6 (Karte) |
 | **V12** | Modell und Denkaufwand **des Typs** gelten nur in der Betriebsart Claude, Systemprompt und Skills in allen. Ausdrückliche Werte der Station gelten wie das Modell der Station heute in jeder Betriebsart. | 2, 4 |
-| **V13** | Lesewerkzeug `implementation_agent_types`; kein Werkzeug schreibt Typen oder nimmt Pfade an. | 5 |
+| **V13** | Lesewerkzeug `implementation_agent_types`; kein Werkzeug schreibt Typen oder nimmt Pfade an. 2026-11-15: teilweise abgelöst durch [ADR 063](063-agententypen-per-mcp.md) (Vorschläge per MCP, die der Benutzer übernimmt). | 5 |
 | **V14** | Der Planer liest die Typen, bevor er den Plan vorlegt; dafür ein fester Satz in `session_tools_prompt`. | 5 |
 
 ### Neu im Plan (N1 bis N15)

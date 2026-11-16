@@ -482,6 +482,7 @@ export function ChatTimeline({
           <SessionToolBlock
             entry={entry}
             request={entry.toolRequest}
+            sessionId={session.id}
             projectId={session.projectId}
             selfRelease={selfRelease}
             draft={toolDrafts.get(entry.requestId) ?? EMPTY_TOOL_DRAFT}

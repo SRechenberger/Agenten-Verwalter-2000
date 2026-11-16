@@ -41,6 +41,21 @@ pub struct AgentTypeInput {
     pub skills: Vec<String>,
 }
 
+impl From<&AgentType> for AgentTypeInput {
+    fn from(agent_type: &AgentType) -> AgentTypeInput {
+        AgentTypeInput {
+            name: agent_type.name.clone(),
+            description: agent_type.description.clone(),
+            stages: agent_type.stages.clone(),
+            model: agent_type.model,
+            effort: agent_type.effort,
+            prompt: agent_type.prompt.clone(),
+            files: agent_type.files.clone(),
+            skills: agent_type.skills.clone(),
+        }
+    }
+}
+
 /// Das Feld, an dem die Oberfläche eine Meldung zeigt; Denkaufwand steht bei `Model`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]

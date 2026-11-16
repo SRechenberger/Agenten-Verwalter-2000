@@ -1,19 +1,27 @@
 //! Auflösung von Typ, Modell und Denkaufwand einer Station, Prüfung eines Typs vor dem Speichern und
-//! Systemprompt einer Station samt seinem Weg in die Argumente des Agenten (ADR 060): rein, ohne
-//! Datenbank, ohne Dateisystem und ohne Tauri.
+//! Systemprompt einer Station samt seinem Weg in die Argumente des Agenten (ADR 060), dazu die
+//! Vorschläge per MCP (ADR 063): ohne Dateisystem und ohne Tauri; nur die Prüfung „veraltet“ nutzt eine
+//! Datenbank im Speicher.
 use std::collections::HashMap;
 use std::env;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
-use super::model::{AgentType, AgentTypeField, AgentTypeInput, AgentValueSource, FieldError};
+use serde_json::{Value, json};
+
+use super::model::{
+    AgentType, AgentTypeField, AgentTypeInput, AgentTypeSaved, AgentValueSource, FieldError,
+};
 use super::prompt::{Folders, PromptError, compose, read_bounded};
-use super::{StationValues, UnknownAgent, resolve, validate};
+use super::{StationValues, UnknownAgent, resolve, tools, validate};
 use crate::agents::claude::local::{LocalBackend, LocalProgram};
 use crate::agents::claude::process::{SpawnOptions, common_args};
-use crate::agents::event::{Effort, Mode, ModelId};
+use crate::agents::event::{Effort, Mode, ModelId, QuestionAnswer, ToolRequest};
+use crate::db::Database;
 use crate::mcp_access::VerwalterMcp;
+use crate::mcp_access::tools::ToolSpec;
+use crate::sessions::registry::tool_answer_label;
 use crate::{codex, processes, standalone};
 
 fn agent_type(
@@ -1115,4 +1123,381 @@ fn station_text_is_the_last_part_of_the_one_append_system_prompt_in_all_four_mod
             "{name}: Codex bekommt den Text zuletzt"
         );
     }
+}
+
+// Vorschläge per MCP (ADR 063): Schema, Eingabe, Prüfung, Ergebnis, Veraltet und Klasse des Befehls.
+// Alles über freie Funktionen: Ein `Box<dyn ToolSet>` der echten Sätze nähme Tauri ins Testprogramm.
+
+fn proposal_tool(name: &str) -> ToolSpec {
+    tools::specs()
+        .into_iter()
+        .find(|spec: &ToolSpec| spec.name == name)
+        .expect("Werkzeug vorhanden")
+}
+
+fn reviewer_type() -> AgentType {
+    let mut reviewer = agent_type(
+        "Reviewer",
+        &["Review"],
+        Some(ModelId::Opus),
+        Some(Effort::High),
+    );
+    reviewer.prompt = "Du prüfst.".to_owned();
+    reviewer.files = vec!["~/rollen/review.md".to_owned()];
+    reviewer.skills = vec!["review".to_owned()];
+    reviewer
+}
+
+#[test]
+fn proposal_tools_schema_names_required_fields_and_enums() {
+    let names: Vec<&str> = tools::specs()
+        .iter()
+        .map(|spec: &ToolSpec| spec.name)
+        .collect();
+    assert_eq!(
+        names,
+        [
+            "agent_type_get",
+            "agent_type_propose_create",
+            "agent_type_propose_update"
+        ]
+    );
+    let get = proposal_tool("agent_type_get");
+    assert_eq!(get.input_schema["required"], json!(["name"]));
+    assert_eq!(
+        (
+            &get.input_schema["properties"]["name"]["minLength"],
+            &get.input_schema["properties"]["name"]["maxLength"]
+        ),
+        (&json!(1), &json!(40))
+    );
+    let create = proposal_tool("agent_type_propose_create");
+    let update = proposal_tool("agent_type_propose_update");
+    assert_eq!(
+        create.input_schema["required"],
+        json!(["name", "description"])
+    );
+    assert_eq!(update.input_schema["required"], json!(["target"]));
+    assert!(create.input_schema["properties"].get("target").is_none());
+    let fields = [
+        "name",
+        "description",
+        "stages",
+        "model",
+        "effort",
+        "prompt",
+        "files",
+        "skills",
+    ];
+    for field in fields {
+        assert!(
+            create.input_schema["properties"].get(field).is_some()
+                && update.input_schema["properties"].get(field).is_some(),
+            "{field} in beiden Vorschlägen"
+        );
+    }
+    for spec in [&get, &create, &update] {
+        assert_eq!(
+            spec.input_schema["additionalProperties"],
+            json!(false),
+            "{}: ein Tippfehler im Feldnamen scheitert am Schema",
+            spec.name
+        );
+    }
+    let models = json!(["fable", "opus", "opusplan", "sonnet", "haiku"]);
+    let efforts = json!(["low", "medium", "high", "xhigh", "max"]);
+    assert_eq!(create.input_schema["properties"]["model"]["enum"], models);
+    assert_eq!(create.input_schema["properties"]["effort"]["enum"], efforts);
+    let with_null = |values: &Value| {
+        let mut values = values.as_array().expect("Liste").clone();
+        values.push(Value::Null);
+        Value::Array(values)
+    };
+    assert_eq!(
+        update.input_schema["properties"]["model"]["enum"],
+        with_null(&models),
+        "null setzt bei einer Änderung „Standard“"
+    );
+    assert_eq!(
+        update.input_schema["properties"]["effort"]["enum"],
+        with_null(&efforts)
+    );
+}
+
+#[test]
+fn only_agent_type_get_is_read_only_and_allowed_in_side_questions() {
+    assert!(tools::is_read_only("agent_type_get"));
+    assert!(tools::side_may_call("agent_type_get"));
+    for writing in ["agent_type_propose_create", "agent_type_propose_update"] {
+        assert!(!tools::is_read_only(writing), "{writing} ist nicht lesend");
+        assert!(
+            !tools::side_may_call(writing),
+            "{writing} bleibt der Nebenfrage verboten"
+        );
+    }
+}
+
+#[test]
+fn agent_type_get_returns_the_whole_type_ignoring_case() {
+    let types = vec![reviewer_type()];
+    let answer = tools::get_answer(&json!({ "name": "  reviewer " }), &types).expect("gefunden");
+    assert_eq!(
+        answer,
+        json!({ "agentType": {
+            "id": "id-Reviewer", "name": "Reviewer", "description": "Beschreibung von Reviewer",
+            "stages": ["Review"], "model": "opus", "effort": "high", "prompt": "Du prüfst.",
+            "files": ["~/rollen/review.md"], "skills": ["review"],
+        } })
+    );
+    assert_eq!(
+        tools::get_answer(&json!({ "name": "Tester" }), &types),
+        Err("Kein Agententyp „Tester“.".to_owned())
+    );
+}
+
+#[test]
+fn propose_create_fills_missing_fields_with_empty_and_standard() {
+    let input = tools::create_input(&json!({ "name": "Tester", "description": "Testet." }))
+        .expect("gültig");
+    assert_eq!(
+        input,
+        AgentTypeInput {
+            description: "Testet.".to_owned(),
+            ..input_named("Tester")
+        }
+    );
+    assert!(
+        tools::create_input(&json!({ "name": "Tester" }))
+            .is_err_and(|error: String| error.contains("description"))
+    );
+    assert!(
+        tools::create_input(&json!({ "name": "T", "description": "D", "target": "X" })).is_err()
+    );
+    assert!(
+        tools::create_input(&json!({ "name": "T", "description": "D", "modell": "opus" })).is_err(),
+        "unbekannte Felder werden abgelehnt"
+    );
+}
+
+fn input_named(name: &str) -> AgentTypeInput {
+    AgentTypeInput {
+        description: String::new(),
+        ..input(name)
+    }
+}
+
+#[test]
+fn propose_update_keeps_missing_fields_and_null_sets_standard() {
+    let types = vec![reviewer_type()];
+    let (base, kept) =
+        tools::update_input(&json!({ "target": "REVIEWER", "prompt": "Neu." }), &types)
+            .expect("Ziel gefunden");
+    assert_eq!(base, types[0]);
+    assert_eq!(
+        kept,
+        AgentTypeInput {
+            prompt: "Neu.".to_owned(),
+            ..AgentTypeInput::from(&types[0])
+        },
+        "ein fehlendes Feld behält den gespeicherten Wert"
+    );
+    let (_, standard) = tools::update_input(
+        &json!({ "target": "Reviewer", "model": null, "effort": null }),
+        &types,
+    )
+    .expect("Ziel gefunden");
+    assert_eq!((standard.model, standard.effort), (None, None));
+    assert_eq!(standard.files, types[0].files);
+    assert_eq!(
+        tools::update_input(&json!({ "target": "Planer" }), &types).err(),
+        Some("Kein Agententyp „Planer“.".to_owned())
+    );
+}
+
+#[test]
+fn invalid_proposal_becomes_one_line_per_error_without_a_box() {
+    let types = vec![reviewer_type()];
+    let invalid = AgentTypeInput {
+        stages: vec!["review".to_owned()],
+        model: Some(ModelId::Opus),
+        ..input("reviewer")
+    };
+    assert_eq!(
+        tools::checked(&invalid, &types, None),
+        Err(
+            "name: Der Name „reviewer“ gehört schon einem anderen Typ.\n\
+             stages: „review“ gehört schon zum Typ „Reviewer“.\n\
+             model: Modell und Denkaufwand gelten nur zusammen."
+                .to_owned()
+        )
+    );
+    // Bei einer Änderung kollidiert der Typ nicht mit sich selbst, und die Eingabe kommt normalisiert.
+    let (base, own) = tools::update_input(
+        &json!({ "target": "Reviewer", "name": " Reviewer " }),
+        &types,
+    )
+    .expect("Ziel gefunden");
+    assert_eq!(
+        tools::checked(&own, &types, Some(&base.id)).map(|input| input.name),
+        Ok("Reviewer".to_owned())
+    );
+}
+
+#[test]
+fn accepted_result_marks_edited_only_when_the_saved_type_differs() {
+    let saved = reviewer_type();
+    let proposal = AgentTypeInput::from(&saved);
+    let unchanged = tools::accepted_result(&saved, &proposal);
+    assert_eq!(
+        unchanged,
+        json!({ "decision": "accepted", "edited": false, "agentType": saved })
+    );
+    let other = AgentTypeInput {
+        prompt: "Vorgeschlagen.".to_owned(),
+        ..proposal
+    };
+    assert_eq!(
+        tools::accepted_result(&saved, &other)["edited"],
+        json!(true)
+    );
+    assert_eq!(tools::accepted_label(false), "Übernommen");
+    assert_eq!(tools::accepted_label(true), "Übernommen mit Änderungen");
+}
+
+#[test]
+fn rejected_result_carries_the_trimmed_reason() {
+    assert_eq!(
+        tools::rejected_result("  zu breit  "),
+        json!({ "decision": "rejected", "reason": "zu breit" })
+    );
+    assert_eq!(
+        tools::rejected_result(""),
+        json!({ "decision": "rejected", "reason": "" })
+    );
+    assert_eq!(tools::rejected_label(" "), "Verworfen");
+    assert_eq!(tools::rejected_label(" zu breit"), "Verworfen: zu breit");
+}
+
+fn database_with_reviewer() -> (Database, AgentType) {
+    let database = Database::open(Path::new(":memory:")).expect("Datenbank im Speicher");
+    let saved = super::create(&database, &AgentTypeInput::from(&reviewer_type()))
+        .expect("angelegt")
+        .agent_type
+        .expect("ohne Meldung");
+    (database, saved)
+}
+
+fn stale_error(name: &str) -> Vec<FieldError> {
+    vec![error(
+        AgentTypeField::Name,
+        &format!(
+            "Der Typ „{name}“ wurde seit dem Vorschlag geändert oder gelöscht. Verwirf den Vorschlag."
+        ),
+    )]
+}
+
+#[test]
+fn proposal_changes_nothing_until_accepted_and_then_saves_like_the_dialog() {
+    let (database, base) = database_with_reviewer();
+    let types = super::list(&database).expect("Liste");
+    let (_, input) =
+        tools::update_input(&json!({ "target": "Reviewer", "prompt": "Neu." }), &types)
+            .expect("Ziel gefunden");
+    let proposal = tools::checked(&input, &types, Some(&base.id)).expect("gültig");
+    assert_eq!(
+        super::list(&database).expect("Liste"),
+        types,
+        "der Vorschlag speichert nichts"
+    );
+    let saved = super::update_if_unchanged(&database, &base, &proposal).expect("gespeichert");
+    assert_eq!(saved.errors, Vec::new());
+    assert_eq!(
+        super::list(&database).expect("Liste"),
+        vec![AgentType {
+            prompt: "Neu.".to_owned(),
+            ..base
+        }]
+    );
+}
+
+#[test]
+fn stale_update_proposal_is_refused_when_the_type_changed_or_was_deleted() {
+    let (database, base) = database_with_reviewer();
+    let proposal = AgentTypeInput {
+        prompt: "Vorschlag.".to_owned(),
+        ..AgentTypeInput::from(&base)
+    };
+    let changed = AgentTypeInput {
+        prompt: "Von Hand geändert.".to_owned(),
+        ..AgentTypeInput::from(&base)
+    };
+    super::update(&database, &base.id, &changed).expect("geändert");
+    let refused = super::update_if_unchanged(&database, &base, &proposal).expect("ohne Fehler");
+    assert_eq!(
+        refused,
+        AgentTypeSaved {
+            agent_type: None,
+            errors: stale_error("Reviewer"),
+        }
+    );
+    assert_eq!(
+        super::list(&database).expect("Liste")[0].prompt,
+        "Von Hand geändert."
+    );
+
+    let (database, base) = database_with_reviewer();
+    super::delete(&database, &base.id).expect("gelöscht");
+    let refused = super::update_if_unchanged(&database, &base, &proposal).expect("ohne Fehler");
+    assert_eq!(refused.errors, stale_error("Reviewer"));
+    assert_eq!(
+        super::list(&database).expect("Liste"),
+        Vec::new(),
+        "nichts neu angelegt"
+    );
+}
+
+#[test]
+fn chat_answer_refuses_an_agent_type_proposal_box() {
+    let request = ToolRequest::AgentType {
+        base: None,
+        proposal: Box::new(input("Tester")),
+    };
+    for answer in [
+        QuestionAnswer::Allow,
+        QuestionAnswer::Deny {
+            message: "nein".to_owned(),
+        },
+        QuestionAnswer::Edit {
+            message: "anders".to_owned(),
+            model: None,
+            effort: None,
+        },
+        QuestionAnswer::Options {
+            answers: vec!["Übernehmen".to_owned()],
+        },
+    ] {
+        assert!(
+            tool_answer_label(&request, &answer).is_err(),
+            "{answer:?} übernimmt am Speichern vorbei"
+        );
+    }
+}
+
+#[test]
+fn proposal_answer_command_is_class_c_with_session_id() {
+    use crate::remote::access::{Class, IdKind, TargetId, class_of, ids_of};
+    assert_eq!(
+        class_of("agent_type_proposal_answer"),
+        Some(Class::HostWrite)
+    );
+    assert_eq!(
+        ids_of(
+            "agent_type_proposal_answer",
+            &json!({ "sessionId": "session", "requestId": "tool-1" })
+        ),
+        vec![TargetId {
+            kind: IdKind::Session,
+            value: "session".to_owned(),
+        }]
+    );
 }
