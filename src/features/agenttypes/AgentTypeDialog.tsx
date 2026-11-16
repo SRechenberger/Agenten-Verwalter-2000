@@ -279,7 +279,12 @@ export function AgentTypeDialog({ agentType, onClose }: AgentTypeDialogProps): R
   const invalidFieldCount: number = new Set(errors.map((error: FieldError) => error.field)).size;
   const typedSkill: string = skillName(pending.skill).toLowerCase();
   const skillSuggestions: string[] = Array.from(
-    new Set(knownSkills.map((skill: SkillInfo) => skill.name)),
+    new Set(
+      // Mitgelieferte Befehle (`/compact`, `/usage` …) bleiben draußen: die erste Nachricht soll einen Skill rufen (ADR 034).
+      knownSkills
+        .filter((skill: SkillInfo) => skill.origin.kind !== 'builtin')
+        .map((skill: SkillInfo) => skill.name),
+    ),
   ).filter(
     (name: string) => !draft.skills.includes(name) && name.toLowerCase().includes(typedSkill),
   );

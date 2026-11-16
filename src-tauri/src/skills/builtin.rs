@@ -156,3 +156,89 @@ fn describe(name: &str) -> String {
         .map(|(_, description)| (*description).to_owned())
         .unwrap_or_default()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Eine Datenbank im Speicher mit Betriebsart und der Befehlsliste der Kommandozeile.
+    fn database_with(mode: OperatingMode, commands: &[&str]) -> Database {
+        let database = Database::open(Path::new(":memory:")).expect("Datenbank im Speicher");
+        let names: Vec<String> = commands
+            .iter()
+            .map(|name: &&str| (*name).to_owned())
+            .collect();
+        remember_claude_commands(&database, &names).expect("schreibbar");
+        database
+            .with(|connection| {
+                db::settings::write(connection, "operating_mode", &db::enum_to_text(&mode)?)
+            })
+            .expect("schreibbar");
+        database
+    }
+
+    fn builtin_names(database: &Database, home: &Path) -> Vec<String> {
+        menu_entries(database, home, &[])
+            .expect("Einträge")
+            .into_iter()
+            .filter(|skill: &SkillInfo| skill.origin == SkillOrigin::Builtin)
+            .map(|skill: SkillInfo| skill.name)
+            .collect()
+    }
+
+    /// Ein leerer Benutzerordner; `.claude` fehlt darin, also gibt es keine Datei-Einträge.
+    fn empty_home() -> PathBuf {
+        std::env::temp_dir().join("verwalter-builtin-test-leer")
+    }
+
+    #[test]
+    fn standalone_and_codex_list_no_builtin_commands() {
+        for mode in [OperatingMode::Standalone, OperatingMode::Codex] {
+            let database = database_with(mode, &["compact", "context"]);
+            assert!(builtin_names(&database, &empty_home()).is_empty());
+        }
+    }
+
+    #[test]
+    fn claude_modes_list_builtin_commands_sorted_by_name() {
+        for mode in [OperatingMode::Claude, OperatingMode::ClaudeCodeLocal] {
+            let database = database_with(mode, &["usage", "Compact", "context"]);
+            assert_eq!(
+                builtin_names(&database, &empty_home()),
+                ["Compact", "context", "usage"]
+            );
+        }
+    }
+
+    #[test]
+    fn hidden_names_and_internal_prefix_never_reach_the_menu() {
+        let database = database_with(
+            OperatingMode::Claude,
+            &["model", "clear", "agents", "__internal", "context"],
+        );
+        assert_eq!(builtin_names(&database, &empty_home()), ["context"]);
+    }
+
+    #[test]
+    fn a_name_with_its_own_file_displaces_the_builtin_command() {
+        let home = std::env::temp_dir().join("verwalter-builtin-test-datei");
+        let commands = home.join(".claude").join("commands");
+        std::fs::create_dir_all(&commands).expect("Ordner");
+        std::fs::write(commands.join("context.md"), "Eigene Fassung\n").expect("Datei");
+        let database = database_with(OperatingMode::Claude, &["context", "usage"]);
+        let entries = menu_entries(&database, &home, &[]).expect("Einträge");
+        let _ = std::fs::remove_dir_all(&home);
+        let context: Vec<&SkillInfo> = entries
+            .iter()
+            .filter(|skill: &&SkillInfo| skill.name == "context")
+            .collect();
+        assert_eq!(context.len(), 1);
+        assert_ne!(context[0].origin, SkillOrigin::Builtin);
+        assert!(
+            entries
+                .iter()
+                .any(|skill: &SkillInfo| skill.name == "usage"
+                    && skill.origin == SkillOrigin::Builtin)
+        );
+    }
+}
