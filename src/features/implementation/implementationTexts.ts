@@ -217,6 +217,12 @@ export function durationText(milliseconds: number): string {
   return rest === 0 ? `${hours} h` : `${hours} h ${String(rest)} min`;
 }
 
+/** „Review #7“; solange die Station keine Session hat, nur die Stufe. */
+export function stationLabel(station: StationView): string {
+  const number: number | null = station.sessionNumber;
+  return number === null ? station.stage : `${station.stage} #${String(number)}`;
+}
+
 /** Zustand der Station als Satz für die große Karte („läuft seit 12 min“, „fertig · 24 min“). */
 export function stateText(station: StationView, now: number): string {
   if (station.startError !== null) {
