@@ -1,5 +1,6 @@
 //! Skills und Befehle, die das `/`-Menü anbietet. Quelle ist das Dateisystem, nicht `system/init`:
 //! „Neue Session“ braucht die Liste, bevor ein Agent je lief.
+pub mod builtin;
 pub mod frontmatter;
 pub mod model;
 

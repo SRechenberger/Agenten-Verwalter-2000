@@ -300,7 +300,14 @@ export function AgentTypeDialog({
   const invalidFieldCount: number = new Set(errors.map((error: FieldError) => error.field)).size;
   const typedSkill: string = skillName(pending.skill).toLowerCase();
   const skillSuggestions: string[] = Array.from(
-    new Set(knownSkills.map((skill: SkillInfo) => skill.name)),
+    new Set(
+      // Mitgelieferte Befehle (`/compact`, `/usage` …) bleiben draußen: die erste Nachricht soll einen Skill rufen (ADR 034).
+      // Plugin-Skills (`plugin:skill`) kommen im Fork nur über dieselbe Liste und tragen daher auch `builtin`; sie erkennt das `:`.
+      // ponytail: Namensregel statt eigener Herkunft `Plugin`; Ausbau, falls ein mitgelieferter Befehl je einen `:` trägt.
+      knownSkills
+        .filter((skill: SkillInfo) => skill.origin.kind !== 'builtin' || skill.name.includes(':'))
+        .map((skill: SkillInfo) => skill.name),
+    ),
   ).filter(
     (name: string) => !draft.skills.includes(name) && name.toLowerCase().includes(typedSkill),
   );
