@@ -52,6 +52,23 @@ export async function setImplementationAutoStart(id: string, enabled: boolean): 
   await invoke('implementation_set_auto_start', { id, enabled });
 }
 
+/** Schaltet „Automatisch fortsetzen“ der Umsetzung (ADR 064); setzt alle nicht fertigen Stationen auf „wie
+ *  die Umsetzung“ und schaltet die Zeitgeber ihrer pausierten Sessions.
+ *  @throws {import('@/lib/bindings/CommandError').CommandError} `implementation`, `database` */
+export async function setImplementationAutoResume(id: string, enabled: boolean): Promise<void> {
+  await invoke('implementation_set_auto_resume', { id, enabled });
+}
+
+/** „Automatisch fortsetzen“ einer Station, `null` = wie die Umsetzung; bis die Station fertig ist (ADR 064).
+ *  @throws {import('@/lib/bindings/CommandError').CommandError} `implementation` (fertig, Station des Benutzers), `database` */
+export async function setStationAutoResume(
+  id: string,
+  stationId: string,
+  value: boolean | null,
+): Promise<void> {
+  await invoke('implementation_set_station_auto_resume', { id, stationId, value });
+}
+
 /** „Anhalten nach dieser Session“: die nächste Fertigmeldung startet nichts mehr.
  *  @throws {import('@/lib/bindings/CommandError').CommandError} `implementation`, `database` */
 export async function setImplementationStopAfterCurrent(

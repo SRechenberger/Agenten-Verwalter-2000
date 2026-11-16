@@ -37,6 +37,7 @@
   &--todo {
     border: 2px solid var(--color-border);
     background: var(--color-bg-base);
+    color: var(--color-status-paused);
   }
 
   /* Hand statt Punkt: keine Füllung, die Farbe trägt den Zustand. */

@@ -14,6 +14,7 @@ const ACTIVE_STATES: readonly StationState[] = [
   'running',
   'starting',
   'waitsForScript',
+  'waitsForQuota',
   'asking',
   'waitsForYou',
 ];

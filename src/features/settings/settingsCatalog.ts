@@ -132,6 +132,12 @@ const ENTRY_DATA = {
     label: 'Angaben ohne Fundstelle',
     info: 'Unterstreicht Pfade, Datei:Zeile und Zahlen ab zwei Ziffern, die in keiner Werkzeug-Ausgabe derselben Antwort vorkommen.',
   },
+  defaultAutoResume: {
+    category: 'agent',
+    section: 'Agent',
+    label: 'Automatisch fortsetzen',
+    info: 'Wenn das Kontingent aufgebraucht ist, setzt eine Station 30 Sekunden nach dem Zurücksetzen von selbst fort. Der Wert gilt für neue Umsetzungen; bestehende behalten ihren. Sessions außerhalb einer Umsetzung beginnen jede Pause weiter mit „aus“.',
+  },
   agentTypes: {
     category: 'agent',
     section: 'Agententypen',

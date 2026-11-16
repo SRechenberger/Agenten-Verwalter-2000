@@ -9,8 +9,11 @@
   color: var(--color-fg-secondary);
   font-size: var(--font-size-sm);
 
+  /* Wächst bis 160 px, bricht aber schon ab 60 px um: so passt ↻ Automatisch fortsetzen dazu,
+     ohne dass die Leiste früher zweizeilig wird. */
   &__progress {
-    width: 160px;
+    flex: 100 1 60px;
+    max-width: 160px;
     height: 6px;
     overflow: hidden;
     border-radius: var(--radius-full);
@@ -170,6 +173,7 @@
     &__progress {
       flex: 1;
       min-width: 60px;
+      max-width: none;
     }
 
     &__spacer {
