@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { ReactElement, ReactNode } from 'react';
 import { AgentTypeDialog } from '@/features/agenttypes/AgentTypeDialog';
 import {
@@ -35,7 +35,7 @@ import {
   proposalUnchangedText,
   proposalUpdateTitle,
 } from '@/features/agenttypes/agentTypeTexts';
-import type { QuestionEntry } from '@/features/chat/questionDraft';
+import type { QuestionEntry, ToolDraft } from '@/features/chat/questionDraft';
 import { useProjectIsRemote } from '@/features/remote/useProjectAccess';
 import { answerAgentTypeProposal, MAX_PROMPT_UNITS, promptLength } from '@/lib/agentTypes';
 import type { AgentType } from '@/lib/bindings/AgentType';
@@ -123,8 +123,11 @@ interface AgentTypeProposalBlockProps {
   sessionId: string;
   sessionNumber: number;
   projectId: string;
+  /** Begründung und Meldungen leben in `ChatTimeline`: Der Kasten verlässt beim Scrollen das DOM. */
+  draft: ToolDraft;
   /** Wird gesendet, oder das Vorhaben steht unter fremder Kontrolle: Die Knöpfe sind gesperrt. */
   isSending: boolean;
+  onDraft: (next: ToolDraft) => void;
 }
 
 /** Kasten eines Vorschlags (ADR 063): zeigt den Typ, übernimmt ihn, öffnet ihn im Dialog oder verwirft ihn mit
@@ -135,19 +138,30 @@ export function AgentTypeProposalBlock({
   sessionId,
   sessionNumber,
   projectId,
+  draft,
   isSending,
+  onDraft,
 }: AgentTypeProposalBlockProps): ReactElement {
   const [isBusy, setIsBusy] = useState<boolean>(false);
-  const [errors, setErrors] = useState<FieldError[]>([]);
-  const [failure, setFailure] = useState<string | null>(null);
   const [isPromptOpen, setIsPromptOpen] = useState<boolean>(false);
-  const [isRejecting, setIsRejecting] = useState<boolean>(false);
-  const [reason, setReason] = useState<string>('');
   const [isDialogOpen, setIsDialogOpen] = useState<boolean>(false);
   const [isShown, setIsShown] = useState<boolean>(false);
+  const reasonRef = useRef<HTMLTextAreaElement>(null);
+  const isFocusRequested = useRef<boolean>(false);
   const isRemote: boolean = useProjectIsRemote(projectId);
   const { base, proposal } = request;
   const isDisabled: boolean = isSending || isBusy;
+
+  // Fokus nur nach dem Klick auf „Verwerfen“; beim Wiedereinhängen im Verlauf zöge er die Ansicht zum Kasten.
+  useEffect(() => {
+    if (isFocusRequested.current) {
+      isFocusRequested.current = false;
+      const input: HTMLTextAreaElement | null = reasonRef.current;
+      input?.focus();
+      // Nach „Zurück“ steht die Begründung noch da; die Schreibmarke gehört hinter sie.
+      input?.setSelectionRange(input.value.length, input.value.length);
+    }
+  });
 
   function answer(decision: ProposalDecision): Promise<AgentTypeSaved> {
     return answerAgentTypeProposal(sessionId, entry.requestId, decision);
@@ -155,14 +169,14 @@ export function AgentTypeProposalBlock({
 
   function send(decision: ProposalDecision): void {
     setIsBusy(true);
-    setFailure(null);
+    // Während der Antwort ist alles gesperrt; `draft` ist danach also noch derselbe.
     answer(decision)
       .then((saved: AgentTypeSaved) => {
-        setErrors(saved.errors);
+        onDraft({ ...draft, notes: saved.errors.map(errorText) });
       })
       .catch((reason: unknown) => {
         console.error('Vorschlag nicht beantwortet', reason);
-        setFailure(proposalFailedText(commandErrorText(reason)));
+        onDraft({ ...draft, notes: [proposalFailedText(commandErrorText(reason))] });
       })
       .finally(() => {
         setIsBusy(false);
@@ -375,34 +389,33 @@ export function AgentTypeProposalBlock({
   }
 
   function renderErrors(): ReactElement | null {
-    if (errors.length === 0 && failure === null) {
+    if (draft.notes.length === 0) {
       return null;
     }
     return (
       <ul className="agent-type-proposal__errors" role="alert">
-        {errors.map((error: FieldError, index: number) => (
-          <li key={`${String(index)}:${error.message}`}>{errorText(error)}</li>
+        {draft.notes.map((note: string, index: number) => (
+          <li key={`${String(index)}:${note}`}>{note}</li>
         ))}
-        {failure !== null && <li>{failure}</li>}
       </ul>
     );
   }
 
   function renderActions(): ReactElement {
-    if (isRejecting) {
+    if (draft.isRejecting) {
       const reasonId = `agent-type-proposal-reason-${entry.requestId}`;
       return (
         <div className="agent-type-proposal__reason">
           <label htmlFor={reasonId}>{PROPOSAL_REASON_LABEL}</label>
           <textarea
+            ref={reasonRef}
             id={reasonId}
             className="agent-type-proposal__input"
             rows={3}
-            value={reason}
+            value={draft.reason}
             disabled={isDisabled}
-            autoFocus
             onChange={(event): void => {
-              setReason(event.target.value);
+              onDraft({ ...draft, reason: event.target.value });
             }}
           />
           <div className="agent-type-proposal__actions">
@@ -411,7 +424,7 @@ export function AgentTypeProposalBlock({
               className="settings-view__button agent-type-proposal__danger"
               disabled={isDisabled}
               onClick={(): void => {
-                send({ kind: 'reject', reason });
+                send({ kind: 'reject', reason: draft.reason });
               }}
             >
               {PROPOSAL_REJECT}
@@ -421,7 +434,7 @@ export function AgentTypeProposalBlock({
               className="settings-view__button"
               disabled={isBusy}
               onClick={(): void => {
-                setIsRejecting(false);
+                onDraft({ ...draft, isRejecting: false });
               }}
             >
               {PROPOSAL_BACK}
@@ -457,7 +470,8 @@ export function AgentTypeProposalBlock({
           className="settings-view__button"
           disabled={isDisabled}
           onClick={(): void => {
-            setIsRejecting(true);
+            isFocusRequested.current = true;
+            onDraft({ ...draft, isRejecting: true });
           }}
         >
           {PROPOSAL_REJECT}
@@ -487,6 +501,7 @@ export function AgentTypeProposalBlock({
             proposal={{
               initial: proposal,
               sessionNumber,
+              isRemote,
               onSave: (input: AgentTypeInput): Promise<AgentTypeSaved> =>
                 answer({ kind: 'accept', input }),
             }}

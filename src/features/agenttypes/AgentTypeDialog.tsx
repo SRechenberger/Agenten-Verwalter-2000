@@ -231,6 +231,8 @@ export interface ProposalEdit {
   initial: AgentTypeInput;
   /** Die Session, aus der der Vorschlag kommt; der Untertitel nennt sie. */
   sessionNumber: number;
+  /** Vorhaben eines Hosts: Der Typ wird dort gespeichert, der Dateidialog dieses Rechners hilft dann nicht. */
+  isRemote: boolean;
   /** Speichert statt `createAgentType`/`updateAgentType`; der Kasten ist danach beantwortet. */
   onSave: (input: AgentTypeInput) => Promise<AgentTypeSaved>;
 }
@@ -624,6 +626,7 @@ export function AgentTypeDialog({
               change('files', { files: without(draft.files, index) });
             }}
             isInvalid={messagesOf('files').length > 0}
+            canPick={proposal?.isRemote !== true}
           />
         </DialogField>
         <DialogField label={SKILLS_LABEL} messages={messagesOf('skills')} hint={SKILLS_HINT}>

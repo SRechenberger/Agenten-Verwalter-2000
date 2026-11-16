@@ -59,7 +59,9 @@ export function SessionToolBlock(props: SessionToolBlockProps): ReactElement {
         sessionId={props.sessionId}
         sessionNumber={props.sessionNumber}
         projectId={props.projectId}
+        draft={props.draft}
         isSending={props.isSending}
+        onDraft={props.onDraft}
       />
     );
   }
