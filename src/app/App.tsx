@@ -53,6 +53,8 @@ import { SettingsView } from '@/features/settings/SettingsView';
 import { useSettings } from '@/features/settings/useSettings';
 import { UsageAlertBar } from '@/features/usage/UsageAlertBar';
 import { useVoiceModel } from '@/features/voice/useVoiceModel';
+import { useWaitingJump } from '@/features/waiting/useWaitingJump';
+import { WaitingJumpNotice } from '@/features/waiting/WaitingJumpNotice';
 import { onArtifactShow } from '@/lib/artifacts';
 import type { ArtifactList } from '@/lib/bindings/ArtifactList';
 import type { ArtifactShowEvent } from '@/lib/bindings/ArtifactShowEvent';
@@ -71,6 +73,7 @@ import { setProjectGroupCollapsed } from '@/lib/projectGroups';
 import { usePanelWidth } from '@/lib/usePanelWidth';
 import { useArtifactsStore } from '@/stores/artifacts';
 import { useBackgroundStore } from '@/stores/background';
+import { useImplementationStore } from '@/stores/implementation';
 import {
   useSessionsStore,
   type ImplementationViewKind,
@@ -278,6 +281,16 @@ export function App(): ReactElement {
       holdSession(chosenSessionId);
     }
   }, [chosenSessionId, endedSelection, offeredProject, holdSession]);
+  const shownSessionId: string | null =
+    isMainReplaced || isOverview ? null : (currentSession?.id ?? null);
+  // Bei offener Umsetzung zählt die Station im Fokus als die gezeigte.
+  const shownStationId: string | null = useImplementationStore((state) =>
+    shownImplementation === undefined ? null : (state.focused[shownImplementation.id] ?? null),
+  );
+  const waitingNotice: string | null = useWaitingJump(sessions, implementations, {
+    sessionId: shownSessionId,
+    stationId: shownStationId,
+  });
 
   // Der gewählte Reiter bleibt beim Session-Wechsel stehen; ohne Repository gibt es keine Changes.
   const isChangesView: boolean = isOverview
@@ -726,7 +739,7 @@ export function App(): ReactElement {
         groups={groups}
         sessions={sessions}
         implementations={implementations}
-        activeSessionId={isMainReplaced || isOverview ? null : (currentSession?.id ?? null)}
+        activeSessionId={shownSessionId}
         activeProjectId={activeProjectId}
         activeImplementationId={isImplementation ? (shownImplementation?.id ?? null) : null}
         showProjectOverview={(isOverview && !isImplementation) || offeredProject !== undefined}
@@ -750,6 +763,7 @@ export function App(): ReactElement {
           {renderMain()}
         </div>
         {isDockShown && terminalPlacement === 'bottom' && renderTerminalDock()}
+        <WaitingJumpNotice text={waitingNotice} />
       </main>
       {isDockShown && terminalPlacement === 'right' && renderTerminalDock()}
       {isBackgroundOpen && visibleSession !== null && (

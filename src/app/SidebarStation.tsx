@@ -13,6 +13,7 @@ import {
   stationTone,
   type StationTone,
 } from '@/features/implementation/stationState';
+import { WAITING_JUMP_HINT } from '@/features/waiting/waitingTexts';
 import type { StationState } from '@/lib/bindings/StationState';
 import './SidebarStation.css';
 
@@ -53,7 +54,7 @@ export function SidebarStation({
         type="button"
         className={`sidebar-station__button${isActive ? ' sidebar-station__button--active' : ''}`}
         aria-current={isActive ? 'page' : undefined}
-        title={`${label} · Lane ${phase.key} ${phase.title} · ${rowStateText(station, now)} · ${opening}`}
+        title={`${label} · Lane ${phase.key} ${phase.title} · ${rowStateText(station, now)} · ${opening}${WAITING_JUMP_HINT}`}
         onClick={onSelect}
       >
         <span className="sidebar-station__status">

@@ -6,6 +6,7 @@ import {
 } from '@/features/implementation/implementationOrder';
 import { TRAIL_BACK_TITLE, trailTargetTitle } from '@/features/implementation/implementationTexts';
 import { useOpenStation } from '@/features/implementation/useOpenStation';
+import { WAITING_JUMP_HINT } from '@/features/waiting/waitingTexts';
 import type { ImplementationView } from '@/lib/bindings/ImplementationView';
 import './StationTrail.css';
 
@@ -46,7 +47,7 @@ export function StationTrail({
         type="button"
         className="station-trail__step"
         aria-label={title}
-        title={title}
+        title={`${title}${WAITING_JUMP_HINT}`}
         disabled={target === undefined}
         onClick={(): void => {
           if (target !== undefined) {
