@@ -1,8 +1,14 @@
 // Selbsttest des Zeitpunkts im Chat: `node src/features/chat/entryTime.selftest.ts` (`pnpm selftest`).
 // Je Fall `PASS`/`FAIL`, Exit 1 bei einem Fehlschlag. Node streicht die Typen; die geprüfte Datei importiert
 // nur Typen. Zeiten aus lokalen Bestandteilen, damit die Fälle in jeder Zeitzone gelten.
+// Die CI läuft unter UTC, wo ein Rückfall von Orts- auf UTC-Zeit unsichtbar bliebe: Der Test setzt darum eine
+// feste Zone ungleich UTC (vor der ersten Zeitrechnung) und prüft im ersten Fall, dass sie wirkt.
 import { dayDividers, dayLabel, entryTime, timeLabel } from './entryTime.ts';
 import type { ChatEntry } from '@/lib/bindings/ChatEntry';
+
+// Der Quelltext hat keine Node-Typen; Node liefert `process`.
+declare const process: { env: Record<string, string | undefined> };
+process.env.TZ = 'America/Los_Angeles';
 
 /** Ein Eintrag so, wie ihn der Core als JSON liefert (ein alter Payload hat `at` gar nicht). */
 function entry(json: string): ChatEntry {
@@ -29,6 +35,11 @@ function dividers(times: readonly (number | null)[]): string {
 }
 
 const CASES: { name: string; actual: () => unknown; expected: unknown }[] = [
+  {
+    name: 'time_zone_is_not_utc',
+    actual: () => new Date(2026, 10, 15, 12).getTimezoneOffset(),
+    expected: 480,
+  },
   {
     name: 'entry_time_of_user_is_sent_at',
     actual: () =>
