@@ -10,6 +10,8 @@ const EMPTY_LIST: &str = "- keine";
 /// Eine einbezogene Session mit dem Ergebnis ihrer Mini-Retro (Fehlertext, wenn sie scheiterte).
 pub struct SessionResult {
     pub number: u32,
+    /// Kennung der Verlaufsdatei: `session-<label>.md` (bei doppelter Nummer mit Kürzel).
+    pub label: String,
     pub name: String,
     pub status: SessionStatus,
     pub model: ModelId,
@@ -55,7 +57,7 @@ fn push_session(lines: &mut Vec<String>, session: &SessionResult) {
         session.model.cli_id(),
         session.hook_blocks.len(),
         if session.truncated { "ja" } else { "nein" },
-        session.number,
+        session.label,
     ));
     lines.push(format!("Skills: {}", session.skills));
     lines.push(String::new());
@@ -115,7 +117,7 @@ fn push_session(lines: &mut Vec<String>, session: &SessionResult) {
     });
 }
 
-fn push_rubric<T>(
+pub(crate) fn push_rubric<T>(
     lines: &mut Vec<String>,
     heading: &str,
     items: &[T],
@@ -132,7 +134,7 @@ fn push_rubric<T>(
 }
 
 /// Ein Zeilenumbruch im Zitat würde den Listenpunkt zerreißen.
-fn one_line(text: &str) -> String {
+pub(crate) fn one_line(text: &str) -> String {
     text.split(['\r', '\n'])
         .filter(|part: &&str| !part.trim().is_empty())
         .map(str::trim)

@@ -7,6 +7,7 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError, RwLock};
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -220,6 +221,9 @@ pub struct Session {
     repositories: RwLock<Vec<SessionRepository>>,
     database: Arc<Database>,
     state: Mutex<SessionState>,
+    /// Gesetzt von `delete_session`: danach schreibt `persist` nichts mehr. Sonst legt ein spätes
+    /// `update` (etwa das `Exited` des Agenten) die gelöschte Zeile per Upsert neu an.
+    deleted: AtomicBool,
 }
 
 struct PendingRequest {
@@ -645,6 +649,7 @@ impl SessionRegistry {
             repositories: RwLock::new(repositories),
             database: Arc::clone(&self.database),
             state: Mutex::new(state),
+            deleted: AtomicBool::new(false),
         });
         // Reihenfolge der Verweise: Vorhaben ← Session ← `session_repositories`.
         let row = row_of(&session, &session.lock());
@@ -781,6 +786,7 @@ impl SessionRegistry {
             repositories: RwLock::new(repositories.clone()),
             database: Arc::clone(&self.database),
             state: Mutex::new(state),
+            deleted: AtomicBool::new(false),
         });
         let row = row_of(&session, &session.lock());
         let saved = self.database.with(|connection| {
@@ -1543,17 +1549,27 @@ impl SessionRegistry {
     pub fn delete_session(&self, app: &AppHandle, session_id: &str) -> Result<bool, CommandError> {
         let session = self.get(session_id)?;
         self.cancel(app, session_id)?;
+        // Unter der Session-Sperre markiert: ein laufendes `persist` ist danach durch, ein
+        // späteres schreibt nichts mehr — der Agent beendet sich erst nach dem Löschen.
+        session.deleted.store(true, Ordering::SeqCst);
+        drop(session.state.lock().unwrap_or_else(PoisonError::into_inner));
         // Bis zum Entfernen gehalten: ein gleichzeitiges `create_in_project` wartet darauf.
         let mut projects = self.lock_projects();
-        let is_last = !self.lock_sessions().values().any(|other: &Arc<Session>| {
-            other.project_id == session.project_id && other.id != session.id
-        });
-        self.database.with(|connection| {
-            session_rows::delete(connection, &session.id)?;
+        // Atomar, und „letzte“ nach der Datenbank, nicht nach der Map im Speicher.
+        let is_last = self.database.with(|connection| {
+            let transaction = connection.transaction()?;
+            session_rows::delete(&transaction, &session.id)?;
+            let remaining: i64 = transaction.query_row(
+                "SELECT COUNT(*) FROM sessions WHERE project_id = ?1",
+                [&session.project_id],
+                |row| row.get(0),
+            )?;
+            let is_last = remaining == 0;
             if is_last {
-                project_rows::delete(connection, &session.project_id)?;
+                project_rows::delete(&transaction, &session.project_id)?;
             }
-            Ok(())
+            transaction.commit()?;
+            Ok(is_last)
         })?;
         self.lock_sessions().remove(&session.id);
         let mut was_shared = false;
@@ -2317,6 +2333,7 @@ fn build_session(
         repositories: RwLock::new(repositories),
         database: Arc::clone(database),
         state: Mutex::new(state),
+        deleted: AtomicBool::new(false),
     });
     Ok((session, paused_row))
 }
@@ -4032,6 +4049,9 @@ fn row_of(session: &Session, state: &SessionState) -> SessionRow {
 /// damit zwei Änderungen derselben Session nicht in vertauschter Reihenfolge ankommen.
 /// Ein Fehler landet im Protokoll der Session; die Session läuft weiter.
 fn persist(session: &Session, state: &mut SessionState, outbox: &Outbox) {
+    if session.deleted.load(Ordering::SeqCst) {
+        return;
+    }
     let saved = session.database.with(|connection| {
         // Erst die Session, dann ihre Einträge: die Einträge verweisen auf die Zeile.
         if outbox.summary_dirty {
