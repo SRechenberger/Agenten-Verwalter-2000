@@ -11,6 +11,7 @@ interface StationDotProps {
 const GLYPH: Partial<Record<StationState, string>> = {
   asking: '?',
   waitsForYou: '?',
+  waitsForQuota: '↻',
   error: '!',
 };
 

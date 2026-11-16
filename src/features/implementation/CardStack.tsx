@@ -205,6 +205,7 @@ export function CardStack({
         stationRef={focusedStation}
         refs={refs}
         isImplementationAutomatic={implementation.autoStart}
+        isImplementationResuming={implementation.autoResume}
         now={now}
         operatingMode={operatingMode}
         session={

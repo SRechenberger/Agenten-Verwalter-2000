@@ -1,6 +1,6 @@
 # 064 — „Automatisch fortsetzen“ je Umsetzung und Station
 
-**Status:** angenommen, Kern umgesetzt (Migration 27, Befehle, Zeitgeber, Zustand, Einstellung; Story Taiga #56); die Oberfläche (Leiste, Warnleiste, Zeile, Kartei, Einstellungszeile) folgt; die Abnahme in der echten App steht aus · **Datum:** 2026-11-15
+**Status:** angenommen, umgesetzt: Kern (Migration 27, Befehle, Zeitgeber, Zustand, Einstellung) und Oberfläche (Leiste, Warnleiste, Zeile, Kartei, Einstellungszeile; Story Taiga #56); die Abnahme in der echten App steht aus · **Datum:** 2026-11-15
 
 ## Kontext
 
@@ -27,6 +27,18 @@ Die Story (Taiga #56) verlangt einen Schalter für alle Stationen einer Umsetzun
 - **[ADR 052](052-session-werkzeuge.md):** Die Kettenbremse beginnt mit jedem automatischen Fortsetzen neu, jetzt auch ohne Klick bei jeder Pause einer Station.
 - **[ADR 061](061-constraint-ablaeufe.md):** Die Liste „Aktiv“ wächst um `WaitsForQuota`; der Haken am Sessionende schaltet zuerst scharf, dann plant er.
 
+## Oberfläche (Phase 56.2)
+
+Nach dem Entwurf [`docs/design/2026-11-15_automatisch-fortsetzen/`](../design/2026-11-15_automatisch-fortsetzen/README.md); die Abweichungen stehen dort.
+
+- **Leiste:** Schalter „↻ Automatisch fortsetzen“ hinter „Automatisch starten“ (`AutoResumeSwitch`), zeigt `implementation.autoResume`, schaltet über `implementation_set_auto_resume`. Keine optimistische Anzeige: der Schalter liest die Ansicht, die Änderung kommt per `implementation://changed`.
+- **Warnleiste** (`QuotaWaitBar`) zwischen Leiste und Fehlerzeile, außerhalb des Reiterinhalts, also unter „Ablauf“ und „Changes“: steht, solange eine nicht fertige Station mit Session am Kontingent pausiert (`pauseReason.kind === 'quota'`), und trägt denselben Schalter. Die Zahlen (wartend, fortsetzend mit frühester Rücksetzzeit, Schalter aus, ohne Rücksetzzeit, nach der Rücksetzzeit „zurückgesetzt“) rechnet die reine Funktion `quotaWaiting` mit Fällen im `pnpm selftest`. Sie liest die Begründung der Pause, die nur im Speicher lebt: nach einem Neustart der App steht sie nicht.
+- **Zeile:** ↻ als eigener Knopf rechts im Zustand, neben der Mini-Aktion und außerhalb des Titel-Knopfs (`aria-pressed` = `resumesAutomatically`, ein Punkt bei einer Abweichung von der Umsetzung, gesperrt bei fertiger Station, nicht bei Stationen „durch dich“); ein Klick schreibt `implementation_set_station_auto_resume` mit dem Gegenteil des wirksamen Werts. Der Zustand „setzt automatisch fort“ steht in neutralem Ton mit ↻ im Punkt und dem Chip „ab HH:MM“; „wartet auf dich“ am Kontingent trägt den Chip „Kontingent“ oder „Rücksetzzeit unbekannt“. `WaitsForQuota` zählt in der Oberfläche als aktiv, nicht als „braucht dich“, und tickt nicht (kein Zähler).
+- **Kartei:** Abschnitt „Automatik“ mit „wie Umsetzung · an · aus“ zwischen „Automatisch starten“ und „Bei Fehler“, änderbar bis zur Fertigmeldung, mit der Zeile „Läuft mit: … (von der Umsetzung | nur diese Station)“; die Kopfzeile und der Sperrhinweis nennen den Wert.
+- **Einstellungen:** Zeile „Automatisch fortsetzen“ im Abschnitt „Agent“, gespeichert als `defaultAutoResume`.
+- **Karte im Chat:** unverändert; bei einer Station zeigt sie `pauseReason.autoResume`, das der Kern beim Schalten der Station mitschaltet.
+- Alle neuen Bedienelemente sperren für Gäste der Fernsteuerung über `useProjectLocked`.
+
 ## Neustart (Critical Rule 4)
 
 Nach einem Neustart der App sind Zeitgeber und Begründung der Pause weg; die Session ist pausiert, ohne Grund. Keine Station wartet dann auf das Kontingent, keine setzt von selbst fort. Die Werte je Umsetzung und Station bleiben.
@@ -41,4 +53,4 @@ Nach einem Neustart der App sind Zeitgeber und Begründung der Pause weg; die Se
 
 ## Prüfung
 
-`cargo test --manifest-path src-tauri/Cargo.toml --lib -- implementation:: agent_types::` prüft Wirksamkeit, Zukunftsprüfung, fertige Station, Zustand und Platz, Ausschalten gibt den Platz frei, Rang, Lagebericht, „letzte Aktion gewinnt“ in der Datenbank, den Schalter je Station bis zur Fertigmeldung, Migration 27, Standardkopie und dass eine Änderung des Standards bestehende Umsetzungen nicht berührt, die JSON-Form der Einstellung, Fix-Runde und Plan-Änderung, die Schemas der Werkzeuge und die Klasse der Befehle. `implementation-probe --selftest` hat vier Fälle „Automatisch fortsetzen“ (Wirksamkeit und letzte Aktion, Platz, Schutz vor der Schleife, Neustart).
+`cargo test --manifest-path src-tauri/Cargo.toml --lib -- implementation:: agent_types::` prüft Wirksamkeit, Zukunftsprüfung, fertige Station, Zustand und Platz, Ausschalten gibt den Platz frei, Rang, Lagebericht, „letzte Aktion gewinnt“ in der Datenbank, den Schalter je Station bis zur Fertigmeldung, Migration 27, Standardkopie und dass eine Änderung des Standards bestehende Umsetzungen nicht berührt, die JSON-Form der Einstellung, Fix-Runde und Plan-Änderung, die Schemas der Werkzeuge und die Klasse der Befehle. `implementation-probe --selftest` hat vier Fälle „Automatisch fortsetzen“ (Wirksamkeit und letzte Aktion, Platz, Schutz vor der Schleife, Neustart). `pnpm selftest` prüft die Zählung der Warnleiste; die Bilder der echten App liegen im Entwurfsordner unter `umsetzung/`.

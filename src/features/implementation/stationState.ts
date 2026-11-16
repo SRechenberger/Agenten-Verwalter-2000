@@ -42,7 +42,8 @@ const TONE: Record<StationState, StationTone> = {
   starting: 'run',
   running: 'run',
   waitsForScript: 'run',
-  waitsForQuota: 'wait',
+  // Neutral mit ↻ (ADR 064): Bernstein bleibt „wartet auf dich“.
+  waitsForQuota: 'todo',
   asking: 'wait',
   waitsForYou: 'wait',
   done: 'done',

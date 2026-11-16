@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import type { ReactElement } from 'react';
 import { Switch } from '@/components/Switch';
+import { AutoResumeSwitch } from '@/features/implementation/AutoResumeSwitch';
 import {
   mayDelete,
   type StationRef,
@@ -55,6 +56,7 @@ interface ImplementationBarProps {
   /** Der Lagebericht wird gerade erstellt. */
   isReportBusy: boolean;
   onSetAutoStart: (enabled: boolean) => void;
+  onSetAutoResume: (enabled: boolean) => void;
   onSetStopAfterCurrent: (enabled: boolean) => void;
   /** `null` hebt die Grenze auf. */
   onSetMaxParallel: (maxParallel: number | null) => void;
@@ -79,6 +81,7 @@ export function ImplementationBar({
   isLocked,
   isReportBusy,
   onSetAutoStart,
+  onSetAutoResume,
   onSetStopAfterCurrent,
   onSetMaxParallel,
   isNewLaneOpen,
@@ -159,6 +162,11 @@ export function ImplementationBar({
             onChange={onSetAutoStart}
           />
         </span>
+        <AutoResumeSwitch
+          enabled={implementation.autoResume}
+          isLocked={isLocked}
+          onChange={onSetAutoResume}
+        />
         <span className="implementation-bar__switch" title={MAX_PARALLEL_TITLE}>
           {MAX_PARALLEL_LABEL}
           <span className="implementation-bar__step">

@@ -25,6 +25,7 @@ import {
 } from '@/features/implementation/implementationTexts';
 import { NewLaneForm } from '@/features/implementation/NewLaneForm';
 import type { ProposalOverride } from '@/features/implementation/PlanChangeCard';
+import { QuotaWaitBar } from '@/features/implementation/QuotaWaitBar';
 import { ReportPanel } from '@/features/implementation/ReportPanel';
 import { Timeline } from '@/features/implementation/Timeline';
 import { useProjectLocked } from '@/features/remote/useProjectAccess';
@@ -43,10 +44,12 @@ import {
   editPlan,
   listImplementations,
   loadImplementationReport,
+  setImplementationAutoResume,
   setImplementationAutoStart,
   setImplementationStopAfterCurrent,
   setMaxParallel,
   setStationAgent,
+  setStationAutoResume,
   startStation,
 } from '@/lib/implementation';
 import { useActionError } from '@/lib/useActionError';
@@ -349,6 +352,10 @@ export function ImplementationView({
     }
   }
 
+  function setAutoResume(enabled: boolean): void {
+    run(() => setImplementationAutoResume(implementationId, enabled));
+  }
+
   function renderActionError(): ReactElement | null {
     if (actionError === null) {
       return null;
@@ -449,6 +456,9 @@ export function ImplementationView({
             onCancelCountdown={(stationId: string): void => {
               run(() => cancelStationCountdown(implementationId, stationId));
             }}
+            onSetAutoResume={(stationId: string, enabled: boolean): void => {
+              run(() => setStationAutoResume(implementationId, stationId, enabled));
+            }}
           />
         </div>
         <div className="implementation-view__cards">{renderCards()}</div>
@@ -489,6 +499,7 @@ export function ImplementationView({
         onSetAutoStart={(enabled: boolean): void => {
           run(() => setImplementationAutoStart(implementationId, enabled));
         }}
+        onSetAutoResume={setAutoResume}
         onSetStopAfterCurrent={(enabled: boolean): void => {
           run(() => setImplementationStopAfterCurrent(implementationId, enabled));
         }}
@@ -499,6 +510,12 @@ export function ImplementationView({
         onToggleNewLane={(): void => {
           setIsNewLaneOpen(!isNewLaneOpen);
         }}
+      />
+      <QuotaWaitBar
+        implementation={implementation}
+        sessions={sessions}
+        isLocked={isLocked}
+        onSetAutoResume={setAutoResume}
       />
       {renderActionError()}
       {isNewLaneOpen && isFlow && (

@@ -44,6 +44,8 @@ interface StationCardProps {
   refs: readonly StationRef[];
   /** Schalter „Automatisch starten“ der Leiste. */
   isImplementationAutomatic: boolean;
+  /** Schalter „Automatisch fortsetzen“ der Leiste. */
+  isImplementationResuming: boolean;
   now: number;
   /** Nur die Betriebsart Claude wendet Modell und Denkaufwand der Typen an. */
   operatingMode: OperatingMode;
@@ -74,6 +76,7 @@ export function StationCard({
   stationRef,
   refs,
   isImplementationAutomatic,
+  isImplementationResuming,
   now,
   operatingMode,
   session,
@@ -285,6 +288,7 @@ export function StationCard({
           implementationId={implementationId}
           station={station}
           isImplementationAutomatic={isImplementationAutomatic}
+          isImplementationResuming={isImplementationResuming}
           isOpen={openSections.automation}
           onToggle={toggle('automation')}
           isLocked={isLocked}

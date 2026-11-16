@@ -12,14 +12,14 @@
 
 - **Lane** ersetzt in der Oberfläche den Begriff „Phase (Umsetzung)“: ein Strang aus Stationen mit Schlüssel und Titel, rein gliedernd. Die Reihenfolge kommt aus den Constraints, nicht aus der Lane. Glossar, ADR 048 und ADR 061 führen sie nach; in Code und Werkzeugen heißen die Felder weiter `phases`, `key`, `wave` ([ADR 061](../../decisions/061-constraint-ablaeufe.md)).
 - **Stufe** (Zeitleiste): die errechnete Ebene einer Station im Graphen; Stationen derselben Stufe sind „parallel möglich“.
-- **Automatisch starten** (Leiste und je Station): die Station startet nach ihren Vorgängern von selbst (Countdown). Heißt in der App heute „Automatisch weiter“ (`auto_start`).
-- **Automatisch weiter** (Leiste und je Station): die Station setzt nach leerem Kontingent und nach einem Fehler selbst fort. Entspricht „Automatisch fortsetzen“ aus Story 56, erweitert um den Fehlerfall. Die zwei Schalter heißen so, weil der Nutzer sie im Review so unterschieden hat; das weicht von den Beschriftungen heute ab.
+- **Automatisch starten** (Leiste und je Station): die Station startet nach ihren Vorgängern von selbst (Countdown). In der App heißt er seit Story 76 so (`auto_start`).
+- **Automatisch fortsetzen** (↻, Leiste und je Station): die Station setzt nach leerem Kontingent selbst fort (Story 56, Entwurf [2026-11-15_automatisch-fortsetzen](../2026-11-15_automatisch-fortsetzen/README.md), [ADR 064](../../decisions/064-automatisch-fortsetzen.md)). Den Fehlerfall deckt „Bei Fehler“. Dieser Entwurf gab dem Schalter einen anderen Namen; seit dem 2026-11-15 heißt er überall „Automatisch fortsetzen“.
 
 ## Gezeigt wird
 
 ### Zeile
 - Liste in topologischer Reihenfolge, gruppiert nach Stufe. Die durchgehende Linie zwischen den Zeilen entfällt, weil sie eine Kette behauptet.
-- Titel „Lane 2 · Review Core #6“, dahinter klein **Modell · Denkaufwand** (Tooltip nennt die Quelle: Station, Typ oder Standard; bei gestarteten Stationen die Werte der Session) und der Schalter **↻ Automatisch weiter** dieser Station. Bei fertigen Stationen ist ↻ gesperrt, die Werte bleiben sichtbar.
+- Titel „Lane 2 · Review Core #6“, dahinter klein **Modell · Denkaufwand** (Tooltip nennt die Quelle: Station, Typ oder Standard; bei gestarteten Stationen die Werte der Session) und der Schalter **↻ Automatisch fortsetzen** dieser Station (in der App rechts neben dem Zustand, außerhalb des Titel-Knopfs). Bei fertigen Stationen ist ↻ gesperrt, die Werte bleiben sichtbar.
 - Weicht „Automatisch starten“ einer Station von der Leiste ab, steht eine Marke („⏸ manuell“ / „▶ automatisch“).
 - Station **durch dich**: eine **Hand** statt des Punktes, Marke „durch dich“.
 - Zweite Zeile: „wartet auf“ und „danach →“ als Chips (grün mit ✓, wenn der Vorgänger fertig ist); eine Station ohne Vorgänger trägt „Startstation“.
@@ -30,10 +30,10 @@ Kopf mit **Zweck** (Beschreibung des Agententyps, bei „durch dich“: Aufgabe 
 - **Ablauf:** „Wartet auf“ und „Nachfolger“ als bearbeitbare Chips. Der Nachfolger ist abgeleitet: „+ Nachfolger“ lässt die gewählte Station auf diese warten, „×“ löst die Kante. Zyklen sind ausgegraut, mit dem Weg.
 - **Auftrag (Prompt):** Text (höchstens 1000 Zeichen), darunter **Änderungen durch Vorgänger** mit Quelle: ergänzt („Entfernen“) oder geändert (Original durchgestrichen, „Zurücksetzen“). **„Vorgänger dürfen: nur ergänzen · ergänzen und ändern · nicht anfassen“** steuert, was ein Vorgänger per `handoff` bzw. Plan-Änderung am Auftrag tun darf. Bei „durch dich“ heißt der Abschnitt **Anweisung** und enthält, sobald die Station an der Reihe ist, ein Ergebnisfeld und „Erledigt“.
 - **Agent:** Bearbeiter (Agent / durch dich), **Typ**, **Modell**, **Denkaufwand** (je mit „Standard: …“, das den Wert des Typs bzw. der Einstellungen nennt), Zeile „Läuft mit …“ mit Quelle, **Skill**, **System-Prompt** (Rollentext des Typs, nur lesbar) und **Zusatz** nur für diese Station.
-- **Automatik:** „Automatisch starten“ (wie Umsetzung / an / aus), „Automatisch weiter“ (nach leerem Kontingent), „Bei Fehler“ (anhalten / 1× neu starten / bis 3× neu starten).
+- **Automatik:** „Automatisch starten“ (wie Umsetzung / an / aus), „Automatisch fortsetzen“ (nach leerem Kontingent; wie Umsetzung / an / aus), „Bei Fehler“ (anhalten / 1× neu starten / bis 3× neu starten).
 
 ### Was sich wann ändern lässt
-| Zustand | Auftrag, Typ, Modell, Denkaufwand, System-Prompt, Skill, Kanten der Station, „Automatisch starten“ | „Automatisch weiter“, „Bei Fehler“ |
+| Zustand | Auftrag, Typ, Modell, Denkaufwand, System-Prompt, Skill, Kanten der Station, „Automatisch starten“ | „Automatisch fortsetzen“, „Bei Fehler“ |
 |---|---|---|
 | wartet / bereit | änderbar | änderbar |
 | läuft / Frage / Fehler | festgeschrieben 🔒 (Momentaufnahme beim Start; ein Modellwechsel in der Eingabeleiste der Session bleibt möglich) | änderbar |
@@ -51,7 +51,7 @@ Der Vorschlag eines Agenten (neue Station samt Kanten) zeigt **Typ, Modell, Denk
 
 ### Ablauf und Leiste
 - Countdown 10 s, ▶ und „Abbrechen“; **Parallel max.** als Zähler (− n +) statt Auswahlliste; ist die Grenze erreicht, steht die Zeile in der **Warteschlange** („bereit · Warteschlange 1“, Zähler in der Leiste) und rückt selbst nach.
-- „Automatisch starten“ und „Automatisch weiter“ in der Leiste; der zweite schaltet alle noch nicht fertigen Stationen, ↻ in der Zeile oder die Kartei nur eine (letzte Aktion gewinnt).
+- „Automatisch starten“ und „Automatisch fortsetzen“ in der Leiste; der zweite schaltet alle noch nicht fertigen Stationen, ↻ in der Zeile oder die Kartei nur eine (letzte Aktion gewinnt).
 - **Fix-Runde:** „Mit Befund melden“ hängt Fix-Runde und zweites Review ein; die Nachfolger warten danach auf das zweite Review.
 - Meldungen unten („Änderungen am Plan“); die Ersteller-Session wird bei „Umsetzung fertig“ und bei einem Befund benachrichtigt.
 - Zustände: fertig, läuft, bereit, Countdown, wartet, durch dich, Frage offen, Fehler. Dunkles und helles Farbschema.
@@ -65,7 +65,7 @@ Der Vorschlag eines Agenten (neue Station samt Kanten) zeigt **Typ, Modell, Denk
 **2026-11-11 (Review)**
 4. „Lane“ statt „Phase“. Der Chip „+ Vorgänger“ entfällt an gestarteten Stationen.
 5. Jede Station bekommt schon beim Anlegen Prompt, Modell und Denkaufwand; der Zweck (Typ) ist von Anfang an sichtbar, ebenso, was danach noch änderbar ist. Der Prompt lässt sich durch Vorgänger ergänzen oder ändern.
-6. Die Kartei zeigt und ändert alle wichtigen Werte: Prompt, System-Prompt, Modell, Denkaufwand, Automatisch starten, Automatisch weiter (nach Fehler, leerem Kontingent). Die Zeile zeigt Modell, Denkaufwand und den Schalter „Automatisch weiter“.
+6. Die Kartei zeigt und ändert alle wichtigen Werte: Prompt, System-Prompt, Modell, Denkaufwand, Automatisch starten, Automatisch fortsetzen (nach leerem Kontingent), Bei Fehler. Die Zeile zeigt Modell, Denkaufwand und den Schalter „↻ Automatisch fortsetzen“.
 7. Die Plan-Karte lässt Typ, Modell, Denkaufwand und Prompt des Vorschlags ändern. Station durch dich: Hand als Symbol. Kein weißer Text auf grauem Grund bei der Auswahl von „Parallel max.“.
 
 ## Gestaltung
@@ -89,12 +89,12 @@ Der Vorschlag eines Agenten (neue Station samt Kanten) zeigt **Typ, Modell, Denk
 
 ## Abweichungen vom Entwurf
 
-- **„Automatisch weiter“ nach leerem Kontingent fehlt** (Core, 2026-11-11): weder als Schalter der Umsetzung noch je Station noch als Zustand. Es hängt an Story 56, die noch nicht umgesetzt ist. „Bei Fehler“ (anhalten, 1×, bis 3× neu starten) und „Automatisch starten“ je Station stehen im Core.
+- **„Automatisch fortsetzen“ nach leerem Kontingent** (Core, 2026-11-11; gebaut mit Story 56): fehlte zuerst als Schalter der Umsetzung, je Station und als Zustand. Seit [ADR 064](../../decisions/064-automatisch-fortsetzen.md) steht es im Core: Wert je Umsetzung und Station gespeichert, Zustand „setzt automatisch fort“ (`waitsForQuota`). „Bei Fehler“ (anhalten, 1×, bis 3× neu starten) und „Automatisch starten“ je Station stehen im Core.
 - **„Neu starten“ heißt: dieselbe Session.** Der Verwalter startet den Agenten der Session neu und schickt eine Nachricht zum Fortsetzen; die Station bleibt an ihre Session gebunden, die Momentaufnahme des Starts bleibt. Nach einem App-Neustart startet nichts neu.
 - **Eine Plan-Änderung, die eine wartende Station ersetzt, verwirft deren Änderungen am Auftrag:** Den neuen Auftrag gibt der Planer.
 - **Kanten-Chips, „Neue Lane“ und „Plan ändern?“ gehen durch einen Befehl** (Core, Werkzeuge): Der Benutzer ändert den Plan mit `implementation_edit_plan` und einem Delta (`PlanEdit`: `lanes`, `add`, `change`, `remove`, `maxParallel`), ohne Karte; ein Agent schlägt dasselbe Delta mit `implementation_edit` vor, und die Karte zeigt es als `pendingChange.edit` (dann ist `phases` leer). „Danach“ bei einer neuen Lane ist ein `change` der wartenden Station mit neuem `after`. Ein entfernter Knoten gibt seine Vorgänger an seine Nachfolger weiter. Ein neuer `brief` über `change` verwirft die Änderungen durch Vorgänger, wie das Ersetzen der Station.
 - **„Vorgänger dürfen“ wirkt über die Übergabenotiz** (`handoff` an der Fertigmeldung): `note` ergänzt jeden wartenden Nachfolger, `replace` ersetzt den Auftrag eines Nachfolgers. Lehnt einer ab, ist die Station nicht fertig gemeldet und der Agent bekommt den Satz; eine Plan-Änderung prüft „Vorgänger dürfen“ nicht, denn sie wirkt erst nach Übernehmen durch den Benutzer.
-- **Der Schalter „↻ Automatisch weiter“ fehlt in Zeile, Leiste und Kartei** (Oberfläche, 2026-11-13): Er hängt an Story 56 (siehe oben). Die Zeile zeigt Modell und Denkaufwand ohne ↻, die Kartei unter „Automatik“ nur „Automatisch starten“ und „Bei Fehler“.
+- **Der Schalter „↻ Automatisch fortsetzen“ in Zeile, Leiste und Kartei** (Oberfläche, 2026-11-13; gebaut mit Story 56): fehlte zuerst. Jetzt steht er in der Leiste neben „Automatisch starten“, als ↻ rechts in der Zeile (neben der Mini-Aktion, nicht hinter Modell und Denkaufwand, weil ein Knopf nicht im Titel-Knopf stehen darf) und in der Kartei unter „Automatik“ zwischen „Automatisch starten“ und „Bei Fehler“; dazu die Warnleiste, siehe Entwurf [2026-11-15_automatisch-fortsetzen](../2026-11-15_automatisch-fortsetzen/README.md).
 - **Die Kartei steht wie bisher rechts neben der Zeitleiste**, nicht aufgeklappt unter der Zeile; darüber und darunter bleiben die kleinen Karten der Nachbarn. Die Zeitleiste ist dafür so breit wie die Kartei; unter 900 px stehen beide untereinander.
 - **„Bearbeiter“ (Agent / durch dich) ist in der Kartei nur Anzeige**: Kein Befehl ändert ihn an einer bestehenden Station (`StationPatch` kennt kein `by`). Eine Station durch dich entsteht über „+ Lane“.
 - **„Typ“ hat statt „ohne Typ“ die Wahl „Standard: …“**: Ohne Typ der Station gilt der Typ nach dem Stationsnamen (ADR 060). Ein Typ gibt keine Prompt-Vorgabe; „+ Lane“ übernimmt beim Typwechsel nur den Namen (erster Stationsname des Typs).

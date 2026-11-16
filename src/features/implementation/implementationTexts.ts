@@ -10,6 +10,7 @@ import type { PredecessorsMay } from '@/lib/bindings/PredecessorsMay';
 import type { StationPatch } from '@/lib/bindings/StationPatch';
 import type { StationView } from '@/lib/bindings/StationView';
 import { effortLabel, modelName } from '@/lib/labels';
+import type { QuotaWaiting } from '@/features/implementation/quotaWaiting';
 import type { ValueSource } from '@/features/implementation/stationAgent';
 import type { ImplementationViewKind } from '@/stores/sessions';
 
@@ -42,6 +43,10 @@ export function progressShort(implementation: ImplementationView): string {
 export const AUTO_START_LABEL = 'Automatisch starten';
 export const AUTO_START_TITLE =
   'Startet jede Station, deren Vorgänger fertig sind, nach 10 Sekunden Countdown von selbst. Einzelne Stationen können abweichen.';
+export const AUTO_RESUME_LABEL = 'Automatisch fortsetzen';
+export const AUTO_RESUME_GLYPH = '↻';
+export const AUTO_RESUME_TITLE =
+  'Setzt jede Station nach leerem Kontingent 30 Sekunden nach dem Zurücksetzen selbst fort. Schaltet alle Stationen, die noch nicht fertig sind; ↻ in der Zeile oder die Kartei schalten nur eine (die letzte Aktion gewinnt).';
 export const MAX_PARALLEL_LABEL = 'Parallel max.';
 export const MAX_PARALLEL_TITLE =
   'Höchstens so viele Stationen laufen gleichzeitig. Weitere bereite Stationen starten selbst, sobald ein Platz frei wird – nur bei Stationen, die automatisch starten. Ein Klick auf ▶ ignoriert die Grenze.';
@@ -50,6 +55,46 @@ export const MAX_PARALLEL_MORE = 'mehr';
 /** Anzeige ohne Grenze. */
 export const MAX_PARALLEL_UNLIMITED = '∞';
 export const MAX_PARALLEL_UNLIMITED_TITLE = 'unbegrenzt';
+
+/** „17:04“ in Ortszeit. */
+export function clockText(at: number): string {
+  return new Date(at).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
+}
+
+function stations(count: number, one: string, many: string): string {
+  return `${String(count)} ${count === 1 ? one : many}`;
+}
+
+/** Warnleiste: „Kontingent aufgebraucht.“ mit den Zahlen dahinter, nach der Rücksetzzeit „Kontingent
+ *  zurückgesetzt.“ mit denen, die noch warten (Entwurf 2026-11-15). */
+export function quotaBarText(waiting: QuotaWaiting): { headline: string; detail: string } {
+  if (waiting.isReset) {
+    const rest: number = waiting.waiting - waiting.resuming;
+    const parts: string[] = [];
+    if (waiting.resuming > 0) {
+      parts.push(`${stations(waiting.resuming, 'Station setzt', 'Stationen setzen')} gleich fort`);
+    }
+    if (rest > 0) {
+      parts.push(`${stations(rest, 'wartet', 'warten')} noch auf dich`);
+    }
+    return { headline: 'Kontingent zurückgesetzt.', detail: `${parts.join(' · ')}.` };
+  }
+  const parts: string[] = [stations(waiting.waiting, 'Station wartet', 'Stationen warten')];
+  if (waiting.resuming > 0 && waiting.resumesAt !== null) {
+    parts.push(
+      `${stations(waiting.resuming, 'setzt', 'setzen')} um ${clockText(waiting.resumesAt)} automatisch fort`,
+    );
+  }
+  if (waiting.waitsForYou > 0) {
+    parts.push(`${stations(waiting.waitsForYou, 'wartet', 'warten')} auf dich (Schalter aus)`);
+  }
+  if (waiting.unknownReset > 0) {
+    parts.push(
+      `${String(waiting.unknownReset)} ohne bekannte Rücksetzzeit (${waiting.unknownReset === 1 ? 'setzt' : 'setzen'} nicht fort)`,
+    );
+  }
+  return { headline: 'Kontingent aufgebraucht.', detail: `${parts.join(' · ')}.` };
+}
 
 /** „Warteschlange: 2“ in der Leiste. */
 export function queueText(count: number): string {
@@ -428,6 +473,25 @@ export function waitsOnLead(isBegun: boolean): string {
 
 export const NEXT_LEAD = 'danach →';
 
+/** Tooltip des ↻ in der Zeile. */
+export function rowResumeTitle(station: StationView): string {
+  if (station.state === 'done') {
+    return 'Fertig: nur Ansicht.';
+  }
+  const source: string = station.autoResume === null ? 'wie die Umsetzung' : 'nur diese Station';
+  return `${AUTO_RESUME_LABEL}: ${station.resumesAutomatically ? 'an' : 'aus'} (${source}). Ein Klick schaltet nur diese Station.`;
+}
+
+/** Chip hinter „setzt automatisch fort“: „ab 17:04“. */
+export function resumesAtChip(at: number): string {
+  return `ab ${clockText(at)}`;
+}
+
+/** Chip hinter „wartet auf dich“, wenn die Session am Kontingent pausiert. */
+export function quotaChip(resetsAt: number | null): string {
+  return resetsAt === null ? 'Rücksetzzeit unbekannt' : 'Kontingent';
+}
+
 /** Zustand rechts in der Zeile: „läuft · 12 min“, „bereit · Warteschlange 1“, „startet in 7 s“. */
 export function rowStateText(station: StationView, now: number): string {
   if (station.startError !== null) {
@@ -605,6 +669,11 @@ export function autoStartHint(isAutomatic: boolean): string {
   return `Startet die Station nach ihren Vorgängern von selbst (Countdown) oder erst auf ▶. Jetzt: ${isAutomatic ? 'von selbst' : 'auf ▶'}.`;
 }
 
+/** „Läuft mit: an (von der Umsetzung).“ unter der Wahl „Automatisch fortsetzen“ der Kartei. */
+export function autoResumeHint(resumes: boolean, isOwn: boolean): string {
+  return `Läuft mit: ${resumes ? 'an' : 'aus'} (${isOwn ? 'nur diese Station' : 'von der Umsetzung'}). Setzt nach leerem Kontingent von selbst fort; änderbar, bis die Station fertig ist, auch während sie läuft.`;
+}
+
 export const ON_ERROR_LABEL = 'Bei Fehler';
 export const ON_ERROR_OPTIONS: readonly { id: OnError; label: string; short: string }[] = [
   { id: 'halt', label: 'anhalten', short: 'anhalten' },
@@ -615,12 +684,19 @@ export const ON_ERROR_HINT = 'Gilt bis die Station fertig ist; auch während sie
 export const BY_USER_AUTOMATION_HINT =
   'Eine Station durch dich startet nie von selbst: sie wartet auf dich, sobald ihre Vorgänger fertig sind.';
 
-/** Kopfzeile „Automatik“: „starten: wie Umsetzung · Fehler: anhalten“. */
-export function automationSummary(autoStart: boolean | null, onError: OnError): string {
-  const start: string = autoStart === null ? 'wie Umsetzung' : autoStart ? 'an' : 'aus';
+function inheritedText(value: boolean | null): string {
+  return value === null ? 'wie Umsetzung' : value ? 'an' : 'aus';
+}
+
+/** Kopfzeile „Automatik“: „starten: wie Umsetzung · fortsetzen: an · Fehler: anhalten“. */
+export function automationSummary(
+  autoStart: boolean | null,
+  autoResume: boolean | null,
+  onError: OnError,
+): string {
   const error: string =
     ON_ERROR_OPTIONS.find((option: { id: OnError }) => option.id === onError)?.short ?? onError;
-  return `starten: ${start} · Fehler: ${error}`;
+  return `starten: ${inheritedText(autoStart)} · fortsetzen: ${inheritedText(autoResume)} · Fehler: ${error}`;
 }
 
 export const AUTOMATION_SUMMARY_BY_USER = 'wartet auf dich';
@@ -631,7 +707,7 @@ export function lockInfo(phase: 'open' | 'started' | 'done'): string {
     case 'open':
       return 'Alles lässt sich ändern, bis die Station startet.';
     case 'started':
-      return 'Gestartet: Auftrag, Typ, Modell, Denkaufwand und System-Prompt sind festgeschrieben 🔒 (ein Modellwechsel in der Eingabeleiste der Session bleibt möglich). Offen bleibt „Bei Fehler“.';
+      return 'Gestartet: Auftrag, Typ, Modell, Denkaufwand und System-Prompt sind festgeschrieben 🔒 (ein Modellwechsel in der Eingabeleiste der Session bleibt möglich). Offen bleiben „Automatisch fortsetzen“ und „Bei Fehler“.';
     case 'done':
       return 'Fertig: nur noch Ansicht, mit den Werten, mit denen die Station lief.';
   }
