@@ -80,9 +80,9 @@ export function quotaBarText(waiting: QuotaWaiting): { headline: string; detail:
     return { headline: 'Kontingent zurückgesetzt.', detail: `${parts.join(' · ')}.` };
   }
   const parts: string[] = [stations(waiting.waiting, 'Station wartet', 'Stationen warten')];
-  if (waiting.resuming > 0 && waiting.resumesAt !== null) {
+  if (waiting.resuming > 0) {
     parts.push(
-      `${stations(waiting.resuming, 'setzt', 'setzen')} um ${clockText(waiting.resumesAt)} automatisch fort`,
+      `${stations(waiting.resuming, 'setzt', 'setzen')} ${waiting.resumesAt === null ? 'gleich' : `um ${clockText(waiting.resumesAt)} automatisch`} fort`,
     );
   }
   if (waiting.waitsForYou > 0) {

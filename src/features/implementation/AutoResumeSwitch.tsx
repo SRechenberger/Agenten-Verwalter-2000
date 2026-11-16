@@ -11,6 +11,8 @@ interface AutoResumeSwitchProps {
   /** `implementation.autoResume`; der Schalter zeigt die Ansicht, die Änderung kommt per Ereignis. */
   enabled: boolean;
   isLocked: boolean;
+  /** Nur ↻ und Schalter, der Name als Tooltip und `aria-label`: so bleibt die Leiste einzeilig. */
+  isCompact?: boolean;
   onChange: (enabled: boolean) => void;
 }
 
@@ -18,6 +20,7 @@ interface AutoResumeSwitchProps {
 export function AutoResumeSwitch({
   enabled,
   isLocked,
+  isCompact = false,
   onChange,
 }: AutoResumeSwitchProps): ReactElement {
   return (
@@ -25,7 +28,7 @@ export function AutoResumeSwitch({
       <b className="auto-resume-switch__glyph" aria-hidden="true">
         {AUTO_RESUME_GLYPH}
       </b>
-      {AUTO_RESUME_LABEL}
+      {!isCompact && AUTO_RESUME_LABEL}
       <Switch
         checked={enabled}
         label={AUTO_RESUME_LABEL}

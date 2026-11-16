@@ -165,6 +165,7 @@ export function ImplementationBar({
         <AutoResumeSwitch
           enabled={implementation.autoResume}
           isLocked={isLocked}
+          isCompact
           onChange={onSetAutoResume}
         />
         <span className="implementation-bar__switch" title={MAX_PARALLEL_TITLE}>

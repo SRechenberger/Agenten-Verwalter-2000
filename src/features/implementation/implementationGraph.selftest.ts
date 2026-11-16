@@ -10,7 +10,8 @@ import {
   patchEdit,
   type PlanNode,
 } from './implementationGraph.ts';
-import { quotaWaiting, type QuotaPause } from './quotaWaiting.ts';
+import type { PauseReason } from '../../lib/bindings/PauseReason.ts';
+import { quotaPauses, quotaWaiting, type QuotaPause } from './quotaWaiting.ts';
 
 function node(planId: string, ...after: string[]): PlanNode {
   return { planId, after };
@@ -21,6 +22,39 @@ const HOUR = 3_600_000;
 
 function pause(resetsAt: number | null, autoResume: boolean, isDone: boolean = false): QuotaPause {
   return { isDone, resetsAt, autoResume };
+}
+
+/** Umsetzung mit drei Stationen am Kontingent (eine fertig) und einer laufenden. */
+function pausesOfImplementation(): string {
+  const quota: PauseReason = { kind: 'quota', resetsAt: NOW + HOUR, autoResume: true };
+  return JSON.stringify(
+    quotaPauses(
+      {
+        phases: [
+          {
+            stations: [
+              { sessionId: 's1', state: 'waitsForQuota' },
+              { sessionId: null, state: 'pending' },
+            ],
+          },
+          {
+            stations: [
+              { sessionId: 's2', state: 'done' },
+              { sessionId: 's3', state: 'running' },
+              { sessionId: 's4', state: 'waitsForYou' },
+            ],
+          },
+        ],
+      },
+      [
+        { id: 's1', pauseReason: quota },
+        { id: 's2', pauseReason: quota },
+        { id: 's3', pauseReason: null },
+        { id: 's4', pauseReason: { kind: 'quota', resetsAt: null, autoResume: false } },
+        { id: 'fremd', pauseReason: quota },
+      ],
+    ),
+  );
 }
 
 function waiting(pauses: readonly QuotaPause[]): string {
@@ -140,6 +174,26 @@ const CASES: { name: string; actual: () => unknown; expected: unknown }[] = [
     name: 'reset_time_in_the_past_reads_as_reset',
     actual: () => quotaWaiting([pause(NOW - 1000, true), pause(NOW - 1000, false)], NOW)?.isReset,
     expected: true,
+  },
+  {
+    name: 'reset_time_exactly_now_reads_as_reset',
+    actual: () => quotaWaiting([pause(NOW, true)], NOW)?.isReset,
+    expected: true,
+  },
+  {
+    name: 'past_reset_times_are_not_shown_while_others_are_ahead',
+    actual: () => quotaWaiting([pause(NOW - 1000, true), pause(NOW + HOUR, true)], NOW)?.resumesAt,
+    expected: NOW + HOUR,
+  },
+  {
+    name: 'only_past_reset_times_of_resuming_stations_show_none',
+    actual: () => quotaWaiting([pause(NOW - 1000, true), pause(NOW + HOUR, false)], NOW)?.resumesAt,
+    expected: null,
+  },
+  {
+    name: 'quota_pauses_are_taken_from_the_station_sessions_and_mark_finished_ones',
+    actual: pausesOfImplementation,
+    expected: `[{"isDone":false,"resetsAt":${String(NOW + HOUR)},"autoResume":true},{"isDone":true,"resetsAt":${String(NOW + HOUR)},"autoResume":true},{"isDone":false,"resetsAt":null,"autoResume":false}]`,
   },
   {
     name: 'one_reset_time_ahead_is_not_reset_yet',
