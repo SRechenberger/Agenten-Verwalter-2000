@@ -17,7 +17,7 @@ Das `/`-Menü zeigte nur Skills und Befehle aus Dateien. Eingebaute Befehle wie 
 - Ausgeblendet: `model`, `effort`, `mcp`, `rename`, `chrome`, `clear`, `agents`, `heapdump`, `color`, `focus`, `workflow-launch-exec`, jeder Name mit `__` und jeder Name, den schon ein Datei-Eintrag trägt.
 - Beschreibungen kommen aus einer festen deutschen Tabelle im Core; unbekannte Namen bleiben ohne.
 - `SkillOrigin::Builtin`; die Einträge kommen als `SkillInfo { kind: Command }` aus den bestehenden Commands, hinter den Datei-Einträgen. Kein Skill-Abzeichen an der Nachricht.
-- Der Dialog „Agententyp“ schlägt sie nicht als Skills des Typs vor (`origin.kind === 'builtin'` wird gefiltert): die erste Nachricht ruft dort einen Skill, keinen Befehl der Kommandozeile; Plugin-Skills bleiben.
+- Der Dialog „Agententyp“ schlägt sie nicht als Skills des Typs vor (`origin.kind === 'builtin'` wird gefiltert): die erste Nachricht ruft dort einen Skill, keinen Befehl der Kommandozeile. Plugin-Skills (`anthropic-skills:pdf`, `vault:role-developer`) kommen im Fork nur über dieselbe Liste und tragen darum auch `Builtin`; der Dialog erkennt sie am `:` im Namen und behält sie.
 
 ## Konsequenzen
 

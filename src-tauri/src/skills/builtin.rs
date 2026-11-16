@@ -186,16 +186,17 @@ mod tests {
             .collect()
     }
 
-    /// Ein leerer Benutzerordner; `.claude` fehlt darin, also gibt es keine Datei-Einträge.
-    fn empty_home() -> PathBuf {
-        std::env::temp_dir().join("verwalter-builtin-test-leer")
+    /// Ein Benutzerordner, den es noch nicht gibt, mit eigenem Namen je Aufruf: parallele Läufe (auch aus
+    /// anderen Worktrees) teilen sich keinen Ordner. Ohne `.claude` gibt es keine Datei-Einträge.
+    fn unique_home() -> PathBuf {
+        std::env::temp_dir().join(format!("verwalter-builtin-{}", uuid::Uuid::new_v4()))
     }
 
     #[test]
     fn standalone_and_codex_list_no_builtin_commands() {
         for mode in [OperatingMode::Standalone, OperatingMode::Codex] {
             let database = database_with(mode, &["compact", "context"]);
-            assert!(builtin_names(&database, &empty_home()).is_empty());
+            assert!(builtin_names(&database, &unique_home()).is_empty());
         }
     }
 
@@ -204,7 +205,7 @@ mod tests {
         for mode in [OperatingMode::Claude, OperatingMode::ClaudeCodeLocal] {
             let database = database_with(mode, &["usage", "Compact", "context"]);
             assert_eq!(
-                builtin_names(&database, &empty_home()),
+                builtin_names(&database, &unique_home()),
                 ["Compact", "context", "usage"]
             );
         }
@@ -216,12 +217,12 @@ mod tests {
             OperatingMode::Claude,
             &["model", "clear", "agents", "__internal", "context"],
         );
-        assert_eq!(builtin_names(&database, &empty_home()), ["context"]);
+        assert_eq!(builtin_names(&database, &unique_home()), ["context"]);
     }
 
     #[test]
     fn a_name_with_its_own_file_displaces_the_builtin_command() {
-        let home = std::env::temp_dir().join("verwalter-builtin-test-datei");
+        let home = unique_home();
         let commands = home.join(".claude").join("commands");
         std::fs::create_dir_all(&commands).expect("Ordner");
         std::fs::write(commands.join("context.md"), "Eigene Fassung\n").expect("Datei");
