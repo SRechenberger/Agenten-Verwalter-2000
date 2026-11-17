@@ -24,6 +24,10 @@
 //! Zusatztexts, einen Startfehler und ob sie auf der Karte angepasst ist; Stationen gelten als nicht
 //! gestartet, weil keine Session läuft.
 //! Fehler als `FEHLER: <Satz>`.
+//! `… --example implementation-probe -- --wake-texts <Ordner>` schreibt den Systemprompt der
+//! Session-Werkzeuge (`prompt.txt`) und je Weck-Ereignis die Nachricht, wie der Master sie liest, samt
+//! erster Zeile (`<Ereignis>.txt`), für die Messung des Wortlauts mit `claude -p --model haiku` (ADR 069);
+//! ohne Datenbank.
 //! `… --example implementation-probe -- --selftest` prüft die Planung aus Kanten (ADR 061) gegen eine
 //! **eigene temporäre** Datenbank: Sortierung, bereiter Satz, Zyklus, Einfügen, Verzweigung und
 //! Zusammenlauf, Migration aus Position und Welle, das Tor der globalen Warteschlange (ADR 068), dazu
@@ -67,7 +71,7 @@ use verwalter_lib::implementation::{
 use verwalter_lib::projects::model::ProjectPriority;
 use verwalter_lib::sessions::model::SessionStatus;
 
-const USAGE: &str = "Aufruf: implementation-probe --selftest | <Datenbank-Kopie> create <Session-ID> <JSON-Datei> | show <Umsetzungs-ID> | report <Umsetzungs-ID> | complete <Umsetzungs-ID> <Station-ID> \"<Ergebnis>\" [--fix] [--report-only] | return <Umsetzungs-ID> <Station-ID> \"<Nachricht>\" | set-phases <Umsetzungs-ID> <JSON-Datei> [--apply] | set-station <Umsetzungs-ID> <Station-ID> <JSON-Datei>";
+const USAGE: &str = "Aufruf: implementation-probe --selftest | <Datenbank-Kopie> create <Session-ID> <JSON-Datei> | show <Umsetzungs-ID> | report <Umsetzungs-ID> | --wake-texts <Ordner> | complete <Umsetzungs-ID> <Station-ID> \"<Ergebnis>\" [--fix] [--report-only] | return <Umsetzungs-ID> <Station-ID> \"<Nachricht>\" | set-phases <Umsetzungs-ID> <JSON-Datei> [--apply] | set-station <Umsetzungs-ID> <Station-ID> <JSON-Datei>";
 
 #[derive(Deserialize)]
 struct CreateInput {
@@ -89,6 +93,19 @@ fn main() -> ExitCode {
     let arguments: Vec<String> = env::args().skip(1).collect();
     if arguments.first().map(String::as_str) == Some("--selftest") {
         return run_selftest();
+    }
+    if arguments.first().map(String::as_str) == Some("--wake-texts") {
+        let Some(folder) = arguments.get(1) else {
+            eprintln!("{USAGE}");
+            return ExitCode::from(2);
+        };
+        return match write_wake_texts(Path::new(folder)) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(error) => {
+                println!("FEHLER: {error}");
+                ExitCode::from(1)
+            }
+        };
     }
     let Some(database_path) = arguments.first().map(PathBuf::from) else {
         eprintln!("{USAGE}");
@@ -1733,6 +1750,123 @@ fn station_options(database: &Database) -> Result<bool, String> {
             && station(&after_app_restart, "failing").is_some_and(|failed| !failed.restarting),
     );
     Ok(all)
+}
+
+/// Schreibt die Texte der Messung (ADR 069): den Systemprompt der Session-Werkzeuge und je Ereignis die
+/// Nachricht mit der ersten Zeile, die der Core setzt.
+fn write_wake_texts(folder: &Path) -> Result<(), String> {
+    fs::create_dir_all(folder).map_err(|error| error.to_string())?;
+    fs::write(
+        folder.join("prompt.txt"),
+        verwalter_lib::agents::claude::process::session_tools_prompt(),
+    )
+    .map_err(|error| error.to_string())?;
+    let facts = wake::WakeFacts {
+        implementation: "Master-Session".to_owned(),
+        lane: "99.1".to_owned(),
+        stage: "Umsetzung".to_owned(),
+        text: "Kern gebaut, Tests grün, Branch bereit".to_owned(),
+        note:
+            "Migration 030, Werkzeug und Sperren fertig; die Messung des Wortlauts steht noch aus."
+                .to_owned(),
+    };
+    let station = |name: &str| name.to_owned();
+    let reported = |fix_needed: bool| wake::WakeEvent::Reported {
+        station_id: station("s1"),
+        returns: 0,
+        turn: 1,
+        fix_needed,
+    };
+    let events: Vec<(&str, wake::WakeEvent, wake::WakeFacts)> = vec![
+        ("reported", reported(false), facts.clone()),
+        (
+            "reported-fix-needed",
+            reported(true),
+            wake::WakeFacts {
+                stage: "Review".to_owned(),
+                text: "2 Befunde, Fix-Runde nötig".to_owned(),
+                ..facts.clone()
+            },
+        ),
+        (
+            "unreported",
+            wake::WakeEvent::Unreported {
+                station_id: station("s1"),
+                returns: 0,
+                turn: 1,
+            },
+            wake::WakeFacts {
+                text: "…ich habe die Tests ergänzt. Soll ich noch den Rest der Doku schreiben?"
+                    .to_owned(),
+                ..facts.clone()
+            },
+        ),
+        (
+            "failed",
+            wake::WakeEvent::Failed {
+                station_id: station("s1"),
+                returns: 0,
+                turn: 1,
+                stopped: false,
+            },
+            facts.clone(),
+        ),
+        (
+            "failed-stopped",
+            wake::WakeEvent::Failed {
+                station_id: station("s1"),
+                returns: 0,
+                turn: 1,
+                stopped: true,
+            },
+            facts.clone(),
+        ),
+        (
+            "finished",
+            wake::WakeEvent::Finished {
+                station_id: station("s1"),
+            },
+            wake::WakeFacts {
+                stage: "Merge".to_owned(),
+                text: "PR gemergt".to_owned(),
+                ..facts.clone()
+            },
+        ),
+        (
+            "asking",
+            wake::WakeEvent::Asking {
+                station_id: station("s1"),
+                request_id: station("r1"),
+            },
+            wake::WakeFacts {
+                text: "Soll ich die alte Fertigmeldung entfernen oder behalten?".to_owned(),
+                ..facts.clone()
+            },
+        ),
+    ];
+    let sender = wake::sender();
+    let line = format!(
+        "[Nachricht von Session {} „{}“, ID {}]\n\n",
+        sender.number, sender.title, sender.id
+    );
+    for (name, event, facts) in &events {
+        let mut claimed = std::collections::HashSet::new();
+        let text = wake::decide(event, facts, true, &mut claimed).ok_or("kein Text")?;
+        fs::write(folder.join(format!("{name}.txt")), format!("{line}{text}"))
+            .map_err(|error| error.to_string())?;
+    }
+    let reports = [(
+        "99.1".to_owned(),
+        "Umsetzung".to_owned(),
+        "Kern gebaut, Tests grün, Branch bereit".to_owned(),
+    )];
+    for (name, reports) in [("new-master", &reports[..]), ("new-master-empty", &[][..])] {
+        let text = wake::new_master_message("Master-Session", reports);
+        fs::write(folder.join(format!("{name}.txt")), format!("{line}{text}"))
+            .map_err(|error| error.to_string())?;
+    }
+    println!("Texte in {} geschrieben.", folder.display());
+    Ok(())
 }
 
 /// Master wecken (ADR 069): Ereignis → Nachricht oder keine, Melden und Annehmen, Zurückgeben bis zur Grenze

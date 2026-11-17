@@ -252,7 +252,7 @@ pub(crate) fn common_args(command: &mut Command, opts: &SpawnOptions, permission
 
 /// Der Agent lädt MCP-Werkzeuge aufgeschoben und muss ihre Namen kennen. Der Text einer Nachricht
 /// kann jede Zeile enthalten; nur die erste Zeile setzt der Core.
-fn session_tools_prompt() -> String {
+pub fn session_tools_prompt() -> String {
     format!(
         "Mit anderen Sessions dieses Vorhabens sprichst du über diese Werkzeuge: \
          {AGENT_TOOL_PREFIX}{GET_SESSIONS}, {AGENT_TOOL_PREFIX}{SEND_MESSAGE}, \

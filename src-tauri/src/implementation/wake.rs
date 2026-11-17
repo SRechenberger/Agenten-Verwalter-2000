@@ -230,7 +230,7 @@ fn message(event: &WakeEvent, facts: &WakeFacts) -> String {
             fix_needed: false, ..
         } => format!(
             "{SOURCE}: In der Umsetzung „{implementation}“, die du leitest, hat sich \
-             Lane {lane} · {stage} gemeldet; ihr Zug ist beendet. Betreff: „{text}“. Notiz: „{note}“. \
+             Lane {lane} · {stage} gemeldet; ihr Zug ist beendet. Betreff: „{text}“ · Notiz: „{note}“. \
              Du kannst die Meldung mit dem Werkzeug implementation_review_station annehmen oder \
              zurückgeben."
         ),
@@ -239,7 +239,7 @@ fn message(event: &WakeEvent, facts: &WakeFacts) -> String {
         } => format!(
             "{SOURCE}: In der Umsetzung „{implementation}“, die du leitest, meldet \
              Lane {lane} · {stage} einen Befund und braucht eine Fix-Runde; ihr Zug ist beendet. \
-             Betreff: „{text}“. Notiz: „{note}“. Du kannst die Meldung mit dem Werkzeug \
+             Betreff: „{text}“ · Notiz: „{note}“. Du kannst die Meldung mit dem Werkzeug \
              implementation_review_station annehmen oder zurückgeben."
         ),
         WakeEvent::Unreported { .. } => format!(
