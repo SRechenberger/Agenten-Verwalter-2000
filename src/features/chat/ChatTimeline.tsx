@@ -5,7 +5,7 @@ import { FileLinkSessionContext } from '@/components/FileLinkSessionContext';
 import { ArtifactCard } from '@/features/artifacts/ArtifactCard';
 import { BackgroundLine } from '@/features/chat/BackgroundLine';
 import { buildBlocks, type ChatBlock, type ToolEntry } from '@/features/chat/buildBlocks';
-import { entryTime, dayDividers } from '@/features/chat/entryTime';
+import { entryTime, dayDividers } from '@/features/chat/entryTimeText';
 import { EntryTime } from '@/features/chat/EntryTime';
 import { ErrorBlock } from '@/features/chat/ErrorBlock';
 import { HandoffAnswer } from '@/features/chat/HandoffAnswer';

@@ -1,5 +1,5 @@
 import type { ReactElement } from 'react';
-import { timeLabel } from '@/features/chat/entryTime';
+import { timeLabel } from '@/features/chat/entryTimeText';
 import './EntryTime.css';
 
 interface EntryTimeProps {

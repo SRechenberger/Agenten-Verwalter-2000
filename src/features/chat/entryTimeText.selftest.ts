@@ -1,8 +1,8 @@
-// Selbsttest des Zeitpunkts im Chat: `node src/features/chat/entryTime.selftest.ts` (`pnpm selftest`).
+// Selbsttest des Zeitpunkts im Chat: `node src/features/chat/entryTimeText.selftest.ts` (`pnpm selftest`).
 // Je Fall `PASS`/`FAIL`, Exit 1 bei einem Fehlschlag. Node streicht die Typen; die geprüfte Datei importiert
 // nur Typen. Zeiten aus lokalen Bestandteilen, damit die Fälle in jeder Zeitzone gelten. Bekannte Grenze: Ein
 // Rückfall auf UTC fällt nur außerhalb einer UTC-Zeitzone auf, und die CI läuft in UTC.
-import { dayDividers, dayLabel, entryTime, timeLabel } from './entryTime.ts';
+import { dayDividers, dayLabel, entryTime, timeLabel } from './entryTimeText.ts';
 import type { ChatEntry } from '@/lib/bindings/ChatEntry';
 
 /** Ein Eintrag so, wie ihn der Core als JSON liefert (ein alter Payload hat `at` gar nicht). */

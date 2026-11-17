@@ -1,5 +1,5 @@
 // Zeitpunkt eines Chat-Eintrags und die Tagestrenner des Verlaufs. Importiert nur Typen, damit
-// `node src/features/chat/entryTime.selftest.ts` die Datei laden kann (`pnpm selftest`).
+// `node src/features/chat/entryTimeText.selftest.ts` die Datei laden kann (`pnpm selftest`).
 import type { ChatEntry } from '@/lib/bindings/ChatEntry';
 
 const LOCALE = 'de-DE';
