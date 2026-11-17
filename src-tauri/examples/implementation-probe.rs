@@ -409,6 +409,7 @@ fn wake_lines(
     } else {
         wake::event_after_turn(&wake::TurnEnd {
             station_id,
+            session: "",
             has_ended: true,
             is_restarting: false,
             is_accepted: false,
@@ -1793,6 +1794,7 @@ fn write_wake_texts(folder: &Path) -> Result<(), String> {
             wake::WakeEvent::Interrupted {
                 station_id: station("s1"),
                 returns: 0,
+                session: "Session #7, ID s-7".to_owned(),
             },
             facts.clone(),
         ),
@@ -1919,6 +1921,7 @@ fn wakes(database: &Database) -> Result<bool, String> {
     // Meldung mitten im Zug: weckt einmal, und erst nach dem Zug.
     let turn = |has_ended: bool, returns: u32| wake::TurnEnd {
         station_id: "s1",
+        session: "Session #7, ID s-7",
         has_ended,
         is_restarting: false,
         is_accepted: false,
@@ -2088,6 +2091,7 @@ fn wakes(database: &Database) -> Result<bool, String> {
     // Wiederhergestellt pausiert (Neustart): unterbrochen, mit scharfem Zeitgeber nichts, einmal je Lauf.
     let restored = wake::TurnEnd {
         station_id: "st",
+        session: "Session #7, ID s-7",
         has_ended: verwalter_lib::implementation::master::turn_ended(SessionStatus::Paused, false),
         is_restarting: false,
         is_accepted: false,

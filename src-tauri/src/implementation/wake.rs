@@ -54,7 +54,12 @@ pub enum WakeEvent {
     },
     /// Die gemeldete Station ist beim App-Start unterbrochen (Neustart oder Pause) und setzt mit der nächsten
     /// Nachricht fort; ohne Zugmarke, einmal je Lauf der App und Rückgabe.
-    Interrupted { station_id: String, returns: u32 },
+    Interrupted {
+        station_id: String,
+        returns: u32,
+        // „Session #N, ID <uuid>“ der Station, für `verwalter_send_message_to`.
+        session: String,
+    },
     /// Die Station stellt eine Rückfrage; `request_id` unterscheidet mehrere nacheinander.
     Asking {
         station_id: String,
@@ -98,6 +103,7 @@ impl WakeEvent {
             WakeEvent::Interrupted {
                 station_id,
                 returns,
+                ..
             } => format!("interrupted:{station_id}:{returns}"),
             WakeEvent::Asking {
                 station_id,
@@ -149,6 +155,8 @@ pub enum Outcome {
 #[derive(Debug, Clone, Copy)]
 pub struct TurnEnd<'a> {
     pub station_id: &'a str,
+    /// „Session #N, ID <uuid>“ der Station.
+    pub session: &'a str,
     /// Der Zug ist wirklich beendet (`master::turn_ended`).
     pub has_ended: bool,
     /// „Bei Fehler“ startet die Station gleich neu.
@@ -203,6 +211,7 @@ pub fn event_on_start(turn: &TurnEnd, is_paused: bool, is_timer_armed: bool) -> 
     (is_paused && !is_timer_armed).then(|| WakeEvent::Interrupted {
         station_id: turn.station_id.to_owned(),
         returns: turn.returns,
+        session: turn.session.to_owned(),
     })
 }
 
@@ -287,9 +296,9 @@ fn message(event: &WakeEvent, facts: &WakeFacts) -> String {
              Betreff: „{text}“ · Notiz: „{note}“. Du kannst die Meldung mit dem Werkzeug \
              implementation_review_station annehmen oder zurückgeben."
         ),
-        WakeEvent::Interrupted { .. } => format!(
+        WakeEvent::Interrupted { session, .. } => format!(
             "{SOURCE}: In der Umsetzung „{implementation}“, die du leitest, ist der Zug von \
-             Lane {lane} · {stage} (station_id: {id}) unterbrochen (Neustart der App oder Pause); \
+             Lane {lane} · {stage} (station_id: {id}, {session}) unterbrochen (Neustart der App oder Pause); \
              die Station hatte sich gemeldet, Betreff: „{text}“. Sie setzt mit der nächsten Nachricht \
              fort, und angenommen werden kann sie erst nach ihrem Zugende. Du kannst ihr mit \
              verwalter_send_message_to schreiben (das zählt keine Rückgabe) oder sie mit dem Werkzeug \
@@ -375,6 +384,7 @@ mod tests {
     fn turn_end(outcome: Outcome) -> TurnEnd<'static> {
         TurnEnd {
             station_id: "s1",
+            session: "Session #7, ID s-7",
             has_ended: true,
             is_restarting: false,
             is_accepted: false,
@@ -661,6 +671,7 @@ mod tests {
         let event = |returns: u32| WakeEvent::Interrupted {
             station_id: "st-3".to_owned(),
             returns,
+            session: "Session #12, ID 7c1e".to_owned(),
         };
         let mut claimed = HashSet::new();
         assert!(decide(&event(0), &facts("PR offen"), true, &mut claimed).is_some());
@@ -671,7 +682,7 @@ mod tests {
         let text =
             decide(&event(1), &facts("PR offen"), true, &mut claimed).expect("nach Rückgabe");
         for part in [
-            "station_id: st-3",
+            "station_id: st-3, Session #12, ID 7c1e",
             "PR offen",
             "unterbrochen",
             "nächsten Nachricht",

@@ -865,8 +865,13 @@ fn wake_master_after_turn(
         (None, SessionStatus::Cancelled) => wake::Outcome::Failed { stopped: true },
         (None, _) => wake::Outcome::Silent,
     };
+    let session = format!(
+        "Session #{}, ID {session_id}",
+        registry.session_number(session_id)
+    );
     let facts = wake::TurnEnd {
         station_id: &station.id,
+        session: &session,
         has_ended: turn.has_ended,
         is_restarting: station.restarting,
         is_accepted: station.completed_at.is_some(),
