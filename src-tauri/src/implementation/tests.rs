@@ -5444,6 +5444,37 @@ fn a_resume_counted_as_busy_is_no_waiter_of_the_same_pass() {
 }
 
 #[test]
+fn a_due_resume_outside_busy_stays_a_waiter_and_starts_in_a_free_slot() {
+    // Gegenstück zum Nachbartest: q1 und q2 belegen (fallen heraus), das fällige Fortsetzen von q3 ist
+    // nicht belegt und bleibt. Erwartet: bei Grenze 3 ist ein Platz frei, q3 wartet seit 10, die
+    // Nachricht seit 20, also liegt q3 in der Rangfolge vorn und genau q3 startet.
+    let busy: Vec<String> = ["q1", "q2"].map(str::to_owned).to_vec();
+    let mut waiters = resumes(&["q1", "q2", "q3"], 10.0);
+    waiters.push(session_waiter(
+        "m",
+        slots::QueueKind::Message,
+        ProjectPriority::Normal,
+        20.0,
+    ));
+    let waiters = slots::without_held_resumes(waiters, &busy);
+    let keys: Vec<&str> = waiters.iter().map(|waiter| waiter.key.as_str()).collect();
+    assert_eq!(
+        keys,
+        ["q3", "m"],
+        "q1 und q2 fallen heraus, q3 und die Nachricht bleiben"
+    );
+    let mut countdowns = Countdowns::default();
+    let claimed = countdowns
+        .pass(0, Some(3), &busy, waiters, 50.0, 60.0)
+        .expect("frische Zählung");
+    assert_eq!(
+        claimed_keys(claimed),
+        ["q3"],
+        "genau das fällige Fortsetzen startet"
+    );
+}
+
+#[test]
 fn a_due_resume_waits_in_the_queue_when_the_limit_is_full() {
     let mut countdowns = Countdowns::default();
     let pass = |countdowns: &mut Countdowns, busy: &[String]| -> Vec<String> {
