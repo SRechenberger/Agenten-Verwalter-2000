@@ -106,11 +106,15 @@ check(
 );
 
 check(
-  'Rückgaben „n von 3“ aus den Zahlen des Core',
-  [returnsText(1, 2), returnsText(3, 0)],
-  ['1 von 3', '3 von 3'],
+  'Rückgaben „n von 3“, darüber hinaus (Benutzer ohne Grenze) nur n',
+  [returnsText(1), returnsText(3), returnsText(4)],
+  ['1 von 3', '3 von 3', '4'],
 );
-check('Marke in der Zeitleiste', returnsChip(2, 1), 'zurückgegeben 2/3');
+check(
+  'Marke in der Zeitleiste',
+  [returnsChip(2), returnsChip(5)],
+  ['zurückgegeben 2/3', 'zurückgegeben 5'],
+);
 check('Name des Masters', masterName(1, 'Architekt'), '#1 Architekt');
 check(
   'Master der Umsetzung: Name oder null, wenn es die Session nicht gibt',

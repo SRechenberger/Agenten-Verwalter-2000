@@ -3,14 +3,22 @@
 import type { ImplementationView } from '../../lib/bindings/ImplementationView.ts';
 import type { SessionSummary } from '../../lib/bindings/SessionSummary.ts';
 
-/** Die Rückgaben „n von 3“; die Grenze liefert der Core als `returnsLeft`, die Oberfläche rechnet sie nicht nach. */
-export function returnsText(returns: number, returnsLeft: number): string {
-  return `${String(returns)} von ${String(returns + returnsLeft)}`;
+/** Wie oft der Master zurückgeben darf, nur für die Beschriftung „n von 3“; ob er noch darf, sagt der Core
+ *  mit `returnsLeft` und dem Zustand. */
+const MASTER_RETURNS = 3;
+
+/** Die Rückgaben „n von 3“; gibt der Benutzer darüber hinaus zurück (ohne Grenze), steht nur n da. */
+export function returnsText(returns: number): string {
+  return returns > MASTER_RETURNS
+    ? String(returns)
+    : `${String(returns)} von ${String(MASTER_RETURNS)}`;
 }
 
 /** Marke in der Zeitleiste hinter einer zurückgegebenen Station. */
-export function returnsChip(returns: number, returnsLeft: number): string {
-  return `zurückgegeben ${String(returns)}/${String(returns + returnsLeft)}`;
+export function returnsChip(returns: number): string {
+  return returns > MASTER_RETURNS
+    ? `zurückgegeben ${String(returns)}`
+    : `zurückgegeben ${String(returns)}/${String(MASTER_RETURNS)}`;
 }
 
 export const RELEASED_CHIP = '✓ freigegeben';
@@ -23,8 +31,8 @@ export const REPORT_FIX_MARK = 'Befund · Fix-Runde bei Annahme';
 export const REPORT_NO_FIX_MARK = 'ohne Befund';
 
 /** „gemeldet 11:42 · zurückgegeben 1 von 3“. */
-export function reportLine(stamp: string, returns: number, returnsLeft: number): string {
-  return `gemeldet ${stamp} · zurückgegeben ${returnsText(returns, returnsLeft)}`;
+export function reportLine(stamp: string, returns: number): string {
+  return `gemeldet ${stamp} · zurückgegeben ${returnsText(returns)}`;
 }
 
 /** Name des Masters in Kopf, Hinweisen und Auswahl: „#1 Architekt“. */
@@ -66,9 +74,7 @@ export function waitsForMasterText(master: string | null): string {
 }
 
 export const DECIDE_TITLE = 'Du entscheidest';
-export function exhaustedText(returns: number): string {
-  return `Der Master hat diese Station ${String(returns)} Mal zurückgegeben. Jetzt entscheidest du.`;
-}
+export const EXHAUSTED_TEXT = 'Der Master hat seine Rückgaben verbraucht. Jetzt entscheidest du.';
 export const RETURN_PLACEHOLDER = 'Nachricht an die Station, wenn du zurückgibst …';
 export const RETURN_LABEL = 'Nachricht an die Station';
 export const RETURN_BUTTON = 'Zurückgeben';

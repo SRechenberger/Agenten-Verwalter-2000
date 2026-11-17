@@ -86,7 +86,7 @@ export function MasterPicker({
         <Popover
           label={MASTER_POPOVER_TITLE}
           placement="below"
-          align="start"
+          align="end"
           width={280}
           onClose={(): void => {
             setIsOpen(false);

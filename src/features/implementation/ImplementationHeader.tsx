@@ -100,12 +100,6 @@ export function ImplementationHeader({
         {activeLanes >= 2 && (
           <span className="implementation-bar__lanes">{lanesActiveText(activeLanes)}</span>
         )}
-        <MasterPicker
-          implementation={implementation}
-          sessions={sessions}
-          isLocked={isLocked}
-          run={run}
-        />
       </div>
       <div className="session-header__tabs" role="tablist" aria-label="Ansicht">
         {views.map((view: ImplementationViewKind) => (
@@ -130,6 +124,12 @@ export function ImplementationHeader({
         ))}
       </div>
       <div className="session-header__tools">
+        <MasterPicker
+          implementation={implementation}
+          sessions={sessions}
+          isLocked={isLocked}
+          run={run}
+        />
         <RemoteHostBadge projectId={implementation.projectId} />
         <button
           type="button"

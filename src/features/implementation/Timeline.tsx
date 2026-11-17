@@ -305,7 +305,7 @@ export function Timeline({
       <>
         {station.returns > 0 && (
           <span className="timeline__chip timeline__chip--static timeline__chip--state">
-            {returnsChip(station.returns, station.returnsLeft)}
+            {returnsChip(station.returns)}
           </span>
         )}
         {station.released && (

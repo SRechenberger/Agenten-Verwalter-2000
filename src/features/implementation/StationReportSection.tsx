@@ -5,7 +5,7 @@ import {
   ACCEPT_FAILED,
   ACCEPT_TITLE,
   DECIDE_TITLE,
-  exhaustedText,
+  EXHAUSTED_TEXT,
   REPORT_FIX_MARK,
   REPORT_TITLE,
   reportLine,
@@ -56,7 +56,7 @@ export function StationReportSection({
         {report.fixNeeded && <span className="station-card__mark">{REPORT_FIX_MARK}</span>}
         <p className="station-card__report-note">{report.note}</p>
         <p className="station-card__report-line">
-          {reportLine(stampText(report.reportedAt), station.returns, station.returnsLeft)}
+          {reportLine(stampText(report.reportedAt), station.returns)}
         </p>
       </section>
       {station.state === 'reported' && (
@@ -66,7 +66,7 @@ export function StationReportSection({
         <section className="station-card__report" aria-label={DECIDE_TITLE}>
           <h4 className="station-card__report-title">{DECIDE_TITLE}</h4>
           <p className="station-card__report-hint station-card__report-hint--wait">
-            {exhaustedText(station.returns)}
+            {EXHAUSTED_TEXT}
           </p>
           <textarea
             className="station-card__textarea"
