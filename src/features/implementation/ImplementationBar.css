@@ -57,11 +57,6 @@
     color: var(--color-fg-primary);
   }
 
-  &__queue {
-    color: var(--color-status-handoff);
-    white-space: nowrap;
-  }
-
   &__actions {
     display: inline-flex;
     flex-wrap: wrap;

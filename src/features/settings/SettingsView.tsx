@@ -31,6 +31,7 @@ import { useKnownRepositories } from '@/features/repositories/useKnownRepositori
 import { ColorSchemeSegment } from '@/features/settings/ColorSchemeSegment';
 import { TerminalPlacementSegment } from '@/features/settings/TerminalPlacementSegment';
 import { LocalModelMenu } from '@/features/settings/LocalModelMenu';
+import { MaxAgentsRow } from '@/features/settings/MaxAgentsRow';
 import { OperatingModeSegment } from '@/features/settings/OperatingModeSegment';
 import { SelectButton } from '@/features/settings/SelectButton';
 import { SelfReleaseRow } from '@/features/settings/SelfReleaseSettings';
@@ -440,6 +441,8 @@ export function SettingsView({
             />
           </SettingRow>
         );
+      case 'maxAgents':
+        return <MaxAgentsRow value={current.maxAgents} save={save} />;
       case 'agentTypes':
         return <AgentTypesRow operatingMode={current.operatingMode} />;
       case 'cliVersion':

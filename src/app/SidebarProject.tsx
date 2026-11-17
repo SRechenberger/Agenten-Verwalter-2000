@@ -5,6 +5,7 @@ import { StatusIcon } from '@/components/StatusIcon';
 import { RenameField } from '@/app/SidebarItem';
 import { useNow } from '@/features/background/useNow';
 import { hasUnread, mostUrgent, projectMetaLine } from '@/features/projects/projectStatus';
+import { priorityMark, type PriorityMark } from '@/features/queue/queueTexts';
 import {
   isOffered,
   LOCKED_TITLE,
@@ -148,6 +149,7 @@ export function SidebarProject({
     );
     const meta: string | null = remote.text;
     const markTitle: string | null = markTitleOf();
+    const priority: PriorityMark | null = priorityMark(project.priority);
     const isDone: boolean =
       !isFree && (urgentStatus === 'completed' || urgentStatus === 'cancelled');
     const isUnread: boolean = hasUnread(sessions);
@@ -215,6 +217,16 @@ export function SidebarProject({
               >
                 {project.name}
               </span>
+              {priority !== null && (
+                <span
+                  className={`sidebar-project__priority sidebar-project__priority--${project.priority}`}
+                  role="img"
+                  aria-label={priority.title}
+                  title={priority.title}
+                >
+                  {priority.glyph}
+                </span>
+              )}
               {markTitle !== null && (
                 <span className="sidebar-project__mark" title={markTitle}>
                   <RemoteMark />

@@ -138,6 +138,12 @@ const ENTRY_DATA = {
     label: 'Automatisch fortsetzen',
     info: 'Wenn das Kontingent aufgebraucht ist, setzt eine Station 30 Sekunden nach dem Zurücksetzen von selbst fort. Der Wert gilt für neue Umsetzungen; bestehende behalten ihren. Sessions außerhalb einer Umsetzung beginnen jede Pause weiter mit „aus“.',
   },
+  maxAgents: {
+    category: 'agent',
+    section: 'Agent',
+    label: 'Gleichzeitige Agenten max.',
+    info: 'Was der Verwalter von selbst startet (Stationen, zugestellte Nachrichten, Fortsetzen nach Kontingent), wartet, wenn so viele Agenten laufen, und rückt in der Reihenfolge der Warteschlange nach: Priorität des Vorhabens, Vorrang der Station, Wartezeit. Eigene Nachrichten starten sofort und zählen mit. Leer = unbegrenzt, Standard 4. Eine höhere Zahl lässt sofort nachrücken, eine niedrigere beendet nichts. Gilt für die ganze App.',
+  },
   agentTypes: {
     category: 'agent',
     section: 'Agententypen',

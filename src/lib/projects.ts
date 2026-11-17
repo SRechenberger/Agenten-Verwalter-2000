@@ -4,6 +4,7 @@ import type { Effort } from '@/lib/bindings/Effort';
 import type { Mode } from '@/lib/bindings/Mode';
 import type { ModelId } from '@/lib/bindings/ModelId';
 import type { ProjectCreated } from '@/lib/bindings/ProjectCreated';
+import type { ProjectPriority } from '@/lib/bindings/ProjectPriority';
 import type { ProjectSummary } from '@/lib/bindings/ProjectSummary';
 import type { SelfRelease } from '@/lib/bindings/SelfRelease';
 
@@ -55,6 +56,15 @@ export function setProjectSelfRelease(
   value: SelfRelease,
 ): Promise<ProjectSummary> {
   return invoke<ProjectSummary>('project_set_self_release', { projectId, value });
+}
+
+/** Setzt die Stufe des Vorhabens in der globalen Warteschlange (ADR 068); die Liste ordnet sich sofort neu.
+ *  @throws {import('@/lib/bindings/CommandError').CommandError} `internal` (unbekanntes Vorhaben) */
+export function setProjectPriority(
+  projectId: string,
+  value: ProjectPriority,
+): Promise<ProjectSummary> {
+  return invoke<ProjectSummary>('project_set_priority', { projectId, value });
 }
 
 /** Hängt ein bekanntes Repository an alle Sessions des Vorhabens (Haupt-Checkout, Basis = letzter Commit vor dem

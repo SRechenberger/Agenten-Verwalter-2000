@@ -1,6 +1,6 @@
 # Design-Entwurf: Globale Warteschlange mit Prioritäten
 
-**Status:** freigegeben am 2026-11-16 mit dem Plan „Globale Warteschlange“ (Taiga-Story 103, [ADR 068](../../decisions/068-globale-warteschlange.md)). Gebaut ist der Kern (Phase 103.1: Tor, Durchgang, Priorität je Vorhaben, Einstellung, „Parallel max.“ entfernt); die Oberfläche baut Phase 103.2, die Abnahme in der echten App folgt in 103.A.
+**Status:** freigegeben am 2026-11-16 mit dem Plan „Globale Warteschlange“ (Taiga-Story 103, [ADR 068](../../decisions/068-globale-warteschlange.md)). Gebaut sind der Kern (Phase 103.1: Tor, Durchgang, Priorität je Vorhaben, Einstellung, „Parallel max.“ entfernt) und die Oberfläche (Phase 103.2); die Abnahme in der echten App folgt in 103.A.
 
 ## Ansehen
 
@@ -23,7 +23,7 @@ Verbindlich sind die Einträge im [Glossar](../../glossary.md).
 | Leiste der Vorhaben | je Vorhaben „n wartet“, bei hoch ▲, bei niedrig ▼; keine Knöpfe in der Zeile | 103.2 |
 | Fuß der Leiste | Marke „n warten“, nur wenn etwas wartet; sonst „Alle Agenten laufen.“ | 103.2 |
 | Kopf des Vorhabens | Priorität als drei Stufen | 103.2 (Befehl `project_set_priority` in 103.1) |
-| Leiste der Umsetzung | „Plätze n von m (App)“ mit Füllstand, bei Überschreitung „über der Grenze: dein Start“, Link in die Einstellungen; kein Zähler „Parallel max.“ mehr | 103.2 (Zähler entfernt in 103.1) |
+| Leiste der Umsetzung | „Plätze n von m (App)“ mit Füllstand, bei Überschreitung „über der Grenze“, Link in die Einstellungen; kein Zähler „Parallel max.“ mehr | 103.2 (Zähler entfernt in 103.1) |
 | Zeilen | „läuft“, „läuft · von dir gestartet“, „bereit · Warteschlange n“ (global), „Nachricht wartet · Platz n“ | 103.2 (Plätze aus `queuePosition` in 103.1) |
 | Liste der Warteschlange | Rang, Was, Vorhaben, Stufe, wartet seit | 103.2 (`agent_queue` in 103.1) |
 | Einstellungen · Agent | Zeile „Gleichzeitige Agenten max.“ | 103.2 (Einstellung `max_agents` in 103.1) |
@@ -52,4 +52,20 @@ Verbindlich sind die Einträge im [Glossar](../../glossary.md).
 
 ## Abweichungen vom Entwurf
 
-(Trägt Phase 103.2 nach dem Vergleich mit der gebauten Oberfläche ein.)
+Stand nach Phase 103.2, verglichen Zustand für Zustand mit dem Entwurf (`#scen=frei|voll`, hell und dunkel):
+
+- **Fuß der Leiste ohne Satz:** Ohne Wartende steht dort nichts, auch nicht „Alle Agenten laufen.“ Grund: Critical Rule 1 und der Auftrag der Phase (kein Platzhalter bei leerer Warteschlange).
+- **Keine Zahl „n wartet“ je Vorhaben:** Die Zeile eines Vorhabens zeigt nur ▲ (hoch) oder ▼ (niedrig). Grund: Der Auftrag der Phase nennt nur die Marke; die Zeilenhöhe bleibt, und die Liste hinter „n warten“ nennt das Vorhaben je Eintrag.
+- **Marke „1 wartet“:** Bei einem Eintrag steht die Einzahl, sonst „n warten“.
+- **Marke geschlossen umrandet:** Der Entwurf zeigt sie gefüllt, weil seine Liste immer offen ist; in der App ist sie gefüllt, solange das Popover offen ist (`aria-expanded`).
+- **Priorität im Kopf der Übersicht:** Die Schaltergruppe steht im Kopf des Vorhabens (Übersicht), nicht über der Leiste der Umsetzung; die Ansicht einer Umsetzung hat ihren eigenen Kopf mit der Umsetzung als Titel.
+- **„läuft · von dir gestartet“ fehlt:** Der Core sagt nicht, wer einen Zug gestartet hat; die Zeile zeigt wie bisher „läuft · Dauer“.
+- **„über der Grenze“ statt „über der Grenze: dein Start“:** Der Text erscheint, wann immer belegt > Grenze ist. Grund: Die Oberfläche kennt den Grund nicht (eigener Start oder gesenkte Grenze); der Tooltip der Leiste nennt beide.
+- **„Nachricht wartet · Platz n“ in der Sidebar kurz:** In der schmalen Session- und Stationszeile „✉ Platz n“ (sonst verschwände der Name); der volle Satz steht in Tooltip und Screenreader-Namen. In der Zeitleiste der volle Satz.
+- **„wartet“ als echte Zeit:** „gerade eben“, „vor n min“, „vor n h“ aus `sinceMs`.
+- **„wartet“ bei „Fortsetzen“ als „–“:** Grund: Der Core setzt `sinceMs` eines Eintrags „Fortsetzen“ bei jedem Durchgang auf jetzt (`queue.rs`), die Spalte stünde sonst immer auf „gerade eben“. Bis der Core den echten Zeitpunkt liefert, steht dort „–“.
+- **Einstellungszeile:** Die Beschreibung steht im ⓘ wie bei den Nachbarn, nicht unter dem Namen; eine ungültige Eingabe bleibt mit dem Satz „Eine ganze Zahl von 1 bis 9999; leer = unbegrenzt.“ stehen, Esc nimmt sie zurück. „Grenze in den Einstellungen“ öffnet die Kategorie Agent, ohne das Feld zu fokussieren.
+
+### Stand der Sichtprüfung (2026-11-17)
+
+Gesehen in der gebauten App (Wegwerf-`HOME`, eigenes Xvfb, Attrappe der Kommandozeile, Grenze 2, fünf Nachrichten im Posteingang, eine Umsetzung mit zwei Startstationen), je hell und dunkel: Marke und Liste, Priorität hoch und niedrig samt ▲/▼, „bereit · Warteschlange n“, „Nachricht wartet“, Leiste voll, über der Grenze und frei, Einstellungszeile samt Fehlerfall und Suche, frei ohne Marke. Nicht gesehen: ein Eintrag „Fortsetzen“ (nur im Selbsttest) und ein Start des Benutzers über der Grenze (gesehen nur über eine gesenkte Grenze).

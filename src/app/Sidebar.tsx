@@ -17,10 +17,13 @@ import {
 } from '@/features/projects/projectStatus';
 import { isLocked, isRemote, LOCKED_TITLE } from '@/features/remote/projectAccess';
 import { displayStatus } from '@/features/sessions/sessionStatus';
+import { QueueChip } from '@/features/queue/QueueChip';
+import { messageWaitPosition } from '@/features/queue/queueTexts';
 import { UsageSection } from '@/features/usage/UsageSection';
 import type { ImplementationView } from '@/lib/bindings/ImplementationView';
 import type { ProjectGroup } from '@/lib/bindings/ProjectGroup';
 import type { ProjectSummary } from '@/lib/bindings/ProjectSummary';
+import type { QueueEntry } from '@/lib/bindings/QueueEntry';
 import type { SessionSummary } from '@/lib/bindings/SessionSummary';
 import { renameImplementation } from '@/lib/implementation';
 import {
@@ -39,6 +42,7 @@ import { useAppUpdateStore } from '@/stores/appUpdate';
 import { useEnvironmentStore } from '@/stores/environment';
 import { useSessionsStore } from '@/stores/sessions';
 import type { RenameKind, RenameTarget } from '@/stores/sessions';
+import { useAgentQueueStore } from '@/stores/agentQueue';
 import { useSettingsStore } from '@/stores/settings';
 import './Sidebar.css';
 
@@ -57,6 +61,7 @@ const LAST_SESSION_EXTRA = 4;
 const NEW_GROUP_NAME = 'Neue Gruppe';
 /** So lange darf die Zeile eines Umbenennens fehlen, bevor es endet. */
 const RENAME_ROW_WAIT_MS = 1000;
+const NO_ENTRIES: readonly QueueEntry[] = [];
 
 interface RankedProject extends SidebarProjectEntry {
   /** Jüngste Aktivität im Vorhaben — bestimmt die Reihenfolge der Vorhaben. */
@@ -131,6 +136,9 @@ export function Sidebar({
   const hasAppUpdate: boolean = useAppUpdateStore((state) => state.status?.hasUpdate === true);
   const needsEnvironmentAttention: boolean = useEnvironmentStore((state) =>
     needsAttention(state.status),
+  );
+  const queueEntries: readonly QueueEntry[] = useAgentQueueStore(
+    (state) => state.queue?.entries ?? NO_ENTRIES,
   );
   const openStation = useOpenStation();
   const { error: actionError, run, report: reportError } = useActionError('sidebar');
@@ -622,6 +630,7 @@ export function Sidebar({
         <SidebarItem
           session={session}
           status={displayStatus(session, sessions)}
+          messageWait={messageWaitPosition(queueEntries, session.id)}
           isActive={session.id === activeSessionId}
           isRenaming={
             renaming !== null && renaming.kind === 'session' && renaming.id === session.id
@@ -743,6 +752,7 @@ export function Sidebar({
         </div>
       )}
       <div className="sidebar__footer">
+        <QueueChip projects={projects} />
         <UsageSection hasOwn={hasUsage} />
         <button type="button" className="sidebar__archive" onClick={onOpenArchive}>
           <svg

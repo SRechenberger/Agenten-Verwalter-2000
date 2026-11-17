@@ -26,13 +26,12 @@ import {
   NEW_LANE_LABEL,
   NEW_LANE_TITLE,
   progressLine,
-  QUEUE_TITLE,
-  queueText,
   REPORT_LABEL,
   REPORT_TITLE,
   STOP_AFTER_LABEL,
   STOP_AFTER_TITLE,
 } from '@/features/implementation/implementationTexts';
+import { SlotsMeter } from '@/features/queue/SlotsMeter';
 import type { ImplementationView } from '@/lib/bindings/ImplementationView';
 import './ImplementationBar.css';
 
@@ -61,7 +60,7 @@ interface ImplementationBarProps {
 /** Rückfrage, die gerade in der Leiste steht. */
 type Confirm = 'cancel' | 'delete';
 
-/** Zeile unter der Kopfzeile: Fortschritt, die Schalter der Automatik, Rückfrage und Lagebericht;
+/** Zeile unter der Kopfzeile: Fortschritt, die Schalter der Automatik, die Plätze der App (ADR 068), Rückfrage und Lagebericht;
  *  dazu Abbrechen und Löschen mit Rückfrage in der Leiste (ADR 066). */
 export function ImplementationBar({
   implementation,
@@ -175,11 +174,7 @@ export function ImplementationBar({
       ) : (
         renderAutomation()
       )}
-      {implementation.queued > 0 && cancelledAt === null && (
-        <span className="implementation-bar__queue" title={QUEUE_TITLE}>
-          {queueText(implementation.queued)}
-        </span>
-      )}
+      {isOpen && cancelledAt === null && <SlotsMeter />}
       <span className="implementation-bar__spacer" />
       <span className="implementation-bar__actions">
         {cancelledAt === null && (

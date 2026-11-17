@@ -75,9 +75,20 @@
     color: var(--color-status-waiting);
   }
 
+  /* Nachricht wartet auf einen Platz (ADR 068): wie die Uhr rechts, in der Farbe des Wartens. */
+  &__queue {
+    flex-shrink: 0;
+    margin-left: auto;
+    font-size: var(--font-size-2xs);
+    color: var(--color-status-waiting);
+    white-space: nowrap;
+  }
+
   &__clock + &__overlap,
   &__overlap + &__unread,
-  &__clock + &__unread {
+  &__clock + &__unread,
+  &__queue + &__overlap,
+  &__queue + &__unread {
     margin-left: 0;
   }
 

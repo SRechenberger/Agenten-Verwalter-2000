@@ -52,13 +52,16 @@ import {
   type CardAgentFacts,
 } from '@/features/implementation/stationAgent';
 import { StationDot } from '@/features/implementation/StationDot';
+import { messageWaitPosition, messageWaitText } from '@/features/queue/queueTexts';
 import { useOperatingMode } from '@/features/remote/useOperatingMode';
 import type { ChangeView } from '@/lib/bindings/ChangeView';
 import type { ImplementationView } from '@/lib/bindings/ImplementationView';
 import type { OperatingMode } from '@/lib/bindings/OperatingMode';
 import type { PauseReason } from '@/lib/bindings/PauseReason';
+import type { QueueEntry } from '@/lib/bindings/QueueEntry';
 import type { SessionSummary } from '@/lib/bindings/SessionSummary';
 import type { StationView } from '@/lib/bindings/StationView';
+import { useAgentQueueStore } from '@/stores/agentQueue';
 import './Timeline.css';
 
 interface TimelineProps {
@@ -83,6 +86,8 @@ interface StageGroup {
   level: number;
   refs: StationRef[];
 }
+
+const NO_ENTRIES: readonly QueueEntry[] = [];
 
 function stageGroups(refs: readonly StationRef[]): StageGroup[] {
   const groups: StageGroup[] = [];
@@ -112,12 +117,22 @@ export function Timeline({
   onSetAutoResume,
 }: TimelineProps): ReactElement {
   const operatingMode: OperatingMode = useOperatingMode(implementation.projectId);
+  const queueEntries: readonly QueueEntry[] = useAgentQueueStore(
+    (state) => state.queue?.entries ?? NO_ENTRIES,
+  );
   const refs: StationRef[] = flatStations(implementation);
   const byPlanId = new Map<string, StationRef>(
     refs.map((ref: StationRef) => [ref.station.planId, ref]),
   );
   const byId = new Map<string, StationRef>(refs.map((ref: StationRef) => [ref.station.id, ref]));
   const ruleSession: SessionSummary | null = latestSessionOf(sessions, implementation.projectId);
+
+  /** „Nachricht wartet · Platz n“ vor dem Zustand, sonst der Zustand (ADR 068). */
+  function rowText(station: StationView): string {
+    const position: number | null =
+      station.sessionId === null ? null : messageWaitPosition(queueEntries, station.sessionId);
+    return position === null ? rowStateText(station, now) : messageWaitText(position);
+  }
 
   function sessionOf(station: StationView): SessionSummary | null {
     return station.sessionId === null
@@ -337,7 +352,7 @@ export function Timeline({
           {renderMeta(station)}
         </button>
         <span className={`timeline__state timeline__state--${tone}`}>
-          {rowStateText(station, now)}
+          {rowText(station)}
           {renderQuotaChip(station)}
           {renderAction(station)}
           {renderResume(station)}

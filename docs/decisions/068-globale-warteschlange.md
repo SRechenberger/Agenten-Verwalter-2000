@@ -1,6 +1,6 @@
 # 068 — Globale Warteschlange mit Prioritäten
 
-**Status:** angenommen, Kern umgesetzt (Migration 29, Tor und Durchgang, Priorität je Vorhaben, Einstellung „Gleichzeitige Agenten max.“, „Parallel max.“ entfernt samt Werkzeug-Schema; Story Taiga #103, Phase 103.1); Oberfläche (Phase 103.2) und Abnahme in der echten App (103.A) stehen aus · **Datum:** 2026-11-17
+**Status:** angenommen, Kern umgesetzt (Migration 29, Tor und Durchgang, Priorität je Vorhaben, Einstellung „Gleichzeitige Agenten max.“, „Parallel max.“ entfernt samt Werkzeug-Schema; Story Taiga #103, Phase 103.1); Oberfläche umgesetzt (Phase 103.2, Abschnitt „Oberfläche“); die Abnahme in der echten App (103.A) steht aus · **Datum:** 2026-11-17
 
 ## Kontext
 
@@ -20,6 +20,16 @@ Der Benutzer hat am 2026-11-16 entschieden (U1 bis U4 der Story): Es reiht sich 
 - **D7 — „Parallel max.“ entfällt:** Migration 29 entfernt `implementations.max_parallel` (`DROP COLUMN`, das gebündelte SQLite kann es), dazu Befehl `implementation_set_max_parallel` samt Klasse, die Felder in `ImplementationView`, `PlanEdit`, `ChangeSummary`, `EditedPlan`, `check_max_parallel`, `schedule::queue` und den Zähler in Leiste und Karte der Plan-Änderung. `implementation_create` und `implementation_edit` nennen das Feld nicht mehr; übergibt ein Planer es trotzdem, lehnt der Verwalter mit dem Satz ab: „`max_parallel` gibt es nicht mehr: Die Grenze gilt app-weit (Einstellung „Gleichzeitige Agenten max.“).“ (`model::refuse_max_parallel`). Eine gespeicherte Änderung oder ein Vorschlag mit `maxParallel` bleibt lesbar; das Feld wird übergangen. Laufende Umsetzungen mit eigener Grenze stehen danach unter der globalen.
 - **D8 — Standardwert 4:** Einstellung `max_agents` (`Settings.maxAgents`, `SettingsChange::MaxAgents { value }`; leer = unbegrenzt, sonst mindestens 1). Gilt auch für bestehende Installationen, ohne Migration der Daten. Ein höherer Wert löst sofort einen Durchgang aus, ein niedrigerer beendet nichts. Die Zeile in den Einstellungen baut Phase 103.2.
 - **D9 — Priorität am Vorhaben:** Spalte `projects.priority` (`high`, `normal`, `low`, Standard `normal`; Migration 29), `ProjectSummary.priority`, Befehl `project_set_priority` (Klasse C wie `project_set_self_release`). `agent_queue` ist Klasse G (nur lokal): Die Liste nennt Wartende aller Vorhaben.
+
+## Oberfläche
+
+- **Lesen:** `useAgentQueueSync` (einmal in `App.tsx`) hält `useAgentQueueStore` aktuell. Es liest `agent_queue` neu bei `agent_queue://changed`, bei `session://changed` (die belegten Plätze ändern sich mit jedem Zug, auch ohne Durchgang, etwa bei einer eigenen Nachricht), bei einer neuen Grenze und nach `remote://changed`; höchstens eine Abfrage zugleich, ein Ereignis währenddessen löst genau eine weitere aus. Die Oberfläche rechnet keine Reihenfolge: Rang und Platz sind `QueueEntry.position` und `StationView.queuePosition`.
+- **Fuß der Sidebar:** Marke „n warten“ (`QueueChip`) nur, solange `entries` nicht leer ist; ohne Wartende steht dort nichts (Critical Rule 1). Ein Klick öffnet die Liste als Popover: Rang, Was, Vorhaben, Stufe, wartet seit.
+- **Kopf des Vorhabens:** Schaltergruppe „Priorität hoch | normal | niedrig“ (`ProjectPrioritySegment`, `project_set_priority`), gesperrt wie andere Bedienelemente eines gesperrten Vorhabens. Die Sidebar zeigt ▲ oder ▼ hinter dem Namen, ohne Knopf; die Zeilenhöhe bleibt.
+- **Leiste der Umsetzung:** „Plätze n von m (App)“ mit Füllstand (`SlotsMeter`, höchstens 12 Kästchen), über der Grenze gelb und „· über der Grenze“ (Tooltip nennt beide Gründe: eigener Start oder gesenkte Grenze), dazu „Grenze in den Einstellungen“ (öffnet die Kategorie Agent). Der Zähler „Warteschlange: N“ entfällt; die Zeilen tragen „bereit · Warteschlange n“ mit dem globalen Platz.
+- **Nachricht wartet:** Eine Session mit einem Eintrag `kind: 'message'` zeigt „Nachricht wartet · Platz n“ in der Zeile der Zeitleiste; in der schmalen Sidebar (Session- und Stationszeile) kurz „✉ Platz n“, der ganze Satz als Tooltip und Name für Screenreader.
+- **Einstellung:** Zeile „Gleichzeitige Agenten max.“ in Einstellungen › Agent (`MaxAgentsRow`): Zahlenfeld, leer = unbegrenzt, sonst ganze Zahl von 1 bis 9999; gespeichert bei Enter oder beim Verlassen, Esc nimmt zurück, eine ungültige Eingabe bleibt mit Satz stehen.
+- **Prüfung:** `pnpm selftest` fährt `src/features/queue/queueTexts.selftest.ts` (Marke, Stufe, Wartezeit, „Nachricht wartet“, Plätze, Füllstand, Eingabe der Grenze).
 
 ## Was das in früheren ADRs überholt
 
