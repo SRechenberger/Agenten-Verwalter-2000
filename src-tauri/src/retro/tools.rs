@@ -943,6 +943,7 @@ mod tests {
             tool: "Read".to_owned(),
             target: "a.rs".to_owned(),
             state: ToolState::Done,
+            at: None,
         };
         let entries = [user, tool(2), message, tool(4), tool(5)];
         let traces = RuleTraces {
