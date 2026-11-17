@@ -23,6 +23,7 @@ import {
   proposalAppliedWithFailures,
   stationNotFound,
 } from '@/features/implementation/implementationTexts';
+import { MasterWarning } from '@/features/implementation/MasterPicker';
 import { NewLaneForm } from '@/features/implementation/NewLaneForm';
 import type { ProposalOverride } from '@/features/implementation/PlanChangeCard';
 import { QuotaWaitBar } from '@/features/implementation/QuotaWaitBar';
@@ -479,7 +480,11 @@ export function ImplementationView({
         terminalCount={terminalCount}
         isTerminalOpen={isTerminalOpen}
         onToggleTerminal={onToggleTerminal}
+        sessions={sessions}
+        isLocked={isLocked}
+        run={run}
       />
+      <MasterWarning implementation={implementation} sessions={sessions} />
       <ImplementationBar
         key={implementationId}
         implementation={implementation}
