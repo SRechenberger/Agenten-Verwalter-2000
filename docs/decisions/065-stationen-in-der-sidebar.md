@@ -27,6 +27,12 @@ Die Idee kommt aus Upstream, das in Phasen nacheinander plant. Der Fork plant se
 - **`Ctrl J`:** springt über alle Vorhaben zur Session oder Station, die am längsten auf dich wartet (erst „fragt“, dann „wartet auf dich“); erneut gedrückt zur nächsten, am Ende von vorn. Eine kurze Einblendung nennt die Stelle („1 von 3 warten auf dich“). Im Terminal bleibt `Ctrl J` ein Zeilenumbruch; sonst belegt der Fork die Taste nicht. Die Liste wird bei jedem Druck neu berechnet (`src/features/waiting/`). Bereite Stationen in der Warteschlange und Stationen mit Startfehler warten nicht auf dich, sondern auf einen Platz bzw. auf ▶, und stehen nicht in der Liste.
 - Ändert den Punkt „Sidebar“ aus ADR 048: Stationen bekommen weiterhin keine **Session**-Zeile, aktive aber eine Stationszeile.
 
+## Nachtrag: Variante A der Master-Session ([ADR 070](070-master-session.md))
+
+- **Aktiv:** „Aktiv“ bleibt `LIVE_STATES` (mit „gemeldet“), bestimmt aber nicht mehr, welche Stationen eine Zeile bekommen: Variante A ersetzt „alle aktiven Stationen“. Unter der Umsetzung stehen nur Stationen in `asking`, `waitsForYou` und `error` (`BELOW_IMPLEMENTATION_STATES`); alle anderen erreichst du über die Zeitleiste. Zugeklappt gilt weiter `NEEDS_USER_STATES`.
+- **Platz:** Die Umsetzung steht als eine Zeile unter ihrer Master-Session, ihre Stationen eine Ebene tiefer; ohne Master oder bei ausgefallenem bleibt sie im Vorhaben. Ein weggeklappter Master bleibt sichtbar.
+- **Rückfall-Markierung:** Zeigt die Hauptfläche den Chat einer Station ohne eigene Zeile (das sind jetzt auch laufende und gemeldete), trägt ihre Umsetzung die Markierung (`stationSessionIds` in `Sidebar.tsx`).
+
 ## Konsequenzen
 
 - Der Baum wird bei parallelen Stationen länger: je aktiver Station eine Zeile; eine lange Warteschlange steht ganz in der Sidebar.

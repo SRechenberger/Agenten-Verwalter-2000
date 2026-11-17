@@ -21,7 +21,7 @@ Ein freigegebener Plan wird heute Phase für Phase in frischen Sessions umgesetz
 - **Bindung an die aufrufende Session:** ein Werkzeug wirkt auf die Umsetzung, deren Station die Session ist, sonst auf die neueste ihres Vorhabens. Eine Nebenfrage darf von den Werkzeugen nur `implementation_get` aufrufen; ihr Schlüssel sperrt die übrigen ([ADR 044](044-nebenfragen.md)).
 - **Lagebericht als Text** (`implementation/report.rs`), gleich für Agent und Oberfläche; die Uhrzeit „Stand HH:MM“ ist Ortszeit (über `chrono`, das schon im Abhängigkeitsbaum lag).
 - **Reihenfolge:** Seit [ADR 061](061-constraint-ablaeufe.md) plant der Core aus Kanten (`after`) statt aus Position und Welle; ein Plan ohne `after` bekommt seine Kanten aus Position und Welle, bestehende Umsetzungen bei der Migration ebenso.
-- **Sidebar:** die Umsetzung ist eine Zeile unter ihrem Vorhaben vor den Sessions; Stationen bekommen keine eigene Session-Zeile (`SessionSummary.station_of`), zählen aber in Aktivität und Ungelesen des Vorhabens. Geändert durch [ADR 065](065-stationen-in-der-sidebar.md): aktive Stationen stehen als Zeilen unter der Umsetzung.
+- **Sidebar:** die Umsetzung ist eine Zeile unter ihrem Vorhaben vor den Sessions; Stationen bekommen keine eigene Session-Zeile (`SessionSummary.station_of`), zählen aber in Aktivität und Ungelesen des Vorhabens. Geändert durch [ADR 065](065-stationen-in-der-sidebar.md): aktive Stationen stehen als Zeilen unter der Umsetzung; geändert durch [ADR 070](070-master-session.md): die Umsetzung steht unter ihrer Master-Session, darunter nur Stationen, die dich brauchen.
 
 ## Konsequenzen
 

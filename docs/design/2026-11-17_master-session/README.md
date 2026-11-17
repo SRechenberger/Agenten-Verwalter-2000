@@ -59,4 +59,23 @@ Verbindlich sind die Einträge im [Glossar](../../glossary.md).
 
 ## Abweichungen vom Entwurf
 
-Folgen mit Phase 99.2.
+| Stelle | Entwurf | Gebaut | Grund |
+| :- | :- | :- | :- |
+| Master in der Leiste | „◆ Master“ hinter dem Namen der Session | nur „◆“ (Tooltip „Master: leitet die Umsetzung unter ihr“) | Der Name der Session kürzt sich sonst in der schmalen Leiste; die Zeilenhöhe bleibt. |
+| Marken in der Zeitleiste | zwischen Name und Zustand | rechts im Zustand, vor dem Zustandstext („zurückgegeben 1/3“, „✓ freigegeben“) | Dort stehen schon die Chips „setzt automatisch fort“ und „Kontingent“; die Zeile wird nicht höher. |
+| Rückgaben über drei | nicht gezeigt | „zurückgegeben 4“ ohne „von 3“, sobald der Benutzer über die Grenze des Masters hinaus zurückgibt | Der Benutzer gibt ohne Grenze zurück; „4 von 3“ wäre falsch. Die 3 steht nur als Beschriftung in `masterTexts.ts`, ob der Master noch darf, sagt `returnsLeft`. |
+| Zeile in der Kartei | „gemeldet 11:42 · Zug beendet 11:44 · …“ | „gemeldet 17.11., 22:38 · zurückgegeben n von 3“ | Der Core liefert nur `reportedAt`, nicht das Ende des Zugs; Datum und Uhrzeit wie an anderen Stellen (`stampText`). |
+| Punkt „gemeldet“ | einfacher Punkt in Hellblau | Punkt in Hellblau mit „↑“ | Ohne Farbe unterscheidbar; die Punkte der Zeitleiste tragen ihr Zeichen im Punkt. |
+| Symbol der Umsetzung bei „gemeldet“ | Ring mit Kern in Hellblau | Zeichen von „läuft“, Farbe nach `urgency` | In der Dringlichkeit steht „gemeldet“ wie „läuft“ (ADR 070); nur die Station trägt die eigene Farbe. |
+| Warnleiste bei Ausfall | mit Link „Master ändern“ | ohne Link | „ändern“ steht im Kopf, daneben, in derselben Ansicht. |
+| Auswahl des Masters | „#6 Architekt (neu)“ als Beispiel | „+ Neue Session als Master“ legt eine Session an und macht sie zum Master; Stationen stehen gesperrt mit „(Station)“, der heutige Master trägt „◆“ | Der Brief verlangt den Eintrag; eine neue Session gibt es sonst nicht. |
+| Leiste B, C und „heute“ | zum Vergleich | nicht gebaut | Verworfene Varianten. |
+| Eckige Symbole | Glyph-Funktion des Entwurfs | `StatusIcon` mit `shape="square"`; gleiche Formbedeutung, Farben wie die runden; „Fehler“ als Rahmen mit Ausrufezeichen (das runde Symbol trägt ein Dreieck), „Übergabe“ und „Skript“ als Rahmen mit Pfeil bzw. Klammern | Der Entwurf kennt diese beiden Zustände nicht. |
+
+## Stand der Sichtprüfung
+
+Phase 99.2, in der App mit Wegwerf-`HOME`, einer Kopie der Datenbank und der Attrappe der Kommandozeile, 1800 × 1000, Hell und Dunkel, einzeln mit dem Entwurf verglichen:
+
+- **Gesehen (Hell und Dunkel):** „gemeldet“ in Zeile und Kartei mit Bericht, Befund, „zurückgegeben 1 von 3“ und dem Hinweis auf den Master; Rückgaben erschöpft mit „Annehmen“ und „Zurückgeben“ (leere und nur aus Leerzeichen bestehende Nachricht sperrt den Knopf); „✓ vom Master freigegeben“ in Kartei und Zeitleiste; Kopf „Master: #1 Architekt · ändern“; Auswahl offen; Master ausgefallen (Warnleiste, roter Name, „Wartet auf einen neuen Master“); Leiste Variante A mit der Umsetzung unter ihrem Master, bei ausgefallenem Master im Vorhaben; eckiges Symbol für „wartet auf dich“ in Leiste und Kopf.
+- **Gesehen, nur im Gebrauch:** „Zurückgeben“ durch den Benutzer (die Station arbeitet wieder, die Meldung entfällt, die Zählung steigt) und Master wechseln (Warnung weg, Umsetzung wandert unter den neuen Master).
+- **Nicht gesehen:** „Annehmen“ durch den Benutzer; die gekürzte Liste (ab fünf Sessions) mit weggeklapptem Master (nur im Selbsttest); die eckigen Symbole für läuft, Fehler, pausiert, neu und fertig (nur der Quelltext, kein Bild); Windows und macOS.
