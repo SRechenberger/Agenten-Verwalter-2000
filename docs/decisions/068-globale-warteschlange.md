@@ -38,6 +38,7 @@ Der Benutzer hat am 2026-11-16 entschieden (U1 bis U4 der Story): Es reiht sich 
 - **Fertigmeldung im Rennen:** `CompleteOutcome.next` nennt nur die Countdowns, die der Durchgang der Fertigmeldung selbst beanspruchte. Beansprucht ein gleichzeitiger Durchgang die Nachfolger, sind `next` und `queued` leer, und die Antwort an den Agenten sagt `waits_for_user`, obwohl ein Countdown läuft. Selten; falsch ist nur die Antwort, die Nachfolger starten.
 - **Pausierte Session mit Hintergrund:** `wake_if_idle` weckt auch eine vom Benutzer pausierte Session, wenn ihr Skript oder Subagent endet; sie läuft dann ohne Tor weiter, belegte vorher aber keinen Platz. Die Zahl kann so über der Grenze liegen (vorbestehend, schon vor der globalen Warteschlange so).
 - **Merker `continues_by_itself`:** Er hält den Platz bis zum nächsten Status, zum Prozessende oder zum Ruhe-Abbau. Ein laufender Dev-Server mit Adresse verhindert den Abbau (`reap_idle`), dann hält er ihn bis zur nächsten Nachricht des Benutzers. Selten, denn der Agent setzt nach einem Skript fort ([ADR 032](032-wartet-auf-skript.md)).
+- **„Anhalten nach dieser Session“ und eigenes „Automatisch starten: an“:** Eine Station mit eigenem „Automatisch starten: an“ bleibt trotz Halt fällig und startet beim nächsten Durchgang der App (früher beim nächsten Ereignis ihrer eigenen Umsetzung); der Halt hält sie nicht.
 - **Wartezeit einer Station** zählt im Speicher ab dem ersten Durchgang, der sie wartend sieht; nach dem App-Start gilt die Planreihenfolge.
 
 ## Prüfung
