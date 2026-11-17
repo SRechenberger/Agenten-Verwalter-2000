@@ -401,7 +401,11 @@ pub fn start_now(
     implementation_id: &str,
     station_id: &str,
 ) -> Result<(), CommandError> {
-    start(app, implementation_id, station_id, Trigger::User)?;
+    if let Err(error) = start(app, implementation_id, station_id, Trigger::User) {
+        // Ein beendeter Countdown gibt seinen Platz frei (ADR 068).
+        refill(app);
+        return Err(error);
+    }
     let registry = app.state::<SessionRegistry>();
     if super::resumes_queue(&registry.implementation_view(implementation_id)?) {
         schedule_ready(app, implementation_id)?;

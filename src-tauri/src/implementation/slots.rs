@@ -122,6 +122,12 @@ pub fn holds_slot(
     }
 }
 
+/// Wartet eine Session auf einen Platz, weil sie bei vollem Tor geöffnet wurde: neu, und ihre erste
+/// Nachricht liegt im Posteingang. Die Session-Werkzeuge nennen sie und reihen Nachrichten an sie ein.
+pub fn waits_for_slot(status: SessionStatus, has_waiting_message: bool) -> bool {
+    status == SessionStatus::New && has_waiting_message
+}
+
 /// Ist bei `used` belegten Plätzen einer frei (Regel f: ohne Grenze immer).
 pub fn has_room(limit: Option<u32>, used: usize) -> bool {
     limit.is_none_or(|limit: u32| used < usize::try_from(limit).unwrap_or(usize::MAX))

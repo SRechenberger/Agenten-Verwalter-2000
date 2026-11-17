@@ -180,23 +180,6 @@ pub fn set_self_release(
     Ok(())
 }
 
-/// Stufe jedes nicht archivierten Vorhabens in der globalen Warteschlange (ADR 068); ein unlesbarer
-/// Wert gilt als normal. Neue Vorhaben bekommen den Standard der Spalte.
-pub fn priorities(connection: &Connection) -> Result<Vec<(String, ProjectPriority)>, CommandError> {
-    let mut statement =
-        connection.prepare("SELECT id, priority FROM projects WHERE archived_at IS NULL")?;
-    let rows = statement
-        .query_map([], |row| {
-            let text: String = row.get(1)?;
-            Ok((
-                row.get::<_, String>(0)?,
-                enum_from_text::<ProjectPriority>(&text).unwrap_or_default(),
-            ))
-        })?
-        .collect::<rusqlite::Result<Vec<(String, ProjectPriority)>>>()?;
-    Ok(rows)
-}
-
 /// Ein unbekanntes Vorhaben ist ein Fehler, ohne dass sich etwas ändert.
 pub fn set_priority(
     connection: &Connection,

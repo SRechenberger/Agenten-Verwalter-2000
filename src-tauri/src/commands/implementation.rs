@@ -200,6 +200,8 @@ pub async fn implementation_cancel_countdown(
     station_id: String,
 ) -> Result<(), CommandError> {
     announce(&app, &registry.cancel_countdown_of(&id, &station_id)?);
+    // Der Countdown belegte einen Platz; der Durchgang lässt die gehaltene Station aus (ADR 068).
+    start::refill(&app);
     Ok(())
 }
 

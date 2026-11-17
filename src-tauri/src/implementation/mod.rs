@@ -795,9 +795,10 @@ pub fn replan_after_failed_change(app: &AppHandle, implementation_id: &str) {
     else {
         return;
     };
-    if replans_after_plan_change(&view)
-        && let Err(error) = start::schedule_ready(app, implementation_id)
-    {
+    if !replans_after_plan_change(&view) {
+        // Die Plätze der beendeten Countdowns gehen trotzdem an die Warteschlange (ADR 068).
+        start::refill(app);
+    } else if let Err(error) = start::schedule_ready(app, implementation_id) {
         eprintln!("Warteschlange nach gescheiterter Änderung nicht neu geplant: {error}");
     }
 }

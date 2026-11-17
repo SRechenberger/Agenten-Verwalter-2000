@@ -13,7 +13,7 @@ use super::model::{
     MAX_PROMPT_CHARS, MAX_SOURCE_CHARS, MAX_TITLE_CHARS, PhaseInput, PlanEdit, StationAddition,
     StationPatch, check_length, refuse_max_parallel, refuse_user_options, stations_in, validate,
 };
-use super::{IMPLEMENTATION_CHANGED_EVENT, changes, edit};
+use super::{IMPLEMENTATION_CHANGED_EVENT, changes, edit, start};
 use crate::agent_types::model::AgentType;
 use crate::error::CommandError;
 use crate::mcp_access::ProcessKind;
@@ -607,6 +607,8 @@ fn cancel(call: &ToolCall, registry: &SessionRegistry) -> Result<ToolResult, Str
         MAX_CANCEL_REASON_CHARS,
     )?;
     let view = registry.request_cancel(call.session_id, &arguments.reason, arguments.delete)?;
+    // Die beendeten Countdowns geben ihre Plätze frei (ADR 068); die Anfrage hält die Umsetzung an.
+    start::refill(call.app);
     announce(call, &view);
     Ok(ToolResult::Ok {
         text: "Anfrage liegt beim Benutzer.".to_owned(),

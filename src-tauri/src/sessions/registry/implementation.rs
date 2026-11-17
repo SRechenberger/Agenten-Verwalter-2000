@@ -486,6 +486,8 @@ impl SessionRegistry {
                 );
             }
         }
+        // Die beendeten Countdowns geben ihre Plätze frei (ADR 068); die Umsetzung selbst wartet nicht.
+        self.run_pass(app);
         self.implementation_view(id)
     }
 

@@ -14,12 +14,11 @@ use super::{Session, SessionRegistry, now_ms};
 use crate::db::session_inbox;
 use crate::implementation::model::ImplementationView;
 use crate::implementation::slots::{
-    AgentQueue, Claimed, QueueEntry, QueueKind, Start, Waiter, apply_queue, station_waiters,
+    self, AgentQueue, Claimed, QueueEntry, QueueKind, Start, Waiter, apply_queue, station_waiters,
 };
 use crate::implementation::{IS_CANCELLED, START_DELAY, announce, start};
 use crate::projects::model::ProjectPriority;
 use crate::sessions::auto_resume::RESUME_TEXT;
-use crate::sessions::model::SessionStatus;
 use crate::settings;
 
 /// Die Liste der Wartenden oder die Zahl der belegten Plätze hat sich geändert; ohne Nutzlast.
@@ -213,11 +212,13 @@ impl SessionRegistry {
         let sessions: Vec<Arc<Session>> = self.lock_sessions().values().cloned().collect();
         let now = now_ms();
         for session in sessions {
+            let has_message = with_messages.contains(&session.id);
             let (title, takes_message, resume_due) = {
                 let state = session.lock();
                 (
                     state.name.clone(),
-                    state.rests() || state.status == SessionStatus::New,
+                    (state.rests() && has_message)
+                        || slots::waits_for_slot(state.status, has_message),
                     state.resume_is_due(now),
                 )
             };
@@ -233,7 +234,7 @@ impl SessionRegistry {
                 station_priority: 0,
                 since_ms,
             };
-            if takes_message && with_messages.contains(&session.id) {
+            if takes_message {
                 let oldest = session
                     .database
                     .with(|connection| session_inbox::oldest(connection, &session.id));

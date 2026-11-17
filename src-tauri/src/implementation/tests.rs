@@ -5165,6 +5165,26 @@ fn a_session_holds_a_slot_while_its_agent_works_or_continues_by_itself() {
 }
 
 #[test]
+fn an_opened_session_waits_for_a_slot_only_while_new_with_its_first_message_waiting() {
+    for (status, has_waiting_message, waits) in [
+        (SessionStatus::New, true, true),
+        // Eine neue Session ohne wartende Nachricht hat niemand geöffnet: nicht zustellbar.
+        (SessionStatus::New, false, false),
+        // Gestartet: Nachrichten warten auf das Zugende, nicht auf einen Platz.
+        (SessionStatus::Running, true, false),
+        (SessionStatus::Completed, true, false),
+        (SessionStatus::Cancelled, true, false),
+        (SessionStatus::Error, true, false),
+    ] {
+        assert_eq!(
+            slots::waits_for_slot(status, has_waiting_message),
+            waits,
+            "{status:?}, wartende Nachricht: {has_waiting_message}"
+        );
+    }
+}
+
+#[test]
 fn a_failed_session_start_is_skipped_once_so_the_waiters_behind_move_up() {
     fn pass_messages(countdowns: &mut Countdowns) -> Vec<String> {
         let waiters = vec![
@@ -5360,9 +5380,12 @@ fn project_priority_defaults_to_normal_and_survives_a_restart() {
         );
     }
     let reopened = Database::open(&path).expect("Datenbank nach dem Neustart");
-    let mut priorities = reopened
-        .with(|connection| project_rows::priorities(connection))
-        .expect("lesbar");
+    let mut priorities: Vec<(String, ProjectPriority)> = reopened
+        .with(|connection| project_rows::load_active(connection))
+        .expect("lesbar")
+        .into_iter()
+        .map(|row: project_rows::ProjectRow| (row.id, row.priority))
+        .collect();
     priorities.sort();
     drop(reopened);
     let _ = std::fs::remove_file(&path);

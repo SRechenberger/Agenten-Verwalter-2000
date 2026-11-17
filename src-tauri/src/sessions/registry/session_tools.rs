@@ -22,6 +22,7 @@ use crate::agents::event::{
 use crate::db::projects as project_rows;
 use crate::db::session_inbox::{self, InboxRow};
 use crate::error::CommandError;
+use crate::implementation::slots;
 use crate::mcp_access::tools::ToolCall;
 use crate::projects::model::ProjectSummary;
 use crate::session_tools::model::SelfRelease;
@@ -88,12 +89,25 @@ enum Release {
 impl SessionRegistry {
     pub fn tool_get_sessions(&self, caller_id: &str) -> ToolReply {
         let caller = self.get(caller_id).map_err(text_of)?;
+        // Vor den Session-Sperren: Die Datenbank kommt nur nach einer Session-Sperre an die Reihe.
+        let with_messages: HashSet<String> = self
+            .database
+            .with(|connection| session_inbox::session_ids(connection))
+            .unwrap_or_default()
+            .into_iter()
+            .collect();
         let sessions: Vec<Value> = self
             .project_members(&caller.project_id)
             .iter()
             .filter(|member: &&Arc<Session>| member.id != caller.id)
             .filter_map(|member: &Arc<Session>| {
                 let state = member.lock();
+                // Bei vollem Tor geöffnet (ADR 068): schon da, startet aber erst mit einem Platz.
+                if slots::waits_for_slot(state.status, with_messages.contains(&member.id)) {
+                    return Some(
+                        json!({ "id": member.id, "title": state.name, "waitsForSlot": true }),
+                    );
+                }
                 let is_running = !matches!(
                     state.status,
                     SessionStatus::New | SessionStatus::Cancelled | SessionStatus::Error
@@ -540,8 +554,15 @@ impl SessionRegistry {
             app,
             target,
             |state: &mut SessionState, outbox: &mut Outbox| {
+                // Session-Sperre, dann Datenbank: die erlaubte Reihenfolge.
+                let has_waiting = target
+                    .database
+                    .with(|connection| session_inbox::oldest(connection, &target.id))?
+                    .is_some();
+                // Eine bei vollem Tor geöffnete Session wartet auf ihren Platz (ADR 068): einreihen.
+                let waits_for_slot = slots::waits_for_slot(state.status, has_waiting);
                 let reason = match state.status {
-                    SessionStatus::New => Some(NOT_STARTED),
+                    SessionStatus::New if !waits_for_slot => Some(NOT_STARTED),
                     SessionStatus::Cancelled => Some(CANCELLED),
                     SessionStatus::Error => Some(FAILED),
                     _ => None,
@@ -549,16 +570,11 @@ impl SessionRegistry {
                 if let Some(reason) = reason {
                     return Ok(("undeliverable", Some(reason.to_owned())));
                 }
-                // Session-Sperre, dann Datenbank: die erlaubte Reihenfolge.
-                let has_waiting = target
-                    .database
-                    .with(|connection| session_inbox::oldest(connection, &target.id))?
-                    .is_some();
                 if has_waiting || !state.rests() || !claimed {
                     target.database.with(|connection| {
                         session_inbox::insert(connection, &target.id, sender, text, chain, now_ms())
                     })?;
-                    needs_nudge = state.rests();
+                    needs_nudge = state.rests() || waits_for_slot;
                     return Ok(("queued", None));
                 }
                 start_turn(
@@ -628,7 +644,7 @@ impl SessionRegistry {
                 let current = session
                     .database
                     .with(|connection| session_inbox::oldest(connection, &session.id))?;
-                let takes = state.rests() || state.status == SessionStatus::New;
+                let takes = state.rests() || slots::waits_for_slot(state.status, current.is_some());
                 if !takes || current.as_ref().map(|row: &InboxRow| row.id) != Some(row.id) {
                     return Ok(false);
                 }

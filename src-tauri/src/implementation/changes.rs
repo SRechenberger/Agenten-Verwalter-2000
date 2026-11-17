@@ -271,6 +271,9 @@ fn apply(
     // einer Plan-Änderung nicht von selbst.
     if replans_after_plan_change(&fresh) {
         start::schedule_ready(app, &view.id)?;
+    } else {
+        // Beendete Countdowns geben ihre Plätze frei (ADR 068).
+        start::refill(app);
     }
     Ok(())
 }
