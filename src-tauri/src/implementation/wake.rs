@@ -60,6 +60,16 @@ pub enum WakeEvent {
 }
 
 impl WakeEvent {
+    fn station_id(&self) -> &str {
+        match self {
+            WakeEvent::Finished { station_id }
+            | WakeEvent::Reported { station_id, .. }
+            | WakeEvent::Unreported { station_id, .. }
+            | WakeEvent::Failed { station_id, .. }
+            | WakeEvent::Asking { station_id, .. } => station_id,
+        }
+    }
+
     /// Ein Ereignis, ein Schlüssel: Dasselbe Zugende weckt nichts zweimal, auch nicht über einen zweiten Weg.
     fn key(&self) -> String {
         match self {
@@ -189,15 +199,23 @@ pub fn events_after_acceptance(
 
 /// Die Nachricht an einen neuen Master (ADR 069, D11): die Umsetzung und ihre offenen Meldungen (Lane,
 /// Stufe, Betreff). Keine Ereignisse: Der Benutzer hat ihn bestimmt, nichts ist neu geschehen.
-pub fn new_master_message(implementation: &str, reports: &[(String, String, String)]) -> String {
+pub fn new_master_message(
+    implementation: &str,
+    reports: &[(String, String, String, String)],
+) -> String {
     let open = if reports.is_empty() {
         "Zurzeit liegt keine Meldung vor.".to_owned()
     } else {
         let lines: Vec<String> = reports
             .iter()
-            .map(|(lane, stage, subject): &(String, String, String)| {
-                format!("Lane {lane} · {stage}: „{}“", shorten(subject))
-            })
+            .map(
+                |(id, lane, stage, subject): &(String, String, String, String)| {
+                    format!(
+                        "Lane {lane} · {stage} (station_id: {id}): „{}“",
+                        shorten(subject)
+                    )
+                },
+            )
             .collect();
         format!(
             "Offene Meldungen: {}. Du kannst sie mit dem Werkzeug implementation_review_station \
@@ -220,6 +238,8 @@ fn message(event: &WakeEvent, facts: &WakeFacts) -> String {
     } = facts;
     let text = shorten(&facts.text);
     let note = shorten_to(&facts.note, MAX_NOTE_CHARS);
+    // Die Kennung braucht der Master für `implementation_review_station { station_id }`.
+    let id = event.station_id();
     match event {
         WakeEvent::Finished { .. } => format!(
             "{SOURCE}: Die Umsetzung „{implementation}“, die du leitest, ist fertig; der Benutzer \
@@ -230,7 +250,7 @@ fn message(event: &WakeEvent, facts: &WakeFacts) -> String {
             fix_needed: false, ..
         } => format!(
             "{SOURCE}: In der Umsetzung „{implementation}“, die du leitest, hat sich \
-             Lane {lane} · {stage} gemeldet; ihr Zug ist beendet. Betreff: „{text}“ · Notiz: „{note}“. \
+             Lane {lane} · {stage} (station_id: {id}) gemeldet; ihr Zug ist beendet. Betreff: „{text}“ · Notiz: „{note}“. \
              Du kannst die Meldung mit dem Werkzeug implementation_review_station annehmen oder \
              zurückgeben."
         ),
@@ -238,22 +258,22 @@ fn message(event: &WakeEvent, facts: &WakeFacts) -> String {
             fix_needed: true, ..
         } => format!(
             "{SOURCE}: In der Umsetzung „{implementation}“, die du leitest, meldet \
-             Lane {lane} · {stage} einen Befund und braucht eine Fix-Runde; ihr Zug ist beendet. \
+             Lane {lane} · {stage} (station_id: {id}) einen Befund und braucht eine Fix-Runde; ihr Zug ist beendet. \
              Betreff: „{text}“ · Notiz: „{note}“. Du kannst die Meldung mit dem Werkzeug \
              implementation_review_station annehmen oder zurückgeben."
         ),
         WakeEvent::Unreported { .. } => format!(
             "{SOURCE}: In der Umsetzung „{implementation}“, die du leitest, hat \
-             Lane {lane} · {stage} ihren Zug beendet, ohne sich zu melden. Schluss ihrer \
+             Lane {lane} · {stage} (station_id: {id}) ihren Zug beendet, ohne sich zu melden. Schluss ihrer \
              Antwort: „{text}“"
         ),
         WakeEvent::Failed { stopped: false, .. } => format!(
             "{SOURCE}: In der Umsetzung „{implementation}“, die du leitest, endet der Zug von \
-             Lane {lane} · {stage} mit einem Fehler."
+             Lane {lane} · {stage} (station_id: {id}) mit einem Fehler."
         ),
         WakeEvent::Failed { stopped: true, .. } => format!(
             "{SOURCE}: In der Umsetzung „{implementation}“, die du leitest, ist der Zug von \
-             Lane {lane} · {stage} gestoppt worden."
+             Lane {lane} · {stage} (station_id: {id}) gestoppt worden."
         ),
         WakeEvent::Asking { .. } => format!(
             "{SOURCE}: In der Umsetzung „{implementation}“, die du leitest, fragt \
@@ -328,6 +348,41 @@ mod tests {
             outcome,
             returns: 0,
             turn: 7,
+        }
+    }
+
+    #[test]
+    fn the_events_for_the_master_name_the_station_id_the_review_tool_asks_for() {
+        let events = [
+            reported(0, 1),
+            WakeEvent::Reported {
+                station_id: "st-9".to_owned(),
+                returns: 0,
+                turn: 1,
+                fix_needed: true,
+            },
+            WakeEvent::Unreported {
+                station_id: "st-9".to_owned(),
+                returns: 0,
+                turn: 1,
+            },
+            WakeEvent::Failed {
+                station_id: "st-9".to_owned(),
+                returns: 0,
+                turn: 1,
+                stopped: false,
+            },
+            WakeEvent::Failed {
+                station_id: "st-9".to_owned(),
+                returns: 0,
+                turn: 1,
+                stopped: true,
+            },
+        ];
+        for event in &events {
+            let text = message(event, &facts("x"));
+            let id = event.station_id();
+            assert!(text.contains(&format!("station_id: {id}")), "{text}");
         }
     }
 
@@ -586,13 +641,19 @@ mod tests {
         let with = new_master_message(
             "Master-Session",
             &[(
+                "st-7".to_owned(),
                 "99.1".to_owned(),
                 "Umsetzung".to_owned(),
                 "PR offen".to_owned(),
             )],
         );
         assert!(with.starts_with("Meldung des Verwalters:"), "{with}");
-        for part in ["Master-Session", "Lane 99.1 · Umsetzung", "PR offen"] {
+        for part in [
+            "Master-Session",
+            "Lane 99.1 · Umsetzung",
+            "station_id: st-7",
+            "PR offen",
+        ] {
             assert!(with.contains(part), "{part} fehlt in: {with}");
         }
         let without = new_master_message("Master-Session", &[]);

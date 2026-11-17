@@ -6286,3 +6286,50 @@ fn master_commands_are_classified_in_the_access_table() {
         "ein Gast setzt keine Session, die er nicht sieht: {ids:?}"
     );
 }
+
+#[test]
+fn a_reported_station_whose_session_may_have_failed_is_among_the_errored_sessions() {
+    let mut failed = station("Fehler", ModelId::Opus, "skill");
+    failed.state = StationState::Error;
+    failed.session_id = Some("failed".to_owned());
+    let mut reported = station("Gemeldet", ModelId::Opus, "skill");
+    reported.state = StationState::Reported;
+    reported.report = Some(StationReport {
+        result: "x".to_owned(),
+        note: "y".to_owned(),
+        fix_needed: false,
+        reported_at: 1.0,
+    });
+    reported.session_id = Some("reported".to_owned());
+    let mut running = station("Läuft", ModelId::Opus, "skill");
+    running.state = StationState::Running;
+    running.session_id = Some("running".to_owned());
+    let view = view_of(phase_with(vec![failed, reported, running], 2));
+    assert_eq!(errored_sessions(&view), vec!["failed", "reported"]);
+}
+
+#[test]
+fn the_start_pass_finds_only_reported_stations_of_running_implementations() {
+    let mut reported = station("Gemeldet", ModelId::Opus, "skill");
+    reported.state = StationState::Reported;
+    reported.completed_at = None;
+    reported.session_id = Some("reported".to_owned());
+    reported.report = Some(StationReport {
+        result: "x".to_owned(),
+        note: "y".to_owned(),
+        fix_needed: false,
+        reported_at: 1.0,
+    });
+    let mut accepted = reported.clone();
+    accepted.completed_at = Some(2.0);
+    accepted.session_id = Some("accepted".to_owned());
+    let mut quiet = station("Still", ModelId::Opus, "skill");
+    quiet.session_id = Some("quiet".to_owned());
+    let view = view_of(phase_with(vec![reported, accepted, quiet], 2));
+    let mut cancelled = view.clone();
+    cancelled.cancelled_at = Some(1.0);
+    assert_eq!(
+        reported_sessions(&[view, cancelled]),
+        vec![("implementation".to_owned(), "reported".to_owned())]
+    );
+}

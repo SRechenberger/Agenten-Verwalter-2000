@@ -4086,6 +4086,18 @@ fn update<R>(
         // Vorher und nachher, nicht je Statuswechsel: Auch ein endender Subagent oder ein
         // ausgeschalteter Zeitgeber gibt einen Platz frei (ADR 068).
         outbox.slots_changed |= held_slot != state.holds_slot_at(now_ms());
+        // Zugende ohne Statuswechsel: Ein wartendes Skript oder ein Subagent einer abgegebenen Station
+        // endet (Prozess beendet), der Status bleibt `Completed`. Auch das ist ein Zugende (ADR 069).
+        if held_slot
+            && state.station_of.is_some()
+            && outbox.station_idle.is_none()
+            && crate::implementation::master::turn_ended(
+                state.status,
+                state.awaits_background() || state.continues_by_itself,
+            )
+        {
+            outbox.station_idle.clone_from(&state.station_of);
+        }
         // Auch bei einem Fehler: die Closure kann den Zustand schon verändert haben.
         persist(session, &mut state, &outbox);
         if outbox.summary_dirty {

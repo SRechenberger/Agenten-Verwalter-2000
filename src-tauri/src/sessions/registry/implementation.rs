@@ -1016,7 +1016,7 @@ impl SessionRegistry {
     }
 
     /// Startet die Station gerade, oder arbeitet die Session einer gemeldeten Station noch (ihr Zug ist
-    /// nicht beendet, ADR 069)? Dann sperrt sie das Löschen, und Abbrechen stoppt sie.
+    /// nicht beendet und sie pausiert nicht, ADR 069)? Dann sperrt sie das Löschen, und Abbrechen stoppt sie.
     fn is_busy(&self, view: &ImplementationView, station_id: &str) -> bool {
         if self.is_starting(station_id) {
             return true;
@@ -1030,7 +1030,11 @@ impl SessionRegistry {
                     && station
                         .session_id
                         .as_deref()
-                        .is_some_and(|session_id: &str| !self.station_turn_ended(session_id))
+                        .and_then(|session_id: &str| self.station_turn(session_id))
+                        // Eine Pause ist kein Zug in Arbeit, wie bei einer ungemeldeten Station.
+                        .is_some_and(|turn: StationTurn| {
+                            !turn.has_ended && turn.status != SessionStatus::Paused
+                        })
             })
     }
 

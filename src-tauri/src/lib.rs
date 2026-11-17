@@ -164,6 +164,7 @@ pub fn run() {
                 Err(error) => eprintln!("MCP-Zugang nicht gestartet: {error}"),
             }
             SessionRegistry::deliver_inbox_on_start(app.handle().clone());
+            implementation::wake_reported_on_start(app.handle().clone());
             Ok(())
         })
         .invoke_handler(remote::intercept::guarded(tauri::generate_handler![

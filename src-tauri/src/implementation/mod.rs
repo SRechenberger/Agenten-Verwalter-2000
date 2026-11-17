@@ -560,7 +560,7 @@ pub fn set_master(
 }
 
 /// Die offenen Meldungen (Lane, Stufe, Betreff) für die Nachricht an einen neuen Master.
-pub fn open_reports(view: &ImplementationView) -> Vec<(String, String, String)> {
+pub fn open_reports(view: &ImplementationView) -> Vec<(String, String, String, String)> {
     view.phases
         .iter()
         .flat_map(|phase: &PhaseView| phase.stations.iter().map(move |station| (phase, station)))
@@ -573,7 +573,12 @@ pub fn open_reports(view: &ImplementationView) -> Vec<(String, String, String)> 
                 .as_ref()
                 .map(|report: &StationReport| report.result.clone())
                 .unwrap_or_default();
-            (phase.key.clone(), station.stage.clone(), subject)
+            (
+                station.id.clone(),
+                phase.key.clone(),
+                station.stage.clone(),
+                subject,
+            )
         })
         .collect()
 }
@@ -684,12 +689,16 @@ pub fn plan_completion_with_types(
     Ok((Vec::new(), Some(FIX_LIMIT_HINT.to_owned())))
 }
 
-/// Sessions der Stationen mit Fehler, auch wenn ein Halt ihren Neustart gerade verbietet.
-fn errored_sessions(view: &ImplementationView) -> Vec<String> {
+/// Sessions der Stationen mit Fehler, auch wenn ein Halt ihren Neustart gerade verbietet. Eine gemeldete
+/// Station zeigt `Reported` statt `Error`, ihre Session kann trotzdem im Fehler enden; den Merker zu
+/// löschen schadet bei einer Session ohne Fehler nicht.
+pub fn errored_sessions(view: &ImplementationView) -> Vec<String> {
     view.phases
         .iter()
         .flat_map(|phase: &PhaseView| phase.stations.iter())
-        .filter(|station: &&StationView| station.state == StationState::Error)
+        .filter(|station: &&StationView| {
+            station.state == StationState::Error || station.report.is_some()
+        })
         .filter_map(|station: &StationView| station.session_id.clone())
         .collect()
 }
@@ -882,6 +891,52 @@ fn wake_master_after_turn(
     };
     registry.wake_master(app, implementation_id, &event, &facts);
     Ok(())
+}
+
+/// Sessions der gemeldeten, noch nicht angenommenen Stationen laufender Umsetzungen (ADR 069).
+pub fn reported_sessions(views: &[ImplementationView]) -> Vec<(String, String)> {
+    views
+        .iter()
+        .filter(|view: &&ImplementationView| {
+            view.cancelled_at.is_none() && view.finished_at.is_none()
+        })
+        .flat_map(|view: &ImplementationView| {
+            view.phases
+                .iter()
+                .flat_map(|phase: &PhaseView| phase.stations.iter())
+                .filter(|station: &&StationView| {
+                    station.report.is_some() && station.completed_at.is_none()
+                })
+                .filter_map(|station: &StationView| {
+                    station
+                        .session_id
+                        .clone()
+                        .map(|session_id: String| (view.id.clone(), session_id))
+                })
+        })
+        .collect()
+}
+
+/// Weckdurchgang beim App-Start: Die Wecker leben nur im Speicher, ein Neustart zwischen Meldung und
+/// Zugende ließe die Meldung sonst liegen. Jede gemeldete Station mit beendetem Zug weckt ihren Master
+/// (`wake_master_after_turn` prüft den Zug und den Schlüssel). Im eigenen Thread: Die Zustellung kann
+/// einen Agenten starten.
+pub fn wake_reported_on_start(app: AppHandle) {
+    let spawned = std::thread::Builder::new()
+        .name("implementation-wake-start".to_owned())
+        .spawn(move || {
+            let Ok(views) = app.state::<SessionRegistry>().implementation_views() else {
+                return;
+            };
+            for (implementation_id, session_id) in reported_sessions(&views) {
+                if let Err(error) = wake_master_after_turn(&app, &implementation_id, &session_id) {
+                    eprintln!("Master nach dem App-Start nicht geweckt: {error}");
+                }
+            }
+        });
+    if let Err(error) = spawned {
+        eprintln!("Weckdurchgang nach dem App-Start nicht gestartet: {error}");
+    }
 }
 
 /// Neuer Haken (ADR 061, 069): Die Session einer Station endet mit Fehler, Abbruch, Rückfrage oder ohne

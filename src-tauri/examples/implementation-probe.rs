@@ -1856,6 +1856,7 @@ fn write_wake_texts(folder: &Path) -> Result<(), String> {
             .map_err(|error| error.to_string())?;
     }
     let reports = [(
+        "st-7".to_owned(),
         "99.1".to_owned(),
         "Umsetzung".to_owned(),
         "Kern gebaut, Tests grün, Branch bereit".to_owned(),
