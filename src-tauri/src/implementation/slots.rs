@@ -15,7 +15,8 @@ use crate::projects::model::ProjectPriority;
 use crate::sessions::model::SessionStatus;
 
 // Ein Wartender, wie die Liste der Warteschlange ihn zeigt (ADR 068). `position` ist 1-basiert,
-// `since_ms` der Zeitpunkt, seit dem er wartet (eine Nachricht: ihr Eingang).
+// `since_ms` der Zeitpunkt, seit dem er wartet (eine Nachricht: ihr Eingang; ein Fortsetzen: seit es
+// fällig ist).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct QueueEntry {
@@ -104,22 +105,32 @@ fn renumber<'a>(entries: impl Iterator<Item = &'a mut QueueEntry>) {
 
 /// Belegt eine Session einen Platz (Regel a): Der Agent hat einen Zug; oder er hat abgegeben und wartet
 /// auf einen Subagenten oder ein Skript, nach dem er von selbst weitermacht, ohne Tor; oder die Session
-/// einer Station wartet mit scharfem Zeitgeber auf das Kontingent. Eine Rückfrage, eine Pause ohne
-/// Zeitgeber, Fehler, Abbruch, Ende und eine neue Session belegen keinen.
+/// einer Station wartet auf das Kontingent, mit scharfem Zeitgeber oder bis der Haken über das
+/// Scharfschalten entschieden hat (`awaits_arming`). Ist das Fortsetzen fällig (`resume_due`), belegt
+/// sie keinen Platz mehr: Sie ist ein Wartender „Fortsetzen“, bis das Tor ihr einen gibt. Eine
+/// Rückfrage, eine Pause ohne Zeitgeber, Fehler, Abbruch, Ende und eine neue Session belegen keinen.
 pub fn holds_slot(
     status: SessionStatus,
     awaits_background: bool,
     station_waits_for_resume: bool,
+    resume_due: bool,
 ) -> bool {
     match status {
         SessionStatus::Starting | SessionStatus::Running => true,
         SessionStatus::Completed => awaits_background,
-        SessionStatus::Paused => station_waits_for_resume,
+        SessionStatus::Paused => station_waits_for_resume && !resume_due,
         SessionStatus::Waiting
         | SessionStatus::Error
         | SessionStatus::Cancelled
         | SessionStatus::New => false,
     }
+}
+
+/// Hält eine neue Kontingent-Pause ihren Platz, bis der Haken über das Scharfschalten entschieden hat
+/// (Regel d): nur die Session einer Station mit Rücksetzzeit in der Zukunft, denn nur sie kann er scharf
+/// schalten (`continues_after_quota`). Sonst gäbe ein Durchgang dazwischen ihren Platz an Fremde.
+pub fn awaits_arming(is_station: bool, resets_at: Option<f64>, now: f64) -> bool {
+    is_station && resets_at.is_some_and(|resets_at: f64| resets_at > now)
 }
 
 /// Wartet eine Session auf einen Platz, weil sie bei vollem Tor geöffnet wurde: neu, und ihre erste
@@ -164,8 +175,8 @@ impl Countdowns {
     /// Der Durchgang unter dieser einen Sperre (Regel d, e): nur wenn seit `seen` (gelesen vor dem
     /// Zählen von `busy`) kein Anspruch frei wurde, sonst `None`, und der Aufrufer zählt neu. Ordnet
     /// `waiters` (`rank`), beansprucht der Reihe nach, solange Platz ist, und merkt sich die übrigen als
-    /// Warteschlange. Ein Wartender, dessen Session schon zählt (eine Station, die auf das Kontingent
-    /// wartet), braucht keinen weiteren Platz. Eine Station mit Countdown oder Start und eine
+    /// Warteschlange. Ein Wartender, dessen Session schon zählt, braucht keinen weiteren Platz; ein
+    /// fälliges Fortsetzen zählt nicht mehr (`holds_slot`) und braucht einen. Eine Station mit Countdown oder Start und eine
     /// beanspruchte Session sind nicht wartend.
     pub fn pass(
         &mut self,
@@ -192,8 +203,9 @@ impl Countdowns {
         self.waiting_since
             .retain(|key: &String, _| keys.contains(key));
         for waiter in &mut waiters {
-            // Eine Nachricht wartet seit ihrem Eingang, alle anderen seit diesem Durchgang.
-            if waiter.entry.kind != QueueKind::Message {
+            // Eine Nachricht wartet seit ihrem Eingang, ein Fortsetzen seit es fällig ist, eine
+            // Station seit diesem Durchgang.
+            if waiter.entry.kind == QueueKind::Station {
                 waiter.entry.since_ms =
                     *self.waiting_since.entry(waiter.key.clone()).or_insert(now);
             }

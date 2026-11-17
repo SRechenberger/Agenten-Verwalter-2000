@@ -5142,24 +5142,31 @@ fn a_cancelled_countdown_waits_again_only_after_an_event_of_its_implementation()
 
 #[test]
 fn a_session_holds_a_slot_while_its_agent_works_or_continues_by_itself() {
-    for (status, awaits_background, station_waits_for_resume, holds) in [
-        (SessionStatus::Starting, false, false, true),
-        (SessionStatus::Running, false, false, true),
+    for (status, awaits_background, station_waits_for_resume, resume_due, holds) in [
+        (SessionStatus::Starting, false, false, false, true),
+        (SessionStatus::Running, false, false, false, true),
         // Abgegeben, ein Subagent oder ein Skript läuft: Danach macht der Agent ohne Tor weiter.
-        (SessionStatus::Completed, true, false, true),
-        (SessionStatus::Completed, false, false, false),
-        (SessionStatus::Paused, false, true, true),
-        (SessionStatus::Paused, false, false, false),
-        (SessionStatus::Waiting, false, false, false),
-        (SessionStatus::Error, false, false, false),
-        (SessionStatus::Cancelled, false, false, false),
-        (SessionStatus::New, false, false, false),
+        (SessionStatus::Completed, true, false, false, true),
+        (SessionStatus::Completed, false, false, false, false),
+        (SessionStatus::Paused, false, true, false, true),
+        // Fällig: ein Wartender „Fortsetzen“, kein belegter Platz.
+        (SessionStatus::Paused, false, true, true, false),
+        (SessionStatus::Paused, false, false, false, false),
+        (SessionStatus::Waiting, false, false, false, false),
+        (SessionStatus::Error, false, false, false, false),
+        (SessionStatus::Cancelled, false, false, false, false),
+        (SessionStatus::New, false, false, false, false),
     ] {
         assert_eq!(
-            slots::holds_slot(status, awaits_background, station_waits_for_resume),
+            slots::holds_slot(
+                status,
+                awaits_background,
+                station_waits_for_resume,
+                resume_due
+            ),
             holds,
             "{status:?}, wartet auf Hintergrund: {awaits_background}, Zeitgeber: \
-             {station_waits_for_resume}"
+             {station_waits_for_resume}, fällig: {resume_due}"
         );
     }
 }
@@ -5329,6 +5336,164 @@ fn a_failed_send_returns_its_claim() {
         countdowns.claim_session(countdowns.releases(), Some(1), &[], "other"),
         Some(true)
     );
+}
+
+/// Drei Wartende „Fortsetzen“, fällig seit `due_at`.
+fn resumes(keys: &[&str], due_at: f64) -> Vec<slots::Waiter> {
+    keys.iter()
+        .map(|key: &&str| {
+            session_waiter(
+                key,
+                slots::QueueKind::Resume,
+                ProjectPriority::Normal,
+                due_at,
+            )
+        })
+        .collect()
+}
+
+#[test]
+fn a_resume_not_yet_due_still_holds_its_slot() {
+    assert!(slots::holds_slot(SessionStatus::Paused, false, true, false));
+    let busy = vec!["paused".to_owned()];
+    let mut countdowns = Countdowns::default();
+    assert_eq!(
+        countdowns.claim_session(countdowns.releases(), Some(1), &busy, "message"),
+        Some(false),
+        "der Platz ist noch belegt"
+    );
+}
+
+#[test]
+fn a_due_resume_holds_no_slot_until_the_gate_gives_it_one() {
+    assert!(!slots::holds_slot(SessionStatus::Paused, false, true, true));
+    // Fällig steht die Session nicht in `busy`: Das Tor prüft ihren Platz.
+    let busy = vec!["running".to_owned()];
+    let mut countdowns = Countdowns::default();
+    assert_eq!(
+        countdowns.claim_session(countdowns.releases(), Some(1), &busy, "due"),
+        Some(false),
+        "voll: kein Fortsetzen"
+    );
+    assert_eq!(
+        countdowns.claim_session(countdowns.releases(), Some(2), &busy, "due"),
+        Some(true)
+    );
+    assert_eq!(
+        countdowns.used(&busy),
+        2,
+        "der Anspruch belegt den Platz bis zum Senden"
+    );
+}
+
+#[test]
+fn due_resumes_start_only_up_to_the_free_slots() {
+    // Probelauf, Lauf 4: drei pausierte Stationen, Schalter nachträglich an, Grenze 2. Vor der
+    // Fälligkeit zählen alle drei (Plätze 3 von 2), danach keine; das Tor lässt zwei durch.
+    let paused: Vec<String> = ["q1", "q2", "q3"].map(str::to_owned).to_vec();
+    let mut countdowns = Countdowns::default();
+    assert_eq!(countdowns.used(&paused), 3);
+    let claims: Vec<Option<bool>> = paused
+        .iter()
+        .map(|id: &String| countdowns.claim_session(countdowns.releases(), Some(2), &[], id))
+        .collect();
+    assert_eq!(claims, [Some(true), Some(true), Some(false)]);
+    // Derselbe Fall über einen Durchgang: zwei beansprucht, das dritte wartet als „Fortsetzen“.
+    let mut countdowns = Countdowns::default();
+    let claimed = countdowns
+        .pass(
+            0,
+            Some(2),
+            &[],
+            resumes(&["q1", "q2", "q3"], 10.0),
+            50.0,
+            60.0,
+        )
+        .expect("frische Zählung");
+    assert_eq!(claimed_keys(claimed), ["q1", "q2"]);
+    let waiting: Vec<(&str, slots::QueueKind)> = countdowns
+        .queue()
+        .entries
+        .iter()
+        .map(|entry: &slots::QueueEntry| (entry.title.as_str(), entry.kind))
+        .collect();
+    assert_eq!(waiting, [("q3", slots::QueueKind::Resume)]);
+}
+
+#[test]
+fn a_due_resume_waits_in_the_queue_when_the_limit_is_full() {
+    let mut countdowns = Countdowns::default();
+    let pass = |countdowns: &mut Countdowns, busy: &[String]| -> Vec<String> {
+        let seen = countdowns.releases();
+        claimed_keys(
+            countdowns
+                .pass(seen, Some(2), busy, resumes(&["q3"], 10.0), 50.0, 60.0)
+                .expect("frische Zählung"),
+        )
+    };
+    let running: Vec<String> = ["q1", "q2"].map(str::to_owned).to_vec();
+    assert!(pass(&mut countdowns, &running).is_empty(), "voll");
+    assert_eq!(countdowns.queue().entries.len(), 1);
+    // Der Zug von q1 endet: Der frei gewordene Platz geht an das wartende Fortsetzen.
+    assert_eq!(pass(&mut countdowns, &running[1..]), ["q3"]);
+}
+
+#[test]
+fn a_resume_entry_since_is_the_time_it_became_due() {
+    let mut countdowns = Countdowns::default();
+    for now in [50.0, 90.0] {
+        let mut waiters = resumes(&["resume"], 10.0);
+        waiters.push(station_waiter("station", ProjectPriority::Normal, 0));
+        let seen = countdowns.releases();
+        countdowns
+            .pass(seen, Some(0), &[], waiters, now, now + 1.0)
+            .expect("frische Zählung");
+        let since: Vec<(&str, f64)> = countdowns
+            .queue()
+            .entries
+            .iter()
+            .map(|entry: &slots::QueueEntry| (entry.title.as_str(), entry.since_ms))
+            .collect();
+        assert_eq!(
+            since,
+            [("resume", 10.0), ("station", 50.0)],
+            "Fortsetzen seit fällig und deshalb vorn, Station seit dem ersten Durchgang (jetzt {now})"
+        );
+    }
+}
+
+#[test]
+fn a_quota_pause_gives_its_slot_away_only_after_the_arming_decision() {
+    let now = 1_000.0;
+    let future = Some(now + 60_000.0);
+    assert!(slots::awaits_arming(true, future, now));
+    assert!(!slots::awaits_arming(false, future, now), "keine Station");
+    assert!(
+        !slots::awaits_arming(true, None, now),
+        "Rücksetzzeit unbekannt"
+    );
+    assert!(!slots::awaits_arming(true, Some(now - 1.0), now), "vorbei");
+    // Probelauf, Lauf 5: Q1 und Q2 pausieren, ihre Haken haben noch nicht entschieden. Ein Durchgang
+    // dazwischen (etwa aus dem Haken der anderen) gibt Q3 keinen Platz.
+    assert!(slots::holds_slot(SessionStatus::Paused, false, true, false));
+    let busy: Vec<String> = ["q1", "q2"].map(str::to_owned).to_vec();
+    let mut countdowns = Countdowns::default();
+    let q3 = vec![station_waiter("q3", ProjectPriority::Normal, 0)];
+    let claimed = countdowns
+        .pass(0, Some(2), &busy, q3.clone(), now, now + 1.0)
+        .expect("frische Zählung");
+    assert!(claimed.is_empty(), "Q3 wartet");
+    // Schalter aus: Der Haken entscheidet, die Session zählt nach ihrem (nicht scharfen) Zeitgeber.
+    assert!(!slots::holds_slot(
+        SessionStatus::Paused,
+        false,
+        false,
+        false
+    ));
+    let claimed = countdowns
+        .pass(0, Some(2), &busy[1..], q3, now, now + 1.0)
+        .expect("frische Zählung");
+    assert_eq!(claimed_keys(claimed), ["q3"]);
 }
 
 #[test]

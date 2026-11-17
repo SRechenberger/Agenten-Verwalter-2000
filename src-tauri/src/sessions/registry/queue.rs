@@ -213,13 +213,13 @@ impl SessionRegistry {
         let now = now_ms();
         for session in sessions {
             let has_message = with_messages.contains(&session.id);
-            let (title, takes_message, resume_due) = {
+            let (title, takes_message, resume_due_at) = {
                 let state = session.lock();
                 (
                     state.name.clone(),
                     (state.rests() && has_message)
                         || slots::waits_for_slot(state.status, has_message),
-                    state.resume_is_due(now),
+                    state.resume_due_at().filter(|due_at: &f64| *due_at <= now),
                 )
             };
             let entry = |kind: QueueKind, since_ms: f64| QueueEntry {
@@ -245,9 +245,9 @@ impl SessionRegistry {
                         start: Start::Session,
                     });
                 }
-            } else if resume_due {
+            } else if let Some(due_at) = resume_due_at {
                 waiters.push(Waiter {
-                    entry: entry(QueueKind::Resume, now),
+                    entry: entry(QueueKind::Resume, due_at),
                     key: session.id.clone(),
                     start: Start::Session,
                 });

@@ -289,6 +289,10 @@ struct SessionState {
     /// macht gleich von selbst weiter (`wake_if_idle`). Bis zum nächsten Status oder Prozessende hält
     /// die Session so ihren Platz (ADR 068). Nur im Speicher.
     continues_by_itself: bool,
+    /// Die Session einer Station pausierte neu am Kontingent, der Haken hat über das Scharfschalten noch
+    /// nicht entschieden (`slots::awaits_arming`): Bis dahin hält sie ihren Platz (ADR 068, Regel d). Nur
+    /// im Speicher; jeder Statuswechsel und der Haken (`arming_decided`) löschen ihn.
+    awaits_arming: bool,
     /// `tool_use`-IDs der Session-Werkzeuge, die `gate` schon gesehen hat. Nur im Speicher.
     seen_tool_uses: HashSet<String>,
     /// Marke von „Automatisch fortsetzen“: jedes Umlegen erhöht sie, der Zeitgeber vergleicht sie. Nur
@@ -2453,6 +2457,7 @@ impl SessionState {
             pause_reason: None,
             fresh_error: false,
             continues_by_itself: false,
+            awaits_arming: false,
             seen_tool_uses: HashSet::new(),
             auto_resume_token: 0,
             seen_at: now,
@@ -2852,7 +2857,8 @@ impl SessionState {
         slots::holds_slot(
             self.status,
             self.awaits_background() || self.continues_by_itself,
-            self.station_of.is_some() && self.waits_for_resume(),
+            self.station_of.is_some() && (self.waits_for_resume() || self.awaits_arming),
+            self.resume_is_due(now_ms()),
         )
     }
 
@@ -2873,15 +2879,21 @@ impl SessionState {
             )
     }
 
-    /// Das Fortsetzen ist fällig und wartet auf einen Platz (ADR 068).
-    fn resume_is_due(&self, now: f64) -> bool {
+    /// Ab wann das Fortsetzen fällig ist, solange die Session mit scharfem Zeitgeber pausiert.
+    fn resume_due_at(&self) -> Option<f64> {
         match self.pause_reason {
             Some(PauseReason::Quota {
                 resets_at: Some(resets_at),
                 auto_resume: true,
-            }) if self.status == SessionStatus::Paused => auto_resume::is_due(resets_at, now),
-            _ => false,
+            }) if self.status == SessionStatus::Paused => Some(auto_resume::due_at(resets_at)),
+            _ => None,
         }
+    }
+
+    /// Das Fortsetzen ist fällig und wartet auf einen Platz (ADR 068).
+    fn resume_is_due(&self, now: f64) -> bool {
+        self.resume_due_at()
+            .is_some_and(|due_at: f64| now >= due_at)
     }
 
     /// Abgeschlossen, ohne offene Rückfrage, ohne laufenden Subagent oder Skript: Eine neue Eingabe
@@ -2981,6 +2993,7 @@ impl SessionState {
         if self.status == status {
             return;
         }
+        self.awaits_arming = false;
         let now = now_ms();
         if self.status == SessionStatus::Running
             && let Some(since) = self.running_since.take()
@@ -3862,6 +3875,7 @@ impl SessionState {
             resets_at,
             auto_resume: false,
         });
+        self.awaits_arming = slots::awaits_arming(self.station_of.is_some(), resets_at, now_ms());
         // Wie beim Fehler: der Agent hat abgegeben, die Sidebar soll es zeigen.
         self.touch_activity(outbox);
     }
