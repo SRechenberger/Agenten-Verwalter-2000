@@ -51,6 +51,8 @@ pub struct StationTurn {
     /// Der rohe Status der Session (`Completed`, auch mit wartendem Subagenten).
     pub status: SessionStatus,
     pub has_ended: bool,
+    /// Pausiert am Kontingent mit scharfem Zeitgeber von „Automatisch fortsetzen“ (ADR 064).
+    pub is_timer_armed: bool,
     /// Kennzeichnet den Zug: die Zeit der letzten Aktivität der Session, als Bits.
     pub marker: u64,
 }
@@ -472,6 +474,14 @@ impl SessionRegistry {
                 state.status,
                 state.awaits_background() || state.continues_by_itself,
             ),
+            is_timer_armed: state.status == SessionStatus::Paused
+                && matches!(
+                    state.pause_reason,
+                    Some(PauseReason::Quota {
+                        auto_resume: true,
+                        ..
+                    })
+                ),
             marker: state.last_activity_at.to_bits(),
         })
     }

@@ -1789,6 +1789,14 @@ fn write_wake_texts(folder: &Path) -> Result<(), String> {
             },
         ),
         (
+            "interrupted",
+            wake::WakeEvent::Interrupted {
+                station_id: station("s1"),
+                returns: 0,
+            },
+            facts.clone(),
+        ),
+        (
             "unreported",
             wake::WakeEvent::Unreported {
                 station_id: station("s1"),
@@ -2076,6 +2084,39 @@ fn wakes(database: &Database) -> Result<bool, String> {
                 SessionStatus::Completed,
                 false,
             ),
+    );
+    // Wiederhergestellt pausiert (Neustart): unterbrochen, mit scharfem Zeitgeber nichts, einmal je Lauf.
+    let restored = wake::TurnEnd {
+        station_id: "st",
+        has_ended: verwalter_lib::implementation::master::turn_ended(SessionStatus::Paused, false),
+        is_restarting: false,
+        is_accepted: false,
+        outcome: wake::Outcome::Reported { fix_needed: false },
+        returns: 0,
+        turn: 1,
+    };
+    let interrupted = wake::event_on_start(&restored, true, false);
+    let facts = wake::WakeFacts {
+        implementation: "Probe".to_owned(),
+        lane: "1".to_owned(),
+        stage: "Umsetzung".to_owned(),
+        text: "PR offen".to_owned(),
+        note: String::new(),
+    };
+    let mut claimed = std::collections::HashSet::new();
+    let first = interrupted
+        .as_ref()
+        .and_then(|event: &wake::WakeEvent| wake::decide(event, &facts, true, &mut claimed));
+    let second = interrupted
+        .as_ref()
+        .and_then(|event: &wake::WakeEvent| wake::decide(event, &facts, true, &mut claimed));
+    all &= check(
+        "Master wecken: eine wiederhergestellte, pausierte Station ist unterbrochen, mit scharfem Zeitgeber nichts, einmal je Lauf",
+        !restored.has_ended
+            && first
+                .is_some_and(|text: String| text.contains("unterbrochen") && text.contains("st"))
+            && second.is_none()
+            && wake::event_on_start(&restored, true, true).is_none(),
     );
     Ok(all)
 }

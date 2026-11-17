@@ -52,6 +52,9 @@ pub enum WakeEvent {
         turn: u64,
         stopped: bool,
     },
+    /// Die gemeldete Station ist beim App-Start unterbrochen (Neustart oder Pause) und setzt mit der nächsten
+    /// Nachricht fort; ohne Zugmarke, einmal je Lauf der App und Rückgabe.
+    Interrupted { station_id: String, returns: u32 },
     /// Die Station stellt eine Rückfrage; `request_id` unterscheidet mehrere nacheinander.
     Asking {
         station_id: String,
@@ -66,6 +69,7 @@ impl WakeEvent {
             | WakeEvent::Reported { station_id, .. }
             | WakeEvent::Unreported { station_id, .. }
             | WakeEvent::Failed { station_id, .. }
+            | WakeEvent::Interrupted { station_id, .. }
             | WakeEvent::Asking { station_id, .. } => station_id,
         }
     }
@@ -91,6 +95,10 @@ impl WakeEvent {
                 turn,
                 ..
             } => format!("failed:{station_id}:{returns}:{turn}"),
+            WakeEvent::Interrupted {
+                station_id,
+                returns,
+            } => format!("interrupted:{station_id}:{returns}"),
             WakeEvent::Asking {
                 station_id,
                 request_id,
@@ -181,6 +189,23 @@ pub fn event_after_turn(turn: &TurnEnd) -> Option<WakeEvent> {
     })
 }
 
+/// Das Ereignis des Weckdurchgangs beim App-Start für eine gemeldete Station (ADR 069): Ist der Zug
+/// beendet, wie am Zugende. Ist die Session pausiert (Neustart oder Pause, nicht zu unterscheiden) und kein
+/// Zeitgeber „Automatisch fortsetzen“ scharf, ist der Zug „unterbrochen“. Ein scharfer Zeitgeber setzt von
+/// selbst fort, und sein Zugende weckt. Angenommen: nichts.
+pub fn event_on_start(turn: &TurnEnd, is_paused: bool, is_timer_armed: bool) -> Option<WakeEvent> {
+    if turn.is_accepted {
+        return None;
+    }
+    if turn.has_ended {
+        return event_after_turn(turn);
+    }
+    (is_paused && !is_timer_armed).then(|| WakeEvent::Interrupted {
+        station_id: turn.station_id.to_owned(),
+        returns: turn.returns,
+    })
+}
+
 /// Die Ereignisse einer Annahme: „Fertig“ nur, wenn der Benutzer die letzte Station angenommen hat. Nahm
 /// der Master selbst an, steht das Ende in der Antwort des Werkzeugs.
 pub fn events_after_acceptance(
@@ -261,6 +286,12 @@ fn message(event: &WakeEvent, facts: &WakeFacts) -> String {
              Lane {lane} · {stage} (station_id: {id}) einen Befund und braucht eine Fix-Runde; ihr Zug ist beendet. \
              Betreff: „{text}“ · Notiz: „{note}“. Du kannst die Meldung mit dem Werkzeug \
              implementation_review_station annehmen oder zurückgeben."
+        ),
+        WakeEvent::Interrupted { .. } => format!(
+            "{SOURCE}: In der Umsetzung „{implementation}“, die du leitest, ist der Zug von \
+             Lane {lane} · {stage} (station_id: {id}) unterbrochen (Neustart der App oder Pause); \
+             die Station hatte sich gemeldet, Betreff: „{text}“. Sie setzt mit der nächsten Nachricht \
+             fort, und angenommen werden kann sie erst nach ihrem Zugende."
         ),
         WakeEvent::Unreported { .. } => format!(
             "{SOURCE}: In der Umsetzung „{implementation}“, die du leitest, hat \
@@ -584,6 +615,68 @@ mod tests {
             };
             assert_eq!(event_after_turn(&paused), None, "{outcome:?}");
         }
+    }
+
+    #[test]
+    fn the_start_pass_decides_reported_interrupted_nothing_for_each_turn() {
+        let reported = Outcome::Reported { fix_needed: false };
+        let ended = turn_end(reported);
+        let running = TurnEnd {
+            has_ended: false,
+            ..ended
+        };
+        // Zug beendet: Gemeldet wie am Zugende.
+        assert_eq!(
+            event_on_start(&ended, false, false),
+            event_after_turn(&ended)
+        );
+        assert!(matches!(
+            event_on_start(&ended, false, false),
+            Some(WakeEvent::Reported { .. })
+        ));
+        // Wiederhergestellt pausiert, ohne scharfen Zeitgeber: unterbrochen.
+        let interrupted = event_on_start(&running, true, false).expect("unterbrochen");
+        assert!(matches!(interrupted, WakeEvent::Interrupted { .. }));
+        // Scharfer Zeitgeber: nichts, sein Zugende weckt. Nicht pausiert und nicht beendet: nichts.
+        assert_eq!(event_on_start(&running, true, true), None);
+        assert_eq!(event_on_start(&running, false, false), None);
+        // Angenommen: nichts.
+        let accepted = TurnEnd {
+            is_accepted: true,
+            ..ended
+        };
+        assert_eq!(event_on_start(&accepted, false, false), None);
+        let paused_accepted = TurnEnd {
+            is_accepted: true,
+            ..running
+        };
+        assert_eq!(event_on_start(&paused_accepted, true, false), None);
+    }
+
+    #[test]
+    fn an_interrupted_station_wakes_once_per_return_and_the_text_gives_no_order() {
+        let event = |returns: u32| WakeEvent::Interrupted {
+            station_id: "st-3".to_owned(),
+            returns,
+        };
+        let mut claimed = HashSet::new();
+        assert!(decide(&event(0), &facts("PR offen"), true, &mut claimed).is_some());
+        assert_eq!(
+            decide(&event(0), &facts("PR offen"), true, &mut claimed),
+            None
+        );
+        let text =
+            decide(&event(1), &facts("PR offen"), true, &mut claimed).expect("nach Rückgabe");
+        for part in [
+            "station_id: st-3",
+            "PR offen",
+            "unterbrochen",
+            "nächsten Nachricht",
+            "Zugende",
+        ] {
+            assert!(text.contains(part), "{part}: {text}");
+        }
+        assert!(!text.contains("implementation_review_station"), "{text}");
     }
 
     #[test]

@@ -841,6 +841,7 @@ fn wake_master_after_turn(
     app: &AppHandle,
     implementation_id: &str,
     session_id: &str,
+    at_start: bool,
 ) -> Result<(), CommandError> {
     let registry = app.state::<SessionRegistry>();
     let view = registry.implementation_view(implementation_id)?;
@@ -862,7 +863,7 @@ fn wake_master_after_turn(
         (None, SessionStatus::Cancelled) => wake::Outcome::Failed { stopped: true },
         (None, _) => wake::Outcome::Silent,
     };
-    let Some(event) = wake::event_after_turn(&wake::TurnEnd {
+    let facts = wake::TurnEnd {
         station_id: &station.id,
         has_ended: turn.has_ended,
         is_restarting: station.restarting,
@@ -870,7 +871,17 @@ fn wake_master_after_turn(
         outcome,
         returns: station.returns,
         turn: turn.marker,
-    }) else {
+    };
+    let event = if at_start {
+        wake::event_on_start(
+            &facts,
+            turn.status == SessionStatus::Paused,
+            turn.is_timer_armed,
+        )
+    } else {
+        wake::event_after_turn(&facts)
+    };
+    let Some(event) = event else {
         return Ok(());
     };
     let text = match (&station.report, outcome) {
@@ -929,7 +940,9 @@ pub fn wake_reported_on_start(app: AppHandle) {
                 return;
             };
             for (implementation_id, session_id) in reported_sessions(&views) {
-                if let Err(error) = wake_master_after_turn(&app, &implementation_id, &session_id) {
+                if let Err(error) =
+                    wake_master_after_turn(&app, &implementation_id, &session_id, true)
+                {
                     eprintln!("Master nach dem App-Start nicht geweckt: {error}");
                 }
             }
@@ -966,7 +979,7 @@ pub fn station_session_ended(
             }
         });
     // Auch wenn das Planen scheitert: Der Master erfährt vom Zugende.
-    let woken = wake_master_after_turn(app, implementation_id, session_id);
+    let woken = wake_master_after_turn(app, implementation_id, session_id, false);
     scheduled.and(woken)
 }
 
