@@ -11,7 +11,7 @@ interface MaxAgentsRowProps {
   save: (change: SettingsChange) => Promise<boolean>;
 }
 
-/** „Gleichzeitige Agenten max.“ (ADR 068): Zahl ab 1, leer = unbegrenzt; gespeichert bei Enter und beim
+/** „Gleichzeitige Agenten max.“ (ADR 068): ganze Zahl von 1 bis 9999, leer = unbegrenzt; gespeichert bei Enter und beim
  *  Verlassen des Felds, Esc nimmt die Eingabe zurück. */
 export function MaxAgentsRow({ value, save }: MaxAgentsRowProps): ReactElement {
   // `null`: Das Feld zeigt den gespeicherten Wert.
