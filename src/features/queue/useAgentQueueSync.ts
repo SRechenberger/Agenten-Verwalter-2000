@@ -6,6 +6,9 @@ import { onSessionChanged } from '@/lib/sessions';
 import { useAgentQueueStore } from '@/stores/agentQueue';
 import { useSettingsStore } from '@/stores/settings';
 
+/** `session://changed` kommt bei jedem Zug in Schüben; so lange wartet die Abfrage danach. */
+const DEBOUNCE_MS = 500;
+
 /** Hält `useAgentQueueStore` aktuell; einmal in der App. Der Core meldet `agent_queue://changed`, wenn
  *  sich die Liste ändert; die belegten Plätze ändern sich auch mit jedem Zug (eigene Nachricht, Ende),
  *  deshalb lesen auch `session://changed` und eine neue Grenze die Warteschlange neu. */
@@ -53,6 +56,13 @@ export function useAgentQueueSync(): void {
   useEffect(() => {
     const controller = new AbortController();
     const unlisteners: UnlistenFn[] = [];
+    let debounceTimer: number | null = null;
+    function refreshSoon(): void {
+      if (debounceTimer !== null) {
+        window.clearTimeout(debounceTimer);
+      }
+      debounceTimer = window.setTimeout(refresh, DEBOUNCE_MS);
+    }
     function keep(stop: UnlistenFn): void {
       if (controller.signal.aborted) {
         stop();
@@ -64,9 +74,12 @@ export function useAgentQueueSync(): void {
       console.error('Ereignisse der Warteschlange nicht abonnierbar', reason);
     }
     onAgentQueueChanged(refresh).then(keep).catch(reportError);
-    onSessionChanged(refresh).then(keep).catch(reportError);
+    onSessionChanged(refreshSoon).then(keep).catch(reportError);
     return (): void => {
       controller.abort();
+      if (debounceTimer !== null) {
+        window.clearTimeout(debounceTimer);
+      }
       for (const stop of unlisteners) {
         stop();
       }

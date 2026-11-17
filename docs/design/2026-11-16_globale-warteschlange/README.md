@@ -63,7 +63,7 @@ Stand nach Phase 103.2, verglichen Zustand für Zustand mit dem Entwurf (`#scen=
 - **„über der Grenze: dein Start“ auch nach dem Senken der Grenze:** Der Text erscheint, wann immer belegt > Grenze ist; die Oberfläche kennt den Grund nicht.
 - **„Nachricht wartet · Platz n“ in der Sidebar kurz:** In der schmalen Session- und Stationszeile „✉ Platz n“ (sonst verschwände der Name); der volle Satz steht in Tooltip und Screenreader-Namen. In der Zeitleiste der volle Satz.
 - **„wartet“ als echte Zeit:** „gerade eben“, „vor n min“, „vor n h“ aus `sinceMs`.
-- **Einstellungszeile:** Die Beschreibung steht im ⓘ wie bei den Nachbarn, nicht unter dem Namen; eine ungültige Eingabe bleibt mit dem Satz „Eine ganze Zahl ab 1; leer = unbegrenzt.“ stehen, Esc nimmt sie zurück. „Grenze in den Einstellungen“ öffnet die Kategorie Agent, ohne das Feld zu fokussieren.
+- **Einstellungszeile:** Die Beschreibung steht im ⓘ wie bei den Nachbarn, nicht unter dem Namen; eine ungültige Eingabe bleibt mit dem Satz „Eine ganze Zahl von 1 bis 9999; leer = unbegrenzt.“ stehen, Esc nimmt sie zurück. „Grenze in den Einstellungen“ öffnet die Kategorie Agent, ohne das Feld zu fokussieren.
 
 ### Stand der Sichtprüfung (2026-11-17)
 

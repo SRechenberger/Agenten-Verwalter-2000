@@ -10,7 +10,7 @@ const MAX_CELLS = 12;
 const MS_PER_MINUTE = 60_000;
 const MINUTES_PER_HOUR = 60;
 
-/** Eingabe der Grenze: leer = unbegrenzt (`null`), sonst eine ganze Zahl ab 1; `undefined` = ungültig. */
+/** Eingabe der Grenze: leer = unbegrenzt (`null`), sonst eine ganze Zahl von 1 bis 9999; `undefined` = ungültig. */
 export function parseMaxAgents(text: string): number | null | undefined {
   const trimmed: string = text.trim();
   if (trimmed === '') {
@@ -23,7 +23,7 @@ export function parseMaxAgents(text: string): number | null | undefined {
   return value >= 1 ? value : undefined;
 }
 
-export const MAX_AGENTS_INVALID_TEXT = 'Eine ganze Zahl ab 1; leer = unbegrenzt.';
+export const MAX_AGENTS_INVALID_TEXT = 'Eine ganze Zahl von 1 bis 9999; leer = unbegrenzt.';
 
 export const PRIORITY_LABEL: Record<ProjectPriority, string> = {
   high: 'hoch',
