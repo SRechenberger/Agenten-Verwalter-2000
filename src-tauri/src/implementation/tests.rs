@@ -5527,3 +5527,34 @@ fn a_session_that_is_not_a_station_is_never_finished_for_the_timer() {
     registry.add_session_for_test("session", "project", SessionStatus::Paused);
     assert!(!registry.resume_is_finished("session").expect("lesbar"));
 }
+
+#[test]
+fn a_cancel_request_or_a_stop_holds_back_the_countdown_waiters_of_an_armed_implementation() {
+    let ready = || limited_view(vec![node("a", &[])], None, true, &[]);
+    let waiting = |view: &ImplementationView| {
+        slots::station_waiters(view, true, ProjectPriority::Normal).len()
+    };
+    assert_eq!(
+        waiting(&ready()),
+        1,
+        "ohne Anfrage und Halt wartet die Station"
+    );
+    let requested = ImplementationView {
+        pending_cancel: Some(pending_cancel(false)),
+        ..ready()
+    };
+    assert_eq!(
+        waiting(&requested),
+        0,
+        "offene Anfrage zum Abbrechen: nichts wartet"
+    );
+    let stopping = ImplementationView {
+        stop_after_current: true,
+        ..ready()
+    };
+    assert_eq!(
+        waiting(&stopping),
+        0,
+        "Halt nach dieser Session: kein Countdown-Wartender"
+    );
+}

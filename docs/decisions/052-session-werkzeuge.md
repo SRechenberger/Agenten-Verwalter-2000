@@ -65,7 +65,7 @@ Eine Nachricht erreicht das Ziel als eigene Eintragsart `ChatEntry::SessionMessa
 - **Ruhendes Ziel** (`Completed`, keine offene Rückfrage, kein Subagent, kein Skript): sofort, sein Agent startet bei Bedarf neu.
 - **Arbeitendes oder wartendes Ziel:** eingereiht, das Ergebnis meldet `queued`. Eine offene Rückfrage bleibt offen; die Nachricht darf sie nie beantworten.
 - **Pausiertes Ziel:** eingereiht, erst nach einer weiteren vollständigen Antwort zugestellt. Pausiert hat der Nutzer bewusst, das darf eine Nachricht nicht aufheben.
-- **`new`, `cancelled`, `error`:** `undeliverable`, je Empfänger. So bleibt auch der Entwurf einer leeren Session unberührt.
+- **`new`, `cancelled`, `error`:** `undeliverable`, je Empfänger; eine neue Session mit wartender erster Nachricht ist bei vollem Tor erreichbar (`queued`) und in `verwalter_get_sessions` mit `waitsForSlot` sichtbar ([ADR 068](068-globale-warteschlange.md)). So bleibt auch der Entwurf einer leeren Session unberührt.
 
 „Eingereiht“ ist eine Zusage an die sendende Session, deshalb überlebt die Warteschlange einen Neustart (`session_inbox`, Migration 018). Beim Start wird an `Completed`-Sessions zugestellt, im Betrieb am Haken `turn_completed`.
 

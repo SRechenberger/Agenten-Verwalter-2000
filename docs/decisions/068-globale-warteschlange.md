@@ -35,7 +35,7 @@ Der Benutzer hat am 2026-11-16 entschieden (U1 bis U4 der Story): Es reiht sich 
 
 - **[ADR 061](061-constraint-ablaeufe.md):** „Parallel max.“ je Umsetzung, die Warteschlange je Umsetzung (`schedule::queue`, `queue_position` je Umsetzung, `begin_within`/`begin_if_current`) und die Liste „Aktiv“ (`StationView::is_active`) gelten nicht mehr. `is_active` folgt jetzt der Regel des Platzes: Countdown, startend, laufend, wartet auf Skript, `WaitsForQuota`; eine Rückfrage und ein Fehler vor dem Neustart belegen keinen Platz mehr, der Neustart wartet am Tor. Der Haken am Sessionende plant nicht mehr nur mit Grenze, sondern lässt immer einen Durchgang laufen. **Weiter gilt:** ▶ ignoriert die Grenze (jetzt die globale) und zählt mit; eine Station ohne „Automatisch starten“ wartet nie.
 - **[ADR 064](064-automatisch-fortsetzen.md):** `WaitsForQuota` hält einen Platz der globalen Warteschlange statt einen unter „Parallel max.“; ohne scharfen Zeitgeber keinen. Das Fortsetzen selbst geht durch das Tor; die Station braucht dafür keinen weiteren Platz, eine Session außerhalb einer Umsetzung schon.
-- **[ADR 052](052-session-werkzeuge.md):** Der Posteingang `session_inbox` ist auch der Ort, an dem eine Nachricht auf einen Platz wartet, und nimmt die erste Nachricht einer geöffneten Session auf, solange kein Platz frei ist.
+- **[ADR 052](052-session-werkzeuge.md):** Der Posteingang `session_inbox` ist auch der Ort, an dem eine Nachricht auf einen Platz wartet, und nimmt die erste Nachricht einer geöffneten Session auf, solange kein Platz frei ist; eine neue Session mit wartender erster Nachricht ist bei vollem Tor erreichbar (`queued`) und in `verwalter_get_sessions` mit `waitsForSlot` sichtbar.
 
 ## Bekannte Grenzen
 
@@ -49,6 +49,8 @@ Der Benutzer hat am 2026-11-16 entschieden (U1 bis U4 der Story): Es reiht sich 
 - **Pausierte Session mit Hintergrund:** `wake_if_idle` weckt auch eine vom Benutzer pausierte Session, wenn ihr Skript oder Subagent endet; sie läuft dann ohne Tor weiter, belegte vorher aber keinen Platz. Die Zahl kann so über der Grenze liegen (vorbestehend, schon vor der globalen Warteschlange so).
 - **Merker `continues_by_itself`:** Er hält den Platz bis zum nächsten Status, zum Prozessende oder zum Ruhe-Abbau. Ein laufender Dev-Server mit Adresse verhindert den Abbau (`reap_idle`), dann hält er ihn bis zur nächsten Nachricht des Benutzers. Selten, denn der Agent setzt nach einem Skript fort ([ADR 032](032-wartet-auf-skript.md)).
 - **„Anhalten nach dieser Session“ und eigenes „Automatisch starten: an“:** Eine Station mit eigenem „Automatisch starten: an“ bleibt trotz Halt fällig und startet beim nächsten Durchgang der App (früher beim nächsten Ereignis ihrer eigenen Umsetzung); der Halt hält sie nicht.
+- **„Anhalten nach dieser Session“ am Countdown:** Wird der Halt am Countdown einer Station mit eigenem „an“ eingelöst, bleibt der frei gewordene Platz bis zum nächsten Ereignis ungenutzt; die Station selbst startet beim nächsten Durchgang.
+- **„Löschen“ mit laufendem Countdown:** Löscht der Benutzer eine nie begonnene Umsetzung, deren Countdown läuft, gibt das den Platz ohne Durchgang frei (Fenster von 10 Sekunden).
 - **Wartezeit einer Station** zählt im Speicher ab dem ersten Durchgang, der sie wartend sieht; nach dem App-Start gilt die Planreihenfolge.
 
 ## Prüfung
