@@ -184,5 +184,12 @@ function rowOrigin(row: CommandRow, session: SessionSummary | null): string {
   if (row.kind !== 'skill') {
     return '';
   }
-  return row.skill.origin.kind === 'user' ? 'Benutzer' : `aus ${row.skill.origin.name}`;
+  switch (row.skill.origin.kind) {
+    case 'user':
+      return 'Benutzer';
+    case 'builtin':
+      return 'mitgeliefert';
+    case 'repository':
+      return `aus ${row.skill.origin.name}`;
+  }
 }

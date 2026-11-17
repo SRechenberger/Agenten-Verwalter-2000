@@ -1,4 +1,4 @@
-# 063 — Zeitpunkt im Chat
+# 068 — Zeitpunkt im Chat
 
 **Status:** angenommen, umgesetzt (Story Taiga #106); die Abnahme in der echten App steht aus · **Datum:** 2026-11-15
 

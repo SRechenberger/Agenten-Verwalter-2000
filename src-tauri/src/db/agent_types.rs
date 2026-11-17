@@ -1,9 +1,11 @@
 //! Tabelle `agent_types` (Migration 22, ADR 060). Anlegen und Ändern prüfen gegen den Stand in
 //! derselben Transaktion, in der sie schreiben: Zwei Aufrufe ergeben nie einen doppelten Namen oder
 //! Stationsnamen. Listen liegen als JSON-Text in der Zeile.
-use rusqlite::{Connection, Row, TransactionBehavior, params};
+use rusqlite::{Connection, Row, Transaction, TransactionBehavior, params};
 
-use crate::agent_types::model::{AgentType, AgentTypeInput, AgentTypeSaved, FieldError};
+use crate::agent_types::model::{
+    AgentType, AgentTypeField, AgentTypeInput, AgentTypeSaved, FieldError,
+};
 use crate::agent_types::validate;
 use crate::db::{enum_from_text, enum_to_text, implementations};
 use crate::error::CommandError;
@@ -69,6 +71,45 @@ pub fn update(
 ) -> Result<AgentTypeSaved, CommandError> {
     let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
     let existing = list(&transaction)?;
+    let saved = write_update(&transaction, &existing, id, input)?;
+    transaction.commit()?;
+    Ok(saved)
+}
+
+/// Übernimmt einen Vorschlag zur Änderung (ADR 063) wie `update`, aber nur, solange der gespeicherte
+/// Typ noch genau `base` ist; geprüft in derselben Transaktion wie das Schreiben. Sonst eine Meldung
+/// am Namen, und nichts ist gespeichert.
+pub fn update_if_unchanged(
+    connection: &mut Connection,
+    base: &AgentType,
+    input: &AgentTypeInput,
+) -> Result<AgentTypeSaved, CommandError> {
+    let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+    let existing = list(&transaction)?;
+    let current = existing
+        .iter()
+        .find(|agent_type: &&AgentType| agent_type.id == base.id);
+    if current != Some(base) {
+        return Ok(rejected(vec![FieldError {
+            field: AgentTypeField::Name,
+            message: format!(
+                "Der Typ „{}“ wurde seit dem Vorschlag geändert oder gelöscht. Verwirf den Vorschlag.",
+                base.name
+            ),
+        }]));
+    }
+    let saved = write_update(&transaction, &existing, &base.id, input)?;
+    transaction.commit()?;
+    Ok(saved)
+}
+
+/// Prüft und schreibt in der Transaktion des Aufrufers; mit Meldungen schreibt sie nichts.
+fn write_update(
+    transaction: &Transaction<'_>,
+    existing: &[AgentType],
+    id: &str,
+    input: &AgentTypeInput,
+) -> Result<AgentTypeSaved, CommandError> {
     let Some(old_name) = existing
         .iter()
         .find(|agent_type: &&AgentType| agent_type.id == id)
@@ -76,7 +117,7 @@ pub fn update(
     else {
         return Err(not_found(id));
     };
-    let input = match validate(input, &existing, Some(id)) {
+    let input = match validate(input, existing, Some(id)) {
         Ok(input) => input,
         Err(errors) => return Ok(rejected(errors)),
     };
@@ -97,9 +138,8 @@ pub fn update(
         ],
     )?;
     if input.name != old_name {
-        implementations::rename_agent(&transaction, &old_name, &input.name)?;
+        implementations::rename_agent(transaction, &old_name, &input.name)?;
     }
-    transaction.commit()?;
     Ok(saved(id, input))
 }
 

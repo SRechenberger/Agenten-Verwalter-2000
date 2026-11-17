@@ -148,6 +148,35 @@
     }
     if (data.type === 'marks') setMarks(data.marks);
   });
+  // Links nach außen öffnet der Verwalter im Standardbrowser: der Rahmen darf weder Popups noch das
+  // App-Fenster öffnen, und ohne diese Weiterleitung lief die Navigation je nach WebView ins Leere
+  // oder im Rahmen selbst. Verweise auf andere Artefakte (gleicher Server) bleiben im Rahmen.
+  const serverOrigin = new URL(location.href).origin;
+  const OUTSIDE_PROTOCOLS = ['http:', 'https:', 'mailto:'];
+  const openOutside = (event) => {
+    if (on || event.defaultPrevented || event.button > 1 || !(event.target instanceof Element)) return;
+    const link = event.target.closest('a[href]');
+    if (!link) return;
+    let url;
+    try { url = new URL(link.getAttribute('href'), location.href); } catch { return; }
+    if (url.origin === serverOrigin || !OUTSIDE_PROTOCOLS.includes(url.protocol)) return;
+    event.preventDefault();
+    window.parent.postMessage({ verwalter: 1, type: 'open', url: url.href }, '*');
+  };
+  window.addEventListener('click', openOutside);
+  window.addEventListener('auxclick', openOutside);
+  // Der Ordner-Betrachter zeigt Dateien in eigenen Rahmen: deren Links reicht er nach oben durch,
+  // aber nur aus Rahmen dieses Servers — eingebettete Fremdseiten öffnen nichts.
+  window.addEventListener('message', (event) => {
+    const data = event.data;
+    if (event.source === window.parent || !data || data.verwalter !== 1 || data.type !== 'open') return;
+    const isOwnFrame = Array.from(document.querySelectorAll('iframe')).some(
+      (frame) => frame.contentWindow === event.source && new URL(frame.src, location.href).origin === serverOrigin,
+    );
+    if (isOwnFrame && typeof data.url === 'string') {
+      window.parent.postMessage({ verwalter: 1, type: 'open', url: data.url }, '*');
+    }
+  });
   window.addEventListener('scroll', queuePosition, true);
   window.addEventListener('resize', queuePosition);
   window.addEventListener('load', () => {

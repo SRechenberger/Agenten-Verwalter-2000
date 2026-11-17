@@ -80,7 +80,8 @@ pub struct SessionSummary {
 )]
 pub enum PauseReason {
     /// Die letzte Antwort endete am aufgebrauchten Kontingent. `resets_at` in Millisekunden seit
-    /// Epoche, `None` wenn unbekannt. `auto_resume` beginnt immer `false`.
+    /// Epoche, `None` wenn unbekannt. `auto_resume` beginnt `false`; bei einer Station schaltet die
+    /// Umsetzung danach nach ihrem gespeicherten Wert ein (ADR 064).
     Quota {
         resets_at: Option<f64>,
         auto_resume: bool,

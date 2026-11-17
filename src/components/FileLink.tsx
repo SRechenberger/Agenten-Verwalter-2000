@@ -1,6 +1,6 @@
 import type { MouseEvent, ReactElement, ReactNode } from 'react';
 import { commandErrorText } from '@/lib/errors';
-import { openFileLink } from '@/lib/fileLinks';
+import { fileHrefOf, openFileLink } from '@/lib/fileLinks';
 import { useSessionErrorsStore } from '@/stores/sessionErrors';
 import './FileLink.css';
 
@@ -29,8 +29,22 @@ export function FileLink({ sessionId, path, children }: FileLinkProps): ReactEle
       });
   }
 
+  const href: string | undefined = fileHrefOf(path);
   return (
-    <a className="file-link" href="#" title={`Öffnen: ${path}`} onClick={open} onAuxClick={open}>
+    <a
+      className="file-link"
+      href={href}
+      role={href === undefined ? 'link' : undefined}
+      tabIndex={href === undefined ? 0 : undefined}
+      title={`Öffnen: ${path}`}
+      onClick={open}
+      onAuxClick={open}
+      onKeyDown={(event) => {
+        if (href === undefined && event.key === 'Enter') {
+          event.currentTarget.click();
+        }
+      }}
+    >
       {children}
     </a>
   );

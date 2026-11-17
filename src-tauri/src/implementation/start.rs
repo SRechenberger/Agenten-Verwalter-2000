@@ -1,14 +1,12 @@
 //! Stationen starten (ADR 048): Countdown, frische Session, erste Nachricht; dazu Typ, Modell,
 //! Denkaufwand, Systemprompt und Skills aus den Agententypen (ADR 060). Alles hier läuft ohne
 //! gehaltene Sperre; die Registry nimmt ihre Sperren selbst, nacheinander.
-use std::fs;
-use std::path::Path;
 use std::thread;
 
 use tauri::{AppHandle, Manager};
 
 use super::model::{BriefChange, ImplementationView, PhaseView, StationState, StationView};
-use super::{START_DELAY, StationRef, announce, now_ms, schedule, station_in};
+use super::{IS_CANCELLED, START_DELAY, StationRef, announce, now_ms, schedule, station_in};
 use crate::agent_types::model::{AgentType, AgentValueSource};
 use crate::agent_types::prompt::{Folders, PromptError};
 use crate::agent_types::{self, StationValues, UnknownAgent};
@@ -18,6 +16,9 @@ use crate::filesystem::workspace::home_dir;
 use crate::sessions::model::SessionSummary;
 use crate::sessions::registry::SessionRegistry;
 use crate::settings::model::OperatingMode;
+
+const HELD_BY_CANCEL: &str =
+    "Eine Anfrage zum Abbrechen liegt vor; erst bestätigen oder verwerfen.";
 
 // Wie man fertig meldet, samt Übergabenotiz (ADR 061, Werkzeuge); die Felder nennt die Beschreibung
 // des Werkzeugs, nicht dieser Text.
@@ -179,7 +180,8 @@ pub fn start_plan(
 /// Plant für Stationen, die jetzt starten dürfen, einen Countdown, nach Vorrang und Planreihenfolge
 /// und höchstens bis `max_parallel` aktive Stationen; gibt die geplanten zurück. Die übrigen bleiben
 /// in der Warteschlange (ADR 061). Stationen des Benutzers, solche mit laufendem Countdown und solche
-/// mit Startfehler bleiben außen vor.
+/// mit Startfehler bleiben außen vor. Abgebrochen oder mit offener Anfrage zum Abbrechen plant es
+/// nichts (ADR 066).
 pub fn schedule_ready(
     app: &AppHandle,
     implementation_id: &str,
@@ -189,6 +191,10 @@ pub fn schedule_ready(
     let (view, begun) = loop {
         let seen: u64 = registry.start_releases();
         let view = registry.implementation_view(implementation_id)?;
+        if is_held(&view).is_some() {
+            announce(app, &view);
+            return Ok(Vec::new());
+        }
         let stations: Vec<&StationView> = view
             .phases
             .iter()
@@ -325,7 +331,14 @@ pub fn restart_failed(app: &AppHandle, implementation_id: &str) -> Result<(), Co
         {
             return Ok(());
         }
-        let restarted = restart_claimed(app, &registry, &station.id, session_id, station.restarts);
+        let restarted = restart_claimed(
+            app,
+            &registry,
+            implementation_id,
+            &station.id,
+            session_id,
+            station.restarts,
+        );
         registry.release_start(&station.id);
         if let Err(error) = restarted {
             registry.log_session_line(
@@ -340,6 +353,7 @@ pub fn restart_failed(app: &AppHandle, implementation_id: &str) -> Result<(), Co
 fn restart_claimed(
     app: &AppHandle,
     registry: &SessionRegistry,
+    implementation_id: &str,
     station_id: &str,
     session_id: &str,
     seen: u32,
@@ -348,7 +362,37 @@ fn restart_claimed(
         return Ok(());
     }
     registry.restart(app, session_id)?;
+    stop_if_cancelled(app, registry, implementation_id, session_id)?;
     registry.send(app, session_id, super::RESTART_MESSAGE, &[], &[], None)
+}
+
+/// Warum die Umsetzung gerade nichts startet (ADR 066): abgebrochen oder eine Anfrage zum Abbrechen
+/// liegt vor; `None`, wenn sie starten darf.
+pub fn is_held(view: &ImplementationView) -> Option<&'static str> {
+    if view.cancelled_at.is_some() {
+        Some(IS_CANCELLED)
+    } else if view.pending_cancel.is_some() {
+        Some(HELD_BY_CANCEL)
+    } else {
+        None
+    }
+}
+
+/// Vor der Nachricht, die den Agenten einer Station arbeiten lässt (ADR 066): Wurde die Umsetzung
+/// abgebrochen, seit der Start die Ansicht las, stoppt er die schon gebundene Session selbst. Der
+/// Abbruch schreibt zuerst und liest danach die Stationen, der Start bindet zuerst und liest danach:
+/// Unter der einen Datenbank-Sperre sieht mindestens einer von beiden den anderen.
+fn stop_if_cancelled(
+    app: &AppHandle,
+    registry: &SessionRegistry,
+    implementation_id: &str,
+    session_id: &str,
+) -> Result<(), CommandError> {
+    if !registry.is_implementation_cancelled(implementation_id)? {
+        return Ok(());
+    }
+    let _ = registry.cancel(app, session_id);
+    Err(CommandError::Implementation(IS_CANCELLED.to_owned()))
 }
 
 /// Wer den Start auslöst: ▶ versucht eine Station mit Startfehler erneut, der Countdown nicht.
@@ -409,6 +453,10 @@ fn start_claimed(
 ) -> Result<(), CommandError> {
     let _ = registry.cancel_countdown(station_id);
     let view = registry.implementation_view(implementation_id)?;
+    // Deckt auch den Zeitgeber ab: `fire` startet nur über `start_claimed`.
+    if let Some(reason) = is_held(&view) {
+        return Err(CommandError::Implementation(reason.to_owned()));
+    }
     let (phase, station) = station_in(&view, station_id)?;
     if station.session_id.is_some() || station.state == StationState::Done {
         return Err(CommandError::Implementation(
@@ -444,7 +492,7 @@ fn start_claimed(
                 agent_type,
                 station.prompt.as_deref(),
                 folders,
-                |path: &Path| fs::read_to_string(path),
+                agent_types::prompt::read_bounded,
             )
             .map_err(|error: PromptError| error.to_string())?;
             Ok((plan, agent_type, agent_prompt))
@@ -488,6 +536,7 @@ fn start_claimed(
         .map(|agent_type: &AgentType| agent_type.skills.as_slice())
         .unwrap_or_default();
     let message: String = first_message(&view, phase, station, type_skills);
+    stop_if_cancelled(app, registry, implementation_id, &created.id)?;
     if let Err(error) = registry.send(app, &created.id, &message, &[], &[], None) {
         registry.log_session_line(
             &created.id,

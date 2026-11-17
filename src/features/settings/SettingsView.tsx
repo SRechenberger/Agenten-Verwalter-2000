@@ -428,6 +428,18 @@ export function SettingsView({
             />
           </SettingRow>
         );
+      case 'defaultAutoResume':
+        return (
+          <SettingRow id={id}>
+            <Switch
+              checked={current.defaultAutoResume}
+              label="Automatisch fortsetzen"
+              onChange={(checked: boolean): void => {
+                save({ kind: 'defaultAutoResume', value: checked }).catch(() => undefined);
+              }}
+            />
+          </SettingRow>
+        );
       case 'agentTypes':
         return <AgentTypesRow operatingMode={current.operatingMode} />;
       case 'cliVersion':

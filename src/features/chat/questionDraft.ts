@@ -21,13 +21,24 @@ export type PickResult =
 
 export type ToolEdit = Extract<QuestionAnswer, { kind: 'edit' }>;
 
-/** Halbe Eingaben im Kasten eines Session-Werkzeugs; leben wie `QuestionDraft` in `ChatTimeline`. */
+/** Halbe Eingaben im Kasten eines Session-Werkzeugs oder eines Vorschlags (ADR 063); leben wie `QuestionDraft` in
+ *  `ChatTimeline`. */
 export interface ToolDraft {
   /** `null` = Textfeld zu. */
   readonly edit: ToolEdit | null;
+  /** Vorschlag: Das Feld „Begründung“ ist offen. „Zurück“ schließt es und behält `reason`. */
+  readonly isRejecting: boolean;
+  readonly reason: string;
+  /** Vorschlag: Meldungen der letzten Antwort, eine Zeile je Meldung. */
+  readonly notes: readonly string[];
 }
 
-export const EMPTY_TOOL_DRAFT: ToolDraft = { edit: null };
+export const EMPTY_TOOL_DRAFT: ToolDraft = {
+  edit: null,
+  isRejecting: false,
+  reason: '',
+  notes: [],
+};
 
 export interface OptionName {
   name: string;

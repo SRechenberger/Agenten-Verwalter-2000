@@ -4,6 +4,7 @@ import { EffortDots } from '@/components/EffortDots';
 import { ModelMenu } from '@/components/ModelMenu';
 import { StatusIcon } from '@/components/StatusIcon';
 import { Switch } from '@/components/Switch';
+import { AgentTypeProposalBlock } from '@/features/agenttypes/AgentTypeProposalBlock';
 import type { QuestionEntry, ToolDraft, ToolEdit } from '@/features/chat/questionDraft';
 import { SelectButton } from '@/features/settings/SelectButton';
 import { useProjectLocked } from '@/features/remote/useProjectAccess';
@@ -28,9 +29,15 @@ const ANSWER_OF_OPTION: Readonly<Record<string, string>> = {
   Ablehnen: 'Abgelehnt',
 };
 
+/** Ein Aufruf eines Session-Werkzeugs; ein Vorschlag eines Agententyps hat seinen eigenen Kasten. */
+type SessionToolCall = Exclude<ToolRequest, { kind: 'agentType' }>;
+
 interface SessionToolBlockProps {
   entry: QuestionEntry;
   request: ToolRequest;
+  sessionId: string;
+  /** Nummer der Session; der Dialog „Vorschlag bearbeiten“ nennt sie. */
+  sessionNumber: number;
   projectId: string;
   /** Selbstfreigabe des Vorhabens; `null`, solange das Vorhaben nicht geladen ist. */
   selfRelease: SelfRelease | null;
@@ -41,8 +48,28 @@ interface SessionToolBlockProps {
   onDraft: (next: ToolDraft) => void;
 }
 
+/** Kasten eines Werkzeugs, das auf die Entscheidung wartet. */
+export function SessionToolBlock(props: SessionToolBlockProps): ReactElement {
+  const { request } = props;
+  if (request.kind === 'agentType') {
+    return (
+      <AgentTypeProposalBlock
+        entry={props.entry}
+        request={request}
+        sessionId={props.sessionId}
+        sessionNumber={props.sessionNumber}
+        projectId={props.projectId}
+        draft={props.draft}
+        isSending={props.isSending}
+        onDraft={props.onDraft}
+      />
+    );
+  }
+  return <SessionToolCallBlock {...props} request={request} />;
+}
+
 /** Kasten eines Session-Werkzeugs: zeigt den Aufruf und lässt ihn erlauben, ablehnen oder ändern. */
-export function SessionToolBlock({
+function SessionToolCallBlock({
   entry,
   request,
   projectId,
@@ -52,7 +79,7 @@ export function SessionToolBlock({
   onPick,
   onSubmit,
   onDraft,
-}: SessionToolBlockProps): ReactElement {
+}: SessionToolBlockProps & { request: SessionToolCall }): ReactElement {
   const [isModelMenuOpen, setIsModelMenuOpen] = useState<boolean>(false);
   const [isSaving, setIsSaving] = useState<boolean>(false);
   const isProjectLocked: boolean = useProjectLocked(projectId);
@@ -309,7 +336,7 @@ export function SessionToolBlock({
 }
 
 /** `null`: Der Aufruf hat keinen Text zum Ändern; der Core würde es abweisen. */
-function startEdit(request: ToolRequest): ToolEdit | null {
+function startEdit(request: SessionToolCall): ToolEdit | null {
   switch (request.kind) {
     case 'sendMessage':
       return { kind: 'edit', message: request.message, model: null, effort: null };
@@ -325,7 +352,7 @@ function startEdit(request: ToolRequest): ToolEdit | null {
   }
 }
 
-function releaseKey(request: ToolRequest): 'messages' | 'tldr' | 'openSession' {
+function releaseKey(request: SessionToolCall): 'messages' | 'tldr' | 'openSession' {
   switch (request.kind) {
     case 'sendMessage':
       return 'messages';

@@ -28,6 +28,12 @@ pub struct ImplementationRow {
     pub pending_change: Option<String>,
     /// Grenze gleichzeitig aktiver Stationen (ADR 061); `None` = unbegrenzt.
     pub max_parallel: Option<u32>,
+    /// „Automatisch fortsetzen“ nach aufgebrauchtem Kontingent (ADR 064).
+    pub auto_resume: bool,
+    /// Abgebrochen (ADR 066); dann ist auch `finished_at` gesetzt.
+    pub cancelled_at: Option<f64>,
+    /// `PendingCancel` als JSON.
+    pub pending_cancel: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -82,6 +88,8 @@ pub struct StationRow {
     pub brief_changes: Vec<BriefChange>,
     /// Neustarts nach einem Fehler, die „Bei Fehler“ schon verbraucht hat.
     pub restarts: u32,
+    /// „Automatisch fortsetzen“ der Station; `None` = wie die Umsetzung (ADR 064).
+    pub auto_resume: Option<bool>,
 }
 
 #[derive(Debug, Clone)]
@@ -107,13 +115,14 @@ pub struct StoredImplementation {
 }
 
 const IMPLEMENTATION_COLUMNS: &str = "id, project_id, name, source, created_by_session_id, \
-     created_at, finished_at, auto_start, stop_after_current, pending_change, max_parallel";
+     created_at, finished_at, auto_start, stop_after_current, pending_change, max_parallel, auto_resume, \
+     cancelled_at, pending_cancel";
 const PHASE_COLUMNS: &str = "id, implementation_id, position, key, title, description, wave, mark";
 /// Die Reihenfolge muss mit `StoredStation::read` übereinstimmen.
 const STATION_COLUMNS: &str = "s.id, s.phase_id, s.position, s.stage, s.model, s.by_user, \
      s.skill, s.brief, s.session_id, s.started_at, s.completed_at, s.result, s.agent, \
      s.agent_used, s.effort, s.prompt, s.start_error, s.edited, s.plan_id, s.after_ids, s.priority, \
-     s.auto_start, s.on_error, s.predecessors_may, s.brief_changes, s.restarts";
+     s.auto_start, s.on_error, s.predecessors_may, s.brief_changes, s.restarts, s.auto_resume";
 
 /// Legt die Umsetzung mit ihren Phasen und Stationen in einem Zug an.
 pub fn insert(
@@ -126,7 +135,7 @@ pub fn insert(
     transaction.execute(
         &format!(
             "INSERT INTO implementations ({IMPLEMENTATION_COLUMNS}) \
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)"
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)"
         ),
         params![
             row.id,
@@ -140,6 +149,9 @@ pub fn insert(
             row.stop_after_current,
             row.pending_change,
             row.max_parallel,
+            row.auto_resume,
+            row.cancelled_at,
+            row.pending_cancel,
         ],
     )?;
     insert_phases(&transaction, phases, stations)?;
@@ -175,9 +187,9 @@ fn insert_phases(
             "INSERT INTO implementation_stations (id, phase_id, position, stage, model, by_user, \
                  skill, brief, session_id, started_at, completed_at, result, agent, agent_used, \
                  effort, prompt, start_error, edited, plan_id, after_ids, priority, auto_start, \
-                 on_error, predecessors_may, brief_changes, restarts) \
+                 on_error, predecessors_may, brief_changes, restarts, auto_resume) \
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, \
-                 ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26)",
+                 ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27)",
             params![
                 station.id,
                 station.phase_id,
@@ -205,6 +217,7 @@ fn insert_phases(
                 enum_to_text(&station.predecessors_may)?,
                 changes_json(&station.brief_changes)?,
                 station.restarts,
+                station.auto_resume,
             ],
         )?;
     }
@@ -357,6 +370,9 @@ fn read_implementation(row: &Row<'_>) -> rusqlite::Result<ImplementationRow> {
         stop_after_current: row.get(8)?,
         pending_change: row.get(9)?,
         max_parallel: row.get(10)?,
+        auto_resume: row.get(11)?,
+        cancelled_at: row.get(12)?,
+        pending_cancel: row.get(13)?,
     })
 }
 
@@ -433,6 +449,7 @@ impl StoredStation {
                 predecessors_may: PredecessorsMay::default(),
                 brief_changes: Vec::new(),
                 restarts: row.get(25)?,
+                auto_resume: row.get(26)?,
             },
             model: row.get(4)?,
             effort: row.get(14)?,
@@ -656,9 +673,10 @@ pub fn complete_station_with_followups(
             transaction.execute(
                 "INSERT INTO implementation_stations (id, phase_id, position, stage, model, \
                      by_user, skill, brief, agent, agent_used, effort, prompt, start_error, edited, \
-                     plan_id, after_ids, priority, auto_start, on_error, predecessors_may) \
+                     plan_id, after_ids, priority, auto_start, on_error, predecessors_may, \
+                     auto_resume) \
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, \
-                     ?18, ?19, ?20)",
+                     ?18, ?19, ?20, ?21)",
                 params![
                     followup.id,
                     phase_id,
@@ -680,6 +698,7 @@ pub fn complete_station_with_followups(
                     followup.auto_start,
                     enum_to_text(&followup.on_error)?,
                     enum_to_text(&followup.predecessors_may)?,
+                    followup.auto_resume,
                 ],
             )?;
         }
@@ -786,6 +805,43 @@ pub fn set_max_parallel(
     Ok(())
 }
 
+/// „Automatisch fortsetzen“ der Umsetzung (ADR 064): Die letzte Aktion gewinnt, also stehen alle nicht
+/// fertigen Stationen danach wieder auf „wie die Umsetzung“; ein Schritt.
+pub fn set_auto_resume(
+    connection: &mut Connection,
+    implementation_id: &str,
+    enabled: bool,
+) -> Result<(), CommandError> {
+    let transaction = connection.transaction()?;
+    transaction.execute(
+        "UPDATE implementations SET auto_resume = ?2 WHERE id = ?1",
+        params![implementation_id, enabled],
+    )?;
+    transaction.execute(
+        "UPDATE implementation_stations SET auto_resume = NULL \
+         WHERE completed_at IS NULL AND phase_id IN \
+             (SELECT id FROM implementation_phases WHERE implementation_id = ?1)",
+        params![implementation_id],
+    )?;
+    transaction.commit()?;
+    Ok(())
+}
+
+/// „Automatisch fortsetzen“ einer Station samt Marke `edited` (ADR 064), auch mit Session, nie an einer
+/// fertigen Station oder einer des Benutzers. `false`: nichts ist geschrieben.
+pub fn set_station_auto_resume(
+    connection: &Connection,
+    station_id: &str,
+    value: Option<bool>,
+) -> Result<bool, CommandError> {
+    let changed = connection.execute(
+        "UPDATE implementation_stations SET auto_resume = ?2, edited = 1 \
+         WHERE id = ?1 AND completed_at IS NULL AND by_user = 0",
+        params![station_id, value],
+    )?;
+    Ok(changed == 1)
+}
+
 pub fn set_flags(
     connection: &Connection,
     implementation_id: &str,
@@ -814,6 +870,67 @@ pub fn rename(
     connection.execute(
         "UPDATE implementations SET name = ?2 WHERE id = ?1",
         params![implementation_id, name],
+    )?;
+    Ok(())
+}
+
+/// Bricht die Umsetzung ab (ADR 066): abgeschlossen und abgebrochen zugleich, Automatik und Halt
+/// aus, offene Vorschläge und Anfragen verworfen. Phasen, Stationen und Verlauf bleiben. `false`: sie
+/// war schon fertig, nichts ist geschrieben.
+pub fn cancel(
+    connection: &Connection,
+    implementation_id: &str,
+    at: f64,
+) -> Result<bool, CommandError> {
+    let changed = connection.execute(
+        "UPDATE implementations SET finished_at = ?2, cancelled_at = ?2, auto_start = 0, \
+             stop_after_current = 0, pending_change = NULL, pending_cancel = NULL \
+         WHERE id = ?1 AND finished_at IS NULL",
+        params![implementation_id, at],
+    )?;
+    Ok(changed == 1)
+}
+
+/// Löscht die Umsetzung; Phasen, Stationen und Änderungen gehen per Kaskade mit. Rückfragen zeigen
+/// danach auf keine Umsetzung mehr, die Sessions selbst bleiben. Ein Zug.
+pub fn delete(connection: &mut Connection, implementation_id: &str) -> Result<(), CommandError> {
+    let transaction = connection.transaction()?;
+    transaction.execute(
+        "UPDATE sessions SET inquiry_of = NULL WHERE inquiry_of = ?1",
+        params![implementation_id],
+    )?;
+    transaction.execute(
+        "DELETE FROM implementations WHERE id = ?1",
+        params![implementation_id],
+    )?;
+    transaction.commit()?;
+    Ok(())
+}
+
+/// `true`, wenn die Umsetzung abgebrochen ist (ADR 066); eine unbekannte ist es nicht.
+pub fn is_cancelled(
+    connection: &Connection,
+    implementation_id: &str,
+) -> Result<bool, CommandError> {
+    let cancelled_at: Option<Option<f64>> = connection
+        .query_row(
+            "SELECT cancelled_at FROM implementations WHERE id = ?1",
+            params![implementation_id],
+            |row: &Row<'_>| row.get(0),
+        )
+        .optional()?;
+    Ok(cancelled_at.flatten().is_some())
+}
+
+/// `PendingCancel` als JSON; `None` verwirft die Anfrage.
+pub fn set_pending_cancel(
+    connection: &Connection,
+    implementation_id: &str,
+    pending_cancel: Option<&str>,
+) -> Result<(), CommandError> {
+    connection.execute(
+        "UPDATE implementations SET pending_cancel = ?2 WHERE id = ?1",
+        params![implementation_id, pending_cancel],
     )?;
     Ok(())
 }

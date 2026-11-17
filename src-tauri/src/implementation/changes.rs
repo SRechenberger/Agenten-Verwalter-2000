@@ -27,6 +27,61 @@ pub fn is_begun(phase: &PhaseView) -> bool {
         .any(|station: &StationView| station.session_id.is_some() || station.completed_at.is_some())
 }
 
+/// Die erste Station, deren Session gerade arbeitet, auf das Kontingent wartet (ihr Zeitgeber lässt sie
+/// danach weiterarbeiten, ADR 064) oder angelegt wird (`is_starting`), als (Lane-Schlüssel, Stufe); sie
+/// sperrt das Löschen (ADR 066). Wartet die Session auf den Benutzer, sperrt sie nicht.
+pub fn working_station(
+    view: &ImplementationView,
+    is_starting: impl Fn(&str) -> bool,
+) -> Option<(String, String)> {
+    view.phases.iter().find_map(|phase: &PhaseView| {
+        phase
+            .stations
+            .iter()
+            .find(|station: &&StationView| {
+                matches!(
+                    station.state,
+                    StationState::Starting
+                        | StationState::Running
+                        | StationState::WaitsForScript
+                        | StationState::WaitsForQuota
+                ) || is_starting(&station.id)
+            })
+            .map(|station: &StationView| (phase.key.clone(), station.stage.clone()))
+    })
+}
+
+/// Löschen dürfen nur abgebrochene oder nie begonnene Umsetzungen; eine normal fertige bleibt als
+/// Archiv (ADR 066).
+pub fn may_delete(view: &ImplementationView) -> bool {
+    view.cancelled_at.is_some() || !view.phases.iter().any(is_begun)
+}
+
+/// Die Sessions der Stationen, die Abbrechen stoppt (ADR 066): jede, deren Agent arbeitet oder auf eine
+/// Antwort wartet, jede, die mit scharfem Zeitgeber auf das Kontingent wartet (ADR 064), und jede, die
+/// gerade (neu) startet. Eine Session, die auf den Benutzer wartet, mit
+/// Fehler endete oder fertig ist, bleibt, wie sie ist.
+pub fn sessions_to_stop(
+    view: &ImplementationView,
+    is_starting: impl Fn(&str) -> bool,
+) -> Vec<String> {
+    view.phases
+        .iter()
+        .flat_map(|phase: &PhaseView| phase.stations.iter())
+        .filter(|station: &&StationView| {
+            matches!(
+                station.state,
+                StationState::Starting
+                    | StationState::Running
+                    | StationState::Asking
+                    | StationState::WaitsForScript
+                    | StationState::WaitsForQuota
+            ) || is_starting(&station.id)
+        })
+        .filter_map(|station: &StationView| station.session_id.clone())
+        .collect()
+}
+
 /// Unterschiede zwischen den kommenden Phasen und dem Vorschlag. Fehler, wenn der Vorschlag den
 /// Schlüssel einer begonnenen Phase enthält.
 pub fn diff(view: &ImplementationView, proposed: &[PhaseInput]) -> Result<ChangeSummary, String> {
@@ -254,7 +309,7 @@ pub fn replacement_rows(
 /// gleicher laufender Nummer unter den Stationen dieser Stufe in der Phase `agent`, `model`,
 /// `effort`, `prompt` und `skill`, wenn die ersetzte `edited` trägt und die Eingabe den Wert nicht
 /// nennt, dazu „Automatisch starten“, „Bei Fehler“ und „Vorgänger dürfen“, wenn die Eingabe den
-/// Standard lässt (ADR 061); sie trägt dann selbst `edited`. Was der Planer nennt, gilt. Läuft nach `keep_known_ids`:
+/// Standard lässt (ADR 061), und „Automatisch fortsetzen“ (ADR 064); sie trägt dann selbst `edited`. Was der Planer nennt, gilt. Läuft nach `keep_known_ids`:
 /// Eine Phase mit bekanntem Schlüssel hat dann die `id` der ersetzten, gleicher Schlüssel heißt also
 /// gleiche `phase_id`.
 pub fn keep_settings(removed: &[StationRow], stations: &mut [StationRow]) {
@@ -284,6 +339,7 @@ pub fn keep_settings(removed: &[StationRow], stations: &mut [StationRow]) {
         station.prompt = station.prompt.take().or_else(|| old.prompt.clone());
         station.skill = station.skill.take().or_else(|| old.skill.clone());
         station.auto_start = station.auto_start.or(old.auto_start);
+        station.auto_resume = station.auto_resume.or(old.auto_resume);
         if station.on_error == OnError::default() {
             station.on_error = old.on_error;
         }

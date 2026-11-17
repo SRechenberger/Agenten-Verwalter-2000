@@ -69,6 +69,20 @@ pub fn text_with(
         .map(|(_, station): (&PhaseView, &StationView)| station.plan_id.as_str())
         .collect();
     lines.push(format!("Startstationen: {}", list_or_none(&starts)));
+    if let Some(cancelled_at) = view.cancelled_at {
+        lines.push(format!("Abgebrochen: {}", stamp(cancelled_at)));
+    }
+    if let Some(pending) = &view.pending_cancel {
+        let action = if pending.delete {
+            "abbrechen und löschen"
+        } else {
+            "abbrechen"
+        };
+        lines.push(format!(
+            "Anfrage aus #{} wartet auf Bestätigen: {action} — {}",
+            pending.session_number, pending.reason
+        ));
+    }
     push_section(&mut lines, "Jetzt", now_lines(view), "nichts läuft");
     push_section(&mut lines, "Fertig", done_lines(view), "noch nichts");
     let open = open_summary(view);
@@ -227,6 +241,7 @@ fn state_label(state: StationState) -> &'static str {
         StationState::Countdown => "Countdown",
         StationState::Starting | StationState::Running => "läuft",
         StationState::WaitsForScript => "wartet auf einen Hintergrund-Befehl",
+        StationState::WaitsForQuota => "setzt automatisch fort",
         StationState::Asking => "fragt",
         StationState::WaitsForYou => "wartet auf dich",
         StationState::Done => "fertig",
@@ -261,6 +276,7 @@ fn now_lines(view: &ImplementationView) -> Vec<String> {
         let label = match station.state {
             StationState::Starting | StationState::Running => "läuft",
             StationState::WaitsForScript => "wartet auf einen Hintergrund-Befehl",
+            StationState::WaitsForQuota => "setzt automatisch fort",
             StationState::Asking => "fragt dich:",
             StationState::WaitsForYou => "wartet auf dich",
             StationState::Error => "Fehler",

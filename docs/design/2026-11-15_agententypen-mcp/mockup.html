@@ -1,0 +1,655 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agententypen per MCP – Entwurf</title>
+<style>
+/* Tokens wie src/styles/theme.css (Stand main 25b4752); Namen und Werte sind die der App. */
+:root {
+  --color-bg-base: #1f1f1f; --color-bg-sidebar: #181818; --color-bg-surface: #252526; --color-bg-popover: #252526;
+  --color-bg-hover: #2e2e30; --color-bg-selected: #37373d;
+  --color-border-subtle: #2b2b2b; --color-border: #3c3c3c;
+  --color-fg-primary: #d4d4d4; --color-fg-secondary: #b0b0b0; --color-fg-muted: #8f8f8f;
+  --color-accent: #e0825c; --color-fg-on-accent: #1d130e;
+  --color-accent-subtle: color-mix(in srgb, #e0825c 16%, transparent); --color-accent-text: #eea283;
+  --color-toggle-on: #e0825c; --color-toggle-off: #4a4a4f; --color-fg-on-toggle: #f5f5f5;
+  --color-status-running: #5b9dff; --color-status-waiting: #f2b33d;
+  --color-status-waiting-subtle: color-mix(in srgb, #f2b33d 11%, transparent);
+  --color-status-error: #f47067; --color-status-error-subtle: color-mix(in srgb, #f47067 11%, transparent);
+  --color-status-completed: #4cc38a; --color-status-script: #a78bfa; --color-status-paused: #8f8f8f;
+  --color-scrim: rgb(0 0 0 / .55);
+  --shadow-popover: 0 10px 30px rgb(0 0 0 / .45);
+  --font-sans: 'Segoe UI Variable Text', 'Segoe UI', system-ui, sans-serif;
+  --font-mono: 'Cascadia Code', 'Cascadia Mono', Consolas, ui-monospace, monospace;
+  --font-size-2xs: 11px; --font-size-xs: 12px; --font-size-sm: 12.5px; --font-size-md: 13px; --font-size-lg: 13.5px;
+  --space-2xs: 2px; --space-xs: 4px; --space-sm: 6px; --space-md: 8px; --space-lg: 10px; --space-xl: 12px;
+  --space-2xl: 16px; --space-3xl: 20px; --space-4xl: 24px; --space-5xl: 32px;
+  --radius-sm: 4px; --radius-md: 6px; --radius-lg: 8px; --radius-xl: 10px; --radius-full: 999px;
+  color-scheme: dark;
+}
+:root[data-theme="light"] {
+  --color-bg-base: #fff; --color-bg-sidebar: #f8f8f8; --color-bg-surface: #fff; --color-bg-popover: #fff;
+  --color-bg-hover: #f0f0f0; --color-bg-selected: #e4e6f1;
+  --color-border-subtle: #e5e5e5; --color-border: #cecece;
+  --color-fg-primary: #3c3c3c; --color-fg-secondary: #555; --color-fg-muted: #6e6e6e;
+  --color-accent: #c4572f; --color-fg-on-accent: #fff;
+  --color-accent-subtle: color-mix(in srgb, #c4572f 10%, transparent); --color-accent-text: #a8461f;
+  --color-toggle-on: #c4572f; --color-toggle-off: #c8c8c8; --color-fg-on-toggle: #fff;
+  --color-status-running: #2563eb; --color-status-waiting: #a86a00;
+  --color-status-waiting-subtle: color-mix(in srgb, #a86a00 10%, transparent);
+  --color-status-error: #d23b33; --color-status-error-subtle: #fdeceb;
+  --color-status-completed: #16803c; --color-status-script: #7c3aed; --color-status-paused: #6e6e6e;
+  --color-scrim: rgb(0 0 0 / .28);
+  --shadow-popover: 0 10px 30px rgb(0 0 0 / .14);
+  color-scheme: light;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--color-bg-base); color: var(--color-fg-primary); font: 13px/1.45 var(--font-sans); }
+button, input, textarea, select { font: inherit; color: inherit; }
+button { cursor: pointer; }
+code, .mono { font-family: var(--font-mono); font-size: 12px; }
+p { margin: 0; }
+
+/* ---- Seite um den Entwurf ---- */
+.page { max-width: 1280px; margin: 0 auto; padding: 24px 16px 56px; }
+.page h1 { font-size: 18px; margin: 0 0 4px; font-weight: 600; }
+.page h2.sec { font-size: 12px; margin: 28px 0 8px; text-transform: uppercase; letter-spacing: .06em; color: var(--color-fg-muted); font-weight: 600; }
+.lead { color: var(--color-fg-secondary); margin: 0 0 14px; max-width: 920px; }
+.tag { font-size: 11px; font-weight: 400; border: 1px solid var(--color-border); border-radius: 999px; padding: 1px 8px; color: var(--color-fg-muted); vertical-align: 2px; }
+.bar { display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; margin-bottom: 10px; }
+.bar label { color: var(--color-fg-muted); font-size: 12px; margin-right: 6px; }
+.grp { display: inline-flex; align-items: center; }
+.seg { display: inline-flex; border: 1px solid var(--color-border); border-radius: 6px; overflow: hidden; }
+.seg button { border: 0; background: transparent; padding: 4px 11px; color: var(--color-fg-secondary); }
+.seg button[aria-pressed="true"] { background: var(--color-bg-selected); color: var(--color-fg-primary); }
+.seg button[disabled] { opacity: .4; cursor: default; }
+.tour { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; padding: 10px 12px; margin-bottom: 12px; border: 1px solid var(--color-border); border-left: 3px solid var(--color-accent); border-radius: 8px; background: var(--color-bg-surface); }
+.tour__nav { display: inline-flex; gap: 6px; align-items: center; }
+.tour__nav button { height: 28px; min-width: 32px; padding: 0 10px; border: 1px solid var(--color-border); border-radius: 6px; background: transparent; }
+.tour__nav button:hover:not([disabled]) { background: var(--color-bg-hover); }
+.tour__nav button[disabled] { opacity: .4; cursor: default; }
+.tour__no { font-family: var(--font-mono); font-size: 12px; color: var(--color-fg-muted); white-space: nowrap; }
+.tour__txt { flex: 1; min-width: 260px; }
+.tour__txt b { color: var(--color-fg-primary); font-weight: 600; }
+.tour__txt span { color: var(--color-fg-secondary); }
+.tour__dots { display: flex; flex-wrap: wrap; gap: 4px; flex-basis: 100%; }
+.tour__dots button { width: 10px; height: 10px; padding: 0; border-radius: 50%; border: 1px solid var(--color-fg-muted); background: transparent; }
+.tour__dots button[aria-current="step"] { background: var(--color-accent); border-color: var(--color-accent); }
+.tour__dots button.seen { background: var(--color-fg-muted); }
+
+/* Hotspot: das nächste Ziel des Rundgangs */
+@keyframes pulse { 0%,100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-accent) 55%, transparent); } 50% { box-shadow: 0 0 0 5px transparent; } }
+.hot { outline: 2px solid var(--color-accent); outline-offset: 2px; animation: pulse 1.6s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) { .hot { animation: none; } }
+
+.stage { position: relative; display: grid; grid-template-columns: 256px minmax(0, 1fr); border: 1px solid var(--color-border-subtle); border-radius: 8px; overflow: hidden; min-height: 700px; background: var(--color-bg-base); }
+
+/* ---- Leiste ---- */
+.sb { display: flex; flex-direction: column; background: var(--color-bg-sidebar); border-right: 1px solid var(--color-border-subtle); }
+.sb__brand { height: 48px; display: flex; align-items: center; gap: 10px; padding: 0 16px; font-weight: 600; }
+.sb__logo { width: 18px; height: 18px; border-radius: 5px; background: var(--color-accent); }
+.sb__new { margin: 2px 10px 10px; height: 30px; display: flex; align-items: center; gap: 8px; padding: 0 10px; border: 1px solid var(--color-border); border-radius: 6px; background: transparent; text-align: left; }
+.sb__new:hover { background: var(--color-bg-hover); }
+.sb__new span { flex: 1; }
+.sb__list { flex: 1; padding: 2px 10px 10px; display: flex; flex-direction: column; gap: 2px; }
+.sb__foot { border-top: 1px solid var(--color-border-subtle); padding: 8px 10px; display: flex; gap: 14px; }
+.sb__foot button { border: 0; background: transparent; padding: 4px 6px; border-radius: 6px; color: var(--color-fg-muted); }
+.sb__foot button:hover, .sb__foot button[aria-current="true"] { background: var(--color-bg-hover); color: var(--color-fg-primary); }
+.pr { display: flex; align-items: flex-start; gap: 10px; width: 100%; padding: 6px 8px; border: 0; border-radius: 6px; background: transparent; text-align: left; }
+.pr:hover { background: var(--color-bg-hover); }
+.pr[aria-current="true"] { background: var(--color-bg-selected); }
+.pr__txt { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+.pr__name { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pr__meta { font-size: 12px; color: var(--color-fg-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.si { width: 10px; height: 10px; margin-top: 5px; border-radius: 50%; border: 1.5px solid currentColor; flex-shrink: 0; }
+.si--running { color: var(--color-status-running); border-top-color: transparent; }
+.si--completed { color: var(--color-status-completed); background: var(--color-status-completed); }
+.si--waiting { color: var(--color-status-waiting); background: color-mix(in srgb, var(--color-status-waiting) 35%, transparent); }
+.si--new { color: var(--color-fg-muted); border-style: dashed; }
+.si--error { color: var(--color-status-error); background: var(--color-status-error); }
+
+/* ---- Hauptfläche ---- */
+.main { position: relative; display: flex; flex-direction: column; min-width: 0; }
+.hdr { display: flex; align-items: center; gap: 16px; height: 48px; padding: 0 20px; border-bottom: 1px solid var(--color-border-subtle); flex-shrink: 0; }
+.hdr h3 { margin: 0; font-size: 13.5px; font-weight: 600; }
+.hdr .sp { flex: 1; }
+.tabs { display: flex; gap: 2px; }
+.tabs button { border: 0; background: transparent; padding: 4px 10px; border-radius: 6px; color: var(--color-fg-muted); }
+.tabs button:hover { background: var(--color-bg-hover); }
+.tabs button[aria-selected="true"] { background: var(--color-bg-selected); color: var(--color-fg-primary); }
+
+/* ---- Einstellungen ---- */
+.set { display: grid; grid-template-columns: 216px minmax(0, 1fr); flex: 1; min-height: 0; }
+.set__nav { padding: 12px 8px; display: flex; flex-direction: column; gap: 2px; border-right: 1px solid var(--color-border-subtle); }
+.set__nav button { text-align: left; border: 0; background: transparent; border-radius: 6px; padding: 6px 10px; color: var(--color-fg-secondary); }
+.set__nav button:hover { background: var(--color-bg-hover); }
+.set__nav button[aria-current="true"] { background: var(--color-bg-selected); color: var(--color-fg-primary); }
+.set__nav small { display: block; font-size: 11px; color: var(--color-fg-muted); }
+.set__scroll { overflow-y: auto; min-width: 0; }
+.set__content { display: flex; flex-direction: column; gap: 22px; max-width: 780px; padding: 20px 32px 40px; }
+.sec-t { margin: 0 0 6px; font-size: 11px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: var(--color-fg-muted); }
+.row { display: grid; grid-template-columns: 230px minmax(0, 1fr); align-items: center; gap: 16px; padding: 8px 0; border-top: 1px solid var(--color-border-subtle); }
+.row__label { display: flex; align-items: center; gap: 6px; }
+.row__control { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.info { display: inline-flex; width: 18px; height: 18px; align-items: center; justify-content: center; border: 0; background: transparent; color: var(--color-fg-muted); cursor: help; padding: 0; }
+.selbtn { position: relative; display: flex; align-items: center; gap: 8px; width: 300px; height: 30px; padding: 0 10px; border: 1px solid var(--color-border); border-radius: 6px; background: var(--color-bg-surface); text-align: left; }
+.selbtn span { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.selbtn--small { width: 270px; }
+.segmented { display: flex; gap: 2px; padding: 2px; border: 1px solid var(--color-border-subtle); border-radius: 8px; }
+.segmented button { height: 26px; padding: 0 14px; border: 0; border-radius: 6px; background: transparent; color: var(--color-fg-secondary); }
+.segmented button[aria-pressed="true"] { background: var(--color-bg-selected); color: var(--color-fg-primary); }
+.muted { color: var(--color-fg-muted); }
+.sec2 { color: var(--color-fg-secondary); }
+.dim-section { opacity: .55; }
+
+/* Agententypen-Abschnitt */
+.atypes { border-top: 1px solid var(--color-border-subtle); padding-top: 8px; display: flex; flex-direction: column; gap: 10px; }
+.atypes__head { display: flex; align-items: center; gap: 8px; }
+.atypes__head .sp { flex: 1; }
+.atypes__intro { color: var(--color-fg-secondary); max-width: 640px; }
+.atypes__list { border: 1px solid var(--color-border-subtle); border-radius: 8px; overflow: visible; }
+.atype { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 12px; align-items: start; padding: 10px 12px; border-top: 1px solid var(--color-border-subtle); position: relative; }
+.atype:first-child { border-top: 0; }
+.atype__name { font-weight: 600; }
+.atype__desc { grid-column: 1; color: var(--color-fg-muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.atype__facts { grid-column: 1; display: flex; flex-wrap: wrap; gap: 4px 6px; margin-top: 2px; }
+.atype__act { grid-column: 2; grid-row: 1 / span 3; display: flex; gap: 6px; align-items: center; }
+.chip { display: inline-flex; align-items: center; gap: 4px; height: 20px; padding: 0 8px; border: 1px solid var(--color-border); border-radius: 999px; font-size: 11.5px; color: var(--color-fg-secondary); white-space: nowrap; }
+.chip--stage { color: var(--color-fg-primary); }
+.chip--model { color: var(--color-accent-text); border-color: color-mix(in srgb, var(--color-accent) 40%, var(--color-border)); }
+.chip--err { color: var(--color-status-error); border-color: color-mix(in srgb, var(--color-status-error) 45%, var(--color-border)); }
+.chip button { border: 0; background: transparent; padding: 0 0 0 2px; color: var(--color-fg-muted); line-height: 1; }
+.chip button:hover { color: var(--color-fg-primary); }
+.atypes__empty { padding: 18px 14px; border: 1px dashed var(--color-border); border-radius: 8px; color: var(--color-fg-secondary); display: flex; flex-direction: column; gap: 10px; align-items: flex-start; }
+.atypes__empty b { color: var(--color-fg-primary); font-weight: 600; }
+
+/* Knöpfe */
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 28px; padding: 0 12px; border: 1px solid var(--color-border); border-radius: 6px; background: transparent; color: var(--color-fg-secondary); font-size: 12px; white-space: nowrap; }
+.btn:hover:not([disabled]) { background: var(--color-bg-hover); color: var(--color-fg-primary); }
+.btn--primary { background: var(--color-accent); border-color: var(--color-accent); color: var(--color-fg-on-accent); }
+.btn--primary:hover:not([disabled]) { background: var(--color-accent); color: var(--color-fg-on-accent); opacity: .9; }
+.btn--danger { color: var(--color-status-error); border-color: color-mix(in srgb, var(--color-status-error) 45%, var(--color-border)); }
+.btn--icon { width: 28px; padding: 0; }
+.btn[disabled] { opacity: .5; cursor: default; }
+
+/* Menü und Popover */
+.menu { position: absolute; z-index: 30; min-width: 190px; padding: 4px; background: var(--color-bg-popover); border: 1px solid var(--color-border); border-radius: 8px; box-shadow: var(--shadow-popover); }
+.menu button { display: flex; width: 100%; align-items: center; gap: 10px; height: 28px; padding: 0 10px; border: 0; border-radius: 4px; background: transparent; text-align: left; }
+.menu button:hover { background: var(--color-bg-hover); }
+.menu .danger { color: var(--color-status-error); }
+.menu hr { border: 0; border-top: 1px solid var(--color-border-subtle); margin: 4px 0; }
+.pop { position: absolute; z-index: 40; width: 340px; background: var(--color-bg-popover); border: 1px solid var(--color-border); border-radius: 8px; box-shadow: var(--shadow-popover); padding: 4px; }
+.pop__head { padding: 6px 10px 4px; font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--color-fg-muted); }
+.pop__item { display: flex; align-items: center; gap: 8px; width: 100%; padding: 6px 10px; border: 0; border-radius: 6px; background: transparent; text-align: left; }
+.pop__item:hover { background: var(--color-bg-hover); }
+.pop__txt { display: flex; flex-direction: column; flex: 1; min-width: 0; }
+.pop__name { font-weight: 500; }
+.pop__hint { font-size: 12px; color: var(--color-fg-muted); }
+.pop__check { color: var(--color-accent); width: 14px; }
+.pop__effort { border-top: 1px solid var(--color-border-subtle); margin-top: 4px; padding: 8px 10px; }
+.pop__foot { border-top: 1px solid var(--color-border-subtle); padding: 6px 10px 4px; font-size: 12px; color: var(--color-fg-muted); }
+.dots { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.dots__title b { font-weight: 500; }
+.dots__group { display: flex; gap: 2px; }
+.dots__group button { width: 22px; height: 22px; border: 0; background: transparent; display: flex; align-items: center; justify-content: center; padding: 0; }
+.dots__dot { width: 9px; height: 9px; border-radius: 50%; border: 1.5px solid var(--color-fg-muted); }
+.dots__dot--sel { background: var(--color-accent); border-color: var(--color-accent); }
+.dots__dot--max.dots__dot--sel { box-shadow: 0 0 0 3px var(--color-accent-subtle); }
+
+/* Dialog */
+.scrim { position: absolute; inset: 0; z-index: 50; display: flex; align-items: flex-start; justify-content: center; padding: 28px 16px; background: var(--color-scrim); overflow-y: auto; }
+.dlg { width: min(580px, 100%); background: var(--color-bg-popover); border: 1px solid var(--color-border); border-radius: 10px; box-shadow: var(--shadow-popover); display: flex; flex-direction: column; }
+.dlg--small { width: min(440px, 100%); }
+.dlg__h { padding: 14px 18px 4px; }
+.dlg__h h4 { margin: 0; font-size: 15px; font-weight: 600; }
+.dlg__h p { margin-top: 2px; color: var(--color-fg-muted); font-size: 12px; }
+.dlg__b { padding: 8px 18px 6px; display: flex; flex-direction: column; gap: 14px; }
+.dlg__f { padding: 10px 18px 14px; display: flex; align-items: center; gap: 8px; justify-content: flex-end; border-top: 1px solid var(--color-border-subtle); margin-top: 6px; }
+.dlg__f .msg { flex: 1; margin-right: 6px; }
+.fld { display: flex; flex-direction: column; gap: 4px; }
+.fld__l { display: flex; align-items: baseline; gap: 8px; font-weight: 500; }
+.fld__l .req { color: var(--color-fg-muted); font-weight: 400; font-size: 11.5px; }
+.fld__l .cnt { margin-left: auto; font: 11.5px var(--font-mono); color: var(--color-fg-muted); }
+.fld__l .cnt.over { color: var(--color-status-error); }
+.fld__h { font-size: 12px; color: var(--color-fg-muted); }
+.fld__e { font-size: 12px; color: var(--color-status-error); }
+.inp, .ta { width: 100%; padding: 5px 9px; border: 1px solid var(--color-border); border-radius: 6px; background: var(--color-bg-base); }
+.inp { height: 30px; }
+.ta { resize: vertical; min-height: 66px; line-height: 1.45; }
+.ta--mono { font-family: var(--font-mono); font-size: 12px; min-height: 120px; }
+.inp:focus, .ta:focus { outline: 2px solid var(--color-accent); outline-offset: 1px; }
+.fld--bad .inp, .fld--bad .ta { border-color: var(--color-status-error); }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 5px 6px; border: 1px solid var(--color-border); border-radius: 6px; background: var(--color-bg-base); min-height: 32px; }
+.chips input { flex: 1; min-width: 120px; border: 0; background: transparent; outline: 0; height: 20px; padding: 0 4px; }
+.fld--bad .chips { border-color: var(--color-status-error); }
+.paths { display: flex; flex-direction: column; gap: 4px; }
+.path { display: flex; align-items: center; gap: 8px; padding: 4px 8px; border: 1px solid var(--color-border-subtle); border-radius: 6px; }
+.path code { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.path button { border: 0; background: transparent; color: var(--color-fg-muted); }
+.path button:hover { color: var(--color-fg-primary); }
+.addrow { display: flex; gap: 6px; }
+.addrow .inp { flex: 1; }
+.suggest { position: absolute; z-index: 5; margin-top: 4px; min-width: 260px; max-height: 160px; overflow-y: auto; background: var(--color-bg-popover); border: 1px solid var(--color-border); border-radius: 8px; box-shadow: var(--shadow-popover); padding: 4px; }
+.suggest button { display: block; width: 100%; padding: 4px 8px; border: 0; border-radius: 4px; background: transparent; text-align: left; font-family: var(--font-mono); font-size: 12px; }
+.suggest button:hover { background: var(--color-bg-hover); }
+.rel { position: relative; }
+.note { display: flex; gap: 8px; padding: 8px 10px; border-radius: 6px; background: var(--color-accent-subtle); color: var(--color-fg-secondary); font-size: 12px; }
+.note--warn { background: var(--color-status-waiting-subtle); }
+.note--err { background: var(--color-status-error-subtle); color: var(--color-fg-primary); }
+
+/* Chat */
+.chat { flex: 1; overflow-y: auto; padding: 18px 28px 12px; display: flex; flex-direction: column; gap: 12px; }
+.msg-u { align-self: flex-end; max-width: 78%; padding: 8px 12px; border-radius: 10px; background: var(--color-bg-selected); }
+.msg-a { max-width: 860px; }
+.msg-a p + p { margin-top: 6px; }
+.tool { border: 1px solid var(--color-border-subtle); border-radius: 8px; background: var(--color-bg-surface); max-width: 860px; }
+.tool__h { display: flex; align-items: center; gap: 8px; width: 100%; padding: 6px 10px; border: 0; background: transparent; text-align: left; color: var(--color-fg-secondary); font-size: 12px; }
+.tool__h b { font-family: var(--font-mono); font-weight: 500; color: var(--color-fg-primary); }
+.tool__h .sp { flex: 1; }
+.tool__b { margin: 0; padding: 8px 10px 10px; border-top: 1px solid var(--color-border-subtle); font: 12px/1.5 var(--font-mono); color: var(--color-fg-primary); white-space: pre-wrap; overflow-x: auto; }
+.plan { border: 1px solid var(--color-border); border-radius: 10px; background: var(--color-bg-surface); max-width: 860px; overflow: hidden; }
+.plan__h { padding: 10px 14px; border-bottom: 1px solid var(--color-border-subtle); font-weight: 600; }
+.plan table { width: 100%; border-collapse: collapse; }
+.plan th, .plan td { text-align: left; padding: 6px 14px; border-top: 1px solid var(--color-border-subtle); vertical-align: top; }
+.plan th { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--color-fg-muted); font-weight: 600; border-top: 0; }
+.plan td small { display: block; color: var(--color-fg-muted); font-size: 12px; }
+.ask { border: 1px solid var(--color-status-waiting); border-radius: 10px; padding: 10px 14px; background: var(--color-status-waiting-subtle); max-width: 860px; display: flex; flex-direction: column; gap: 8px; }
+.ask__o { display: flex; gap: 8px; flex-wrap: wrap; }
+.composer { margin: 0 28px 16px; border: 1px solid var(--color-border); border-radius: 10px; background: var(--color-bg-surface); }
+.composer__in { padding: 10px 12px; color: var(--color-fg-muted); min-height: 42px; }
+.composer__f { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-top: 1px solid var(--color-border-subtle); }
+.pill { display: inline-flex; align-items: center; height: 24px; padding: 0 8px; border-radius: 6px; color: var(--color-fg-secondary); font-size: 12px; }
+
+/* Umsetzung: Maße wie ImplementationBar.css, Timeline.css, CardStack.css, StationCard.css */
+.sess-h { display: flex; align-items: center; gap: 16px; height: 48px; padding: 0 20px; border-bottom: 1px solid var(--color-border-subtle); flex-shrink: 0; }
+.sess-h__title { display: flex; align-items: center; gap: 8px; min-width: 0; flex: 1; }
+.sess-h__proj { border: 0; background: transparent; padding: 0; color: var(--color-fg-muted); }
+.sess-h__proj:hover { color: var(--color-fg-primary); }
+.page .sess-h__name { margin: 0; font-size: 13.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sess-h__status { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--color-fg-muted); white-space: nowrap; }
+.ibar { display: flex; flex-wrap: wrap; gap: 12px 14px; align-items: center; padding: 8px 20px; border-bottom: 1px solid var(--color-border-subtle); color: var(--color-fg-secondary); font-size: 12.5px; }
+.ibar__progress { width: 160px; height: 6px; overflow: hidden; border-radius: 999px; background: var(--color-bg-hover); }
+.ibar__progress i { display: block; height: 100%; background: var(--color-status-completed); }
+.ibar .sp { flex: 1; }
+.ibar__sw { display: inline-flex; gap: 7px; align-items: center; }
+.sw { position: relative; width: 28px; height: 16px; border: 0; border-radius: 999px; background: var(--color-toggle-off); padding: 0; flex-shrink: 0; }
+.sw::after { content: ''; position: absolute; top: 2px; left: 2px; width: 12px; height: 12px; border-radius: 50%; background: var(--color-fg-on-toggle); transition: left 120ms; }
+.sw[aria-checked="true"] { background: var(--color-toggle-on); }
+.sw[aria-checked="true"]::after { left: 14px; }
+.ibtn { height: 24px; padding: 0 8px; border: 1px solid var(--color-border); border-radius: 6px; background: transparent; color: var(--color-fg-secondary); font-size: 11.5px; white-space: nowrap; }
+.ibtn:hover { background: var(--color-bg-hover); color: var(--color-fg-primary); }
+.iview { display: grid; grid-template-columns: 300px minmax(0, 1fr); flex: 1; min-height: 0; }
+.tl { border-right: 1px solid var(--color-border-subtle); overflow-y: auto; padding: 12px 12px 24px 14px; --rail: 26px; }
+.tl__phase { display: grid; grid-template-columns: var(--rail) minmax(0, 1fr); gap: 8px; align-items: baseline; padding: 16px 6px 4px 0; }
+.tl__phase span { grid-column: 2; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tl__phase i { font-style: normal; margin-right: 6px; color: var(--color-fg-muted); font-size: 11px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; }
+.tl__st { position: relative; display: grid; grid-template-columns: var(--rail) minmax(0, 1fr) auto; gap: 8px; align-items: center; width: 100%; padding: 5px 8px 5px 0; border: 0; border-radius: 8px; background: transparent; color: var(--color-fg-secondary); font-size: 12.5px; text-align: left; }
+.tl__st:hover { background: var(--color-bg-hover); }
+.tl__st[aria-current="true"] { background: var(--color-bg-selected); color: var(--color-fg-primary); font-weight: 600; }
+.tl__st .sd { justify-self: start; margin-left: 7px; }
+.tl__st small { color: var(--color-fg-muted); font-size: 11px; font-weight: 400; white-space: nowrap; }
+.tl__st small.bad { color: var(--color-status-error); font-weight: 600; }
+.tl__st em { font-style: normal; color: var(--color-fg-muted); font-weight: 400; }
+.sd { position: relative; z-index: 1; width: 12px; height: 12px; border-radius: 999px; display: block; }
+.sd--done { background: var(--color-status-completed); }
+.sd--run { border: 2px solid var(--color-status-running); background: var(--color-status-running); box-shadow: inset 0 0 0 2px var(--color-bg-base); }
+.sd--wait { background: var(--color-status-waiting); }
+.sd--error { background: var(--color-status-error); }
+.sd--todo { border: 2px solid var(--color-border); background: var(--color-bg-base); }
+.cs { display: grid; gap: 8px; align-content: start; padding: 14px 20px 24px; overflow-y: auto; }
+.cs__label { color: var(--color-fg-muted); font-size: 11px; font-weight: 600; letter-spacing: .07em; text-transform: uppercase; min-height: 22px; display: flex; align-items: center; }
+.cs__small { display: grid; grid-template-columns: 12px minmax(0, 1fr) auto; gap: 10px; align-items: center; width: 100%; padding: 7px 12px; border: 1px solid var(--color-border-subtle); border-radius: 8px; background: var(--color-bg-surface); color: var(--color-fg-secondary); font-size: 12px; text-align: left; }
+.cs__small:hover { border-color: var(--color-border); }
+.cs__small b { color: var(--color-fg-primary); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cs__small small { color: var(--color-fg-muted); font-size: 11px; white-space: nowrap; }
+.sc { display: grid; gap: 10px; margin: 4px 0; padding: 14px 16px; border: 1px solid var(--color-border-subtle); border-left: 3px solid var(--color-border); border-radius: 10px; background: var(--color-bg-surface); box-shadow: var(--shadow-popover); font-size: 13px; }
+.sc--done { border-left-color: var(--color-status-completed); }
+.sc--run { border-left-color: var(--color-status-running); }
+.sc--wait { border-color: var(--color-status-waiting); border-left-color: var(--color-status-waiting); }
+.sc--error { border-color: var(--color-status-error); border-left-color: var(--color-status-error); }
+.sc__head { display: flex; gap: 8px; align-items: baseline; }
+.sc__title { flex: 1; min-width: 0; font-size: 15px; }
+.sc__no { color: var(--color-fg-muted); font: 12px var(--font-mono); }
+.sc__phase { color: var(--color-fg-muted); font-size: 12px; }
+.sc__state { color: var(--color-fg-secondary); }
+.sc__result { color: var(--color-fg-secondary); }
+.sc__acts { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.sc__btn { display: inline-flex; align-items: center; height: 28px; padding: 0 10px; border: 1px solid var(--color-border); border-radius: 6px; background: transparent; color: var(--color-fg-secondary); font-size: 12px; white-space: nowrap; }
+.sc__btn:hover { background: var(--color-bg-hover); color: var(--color-fg-primary); }
+.sc__btn--primary { background: var(--color-accent); border-color: var(--color-accent); color: var(--color-fg-on-accent); }
+.sc__btn--primary:hover { background: var(--color-accent); color: var(--color-fg-on-accent); opacity: .9; }
+/* neu: Zeile mit Typ, Modell und Denkaufwand sowie der Startfehler */
+.sc__agent { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.sc__agent .lead-in { color: var(--color-fg-muted); font-size: 12px; margin-right: 2px; }
+.ag { display: inline-flex; align-items: center; gap: 5px; height: 22px; padding: 0 9px; border: 1px solid var(--color-border); border-radius: 999px; font-size: 12px; color: var(--color-fg-primary); white-space: nowrap; }
+.ag--type { font-weight: 600; }
+.ag--none { color: var(--color-fg-muted); border-style: dashed; font-weight: 400; }
+.ag small { color: var(--color-fg-muted); font-size: 10.5px; }
+.ag--rule { color: var(--color-fg-secondary); }
+.sc__src { color: var(--color-fg-muted); font-size: 11.5px; }
+.sc__fail { padding: 8px 12px; border-radius: 6px; background: var(--color-status-error-subtle); color: var(--color-fg-primary); }
+.sc__fail b { color: var(--color-status-error); font-weight: 600; }
+.sc__fail code { color: var(--color-fg-primary); }
+.ag--set { border-color: color-mix(in srgb, var(--color-accent) 45%, var(--color-border)); background: var(--color-accent-subtle); }
+.ag--skill { font-family: var(--font-mono); font-size: 11.5px; }
+
+/* neu: Einstellungen einer Station (Dialog) */
+.src { display: inline-flex; align-items: center; height: 18px; padding: 0 7px; border: 1px solid var(--color-border); border-radius: 999px; font-size: 11px; font-weight: 400; color: var(--color-fg-muted); white-space: nowrap; }
+.src--set { color: var(--color-accent-text); border-color: color-mix(in srgb, var(--color-accent) 45%, var(--color-border)); background: var(--color-accent-subtle); font-weight: 500; }
+.lnk { margin-left: auto; border: 0; background: transparent; padding: 0; color: var(--color-fg-muted); font-size: 11.5px; font-weight: 400; text-decoration: underline; }
+.lnk:hover { color: var(--color-fg-primary); }
+.fld__l .lnk + .cnt { margin-left: 10px; }
+.segmented--wrap { flex-wrap: wrap; }
+.segmented--wrap button { padding: 0 10px; }
+.segmented button.inh .muted { margin-left: 3px; }
+.sd-prev { display: block; }
+.sd-prev b { color: var(--color-fg-primary); font-weight: 600; }
+
+/* Notizen unter dem Entwurf */
+.notes { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 14px; }
+.notes > div { background: var(--color-bg-surface); border: 1px solid var(--color-border-subtle); border-radius: 8px; padding: 4px 16px 12px; }
+.notes h3 { font-size: 13px; margin: 12px 0 4px; }
+.notes ul { margin: 0; padding-left: 18px; color: var(--color-fg-secondary); }
+.notes li { margin: 3px 0; }
+
+@media (max-width: 860px) {
+  .stage { grid-template-columns: minmax(0, 1fr); }
+  .sb { border-right: 0; border-bottom: 1px solid var(--color-border-subtle); }
+  .sb__list { flex-direction: row; flex-wrap: wrap; }
+  .set { grid-template-columns: minmax(0, 1fr); }
+  .set__nav { flex-direction: row; flex-wrap: wrap; border-right: 0; border-bottom: 1px solid var(--color-border-subtle); }
+  .row { grid-template-columns: minmax(0, 1fr); gap: 6px; }
+  .selbtn { width: 100%; }
+  .set__content { padding: 16px; }
+}
+/* ---- Neu in diesem Entwurf ---- */
+.frame { border: 1px solid var(--color-border); border-radius: 10px; overflow: hidden; background: var(--color-bg-base); position: relative; min-height: 640px; }
+.sess-top { display: flex; gap: 10px; align-items: center; padding: 10px 16px; border-bottom: 1px solid var(--color-border-subtle); background: var(--color-bg-sidebar); }
+.sess-top b { font-weight: 600; }
+.sess-top .muted { font-size: 12px; }
+.feed { padding: 16px 20px 28px; display: flex; flex-direction: column; gap: 12px; max-width: 860px; }
+.um { align-self: flex-end; max-width: 75%; background: var(--color-bg-selected); border-radius: 10px; padding: 8px 12px; }
+.am { max-width: 100%; }
+.tline { font-size: 12px; color: var(--color-fg-muted); display: flex; gap: 6px; align-items: center; }
+.tline code { color: var(--color-fg-secondary); }
+.kasten { border: 1px solid var(--color-status-waiting); background: var(--color-status-waiting-subtle); border-radius: 8px; padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; }
+.kasten--done { border-color: var(--color-border); background: var(--color-bg-surface); }
+.kasten__h { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+.kasten__h h3 { font-size: 13.5px; margin: 0; font-weight: 600; }
+.badge { font-size: 11px; border-radius: 999px; padding: 1px 8px; border: 1px solid var(--color-border); color: var(--color-fg-muted); }
+.badge--wait { border-color: var(--color-status-waiting); color: var(--color-status-waiting); }
+.badge--ok { border-color: var(--color-status-completed); color: var(--color-status-completed); }
+.badge--no { border-color: var(--color-status-error); color: var(--color-status-error); }
+.kv { display: grid; grid-template-columns: 150px 1fr; gap: 6px 12px; align-items: start; }
+.kv dt { color: var(--color-fg-muted); font-size: 12px; padding-top: 2px; }
+.kv dd { margin: 0; min-width: 0; }
+.kv .chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.pre { font-family: var(--font-mono); font-size: 12px; white-space: pre-wrap; background: var(--color-bg-base); border: 1px solid var(--color-border-subtle); border-radius: 6px; padding: 8px 10px; max-height: 76px; overflow: hidden; position: relative; }
+.pre--open { max-height: none; }
+.pre__more { margin-top: 4px; font-size: 12px; }
+.fileswarn { display: flex; flex-direction: column; gap: 4px; border-left: 3px solid var(--color-status-waiting); padding: 4px 0 4px 10px; }
+.fileswarn code { word-break: break-all; }
+.fileswarn small { color: var(--color-fg-muted); }
+.old { text-decoration: line-through; color: var(--color-fg-muted); }
+.new { color: var(--color-fg-primary); background: var(--color-accent-subtle); border-radius: 3px; padding: 0 3px; }
+.same { color: var(--color-fg-muted); font-size: 12px; }
+.acts { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.errs { border: 1px solid var(--color-status-error); background: var(--color-status-error-subtle); border-radius: 6px; padding: 8px 10px; margin: 0; list-style: none; display: flex; flex-direction: column; gap: 2px; }
+.errs li::before { content: "⚠ "; color: var(--color-status-error); }
+.reason { display: flex; flex-direction: column; gap: 6px; }
+.reason textarea { width: 100%; min-height: 60px; background: var(--color-bg-base); border: 1px solid var(--color-border); border-radius: 6px; padding: 6px 8px; resize: vertical; }
+.answered { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.answered .lnk { margin-left: auto; }
+.lnkbtn { background: none; border: 0; padding: 0; color: var(--color-accent-text); text-decoration: underline; font-size: 12px; }
+.card { border: 1px solid var(--color-border); border-radius: 8px; background: var(--color-bg-surface); padding: 10px 12px; max-width: 520px; display: flex; flex-direction: column; gap: 6px; }
+.card--err { border-color: var(--color-status-error); }
+.card__fail { background: var(--color-status-error-subtle); border-radius: 6px; padding: 6px 8px; font-size: 12.5px; }
+.steps { display: flex; flex-wrap: wrap; gap: 4px; }
+.steps button { min-width: 28px; padding: 2px 8px; border: 1px solid var(--color-border); border-radius: 6px; background: var(--color-bg-surface); }
+.steps button[aria-pressed="true"] { background: var(--color-accent); color: var(--color-fg-on-accent); border-color: var(--color-accent); }
+.explain { background: var(--color-bg-surface); border: 1px solid var(--color-border); border-radius: 8px; padding: 10px 14px; margin: 10px 0 14px; max-width: 920px; }
+.explain b { font-weight: 600; }
+@media (max-width: 640px) { .kv { grid-template-columns: 1fr; } .kv dt { padding-top: 6px; } .feed { padding: 12px; } }
+</style>
+</head>
+<body>
+<div class="page">
+  <h1>Agententypen per MCP vorschlagen <span class="tag">Entwurf · Taiga-Story 109</span></h1>
+  <p class="lead">Ein Agent schlägt über <code>agent_type_propose_create</code> oder <code>agent_type_propose_update</code> einen Agententyp vor. Das Werkzeug wartet; im Chat der Session erscheint ein Kasten. Gespeichert wird erst, wenn der Benutzer übernimmt. Jeder Knopf im Kasten ist klickbar; die Schritte springen direkt zu einem Zustand.</p>
+  <div class="bar">
+    <span class="muted">Schritt</span>
+    <div class="steps" id="steps"></div>
+    <button type="button" class="btn" data-act="prev">◀</button>
+    <button type="button" class="btn" data-act="next">▶</button>
+    <span class="muted" style="margin-left:12px">Farbschema</span>
+    <div class="segmented" role="group" aria-label="Farbschema">
+      <button type="button" data-act="theme" data-t="dark" aria-pressed="true">Dunkel</button>
+      <button type="button" data-act="theme" data-t="light" aria-pressed="false">Hell</button>
+    </div>
+  </div>
+  <div class="explain" id="explain"></div>
+  <div class="frame" id="frame"></div>
+</div>
+<script>
+(function () {
+  'use strict';
+  var NEW = {
+    name: 'critical-review', description: 'Besonders strenges Review für sicherheitsrelevante Änderungen: prüft Grenzen, Fehlerpfade und Tests gegen den Vertrag, schreibt keinen Code.',
+    stages: ['Gesamt-Review'], model: 'Opus', effort: 'Max',
+    prompt: 'Du prüfst eine fertige Lane gegen ihren Brief.\nSuche zuerst nach Fehlerpfaden ohne Test.\nJeder Befund nennt Datei, Zeile und ein Szenario, das ihn auslöst.\nDu änderst keinen Code und keine Tests.\nMelde am Ende genau eine Zeile mit der Zahl der Befunde.',
+    files: ['~/Coding/dev-vault/patterns/review-checklist.md', 'docs/conventions/rust.md'],
+    skills: ['vault:role-code-reviewer']
+  };
+  var BASE = { name: 'reviewer', description: 'Review einer Lane gegen ihren Brief.', stages: ['Review'], model: null, effort: null, prompt: 'Du prüfst eine Lane gegen ihren Brief.', files: [], skills: ['vault:role-code-reviewer'] };
+  var UPD = { name: 'reviewer', description: 'Review einer Lane gegen ihren Brief; liest die Diffs selbst und führt die Prüfkette aus.', stages: ['Review', 'Zweites Review'], model: 'Opus', effort: 'Hoch', prompt: BASE.prompt, files: [], skills: ['vault:role-code-reviewer'] };
+
+  var STEPS = [
+    { s: 'new', t: '<b>Neuer Typ vorgeschlagen.</b> Der Kasten zeigt alle Felder. Dateien sind hervorgehoben, weil der Start sie liest; der Systemprompt ist eingeklappt. Der Agent wartet.' },
+    { s: 'reject', t: '<b>Verwerfen</b> öffnet ein Feld für eine Begründung (optional). Sie geht als Ergebnis an den Agenten, damit er nachbessern kann.' },
+    { s: 'rejected', t: '<b>Verworfen.</b> Der Kasten klappt zu einer Zeile zusammen; das Werkzeug-Ergebnis ist <code>{"decision":"rejected","reason":"…"}</code>. Nichts ist gespeichert.' },
+    { s: 'edit', t: '<b>Bearbeiten</b> öffnet den gewohnten Dialog der Einstellungen, vorbefüllt mit dem Vorschlag und mit allen Bedienelementen: Stationen und Skills per Enter, Dateien per Pfad und „Hinzufügen“ (oder Enter) oder per „Datei wählen …“ aus dem Dateidialog des Systems, ✕ entfernt einen Eintrag. „Übernehmen“ speichert den geänderten Stand; Abbrechen lässt den Kasten offen. Hier ausprobieren: Alles im Dialog ist bedienbar.' },
+    { s: 'error', t: '<b>Übernehmen mit Fehler:</b> Inzwischen hat jemand denselben Namen gespeichert. Die Prüfung des Core meldet Feld und Meldung im Kasten; er bleibt offen, der Agent wartet weiter.' },
+    { s: 'accepted', t: '<b>Übernommen.</b> Der Typ steht in den Einstellungen, die Liste ist neu gemeldet. Das Werkzeug-Ergebnis ist der gespeicherte Typ (<code>edited: true</code>, wenn im Dialog geändert).' },
+    { s: 'update', t: '<b>Änderungsvorschlag</b> an einem bestehenden Typ: Der Kasten zeigt nur geänderte Felder, alt und neu; der Rest ist zusammengefasst.' },
+    { s: 'stale', t: '<b>Veraltet:</b> Der Typ wurde nach dem Vorschlag in den Einstellungen geändert. Übernehmen wendet ihn nicht still an; der Benutzer verwirft ihn, der Agent kann neu vorschlagen.' },
+    { s: 'cancelled', t: '<b>Abgebrochen:</b> Der Agent wurde gestoppt oder hat den Aufruf aufgegeben. Der Kasten ist geschlossen, nichts gespeichert.' },
+    { s: 'station', t: '<b>Begrenztes Lesen beim Start</b> (gilt für alle Typen): Gelesen werden nur reguläre Dateien, je höchstens bis 16 000 Zeichen. Ein Pfad auf eine FIFO oder ein Gerät meldet „nicht lesbar“ wie heute ein Ordner, eine zu große Datei „länger als 16 000 Zeichen“; der Start hält nicht mehr an, die Stationskarte nennt Pfad und Grund wie bei jedem Startfehler.' }
+  ];
+  var state = { step: 0, s: 'new', promptOpen: false, editedAccepted: false, draft: null, fileText: '', focus: null };
+
+  function esc(v) { return String(v).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+  function pair(t) { return t.model ? esc(t.model) + ' · Denkaufwand ' + esc(t.effort) : '<span class="muted">Standard</span>'; }
+  function chips(list, cls) { return list.length ? '<div class="chips">' + list.map(function (x) { return '<span class="chip ' + (cls || '') + '">' + esc(x) + '</span>'; }).join('') + '</div>' : '<span class="muted">keine</span>'; }
+  function files(list) {
+    if (!list.length) return '<span class="muted">keine</span>';
+    return '<div class="fileswarn">' + list.map(function (p) { return '<code>' + esc(p) + '</code>'; }).join('') +
+      '<small>Der Start einer Station liest diese Dateien (nur reguläre Dateien, zusammen bis 16 000 Zeichen).</small></div>';
+  }
+  function promptBlock(text) {
+    return '<div class="pre' + (state.promptOpen ? ' pre--open' : '') + '">' + esc(text) + '</div>' +
+      '<div class="pre__more"><button type="button" class="lnkbtn" data-act="prompt">' + (state.promptOpen ? 'Einklappen' : 'Ganz zeigen') + '</button> <span class="muted">· ' + text.length + ' / 16 000</span></div>';
+  }
+  function fieldsNew(t) {
+    return '<dl class="kv">' +
+      '<dt>Name</dt><dd><b>' + esc(t.name) + '</b></dd>' +
+      '<dt>Beschreibung</dt><dd>' + esc(t.description) + '</dd>' +
+      '<dt>Stationen</dt><dd>' + chips(t.stages, 'chip--stage') + '</dd>' +
+      '<dt>Modell und Denkaufwand</dt><dd>' + pair(t) + '</dd>' +
+      '<dt>Systemprompt</dt><dd>' + promptBlock(t.prompt) + '</dd>' +
+      '<dt>Dateien</dt><dd>' + files(t.files) + '</dd>' +
+      '<dt>Skills</dt><dd>' + chips(t.skills) + '</dd></dl>';
+  }
+  function fieldsUpdate() {
+    return '<dl class="kv">' +
+      '<dt>Beschreibung</dt><dd><span class="old">' + esc(BASE.description) + '</span><br><span class="new">' + esc(UPD.description) + '</span></dd>' +
+      '<dt>Stationen</dt><dd><div class="chips"><span class="chip chip--stage">Review</span><span class="chip chip--stage new">+ Zweites Review</span></div></dd>' +
+      '<dt>Modell und Denkaufwand</dt><dd><span class="old">Standard</span> → <span class="new">' + pair(UPD) + '</span></dd>' +
+      '</dl><p class="same">Unverändert: Name, Systemprompt, Dateien, Skills.</p>';
+  }
+  function buttons() {
+    return '<div class="acts"><button type="button" class="btn btn--primary" data-act="accept">Übernehmen</button>' +
+      '<button type="button" class="btn" data-act="edit">Bearbeiten …</button>' +
+      '<button type="button" class="btn" data-act="reject">Verwerfen</button></div>';
+  }
+  function head(title, badge) { return '<div class="kasten__h"><h3>' + title + '</h3>' + badge + '</div>'; }
+  var WAIT = '<span class="badge badge--wait">wartet auf dich</span>';
+
+  function kasten() {
+    var s = state.s;
+    if (s === 'new' || s === 'error' || s === 'edit') {
+      return '<div class="kasten">' + head('Claude schlägt einen neuen Agententyp vor', WAIT) + fieldsNew(NEW) +
+        (s === 'error' ? '<ul class="errs" role="alert"><li>Name: Der Name „critical-review“ ist schon vergeben.</li></ul>' : '') + buttons() + '</div>';
+    }
+    if (s === 'reject') {
+      return '<div class="kasten">' + head('Claude schlägt einen neuen Agententyp vor', WAIT) + fieldsNew(NEW) +
+        '<div class="reason"><label for="why">Begründung für Claude (optional)</label><textarea id="why">Bitte ohne die Datei aus dem Vault; der Prompt soll reichen.</textarea>' +
+        '<div class="acts"><button type="button" class="btn btn--danger" data-act="reject-send">Verwerfen</button><button type="button" class="btn" data-act="back">Zurück</button></div></div></div>';
+    }
+    if (s === 'rejected') {
+      return '<div class="kasten kasten--done"><div class="answered"><b>Agententyp „critical-review“</b><span class="badge badge--no">Verworfen</span><span class="muted">Bitte ohne die Datei aus dem Vault; der Prompt soll reichen.</span><button type="button" class="lnkbtn lnk" data-act="noop">Vorschlag zeigen</button></div></div>';
+    }
+    if (s === 'accepted') {
+      return '<div class="kasten kasten--done"><div class="answered"><b>Agententyp „critical-review“</b><span class="badge badge--ok">' + (state.editedAccepted ? 'Übernommen mit Änderungen' : 'Übernommen') + '</span><button type="button" class="lnkbtn lnk" data-act="noop">In den Einstellungen öffnen</button></div></div>';
+    }
+    if (s === 'update' || s === 'stale') {
+      return '<div class="kasten">' + head('Claude schlägt eine Änderung an „reviewer“ vor', WAIT) + fieldsUpdate() +
+        (s === 'stale' ? '<ul class="errs" role="alert"><li>Der Typ „reviewer“ wurde seit dem Vorschlag geändert oder gelöscht. Verwirf den Vorschlag; Claude kann neu vorschlagen.</li></ul>' : '') + buttons() + '</div>';
+    }
+    if (s === 'cancelled') {
+      return '<div class="kasten kasten--done"><div class="answered"><b>Agententyp „critical-review“</b><span class="badge">Abgebrochen</span><span class="muted">Der Agent wurde gestoppt; nichts gespeichert.</span></div></div>';
+    }
+    return '';
+  }
+
+  function chat() {
+    var isUpd = state.s === 'update' || state.s === 'stale';
+    var user = isUpd ? 'Der reviewer soll künftig mit Opus laufen und auch das zweite Review übernehmen.' : 'Leg mir einen Agententyp für besonders kritische Reviews an, mit maximalem Denkaufwand.';
+    var lead = isUpd ? 'Ich lese den Typ und schlage die Änderung vor.' : 'Ich schlage dir einen Typ vor; du kannst ihn vor dem Speichern prüfen.';
+    var tool = isUpd ? 'agent_type_get · agent_type_propose_update' : 'agent_type_propose_create';
+    var after = '';
+    if (state.s === 'accepted') after = '<div class="am">Gespeichert: <code>critical-review</code> führt jetzt die Station „Gesamt-Review“. Ich nenne ihn im Plan im Feld <code>agent</code>.</div>';
+    if (state.s === 'rejected') after = '<div class="am">Verstanden, ich schlage ihn ohne die Datei erneut vor.</div>';
+    return '<div class="sess-top"><b>Session 4</b><span>Review-Rollen einrichten</span><span class="muted">· Claude · Opus</span></div>' +
+      '<div class="feed"><div class="um">' + esc(user) + '</div><div class="am">' + esc(lead) + '</div>' +
+      '<div class="tline">⚙ <code>verwalter · ' + tool + '</code></div>' + kasten() + after + '</div>';
+  }
+
+  // Der Dialog der Einstellungen (AgentTypeDialog mit PathList und ChipInput), vorbefüllt mit dem Vorschlag.
+  var ICON_X = '<svg width="10" height="10" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><path d="M3.5 3.5l7 7M10.5 3.5l-7 7"/></svg>';
+  var PICKED = '/home/nutzer/notizen/review-regeln.md';
+  function clone(t) { return JSON.parse(JSON.stringify(t)); }
+  function del(list, i, label, text) { return '<button type="button" data-act="dlg-del" data-list="' + list + '" data-i="' + i + '" aria-label="' + label + ' ' + esc(text) + ' entfernen">' + ICON_X + '</button>'; }
+  function dialog() {
+    var d = state.draft;
+    var stageChips = d.stages.map(function (s, i) { return '<span class="chip chip--stage">' + esc(s) + del('stages', i, 'Station', s) + '</span>'; }).join('');
+    var skillChips = d.skills.map(function (s, i) { return '<span class="chip"><code>' + esc(s) + '</code>' + del('skills', i, 'Skill', s) + '</span>'; }).join('');
+    var fileRows = d.files.map(function (p, i) { return '<div class="path"><code title="' + esc(p) + '">' + esc(p) + '</code>' + del('files', i, 'Datei', p) + '</div>'; }).join('');
+    return '<div class="scrim"><div class="dlg" role="dialog" aria-modal="true" aria-label="Vorschlag bearbeiten">' +
+      '<div class="dlg__h"><h4>Vorschlag bearbeiten</h4><p>Vorbefüllt mit dem Vorschlag von Session 4. Alles lässt sich ändern wie in den Einstellungen; „Übernehmen“ speichert diesen Stand und meldet ihn an Claude.</p></div><div class="dlg__b">' +
+      '<div class="fld"><label class="fld__l" for="d-name">Name <span class="req">Pflicht</span></label><input class="inp" id="d-name" data-f="name" value="' + esc(d.name) + '" autocomplete="off"><span class="fld__h">Unter diesem Namen nennt eine Station den Typ im Feld agent.</span></div>' +
+      '<div class="fld"><label class="fld__l" for="d-desc">Beschreibung für den Planer <span class="req">Pflicht</span><span class="cnt" id="c-description">' + d.description.length + ' / 500</span></label><textarea class="ta" id="d-desc" data-f="description" rows="3">' + esc(d.description) + '</textarea></div>' +
+      '<div class="fld"><span class="fld__l">Stationen</span><div class="chips">' + stageChips + '<input id="d-stage" data-add="stages" placeholder="Stationsname, Enter" aria-label="Stationsname hinzufügen" autocomplete="off"></div><span class="fld__h">Eine Station mit diesem Namen läuft von selbst als dieser Typ. Ein Name gehört höchstens einem Typ.</span></div>' +
+      '<div class="fld"><span class="fld__l">Modell und Denkaufwand</span><div class="addrow" style="align-items:center"><div class="segmented"><button type="button" aria-pressed="false">Standard</button><button type="button" aria-pressed="true">Festlegen</button></div><button type="button" class="selbtn selbtn--small"><span>Opus · Denkaufwand Max</span></button></div><span class="fld__h">Beides zusammen oder „Standard“: dann gilt die allgemeine Regel. Gilt nur in der Betriebsart Claude.</span></div>' +
+      '<div class="fld"><label class="fld__l" for="d-prompt">Systemprompt<span class="cnt" id="c-prompt">' + d.prompt.length + ' / 16 000</span></label><textarea class="ta ta--mono" id="d-prompt" data-f="prompt" rows="5">' + esc(d.prompt) + '</textarea><span class="fld__h">Steht hinter den Vorgaben des Verwalters, in allen vier Betriebsarten. Danach folgen die Dateien.</span></div>' +
+      '<div class="fld"><span class="fld__l">Dateien</span><div class="paths">' + fileRows + '</div>' +
+        '<div class="addrow"><input class="inp" id="d-file" value="' + esc(state.fileText) + '" placeholder="Pfad: absolut, ~/ oder relativ zu den Repositories" aria-label="Pfad hinzufügen" autocomplete="off" spellcheck="false">' +
+        '<button type="button" class="btn" data-act="dlg-file-add">Hinzufügen</button>' +
+        '<button type="button" class="btn" data-act="dlg-file-pick" title="Öffnet den Dateidialog des Systems. Nur im Entwurf: setzt den Beispielpfad ' + PICKED + ' ein.">Datei wählen …</button></div>' +
+        '<span class="fld__h">Der Verwalter liest die Dateien beim Start der Station, ohne Frontmatter, nur reguläre Dateien und je höchstens bis zur Grenze von 16 000 Zeichen. Fehlt eine oder passt sie nicht, startet die Station nicht.</span></div>' +
+      '<div class="fld"><span class="fld__l">Skills</span><div class="chips">' + skillChips + '<input id="d-skill" data-add="skills" placeholder="Skill, Enter" aria-label="Skill hinzufügen" autocomplete="off"></div><span class="fld__h">Der erste Skill steht als Befehl in der ersten Zeile, die weiteren nennt die erste Nachricht.</span></div>' +
+      '</div><div class="dlg__f"><span class="msg"></span><button type="button" class="btn" data-act="dlg-cancel">Abbrechen</button><button type="button" class="btn btn--primary" data-act="dlg-accept">Übernehmen</button></div></div></div>';
+  }
+  function addTo(list, value) {
+    var v = value.trim();
+    if (!v) return false;
+    var key = v.toLowerCase();
+    // Nur im Entwurf: eine doppelte Station oder ein doppelter Skill fällt weg; Pfade bleiben, wie getippt.
+    if (list !== 'files' && state.draft[list].some(function (x) { return x.toLowerCase() === key; })) return false;
+    state.draft[list].push(v);
+    return true;
+  }
+
+  function station() {
+    return '<div class="sess-top"><b>Umsetzung</b><span>Review-Rollen · Phase 2</span></div><div class="feed">' +
+      '<div class="card card--err"><div><b>Phase 2 · Gesamt-Review</b> <span class="muted">· critical-review · Opus · Max</span></div>' +
+      '<div class="card__fail">Startet nicht: Die Datei „<code>/tmp/review.fifo</code>“ aus dem Typ „critical-review“ ist nicht lesbar.</div>' +
+      '<div class="acts"><button type="button" class="btn">Typ bearbeiten</button><button type="button" class="btn">▶ Erneut versuchen</button></div></div>' +
+      '<div class="card card--err"><div><b>Phase 3 · Review</b> <span class="muted">· reviewer</span></div>' +
+      '<div class="card__fail">Startet nicht: Die Datei „<code>docs/huge-notes.md</code>“ aus dem Typ „reviewer“ ist länger als 16 000 Zeichen.</div></div></div>';
+  }
+
+  function render() {
+    var frame = document.getElementById('frame');
+    if (state.s === 'edit' && state.draft === null) state.draft = clone(NEW);
+    frame.innerHTML = state.s === 'station' ? station() : chat() + (state.s === 'edit' ? dialog() : '');
+    // Der Rahmen wächst mit dem Dialog, sonst schnitte er Dateien, Skills und die Knöpfe ab.
+    var dlg = frame.querySelector('.dlg');
+    frame.style.minHeight = dlg ? (dlg.offsetHeight + 48) + 'px' : '';
+    document.getElementById('explain').innerHTML = STEPS[state.step].t;
+    document.getElementById('steps').innerHTML = STEPS.map(function (x, i) { return '<button type="button" data-act="step" data-i="' + i + '" aria-pressed="' + (i === state.step) + '">' + (i + 1) + '</button>'; }).join('');
+    if (state.focus) {
+      var el = document.getElementById(state.focus);
+      state.focus = null;
+      if (el) { el.focus(); if (el.setSelectionRange) el.setSelectionRange(el.value.length, el.value.length); }
+    }
+  }
+  function go(i) { state.step = Math.max(0, Math.min(STEPS.length - 1, i)); state.s = STEPS[state.step].s; state.promptOpen = false; state.editedAccepted = false; state.draft = null; state.fileText = ''; render(); }
+  function show(s) { state.s = s; var i = STEPS.findIndex(function (x) { return x.s === s; }); if (i >= 0) state.step = i; render(); }
+
+  document.addEventListener('click', function (ev) {
+    var b = ev.target.closest('[data-act]');
+    if (!b) return;
+    var a = b.getAttribute('data-act');
+    if (a === 'step') go(+b.getAttribute('data-i'));
+    else if (a === 'prev') go(state.step - 1);
+    else if (a === 'next') go(state.step + 1);
+    else if (a === 'theme') {
+      document.documentElement.setAttribute('data-theme', b.getAttribute('data-t'));
+      document.querySelectorAll('[data-act="theme"]').forEach(function (x) { x.setAttribute('aria-pressed', String(x === b)); });
+    }
+    else if (a === 'prompt') { state.promptOpen = !state.promptOpen; render(); }
+    else if (a === 'accept') { if (state.s === 'update') show('stale'); else if (state.s === 'new' || state.s === 'error') { state.editedAccepted = false; show('accepted'); } }
+    else if (a === 'edit') { state.draft = null; state.fileText = ''; show('edit'); }
+    else if (a === 'reject') show('reject');
+    else if (a === 'reject-send') show('rejected');
+    else if (a === 'back') show('new');
+    else if (a === 'dlg-cancel') { state.draft = null; show('new'); }
+    else if (a === 'dlg-accept') {
+      // `edited` wie im Vertrag: wahr, wenn der gespeicherte Stand vom Vorschlag abweicht.
+      state.editedAccepted = JSON.stringify(state.draft) !== JSON.stringify(NEW);
+      state.draft = null;
+      show('accepted');
+    }
+    else if (a === 'dlg-del') { state.draft[b.getAttribute('data-list')].splice(+b.getAttribute('data-i'), 1); render(); }
+    else if (a === 'dlg-file-add') { addTo('files', state.fileText); state.fileText = ''; state.focus = 'd-file'; render(); }
+    else if (a === 'dlg-file-pick') { addTo('files', PICKED); render(); }
+  });
+  // Tippen ändert nur den Entwurf und die Zähler; neu gezeichnet wird erst beim Hinzufügen oder Entfernen.
+  document.addEventListener('input', function (ev) {
+    var t = ev.target;
+    if (!state.draft) return;
+    if (t.id === 'd-file') { state.fileText = t.value; return; }
+    var f = t.getAttribute('data-f');
+    if (!f) return;
+    state.draft[f] = t.value;
+    var cnt = document.getElementById('c-' + f);
+    if (cnt) cnt.textContent = t.value.length.toLocaleString('de-DE') + (f === 'prompt' ? ' / 16 000' : ' / 500');
+  });
+  document.addEventListener('keydown', function (ev) {
+    var t = ev.target;
+    if (ev.key !== 'Enter' || !state.draft) return;
+    if (t.id === 'd-file') { ev.preventDefault(); addTo('files', t.value); state.fileText = ''; state.focus = 'd-file'; render(); return; }
+    var list = t.getAttribute && t.getAttribute('data-add');
+    if (!list) return;
+    ev.preventDefault();
+    addTo(list, t.value);
+    state.focus = t.id;
+    render();
+  });
+  try { var m = /schritt=(\d+)/.exec(location.hash); if (m) state.step = +m[1] - 1; } catch (e) { /* ohne Hash */ }
+  go(state.step);
+})();
+</script>
+</body>
+</html>

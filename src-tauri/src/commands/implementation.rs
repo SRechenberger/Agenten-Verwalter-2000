@@ -8,7 +8,8 @@ use crate::implementation::model::{
     StationView, check_max_parallel,
 };
 use crate::implementation::{
-    self, announce, changes, edit, has_begun, is_automatic, now_ms, refills_after_switch_off, start,
+    self, ALREADY_FINISHED, announce, announce_removed, changes, edit, has_begun, is_automatic,
+    now_ms, refills_after_switch_off, replans_after_plan_change, start,
 };
 use crate::remote::client::RemoteClients;
 use crate::remote::guest;
@@ -116,6 +117,29 @@ pub async fn implementation_set_max_parallel(
     Ok(())
 }
 
+/// „Automatisch fortsetzen“ der Umsetzung nach aufgebrauchtem Kontingent (ADR 064): Die letzte Aktion
+/// gewinnt, alle nicht fertigen Stationen folgen; die Zeitgeber pausierter Stationen gehen an bzw. aus.
+#[tauri::command]
+pub async fn implementation_set_auto_resume(
+    app: AppHandle,
+    id: String,
+    enabled: bool,
+) -> Result<(), CommandError> {
+    implementation::set_auto_resume(&app, &id, enabled)
+}
+
+/// „Automatisch fortsetzen“ einer Station (ADR 064), `None` = wie die Umsetzung; bis sie fertig ist,
+/// auch mit Session. Nur der Benutzer setzt ihn.
+#[tauri::command]
+pub async fn implementation_set_station_auto_resume(
+    app: AppHandle,
+    id: String,
+    station_id: String,
+    value: Option<bool>,
+) -> Result<(), CommandError> {
+    implementation::set_station_auto_resume(&app, &id, &station_id, value)
+}
+
 /// „Anhalten nach dieser Session“: die nächste Fertigmeldung startet nichts mehr.
 #[tauri::command]
 pub async fn implementation_set_stop_after_current(
@@ -199,6 +223,82 @@ pub async fn implementation_apply_change(
     accept: bool,
 ) -> Result<(), CommandError> {
     changes::decide(&app, &id, accept)
+}
+
+/// „Abbrechen…“ (ADR 066): stoppt die arbeitenden Stationen, nichts startet mehr; danach lässt sich im
+/// Vorhaben eine neue Umsetzung anlegen.
+#[tauri::command]
+pub async fn implementation_cancel(
+    app: AppHandle,
+    registry: tauri::State<'_, SessionRegistry>,
+    id: String,
+) -> Result<(), CommandError> {
+    announce(&app, &registry.cancel_implementation(&app, &id)?);
+    Ok(())
+}
+
+/// „Löschen…“ einer abgebrochenen oder nie begonnenen Umsetzung (ADR 066); Sessions und Worktrees
+/// bleiben.
+#[tauri::command]
+pub async fn implementation_delete(
+    app: AppHandle,
+    registry: tauri::State<'_, SessionRegistry>,
+    id: String,
+) -> Result<(), CommandError> {
+    registry.delete_implementation(&app, &id)?;
+    announce_removed(&app, &id);
+    Ok(())
+}
+
+/// „Bestätigen“ der Anfrage eines Agenten (ADR 066): abbrechen, bei `delete` danach löschen. Ist die
+/// Umsetzung inzwischen regulär fertig, gibt es nichts mehr abzubrechen: Die Anfrage fällt weg.
+/// `Some(Grund)`: abgebrochen, aber noch nicht löschbar (etwa ein Start, der seinen Anspruch noch
+/// hält); „Löschen…“ geht danach.
+#[tauri::command]
+pub async fn implementation_apply_cancel(
+    app: AppHandle,
+    registry: tauri::State<'_, SessionRegistry>,
+    id: String,
+) -> Result<Option<String>, CommandError> {
+    let view = registry.implementation_view(&id)?;
+    let Some(pending) = view.pending_cancel else {
+        return Err(CommandError::Implementation(
+            "Es liegt keine Anfrage zum Abbrechen vor.".to_owned(),
+        ));
+    };
+    if view.finished_at.is_some() {
+        announce(&app, &registry.discard_cancel(&id)?);
+        return Err(CommandError::Implementation(ALREADY_FINISHED.to_owned()));
+    }
+    announce(&app, &registry.cancel_implementation(&app, &id)?);
+    if !pending.delete {
+        return Ok(None);
+    }
+    // Abgebrochen ist schon; ein Fehler beim Löschen ist kein gescheitertes Bestätigen.
+    match registry.delete_implementation(&app, &id) {
+        Ok(()) => {
+            announce_removed(&app, &id);
+            Ok(None)
+        }
+        Err(error) => Ok(Some(error.to_string())),
+    }
+}
+
+/// „Verwerfen“ der Anfrage (ADR 066): alles wie vorher; was die Anfrage aufhielt, läuft weiter wie
+/// nach einer Plan-Änderung (Neustart nach Fehler, Countdowns der bereiten Stationen).
+#[tauri::command]
+pub async fn implementation_discard_cancel(
+    app: AppHandle,
+    registry: tauri::State<'_, SessionRegistry>,
+    id: String,
+) -> Result<(), CommandError> {
+    let view = registry.discard_cancel(&id)?;
+    start::restart_failed(&app, &id)?;
+    if replans_after_plan_change(&view) {
+        start::schedule_ready(&app, &id)?;
+    }
+    announce(&app, &registry.implementation_view(&id)?);
+    Ok(())
 }
 
 /// Der Benutzer ändert den Plan direkt (ADR 061, Werkzeuge): dasselbe Delta und dieselbe Prüfung wie

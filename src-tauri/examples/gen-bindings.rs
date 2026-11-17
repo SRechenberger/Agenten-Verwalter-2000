@@ -25,6 +25,7 @@ use verwalter_lib::{
     },
     cli_update::model::{CliUpdateOutcome, CliVersionStatus},
     codex::models::{CodexModel, CodexModels},
+    commands::agent_types::ProposalDecision,
     commands::app::AppInfo,
     context::model::{
         ContextBreakdown, ContextCategory, ContextChangedEvent, ContextFile, SessionContext,
@@ -39,9 +40,9 @@ use verwalter_lib::{
     },
     implementation::model::{
         BriefChange, BriefChangeKind, ChangeSummary, ChangeView, ImplementationChangedEvent,
-        ImplementationView, InquiryCreated, OnError, PendingChange, PhaseInput, PhaseMark,
-        PhaseView, PlanEdit, PredecessorsMay, StationAddition, StationInput, StationOptions,
-        StationPatch, StationSettings, StationState, StationView,
+        ImplementationRemovedEvent, ImplementationView, InquiryCreated, OnError, PendingChange,
+        PhaseInput, PhaseMark, PhaseView, PlanEdit, PredecessorsMay, StationAddition, StationInput,
+        StationOptions, StationPatch, StationSettings, StationState, StationView,
     },
     lmstudio::model::{LocalModel, LocalModelKind, LocalModels},
     mcp::model::{
@@ -245,6 +246,7 @@ fn main() -> Result<(), ts_rs::ExportError> {
     BriefChangeKind::export_all(&cfg)?;
     ImplementationView::export_all(&cfg)?;
     ImplementationChangedEvent::export_all(&cfg)?;
+    ImplementationRemovedEvent::export_all(&cfg)?;
     InquiryCreated::export_all(&cfg)?;
     TerminalInfo::export_all(&cfg)?;
     TerminalOutput::export_all(&cfg)?;
@@ -262,5 +264,6 @@ fn main() -> Result<(), ts_rs::ExportError> {
     FieldError::export_all(&cfg)?;
     AgentTypeSaved::export_all(&cfg)?;
     AgentValueSource::export_all(&cfg)?;
+    ProposalDecision::export_all(&cfg)?;
     Ok(())
 }

@@ -228,6 +228,9 @@ fn registry_with_two_implementations() -> SessionRegistry {
                         stop_after_current: false,
                         pending_change: None,
                         max_parallel: None,
+                        auto_resume: false,
+                        cancelled_at: None,
+                        pending_cancel: None,
                     },
                     &[PhaseRow {
                         id: format!("phase-{key}"),
@@ -266,6 +269,7 @@ fn registry_with_two_implementations() -> SessionRegistry {
                         predecessors_may: Default::default(),
                         brief_changes: Vec::new(),
                         restarts: 0,
+                        auto_resume: None,
                     }],
                 )?;
             }

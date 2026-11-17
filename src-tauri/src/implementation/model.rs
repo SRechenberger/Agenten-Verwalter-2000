@@ -21,6 +21,8 @@ pub const MAX_BRIEF_CHARS: usize = 1000;
 pub const MAX_PROMPT_CHARS: usize = 4000;
 /// Plan-Kennung einer Station (ADR 061), getrimmt.
 pub const MAX_PLAN_ID_CHARS: usize = 40;
+/// Grund einer Anfrage zum Abbrechen (ADR 066), getrimmt.
+pub const MAX_CANCEL_REASON_CHARS: usize = 300;
 
 /// Eine neue Rückfrage: die Session und der Lagebericht, der als ungesendeter Anhang an ihr hängt.
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
@@ -42,6 +44,9 @@ pub enum StationState {
     /// Antwort abgegeben, ein Hintergrund-Befehl (etwa der Testlauf) läuft noch; der Agent setzt
     /// fort, sobald er endet. Der Benutzer muss nichts tun.
     WaitsForScript,
+    // Pausiert am aufgebrauchten Kontingent, der Zeitgeber von „Automatisch fortsetzen“ ist scharf
+    // (ADR 064); der Benutzer muss nichts tun.
+    WaitsForQuota,
     Asking,
     WaitsForYou,
     Done,
@@ -56,7 +61,10 @@ impl StationState {
             StationState::WaitsForYou => 6,
             StationState::Error => 5,
             StationState::Countdown => 4,
-            StationState::Running | StationState::WaitsForScript | StationState::Starting => 3,
+            StationState::Running
+            | StationState::WaitsForScript
+            | StationState::WaitsForQuota
+            | StationState::Starting => 3,
             StationState::Ready => 2,
             StationState::Pending => 1,
             StationState::Done => 0,
@@ -130,11 +138,14 @@ pub struct StationView {
     pub predecessors_may: PredecessorsMay,
     pub brief_changes: Vec<BriefChange>,
     pub restarting: bool,
+    // ADR 064: „Automatisch fortsetzen“ der Station (`None` = wie die Umsetzung) und der wirksame Wert.
+    pub auto_resume: Option<bool>,
+    pub resumes_automatically: bool,
 }
 
 impl StationView {
     /// Zählt gegen `max_parallel` (ADR 061); eine Station, die nach einem Fehler neu startet, behält
-    /// ihren Platz.
+    /// ihren Platz, eine, die auf das Kontingent wartet, auch (ADR 064).
     pub fn is_active(&self) -> bool {
         self.restarting
             || matches!(
@@ -143,6 +154,7 @@ impl StationView {
                     | StationState::Starting
                     | StationState::Running
                     | StationState::WaitsForScript
+                    | StationState::WaitsForQuota
                     | StationState::Asking
             )
     }
@@ -415,6 +427,33 @@ pub struct ImplementationView {
     // der Warteschlange.
     pub max_parallel: Option<u32>,
     pub queued: u32,
+    // ADR 064: „Automatisch fortsetzen“ nach aufgebrauchtem Kontingent.
+    pub auto_resume: bool,
+    // ADR 066: abgebrochen (dann ist auch `finishedAt` gesetzt) und die offene Anfrage eines Agenten;
+    // solange sie liegt, startet keine Station.
+    #[ts(type = "number | null")]
+    pub cancelled_at: Option<f64>,
+    pub pending_cancel: Option<PendingCancel>,
+}
+
+// Anfrage eines Agenten (`implementation_cancel`), die Umsetzung abzubrechen und bei `delete` danach zu
+// löschen (ADR 066); wirkt erst, wenn der Benutzer sie bestätigt.
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct PendingCancel {
+    pub session_id: String,
+    pub session_number: u32,
+    #[ts(type = "number")]
+    pub at: f64,
+    pub reason: String,
+    pub delete: bool,
+}
+
+// Gesendet als `implementation://removed`, nachdem die Umsetzung gelöscht ist (ADR 066).
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ImplementationRemovedEvent {
+    pub id: String,
 }
 
 /// Gesendet als `implementation://changed`.

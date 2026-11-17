@@ -14,6 +14,8 @@ use super::{
     Outbox, PROJECT_CHANGED_EVENT, PendingRequest, Session, SessionRegistry, SessionState,
     TurnOrigin, now_ms, project_not_found, start_turn, update,
 };
+use crate::agent_types::model::{AgentType, AgentTypeInput};
+use crate::agent_types::tools as agent_type_tools;
 use crate::agents::event::{
     Effort, Mode, ModelId, Question, QuestionAnswer, QuestionKind, QuestionOption, SessionRef,
     ToolRequest,
@@ -39,15 +41,28 @@ const WRONG_ANSWER: &str = "Antwort passt nicht zur Anfrage";
 const NOT_STARTED: &str = "Die Session wurde noch nicht gestartet.";
 const CANCELLED: &str = "Die Session wurde abgebrochen.";
 const FAILED: &str = "Die Session steht auf Fehler.";
+/// `chat_answer` würde am Speichern vorbei übernehmen (ADR 063).
+const PROPOSAL_BY_COMMAND: &str =
+    "Einen Vorschlag für einen Agententyp beantwortet nur agent_type_proposal_answer.";
+const NOT_A_PROPOSAL: &str = "Der Kasten ist kein offener Vorschlag für einen Agententyp.";
 
 /// Offener Aufruf eines Session-Werkzeugs hinter einem Kasten. Fällt der Sender weg (`abandon_pending`
 /// und alles, was `pending` leert), endet der Aufruf mit einem Fehler, und es passiert nichts.
 pub(super) struct PendingTool {
-    pub(super) reply: mpsc::Sender<QuestionAnswer>,
+    pub(super) reply: Waiter,
     pub(super) call_id: String,
     pub(super) request: ToolRequest,
     /// Allein die Kettenbremse hat den Kasten erzwungen.
     pub(super) chain_limited: bool,
+}
+
+/// Worauf der offene Aufruf wartet.
+pub(super) enum Waiter {
+    /// Session-Werkzeug: die Entscheidung im Kasten.
+    Answer(mpsc::Sender<QuestionAnswer>),
+    /// Vorschlag eines Agententyps: das fertige Ergebnis des Werkzeugs, gesendet allein von
+    /// `finish_agent_type_proposal` (ADR 063).
+    Result(mpsc::Sender<Value>),
 }
 
 /// Wie ein Aufruf den Kasten passiert hat.
@@ -369,16 +384,7 @@ impl SessionRegistry {
         request: ToolRequest,
         release: Release,
     ) -> Result<Gate, String> {
-        // Bekommt die Kommandozeile bei offenem Kasten SIGTERM, schickt sie denselben `tool_use` noch
-        // einmal; der darf nichts bewirken, auch wenn der erste Aufruf längst beantwortet ist.
-        // ponytail: Ohne `_meta` entfällt die Prüfung, und die Menge wächst bis zum Ende der Session.
-        // Ein Aufruf ist eine kurze ID, begrenzen lohnt erst bei sehr langen Sessions.
-        let is_repeated = call
-            .tool_use_id
-            .is_some_and(|id: &str| !caller.lock().seen_tool_uses.insert(id.to_owned()));
-        if is_repeated {
-            return Err(REPEATED_CALL.to_owned());
-        }
+        refuse_repeated(caller, call)?;
         let (reply, answers) = mpsc::channel::<QuestionAnswer>();
         let released: Option<u32> = update(
             app,
@@ -397,19 +403,13 @@ impl SessionRegistry {
                 }
                 // Hier angekommen und freigegeben: Nur die Bremse oben kann das verhindert haben.
                 let chain_limited = matches!(release, Release::Chained(true));
-                let questions = vec![tool_question(&request)];
-                state.ask(
+                ask_tool(
+                    state,
                     outbox,
-                    format!("tool-{}", uuid::Uuid::new_v4().simple()),
-                    QuestionKind::SessionTool,
-                    questions,
-                    Value::Null,
-                    Some(PendingTool {
-                        reply,
-                        call_id: call.call_id.to_owned(),
-                        request,
-                        chain_limited,
-                    }),
+                    call,
+                    request,
+                    Waiter::Answer(reply),
+                    chain_limited,
                 );
                 Ok(None)
             },
@@ -436,6 +436,82 @@ impl SessionRegistry {
             // `Options` weist `tool_answer_label` schon ab.
             Ok(QuestionAnswer::Options { .. }) | Err(_) => Err(NO_ANSWER.to_owned()),
         }
+    }
+
+    /// Öffnet den Kasten eines geprüften Vorschlags und wartet auf das Ergebnis, das allein
+    /// `finish_agent_type_proposal` sendet; nie Selbstfreigabe, keine Kettenbremse (ADR 063, D4).
+    /// Abbruch, Stopp und eine wiederholte `tool_use_id` enden wie bei den Session-Werkzeugen.
+    pub fn tool_propose_agent_type(
+        &self,
+        app: &AppHandle,
+        call: &ToolCall,
+        base: Option<AgentType>,
+        proposal: AgentTypeInput,
+    ) -> ToolReply {
+        let caller = self.get(call.session_id).map_err(text_of)?;
+        refuse_repeated(&caller, call)?;
+        let (reply, results) = mpsc::channel::<Value>();
+        update(
+            app,
+            &caller,
+            |state: &mut SessionState, outbox: &mut Outbox| {
+                if !state.is_listening() {
+                    return Err(CommandError::AgentStopped);
+                }
+                let request = ToolRequest::AgentType {
+                    base: base.map(Box::new),
+                    proposal: Box::new(proposal),
+                };
+                ask_tool(state, outbox, call, request, Waiter::Result(reply), false);
+                Ok(())
+            },
+        )
+        .map_err(|error: CommandError| match error {
+            CommandError::AgentStopped => AGENT_GONE.to_owned(),
+            other => text_of(other),
+        })?;
+        results.recv().map_err(|_| NO_ANSWER.to_owned())
+    }
+
+    /// Der offene Vorschlag hinter dem Kasten: gespeicherter Stand und Vorschlag. Unbekannte
+    /// Session, unbekannter oder beantworteter Kasten und ein Kasten anderer Art sind Fehler.
+    pub fn agent_type_proposal(
+        &self,
+        session_id: &str,
+        request_id: &str,
+    ) -> Result<(Option<AgentType>, AgentTypeInput), CommandError> {
+        let session = self.get(session_id)?;
+        let state = session.lock();
+        match pending_proposal(&state, request_id) {
+            Some((_, ToolRequest::AgentType { base, proposal })) => {
+                Ok((base.as_deref().cloned(), (**proposal).clone()))
+            }
+            _ => Err(CommandError::Internal(NOT_A_PROPOSAL.to_owned())),
+        }
+    }
+
+    /// Schließt den Kasten mit der Antwortzeile und gibt dem wartenden Werkzeug sein Ergebnis.
+    pub fn finish_agent_type_proposal(
+        &self,
+        app: &AppHandle,
+        session_id: &str,
+        request_id: &str,
+        result: Value,
+        label: String,
+        device: Option<&str>,
+    ) -> Result<(), CommandError> {
+        let session = self.get(session_id)?;
+        update(
+            app,
+            &session,
+            |state: &mut SessionState, outbox: &mut Outbox| {
+                let Some((position, _)) = pending_proposal(state, request_id) else {
+                    return Err(CommandError::Internal(NOT_A_PROPOSAL.to_owned()));
+                };
+                finish_proposal(state, outbox, position, result, label, device);
+                Ok(())
+            },
+        )
     }
 
     /// Stellt zu oder reiht ein, geprüft unter derselben Session-Sperre wie das Senden. Eine wartende
@@ -620,9 +696,14 @@ pub(super) fn apply_tool_answer(
     if matches!(answer, QuestionAnswer::Allow | QuestionAnswer::Edit { .. }) {
         state.auto_chain = 0;
     }
-    if let Some(tool) = request.tool {
-        // Ist der Aufruf schon weg, gibt es niemanden mehr zu benachrichtigen.
-        let _ = tool.reply.send(answer.clone());
+    // `tool_answer_label` hat einen Vorschlag schon abgewiesen; nur ein Session-Werkzeug bleibt.
+    // Ist der Aufruf schon weg, gibt es niemanden mehr zu benachrichtigen.
+    if let Some(PendingTool {
+        reply: Waiter::Answer(reply),
+        ..
+    }) = request.tool
+    {
+        let _ = reply.send(answer.clone());
     }
     state.set_question_answer(outbox, request.seq, label, device);
     state.resume_after_answer(outbox);
@@ -631,10 +712,13 @@ pub(super) fn apply_tool_answer(
 
 /// Prüft die Antwort und liefert den Text, den der Chat als Antwort anzeigt. Eine abgelehnte Eingabe
 /// lässt den Kasten offen.
-fn tool_answer_label(
+pub(crate) fn tool_answer_label(
     request: &ToolRequest,
     answer: &QuestionAnswer,
 ) -> Result<String, CommandError> {
+    if matches!(request, ToolRequest::AgentType { .. }) {
+        return Err(CommandError::Internal(PROPOSAL_BY_COMMAND.to_owned()));
+    }
     match answer {
         QuestionAnswer::Allow => Ok("Erlaubt".to_owned()),
         QuestionAnswer::Deny { message } => Ok(format!("Abgelehnt: {message}")),
@@ -690,7 +774,34 @@ fn tool_question(request: &ToolRequest) -> Question {
         ToolRequest::OpenSession { message, .. } => {
             format!("Claude möchte eine neue Session öffnen:\n\n{message}")
         }
+        ToolRequest::AgentType {
+            base: None,
+            proposal,
+        } => format!(
+            "Claude schlägt einen neuen Agententyp „{}“ vor.",
+            proposal.name
+        ),
+        ToolRequest::AgentType {
+            base: Some(base), ..
+        } => format!("Claude schlägt eine Änderung an „{}“ vor.", base.name),
     };
+    if matches!(request, ToolRequest::AgentType { .. }) {
+        return Question {
+            question,
+            header: String::new(),
+            options: vec![
+                QuestionOption {
+                    label: "Übernehmen".to_owned(),
+                    hint: String::new(),
+                },
+                QuestionOption {
+                    label: "Verwerfen".to_owned(),
+                    hint: String::new(),
+                },
+            ],
+            multi_select: false,
+        };
+    }
     Question {
         question,
         header: String::new(),
@@ -708,6 +819,114 @@ fn tool_question(request: &ToolRequest) -> Question {
     }
 }
 
+/// Bekommt die Kommandozeile bei offenem Kasten SIGTERM, schickt sie denselben `tool_use` noch
+/// einmal; der darf nichts bewirken, auch wenn der erste Aufruf längst beantwortet ist.
+/// ponytail: Ohne `_meta` entfällt die Prüfung, und die Menge wächst bis zum Ende der Session.
+/// Ein Aufruf ist eine kurze ID, begrenzen lohnt erst bei sehr langen Sessions.
+fn refuse_repeated(caller: &Session, call: &ToolCall) -> Result<(), String> {
+    let is_repeated = call
+        .tool_use_id
+        .is_some_and(|id: &str| !caller.lock().seen_tool_uses.insert(id.to_owned()));
+    if is_repeated {
+        return Err(REPEATED_CALL.to_owned());
+    }
+    Ok(())
+}
+
+fn ask_tool(
+    state: &mut SessionState,
+    outbox: &mut Outbox,
+    call: &ToolCall,
+    request: ToolRequest,
+    reply: Waiter,
+    chain_limited: bool,
+) {
+    let questions = vec![tool_question(&request)];
+    state.ask(
+        outbox,
+        format!("tool-{}", uuid::Uuid::new_v4().simple()),
+        QuestionKind::SessionTool,
+        questions,
+        Value::Null,
+        Some(PendingTool {
+            reply,
+            call_id: call.call_id.to_owned(),
+            request,
+            chain_limited,
+        }),
+    );
+}
+
+/// Platz und Kasten eines offenen Vorschlags mit dieser ID.
+fn pending_proposal<'a>(
+    state: &'a SessionState,
+    request_id: &str,
+) -> Option<(usize, &'a ToolRequest)> {
+    state
+        .pending
+        .iter()
+        .enumerate()
+        .find_map(|(position, (pending_id, request))| {
+            let tool = request.tool.as_ref()?;
+            let is_proposal =
+                pending_id == request_id && matches!(tool.request, ToolRequest::AgentType { .. });
+            is_proposal.then_some((position, &tool.request))
+        })
+}
+
+/// `position` ist ein offener Vorschlag. Ist der Aufruf schon weg, gibt es niemanden mehr zu
+/// benachrichtigen.
+fn finish_proposal(
+    state: &mut SessionState,
+    outbox: &mut Outbox,
+    position: usize,
+    result: Value,
+    label: String,
+    device: Option<&str>,
+) {
+    let (_, request) = state.pending.remove(position);
+    if let Some(PendingTool {
+        reply: Waiter::Result(reply),
+        ..
+    }) = request.tool
+    {
+        let _ = reply.send(result);
+    }
+    state.set_question_answer(outbox, request.seq, label, device);
+    state.resume_after_answer(outbox);
+}
+
+/// Freier Text im Eingabefeld auf einen offenen Vorschlag: verwirft ihn mit dem Text als Begründung.
+/// `false`: Die Anfrage an `position` ist kein Vorschlag.
+pub(super) fn reject_proposal_with_text(
+    state: &mut SessionState,
+    outbox: &mut Outbox,
+    position: usize,
+    text: &str,
+    device: Option<&str>,
+) -> bool {
+    let is_proposal = state.pending.get(position).is_some_and(|(_, request)| {
+        request
+            .tool
+            .as_ref()
+            .is_some_and(|tool: &PendingTool| matches!(tool.request, ToolRequest::AgentType { .. }))
+    });
+    if is_proposal {
+        finish_proposal(
+            state,
+            outbox,
+            position,
+            agent_type_tools::rejected_result(text),
+            agent_type_tools::rejected_label(text),
+            device,
+        );
+    }
+    is_proposal
+}
+
 fn text_of(error: CommandError) -> String {
     error.to_string()
 }
+
+#[cfg(test)]
+mod agent_types;

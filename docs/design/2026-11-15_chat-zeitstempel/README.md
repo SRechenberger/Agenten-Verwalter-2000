@@ -1,6 +1,6 @@
 # Design-Entwurf: Zeitpunkt an Einträgen im Chat
 
-**Status:** gewählt am 2026-11-15 (Taiga-Story #106), umgesetzt; die Abnahme in der echten App steht aus. Entscheidung: [ADR 063](../../decisions/063-zeitpunkt-im-chat.md).
+**Status:** gewählt am 2026-11-15 (Taiga-Story #106), umgesetzt; die Abnahme in der echten App steht aus. Entscheidung: [ADR 068](../../decisions/068-zeitpunkt-im-chat.md).
 
 ## Ansehen
 

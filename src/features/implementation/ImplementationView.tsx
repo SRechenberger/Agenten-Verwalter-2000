@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { ReactElement, ReactNode } from 'react';
 import { useAgentTypes } from '@/features/agenttypes/useAgentTypes';
 import { useNow } from '@/features/background/useNow';
@@ -12,17 +12,20 @@ import {
   flatStations,
   focusOrder,
   isFocusValid,
+  openingLevel,
   type StationRef,
 } from '@/features/implementation/implementationOrder';
 import { patchEdit } from '@/features/implementation/implementationGraph';
 import {
   APPLY_FAILED,
+  CANCELLED_NOT_DELETED,
   START_FAILED,
   proposalAppliedWithFailures,
   stationNotFound,
 } from '@/features/implementation/implementationTexts';
 import { NewLaneForm } from '@/features/implementation/NewLaneForm';
 import type { ProposalOverride } from '@/features/implementation/PlanChangeCard';
+import { QuotaWaitBar } from '@/features/implementation/QuotaWaitBar';
 import { ReportPanel } from '@/features/implementation/ReportPanel';
 import { Timeline } from '@/features/implementation/Timeline';
 import { useProjectLocked } from '@/features/remote/useProjectAccess';
@@ -31,16 +34,22 @@ import type { SessionSummary } from '@/lib/bindings/SessionSummary';
 import type { StationPatch } from '@/lib/bindings/StationPatch';
 import { commandErrorText } from '@/lib/errors';
 import {
+  applyImplementationCancel,
   applyImplementationChange,
+  cancelImplementation,
   cancelStationCountdown,
   completeStationByUser,
+  deleteImplementation,
+  discardImplementationCancel,
   editPlan,
   listImplementations,
   loadImplementationReport,
+  setImplementationAutoResume,
   setImplementationAutoStart,
   setImplementationStopAfterCurrent,
   setMaxParallel,
   setStationAgent,
+  setStationAutoResume,
   startStation,
 } from '@/lib/implementation';
 import { useActionError } from '@/lib/useActionError';
@@ -58,6 +67,10 @@ interface ImplementationViewProps {
   sessions: readonly SessionSummary[];
   /** Inhalt des Reiters „Changes“ (Reichweite Vorhaben); gezeigt, wenn er aktiv ist. */
   changes: ReactNode;
+  /** Artefakte aus Sessions der Umsetzung (Stationen und Rückfragen). */
+  artifactCount: number;
+  /** Inhalt des Reiters „Artefakte“; gezeigt, wenn er aktiv ist und es Artefakte gibt. */
+  artifacts: ReactNode;
   /** Legt eine Rückfrage zur Umsetzung an und öffnet sie (`useInquiry`). */
   onNewInquiry: (implementationId: string) => Promise<void>;
   onShowView: (view: ImplementationViewKind) => void;
@@ -172,6 +185,8 @@ export function ImplementationView({
   changesCount,
   sessions,
   changes,
+  artifactCount,
+  artifacts,
   onNewInquiry,
   onShowView,
   onOpenProject,
@@ -184,6 +199,7 @@ export function ImplementationView({
   const [isReportBusy, setIsReportBusy] = useState<boolean>(false);
   const [isInquiryBusy, setIsInquiryBusy] = useState<boolean>(false);
   const [isNewLaneOpen, setIsNewLaneOpen] = useState<boolean>(false);
+  const timelineRef = useRef<HTMLDivElement>(null);
   const storedFocus: string | undefined = useImplementationStore(
     (state) => state.focused[implementation.id],
   );
@@ -191,12 +207,15 @@ export function ImplementationView({
   const clearFocused = useImplementationStore((state) => state.clearFocused);
   const selectSession = useSessionsStore((state) => state.selectSession);
   const showSessionView = useSessionsStore((state) => state.showView);
-  const { error: actionError, run } = useActionError(implementation.id);
+  const { error: actionError, run, report: reportFailure } = useActionError(implementation.id);
   const isLocked: boolean = useProjectLocked(implementation.projectId);
   const { agentTypes } = useAgentTypes();
 
   const stations: StationRef[] = useMemo(() => flatStations(implementation), [implementation]);
-  const isFlow: boolean = !(activeView === 'changes' && hasChanges);
+  // Ohne Repository bzw. ohne Artefakt fällt der Reiter auf den Ablauf zurück.
+  const isChangesShown: boolean = activeView === 'changes' && hasChanges;
+  const isArtifactsShown: boolean = activeView === 'artifacts' && artifactCount > 0;
+  const isFlow: boolean = !isChangesShown && !isArtifactsShown;
   const isTicking: boolean = stations.some((ref: StationRef) =>
     ['running', 'starting', 'waitsForScript', 'countdown'].includes(ref.station.state),
   );
@@ -222,6 +241,26 @@ export function ImplementationView({
   const stationChangesCount: number | null =
     stationChanges === null ? null : countChangedFiles(stationChanges);
 
+  // Beim Öffnen steht die Stufe der ersten aktiven Station oben in der Zeitleiste (ADR 065). Im schmalen
+  // Layout rollt die Zeitleiste nicht selbst, `scrollTop` bleibt dort wirkungslos.
+  useLayoutEffect(() => {
+    const level: number | null = openingLevel(implementation);
+    const container: HTMLDivElement | null = timelineRef.current;
+    if (!isFlow || level === null || container === null) {
+      return;
+    }
+    const anchor: HTMLElement | null = container.querySelector<HTMLElement>(
+      `[data-scroll-anchor="${String(level)}"]`,
+    );
+    if (anchor === null) {
+      return;
+    }
+    container.scrollTop +=
+      anchor.getBoundingClientRect().top - container.getBoundingClientRect().top;
+    // Nur das Öffnen scrollt, nicht jede neue Fassung der Umsetzung.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [implementationId, isFlow]);
+
   useEffect(() => {
     if (!isFlow || focusedId === null) {
       return undefined;
@@ -242,6 +281,12 @@ export function ImplementationView({
       }
       event.preventDefault();
       setFocused(implementationId, target);
+      // Nur die Pfeiltaste holt die Zeile ins Bild; Klick und automatischer Fokus lassen die Zeitleiste stehen.
+      requestAnimationFrame((): void => {
+        timelineRef.current
+          ?.querySelector<HTMLElement>(`[data-focus-id="${CSS.escape(target)}"]`)
+          ?.scrollIntoView({ block: 'nearest' });
+      });
     }
     window.addEventListener('keydown', handleKeyDown);
     return (): void => {
@@ -307,6 +352,10 @@ export function ImplementationView({
     }
   }
 
+  function setAutoResume(enabled: boolean): void {
+    run(() => setImplementationAutoResume(implementationId, enabled));
+  }
+
   function renderActionError(): ReactElement | null {
     if (actionError === null) {
       return null;
@@ -357,18 +406,40 @@ export function ImplementationView({
           const before = new Set<string>(stations.map((ref: StationRef) => ref.station.planId));
           run(() => applyEditedProposal(implementationId, before, overrides), APPLY_FAILED);
         }}
+        onApplyCancel={(accept: boolean): void => {
+          if (!accept) {
+            run(() => discardImplementationCancel(implementationId), 'Verwerfen fehlgeschlagen');
+            return;
+          }
+          run(async (): Promise<void> => {
+            const notDeleted: string | null = await applyImplementationCancel(implementationId);
+            if (notDeleted !== null) {
+              reportFailure(`${CANCELLED_NOT_DELETED}: ${notDeleted}`);
+            }
+          }, 'Bestätigen fehlgeschlagen');
+        }}
         run={run}
       />
     );
   }
 
+  function activeViewShown(): ImplementationViewKind {
+    if (isChangesShown) {
+      return 'changes';
+    }
+    return isArtifactsShown ? 'artifacts' : 'flow';
+  }
+
   function renderBody(): ReactNode {
-    if (!isFlow) {
+    if (isChangesShown) {
       return changes;
+    }
+    if (isArtifactsShown) {
+      return artifacts;
     }
     return (
       <div className="implementation-view">
-        <div className="implementation-view__timeline">
+        <div ref={timelineRef} className="implementation-view__timeline">
           <Timeline
             implementation={implementation}
             focusedId={focusedId}
@@ -385,6 +456,9 @@ export function ImplementationView({
             onCancelCountdown={(stationId: string): void => {
               run(() => cancelStationCountdown(implementationId, stationId));
             }}
+            onSetAutoResume={(stationId: string, enabled: boolean): void => {
+              run(() => setStationAutoResume(implementationId, stationId, enabled));
+            }}
           />
         </div>
         <div className="implementation-view__cards">{renderCards()}</div>
@@ -397,9 +471,10 @@ export function ImplementationView({
       <ImplementationHeader
         implementation={implementation}
         projectName={projectName}
-        activeView={activeView}
+        activeView={activeViewShown()}
         hasChanges={hasChanges}
         changesCount={changesCount}
+        artifactCount={artifactCount}
         onShowView={onShowView}
         onOpenProject={onOpenProject}
         terminalCount={terminalCount}
@@ -407,7 +482,14 @@ export function ImplementationView({
         onToggleTerminal={onToggleTerminal}
       />
       <ImplementationBar
+        key={implementationId}
         implementation={implementation}
+        onCancel={(): void => {
+          run(() => cancelImplementation(implementationId), 'Abbrechen fehlgeschlagen');
+        }}
+        onDelete={(): void => {
+          run(() => deleteImplementation(implementationId), 'Löschen fehlgeschlagen');
+        }}
         isReportShown={report !== null}
         isInquiryBusy={isInquiryBusy}
         isLocked={isLocked}
@@ -417,6 +499,7 @@ export function ImplementationView({
         onSetAutoStart={(enabled: boolean): void => {
           run(() => setImplementationAutoStart(implementationId, enabled));
         }}
+        onSetAutoResume={setAutoResume}
         onSetStopAfterCurrent={(enabled: boolean): void => {
           run(() => setImplementationStopAfterCurrent(implementationId, enabled));
         }}
@@ -427,6 +510,12 @@ export function ImplementationView({
         onToggleNewLane={(): void => {
           setIsNewLaneOpen(!isNewLaneOpen);
         }}
+      />
+      <QuotaWaitBar
+        implementation={implementation}
+        sessions={sessions}
+        isLocked={isLocked}
+        onSetAutoResume={setAutoResume}
       />
       {renderActionError()}
       {isNewLaneOpen && isFlow && (

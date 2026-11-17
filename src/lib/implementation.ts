@@ -1,6 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen, type Event, type UnlistenFn } from '@tauri-apps/api/event';
 import type { ImplementationChangedEvent } from '@/lib/bindings/ImplementationChangedEvent';
+import type { ImplementationRemovedEvent } from '@/lib/bindings/ImplementationRemovedEvent';
 import type { ImplementationView } from '@/lib/bindings/ImplementationView';
 import type { InquiryCreated } from '@/lib/bindings/InquiryCreated';
 import type { PlanEdit } from '@/lib/bindings/PlanEdit';
@@ -8,6 +9,7 @@ import type { StationOptions } from '@/lib/bindings/StationOptions';
 import type { StationSettings } from '@/lib/bindings/StationSettings';
 
 const IMPLEMENTATION_CHANGED_EVENT = 'implementation://changed';
+const IMPLEMENTATION_REMOVED_EVENT = 'implementation://removed';
 
 /** Alle Umsetzungen nicht archivierter Vorhaben, neueste zuerst (ADR 048).
  *  @throws {import('@/lib/bindings/CommandError').CommandError} `database` */
@@ -50,6 +52,23 @@ export async function setImplementationAutoStart(id: string, enabled: boolean): 
   await invoke('implementation_set_auto_start', { id, enabled });
 }
 
+/** Schaltet „Automatisch fortsetzen“ der Umsetzung (ADR 064); setzt alle nicht fertigen Stationen auf „wie
+ *  die Umsetzung“ und schaltet die Zeitgeber ihrer pausierten Sessions.
+ *  @throws {import('@/lib/bindings/CommandError').CommandError} `implementation`, `database` */
+export async function setImplementationAutoResume(id: string, enabled: boolean): Promise<void> {
+  await invoke('implementation_set_auto_resume', { id, enabled });
+}
+
+/** „Automatisch fortsetzen“ einer Station, `null` = wie die Umsetzung; bis die Station fertig ist (ADR 064).
+ *  @throws {import('@/lib/bindings/CommandError').CommandError} `implementation` (fertig, Station des Benutzers), `database` */
+export async function setStationAutoResume(
+  id: string,
+  stationId: string,
+  value: boolean | null,
+): Promise<void> {
+  await invoke('implementation_set_station_auto_resume', { id, stationId, value });
+}
+
 /** „Anhalten nach dieser Session“: die nächste Fertigmeldung startet nichts mehr.
  *  @throws {import('@/lib/bindings/CommandError').CommandError} `implementation`, `database` */
 export async function setImplementationStopAfterCurrent(
@@ -90,6 +109,41 @@ export async function completeStationByUser(
   result: string,
 ): Promise<void> {
   await invoke('implementation_complete_station', { id, stationId, result });
+}
+
+/** Meldet, dass eine Umsetzung gelöscht wurde (ADR 066); der Aufrufer nimmt sie aus seinen Listen. */
+export function onImplementationRemoved(callback: (id: string) => void): Promise<UnlistenFn> {
+  return listen<ImplementationRemovedEvent>(
+    IMPLEMENTATION_REMOVED_EVENT,
+    (event: Event<ImplementationRemovedEvent>) => {
+      callback(event.payload.id);
+    },
+  );
+}
+
+/** „Abbrechen…“: stoppt laufende Stationen, die Umsetzung gilt als abgeschlossen, ihre Sessions bleiben (ADR 066).
+ *  @throws {import('@/lib/bindings/CommandError').CommandError} `implementation` (schon abgeschlossen), `database` */
+export async function cancelImplementation(id: string): Promise<void> {
+  await invoke('implementation_cancel', { id });
+}
+
+/** „Löschen…“ einer abgebrochenen oder nie begonnenen Umsetzung (ADR 066).
+ *  @throws {import('@/lib/bindings/CommandError').CommandError} `implementation` (Station läuft noch, nicht löschbar), `database` */
+export async function deleteImplementation(id: string): Promise<void> {
+  await invoke('implementation_delete', { id });
+}
+
+/** „Bestätigen“ der Anfrage eines Agenten: abbrechen, bei `delete` danach löschen. Ein Grund statt
+ *  `null`: abgebrochen, aber noch nicht löschbar (ein Start hält seinen Anspruch noch).
+ *  @throws {import('@/lib/bindings/CommandError').CommandError} `implementation` (keine Anfrage, schon abgeschlossen), `database` */
+export function applyImplementationCancel(id: string): Promise<string | null> {
+  return invoke<string | null>('implementation_apply_cancel', { id });
+}
+
+/** „Verwerfen“ der Anfrage; die Stationen werden neu geplant.
+ *  @throws {import('@/lib/bindings/CommandError').CommandError} `implementation` (keine Anfrage), `database` */
+export async function discardImplementationCancel(id: string): Promise<void> {
+  await invoke('implementation_discard_cancel', { id });
 }
 
 /** „Übernehmen“ (`accept`) oder „Verwerfen“ des Vorschlags „Plan ändern?“.

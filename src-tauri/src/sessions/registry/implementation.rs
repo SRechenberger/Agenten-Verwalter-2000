@@ -24,21 +24,26 @@ use crate::db::implementations::{
 };
 use crate::error::CommandError;
 use crate::file_links;
+use crate::implementation::changes as implementation_changes;
 use crate::implementation::edit::EditedPlan;
 use crate::implementation::model::{
-    BriefChange, ImplementationView, InquiryCreated, PendingChange, PhaseInput, PhaseView,
-    StationOptions, StationSettings, StationView, check_agents,
+    BriefChange, ImplementationView, InquiryCreated, PendingCancel, PendingChange, PhaseInput,
+    PhaseView, StationOptions, StationSettings, StationView, check_agents,
 };
 use crate::implementation::report::{self, Extras};
 use crate::implementation::wake::{self, WakeEvent, WakeFacts};
 use crate::implementation::{
-    self, Countdowns, STATION_BEGUN, SessionLive, build_view, new_rows, station_in,
+    self, ALREADY_FINISHED, Countdowns, STATION_BEGUN, SessionLive, build_view, new_rows,
+    station_in,
 };
-use crate::sessions::model::SessionStatus;
+use crate::sessions::model::{PauseReason, SessionStatus};
 use crate::settings::{self, model::OperatingMode};
 use crate::worktrees::SessionRepository;
 
 const NO_IMPLEMENTATION: &str = "In diesem Vorhaben gibt es keine Umsetzung.";
+const NOT_DELETABLE: &str = "Nur abgebrochene oder nie gestartete Umsetzungen lassen sich löschen.";
+const NO_CANCEL_REQUEST: &str = "Es liegt keine Anfrage zum Abbrechen vor.";
+const CANCEL_REQUESTED: &str = "Es liegt schon eine Anfrage vor.";
 
 /// Ein neuerer Lagebericht für eine Rückfrage: die Datei und was `send` im Zustand vermerkt.
 pub(super) struct ReportUpdate {
@@ -131,6 +136,7 @@ impl SessionRegistry {
         max_parallel: Option<u32>,
     ) -> Result<ImplementationView, CommandError> {
         let project_id = self.get(session_id)?.project_id.clone();
+        let default_auto_resume = settings::load(&self.database)?.default_auto_resume;
         let (row, phase_rows, station_rows) = new_rows(
             &project_id,
             session_id,
@@ -139,6 +145,7 @@ impl SessionRegistry {
             phases,
             max_parallel,
             now_ms(),
+            default_auto_resume,
         )
         .map_err(CommandError::Implementation)?;
         self.database.with(|connection| {
@@ -399,6 +406,44 @@ impl SessionRegistry {
         })
     }
 
+    /// „Automatisch fortsetzen“ der Umsetzung; die nicht fertigen Stationen stehen danach auf „wie die
+    /// Umsetzung“ (ADR 064).
+    pub fn store_auto_resume(
+        &self,
+        implementation_id: &str,
+        enabled: bool,
+    ) -> Result<(), CommandError> {
+        self.database.with(|connection| {
+            implementation_rows::set_auto_resume(connection, implementation_id, enabled)
+        })
+    }
+
+    /// „Automatisch fortsetzen“ einer Station (ADR 064); `false`, wenn sie fertig ist oder dem Benutzer
+    /// gehört.
+    pub fn store_station_auto_resume(
+        &self,
+        station_id: &str,
+        value: Option<bool>,
+    ) -> Result<bool, CommandError> {
+        self.database.with(|connection| {
+            implementation_rows::set_station_auto_resume(connection, station_id, value)
+        })
+    }
+
+    /// Die Rücksetzzeit, wenn die Session am Kontingent pausiert, die Zeit bekannt ist und ihr Zeitgeber
+    /// noch nicht scharf ist (ADR 064); kurz unter ihrer Sperre, sonst `None`.
+    pub fn unarmed_quota_pause(&self, session_id: &str) -> Option<f64> {
+        let session = self.get(session_id).ok()?;
+        let state = session.lock();
+        match state.pause_reason {
+            Some(PauseReason::Quota {
+                resets_at: Some(resets_at),
+                auto_resume: false,
+            }) if state.status == SessionStatus::Paused => Some(resets_at),
+            _ => None,
+        }
+    }
+
     /// Setzt `max_parallel` (ADR 061); `None` = unbegrenzt.
     pub fn store_max_parallel(
         &self,
@@ -420,6 +465,206 @@ impl SessionRegistry {
         self.implementation_view(implementation_id)?;
         self.database
             .with(|connection| implementation_rows::rename(connection, implementation_id, &name))
+    }
+
+    /// Bricht die Umsetzung ab (ADR 066): abgeschlossen, Automatik und Halt aus, Vorschlag und Anfrage
+    /// verworfen, Countdowns beendet, dann die Sessions der arbeitenden Stationen gestoppt
+    /// (`changes::sessions_to_stop`). Die Stationen werden erst nach dem Schreiben gelesen: Ein Start,
+    /// der danach bindet, stoppt seine Session selbst (`start::stop_if_cancelled`).
+    pub fn cancel_implementation(
+        &self,
+        app: &AppHandle,
+        id: &str,
+    ) -> Result<ImplementationView, CommandError> {
+        let view = self.implementation_view(id)?;
+        if view.finished_at.is_some() {
+            return Err(CommandError::Implementation(ALREADY_FINISHED.to_owned()));
+        }
+        // Die Bedingung im `UPDATE` deckt eine Fertigmeldung zwischen Lesen und Schreiben.
+        if !self
+            .database
+            .with(|connection| implementation_rows::cancel(connection, id, now_ms()))?
+        {
+            return Err(CommandError::Implementation(ALREADY_FINISHED.to_owned()));
+        }
+        self.cancel_countdowns_of(&view);
+        let written = self.implementation_view(id)?;
+        for session_id in implementation_changes::sessions_to_stop(&written, |station_id: &str| {
+            self.is_starting(station_id)
+        }) {
+            if let Err(error) = self.cancel(app, &session_id) {
+                self.log_session_line(
+                    &session_id,
+                    format!("Beim Abbrechen der Umsetzung nicht gestoppt: {error}"),
+                );
+            }
+        }
+        self.implementation_view(id)
+    }
+
+    /// Löscht eine abgebrochene oder nie begonnene Umsetzung samt Phasen, Stationen und Verlauf
+    /// (ADR 066). Sessions und ihre Worktrees bleiben; was im Speicher auf die Umsetzung zeigt, wird
+    /// geleert. Eine arbeitende Station sperrt, dann ändert sich nichts.
+    pub fn delete_implementation(&self, app: &AppHandle, id: &str) -> Result<(), CommandError> {
+        let view = self.implementation_view(id)?;
+        if let Some((key, stage)) =
+            implementation_changes::working_station(&view, |station_id: &str| {
+                self.is_starting(station_id)
+            })
+        {
+            return Err(CommandError::Implementation(format!(
+                "Station „{stage}“ in Lane {key} läuft noch. Erst stoppen oder abwarten, dann löschen."
+            )));
+        }
+        if !implementation_changes::may_delete(&view) {
+            return Err(CommandError::Implementation(NOT_DELETABLE.to_owned()));
+        }
+        self.cancel_countdowns_of(&view);
+        self.database
+            .with(|connection| implementation_rows::delete(connection, id))?;
+        for member in self.project_members(&view.project_id) {
+            let is_linked: bool = {
+                let state = member.lock();
+                state.station_of.as_deref() == Some(id) || state.inquiry_of.as_deref() == Some(id)
+            };
+            if !is_linked {
+                continue;
+            }
+            update(
+                app,
+                &member,
+                |state: &mut SessionState, outbox: &mut Outbox| {
+                    if state.station_of.as_deref() == Some(id) {
+                        state.station_of = None;
+                    }
+                    if state.inquiry_of.as_deref() == Some(id) {
+                        state.inquiry_of = None;
+                        state.last_report = None;
+                    }
+                    outbox.summary_dirty = true;
+                    Ok(())
+                },
+            )?;
+        }
+        Ok(())
+    }
+
+    /// `implementation_cancel`: legt die Anfrage eines Agenten ab und beendet die Countdowns; sonst
+    /// ändert sich nichts, bis der Benutzer bestätigt (ADR 066).
+    pub fn request_cancel(
+        &self,
+        session_id: &str,
+        reason: &str,
+        delete: bool,
+    ) -> Result<ImplementationView, String> {
+        let view = self
+            .require_implementation_of_session(session_id)
+            .map_err(|error: CommandError| error.to_string())?;
+        if view.finished_at.is_some() {
+            return Err(ALREADY_FINISHED.to_owned());
+        }
+        if delete && !implementation_changes::may_delete(&view) {
+            return Err(NOT_DELETABLE.to_owned());
+        }
+        if view.pending_cancel.is_some() {
+            return Err(CANCEL_REQUESTED.to_owned());
+        }
+        let pending = PendingCancel {
+            session_id: session_id.to_owned(),
+            session_number: self.session_number(session_id),
+            at: now_ms(),
+            reason: reason.trim().to_owned(),
+            delete,
+        };
+        let json = serde_json::to_string(&pending).map_err(|error| error.to_string())?;
+        // Erst ablegen, dann Countdowns beenden: Ein Zeitgeber dazwischen sieht die Anfrage schon.
+        self.database
+            .with(|connection| {
+                implementation_rows::set_pending_cancel(connection, &view.id, Some(&json))
+            })
+            .map_err(|error: CommandError| error.to_string())?;
+        self.cancel_countdowns_of(&view);
+        self.implementation_view(&view.id)
+            .map_err(|error: CommandError| error.to_string())
+    }
+
+    /// „Verwerfen“ der Anfrage; das Neuplanen der Stationen übernimmt der Aufrufer.
+    pub fn discard_cancel(&self, id: &str) -> Result<ImplementationView, CommandError> {
+        let view = self.implementation_view(id)?;
+        if view.pending_cancel.is_none() {
+            return Err(CommandError::Implementation(NO_CANCEL_REQUEST.to_owned()));
+        }
+        self.database
+            .with(|connection| implementation_rows::set_pending_cancel(connection, id, None))?;
+        self.implementation_view(id)
+    }
+
+    /// `true`, wenn die Umsetzung abgebrochen ist; liest die Datenbank, nicht die Ansicht.
+    pub fn is_implementation_cancelled(&self, id: &str) -> Result<bool, CommandError> {
+        self.database
+            .with(|connection| implementation_rows::is_cancelled(connection, id))
+    }
+
+    /// Der Zeitgeber von „Automatisch fortsetzen“ feuert (ADR 066): `true`, wenn die Session Station
+    /// einer abgebrochenen Umsetzung ist; dann schickt er nichts, dieselbe Prüfung wie
+    /// `start::stop_if_cancelled`. Die Session-Sperre nur kurz, die Datenbank danach ohne sie.
+    pub fn resume_is_cancelled(&self, session_id: &str) -> Result<bool, CommandError> {
+        let station_of: Option<String> = self.get(session_id)?.lock().station_of.clone();
+        match station_of {
+            Some(id) => self.is_implementation_cancelled(&id),
+            None => Ok(false),
+        }
+    }
+
+    /// Nur für Tests ohne `AppHandle` (ADR 066): eine Session ohne Agent, die als Station an der
+    /// Umsetzung hängt.
+    #[cfg(test)]
+    pub(crate) fn add_station_session_for_test(
+        &self,
+        session_id: &str,
+        project_id: &str,
+        implementation_id: &str,
+        status: SessionStatus,
+    ) {
+        use crate::agents::event::{Effort, Mode, ModelId};
+        let mut state = SessionState::new(
+            "Session 1".to_owned(),
+            ModelId::Sonnet,
+            Effort::High,
+            Mode::Auto,
+        );
+        state.status = status;
+        state.station_of = Some(implementation_id.to_owned());
+        let session = Arc::new(Session {
+            id: session_id.to_owned(),
+            project_id: project_id.to_owned(),
+            number: 1,
+            workspace: PathBuf::new(),
+            repositories: std::sync::RwLock::new(Vec::new()),
+            database: Arc::clone(&self.database),
+            state: std::sync::Mutex::new(state),
+            deleted: std::sync::atomic::AtomicBool::new(false),
+        });
+        self.lock_sessions().insert(session_id.to_owned(), session);
+    }
+
+    /// Nur für Tests: der Status der Session.
+    #[cfg(test)]
+    pub(crate) fn status_for_test(&self, session_id: &str) -> Option<SessionStatus> {
+        self.get(session_id)
+            .ok()
+            .map(|session: Arc<Session>| session.lock().status)
+    }
+
+    fn cancel_countdowns_of(&self, view: &ImplementationView) {
+        let mut countdowns = self.lock_countdowns();
+        for station in view
+            .phases
+            .iter()
+            .flat_map(|phase: &PhaseView| phase.stations.iter())
+        {
+            countdowns.cancel(&station.id);
+        }
     }
 
     /// Nummer der Session im Vorhaben; 0 für eine unbekannte.
@@ -615,6 +860,8 @@ impl SessionRegistry {
             .with(|connection| implementation_rows::load(connection, implementation_id))
             .ok()
             .flatten()
+            // Eine abgebrochene Umsetzung weckt niemanden mehr (ADR 066).
+            .filter(|stored: &StoredImplementation| stored.row.cancelled_at.is_none())
             .and_then(|stored: StoredImplementation| stored.row.created_by_session_id)
             .and_then(|id: String| self.get(&id).ok());
         let text = wake::decide(
@@ -764,14 +1011,34 @@ impl SessionRegistry {
 
 /// Der Haken nach dem Ende einer Station-Session (ADR 061) in einem eigenen Thread: Er nimmt seine
 /// Sperren selbst, und `update` kann unter anderen Sperren gerufen sein.
-pub(super) fn schedule_station_session_end(app: &AppHandle, implementation_id: String) {
+pub(super) fn schedule_station_session_end(
+    app: &AppHandle,
+    implementation_id: String,
+    session_id: String,
+) {
     let thread_app = app.clone();
     let spawned = thread::Builder::new()
         .name("implementation-queue".to_owned())
         .spawn(move || {
             if let Err(error) =
-                implementation::station_session_ended(&thread_app, &implementation_id)
+                implementation::station_session_ended(&thread_app, &implementation_id, &session_id)
             {
+                eprintln!("Warteschlange der Umsetzung nicht neu geplant: {error}");
+            }
+        });
+    if let Err(error) = spawned {
+        eprintln!("Warteschlange der Umsetzung nicht geplant: {error}");
+    }
+}
+
+/// Der Zeitgeber einer Station ging ohne neuen Status aus (ADR 064): plant die Warteschlange neu, im
+/// eigenen Thread aus demselben Grund wie `schedule_station_session_end`.
+pub(super) fn schedule_station_disarmed(app: &AppHandle, implementation_id: String) {
+    let thread_app = app.clone();
+    let spawned = thread::Builder::new()
+        .name("implementation-queue".to_owned())
+        .spawn(move || {
+            if let Err(error) = implementation::station_disarmed(&thread_app, &implementation_id) {
                 eprintln!("Warteschlange der Umsetzung nicht neu geplant: {error}");
             }
         });
@@ -832,5 +1099,13 @@ fn live_of(session: &Session, now: f64) -> SessionLive {
         unread: state.last_activity_at > state.seen_at,
         awaits_script: state.awaited_script().is_some(),
         is_fresh_error: state.fresh_error,
+        waits_for_quota: state.status == SessionStatus::Paused
+            && matches!(
+                state.pause_reason,
+                Some(PauseReason::Quota {
+                    auto_resume: true,
+                    ..
+                })
+            ),
     }
 }

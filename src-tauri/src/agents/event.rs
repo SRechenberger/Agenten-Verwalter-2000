@@ -2,6 +2,7 @@
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
+use crate::agent_types::model::{AgentType, AgentTypeInput};
 use crate::artifacts::model::ArtifactKind;
 use crate::context::model::ContextBreakdown;
 use crate::mcp::model::McpServer;
@@ -188,6 +189,16 @@ pub enum ToolRequest {
         message: String,
         model: ModelId,
         effort: Effort,
+    },
+    // Vorschlag eines Agententyps (ADR 063): nie Selbstfreigabe, entschieden wird nur über
+    // `agent_type_proposal_answer`.
+    AgentType {
+        // Gespeicherter Stand beim Vorschlag; `None` bei einem neuen Typ. `Box` nur der Größe des
+        // Enums wegen; serde und ts-rs sehen den Typ selbst.
+        base: Option<Box<AgentType>>,
+        // Vollständige Eingabe des Vorschlags (bei einer Änderung: `base` plus Änderungen), so, wie
+        // `validate` sie zurückgibt (getrimmt, doppelte Stationsnamen entfernt).
+        proposal: Box<AgentTypeInput>,
     },
 }
 
@@ -486,6 +497,8 @@ pub enum TaskEnd {
 pub enum AgentEvent {
     Ready {
         model: String,
+        /// Liste der Kommandozeile; Autark und Codex schicken keine.
+        slash_commands: Option<Vec<String>>,
     },
     Text(String),
     Thinking {

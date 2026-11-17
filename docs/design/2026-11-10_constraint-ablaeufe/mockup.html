@@ -163,7 +163,7 @@
       <li><b>Kanten ändern:</b> „×“, „+ Vorgänger“, „+ Nachfolger“; Zyklen sind gesperrt, gestartete Stationen auch.</li>
       <li><b>Neue Lane:</b> „+ Lane“ in der Leiste. Je Station Typ wählen (der Zweck steht dabei), Prompt, Modell und Denkaufwand einstellen; „durch dich“ ist eine Anweisung für dich. Die Vorschau nennt Stufe und verschobene Stationen.</li>
       <li><b>Plan ändern?</b> „Agent schlägt Plan-Änderung vor“: Typ, Modell, Denkaufwand und Prompt des Vorschlags lassen sich vor „Übernehmen“ ändern.</li>
-      <li><b>Automatik:</b> „Automatisch starten“ (Countdown, bis „Parallel max.“ erreicht ist, dann Warteschlange), „Automatisch weiter“ (nach leerem Kontingent und Fehler; die Leiste schaltet alle Stationen, ↻ in der Zeile nur eine).</li>
+      <li><b>Automatik:</b> „Automatisch starten“ (Countdown, bis „Parallel max.“ erreicht ist, dann Warteschlange), „Automatisch fortsetzen“ (nach leerem Kontingent und Fehler; die Leiste schaltet alle Stationen, ↻ in der Zeile nur eine).</li>
     </ul>
   </details>
 
@@ -426,7 +426,7 @@
       const e = eff(s);
       meta = '<span class="meta" title="Modell: ' + MODEL_FULL[e.model] + ' (' + e.mSrc + ') · Denkaufwand: ' + ELBL[e.effort] + ' (' + e.eSrc + ')' + (s.snap ? ' – Werte der Session' : '') + '">' + SHORT[e.model] + ' · ' + ELBL[e.effort] + '</span>';
       sw = '<button class="sw' + (s.autoResume ? ' on' : '') + '" data-act="row-resume" data-id="' + s.id + '" aria-pressed="' + s.autoResume + '"' + (s.st === 'done' ? ' disabled' : '') +
-        ' title="Automatisch weiter: setzt nach leerem Kontingent und nach einem Fehler selbst fort. Ein Klick schaltet nur diese Station.">↻</button>';
+        ' title="Automatisch fortsetzen: setzt nach leerem Kontingent und nach einem Fehler selbst fort. Ein Klick schaltet nur diese Station.">↻</button>';
       if (s.st === 'pending' && s.autoStart === 'off' && auto) manual = '<span class="chip" title="Startet nie von selbst, auch mit „Automatisch starten“">⏸ manuell</span>';
       if (s.st === 'pending' && s.autoStart === 'on' && !auto) manual = '<span class="chip" title="Startet von selbst, obwohl „Automatisch starten“ aus ist">▶ automatisch</span>';
     }
@@ -519,7 +519,7 @@
       ? '<div class="hint">Eine Station durch dich startet nie von selbst: sie wartet auf dich, sobald ihre Vorgänger fertig sind.</div>'
       : '<div class="ln"><span class="lbl">Automatisch starten</span>' + seg('set', id + ' data-f="autoStart"', s.autoStart, [['inherit', 'wie Umsetzung (' + (auto ? 'an' : 'aus') + ')'], ['on', 'an'], ['off', 'aus']], !pending) + '</div>' +
         '<div class="hint">Startet die Station nach ihren Vorgängern von selbst (Countdown) oder erst auf ▶. Jetzt: ' + (effStart ? 'von selbst' : 'auf ▶') + '.</div>' +
-        '<div class="ln"><span class="lbl">Automatisch weiter</span><label><input type="checkbox" data-f="autoResume" ' + id + (s.autoResume ? ' checked' : '') + (done ? ' disabled' : '') + '> nach leerem Kontingent selbst fortsetzen</label></div>' +
+        '<div class="ln"><span class="lbl">Automatisch fortsetzen</span><label><input type="checkbox" data-f="autoResume" ' + id + (s.autoResume ? ' checked' : '') + (done ? ' disabled' : '') + '> nach leerem Kontingent selbst fortsetzen</label></div>' +
         '<div class="ln"><span class="lbl">Bei Fehler</span>' + seg('set', id + ' data-f="onError"', s.onError, [['stop', 'anhalten'], ['retry1', '1× neu starten'], ['retry3', 'bis 3× neu starten']], done) + '</div>' +
         '<div class="hint">Gilt bis die Station fertig ist; auch während sie läuft.</div>';
 
@@ -581,13 +581,13 @@
       '<span class="name">Konstellation</span>' +
       '<span><span class="fill" style="display:inline-block;vertical-align:middle"><i style="width:' + (total ? (100 * done / total) : 0) + '%"></i></span> ' + done + ' von ' + total + ' fertig' + (done === total ? ' · Umsetzung fertig' : '') + '</span>' +
       '<label title="Startet jede Station, deren Vorgänger fertig sind, nach dem Countdown von selbst. Einzelne Stationen können abweichen."><input type="checkbox" id="auto"' + (auto ? ' checked' : '') + '> Automatisch starten</label>' +
-      '<label title="Setzt jede Station nach leerem Kontingent und nach einem Fehler selbst fort. Schaltet alle Stationen; einzelne können danach abweichen (letzte Aktion gewinnt)."><input type="checkbox" id="resume"' + (resumeAll ? ' checked' : '') + '> Automatisch weiter</label>' +
+      '<label title="Setzt jede Station nach leerem Kontingent und nach einem Fehler selbst fort. Schaltet alle Stationen; einzelne können danach abweichen (letzte Aktion gewinnt)."><input type="checkbox" id="resume"' + (resumeAll ? ' checked' : '') + '> Automatisch fortsetzen</label>' +
       '<label title="Höchstens so viele Stationen laufen gleichzeitig. Weitere bereite Stationen starten selbst, sobald ein Platz frei wird – nur bei Stationen, die automatisch starten. Ein Klick auf ▶ ignoriert die Grenze.">Parallel max. ' +
         '<span class="step"><button data-act="par-down" aria-label="weniger"' + (maxPar <= 1 ? ' disabled' : '') + '>−</button><b id="par">' + maxPar + '</b><button data-act="par-up" aria-label="mehr"' + (maxPar >= 6 ? ' disabled' : '') + '>+</button></span></label>' +
       (waiting().length ? '<span class="ready">Warteschlange: ' + waiting().length + '</span>' : '') +
       '<span class="sp"></span><button class="mini" data-act="np-open" title="Neue Lane mit Stationen und Constraints anlegen">+ Lane</button><button class="mini" disabled title="Lagebericht: unverändert wie heute">Lagebericht</button>';
     $('#body').innerHTML = (proposal ? proposalHtml() : '') + rows +
-      '<div class="legend"><span><i class="dot done"></i>fertig</span><span><i class="dot run"></i>läuft</span><span><i class="dot ready"></i>bereit / Countdown</span><span><i class="dot wait"></i>wartet</span><span>' + HAND + 'durch dich</span><span><i class="dot ask"></i>Frage</span><span><i class="dot err"></i>Fehler</span><span><b class="meta" style="margin:0">Opus · hoch</b>Modell · Denkaufwand</span><span><b class="sw on" style="margin:0;display:inline-block">↻</b>Automatisch weiter</span></div>' +
+      '<div class="legend"><span><i class="dot done"></i>fertig</span><span><i class="dot run"></i>läuft</span><span><i class="dot ready"></i>bereit / Countdown</span><span><i class="dot wait"></i>wartet</span><span>' + HAND + 'durch dich</span><span><i class="dot ask"></i>Frage</span><span><i class="dot err"></i>Fehler</span><span><b class="meta" style="margin:0">Opus · hoch</b>Modell · Denkaufwand</span><span><b class="sw on" style="margin:0;display:inline-block">↻</b>Automatisch fortsetzen</span></div>' +
       (log.length ? '<div class="log"><h4>Änderungen am Plan und Meldungen</h4>' + log.slice(0, 6).map((l) => '<div>' + l + '</div>').join('') + '</div>' : '');
     renderSim();
     timers();
@@ -784,7 +784,7 @@
     if (t.id === 'resume') {
       resumeAll = t.checked;
       st.forEach((s) => { if (s.st !== 'done') s.autoResume = resumeAll; });
-      note('„Automatisch weiter“ für alle Stationen ' + (resumeAll ? 'an' : 'aus') + ' (einzelne Stationen können danach abweichen).');
+      note('„Automatisch fortsetzen“ für alle Stationen ' + (resumeAll ? 'an' : 'aus') + ' (einzelne Stationen können danach abweichen).');
       render(true); return;
     }
     if (t.dataset.f === 'autoResume') { setField(t.dataset.id, 'autoResume', t.checked); render(true); }

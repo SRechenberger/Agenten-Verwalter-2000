@@ -7,6 +7,8 @@ import {
   type StationRef,
 } from '@/features/implementation/implementationOrder';
 import {
+  AUTO_RESUME_GLYPH,
+  AUTO_RESUME_LABEL,
   AUTOMATIC_MARK,
   AUTOMATIC_MARK_TITLE,
   BY_USER_MARK,
@@ -22,12 +24,15 @@ import {
   NO_PHASES,
   PHASE_MARK_LABEL,
   PHASE_MARK_TITLE,
+  quotaChip,
+  resumesAtChip,
   ROW_OPEN_CHAT_TITLE,
   ROW_OPEN_LABEL,
   ROW_OPEN_TITLE,
   ROW_START_LABEL,
   ROW_START_TITLE,
   ROW_TITLE,
+  rowResumeTitle,
   rowStateText,
   rowTitle,
   shortEffort,
@@ -51,6 +56,7 @@ import { useOperatingMode } from '@/features/remote/useOperatingMode';
 import type { ChangeView } from '@/lib/bindings/ChangeView';
 import type { ImplementationView } from '@/lib/bindings/ImplementationView';
 import type { OperatingMode } from '@/lib/bindings/OperatingMode';
+import type { PauseReason } from '@/lib/bindings/PauseReason';
 import type { SessionSummary } from '@/lib/bindings/SessionSummary';
 import type { StationView } from '@/lib/bindings/StationView';
 import './Timeline.css';
@@ -68,6 +74,8 @@ interface TimelineProps {
   onOpenChat: (stationId: string) => void;
   onStart: (stationId: string) => void;
   onCancelCountdown: (stationId: string) => void;
+  /** ↻ der Zeile: schreibt den Wert nur dieser Station. */
+  onSetAutoResume: (stationId: string, enabled: boolean) => void;
 }
 
 /** Eine Stufe: die Stationen mit derselben errechneten Stufe, in Plan-Reihenfolge. */
@@ -101,6 +109,7 @@ export function Timeline({
   onOpenChat,
   onStart,
   onCancelCountdown,
+  onSetAutoResume,
 }: TimelineProps): ReactElement {
   const operatingMode: OperatingMode = useOperatingMode(implementation.projectId);
   const refs: StationRef[] = flatStations(implementation);
@@ -248,6 +257,53 @@ export function Timeline({
     }
   }
 
+  /** „ab 17:04“ hinter „setzt automatisch fort“; „Kontingent“ hinter „wartet auf dich“ bei einer Kontingent-Pause. */
+  function renderQuotaChip(station: StationView): ReactElement | null {
+    const reason: PauseReason | null = sessionOf(station)?.pauseReason ?? null;
+    if (reason?.kind !== 'quota') {
+      return null;
+    }
+    if (station.state === 'waitsForQuota') {
+      return reason.resetsAt === null ? null : (
+        <span className="timeline__chip timeline__chip--static timeline__chip--state">
+          {resumesAtChip(reason.resetsAt)}
+        </span>
+      );
+    }
+    if (station.state === 'waitsForYou') {
+      return (
+        <span className="timeline__chip timeline__chip--static timeline__chip--state timeline__chip--warn">
+          {quotaChip(reason.resetsAt)}
+        </span>
+      );
+    }
+    return null;
+  }
+
+  /** ↻ neben der Mini-Aktion, außerhalb des Titel-Knopfs; ein Punkt zeigt die Abweichung von der Umsetzung. */
+  function renderResume(station: StationView): ReactElement | null {
+    if (station.byUser) {
+      return null;
+    }
+    const differs: boolean =
+      station.autoResume !== null && station.autoResume !== implementation.autoResume;
+    return (
+      <button
+        type="button"
+        className={`timeline__resume${differs ? ' timeline__resume--differs' : ''}`}
+        aria-pressed={station.resumesAutomatically}
+        aria-label={AUTO_RESUME_LABEL}
+        title={rowResumeTitle(station)}
+        disabled={isLocked || station.state === 'done'}
+        onClick={(): void => {
+          onSetAutoResume(station.id, !station.resumesAutomatically);
+        }}
+      >
+        {AUTO_RESUME_GLYPH}
+      </button>
+    );
+  }
+
   function renderRow(ref: StationRef): ReactElement {
     const { station, phase } = ref;
     const isFocused: boolean = station.id === focusedId;
@@ -257,6 +313,7 @@ export function Timeline({
         key={station.id}
         role="listitem"
         className={`timeline__row${isFocused ? ' timeline__row--focused' : ''}`}
+        data-focus-id={station.id}
       >
         <StationDot station={station} />
         <button
@@ -281,7 +338,9 @@ export function Timeline({
         </button>
         <span className={`timeline__state timeline__state--${tone}`}>
           {rowStateText(station, now)}
+          {renderQuotaChip(station)}
           {renderAction(station)}
+          {renderResume(station)}
         </span>
         {renderSub(station)}
       </div>
@@ -296,6 +355,7 @@ export function Timeline({
         key={focusId}
         role="listitem"
         className={`timeline__row timeline__row--marker${isFocused ? ' timeline__row--focused' : ''}`}
+        data-focus-id={focusId}
       >
         <span className="timeline__marker-icon" aria-hidden="true">
           ⟳
@@ -325,7 +385,11 @@ export function Timeline({
   function renderGroup(group: StageGroup): ReactElement {
     const isParallel: boolean = group.refs.length > 1;
     return (
-      <section key={`stage-${String(group.level)}`} className="timeline__group">
+      <section
+        key={`stage-${String(group.level)}`}
+        className="timeline__group"
+        data-scroll-anchor={group.level}
+      >
         <h3 className="timeline__stage">{stageTitle(group.level, group.refs.length)}</h3>
         <div
           role="list"

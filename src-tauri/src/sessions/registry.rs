@@ -7,6 +7,7 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError, RwLock};
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -98,6 +99,9 @@ mod remote;
 mod restore;
 mod retro;
 mod session_tools;
+// Rein; die Tests der Agententypen prüfen daran, dass `chat_answer` keinen Vorschlag beantwortet.
+#[cfg(test)]
+pub(crate) use session_tools::tool_answer_label;
 mod side;
 mod terminal;
 mod tldr;
@@ -217,6 +221,9 @@ pub struct Session {
     repositories: RwLock<Vec<SessionRepository>>,
     database: Arc<Database>,
     state: Mutex<SessionState>,
+    /// Gesetzt von `delete_session`: danach schreibt `persist` nichts mehr. Sonst legt ein spätes
+    /// `update` (etwa das `Exited` des Agenten) die gelöschte Zeile per Upsert neu an.
+    deleted: AtomicBool,
 }
 
 struct PendingRequest {
@@ -472,12 +479,18 @@ struct Outbox {
     /// Die Session einer Station ist nicht mehr aktiv (fertig, pausiert, Fehler, Abbruch): nach dem
     /// Freigeben der Sperre plant die Umsetzung ihre Warteschlange neu (ADR 061).
     station_idle: Option<String>,
+    /// Der Zeitgeber von „Automatisch fortsetzen“ einer Station ging ohne neuen Status aus (Schalter
+    /// aus, Senden gescheitert): nach dem Freigeben der Sperre plant die Umsetzung ihre Warteschlange
+    /// neu (ADR 064). Nicht `station_idle`: dessen Haken schaltete wieder scharf.
+    station_disarmed: Option<String>,
     /// Die Session einer Station hat eine Rückfrage gestellt (Umsetzung, Kennung der Rückfrage): nach
     /// dem Freigeben der Sperre weckt die Umsetzung ihren Ersteller (ADR 061).
     station_asks: Option<(String, String)>,
     /// Der Wächter erinnert an `implementation_create`; nach dem Freigeben der Sperre geht die
     /// Erinnerung hinaus (ADR 062).
     plan_reminder: bool,
+    /// Befehlsliste aus `system/init`; gespeichert nach dem Freigeben der Sperre.
+    slash_commands: Option<Vec<String>>,
 }
 
 impl SessionRegistry {
@@ -636,6 +649,7 @@ impl SessionRegistry {
             repositories: RwLock::new(repositories),
             database: Arc::clone(&self.database),
             state: Mutex::new(state),
+            deleted: AtomicBool::new(false),
         });
         // Reihenfolge der Verweise: Vorhaben ← Session ← `session_repositories`.
         let row = row_of(&session, &session.lock());
@@ -772,6 +786,7 @@ impl SessionRegistry {
             repositories: RwLock::new(repositories.clone()),
             database: Arc::clone(&self.database),
             state: Mutex::new(state),
+            deleted: AtomicBool::new(false),
         });
         let row = row_of(&session, &session.lock());
         let saved = self.database.with(|connection| {
@@ -1535,17 +1550,27 @@ impl SessionRegistry {
     pub fn delete_session(&self, app: &AppHandle, session_id: &str) -> Result<bool, CommandError> {
         let session = self.get(session_id)?;
         self.cancel(app, session_id)?;
+        // Unter der Session-Sperre markiert: ein laufendes `persist` ist danach durch, ein
+        // späteres schreibt nichts mehr — der Agent beendet sich erst nach dem Löschen.
+        session.deleted.store(true, Ordering::SeqCst);
+        drop(session.state.lock().unwrap_or_else(PoisonError::into_inner));
         // Bis zum Entfernen gehalten: ein gleichzeitiges `create_in_project` wartet darauf.
         let mut projects = self.lock_projects();
-        let is_last = !self.lock_sessions().values().any(|other: &Arc<Session>| {
-            other.project_id == session.project_id && other.id != session.id
-        });
-        self.database.with(|connection| {
-            session_rows::delete(connection, &session.id)?;
+        // Atomar, und „letzte“ nach der Datenbank, nicht nach der Map im Speicher.
+        let is_last = self.database.with(|connection| {
+            let transaction = connection.transaction()?;
+            session_rows::delete(&transaction, &session.id)?;
+            let remaining: i64 = transaction.query_row(
+                "SELECT COUNT(*) FROM sessions WHERE project_id = ?1",
+                [&session.project_id],
+                |row| row.get(0),
+            )?;
+            let is_last = remaining == 0;
             if is_last {
-                project_rows::delete(connection, &session.project_id)?;
+                project_rows::delete(&transaction, &session.project_id)?;
             }
-            Ok(())
+            transaction.commit()?;
+            Ok(is_last)
         })?;
         self.lock_sessions().remove(&session.id);
         let mut was_shared = false;
@@ -2310,6 +2335,7 @@ fn build_session(
         repositories: RwLock::new(repositories),
         database: Arc::clone(database),
         state: Mutex::new(state),
+        deleted: AtomicBool::new(false),
     });
     Ok((session, paused_row))
 }
@@ -3110,7 +3136,10 @@ impl SessionState {
 
     fn apply_event(&mut self, outbox: &mut Outbox, event: AgentEvent) {
         match event {
-            AgentEvent::Ready { .. } => {
+            AgentEvent::Ready { slash_commands, .. } => {
+                if slash_commands.is_some() {
+                    outbox.slash_commands = slash_commands;
+                }
                 if !self.has_agent_history {
                     self.has_agent_history = true;
                     outbox.summary_dirty = true;
@@ -3782,9 +3811,13 @@ impl SessionState {
         if enabled && *auto_resume {
             return Ok(None);
         }
+        let was_armed = *auto_resume;
         *auto_resume = enabled;
         self.auto_resume_token += 1;
         outbox.summary_dirty = true;
+        if was_armed {
+            outbox.station_disarmed.clone_from(&self.station_of);
+        }
         Ok(enabled.then_some(ArmedResume {
             token: self.auto_resume_token,
             resets_at,
@@ -3804,6 +3837,9 @@ impl SessionState {
     fn auto_resume_failed(&mut self, outbox: &mut Outbox, message: String) {
         self.auto_resume_token += 1;
         if let Some(PauseReason::Quota { auto_resume, .. }) = &mut self.pause_reason {
+            if *auto_resume {
+                outbox.station_disarmed.clone_from(&self.station_of);
+            }
             *auto_resume = false;
             outbox.summary_dirty = true;
         }
@@ -3952,6 +3988,11 @@ fn update<R>(
         result
     };
     outbox.emit(app, session);
+    if let Some(names) = outbox.slash_commands.take()
+        && let Err(error) = skills::builtin::remember_claude_commands(&session.database, &names)
+    {
+        session.log_line(format!("Befehlsliste nicht gespeichert: {error}"));
+    }
     // Git gehört nicht unter die Session-Sperre.
     let windows = std::mem::take(&mut outbox.commit_windows);
     if !windows.is_empty() {
@@ -3962,7 +4003,10 @@ fn update<R>(
         session_tools::schedule_inbox_delivery(app, session);
     }
     if let Some(implementation_id) = outbox.station_idle.take() {
-        implementation::schedule_station_session_end(app, implementation_id);
+        implementation::schedule_station_session_end(app, implementation_id, session.id.clone());
+    }
+    if let Some(implementation_id) = outbox.station_disarmed.take() {
+        implementation::schedule_station_disarmed(app, implementation_id);
     }
     if let Some((implementation_id, request_id)) = outbox.station_asks.take() {
         implementation::schedule_station_question(
@@ -4045,6 +4089,9 @@ fn row_of(session: &Session, state: &SessionState) -> SessionRow {
 /// damit zwei Änderungen derselben Session nicht in vertauschter Reihenfolge ankommen.
 /// Ein Fehler landet im Protokoll der Session; die Session läuft weiter.
 fn persist(session: &Session, state: &mut SessionState, outbox: &Outbox) {
+    if session.deleted.load(Ordering::SeqCst) {
+        return;
+    }
     let saved = session.database.with(|connection| {
         // Erst die Session, dann ihre Einträge: die Einträge verweisen auf die Zeile.
         if outbox.summary_dirty {
@@ -4572,6 +4619,10 @@ fn answer_oldest_with_text(
     text: &str,
     device: Option<&str>,
 ) -> Result<(), CommandError> {
+    // Ein Vorschlag eines Agententyps kennt keine Ablehnung über `apply_answer` (ADR 063).
+    if session_tools::reject_proposal_with_text(state, outbox, 0, text, device) {
+        return Ok(());
+    }
     let Some((request_id, request)) = state.pending.first() else {
         return Ok(());
     };

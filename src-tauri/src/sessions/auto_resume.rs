@@ -1,11 +1,13 @@
 //! Automatisch fortsetzen: schickt nach dem Zurücksetzen des Kontingents den Fortsetz-Text an die
-//! pausierte Session (ADR 051). Nur im Speicher: ein Neustart der App verliert Schalter und Zeitgeber.
+//! pausierte Session (ADR 051). Zeitgeber und Schalter der Session nur im Speicher: ein Neustart der
+//! App verliert sie; der Wert je Umsetzung und Station steht in der Datenbank (ADR 064).
 
 use std::thread;
 use std::time::Duration;
 
 use tauri::{AppHandle, Manager};
 
+use crate::implementation::IS_CANCELLED;
 use crate::sessions::registry::{SessionRegistry, now_ms};
 
 pub const RESUME_TEXT: &str =
@@ -83,6 +85,18 @@ fn run(app: &AppHandle, session_id: &str, armed: ArmedResume) {
     );
     if end == WaitEnd::Cancelled {
         return;
+    }
+    // Station einer abgebrochenen Umsetzung (ADR 066): nichts schicken, der Schalter geht aus.
+    match registry.resume_is_cancelled(session_id) {
+        Ok(false) => {}
+        Ok(true) => {
+            registry.fail_auto_resume(app, session_id, IS_CANCELLED.to_owned());
+            return;
+        }
+        Err(error) => {
+            registry.fail_auto_resume(app, session_id, error.to_string());
+            return;
+        }
     }
     if let Err(error) = registry.send(app, session_id, RESUME_TEXT, &[], &[], None) {
         registry.fail_auto_resume(app, session_id, error.to_string());
