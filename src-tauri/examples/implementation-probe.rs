@@ -48,8 +48,7 @@ use verwalter_lib::implementation::model::{
     PredecessorsMay, StationOptions, StationSettings, StationState, StationView, effective_brief,
 };
 use verwalter_lib::implementation::model::{
-    MAX_NAME_CHARS, MAX_SOURCE_CHARS, PhaseInput, check_agents, check_length, refuse_max_parallel,
-    validate,
+    MAX_NAME_CHARS, MAX_SOURCE_CHARS, PhaseInput, check_agents, check_length, validate,
 };
 use verwalter_lib::implementation::report::Extras;
 use verwalter_lib::implementation::slots::{self, Start};
@@ -72,9 +71,6 @@ struct CreateInput {
     source: Option<String>,
     #[serde(default, alias = "lanes")]
     phases: Vec<PhaseInput>,
-    // Gibt es nicht mehr (ADR 068); abgelehnt wie von `implementation_create`.
-    #[serde(default)]
-    max_parallel: Option<serde_json::Value>,
 }
 
 #[derive(Deserialize)]
@@ -173,7 +169,6 @@ fn create(database_path: &Path, session_id: &str, json_file: &Path) -> Result<St
         .map_err(|error| format!("{} nicht lesbar: {error}", json_file.display()))?;
     let input: CreateInput =
         serde_json::from_str(&json).map_err(|error| format!("Eingabe nicht lesbar: {error}"))?;
-    refuse_max_parallel(input.max_parallel.as_ref())?;
     check_length("name", input.name.trim(), 1, MAX_NAME_CHARS)?;
     let source = input.source.unwrap_or_default();
     check_length("source", source.trim(), 0, MAX_SOURCE_CHARS)?;
@@ -1022,7 +1017,7 @@ fn selftest(path: &Path) -> Result<bool, String> {
             .map(|_| {
                 let shared = Arc::clone(&shared);
                 let mut view = view.clone();
-                scope.spawn(move || begin(&shared, &mut view, Some(1)).len())
+                scope.spawn(move || begin(&shared, &mut view, limit).len())
             })
             .collect();
         handles
@@ -1031,8 +1026,8 @@ fn selftest(path: &Path) -> Result<bool, String> {
             .sum()
     });
     all &= check(
-        "Warteschlange, Zählen unter Sperre: zwei gleichzeitige Durchgänge beginnen bei einem Platz zusammen 1",
-        counted == 1,
+        "Warteschlange, Zählen unter Sperre: zwei gleichzeitige Durchgänge beginnen zusammen 2",
+        counted == 2,
     );
 
     let mut user_over = view_with(
@@ -1604,7 +1599,7 @@ fn station_options(database: &Database) -> Result<bool, String> {
         .map_err(|error| error.to_string())?;
     let after_app_restart = view_failed(database, &failing, "failing", false)?;
     all &= check(
-        "Bei Fehler: bis 3× neu starten, der Neustart rückt am Tor vor der bereiten Station nach, danach frei; nach App-Neustart kein Neustart",
+        "Bei Fehler: bis 3× neu starten, Platz belegt solange, danach frei; nach App-Neustart kein Neustart",
         restarts_seen == [true, true, true, false]
             && held_place
             && station(&after_app_restart, "failing").is_some_and(|failed| !failed.restarting),

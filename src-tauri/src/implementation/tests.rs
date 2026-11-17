@@ -2577,22 +2577,31 @@ fn station_inserted_between_a_and_b_by_plan_change_makes_b_wait_without_changing
 fn queue_moves_up_when_a_countdown_ends_in_a_start_error() {
     let mut failed = node("a", &[]);
     failed.start_error = Some("Den Typ „reviewr“ gibt es nicht mehr.".to_owned());
-    let rows = vec![
-        failed,
-        node("b", &[]),
-        with_auto_start(node("off", &[]), Some(false)),
-    ];
+    let rows = vec![failed, node("b", &[])];
     assert!(resumes_queue_after_start_error(
-        &limited_view(rows.clone(), None, true, &[]),
+        &limited_view(rows.clone(), Some(1), true, &[]),
         "a"
     ));
     assert!(
-        !resumes_queue_after_start_error(&limited_view(rows.clone(), None, true, &[]), "b"),
+        !resumes_queue_after_start_error(&limited_view(rows, Some(1), true, &[]), "b"),
         "ohne gespeicherten Startfehler nicht: sonst versuchte der Countdown es endlos"
     );
+}
+
+#[test]
+fn a_countdown_ending_without_a_start_frees_its_place_once_the_station_stops_waiting() {
+    let rows = vec![
+        node("b", &[]),
+        with_auto_start(node("off", &[]), Some(false)),
+    ];
+    let view = limited_view(rows, None, true, &[]);
     assert!(
-        resumes_queue_after_start_error(&limited_view(rows, None, true, &[]), "off"),
-        "eine Station, deren Automatik aus ist, wartet nicht mehr"
+        resumes_queue_after_start_error(&view, "off"),
+        "Automatik aus: die Station wartet nicht mehr, ihr Platz geht an die Warteschlange"
+    );
+    assert!(
+        !resumes_queue_after_start_error(&view, "b"),
+        "eine Station, die weiter wartet, bekäme gleich wieder einen Countdown"
     );
 }
 
@@ -3076,18 +3085,15 @@ fn failing(on_error: OnError, restarts: u32) -> StationRow {
 }
 
 #[test]
-fn on_error_restart_of_a_fresh_failure_goes_through_the_gate_first() {
-    let view = view_with_sessions(
+fn on_error_restarts_a_fresh_failure_and_keeps_its_place_in_the_queue() {
+    let mut view = view_with_sessions(
         vec![failing(OnError::RestartOnce, 0), node("waiting", &[])],
         None,
         true,
         &[("failing", SessionStatus::Error, true)],
     );
-    let failed = shown(&view, "failing");
-    assert!(
-        failed.restarting && !failed.is_active(),
-        "der Fehler gibt den Platz frei"
-    );
+    assert!(shown(&view, "failing").restarting);
+    // Die Grenze kommt vom Tor: Der Neustart bekommt den einen Platz vor der bereiten Station.
     let mut countdowns = Countdowns::default();
     let claimed = pass_over(&mut countdowns, Some(1), &[], &view);
     assert_eq!(
@@ -3095,11 +3101,15 @@ fn on_error_restart_of_a_fresh_failure_goes_through_the_gate_first() {
             .iter()
             .map(|(waiter, _): &slots::Claimed| (waiter.key.as_str(), waiter.start))
             .collect::<Vec<_>>(),
-        [("failing", slots::Start::Restart)],
-        "der Neustart rückt vor der bereiten Station nach"
+        [("failing", slots::Start::Restart)]
     );
     assert!(countdowns.is_starting("failing"));
-    assert_eq!(countdowns.queue().entries.len(), 1, "waiting wartet");
+    slots::apply_queue(&mut view, countdowns.queue());
+    assert_eq!(view.queued, 1, "waiting bleibt in der Warteschlange");
+    assert!(
+        pass_over(&mut countdowns, Some(1), &[], &view).is_empty(),
+        "der Neustart hält den Platz bis zur Nachricht"
+    );
 }
 
 #[test]
@@ -3111,7 +3121,7 @@ fn on_error_counts_its_restarts_and_then_waits_for_the_user() {
         (OnError::RestartUpToThree, 2, true),
         (OnError::RestartUpToThree, 3, false),
     ] {
-        let view = view_with_sessions(
+        let mut view = view_with_sessions(
             vec![failing(on_error, restarts), node("waiting", &[])],
             Some(1),
             true,
@@ -3122,13 +3132,13 @@ fn on_error_counts_its_restarts_and_then_waits_for_the_user() {
             is_restarting,
             "{on_error:?} nach {restarts}"
         );
-        let restarts_waiting = slots::station_waiters(&view, false, ProjectPriority::Normal)
-            .iter()
-            .filter(|waiter: &&slots::Waiter| waiter.start == slots::Start::Restart)
-            .count();
+        // Die Grenze 1 kommt vom Tor statt aus der Umsetzung.
+        let mut countdowns = Countdowns::default();
+        pass_over(&mut countdowns, Some(1), &[], &view);
+        slots::apply_queue(&mut view, countdowns.queue());
         assert_eq!(
-            restarts_waiting,
-            usize::from(is_restarting),
+            view.queued,
+            u32::from(is_restarting),
             "{on_error:?} nach {restarts}"
         );
     }
@@ -3737,7 +3747,7 @@ fn completion_answer_names_the_successors_the_handoff_changed() {
 }
 
 #[test]
-fn report_names_lanes_start_stations_queue_and_edges() {
+fn report_names_lanes_start_stations_limit_and_edges() {
     let mut view = limited_view(
         vec![
             finished(node("a", &[])),
@@ -4317,16 +4327,18 @@ fn cancelled_implementation_starts_no_queued_station() {
         due_ids(&running),
         vec!["first".to_owned(), "second".to_owned()]
     );
+    // Die Grenze 1 kommt vom Tor statt aus der Umsetzung.
+    let mut running = running;
     let mut countdowns = Countdowns::default();
     pass_over(&mut countdowns, Some(1), &[], &running);
+    slots::apply_queue(&mut running, countdowns.queue());
     assert_eq!(
-        countdowns.queue().entries.len(),
-        1,
+        running.queued, 1,
         "ohne Abbruch wartet eine in der Warteschlange"
     );
     assert_eq!(start::is_held(&running), None);
 
-    let cancelled = two_start_stations(cancelled_row(), &HashMap::new());
+    let mut cancelled = two_start_stations(cancelled_row(), &HashMap::new());
     assert!(
         cancelled
             .phases
@@ -4339,10 +4351,10 @@ fn cancelled_implementation_starts_no_queued_station() {
         due_ids(&cancelled).is_empty(),
         "kein Countdown wird geplant"
     );
-    assert!(
-        slots::station_waiters(&cancelled, true, ProjectPriority::Normal).is_empty(),
-        "die Warteschlange ist leer"
-    );
+    let mut countdowns = Countdowns::default();
+    assert!(pass_over(&mut countdowns, Some(1), &[], &cancelled).is_empty());
+    slots::apply_queue(&mut cancelled, countdowns.queue());
+    assert_eq!(cancelled.queued, 0, "die Warteschlange ist leer");
     assert_eq!(start::is_held(&cancelled), Some(IS_CANCELLED));
 }
 
