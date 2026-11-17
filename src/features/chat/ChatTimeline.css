@@ -32,7 +32,14 @@
   }
 
   &__block {
+    position: relative;
     box-sizing: border-box;
     padding: 0 var(--space-5xl) 14px;
+
+    /* Die Uhrzeit alles außer Nachrichten erscheint beim Überfahren oder mit dem Fokus im Block. */
+    &:hover .entry-time--hover,
+    &:focus-within .entry-time--hover {
+      opacity: 1;
+    }
   }
 }

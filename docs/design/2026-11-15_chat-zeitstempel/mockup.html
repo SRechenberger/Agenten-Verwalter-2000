@@ -1,0 +1,309 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Zeitpunkt im Chat – Entwurf</title>
+<style>
+  /* Tokens aus src/styles/theme.css (hell, dunkel), nur die hier gebrauchten. */
+  :root {
+    --font-sans: 'Segoe UI Variable Text', 'Segoe UI', system-ui, sans-serif;
+    --font-mono: 'Cascadia Code', 'Cascadia Mono', Consolas, ui-monospace, monospace;
+    --font-size-2xs: 11px;
+    --font-size-xs: 12px;
+    --font-size-sm: 12.5px;
+    --font-size-md: 13px;
+    --font-size-lg: 13.5px;
+    --space-2xs: 2px; --space-xs: 4px; --space-sm: 6px; --space-md: 8px; --space-lg: 10px;
+    --space-xl: 12px; --space-2xl: 16px; --space-3xl: 20px; --space-4xl: 24px; --space-5xl: 32px;
+    --radius-sm: 4px; --radius-md: 6px; --radius-lg: 8px; --radius-full: 999px;
+    --color-bg-base: #ffffff;
+    --color-bg-sidebar: #f8f8f8;
+    --color-bg-surface: #ffffff;
+    --color-bg-hover: #f0f0f0;
+    --color-border: #cecece;
+    --color-border-subtle: #e5e5e5;
+    --color-fg-primary: #3c3c3c;
+    --color-fg-secondary: #555555;
+    --color-fg-muted: #6e6e6e;
+    --color-accent: #c4572f;
+    --color-accent-text: #a8461f;
+    --color-fg-on-accent: #ffffff;
+    --color-status-error: #d23b33;
+    --color-status-running: #2563eb;
+    --color-status-completed: #16803c;
+    --color-status-waiting: #a86a00;
+  }
+  :root[data-theme="dark"] {
+    --color-bg-base: #1f1f1f;
+    --color-bg-sidebar: #181818;
+    --color-bg-surface: #252526;
+    --color-bg-hover: #2e2e30;
+    --color-border: #3c3c3c;
+    --color-border-subtle: #2b2b2b;
+    --color-fg-primary: #d4d4d4;
+    --color-fg-secondary: #b0b0b0;
+    --color-fg-muted: #8f8f8f;
+    --color-accent: #e0825c;
+    --color-accent-text: #eea283;
+    --color-fg-on-accent: #1d130e;
+    --color-status-error: #f47067;
+    --color-status-running: #5b9dff;
+    --color-status-completed: #4cc38a;
+    --color-status-waiting: #f2b33d;
+  }
+
+  * { box-sizing: border-box; }
+  html { background: var(--color-bg-sidebar); }
+  body {
+    margin: 0;
+    background: var(--color-bg-sidebar);
+    color: var(--color-fg-primary);
+    font-family: var(--font-sans);
+    font-size: var(--font-size-md);
+    line-height: 1.5;
+  }
+  .page { width: min(1180px, 100%); margin: 0 auto; padding: 24px 16px 48px; }
+  h1 { margin: 0 0 4px; font-size: 18px; }
+  .sub { margin: 0 0 16px; color: var(--color-fg-muted); }
+  .controls { display: flex; flex-wrap: wrap; align-items: center; gap: 16px; margin: 0 0 16px; }
+  .seg { display: inline-flex; border: 1px solid var(--color-border); border-radius: var(--radius-md); overflow: hidden; }
+  .seg button { padding: 4px 12px; border: 0; background: transparent; color: var(--color-fg-secondary); font: inherit; cursor: pointer; }
+  .seg button[aria-pressed="true"] { background: var(--color-accent); color: var(--color-fg-on-accent); font-weight: 600; }
+  .seg button:focus-visible, .check input:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+  .check { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+  .layout { display: grid; grid-template-columns: minmax(0, 1fr) 330px; gap: 24px; align-items: start; }
+  @media (max-width: 900px) { .layout { grid-template-columns: minmax(0, 1fr); } }
+
+  /* ===== Verlauf (so wie ChatTimeline.css es rahmt) ===== */
+  .timeline {
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    background: var(--color-bg-base);
+    padding-top: var(--space-2xl);
+  }
+  .block { position: relative; padding: 0 var(--space-5xl) 14px; }
+
+  /* ===== NEU 1: Tagestrenner, oben im Block-Rahmen, wenn der Tag wechselt ===== */
+  .day-divider {
+    margin: 0 0 var(--space-xl);
+    color: var(--color-fg-muted);
+    font-size: var(--font-size-2xs);
+    letter-spacing: .04em;
+    text-transform: uppercase;
+    user-select: none;
+  }
+
+  /* ===== NEU 2: Zeitpunkt, links über dem Eintrag, nur die Uhrzeit ===== */
+  .entry-time {
+    color: var(--color-fg-muted);
+    font-size: var(--font-size-2xs);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+    user-select: none;
+  }
+  /* Nachrichten: eigene Zeile über dem Eintrag, immer sichtbar (der Block wird eine Zeile höher). */
+  .entry-time--message { display: block; margin: 0 0 var(--space-xs); line-height: 14px; }
+  /* Alles andere: schwebt beim Überfahren in der Lücke über dem Block, ändert keine Höhe. */
+  .entry-time--hover {
+    position: absolute; top: -11px; left: var(--space-5xl);
+    line-height: 11px; opacity: 0; transition: opacity 120ms;
+  }
+  .block:hover .entry-time--hover,
+  .block:focus-within .entry-time--hover,
+  .force-hover .entry-time--hover { opacity: 1; }
+
+  /* ===== Nachbau der bestehenden Blöcke (vereinfacht) ===== */
+  .user-message { display: flex; flex-direction: column; gap: var(--space-md); margin-top: var(--space-sm); }
+  .user-message__box {
+    padding: var(--space-lg) var(--space-xl); border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg); background: var(--color-bg-surface);
+  }
+  .user-message__text { margin: 0; font-size: var(--font-size-lg); line-height: 1.6; }
+  .session-message__from { display: block; margin: var(--space-sm) 0 0; color: var(--color-accent-text); font-size: var(--font-size-xs); font-weight: 600; }
+  .markdown p { margin: 0 0 var(--space-md); font-size: var(--font-size-lg); line-height: 1.6; }
+  .markdown p:last-child { margin-bottom: 0; }
+  code { padding: 0 var(--space-sm); border-radius: var(--radius-sm); background: var(--color-bg-hover); font-family: var(--font-mono); font-size: var(--font-size-sm); }
+  .dot { display: inline-block; flex-shrink: 0; width: 8px; height: 8px; border-radius: var(--radius-full); }
+  .dot--done { background: var(--color-status-completed); }
+  .dot--error { background: var(--color-status-error); }
+  .tool-group__toggle { display: flex; align-items: center; gap: var(--space-md); color: var(--color-fg-secondary); }
+  .tool-group__title { color: var(--color-fg-primary); font-weight: 600; }
+  .thinking { color: var(--color-fg-muted); font-size: var(--font-size-sm); font-style: italic; }
+  .todo-list { display: flex; flex-direction: column; gap: var(--space-xs); }
+  .todo-list__head { display: flex; align-items: center; gap: var(--space-md); }
+  .todo-list__item { padding-left: var(--space-2xl); color: var(--color-fg-secondary); font-size: var(--font-size-sm); }
+  .todo-list__item--done { color: var(--color-status-completed); }
+  .card { display: flex; align-items: center; gap: var(--space-lg); padding: var(--space-lg) var(--space-xl); border: 1px solid var(--color-border); border-radius: var(--radius-lg); background: var(--color-bg-surface); }
+  .card__name { font-family: var(--font-mono); font-size: var(--font-size-sm); }
+  .card__hint { margin-left: auto; color: var(--color-fg-muted); font-size: var(--font-size-xs); }
+  .question { padding: var(--space-xl); border: 1px solid var(--color-status-waiting); border-radius: var(--radius-lg); background: var(--color-bg-surface); }
+  .question__title { margin: 0 0 var(--space-sm); font-weight: 600; }
+  .question__options { display: flex; gap: var(--space-md); margin-top: var(--space-lg); }
+  .pill { padding: 3px 12px; border: 1px solid var(--color-border); border-radius: var(--radius-full); color: var(--color-fg-secondary); font-size: var(--font-size-xs); }
+  .error-block { display: flex; gap: var(--space-lg); padding: var(--space-xl); border: 1px solid var(--color-status-error); border-radius: var(--radius-lg); background: var(--color-bg-surface); }
+  .error-block__title { font-weight: 600; }
+  .error-block__text { color: var(--color-fg-secondary); font-size: var(--font-size-sm); }
+  .notice { display: flex; align-items: center; gap: var(--space-lg); color: var(--color-fg-muted); font-size: var(--font-size-sm); }
+  .notice::before, .notice::after { content: ""; height: 1px; flex: 1; background: var(--color-border-subtle); }
+
+  /* ===== Spalte rechts ===== */
+  .spec { position: sticky; top: 16px; display: flex; flex-direction: column; gap: 16px; }
+  .panel { padding: 14px 16px; border: 1px solid var(--color-border); border-radius: var(--radius-lg); background: var(--color-bg-base); }
+  .panel h2 { margin: 0 0 8px; font-size: var(--font-size-md); }
+  .panel ul { margin: 0; padding-left: 18px; }
+  .panel li { margin: 2px 0; font-size: var(--font-size-sm); color: var(--color-fg-secondary); }
+  .panel li b { color: var(--color-fg-primary); }
+  .legend { display: flex; flex-direction: column; gap: 6px; font-size: var(--font-size-sm); color: var(--color-fg-secondary); }
+  .legend span.tag { display: inline-block; min-width: 64px; margin-right: 6px; padding: 0 6px; border-radius: var(--radius-sm); background: var(--color-bg-hover); font-size: var(--font-size-xs); text-align: center; }
+  .tip { margin: 8px 0 0; padding: 4px 8px; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-bg-surface); font-size: var(--font-size-xs); }
+</style>
+</head>
+<body>
+<div class="page">
+  <h1>Zeitpunkt an Einträgen im Chat</h1>
+  <p class="sub">Story #106 · Entwurf zum Plan vom 2026-11-15, Stand nach dem Review-Kommentar: nur Uhrzeit, Datum blockweise, Zeit links über dem Eintrag</p>
+
+  <div class="controls">
+    <span class="seg" role="group" aria-label="Farbschema">
+      <button type="button" data-theme-set="light" aria-pressed="false">Hell</button>
+      <button type="button" data-theme-set="dark" aria-pressed="false">Dunkel</button>
+    </span>
+    <label class="check"><input type="checkbox" id="force"> Überfahren simulieren (alle versteckten Zeiten zeigen)</label>
+  </div>
+
+  <div class="layout">
+    <section class="timeline" id="timeline" aria-label="Verlauf (Entwurf)">
+
+      <!-- Eintrag von vor der Änderung: nur die Nutzernachricht hat eine Zeit, der Tag steht trotzdem als Trenner da. -->
+      <div class="block">
+        <p class="day-divider">Donnerstag 12.11.</p>
+        <time class="entry-time entry-time--message" datetime="2026-11-12T09:14:31" title="Donnerstag, 12. November 2026 um 09:14:31">09:14</time>
+        <div class="user-message"><div class="user-message__box"><p class="user-message__text">Warum startet die Session nach dem Neustart nicht von selbst?</p></div></div>
+      </div>
+      <div class="block">
+        <div class="markdown"><p>Weil der Agent erst mit der nächsten Nachricht neu gestartet wird (Regel 4: Sessions überleben die UI). Dieser Eintrag ist von vor der Änderung und hat <b>keinen</b> Zeitpunkt: keine Zeit, auch nicht beim Überfahren.</p></div>
+      </div>
+      <div class="block">
+        <div class="tool-group"><div class="tool-group__toggle"><span class="dot dot--done"></span><span class="tool-group__title">3 Werkzeug-Aufrufe</span><span>Read · Grep · Read</span> ▸</div></div>
+      </div>
+
+      <div class="block">
+        <p class="day-divider">Gestern, Samstag 14.11.</p>
+        <time class="entry-time entry-time--message" datetime="2026-11-14T22:47:09" title="Samstag, 14. November 2026 um 22:47:09">22:47</time>
+        <div class="user-message"><div class="user-message__box"><p class="user-message__text">Mach daraus eine Story.</p></div></div>
+      </div>
+      <div class="block">
+        <time class="entry-time entry-time--message" datetime="2026-11-14T22:48:09" title="Samstag, 14. November 2026 um 22:48:09">22:48</time>
+        <div class="markdown"><p>Ich habe Story #106 „Zeitstempel im Chat“ angelegt und die drei offenen Fragen eingetragen.</p></div>
+      </div>
+      <div class="block">
+        <time class="entry-time entry-time--hover" datetime="2026-11-14T22:48:31" title="Samstag, 14. November 2026 um 22:48:31">22:48</time>
+        <div class="tool-group"><div class="tool-group__toggle"><span class="dot dot--done"></span><span class="tool-group__title">2 Werkzeug-Aufrufe</span><span>Bash · Bash</span> ▸</div></div>
+      </div>
+
+      <div class="block">
+        <p class="day-divider">Heute, Sonntag 15.11.</p>
+        <time class="entry-time entry-time--message" datetime="2026-11-15T14:31:42" title="Sonntag, 15. November 2026 um 14:31:42">14:31</time>
+        <div class="user-message"><div class="user-message__box"><p class="user-message__text">Benenne das Feld <code>sent_at</code> in allen Varianten um und prüf die Tests.</p></div></div>
+      </div>
+      <div class="block">
+        <time class="entry-time entry-time--hover" datetime="2026-11-15T14:31:50" title="Sonntag, 15. November 2026 um 14:31:50">14:31</time>
+        <div class="thinking">▸ Gedacht · 12 s</div>
+      </div>
+      <div class="block">
+        <time class="entry-time entry-time--hover" datetime="2026-11-15T14:32:03" title="Sonntag, 15. November 2026 um 14:32:03">14:32</time>
+        <div class="tool-group"><div class="tool-group__toggle"><span class="dot dot--done"></span><span class="tool-group__title">4 Werkzeug-Aufrufe</span><span>Read · Edit · Edit · Bash</span> ▸</div></div>
+      </div>
+      <div class="block">
+        <time class="entry-time entry-time--message" datetime="2026-11-15T14:32:41" title="Sonntag, 15. November 2026 um 14:32:41">14:32</time>
+        <div class="markdown"><p>Erledigt: <code>sent_at</code> heißt jetzt in drei Varianten <code>at</code>, die Tests laufen grün.</p><p>Offen ist nur, ob die Hinweise ebenfalls eine Zeit tragen sollen.</p></div>
+      </div>
+      <div class="block">
+        <time class="entry-time entry-time--hover" datetime="2026-11-15T14:32:44" title="Sonntag, 15. November 2026 um 14:32:44">14:32</time>
+        <div class="todo-list">
+          <div class="todo-list__head"><span class="dot dot--done"></span><b>Aufgaben</b><span style="color:var(--color-fg-muted)">2 von 3</span></div>
+          <div class="todo-list__item todo-list__item--done">☑ Feld umbenennen</div>
+          <div class="todo-list__item todo-list__item--done">☑ Tests anpassen</div>
+          <div class="todo-list__item">☐ Bindings neu erzeugen</div>
+        </div>
+      </div>
+      <div class="block">
+        <time class="entry-time entry-time--hover" datetime="2026-11-15T14:33:10" title="Sonntag, 15. November 2026 um 14:33:10">14:33</time>
+        <div class="card"><span class="card__name">zeitpunkt-entwurf.html</span><span class="card__hint">Artefakt · öffnen</span></div>
+      </div>
+      <div class="block">
+        <time class="entry-time entry-time--hover" datetime="2026-11-15T14:33:27" title="Sonntag, 15. November 2026 um 14:33:27">14:33</time>
+        <div class="question">
+          <p class="question__title">Rückfrage</p>
+          <div>Soll die Zeit auch an den Hinweisen stehen?</div>
+          <div class="question__options"><span class="pill">Ja</span><span class="pill">Nein</span></div>
+        </div>
+      </div>
+      <div class="block">
+        <time class="entry-time entry-time--hover" datetime="2026-11-15T14:34:02" title="Sonntag, 15. November 2026 um 14:34:02">14:34</time>
+        <div class="error-block"><span class="dot dot--error" style="margin-top:6px"></span><div><div class="error-block__title">Build fehlgeschlagen</div><div class="error-block__text">error[E0063]: missing field <code>at</code> in initializer of <code>ChatEntry::Notice</code></div></div></div>
+      </div>
+      <div class="block">
+        <time class="entry-time entry-time--hover" datetime="2026-11-15T14:34:48" title="Sonntag, 15. November 2026 um 14:34:48">14:34</time>
+        <div class="notice">Antwort fertig · 2 min 41 s · 0,42 $</div>
+      </div>
+      <div class="block">
+        <time class="entry-time entry-time--message" datetime="2026-11-15T14:36:15" title="Sonntag, 15. November 2026 um 14:36:15">14:36</time>
+        <div class="session-message"><span class="session-message__from">Von Session 3 „Review“</span>
+          <div class="user-message"><div class="user-message__box"><p class="user-message__text">Review fertig, zwei Befunde, beide klein.</p></div></div></div>
+      </div>
+    </section>
+
+    <aside class="spec">
+      <div class="panel">
+        <h2>Entscheidungen (Benutzer, 2026-11-15)</h2>
+        <ul>
+          <li><b>Alle Einträge</b> tragen einen Zeitpunkt.</li>
+          <li><b>Nachrichten</b> (Nutzer, Session, Agent) zeigen ihn immer, <b>alles andere</b> erst beim Überfahren.</li>
+          <li><b>Am Eintrag nur die Uhrzeit</b>; das <b>Datum blockweise</b> als Tagestrenner („Heute, Sonntag 15.11.“); der <b>Tooltip</b> nennt den vollen Zeitpunkt mit Sekunden.</li>
+          <li><b>Links über</b> dem jeweiligen Eintrag.</li>
+          <li><b>Alte Einträge</b> ohne Zeitpunkt: nichts, auch nicht beim Überfahren (kein Tagestrenner durch sie).</li>
+        </ul>
+      </div>
+      <div class="panel">
+        <h2>Umsetzung im Mock</h2>
+        <ul>
+          <li>Uhrzeit <code>HH:MM</code>, <code>--font-size-2xs</code>, <code>--color-fg-muted</code>, bündig mit dem Inhalt (links, 32 px Rand).</li>
+          <li><b>Nachrichten:</b> eigene Zeile über dem Eintrag, immer sichtbar. Der Block wird dadurch <b>eine Zeile höher</b> (14 px + 4 px Abstand).</li>
+          <li><b>Alles andere:</b> schwebt beim Überfahren in der Lücke über dem Block (zwischen zwei Blöcken sind 14 px, die Zeit sitzt 0 bis 11 px über dem Block), ändert keine Höhe.</li>
+          <li><b>Tagestrenner</b> oben im Block-Rahmen, wenn der Tag gegenüber dem letzten Block mit Zeit wechselt; auch vor dem ersten Block mit Zeit.</li>
+          <li>Nicht markierbar (<code>user-select: none</code>): Kopieren aus dem Verlauf nimmt weder Uhrzeiten noch Tagestrenner mit.</li>
+          <li>Werkzeug-Gruppe: Zeit des ersten Aufrufs.</li>
+        </ul>
+        <p class="tip">Tooltip auf der Uhrzeit: Samstag, 14. November 2026 um 22:48:09</p>
+      </div>
+      <div class="panel legend">
+        <h2>Lesehilfe</h2>
+        <div><span class="tag">immer</span>Nutzer, Session, Agententext</div>
+        <div><span class="tag">Überfahren</span>Gedanken, Werkzeuge, Aufgaben, Artefakte, Rückfragen, Fehler, Hinweise</div>
+        <div><span class="tag">leer</span>Einträge von vor der Änderung (die Nutzernachricht oben hat ihre vorhandene Zeit)</div>
+      </div>
+    </aside>
+  </div>
+</div>
+
+<script>
+  const root = document.documentElement;
+  const params = new URLSearchParams(location.search);
+  const sys = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+  function setTheme(name) {
+    root.dataset.theme = name;
+    document.querySelectorAll('[data-theme-set]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.themeSet === name)));
+  }
+  document.querySelectorAll('[data-theme-set]').forEach((b) => b.addEventListener('click', () => setTheme(b.dataset.themeSet)));
+  setTheme(params.get('theme') ?? sys);
+
+  const force = document.getElementById('force');
+  const timeline = document.getElementById('timeline');
+  function setForce(on) { force.checked = on; timeline.classList.toggle('force-hover', on); }
+  force.addEventListener('change', () => setForce(force.checked));
+  setForce(params.get('hover') === '1');
+</script>
+</body>
+</html>

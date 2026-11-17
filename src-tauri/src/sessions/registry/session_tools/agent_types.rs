@@ -39,6 +39,7 @@ fn waiting_with_proposal() -> (SessionState, mpsc::Receiver<Value>) {
         tool_request: Some(proposal()),
         chain_limited: false,
         origin: None,
+        at: None,
     });
     let (reply, result) = mpsc::channel();
     state.pending.push((

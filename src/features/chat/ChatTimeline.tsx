@@ -4,7 +4,9 @@ import { useVirtualizer, type VirtualItem } from '@tanstack/react-virtual';
 import { FileLinkSessionContext } from '@/components/FileLinkSessionContext';
 import { ArtifactCard } from '@/features/artifacts/ArtifactCard';
 import { BackgroundLine } from '@/features/chat/BackgroundLine';
-import { buildBlocks, type ChatBlock } from '@/features/chat/buildBlocks';
+import { buildBlocks, type ChatBlock, type ToolEntry } from '@/features/chat/buildBlocks';
+import { entryTime, dayDividers } from '@/features/chat/entryTimeText';
+import { EntryTime } from '@/features/chat/EntryTime';
 import { ErrorBlock } from '@/features/chat/ErrorBlock';
 import { HandoffAnswer } from '@/features/chat/HandoffAnswer';
 import { PinnedUserMessage } from '@/features/chat/PinnedUserMessage';
@@ -146,6 +148,13 @@ export function ChatTimeline({
   const blocks: ChatBlock[] = useMemo(
     () => buildBlocks(entries, backgroundByToolUseId),
     [entries, backgroundByToolUseId],
+  );
+  // „Heute“ und „Gestern“ der Tagestrenner gelten für den Zeitpunkt des Öffnens: Ein Verlauf, der über
+  // Mitternacht offen bleibt, zeigt weiter „Heute“, bis er neu geöffnet wird.
+  const [now] = useState<number>(() => Date.now());
+  const dividers: (string | null)[] = useMemo(
+    () => dayDividers(blocks.map(blockTime), now, !hasMore),
+    [blocks, now, hasMore],
   );
   const isWorking: boolean = session.status === 'starting' || session.status === 'running';
   const count: number = blocks.length + (isWorking ? 1 : 0);
@@ -555,6 +564,25 @@ export function ChatTimeline({
     }
   }
 
+  /** Tagestrenner und Uhrzeit des Blocks; der Block „Arbeitet …“ bekommt nichts. */
+  function renderTime(block: ChatBlock | undefined, divider: string | null): ReactElement | null {
+    if (block === undefined) {
+      return null;
+    }
+    return (
+      <EntryTime
+        at={blockTime(block)}
+        divider={divider}
+        isMessage={
+          block.kind === 'entry' &&
+          (block.entry.kind === 'user' ||
+            block.entry.kind === 'sessionMessage' ||
+            block.entry.kind === 'text')
+        }
+      />
+    );
+  }
+
   function renderBlock(block: ChatBlock | undefined): ReactElement {
     if (block === undefined) {
       return <WorkingIndicator label={workingLabel} />;
@@ -611,6 +639,7 @@ export function ChatTimeline({
                 style={{ transform: `translateY(${String(item.start + bottomOffset)}px)` }}
               >
                 <div className="chat-timeline__block" data-seq={blockSeq(blocks[item.index])}>
+                  {renderTime(blocks[item.index], dividers[item.index] ?? null)}
                   {renderBlock(blocks[item.index])}
                 </div>
               </div>
@@ -635,6 +664,20 @@ export function ChatTimeline({
       )}
     </>
   );
+}
+
+/** Zeitpunkt eines Blocks: sein Eintrag, bei einer Werkzeug-Gruppe der erste Aufruf. */
+function blockTime(block: ChatBlock): number | null {
+  switch (block.kind) {
+    case 'entry':
+      return entryTime(block.entry);
+    case 'tools': {
+      const first: ToolEntry | undefined = block.tools[0];
+      return first === undefined ? null : entryTime(first);
+    }
+    case 'background':
+      return entryTime(block.tool);
+  }
 }
 
 function blockSeq(block: ChatBlock | undefined): number | undefined {

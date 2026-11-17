@@ -12,11 +12,11 @@
 
 ## Prüfkette
 
-Lint, Typecheck und Build sind die Qualitätsschranke dieses Projekts — Tests gehören nicht dazu. Die einzigen sind die Unit-Tests der Fix-Runden-Auswahl in `src-tauri/src/implementation/tests.rs` und der Agententypen in `src-tauri/src/agent_types/tests.rs`, die des Steuerrechts unter `src-tauri/src/remote/` und die der Umgebung der Kindprozesse unter `src-tauri/src/processes/`; der Job `check` fährt sie in drei Schritten, mit `cargo test --manifest-path src-tauri/Cargo.toml --lib remote::`, mit `cargo test --manifest-path src-tauri/Cargo.toml --lib processes::` und mit `cargo test --manifest-path src-tauri/Cargo.toml --lib -- implementation:: agent_types::`; lokal laufen alle mit `cargo test --manifest-path src-tauri/Cargo.toml`, `pnpm check` fährt keine davon. `pnpm check` fährt die Kette lokal, [.github/workflows/check.yml](../../.github/workflows/check.yml) identisch in GitHub Actions (plus die Bindings-Prüfung, siehe unten):
+Lint, Typecheck und Build sind die Qualitätsschranke dieses Projekts — Tests gehören nicht dazu. Die einzigen sind die Unit-Tests der Fix-Runden-Auswahl in `src-tauri/src/implementation/tests.rs` und der Agententypen in `src-tauri/src/agent_types/tests.rs`, die des Steuerrechts unter `src-tauri/src/remote/`, die der Umgebung der Kindprozesse unter `src-tauri/src/processes/` und die des Zeitpunkts der Chat-Einträge in `src-tauri/src/agents/event.rs` und `src-tauri/src/sessions/registry.rs`; der Job `check` fährt sie in vier Schritten, mit `cargo test --manifest-path src-tauri/Cargo.toml --lib remote::`, mit `cargo test --manifest-path src-tauri/Cargo.toml --lib processes::`, mit `cargo test --manifest-path src-tauri/Cargo.toml --lib -- agents::event:: sessions::registry::tests::` und mit `cargo test --manifest-path src-tauri/Cargo.toml --lib -- implementation:: agent_types::`; lokal laufen alle mit `cargo test --manifest-path src-tauri/Cargo.toml`, `pnpm check` fährt keine davon. `pnpm check` fährt die Kette lokal, [.github/workflows/check.yml](../../.github/workflows/check.yml) identisch in GitHub Actions (plus die Bindings-Prüfung, siehe unten):
 
 ```text
 pnpm version:check Abgleich der vier Versionsstellen, dazu der Selbsttest der Versionsregel (`selftest`)
-pnpm selftest      Selbsttest der Kanten-Regeln und der Warnleiste der Oberfläche (Stufe, Weg, Zyklus, Kontingent; implementationGraph.selftest.ts)
+pnpm selftest      Selbsttests der Oberfläche (Kanten-Regeln und Warnleiste: Stufe, Weg, Zyklus, Kontingent, implementationGraph.selftest.ts; Zeitpunkt im Chat: entryTimeText.selftest.ts)
 pnpm lint          ESLint
 pnpm typecheck     tsc für App und Vite-Konfiguration
 pnpm format:check  Prettier
