@@ -2,7 +2,7 @@
   display: inline-flex;
   flex-direction: column;
   gap: var(--space-xs);
-  align-items: flex-end;
+  align-items: flex-start;
 
   &__input {
     box-sizing: border-box;

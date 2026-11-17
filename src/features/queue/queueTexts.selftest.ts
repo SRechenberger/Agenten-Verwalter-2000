@@ -3,7 +3,10 @@
 // Datei importiert nur Typen.
 import {
   entryStage,
+  entryWhat,
   parseMaxAgents,
+  messageWaitPosition,
+  messageWaitShort,
   messageWaitText,
   priorityMark,
   slotCells,
@@ -42,6 +45,11 @@ const ENTRIES: QueueEntry[] = [
 ];
 
 const CASES: { name: string; actual: () => unknown; expected: unknown }[] = [
+  {
+    name: 'what_names_kind_and_title',
+    actual: () => ENTRIES.map((e) => entryWhat(e).split(' · ')[0]).join(),
+    expected: 'Station,Nachricht,Fortsetzen',
+  },
   { name: 'max_agents_empty_is_unlimited', actual: () => parseMaxAgents('  '), expected: null },
   { name: 'max_agents_number', actual: () => parseMaxAgents(' 6 '), expected: 6 },
   { name: 'max_agents_zero_is_invalid', actual: () => parseMaxAgents('0'), expected: undefined },
@@ -90,19 +98,25 @@ const CASES: { name: string; actual: () => unknown; expected: unknown }[] = [
   },
   {
     name: 'message_wait_uses_core_position',
-    actual: () => messageWaitText(ENTRIES, 'a'),
-    expected: 'Nachricht wartet · Platz 2',
+    actual: () => messageWaitPosition(ENTRIES, 'a'),
+    expected: 2,
   },
   {
     name: 'message_wait_ignores_resume',
-    actual: () => messageWaitText(ENTRIES, 'b'),
+    actual: () => messageWaitPosition(ENTRIES, 'b'),
     expected: null,
   },
   {
     name: 'message_wait_none_for_other',
-    actual: () => messageWaitText(ENTRIES, 'c'),
+    actual: () => messageWaitPosition(ENTRIES, 'c'),
     expected: null,
   },
+  {
+    name: 'message_wait_text',
+    actual: () => messageWaitText(2),
+    expected: 'Nachricht wartet · Platz 2',
+  },
+  { name: 'message_wait_short', actual: () => messageWaitShort(2), expected: '✉ Platz 2' },
   {
     name: 'slots_under_limit',
     actual: () => slotsText(queue(4, 3)),

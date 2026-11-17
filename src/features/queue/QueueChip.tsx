@@ -17,7 +17,7 @@ import type { QueueEntry } from '@/lib/bindings/QueueEntry';
 import { useAgentQueueStore } from '@/stores/agentQueue';
 import './QueueChip.css';
 
-const LIST_WIDTH = 460;
+const LIST_WIDTH = 540;
 
 interface QueueChipProps {
   /** Für die Spalte „Vorhaben“. */

@@ -14,7 +14,7 @@ import { useSettingsNavStore } from '@/stores/settingsNav';
 import './SlotsMeter.css';
 
 /** „Plätze n von m (App)“ mit Füllstand und dem Weg zur Grenze in den Einstellungen (ADR 068); ersetzt
- *  „Parallel max.“ je Umsetzung. Bis die Warteschlange gelesen ist, steht nichts da. */
+ *  den Zähler je Umsetzung. Bis die Warteschlange gelesen ist, steht nichts da. */
 export function SlotsMeter(): ReactElement | null {
   const queue: AgentQueue | null = useAgentQueueStore((state) => state.queue);
   if (queue === null) {

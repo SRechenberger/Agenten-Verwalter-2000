@@ -96,12 +96,25 @@ export function waitingSinceText(sinceMs: number, now: number): string {
   return `vor ${String(Math.floor(minutes / MINUTES_PER_HOUR))} h`;
 }
 
-/** Zeile einer Session, der eine Nachricht im Posteingang auf einen Platz wartet: „Nachricht wartet · Platz 2“. */
-export function messageWaitText(entries: readonly QueueEntry[], sessionId: string): string | null {
+/** Platz der Nachricht, die im Posteingang dieser Session auf einen Platz wartet; `null` ohne. */
+export function messageWaitPosition(
+  entries: readonly QueueEntry[],
+  sessionId: string,
+): number | null {
   const entry: QueueEntry | undefined = entries.find(
     (candidate: QueueEntry) => candidate.kind === 'message' && candidate.sessionId === sessionId,
   );
-  return entry === undefined ? null : `Nachricht wartet · Platz ${String(entry.position)}`;
+  return entry === undefined ? null : entry.position;
+}
+
+/** Zeile einer Session oder Station: „Nachricht wartet · Platz 2“. */
+export function messageWaitText(position: number): string {
+  return `Nachricht wartet · Platz ${String(position)}`;
+}
+
+/** Dasselbe kurz für die schmalen Zeilen der Sidebar: „✉ Platz 2“. */
+export function messageWaitShort(position: number): string {
+  return `✉ Platz ${String(position)}`;
 }
 
 /** Leiste der Umsetzung: „Plätze 3 von 4 (App)“, über der Grenze mit „· über der Grenze: dein Start“. */

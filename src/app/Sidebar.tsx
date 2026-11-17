@@ -18,7 +18,7 @@ import {
 import { isLocked, isRemote, LOCKED_TITLE } from '@/features/remote/projectAccess';
 import { displayStatus } from '@/features/sessions/sessionStatus';
 import { QueueChip } from '@/features/queue/QueueChip';
-import { messageWaitText } from '@/features/queue/queueTexts';
+import { messageWaitPosition } from '@/features/queue/queueTexts';
 import { UsageSection } from '@/features/usage/UsageSection';
 import type { ImplementationView } from '@/lib/bindings/ImplementationView';
 import type { ProjectGroup } from '@/lib/bindings/ProjectGroup';
@@ -630,7 +630,7 @@ export function Sidebar({
         <SidebarItem
           session={session}
           status={displayStatus(session, sessions)}
-          messageWait={messageWaitText(queueEntries, session.id)}
+          messageWait={messageWaitPosition(queueEntries, session.id)}
           isActive={session.id === activeSessionId}
           isRenaming={
             renaming !== null && renaming.kind === 'session' && renaming.id === session.id

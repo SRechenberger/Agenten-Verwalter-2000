@@ -6,6 +6,7 @@ import { StatusIcon } from '@/components/StatusIcon';
 import { TwinFoldersIcon } from '@/components/TwinFoldersIcon';
 import { formatDuration } from '@/features/background/backgroundLabels';
 import { useNow } from '@/features/background/useNow';
+import { messageWaitShort, messageWaitText } from '@/features/queue/queueTexts';
 import type { DisplayStatus } from '@/features/sessions/sessionStatus';
 import type { SessionSummary } from '@/lib/bindings/SessionSummary';
 import { useOverlapStore } from '@/stores/overlaps';
@@ -17,8 +18,8 @@ interface SidebarItemProps {
   session: SessionSummary;
   /** Symbol-Status; kann `handoff` sein, was der Core nicht kennt. */
   status: DisplayStatus;
-  /** „Nachricht wartet · Platz 2“, wenn eine zugestellte Nachricht auf einen Platz wartet (ADR 068). */
-  messageWait: string | null;
+  /** Platz der zugestellten Nachricht, die auf einen Platz wartet (ADR 068); `null` ohne. */
+  messageWait: number | null;
   isActive: boolean;
   isRenaming: boolean;
   onSelect: () => void;
@@ -93,7 +94,16 @@ export function SidebarItem({
             {formatDuration(now - session.awaitedScript.startedAt)}
           </span>
         )}
-        {messageWait !== null && <span className="sidebar-item__queue">{messageWait}</span>}
+        {messageWait !== null && (
+          <span
+            className="sidebar-item__queue"
+            role="img"
+            aria-label={messageWaitText(messageWait)}
+            title={messageWaitText(messageWait)}
+          >
+            {messageWaitShort(messageWait)}
+          </span>
+        )}
         {hasOverlap && (
           <span
             className="sidebar-item__overlap"

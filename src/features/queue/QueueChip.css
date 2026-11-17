@@ -41,15 +41,15 @@
       border-bottom: 1px solid var(--color-border-subtle);
       color: var(--color-fg-primary);
     }
-  }
 
-  &__rank {
-    color: var(--color-accent-text);
-    font-weight: 600;
-  }
+    & .queue-chip__rank {
+      color: var(--color-accent-text);
+      font-weight: 600;
+    }
 
-  &__since {
-    white-space: nowrap;
+    & .queue-chip__since {
+      white-space: nowrap;
+    }
   }
 
   &__note {
