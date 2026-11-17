@@ -5,6 +5,7 @@ use std::thread;
 
 use tauri::{AppHandle, Manager};
 
+use super::master::MasterRef;
 use super::model::{BriefChange, ImplementationView, PhaseView, StationState, StationView};
 use super::slots::{Claimed, Start};
 use super::{IS_CANCELLED, START_DELAY, StationRef, announce, schedule, station_in};
@@ -21,23 +22,26 @@ use crate::settings::model::OperatingMode;
 const HELD_BY_CANCEL: &str =
     "Eine Anfrage zum Abbrechen liegt vor; erst bestätigen oder verwerfen.";
 
-// Wie man fertig meldet, samt Übergabenotiz (ADR 061, Werkzeuge); die Felder nennt die Beschreibung
-// des Werkzeugs, nicht dieser Text.
+// Wie man meldet, samt Übergabenotiz (ADR 061, 069); die Felder nennt die Beschreibung des Werkzeugs,
+// nicht dieser Text.
 const FIRST_MESSAGE_FOOTER: &str = "Melde diese Station mit dem Werkzeug \
-    implementation_complete_station fertig, mit einer Zeile Ergebnis. Was ein wartender Nachfolger \
-    darüber hinaus wissen muss, gibst du dort als Übergabenotiz mit; wie, steht in der Beschreibung \
-    des Werkzeugs. Endet deine Antwort ohne diese Meldung, wartet die Umsetzung auf den Benutzer. Gib \
-    keine Einstiegszeile aus.";
+    implementation_complete_station an deinen Master: mit einem Betreff in einer Zeile und einer \
+    Notiz als Bericht. Die Meldung mit Notiz ist dein Bericht an ihn; er entscheidet, sobald dein Zug \
+    beendet ist, und kann sie zurückgeben. Was ein wartender Nachfolger darüber hinaus wissen muss, \
+    gibst du dort als Übergabenotiz mit; wie, steht in der Beschreibung des Werkzeugs. Endet deine \
+    Antwort ohne diese Meldung, geht sie an deinen Master. Gib keine Einstiegszeile aus.";
 
 /// Die erste Nachricht der Session einer Station. `/<skill>` steht allein in der ersten Zeile,
 /// weil die Kommandozeile einen Befehl nur am Anfang erkennt: der Skill der Station, sonst der erste
-/// ihres Typs. Die übrigen Skills des Typs nennt die Zeile darunter als Anweisung (ADR 060); ob es
-/// sie gibt, prüft niemand.
+/// ihres Typs. Die übrigen Skills des Typs nennen die Zeile darunter als Anweisung (ADR 060); ob es
+/// sie gibt, prüft niemand. Der Master steht mit Nummer, Titel und ID da, denn `verwalter_send_message_to`
+/// braucht die ID (ADR 069).
 pub fn first_message(
     view: &ImplementationView,
     phase: &PhaseView,
     station: &StationView,
     type_skills: &[String],
+    master: Option<&MasterRef>,
 ) -> String {
     let mut lines: Vec<String> = Vec::new();
     let first_skill: Option<&str> = station
@@ -69,6 +73,9 @@ pub fn first_message(
             "Umsetzung: {} — Quelle: {}",
             view.name, view.source
         ));
+    }
+    if let Some(master) = master {
+        lines.push(format!("Master: {}", master.describe()));
     }
     if !phase.description.is_empty() {
         lines.push(format!("Phase: {}", phase.description));
@@ -521,7 +528,8 @@ fn start_claimed(
     let type_skills: &[String] = agent_type
         .map(|agent_type: &AgentType| agent_type.skills.as_slice())
         .unwrap_or_default();
-    let message: String = first_message(&view, phase, station, type_skills);
+    let master = registry.master_ref(view.master_session_id.as_deref());
+    let message: String = first_message(&view, phase, station, type_skills, master.as_ref());
     stop_if_cancelled(app, registry, implementation_id, &created.id)?;
     if let Err(error) = registry.send(app, &created.id, &message, &[], &[], None) {
         registry.log_session_line(

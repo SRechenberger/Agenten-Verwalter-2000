@@ -13,6 +13,7 @@ const LABEL: Record<StationState, string> = {
   waitsForQuota: 'setzt automatisch fort',
   asking: 'fragt dich',
   waitsForYou: 'wartet auf dich',
+  reported: 'gemeldet',
   done: 'fertig',
   error: 'Fehler',
 };
@@ -28,6 +29,7 @@ const ICON: Record<StationState, DisplayStatus> = {
   waitsForQuota: 'paused',
   asking: 'waiting',
   waitsForYou: 'waiting',
+  reported: 'running',
   done: 'completed',
   error: 'error',
 };
@@ -46,6 +48,8 @@ const TONE: Record<StationState, StationTone> = {
   waitsForQuota: 'todo',
   asking: 'wait',
   waitsForYou: 'wait',
+  // Wie „läuft“: Der Master entscheidet, nicht du (ADR 069).
+  reported: 'run',
   done: 'done',
   error: 'error',
 };
@@ -60,6 +64,7 @@ const URGENCY_RANK: Record<StationState, number> = {
   starting: 4,
   waitsForScript: 4,
   waitsForQuota: 4,
+  reported: 4,
   ready: 5,
   pending: 6,
   done: 7,

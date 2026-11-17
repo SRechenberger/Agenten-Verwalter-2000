@@ -230,6 +230,7 @@ fn registry_with_two_implementations() -> SessionRegistry {
                         auto_resume: false,
                         cancelled_at: None,
                         pending_cancel: None,
+                        master_session_id: None,
                     },
                     &[PhaseRow {
                         id: format!("phase-{key}"),
@@ -269,6 +270,10 @@ fn registry_with_two_implementations() -> SessionRegistry {
                         brief_changes: Vec::new(),
                         restarts: 0,
                         auto_resume: None,
+                        reported_at: None,
+                        report: None,
+                        returns: 0,
+                        released_at: None,
                     }],
                 )?;
             }

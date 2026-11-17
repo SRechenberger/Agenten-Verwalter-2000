@@ -15,7 +15,7 @@ use super::{
     summarize, update,
 };
 use crate::agent_types::model::AgentType;
-use crate::agents::event::{Attachment, Question};
+use crate::agents::event::{Attachment, ChatEntry, Question, SessionRef};
 use crate::attachments;
 use crate::changes::{self, model::ChangesReach};
 use crate::db::agent_types as agent_type_rows;
@@ -26,9 +26,10 @@ use crate::error::CommandError;
 use crate::file_links;
 use crate::implementation::changes as implementation_changes;
 use crate::implementation::edit::EditedPlan;
+use crate::implementation::master::{self, MasterRef};
 use crate::implementation::model::{
     BriefChange, ImplementationView, InquiryCreated, PendingCancel, PendingChange, PhaseInput,
-    PhaseView, StationOptions, StationSettings, check_agents,
+    PhaseView, StationOptions, StationSettings, StoredReport, check_agents,
 };
 use crate::implementation::report::{self, Extras};
 use crate::implementation::wake::{self, WakeEvent, WakeFacts};
@@ -44,6 +45,15 @@ const NO_IMPLEMENTATION: &str = "In diesem Vorhaben gibt es keine Umsetzung.";
 const NOT_DELETABLE: &str = "Nur abgebrochene oder nie gestartete Umsetzungen lassen sich löschen.";
 const NO_CANCEL_REQUEST: &str = "Es liegt keine Anfrage zum Abbrechen vor.";
 const CANCEL_REQUESTED: &str = "Es liegt schon eine Anfrage vor.";
+
+/// Wie der Zug einer Station steht, für das Wecken des Masters (ADR 069).
+pub struct StationTurn {
+    /// Der rohe Status der Session (`Completed`, auch mit wartendem Subagenten).
+    pub status: SessionStatus,
+    pub has_ended: bool,
+    /// Kennzeichnet den Zug: die Zeit der letzten Aktivität der Session, als Bits.
+    pub marker: u64,
+}
 
 /// Ein neuerer Lagebericht für eine Rückfrage: die Datei und was `send` im Zustand vermerkt.
 pub(super) struct ReportUpdate {
@@ -198,7 +208,7 @@ impl SessionRegistry {
     }
 
     /// Bindet die Station an ihre frische Session und merkt die Session als Station. Die
-    /// Datenbank-Zeile zuerst, damit eine Fertigmeldung der Session die Station schon findet.
+    /// Datenbank-Zeile zuerst, damit eine Meldung der Session die Station schon findet.
     pub fn bind_station(
         &self,
         app: &AppHandle,
@@ -367,22 +377,182 @@ impl SessionRegistry {
             .unwrap_or_default())
     }
 
-    /// Meldet die Station fertig und hängt `followups` dahinter an (eine Datenbank-Transaktion).
+    /// Nimmt die Station an und hängt `followups` dahinter an (eine Datenbank-Transaktion); `false`, wenn sie
+    /// schon angenommen ist oder (mit `needs_report`) keine Meldung mehr liegt.
     pub fn store_station_completion(
         &self,
         station_id: &str,
         result: &str,
         followups: &[StationRow],
-    ) -> Result<(), CommandError> {
+        needs_report: bool,
+    ) -> Result<bool, CommandError> {
         self.database.with(|connection| {
-            implementation_rows::complete_station_with_followups(
+            implementation_rows::accept_station_with_followups(
                 connection,
                 station_id,
                 now_ms(),
                 result,
                 followups,
+                needs_report,
             )
         })
+    }
+
+    /// Legt die Meldung der Station ab (ADR 069) und ersetzt eine frühere; `false`, wenn sie schon
+    /// angenommen ist.
+    pub fn store_report(
+        &self,
+        station_id: &str,
+        report: &StoredReport,
+    ) -> Result<bool, CommandError> {
+        let json = serde_json::to_string(report)
+            .map_err(|error| CommandError::Database(error.to_string()))?;
+        self.database.with(|connection| {
+            implementation_rows::set_report(connection, station_id, now_ms(), &json)
+        })
+    }
+
+    /// Zählt die Rückgabe und löscht die Meldung, wenn noch `seen` Rückgaben gezählt sind (`return_report`).
+    pub fn store_return(&self, station_id: &str, seen: u32) -> Result<bool, CommandError> {
+        self.database
+            .with(|connection| implementation_rows::return_report(connection, station_id, seen))
+    }
+
+    /// Setzt die Marke „freigegeben“ einer Station des Benutzers (`release_station`).
+    pub fn store_release(&self, station_id: &str) -> Result<bool, CommandError> {
+        self.database.with(|connection| {
+            implementation_rows::release_station(connection, station_id, now_ms())
+        })
+    }
+
+    /// Setzt den Master der Umsetzung (ADR 069, D11): die Session gehört zum selben Vorhaben und ist keine
+    /// Station. Die Session-Sperre kurz, die Datenbank danach ohne sie.
+    pub fn store_master(
+        &self,
+        implementation_id: &str,
+        implementation_project_id: &str,
+        session_id: &str,
+    ) -> Result<(), CommandError> {
+        let session = self.get(session_id)?;
+        let is_station = session.lock().station_of.is_some();
+        if let Some(refusal) =
+            master::set_master_refusal(&session.project_id, implementation_project_id, is_station)
+        {
+            return Err(CommandError::Implementation(refusal.to_owned()));
+        }
+        self.database.with(|connection| {
+            implementation_rows::set_master(connection, implementation_id, session_id)
+        })
+    }
+
+    /// `true`, wenn der Zug der Session beendet ist (`master::turn_ended`); eine unbekannte Session gilt als
+    /// beendet.
+    pub fn station_turn_ended(&self, session_id: &str) -> bool {
+        self.station_turn(session_id)
+            .is_none_or(|turn: StationTurn| turn.has_ended)
+    }
+
+    /// Der Zug der Session einer Station, kurz unter ihrer Sperre; `None` für eine unbekannte.
+    pub fn station_turn(&self, session_id: &str) -> Option<StationTurn> {
+        let session = self.get(session_id).ok()?;
+        let state = session.lock();
+        Some(StationTurn {
+            status: state.status,
+            has_ended: master::turn_ended(
+                state.status,
+                state.awaits_background() || state.continues_by_itself,
+            ),
+            marker: state.last_activity_at.to_bits(),
+        })
+    }
+
+    /// Der Text der letzten Antwort der Session, für „ohne Meldung“; leer ohne eine. Lädt den Verlauf.
+    pub fn last_answer_of(&self, session_id: &str) -> String {
+        let Ok(session) = self.get(session_id) else {
+            return String::new();
+        };
+        let Ok(state) = session.lock_loaded() else {
+            return String::new();
+        };
+        state
+            .entries
+            .iter()
+            .rev()
+            .find_map(|entry: &ChatEntry| match entry {
+                ChatEntry::Text { text, .. } => Some(text.clone()),
+                _ => None,
+            })
+            .unwrap_or_default()
+    }
+
+    /// Der Master der Umsetzung als Session mit Nummer und Titel; `None`, wenn keiner gesetzt oder gelöscht.
+    pub fn master_ref(&self, master_session_id: Option<&str>) -> Option<MasterRef> {
+        let session = self.get(master_session_id?).ok()?;
+        let title = session.lock().name.clone();
+        Some(MasterRef {
+            id: session.id.clone(),
+            number: session.number,
+            title,
+        })
+    }
+
+    /// Der Master der Umsetzung, zu der die Station gehört, für die Sperren der Session-Werkzeuge. Die
+    /// Datenbank ohne Session-Sperre; `None`, wenn die Umsetzung keinen erreichbaren Master hat.
+    pub fn master_of_station_in(&self, implementation_id: &str) -> Option<MasterRef> {
+        let master_id = self
+            .database
+            .with(|connection| implementation_rows::load(connection, implementation_id))
+            .ok()
+            .flatten()
+            .and_then(|stored: StoredImplementation| stored.row.master_session_id);
+        self.master_ref(master_id.as_deref())
+    }
+
+    /// Stellt der Station die Rückgabe zu (ADR 069, D4): eine Session mit Fehler oder Abbruch startet neu
+    /// und bekommt den Text mit dem Senden, jede andere über `deliver` (Absender der Master, sonst der
+    /// Verwalter). Nie unter einer Sperre aufrufen.
+    pub fn send_to_station(
+        &self,
+        app: &AppHandle,
+        session_id: &str,
+        master_session_id: Option<&str>,
+        text: &str,
+    ) -> Result<(), CommandError> {
+        let session = self.get(session_id)?;
+        let status = session.lock().status;
+        if matches!(status, SessionStatus::Error | SessionStatus::Cancelled) {
+            self.restart(app, session_id)?;
+            return self.send(app, session_id, text, &[], &[], None);
+        }
+        let sender =
+            self.master_ref(master_session_id)
+                .map_or_else(wake::sender, |master: MasterRef| SessionRef {
+                    id: master.id,
+                    number: master.number,
+                    title: master.title,
+                });
+        match self.deliver(app, &session, &sender, text, 0) {
+            ("undeliverable", reason) => {
+                Err(CommandError::Implementation(reason.unwrap_or_else(|| {
+                    "Die Session nimmt die Nachricht nicht an.".to_owned()
+                })))
+            }
+            _ => Ok(()),
+        }
+    }
+
+    /// Eine Nachricht des Verwalters an den neuen Master (ADR 069, D11); scheitert die Zustellung, steht
+    /// der Grund in seinem Protokoll.
+    pub fn tell_master(&self, app: &AppHandle, session_id: &str, text: &str) {
+        let Ok(master) = self.get(session_id) else {
+            return;
+        };
+        let (status, reason) = self.deliver(app, &master, &wake::sender(), text, 0);
+        if let Some(reason) = reason {
+            master.log_line(format!(
+                "Meldung des Verwalters nicht zugestellt ({status}): {reason}"
+            ));
+        }
     }
 
     /// Setzt Automatik, Halt-Schalter und Abschluss der Umsetzung.
@@ -480,7 +650,7 @@ impl SessionRegistry {
         if view.finished_at.is_some() {
             return Err(CommandError::Implementation(ALREADY_FINISHED.to_owned()));
         }
-        // Die Bedingung im `UPDATE` deckt eine Fertigmeldung zwischen Lesen und Schreiben.
+        // Die Bedingung im `UPDATE` deckt eine Annahme zwischen Lesen und Schreiben.
         if !self
             .database
             .with(|connection| implementation_rows::cancel(connection, id, now_ms()))?
@@ -490,7 +660,7 @@ impl SessionRegistry {
         self.cancel_countdowns_of(&view);
         let written = self.implementation_view(id)?;
         for session_id in implementation_changes::sessions_to_stop(&written, |station_id: &str| {
-            self.is_starting(station_id)
+            self.is_busy(&written, station_id)
         }) {
             if let Err(error) = self.cancel(app, &session_id) {
                 self.log_session_line(
@@ -511,7 +681,7 @@ impl SessionRegistry {
         let view = self.implementation_view(id)?;
         if let Some((key, stage)) =
             implementation_changes::working_station(&view, |station_id: &str| {
-                self.is_starting(station_id)
+                self.is_busy(&view, station_id)
             })
         {
             return Err(CommandError::Implementation(format!(
@@ -619,7 +789,7 @@ impl SessionRegistry {
     }
 
     /// Der Zeitgeber von „Automatisch fortsetzen“ feuert (ADR 064): `true`, wenn die Session Station ist
-    /// und fertig gemeldet; dann schickt er nichts. Die Session-Sperre nur kurz, die Datenbank danach
+    /// und angenommen; dann schickt er nichts. Die Session-Sperre nur kurz, die Datenbank danach
     /// ohne sie.
     pub fn resume_is_finished(&self, session_id: &str) -> Result<bool, CommandError> {
         let is_station: bool = self.get(session_id)?.lock().station_of.is_some();
@@ -845,6 +1015,25 @@ impl SessionRegistry {
         self.lock_countdowns().is_starting(station_id)
     }
 
+    /// Startet die Station gerade, oder arbeitet die Session einer gemeldeten Station noch (ihr Zug ist
+    /// nicht beendet, ADR 069)? Dann sperrt sie das Löschen, und Abbrechen stoppt sie.
+    fn is_busy(&self, view: &ImplementationView, station_id: &str) -> bool {
+        if self.is_starting(station_id) {
+            return true;
+        }
+        view.phases
+            .iter()
+            .flat_map(|phase: &PhaseView| phase.stations.iter())
+            .find(|station: &&crate::implementation::model::StationView| station.id == station_id)
+            .is_some_and(|station: &crate::implementation::model::StationView| {
+                station.state == crate::implementation::model::StationState::Reported
+                    && station
+                        .session_id
+                        .as_deref()
+                        .is_some_and(|session_id: &str| !self.station_turn_ended(session_id))
+            })
+    }
+
     fn is_any_starting<'a>(&self, station_ids: impl IntoIterator<Item = &'a str>) -> bool {
         let countdowns = self.lock_countdowns();
         station_ids
@@ -856,38 +1045,38 @@ impl SessionRegistry {
         self.lock_countdowns().release_start(station_id);
     }
 
-    /// Ersteller wecken (ADR 061): legt die Nachricht zu `event` auf demselben Weg wie
-    /// `verwalter_send_message_to` in die Warteschlange der Session, die die Umsetzung angelegt hat.
-    /// Keine Nachricht, wenn sie fehlt (gelöscht, archiviert) oder das Ereignis schon meldete
-    /// (`wake::decide`). Nie unter einer Sperre aufrufen: Die Zustellung kann einen Agenten starten.
-    pub fn wake_creator(
+    /// Master wecken (ADR 069): legt die Nachricht zu `event` auf demselben Weg wie
+    /// `verwalter_send_message_to` in die Warteschlange des Masters der Umsetzung. Keine Nachricht, wenn er
+    /// fehlt (gelöscht, archiviert, nie gesetzt) oder das Ereignis schon meldete (`wake::decide`). Nie
+    /// unter einer Sperre aufrufen: Die Zustellung kann einen Agenten starten.
+    pub fn wake_master(
         &self,
         app: &AppHandle,
         implementation_id: &str,
         event: &WakeEvent,
         facts: &WakeFacts,
     ) {
-        let creator: Option<Arc<Session>> = self
+        let master: Option<Arc<Session>> = self
             .database
             .with(|connection| implementation_rows::load(connection, implementation_id))
             .ok()
             .flatten()
             // Eine abgebrochene Umsetzung weckt niemanden mehr (ADR 066).
             .filter(|stored: &StoredImplementation| stored.row.cancelled_at.is_none())
-            .and_then(|stored: StoredImplementation| stored.row.created_by_session_id)
+            .and_then(|stored: StoredImplementation| stored.row.master_session_id)
             .and_then(|id: String| self.get(&id).ok());
         let text = wake::decide(
             event,
             facts,
-            creator.is_some(),
+            master.is_some(),
             &mut self.lock_countdowns().woken,
         );
-        let (Some(creator), Some(text)) = (creator, text) else {
+        let (Some(master), Some(text)) = (master, text) else {
             return;
         };
-        let (status, reason) = self.deliver(app, &creator, &wake::sender(), &text, 0);
+        let (status, reason) = self.deliver(app, &master, &wake::sender(), &text, 0);
         if let Some(reason) = reason {
-            creator.log_line(format!(
+            master.log_line(format!(
                 "Meldung des Verwalters nicht zugestellt ({status}): {reason}"
             ));
         }
@@ -1018,6 +1207,18 @@ impl SessionRegistry {
             .map(|member: &Arc<Session>| (member.id.clone(), live_of(member, now)))
             .collect();
         let mut view = build_view(stored, &live, &numbers, &countdowns, types);
+        view.master_missing = master::is_master_missing(
+            stored
+                .row
+                .master_session_id
+                .as_deref()
+                .and_then(|id: &str| {
+                    members
+                        .iter()
+                        .find(|member: &&Arc<Session>| member.id == id)
+                })
+                .map(|member: &Arc<Session>| member.lock().status),
+        );
         self.apply_agent_queue(&mut view);
         view
     }
@@ -1061,7 +1262,7 @@ pub(super) fn schedule_station_disarmed(app: &AppHandle, implementation_id: Stri
     }
 }
 
-/// Der Haken nach einer Rückfrage einer Station (ADR 061): weckt den Ersteller, im eigenen Thread aus
+/// Der Haken nach einer Rückfrage einer Station (ADR 061): weckt den Master, im eigenen Thread aus
 /// demselben Grund wie `schedule_station_session_end`.
 pub(super) fn schedule_station_question(
     app: &AppHandle,
@@ -1073,17 +1274,17 @@ pub(super) fn schedule_station_question(
     let spawned = thread::Builder::new()
         .name("implementation-wake".to_owned())
         .spawn(move || {
-            if let Err(error) = implementation::wake_creator_of_question(
+            if let Err(error) = implementation::wake_master_of_question(
                 &thread_app,
                 &implementation_id,
                 &session_id,
                 &request_id,
             ) {
-                eprintln!("Ersteller der Umsetzung nicht geweckt: {error}");
+                eprintln!("Master der Umsetzung nicht geweckt: {error}");
             }
         });
     if let Err(error) = spawned {
-        eprintln!("Ersteller der Umsetzung nicht geweckt: {error}");
+        eprintln!("Master der Umsetzung nicht geweckt: {error}");
     }
 }
 

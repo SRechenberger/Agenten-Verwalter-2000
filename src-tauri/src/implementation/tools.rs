@@ -7,13 +7,18 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 use tauri::{Emitter, Manager};
 
+use super::master::{self, Decider};
 use super::model::{
     Handoff, ImplementationChangedEvent, ImplementationView, MAX_BRIEF_CHARS,
-    MAX_CANCEL_REASON_CHARS, MAX_DESCRIPTION_CHARS, MAX_NAME_CHARS, MAX_PLAN_ID_CHARS,
-    MAX_PROMPT_CHARS, MAX_SOURCE_CHARS, MAX_TITLE_CHARS, PhaseInput, PlanEdit, StationAddition,
-    StationPatch, check_length, refuse_max_parallel, refuse_user_options, stations_in, validate,
+    MAX_CANCEL_REASON_CHARS, MAX_DESCRIPTION_CHARS, MAX_NAME_CHARS, MAX_NOTE_CHARS,
+    MAX_PLAN_ID_CHARS, MAX_PROMPT_CHARS, MAX_RETURN_CHARS, MAX_RETURNS, MAX_SOURCE_CHARS,
+    MAX_TITLE_CHARS, PhaseInput, PlanEdit, StationAddition, StationPatch, StoredReport,
+    check_length, refuse_max_parallel, refuse_user_options, stations_in, validate,
 };
-use super::{IMPLEMENTATION_CHANGED_EVENT, changes, edit, start};
+use super::{
+    IMPLEMENTATION_CHANGED_EVENT, REPORTED_ANSWER, accept_station, changes, edit, release_station,
+    return_station, start,
+};
 use crate::agent_types::model::AgentType;
 use crate::error::CommandError;
 use crate::mcp_access::ProcessKind;
@@ -28,6 +33,8 @@ pub const SET_PHASES: &str = "implementation_set_phases";
 pub const EDIT: &str = "implementation_edit";
 const DESCRIBE_PHASE: &str = "implementation_describe_phase";
 const COMPLETE_STATION: &str = "implementation_complete_station";
+/// Das einzige Werkzeug des Masters (ADR 069): annehmen, zurückgeben oder freigeben.
+pub const REVIEW_STATION: &str = "implementation_review_station";
 /// Fragt an, die Umsetzung abzubrechen (ADR 066); wirkt erst nach Bestätigen auf der Karte.
 pub const CANCEL: &str = "implementation_cancel";
 /// Liest die Agententypen für den Planer (ADR 060); `session_tools_prompt` nennt es beim Namen.
@@ -180,19 +187,23 @@ impl ToolSet for ImplementationTools {
             },
             ToolSpec {
                 name: COMPLETE_STATION,
-                description: "Meldet die Station dieser Session fertig, mit einer Zeile Ergebnis; \
-                              `fix_needed` bei einem Review, das eine Fix-Runde braucht. Was ein \
-                              wartender Nachfolger zusätzlich wissen muss, gibst du als `handoff` \
-                              mit: `note` ergänzt den Auftrag jedes wartenden Nachfolgers (mit \
-                              `fix_needed` den der Fix-Runde); `replace` ändert den Auftrag eines \
-                              Nachfolgers statt ihn zu ergänzen, nur wo die Station es erlaubt. Lehnt \
-                              ein Nachfolger ab, ist nichts gemeldet und der Fehler nennt das Feld; \
-                              melde dann ohne `handoff`. Die Antwort nennt, wessen Auftrag sich \
-                              geändert hat. Dem Nachfolger selbst schreibst du nicht.",
+                description: "Meldet die Station dieser Session an ihren Master: `result` ist der \
+                              Betreff in einer Zeile, `note` der Bericht an den Master; `fix_needed` \
+                              bei einem Review, das eine Fix-Runde braucht. Die Meldung ist keine \
+                              Fertigmeldung: Der Master nimmt sie an oder gibt sie zurück, sobald \
+                              dein Zug beendet ist; eine zweite Meldung vor seiner Entscheidung \
+                              ersetzt die erste. Was ein wartender Nachfolger zusätzlich wissen muss, \
+                              gibst du als `handoff` mit: `note` ergänzt den Auftrag jedes wartenden \
+                              Nachfolgers (mit `fix_needed` den der Fix-Runde); `replace` ändert den \
+                              Auftrag eines Nachfolgers statt ihn zu ergänzen, nur wo die Station es \
+                              erlaubt; beides wirkt mit der Annahme. Lehnt ein Nachfolger ab, ist nichts \
+                              gemeldet und der Fehler nennt das Feld; melde dann ohne `handoff`. Dem \
+                              Nachfolger selbst schreibst du nicht.",
                 input_schema: json!({
                     "type": "object",
                     "properties": {
                         "result": { "type": "string", "minLength": 1, "maxLength": MAX_RESULT_CHARS },
+                        "note": { "type": "string", "minLength": 1, "maxLength": MAX_NOTE_CHARS, "description": "Bericht an den Master: was getan ist, was offen ist, worauf er achten soll" },
                         "fix_needed": { "type": "boolean" },
                         "handoff": {
                             "type": "object",
@@ -214,7 +225,31 @@ impl ToolSet for ImplementationTools {
                             "additionalProperties": false,
                         },
                     },
-                    "required": ["result"],
+                    "required": ["result", "note"],
+                    "additionalProperties": false,
+                }),
+            },
+            ToolSpec {
+                name: REVIEW_STATION,
+                description: "Entscheidet als Master dieser Umsetzung über die Meldung einer \
+                              Station, wenn der Verwalter dich weckt; nur der Master ruft es auf. \
+                              `accept`: Die Station ist fertig; Fix-Runde, Übergabenotiz und die \
+                              Nachfolger laufen wie bei der früheren Fertigmeldung, die Antwort nennt \
+                              die gestarteten Nachfolger. Möglich erst, wenn der Zug der Station \
+                              beendet ist; sonst weckt der Verwalter dich erneut. `return`: Die \
+                              Meldung geht mit deiner `message` an die Station zurück, sie arbeitet \
+                              weiter und meldet erneut; höchstens dreimal, danach entscheidet der \
+                              Benutzer. `release`: Gibt eine Station „durch dich“ frei, die an der \
+                              Reihe ist; sie bleibt beim Benutzer und trägt die Marke „vom Master \
+                              freigegeben“.",
+                input_schema: json!({
+                    "type": "object",
+                    "properties": {
+                        "station_id": { "type": "string", "minLength": 1, "description": "Kennung der Station (`id` im Lagebericht)" },
+                        "answer": { "type": "string", "enum": ["accept", "return", "release"] },
+                        "message": { "type": "string", "minLength": 1, "maxLength": MAX_RETURN_CHARS, "description": "Nur bei `return`, Pflicht: was die Station ändern oder nachholen soll" },
+                    },
+                    "required": ["station_id", "answer"],
                     "additionalProperties": false,
                 }),
             },
@@ -270,6 +305,7 @@ impl ToolSet for ImplementationTools {
                 .map_err(|error: CommandError| error.to_string()),
             DESCRIBE_PHASE => describe_phase(call, &registry),
             COMPLETE_STATION => complete_station(call, &registry),
+            REVIEW_STATION => review_station(call, &registry),
             SET_PHASES => set_phases(call),
             EDIT => edit_plan(call),
             CANCEL => cancel(call, &registry),
@@ -509,6 +545,8 @@ struct CompleteArguments {
     #[serde(default)]
     result: String,
     #[serde(default)]
+    note: String,
+    #[serde(default)]
     fix_needed: bool,
     #[serde(default)]
     handoff: Option<HandoffArguments>,
@@ -563,10 +601,12 @@ fn checked_handoff(arguments: Option<HandoffArguments>) -> Result<Handoff, Strin
     })
 }
 
-/// Die Station wird über die aufrufende Session gefunden, nie über eine Angabe des Agenten.
+/// Die Station wird über die aufrufende Session gefunden, nie über eine Angabe des Agenten. Sie meldet
+/// an ihren Master (ADR 069); angenommen ist sie erst, wenn der Master es tut.
 fn complete_station(call: &ToolCall, registry: &SessionRegistry) -> Result<ToolResult, String> {
     let arguments: CompleteArguments = parse(call.arguments)?;
     check_length("result", arguments.result.trim(), 1, MAX_RESULT_CHARS)?;
+    check_length("note", arguments.note.trim(), 1, MAX_NOTE_CHARS)?;
     let handoff = checked_handoff(arguments.handoff)?;
     let Some((implementation_id, station_id)) = registry
         .station_of_session(call.session_id)
@@ -574,17 +614,83 @@ fn complete_station(call: &ToolCall, registry: &SessionRegistry) -> Result<ToolR
     else {
         return Err(NOT_A_STATION.to_owned());
     };
-    let outcome = super::complete_station_with_handoff(
-        call.app,
-        &implementation_id,
-        &station_id,
-        &arguments.result,
-        arguments.fix_needed,
-        &handoff,
-    )
-    .map_err(|error| error.to_string())?;
+    let report = StoredReport {
+        result: arguments.result.trim().to_owned(),
+        note: arguments.note.trim().to_owned(),
+        fix_needed: arguments.fix_needed,
+        handoff_note: handoff.note,
+        handoff_replace: handoff.replace,
+    };
+    super::report_station(call.app, &implementation_id, &station_id, &report)
+        .map_err(|error| error.to_string())?;
     Ok(ToolResult::Ok {
-        text: outcome.text(),
+        text: REPORTED_ANSWER.to_owned(),
+        structured: None,
+    })
+}
+
+#[derive(Deserialize)]
+struct ReviewArguments {
+    #[serde(default)]
+    station_id: String,
+    #[serde(default)]
+    answer: String,
+    #[serde(default)]
+    message: Option<String>,
+}
+
+/// Das Werkzeug des Masters (ADR 069, D6): Der Aufrufer muss der Master der Umsetzung sein, in der die
+/// Station liegt.
+fn review_station(call: &ToolCall, registry: &SessionRegistry) -> Result<ToolResult, String> {
+    let arguments: ReviewArguments = parse(call.arguments)?;
+    check_length(
+        "station_id",
+        arguments.station_id.trim(),
+        1,
+        MAX_PLAN_ID_CHARS * 4,
+    )?;
+    let view = registry
+        .require_implementation_of_session(call.session_id)
+        .map_err(|error| error.to_string())?;
+    if !master::is_master(view.master_session_id.as_deref(), call.session_id) {
+        return Err(master::ONLY_THE_MASTER.to_owned());
+    }
+    let station_id = arguments.station_id.trim();
+    let (phase, station) =
+        super::station_in(&view, station_id).map_err(|error| error.to_string())?;
+    let label = format!("Lane {} · {}", phase.key, station.stage);
+    let text = match arguments.answer.as_str() {
+        "accept" => accept_station(call.app, &view.id, station_id, Decider::Master)
+            .map_err(|error| error.to_string())?
+            .text(),
+        "return" => {
+            let returns = return_station(
+                call.app,
+                &view.id,
+                station_id,
+                arguments.message.as_deref().unwrap_or_default(),
+                Decider::Master,
+            )
+            .map_err(|error| error.to_string())?;
+            format!(
+                "Zurückgegeben ({returns} von {MAX_RETURNS}): {label} arbeitet weiter und meldet \
+                 erneut; der Verwalter weckt dich nach ihrem Zug."
+            )
+        }
+        "release" => {
+            release_station(call.app, &view.id, station_id).map_err(|error| error.to_string())?;
+            format!(
+                "Freigegeben: {label} erledigt der Benutzer; die Freigabe steht an der Station."
+            )
+        }
+        other => {
+            return Err(format!(
+                "answer: „{other}“ gibt es nicht; erlaubt sind accept, return und release."
+            ));
+        }
+    };
+    Ok(ToolResult::Ok {
+        text,
         structured: None,
     })
 }

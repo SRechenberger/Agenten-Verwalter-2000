@@ -241,6 +241,7 @@ fn state_label(state: StationState) -> &'static str {
         StationState::WaitsForQuota => "setzt automatisch fort",
         StationState::Asking => "fragt",
         StationState::WaitsForYou => "wartet auf dich",
+        StationState::Reported => "gemeldet, der Master entscheidet",
         StationState::Done => "fertig",
         StationState::Error => "Fehler",
     }
@@ -266,7 +267,7 @@ fn push_section(lines: &mut Vec<String>, title: &str, entries: Vec<String>, empt
     );
 }
 
-/// Stationen mit Session, die noch nicht fertig gemeldet sind.
+/// Stationen mit Session, die noch nicht angenommen sind.
 fn now_lines(view: &ImplementationView) -> Vec<String> {
     let mut entries: Vec<String> = Vec::new();
     for (phase, station) in stations(view) {
@@ -276,6 +277,7 @@ fn now_lines(view: &ImplementationView) -> Vec<String> {
             StationState::WaitsForQuota => "setzt automatisch fort",
             StationState::Asking => "fragt dich:",
             StationState::WaitsForYou => "wartet auf dich",
+            StationState::Reported => "gemeldet, der Master entscheidet",
             StationState::Error => "Fehler",
             _ => continue,
         };

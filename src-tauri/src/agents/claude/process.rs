@@ -267,7 +267,12 @@ fn session_tools_prompt() -> String {
          die ID antwortest du der Session.\n\
          Bevor du einen Plan mit Stationen vorlegst, lies mit \
          {AGENT_TOOL_PREFIX}{AGENT_TYPES} die Agententypen aus den Einstellungen und empfiehl je \
-         Station einen Typ."
+         Station einen Typ.\n\
+         Hast du eine Umsetzung angelegt, bist du ihr Master: Der Verwalter weckt dich bei jedem \
+         Zugende einer Station, und du entscheidest mit \
+         {AGENT_TOOL_PREFIX}implementation_review_station, ob du eine Meldung annimmst, \
+         zurückgibst oder eine Station „durch dich“ freigibst. Eine Station schreibt nur an ihren \
+         Master."
     )
 }
 

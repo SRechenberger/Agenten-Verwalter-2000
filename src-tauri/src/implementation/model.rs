@@ -23,6 +23,12 @@ pub const MAX_PROMPT_CHARS: usize = 4000;
 pub const MAX_PLAN_ID_CHARS: usize = 40;
 /// Grund einer Anfrage zum Abbrechen (ADR 066), getrimmt.
 pub const MAX_CANCEL_REASON_CHARS: usize = 300;
+/// Notiz einer Meldung an den Master (ADR 069), getrimmt.
+pub const MAX_NOTE_CHARS: usize = 1000;
+/// Nachricht einer Rückgabe (ADR 069), getrimmt.
+pub const MAX_RETURN_CHARS: usize = 4000;
+/// So oft darf der Master eine Meldung zurückgeben; danach entscheidet der Benutzer (ADR 069).
+pub const MAX_RETURNS: u32 = 3;
 
 /// Eine neue Rückfrage: die Session und der Lagebericht, der als ungesendeter Anhang an ihr hängt.
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
@@ -49,6 +55,8 @@ pub enum StationState {
     WaitsForQuota,
     Asking,
     WaitsForYou,
+    // Gemeldet (ADR 069): Der Master entscheidet; die Station wartet nicht auf den Benutzer.
+    Reported,
     Done,
     Error,
 }
@@ -64,6 +72,7 @@ impl StationState {
             StationState::Running
             | StationState::WaitsForScript
             | StationState::WaitsForQuota
+            | StationState::Reported
             | StationState::Starting => 3,
             StationState::Ready => 2,
             StationState::Pending => 1,
@@ -77,6 +86,39 @@ impl StationState {
 pub enum PhaseMark {
     New,
     Moved,
+}
+
+// Die Meldung einer Station an ihren Master (ADR 069), solange er nicht entschieden hat.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct StationReport {
+    pub result: String,
+    pub note: String,
+    pub fix_needed: bool,
+    #[ts(type = "number")]
+    pub reported_at: f64,
+}
+
+/// Die Meldung, wie sie als JSON in `implementation_stations.report` steht: dazu die Übergabenotiz, die
+/// erst die Annahme an die Nachfolger weitergibt.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StoredReport {
+    pub result: String,
+    pub note: String,
+    pub fix_needed: bool,
+    #[serde(default)]
+    pub handoff_note: Option<String>,
+    #[serde(default)]
+    pub handoff_replace: Vec<(String, String)>,
+}
+
+impl StoredReport {
+    pub fn handoff(&self) -> Handoff {
+        Handoff {
+            note: self.handoff_note.clone(),
+            replace: self.handoff_replace.clone(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
@@ -141,6 +183,13 @@ pub struct StationView {
     // ADR 064: „Automatisch fortsetzen“ der Station (`None` = wie die Umsetzung) und der wirksame Wert.
     pub auto_resume: Option<bool>,
     pub resumes_automatically: bool,
+    // Ab hier ADR 069: die Meldung an den Master (`None` nach einer Rückgabe und vor der ersten), die
+    // Rückgaben bisher und die übrigen (3 − `returns`, nie negativ) und ob der Master die Station
+    // „durch dich“ freigegeben hat.
+    pub report: Option<StationReport>,
+    pub returns: u32,
+    pub returns_left: u32,
+    pub released: bool,
 }
 
 impl StationView {
@@ -424,6 +473,10 @@ pub struct ImplementationView {
     #[ts(type = "number | null")]
     pub cancelled_at: Option<f64>,
     pub pending_cancel: Option<PendingCancel>,
+    // ADR 069: die Session, die die Meldungen entscheidet, und ob sie ausfällt (gelöscht, Fehler; eine
+    // Kontingent-Pause ist kein Ausfall) oder fehlt.
+    pub master_session_id: Option<String>,
+    pub master_missing: bool,
 }
 
 // Anfrage eines Agenten (`implementation_cancel`), die Umsetzung abzubrechen und bei `delete` danach zu

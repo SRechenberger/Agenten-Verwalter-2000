@@ -328,6 +328,8 @@ export function stateText(station: StationView, now: number): string {
       return 'fragt dich';
     case 'waitsForYou':
       return 'wartet auf dich';
+    case 'reported':
+      return 'gemeldet, der Master entscheidet';
     case 'done':
       return `fertig · ${durationText(station.runningMs)}`;
     case 'error':
@@ -359,6 +361,8 @@ export function stationMeta(station: StationView, now: number): string {
       return 'fragt';
     case 'waitsForYou':
       return 'wartet';
+    case 'reported':
+      return 'gemeldet';
     case 'error':
       return 'Fehler';
     case 'countdown':
@@ -496,6 +500,8 @@ export function rowStateText(station: StationView, now: number): string {
       return 'Frage offen';
     case 'waitsForYou':
       return 'wartet auf dich';
+    case 'reported':
+      return 'gemeldet';
     case 'error':
       return station.restarting ? 'Fehler · startet neu' : 'Fehler';
     case 'countdown':

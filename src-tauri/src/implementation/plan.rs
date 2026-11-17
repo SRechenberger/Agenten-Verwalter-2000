@@ -17,8 +17,9 @@ pub fn plan_prompt(task: &str) -> String {
          \n\
          So ist der Plan aufgebaut: Ein Vorhaben besteht aus Lanes, das sind Stränge, die dem \
          Vorhaben seine Gliederung geben. Eine Lane besteht aus Stationen. Eine Station ist ein \
-         Schritt, den der Verwalter als eigene Session mit frischem Kontext startet und dessen \
-         Ende der Agent selbst meldet. Das übliche Muster einer Lane ist Test, Umsetzung, \
+         Schritt, den der Verwalter als eigene Session mit frischem Kontext startet; ihr Ende \
+         meldet der Agent an dich als Master der Umsetzung, und du nimmst die Meldung an oder \
+         gibst sie zurück. Das übliche Muster einer Lane ist Test, Umsetzung, \
          Review, PR; lass Stationen weg, die zur Aufgabe nicht passen, und teil die Aufgabe in \
          mehrere Lanes, wenn sich Teile unabhängig voneinander bauen lassen.\n\
          \n\
