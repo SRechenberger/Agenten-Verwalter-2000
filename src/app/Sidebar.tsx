@@ -576,6 +576,7 @@ export function Sidebar({
       <div className={`sidebar__session${row.isLast ? ' sidebar__session--last' : ''}`}>
         <SidebarImplementation
           implementation={implementation}
+          underMaster={row.underMaster}
           isActive={
             implementation.id === activeImplementationId ||
             (activeSession?.stationOf === implementation.id &&
@@ -610,6 +611,7 @@ export function Sidebar({
         <SidebarStation
           entry={entry}
           isNested={row.isNested}
+          underMaster={row.underMaster}
           isActive={sessionId !== null && sessionId === activeSessionId}
           isUnread={
             sessionId !== null &&
@@ -630,6 +632,7 @@ export function Sidebar({
         <SidebarItem
           session={session}
           status={displayStatus(session, sessions)}
+          isMaster={row.isMaster}
           messageWait={messageWaitPosition(queueEntries, session.id)}
           isActive={session.id === activeSessionId}
           isRenaming={

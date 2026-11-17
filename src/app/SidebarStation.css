@@ -10,6 +10,11 @@
     border-left: 1px solid var(--color-border-subtle);
   }
 
+  /* Dritte Ebene: die Umsetzung steht schon unter ihrem Master. */
+  &--deep {
+    margin-left: 28px;
+  }
+
   &__button {
     display: flex;
     align-items: center;
