@@ -25,6 +25,8 @@ import {
 import { StationAgentSection } from '@/features/implementation/StationAgentSection';
 import { StationAutomationSection } from '@/features/implementation/StationAutomationSection';
 import { StationBriefSection } from '@/features/implementation/StationBriefSection';
+import { RELEASED_MARK, RELEASED_TITLE } from '@/features/implementation/masterTexts';
+import { StationReportSection } from '@/features/implementation/StationReportSection';
 import { StationFlowSection } from '@/features/implementation/StationFlowSection';
 import { typeNamed, typeOfStation } from '@/features/implementation/stationAgent';
 import { stationTone } from '@/features/implementation/stationState';
@@ -65,6 +67,8 @@ interface StationCardProps {
   onStart: (stationId: string) => void;
   onCancelCountdown: (stationId: string) => void;
   onCompleteByUser: (stationId: string, result: string) => void;
+  /** Name des Masters der Umsetzung („#1 Architekt“); `null` ohne Master oder bei ausgefallenem. */
+  master: string | null;
   /** Gesperrt, solange ein anderes Gerät das Vorhaben steuert oder der Host fehlt. */
   isLocked: boolean;
 }
@@ -91,6 +95,7 @@ export function StationCard({
   onStart,
   onCancelCountdown,
   onCompleteByUser,
+  master,
   isLocked,
 }: StationCardProps): ReactElement {
   const { station, phase } = stationRef;
@@ -247,9 +252,21 @@ export function StationCard({
       <p className="station-card__phase">{phase.title}</p>
       <p className="station-card__state">{rowStateText(station, now)}</p>
       {renderPurpose()}
+      {station.released && (
+        <span className="station-card__mark station-card__mark--ok" title={RELEASED_TITLE}>
+          {RELEASED_MARK}
+        </span>
+      )}
       {renderFail()}
       {renderQuestion()}
       {renderResult()}
+      <StationReportSection
+        implementationId={implementationId}
+        station={station}
+        master={master}
+        isLocked={isLocked}
+        run={run}
+      />
       {renderActions()}
       <div className="station-card__sections">
         <StationFlowSection

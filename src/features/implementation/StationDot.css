@@ -24,6 +24,11 @@
     box-shadow: inset 0 0 0 2px var(--color-bg-base);
   }
 
+  &--reported {
+    background: var(--color-status-reported);
+    color: var(--color-bg-base);
+  }
+
   &--wait {
     background: var(--color-status-waiting);
     color: var(--color-bg-base);
@@ -50,6 +55,10 @@
 
   &--hand-done {
     color: var(--color-status-completed);
+  }
+
+  &--hand-reported {
+    color: var(--color-status-reported);
   }
 
   &--hand-wait {
