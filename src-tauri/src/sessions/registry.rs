@@ -2852,13 +2852,14 @@ impl SessionState {
         })
     }
 
-    /// Belegt einen Platz der globalen Warteschlange (ADR 068, Regel a; `slots::holds_slot`).
-    fn holds_slot(&self) -> bool {
+    /// Belegt einen Platz der globalen Warteschlange (ADR 068, Regel a; `slots::holds_slot`), zur Zeit
+    /// `now`: Ein Durchgang zählt und sammelt mit derselben Uhr.
+    pub(crate) fn holds_slot_at(&self, now: f64) -> bool {
         slots::holds_slot(
             self.status,
             self.awaits_background() || self.continues_by_itself,
             self.station_of.is_some() && (self.waits_for_resume() || self.awaits_arming),
-            self.resume_is_due(now_ms()),
+            self.resume_is_due(now),
         )
     }
 
@@ -4080,11 +4081,11 @@ fn update<R>(
     let mut outbox = Outbox::default();
     let result = {
         let mut state = session.lock_loaded()?;
-        let held_slot = state.holds_slot();
+        let held_slot = state.holds_slot_at(now_ms());
         let result = change(&mut state, &mut outbox);
         // Vorher und nachher, nicht je Statuswechsel: Auch ein endender Subagent oder ein
         // ausgeschalteter Zeitgeber gibt einen Platz frei (ADR 068).
-        outbox.slots_changed |= held_slot != state.holds_slot();
+        outbox.slots_changed |= held_slot != state.holds_slot_at(now_ms());
         // Auch bei einem Fehler: die Closure kann den Zustand schon verändert haben.
         persist(session, &mut state, &outbox);
         if outbox.summary_dirty {

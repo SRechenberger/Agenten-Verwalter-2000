@@ -5283,8 +5283,10 @@ fn lowering_the_limit_stops_nothing() {
 
 #[test]
 fn waits_for_quota_holds_a_slot() {
-    // Die Session einer Station mit scharfem Zeitgeber zählt (`holds_slot`); ihr Fortsetzen braucht
-    // keinen weiteren Platz und lässt keinen frei.
+    // Die Session einer Station mit scharfem Zeitgeber zählt (`holds_slot`), solange er nicht fällig ist.
+    // Fällig steht sie nicht mehr in `busy`, und ein als belegt gezähltes Fortsetzen nimmt der
+    // Durchgang aus den Wartenden (`without_held_resumes`); `pass` selbst lässt eine Session in `busy`
+    // ohne weiteren Platz durch.
     let busy = vec!["paused-station".to_owned()];
     let mut countdowns = Countdowns::default();
     assert_eq!(countdowns.used(&busy), 1);

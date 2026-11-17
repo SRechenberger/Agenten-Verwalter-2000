@@ -25,13 +25,13 @@ use crate::settings;
 pub const AGENT_QUEUE_CHANGED_EVENT: &str = "agent_queue://changed";
 
 impl SessionRegistry {
-    /// Sessions, die einen Platz belegen (Regel a; `SessionState::holds_slot`), jede kurz und einzeln
-    /// gesperrt.
-    pub(crate) fn busy_sessions(&self) -> Vec<String> {
+    /// Sessions, die zur Zeit `now` einen Platz belegen (Regel a; `SessionState::holds_slot_at`), jede
+    /// kurz und einzeln gesperrt.
+    pub(crate) fn busy_sessions(&self, now: f64) -> Vec<String> {
         let sessions: Vec<Arc<Session>> = self.lock_sessions().values().cloned().collect();
         sessions
             .iter()
-            .filter(|session: &&Arc<Session>| session.lock().holds_slot())
+            .filter(|session: &&Arc<Session>| session.lock().holds_slot_at(now))
             .map(|session: &Arc<Session>| session.id.clone())
             .collect()
     }
@@ -62,9 +62,10 @@ impl SessionRegistry {
         let claimed: Vec<Claimed> = loop {
             let seen: u64 = self.lock_countdowns().releases();
             let limit = self.max_agents();
-            let busy = self.busy_sessions();
-            let waiters = slots::without_held_resumes(self.waiters(), &busy);
+            // Eine Uhr je Durchgang: Zählen und Sammeln sehen dieselbe Fälligkeit.
             let now = now_ms();
+            let busy = self.busy_sessions(now);
+            let waiters = slots::without_held_resumes(self.waiters(now), &busy);
             let ends_at = now + START_DELAY.as_secs_f64() * 1000.0;
             if let Some(claimed) = self
                 .lock_countdowns()
@@ -98,7 +99,7 @@ impl SessionRegistry {
     /// `agent_queue`: die Wartenden des letzten Durchgangs, Grenze und belegte Plätze jetzt.
     pub fn agent_queue(&self) -> AgentQueue {
         let limit = self.max_agents();
-        let busy = self.busy_sessions();
+        let busy = self.busy_sessions(now_ms());
         let countdowns = self.lock_countdowns();
         AgentQueue {
             limit,
@@ -119,7 +120,7 @@ impl SessionRegistry {
         loop {
             let seen: u64 = self.lock_countdowns().releases();
             let limit = self.max_agents();
-            let busy = self.busy_sessions();
+            let busy = self.busy_sessions(now_ms());
             if let Some(claimed) = self
                 .lock_countdowns()
                 .claim_session(seen, limit, &busy, session_id)
@@ -186,7 +187,7 @@ impl SessionRegistry {
     /// Alle Wartenden: bereite Stationen markierter Umsetzungen, Stationen vor dem Neustart nach „Bei
     /// Fehler“, die älteste Nachricht jeder ruhenden Session (auch einer geöffneten, die noch nie lief)
     /// und fällige Fortsetzungen. In der Reihenfolge des Sammelns; ordnen tut das Tor.
-    fn waiters(&self) -> Vec<Waiter> {
+    fn waiters(&self, now: f64) -> Vec<Waiter> {
         let priorities: HashMap<String, ProjectPriority> = self
             .lock_projects()
             .iter()
@@ -210,7 +211,6 @@ impl SessionRegistry {
             .into_iter()
             .collect();
         let sessions: Vec<Arc<Session>> = self.lock_sessions().values().cloned().collect();
-        let now = now_ms();
         for session in sessions {
             let has_message = with_messages.contains(&session.id);
             let (title, takes_message, resume_due_at) = {
