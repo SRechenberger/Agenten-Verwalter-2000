@@ -17,6 +17,8 @@ interface SidebarItemProps {
   session: SessionSummary;
   /** Symbol-Status; kann `handoff` sein, was der Core nicht kennt. */
   status: DisplayStatus;
+  /** „Nachricht wartet · Platz 2“, wenn eine zugestellte Nachricht auf einen Platz wartet (ADR 068). */
+  messageWait: string | null;
   isActive: boolean;
   isRenaming: boolean;
   onSelect: () => void;
@@ -35,6 +37,7 @@ interface SidebarItemProps {
 export function SidebarItem({
   session,
   status,
+  messageWait,
   isActive,
   isRenaming,
   onSelect,
@@ -90,6 +93,7 @@ export function SidebarItem({
             {formatDuration(now - session.awaitedScript.startedAt)}
           </span>
         )}
+        {messageWait !== null && <span className="sidebar-item__queue">{messageWait}</span>}
         {hasOverlap && (
           <span
             className="sidebar-item__overlap"

@@ -88,13 +88,6 @@ export function quotaBarText(waiting: QuotaWaiting): { headline: string; detail:
   return { headline: 'Kontingent aufgebraucht.', detail: `${parts.join(' · ')}.` };
 }
 
-/** „Warteschlange: 2“ in der Leiste. */
-export function queueText(count: number): string {
-  return `Warteschlange: ${String(count)}`;
-}
-
-export const QUEUE_TITLE =
-  'Bereite Stationen, die auf einen freien Platz warten; sie rücken selbst nach';
 export const NEW_LANE_LABEL = '+ Lane';
 export const NEW_LANE_TITLE = 'Neue Lane mit Stationen und Kanten anlegen';
 export const STOP_AFTER_LABEL = 'Anhalten nach dieser Session';

@@ -22,6 +22,7 @@ import { ImplementationView as ImplementationMain } from '@/features/implementat
 import { StationTrail } from '@/features/implementation/StationTrail';
 import { useInquiry } from '@/features/implementation/useInquiry';
 import { useImplementations } from '@/features/implementation/useImplementations';
+import { useAgentQueueSync } from '@/features/queue/useAgentQueueSync';
 import { countChangedFiles } from '@/features/changes/changesScope';
 import { ChangesView } from '@/features/changes/ChangesView';
 import { useSessionChanges } from '@/features/changes/useSessionChanges';
@@ -95,6 +96,8 @@ export function App(): ReactElement {
     reload: reloadImplementations,
     error: implementationsError,
   } = useImplementations();
+  // Die globale Warteschlange für Leiste, Marke „n warten“ und Zeilen (ADR 068).
+  useAgentQueueSync();
   // Fernsteuerung: Geräte und Hosts für Einstellungen, Leiste und Köpfe; die Rechte der Listen für gesperrte Bedienelemente.
   useRemoteSync();
   useProjectAccessSync(projects, sessions);
@@ -517,6 +520,7 @@ export function App(): ReactElement {
           changesCount={changes === null ? null : countChangedFiles(changes)}
           artifactCount={artifactCount}
           onShowView={showProjectView}
+          onProjectChanged={upsertProject}
           terminalCount={runningTerminalCount}
           isTerminalOpen={isTerminalOpen}
           onToggleTerminal={handleToggleTerminal}
