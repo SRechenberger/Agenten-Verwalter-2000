@@ -4830,3 +4830,41 @@ fn auto_resume_timer_of_cancelled_station_sends_nothing() {
     let cancelled = registry_with_station_session(database, SessionStatus::Paused);
     assert!(cancelled.resume_is_cancelled("session").expect("lesbar"));
 }
+
+fn station_with_session(id: &str, position: u32) -> StationRow {
+    StationRow {
+        session_id: Some("session".to_owned()),
+        ..station_row(id, position, "Umsetzung")
+    }
+}
+
+#[test]
+fn auto_resume_timer_of_finished_station_sends_nothing() {
+    let open = registry_with_station_session(
+        database_with(&[station_with_session("first", 0)]),
+        SessionStatus::Paused,
+    );
+    assert!(
+        !open.resume_is_finished("session").expect("lesbar"),
+        "eine offene Station ist nicht fertig"
+    );
+    let database = database_with(&[station_with_session("first", 0)]);
+    database
+        .with(|connection| implementation_rows::complete_station(connection, "first", 5.0, "ok"))
+        .expect("fertig gemeldet");
+    let finished = registry_with_station_session(database, SessionStatus::Paused);
+    assert!(
+        finished.resume_is_finished("session").expect("lesbar"),
+        "eine fertig gemeldete Station ist fertig"
+    );
+}
+
+#[test]
+fn a_session_that_is_not_a_station_is_never_finished_for_the_timer() {
+    let registry = crate::sessions::registry::SessionRegistry::new(
+        std::sync::Arc::new(database_with(&[])),
+        std::sync::Arc::new(crate::remote::RemoteControl::default()),
+    );
+    registry.add_session_for_test("session", "project", SessionStatus::Paused);
+    assert!(!registry.resume_is_finished("session").expect("lesbar"));
+}

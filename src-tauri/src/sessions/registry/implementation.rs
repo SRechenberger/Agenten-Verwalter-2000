@@ -616,6 +616,19 @@ impl SessionRegistry {
         }
     }
 
+    /// Der Zeitgeber von „Automatisch fortsetzen“ feuert (ADR 064): `true`, wenn die Session Station ist
+    /// und fertig gemeldet; dann schickt er nichts. Die Session-Sperre nur kurz, die Datenbank danach
+    /// ohne sie.
+    pub fn resume_is_finished(&self, session_id: &str) -> Result<bool, CommandError> {
+        let is_station: bool = self.get(session_id)?.lock().station_of.is_some();
+        if !is_station {
+            return Ok(false);
+        }
+        self.database.with(|connection| {
+            implementation_rows::session_station_is_completed(connection, session_id)
+        })
+    }
+
     /// Nur für Tests ohne `AppHandle` (ADR 066): eine Session ohne Agent, die als Station an der
     /// Umsetzung hängt.
     #[cfg(test)]
@@ -646,6 +659,21 @@ impl SessionRegistry {
             deleted: std::sync::atomic::AtomicBool::new(false),
         });
         self.lock_sessions().insert(session_id.to_owned(), session);
+    }
+
+    /// Nur für Tests ohne `AppHandle`: eine Session, die keine Station ist.
+    #[cfg(test)]
+    pub(crate) fn add_session_for_test(
+        &self,
+        session_id: &str,
+        project_id: &str,
+        status: SessionStatus,
+    ) {
+        self.add_station_session_for_test(session_id, project_id, "", status);
+        self.get(session_id)
+            .expect("eben angelegt")
+            .lock()
+            .station_of = None;
     }
 
     /// Nur für Tests: der Status der Session.
