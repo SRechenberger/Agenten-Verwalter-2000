@@ -1415,7 +1415,23 @@ fn auto_resume(database: &Database, path: &Path) -> Result<bool, String> {
         holds && frees,
     );
 
+    // Drei pausierte Stationen, Grenze 2: Fällig zählt keine mehr, das Tor lässt zwei fortsetzen.
+    let paused: Vec<String> = ["q1", "q2", "q3"].map(str::to_owned).to_vec();
+    let mut gate = Countdowns::default();
+    let resumed: Vec<Option<bool>> = paused
+        .iter()
+        .map(|id: &String| gate.claim_session(gate.releases(), Some(2), &[], id))
+        .collect();
     let now = now_ms();
+    all &= check(
+        "Automatisch fortsetzen: fällig kein Platz, höchstens bis zur Grenze, neue Pause hält bis zum Haken",
+        slots::holds_slot(SessionStatus::Paused, false, true, false)
+            && !slots::holds_slot(SessionStatus::Paused, false, true, true)
+            && resumed == [Some(true), Some(true), Some(false)]
+            && slots::awaits_arming(true, Some(now + 60_000.0), now)
+            && !slots::awaits_arming(true, Some(now - 1.0), now),
+    );
+
     let open = station(&switched_on, "c").ok_or("keine Station c")?;
     mark_done(database, &switched_on, "c")?;
     let done_view = plan_view(database, &implementation)?;

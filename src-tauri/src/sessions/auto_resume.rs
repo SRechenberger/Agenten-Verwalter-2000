@@ -30,10 +30,11 @@ pub enum WaitEnd {
     Cancelled,
 }
 
-/// Ist das Fortsetzen fällig: Rücksetzzeit samt Aufschlag erreicht. Ein fälliges Fortsetzen, das am Tor
-/// keinen Platz bekam, sammelt der Durchgang der globalen Warteschlange ein (ADR 068).
-pub fn is_due(resets_at: f64, now: f64) -> bool {
-    now >= resets_at + RESUME_MARGIN_MS
+/// Ab wann das Fortsetzen fällig ist: Rücksetzzeit samt Aufschlag. Ab dann belegt die Session keinen
+/// Platz mehr; ein fälliges Fortsetzen, das am Tor keinen Platz bekam, sammelt der Durchgang der
+/// globalen Warteschlange ein (ADR 068).
+pub fn due_at(resets_at: f64) -> f64 {
+    resets_at + RESUME_MARGIN_MS
 }
 
 /// Wartet auf die Wanduhr, nicht auf eine Gesamtdauer: nach einem Ruhezustand des Rechners ist das
@@ -84,7 +85,7 @@ pub(crate) fn spawn(app: &AppHandle, session_id: &str, armed: ArmedResume) {
 fn run(app: &AppHandle, session_id: &str, armed: ArmedResume) {
     let registry = app.state::<SessionRegistry>();
     let end: WaitEnd = wait_until(
-        armed.resets_at + RESUME_MARGIN_MS,
+        due_at(armed.resets_at),
         now_ms,
         || registry.auto_resume_is_current(session_id, armed),
         thread::sleep,
