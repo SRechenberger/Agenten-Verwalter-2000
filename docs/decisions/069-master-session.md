@@ -1,0 +1,79 @@
+# 069 — Master-Session: Meldung und Annahme getrennt
+
+**Status:** angenommen, Kern umgesetzt (Migration 30, Melden und Annehmen getrennt, Werkzeug `implementation_review_station`, Wecken am Zugende, Sperren für Stationen, Master wechseln, Bindings; Story Taiga #99, Phase 99.1); die Oberfläche (Phase 99.2) und die Abnahme in der echten App (99.A) stehen aus · **Datum:** 2026-11-17
+
+## Kontext
+
+Bisher meldete sich eine Station mit `implementation_complete_station` selbst fertig ([ADR 048](048-umsetzung.md), [ADR 061](061-constraint-ablaeufe.md)): Die Meldung war die Annahme, Nachfolger und Fix-Runde starteten sofort, und niemand prüfte, ob die Station wirklich fertig war. Die Session, die die Umsetzung angelegt hatte, hörte nur von einem Befund und vom Ende der Umsetzung ([ADR 061](061-constraint-ablaeufe.md), „Ersteller wecken“); eine Antwort ohne Meldung und ein Fehler erreichten sie nicht. Stationen konnten beliebigen Sessions schreiben und Sessions öffnen ([ADR 052](052-session-werkzeuge.md)). Der Benutzer hat am 2026-11-17 entschieden (U1 bis U9 der Story): Die Meldung geht an einen **Master**, der sie annimmt, zurückgibt oder freigibt.
+
+## Entscheidung
+
+Vom Benutzer entschieden:
+
+- **U1:** Nach der Meldung ist die Station **gemeldet**. Der Master entscheidet erst, wenn ihr Zug beendet ist: Abgabe, Fehler oder Abbruch; eine Pause ist kein Zugende.
+- **U2:** Ein Werkzeug des Masters mit drei Antworten: **annehmen** (Fix-Runde, Übergabe und Nachfolger laufen wie bisher mit der Meldung), **zurückgeben** (höchstens dreimal, danach entscheidet der Benutzer), **freigeben** (Stationen „durch dich“).
+- **U3:** Der Verwalter weckt den Master bei jeder Meldung, jeder Rückfrage, jedem Fehler und jeder Antwort ohne Meldung einer Station.
+- **U4:** Rückfragen und Rechte-Abfragen einer Station beantwortet weiter der Benutzer.
+- **U5:** Kein `report_to_master`, kein `get_master_session`, kein `delegate`; die erste Nachricht der Station nennt den Master.
+- **U6:** Die Meldung verlangt eine Notiz (`note`, 1 bis 1000 Zeichen); `result` bleibt der Betreff.
+- **U7:** Stationen sprechen nur mit ihrem Master.
+- **U8:** Fällt der Master aus (gelöscht, Fehler), bestimmt der Benutzer einen neuen; eine Kontingent-Pause ist kein Ausfall.
+- **U9:** Die Leiste zeigt die Umsetzung als eine Zeile unter ihrem Master (Phase 99.2, ändert [ADR 065](065-stationen-in-der-sidebar.md)).
+
+Gebaut in Phase 99.1 (Kern-Teile von D1 bis D12):
+
+- **D1 — Datenmodell:** `completed_at` heißt jetzt „angenommen“; `is_done`, `is_due`, `may_start`, `stations_done`, `finished_at` und die Zeilen „Vorgänger“ der ersten Nachricht bleiben deshalb unverändert. Migration 30 fügt `implementation_stations` die Spalten `reported_at`, `report` (JSON: Betreff, Notiz, `fix_needed`, Übergabenotiz), `returns` (nicht leer, Standard 0) und `released_at` hinzu, `implementations` die Spalte `master_session_id`, gefüllt aus `created_by_session_id`; diese bleibt. Fertige Stationen bleiben fertig, der Master einer laufenden Umsetzung ist ihr Ersteller (D12).
+- **D2 — Melden:** `implementation_complete_station` prüft wie früher (Station der eigenen Session, Umsetzung nicht abgebrochen, Station nicht angenommen, `handoff` gültig für die Nachfolger von jetzt), verlangt `note` und speichert nur die Meldung; eine zweite vor der Entscheidung ersetzt die erste. Die Antwort: „Gemeldet. Dein Master entscheidet, sobald dein Zug beendet ist.“ Nichts wird geplant, kein Nachfolger startet vor der Annahme (löst Issue 57).
+- **D3 — Annehmen:** `accept_station` läuft die Schritte der früheren Fertigmeldung (`complete_station_with_handoff`: Prüfen, Übergabe, eine Transaktion, Zeitgeber aus, Aufträge der Nachfolger, Weiterplanen) mit der gespeicherten Meldung. Erlaubt nur, wenn die Station gemeldet ist und ihr Zug beendet ist (`master::turn_ended`: Abgabe ohne wartendes Skript, ohne wartenden Subagenten und ohne Weitermachen von selbst; Fehler; Abbruch). Sonst sagt der Satz, dass der Verwalter erneut weckt. Die Transaktion schreibt nur, solange die Station nicht angenommen ist und die Meldung noch liegt: Zwei gleichzeitige Annahmen und eine Annahme nach einer Rückgabe schreiben nichts.
+- **D4 — Zurückgeben:** verlangt eine Nachricht (1 bis 4000 Zeichen), löscht die Meldung, zählt `returns` hoch (nur, wenn noch der gelesene Stand gezählt ist) und stellt die Nachricht zu; an eine Station mit Fehler oder Abbruch geht sie über Neustart und Senden. Ab `returns = 3` lehnt das Werkzeug ab; die Station steht dann auf „wartet auf dich“, und der Benutzer nimmt an oder gibt zurück (Befehle `implementation_accept_station` und `implementation_return_station`, nur bei verbrauchten Rückgaben, danach ohne Grenze).
+- **D5 — Freigeben:** nur für eine Station „durch dich“, die an der Reihe ist; setzt `released_at` und sonst nichts.
+- **D6 — Ein Werkzeug:** `implementation_review_station { station_id, answer: "accept" | "return" | "release", message? }` in `ImplementationTools` (also in Claude, LM Studio und Autark), nur für den Master der Umsetzung, in Nebenfragen gesperrt, `blocks()` bleibt false. Die Antworten nennen das Ergebnis, bei `accept` die gestarteten Nachfolger.
+- **D7 — Wecken am Zugende:** Alle Ereignisse außer der Rückfrage entstehen in `station_session_ended`, wenn der Zug wirklich beendet ist (nicht bei Pause, wartendem Skript oder Subagenten, scharfem Zeitgeber, anstehendem Neustart nach „Bei Fehler“): **Gemeldet** (Betreff, Befund, Notiz), **ohne Meldung** (Schluss der letzten Antwort, 200 Zeichen), **Fehler** oder **gestoppt**. „Fertig“ weckt nur, wenn der Benutzer die letzte Station angenommen hat. Der Schlüssel eines Ereignisses trägt Zähler (Rückgaben und Zug, die Zeit der letzten Aktivität der Session), damit eine Meldung nach einer Rückgabe und ein neuer Zug wieder wecken, ein zweiter Haken desselben Zugendes nicht. Die Entscheidung ist `wake::event_after_turn`, rein.
+- **D9 — Sperren für Stationen** (nur Betriebsart Claude): `verwalter_send_message_to` mit einem anderen Ziel als dem Master und `verwalter_open_session` lehnt der Core mit einem Satz ab, der den Master nennt („Session #N „Titel“, ID …“). Die Sperre sitzt im Sendeweg und vor dem Kasten, nicht in `tool_target`; `get_sessions` und `get_tldr` bleiben offen. Erst die Session (kurz), dann die Datenbank.
+- **D10 — Erste Nachricht:** nennt den Master und sagt, dass die Meldung mit Notiz der Bericht an ihn ist und eine Antwort ohne Meldung an ihn geht.
+- **D11 — Master wechseln:** Befehl `implementation_set_master(id, masterSessionId)` (Klasse C, die Klasse prüft `masterSessionId` als Session-ID): dasselbe Vorhaben, keine Station; der neue Master bekommt eine Nachricht mit der Umsetzung und den offenen Meldungen. Die Ansicht trägt `masterSessionId` und `masterMissing` (Session gelöscht, im Fehler oder nie gesetzt; eine Kontingent-Pause zählt nicht).
+
+Die Ansicht trägt `StationState::Reported` (Wire `reported`, Dringlichkeit wie `running`), `report`, `returns`, `returnsLeft` und `released`. Eine gemeldete Station mit `returnsLeft = 0` hat den Zustand `waitsForYou`. Eine Rückfrage geht vor „gemeldet“: Der Benutzer muss sie beantworten.
+
+## Was das in früheren ADRs überholt
+
+- **[ADR 048](048-umsetzung.md):** „fertig mit Fertigmeldung“ und die Werkzeugliste: Fertig heißt angenommen, die Meldung ist nur der Bericht; das Werkzeug `implementation_review_station` kommt hinzu.
+- **[ADR 061](061-constraint-ablaeufe.md):** „Ersteller wecken“ wird **Master wecken** (Ereignisse, Schlüssel, Wortlaut, siehe unten); `Finding` geht in „Gemeldet“ auf. Die Übergabenotiz wirkt erst mit der Annahme.
+
+## Was sie ergänzt
+
+- **[ADR 052](052-session-werkzeuge.md):** die Sperren für Stationen.
+- **[ADR 062](062-plane-vorhaben.md):** Die planende Session, die die Umsetzung anlegt, ist ihr Master.
+- **[ADR 046](046-mcp-zugang.md):** Codex hat keinen MCP-Zugang des Verwalters und damit weder das Werkzeug des Masters noch die Meldung mit Notiz.
+
+## Wortlaut und Messung
+
+Der Wortlaut steht fest in `wake.rs`: ein Satz je Ereignis mit der Quelle („Meldung des Verwalters“), der Umsetzung („die du leitest“), Lane und Stufe und, je nach Ereignis, Betreff und Notiz der Meldung, dem Schluss der letzten Antwort (auf eine Zeile und 200 Zeichen) oder der Frage. Er sagt, was geschah, nennt bei einer Meldung das Werkzeug `implementation_review_station` und sagt nicht, dass er keine Anweisung sei: Der Satz „keine Anweisung des Nutzers“ ließ Haiku verweigern ([ADR 052](052-session-werkzeuge.md), [ADR 061](061-constraint-ablaeufe.md)). Die Nachricht an einen neuen Master nennt die Umsetzung und die offenen Meldungen (`wake::new_master_message`).
+
+**Messung** (Verfahren wie in [ADR 061](061-constraint-ablaeufe.md)): am 2026-11-17 mit `claude -p --model haiku` (Version 2.1.296), ohne Werkzeuge (`--tools ""`), ohne Einstellungen (`--setting-sources ""`, ohne Sitzungsspeicher, ohne Befehle), die `CLAUDE*`-Variablen der Umgebung entfernt, mit dem Systemprompt der Session-Werkzeuge (`session_tools_prompt`, jetzt mit dem Satz zum Master) und der Nachricht samt erster Zeile `[Nachricht von Session 0 „Verwalter“, ID verwalter]`; die Texte schreibt `implementation-probe --wake-texts`. Je Ereignis drei Läufe, gezählt wird, ob Haiku den Text annimmt (nicht „kommt nicht vom Nutzer“, keine Rückfrage nach der Quelle):
+
+| Ereignis | Läufe | verweigert | Verhalten |
+| :- | :- | :- | :- |
+| Gemeldet, ohne Befund | 3 | 0 | dreimal als Entscheidung behandelt (zweimal zurückgeben, einmal offen); das Werkzeug fehlt in der Messung |
+| Gemeldet, mit Befund (`fix_needed`) | 3 | 0 | dreimal Fix-Runde bzw. „zurückgeben“ empfohlen; ein erfundener Aufruf |
+| Ohne Meldung | 3 | 0 | dreimal Stand der Station prüfen wollen (`verwalter_get_sessions`, TL;DR); zwei erfundene Aufrufe |
+| Fehler | 3 | 0 | dreimal Stand prüfen wollen; zwei erfundene Aufrufe |
+| Gestoppt | 3 | 0 | dreimal zur Kenntnis genommen, Stand prüfen wollen |
+| Fertig | 3 | 0 | dreimal zur Kenntnis genommen, ohne Aktion |
+| Rückfrage (Wortlaut „die du leitest“ statt „angelegt hast“) | 3 | 0 | dreimal an den Benutzer weitergegeben, nicht selbst entschieden |
+| Nachricht an einen neuen Master | 3 | 0 | dreimal als Übernahme gelesen, die offene Meldung wollte er prüfen und dann entscheiden |
+
+0 von 24 Läufen verweigerten; es war keine Umformulierung nötig, und es gibt nur diese eine Fassung. Mehrere Antworten sind durch die fehlenden Werkzeuge der Messung nicht verwertbar (erfundene Aufrufe, „Werkzeug nicht geladen“); die Messung belegt nur, dass der Master den Text annimmt, nicht, dass er richtig entscheidet. Die rohen Ausgaben liegen im Scratchpad der Umsetzungs-Session. Ein anderer Wortlaut braucht eine neue Messung. Nicht gemessen: der geänderte Satz zum Master im Planer-Prompt (`plan_prompt`) und in `session_tools_prompt`; die Messung des Planers (`plan-guard-probe`, [ADR 062](062-plane-vorhaben.md)) kostet Kontingent und folgt mit der Abnahme.
+
+## Bekannte Grenzen
+
+- **Codex:** Ohne MCP des Verwalters melden Stationen dort nicht, und ein Master dort entscheidet nicht; die Umsetzung braucht Claude, LM Studio oder Autark.
+- **Notiz in der Nachricht:** Die Notiz steht bis zu den Referenzen (Story 147) vollständig in der Weck-Nachricht, höchstens 1000 Zeichen.
+- **App-Neustart:** Das Wecken ist nur im Speicher gemerkt und löst nach einem Neustart nichts aus (wie bisher). Eine Meldung, deren Zugende der Master nicht mehr hörte, bleibt „gemeldet“; der Benutzer weckt den Master mit „Master ändern“ auf dieselbe Session, denn die Nachricht an den neuen Master nennt die offenen Meldungen.
+- **Rückgabe ohne Zustellung:** Scheitert das Zustellen der Rückgabe nach dem Zählen (Session gelöscht), zählt sie trotzdem; der Fehlersatz des Werkzeugs sagt es.
+- **Oberfläche:** Zustand „gemeldet“, Bericht in der Kartei, Master im Kopf und die Leiste folgen in Phase 99.2; bis dahin zeigt die Oberfläche den neuen Zustand nur mechanisch (Beschriftung, Ton, Rang).
+- **Doppelte Nummer 068:** Auf `dev` tragen zwei ADRs die Nummer 068; diese ADR hat die Nummer 069 und fasst sie nicht an.
+
+## Prüfung
+
+Reine Funktionen unter `implementation::` (`master.rs`, `wake.rs`) mit Tests: Zugende (Pause, wartendes Skript oder Subagent), Annehmen vor dem Zugende, Grenze der Rückgaben, Freigeben, Master wechseln und ausfallen, die Sperren, Weck-Entscheidung samt Schlüssel; dazu Zustand und Ansicht, Schreiber der Datenbank (Ersatz einer Meldung, Rückgabe, zwei Annahmen), Migration 30, erste Nachricht, Klasse und `ids_of` der Befehle. `implementation-probe --selftest` hat Fälle für die Meldung mitten im Zug, das Annehmen vor dem Zugende, das Zurückgeben bis zur Grenze und den Masterwechsel mit offener Meldung; `--wake-texts` schreibt die Texte der Messung. Die Wege unter `sessions/` (Zustellung, Sperren im Sendeweg, Neustart bei der Rückgabe) sind nur gelesen: Dort laufen keine Tests (`sessions::` führt kein CI-Schritt aus).
