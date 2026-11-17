@@ -11,7 +11,7 @@ use std::process::ExitCode;
 use verwalter_lib::db::projects::{self, ProjectRow};
 use verwalter_lib::db::{Database, project_groups};
 use verwalter_lib::error::CommandError;
-use verwalter_lib::projects::model::ProjectGroup;
+use verwalter_lib::projects::model::{ProjectGroup, ProjectPriority};
 use verwalter_lib::session_tools::model::SelfRelease;
 
 const USAGE: &str = "Aufruf: project-group-probe --selftest";
@@ -49,6 +49,7 @@ fn project(id: &str, created_at: f64, group_id: Option<&str>) -> ProjectRow {
         name_auto: false,
         self_release: SelfRelease::OFF,
         group_id: group_id.map(str::to_owned),
+        priority: ProjectPriority::Normal,
     }
 }
 

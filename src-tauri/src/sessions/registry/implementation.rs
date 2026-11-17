@@ -792,15 +792,16 @@ impl SessionRegistry {
         }
     }
 
-    /// „Abbrechen“ von außen: Eine Station einer fremden Umsetzung läuft weiter. Gibt die Umsetzung
-    /// nach dem Abbruch zurück.
+    /// „Abbrechen“ von außen: Eine Station einer fremden Umsetzung läuft weiter. Die Station bleibt
+    /// bereit, wartet aber erst nach einem Ereignis ihrer Umsetzung wieder (`Countdowns::hold`). Gibt
+    /// die Umsetzung nach dem Abbruch zurück.
     pub fn cancel_countdown_of(
         &self,
         implementation_id: &str,
         station_id: &str,
     ) -> Result<ImplementationView, CommandError> {
         station_in(&self.implementation_view(implementation_id)?, station_id)?;
-        let _ = self.cancel_countdown(station_id);
+        let _ = self.lock_countdowns().hold(implementation_id, station_id);
         self.implementation_view(implementation_id)
     }
 

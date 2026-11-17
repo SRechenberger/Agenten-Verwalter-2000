@@ -2,10 +2,8 @@
 //! beanspruchen. Rein, ohne Tauri-Typen; der Zustand liegt in `Countdowns`, der Blattsperre der
 //! Registry, die nie zusammen mit einer Session-Sperre gehalten wird.
 //!
-//! Ein Platz ist belegt durch eine Session mit Status `Starting` oder `Running` (die Registry zählt
-//! sie, `busy`), einen Countdown, einen Start einer Station und einen Anspruch einer Session
-//! (Zustellung, Fortsetzen). Eine Station, die auf das Kontingent wartet, zählt die Registry als
-//! belegt mit.
+//! Ein Platz ist belegt durch eine Session nach `holds_slot` (die Registry zählt sie, `busy`), einen
+//! Countdown, einen Start einer Station und einen Anspruch einer Session (Zustellung, Fortsetzen).
 use std::collections::HashSet;
 
 use serde::{Deserialize, Serialize};
@@ -14,6 +12,7 @@ use ts_rs::TS;
 use super::model::{ImplementationView, PhaseView, StationView};
 use super::{Countdowns, schedule, start};
 use crate::projects::model::ProjectPriority;
+use crate::sessions::model::SessionStatus;
 
 // Ein Wartender, wie die Liste der Warteschlange ihn zeigt (ADR 068). `position` ist 1-basiert,
 // `since_ms` der Zeitpunkt, seit dem er wartet (eine Nachricht: ihr Eingang).
@@ -103,6 +102,26 @@ fn renumber<'a>(entries: impl Iterator<Item = &'a mut QueueEntry>) {
     }
 }
 
+/// Belegt eine Session einen Platz (Regel a): Der Agent hat einen Zug; oder er hat abgegeben und wartet
+/// auf einen Subagenten oder ein Skript, nach dem er von selbst weitermacht, ohne Tor; oder die Session
+/// einer Station wartet mit scharfem Zeitgeber auf das Kontingent. Eine Rückfrage, eine Pause ohne
+/// Zeitgeber, Fehler, Abbruch, Ende und eine neue Session belegen keinen.
+pub fn holds_slot(
+    status: SessionStatus,
+    awaits_background: bool,
+    station_waits_for_resume: bool,
+) -> bool {
+    match status {
+        SessionStatus::Starting | SessionStatus::Running => true,
+        SessionStatus::Completed => awaits_background,
+        SessionStatus::Paused => station_waits_for_resume,
+        SessionStatus::Waiting
+        | SessionStatus::Error
+        | SessionStatus::Cancelled
+        | SessionStatus::New => false,
+    }
+}
+
 /// Ist bei `used` belegten Plätzen einer frei (Regel f: ohne Grenze immer).
 pub fn has_room(limit: Option<u32>, used: usize) -> bool {
     limit.is_none_or(|limit: u32| used < usize::try_from(limit).unwrap_or(usize::MAX))
@@ -154,7 +173,12 @@ impl Countdowns {
         if self.releases != seen {
             return None;
         }
-        waiters.retain(|waiter: &Waiter| !self.is_claimed(&waiter.key));
+        let skipped: HashSet<String> = std::mem::take(&mut self.skipped);
+        waiters.retain(|waiter: &Waiter| {
+            !self.is_claimed(&waiter.key)
+                && !skipped.contains(&waiter.key)
+                && !(waiter.start == Start::Countdown && self.held.contains_key(&waiter.key))
+        });
         let keys: HashSet<String> = waiters
             .iter()
             .map(|waiter: &Waiter| waiter.key.clone())
@@ -238,6 +262,15 @@ impl Countdowns {
         }
     }
 
+    /// Der Start einer beanspruchten Session scheiterte, ihre Nachricht bleibt: Der Anspruch wird frei,
+    /// und der nächste Durchgang überspringt sie, damit die Wartenden dahinter nachrücken; erst ein
+    /// späterer versucht sie wieder. So hängt die Warteschlange nicht an ihr, und ein Fehlschlag löst
+    /// höchstens einen Durchgang aus.
+    pub fn start_failed(&mut self, session_id: &str) {
+        self.skipped.insert(session_id.to_owned());
+        self.release_session(session_id);
+    }
+
     /// Die Session einer startenden Station ist gebunden: Bis `release_start` zählt der Start, nicht
     /// die Session.
     pub fn bind(&mut self, station_id: &str, session_id: &str) {
@@ -249,9 +282,20 @@ impl Countdowns {
 
     /// Ab jetzt zählen bereite Stationen dieser Umsetzung als Wartende (ADR 068). Nach einem App-Neustart
     /// ist keine Umsetzung so markiert: Ihre Stationen starten erst nach einem Ereignis in ihr
-    /// (Critical Rule 4).
+    /// (Critical Rule 4). Ein per „Abbrechen“ angehaltener Countdown (`hold`) wartet ab hier wieder.
     pub fn arm(&mut self, implementation_id: &str) {
         self.armed.insert(implementation_id.to_owned());
+        self.held
+            .retain(|_, held_in: &mut String| held_in != implementation_id);
+    }
+
+    /// „Abbrechen“ am Countdown: Er endet, und die Station bleibt bereit, ohne zu warten, bis ein
+    /// Ereignis ihrer Umsetzung sie wieder einreiht (`arm`), wie vor der globalen Warteschlange. Sonst
+    /// begänne der nächste Durchgang irgendwo in der App den Countdown neu. `true`, wenn einer lief.
+    pub fn hold(&mut self, implementation_id: &str, station_id: &str) -> bool {
+        self.held
+            .insert(station_id.to_owned(), implementation_id.to_owned());
+        self.cancel(station_id)
     }
 
     pub fn armed(&self) -> HashSet<String> {

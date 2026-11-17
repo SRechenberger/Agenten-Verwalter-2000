@@ -100,6 +100,11 @@ pub struct Countdowns {
     bound: HashMap<String, String>,
     /// Umsetzungen, deren bereite Stationen in diesem Lauf der App warten dürfen.
     armed: HashSet<String>,
+    /// Station → Umsetzung: Countdown per „Abbrechen“ angehalten; wartet erst nach dem nächsten
+    /// Ereignis ihrer Umsetzung (`arm`) wieder.
+    held: HashMap<String, String>,
+    /// Sessions, deren Start aus der Warteschlange scheiterte: Der nächste Durchgang überspringt sie.
+    skipped: HashSet<String>,
     /// Seit wann ein Wartender wartet (Schlüssel wie `slots::Waiter::key`), in ms.
     waiting_since: HashMap<String, f64>,
     /// Die Warteschlange des letzten Durchgangs.

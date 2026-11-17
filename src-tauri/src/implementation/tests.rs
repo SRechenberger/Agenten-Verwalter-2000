@@ -5088,6 +5088,124 @@ fn a_restart_after_error_passes_the_gate() {
 }
 
 #[test]
+fn ready_stations_wait_only_in_an_armed_implementation_but_restarts_always() {
+    let view = view_with_sessions(
+        vec![failing(OnError::RestartOnce, 0), node("ready", &[])],
+        None,
+        true,
+        &[("failing", SessionStatus::Error, true)],
+    );
+    let starts = |is_armed: bool| -> Vec<(String, slots::Start)> {
+        slots::station_waiters(&view, is_armed, ProjectPriority::Normal)
+            .into_iter()
+            .map(|waiter: slots::Waiter| (waiter.key, waiter.start))
+            .collect()
+    };
+    assert_eq!(
+        starts(false),
+        [("failing".to_owned(), slots::Start::Restart)],
+        "nach dem App-Start nicht markiert: keine bereite Station wartet (Critical Rule 4)"
+    );
+    assert_eq!(
+        starts(true),
+        [
+            ("failing".to_owned(), slots::Start::Restart),
+            ("ready".to_owned(), slots::Start::Countdown),
+        ]
+    );
+}
+
+#[test]
+fn a_cancelled_countdown_waits_again_only_after_an_event_of_its_implementation() {
+    let view = limited_view(vec![node("a", &[])], None, true, &[]);
+    let mut countdowns = Countdowns::default();
+    let claimed = pass_over(&mut countdowns, Some(2), &[], &view);
+    assert_eq!(claimed_keys(claimed), ["a"]);
+    assert!(countdowns.hold("implementation", "a"), "der Countdown lief");
+    assert!(
+        pass_over(&mut countdowns, Some(2), &[], &view).is_empty(),
+        "ein fremder Durchgang beginnt ihn nicht neu"
+    );
+    assert!(
+        countdowns.queue().entries.is_empty(),
+        "sie wartet auch nicht"
+    );
+    countdowns.arm("other-implementation");
+    assert!(pass_over(&mut countdowns, Some(2), &[], &view).is_empty());
+    countdowns.arm("implementation");
+    assert_eq!(
+        claimed_keys(pass_over(&mut countdowns, Some(2), &[], &view)),
+        ["a"],
+        "ein Ereignis der eigenen Umsetzung reiht sie wieder ein"
+    );
+}
+
+#[test]
+fn a_session_holds_a_slot_while_its_agent_works_or_continues_by_itself() {
+    for (status, awaits_background, station_waits_for_resume, holds) in [
+        (SessionStatus::Starting, false, false, true),
+        (SessionStatus::Running, false, false, true),
+        // Abgegeben, ein Subagent oder ein Skript läuft: Danach macht der Agent ohne Tor weiter.
+        (SessionStatus::Completed, true, false, true),
+        (SessionStatus::Completed, false, false, false),
+        (SessionStatus::Paused, false, true, true),
+        (SessionStatus::Paused, false, false, false),
+        (SessionStatus::Waiting, false, false, false),
+        (SessionStatus::Error, false, false, false),
+        (SessionStatus::Cancelled, false, false, false),
+        (SessionStatus::New, false, false, false),
+    ] {
+        assert_eq!(
+            slots::holds_slot(status, awaits_background, station_waits_for_resume),
+            holds,
+            "{status:?}, wartet auf Hintergrund: {awaits_background}, Zeitgeber: \
+             {station_waits_for_resume}"
+        );
+    }
+}
+
+#[test]
+fn a_failed_session_start_is_skipped_once_so_the_waiters_behind_move_up() {
+    fn pass_messages(countdowns: &mut Countdowns) -> Vec<String> {
+        let waiters = vec![
+            session_waiter(
+                "failing",
+                slots::QueueKind::Message,
+                ProjectPriority::Normal,
+                1.0,
+            ),
+            session_waiter(
+                "behind",
+                slots::QueueKind::Message,
+                ProjectPriority::Normal,
+                2.0,
+            ),
+        ];
+        let seen = countdowns.releases();
+        claimed_keys(
+            countdowns
+                .pass(seen, Some(1), &[], waiters, 3.0, 4.0)
+                .expect("frische Zählung"),
+        )
+    }
+    let mut countdowns = Countdowns::default();
+    assert_eq!(pass_messages(&mut countdowns), ["failing"]);
+    countdowns.start_failed("failing");
+    assert_eq!(countdowns.used(&[]), 0, "der Anspruch ist frei");
+    assert_eq!(
+        pass_messages(&mut countdowns),
+        ["behind"],
+        "der Durchgang nach dem Fehlschlag überspringt ihn"
+    );
+    countdowns.release_session("behind");
+    assert_eq!(
+        pass_messages(&mut countdowns),
+        ["failing"],
+        "ein späterer Durchgang versucht ihn wieder"
+    );
+}
+
+#[test]
 fn raising_the_limit_starts_waiters_in_rank_order() {
     let mut urgent = node("urgent", &[]);
     urgent.priority = 1;
@@ -5254,6 +5372,30 @@ fn project_priority_defaults_to_normal_and_survives_a_restart() {
             ("new".to_owned(), ProjectPriority::Normal),
             ("raised".to_owned(), ProjectPriority::High),
         ]
+    );
+}
+
+#[test]
+fn an_archived_project_keeps_its_priority_for_restoring() {
+    use crate::db::projects as project_rows;
+    let database = Database::open(Path::new(":memory:")).expect("Datenbank im Speicher");
+    let priority = database
+        .with(|connection| {
+            connection.execute(
+                "INSERT INTO projects (id, name, created_at) VALUES ('raised', 'Vorhaben', 1.0)",
+                [],
+            )?;
+            project_rows::set_priority(connection, "raised", ProjectPriority::High)?;
+            project_rows::archive(connection, "raised", 2.0)?;
+            project_rows::restore(connection, "raised")?;
+            let row = project_rows::load_one(connection, "raised")?.expect("Zeile vorhanden");
+            Ok(row.priority)
+        })
+        .expect("lesbar");
+    assert_eq!(
+        priority,
+        ProjectPriority::High,
+        "Wiederherstellen liest die Zeile"
     );
 }
 

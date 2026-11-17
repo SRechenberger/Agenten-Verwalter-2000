@@ -10,7 +10,7 @@
 ## Begriffe
 
 - **Gleichzeitige Agenten max.:** die app-weite Grenze (Einstellung, leer = unbegrenzt, Standard 4); ersetzt „Parallel max.“ je Umsetzung.
-- **Platz:** ein Agent mit Zug (startet, läuft, auch beim Warten auf einen Subagenten), ein Start im Gang oder eine Station, die automatisch fortsetzt.
+- **Platz:** ein Agent mit Zug (startet, läuft, auch beim Warten auf einen Subagenten oder ein Skript), ein Start im Gang oder eine Station, die automatisch fortsetzt.
 - **Warteschlange:** was der Verwalter von selbst starten würde und auf einen Platz wartet: Station, Nachricht, Fortsetzen.
 - **Priorität des Vorhabens:** hoch, normal oder niedrig; ordnet die Warteschlange vor dem Vorrang der Station und der Wartezeit.
 

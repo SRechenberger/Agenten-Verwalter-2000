@@ -279,8 +279,13 @@ fn start_waiter(app: &AppHandle, waiter: &Waiter, token: u64) {
                 let registry = thread_app.state::<SessionRegistry>();
                 if kind == QueueKind::Resume {
                     registry.resume_claimed(thread_app, &session_id);
-                } else if let Ok(session) = registry.get(&session_id) {
-                    registry.deliver_oldest(thread_app, &session);
+                } else if let Ok(session) = registry.get(&session_id)
+                    && !registry.deliver_oldest(thread_app, &session)
+                {
+                    // Die Wartenden dahinter rücken jetzt nach (`slots::Countdowns::start_failed`).
+                    registry.lock_countdowns().start_failed(&session_id);
+                    schedule_pass(thread_app);
+                    return;
                 }
                 registry.release_session_slot(&session_id);
             });

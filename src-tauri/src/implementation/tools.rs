@@ -70,7 +70,7 @@ impl ToolSet for ImplementationTools {
             ToolSpec {
                 name: GET,
                 description: "Liefert den Lagebericht der Umsetzung, zu der diese Session gehört \
-                              (sonst der neuesten des Vorhabens): Stand, Grenze und Warteschlange, \
+                              (sonst der neuesten des Vorhabens): Stand, Warteschlange (app-weit), \
                               Startstationen, was läuft, was fertig ist, was offen ist, und je \
                               Station ihre Lane, Stufe, Vorgänger und Nachfolger.",
                 input_schema: json!({

@@ -610,13 +610,14 @@ impl SessionRegistry {
     }
 
     /// Die älteste wartende Nachricht, falls die Session ruht oder als geöffnete Session noch nie lief.
-    /// Nur mit einem Platz vom Tor (der Durchgang hält ihn). Nie unter einer Sperre aufrufen.
-    pub(super) fn deliver_oldest(&self, app: &AppHandle, session: &Arc<Session>) {
+    /// Nur mit einem Platz vom Tor (der Durchgang hält ihn). Nie unter einer Sperre aufrufen. `false`,
+    /// wenn der Start scheiterte.
+    pub(super) fn deliver_oldest(&self, app: &AppHandle, session: &Arc<Session>) -> bool {
         let Ok(Some(row)) = session
             .database
             .with(|connection| session_inbox::oldest(connection, &session.id))
         else {
-            return;
+            return true;
         };
         let input = self.prepare_turn(session, &row.text);
         let started = update(
@@ -649,6 +650,7 @@ impl SessionRegistry {
         // Erst nach `update`, denn dort geht die Nachricht an den Agenten: Scheitert der Start oder das
         // Schreiben, bleibt die Zeile, und der nächste Haken versucht es erneut. Ein Absturz genau
         // zwischen Schreiben und Löschen stellt sie nach dem Neustart doppelt zu; das ist hingenommen.
+        let has_failed = started.is_err();
         let finished = started.and_then(|has_started: bool| {
             if !has_started {
                 return Ok(());
@@ -660,6 +662,7 @@ impl SessionRegistry {
         if let Err(error) = finished {
             session.log_line(format!("Warteschlange der Session-Nachrichten: {error}"));
         }
+        !has_failed
     }
 }
 
