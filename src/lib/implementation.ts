@@ -69,7 +69,7 @@ export async function setStationAutoResume(
   await invoke('implementation_set_station_auto_resume', { id, stationId, value });
 }
 
-/** „Anhalten nach dieser Session“: die nächste Fertigmeldung startet nichts mehr.
+/** „Anhalten nach dieser Session“: die nächste Annahme startet nichts mehr.
  *  @throws {import('@/lib/bindings/CommandError').CommandError} `implementation`, `database` */
 export async function setImplementationStopAfterCurrent(
   id: string,

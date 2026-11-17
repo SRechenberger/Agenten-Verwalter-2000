@@ -128,7 +128,7 @@ pub async fn implementation_set_station_auto_resume(
     implementation::set_station_auto_resume(&app, &id, &station_id, value)
 }
 
-/// „Anhalten nach dieser Session“: die nächste Fertigmeldung startet nichts mehr.
+/// „Anhalten nach dieser Session“: die nächste Annahme startet nichts mehr.
 #[tauri::command]
 pub async fn implementation_set_stop_after_current(
     app: AppHandle,
@@ -325,4 +325,53 @@ pub async fn implementation_complete_station(
     }
     implementation::complete_station(&app, &id, &station_id, &result, false)?;
     Ok(())
+}
+
+/// Der Benutzer bestimmt einen neuen Master (ADR 070, D11): eine Session des Vorhabens, keine Station.
+/// Der neue Master bekommt eine Nachricht mit der Umsetzung und den offenen Meldungen.
+#[tauri::command]
+pub async fn implementation_set_master(
+    app: AppHandle,
+    id: String,
+    master_session_id: String,
+) -> Result<ImplementationView, CommandError> {
+    implementation::set_master(&app, &id, &master_session_id)
+}
+
+/// Der Benutzer nimmt eine gemeldete Station an, wenn der Master seine drei Rückgaben verbraucht hat
+/// (ADR 070, D4). Dieselben Schritte wie die Annahme durch den Master.
+#[tauri::command]
+pub async fn implementation_accept_station(
+    app: AppHandle,
+    registry: tauri::State<'_, SessionRegistry>,
+    id: String,
+    station_id: String,
+) -> Result<ImplementationView, CommandError> {
+    implementation::accept_station(
+        &app,
+        &id,
+        &station_id,
+        implementation::master::Decider::User,
+    )?;
+    registry.implementation_view(&id)
+}
+
+/// Der Benutzer gibt eine gemeldete Station zurück, wenn der Master seine drei Rückgaben verbraucht hat,
+/// ohne Grenze (ADR 070, D4).
+#[tauri::command]
+pub async fn implementation_return_station(
+    app: AppHandle,
+    registry: tauri::State<'_, SessionRegistry>,
+    id: String,
+    station_id: String,
+    message: String,
+) -> Result<ImplementationView, CommandError> {
+    implementation::return_station(
+        &app,
+        &id,
+        &station_id,
+        &message,
+        implementation::master::Decider::User,
+    )?;
+    registry.implementation_view(&id)
 }

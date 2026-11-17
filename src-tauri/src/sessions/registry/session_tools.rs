@@ -22,6 +22,7 @@ use crate::agents::event::{
 use crate::db::projects as project_rows;
 use crate::db::session_inbox::{self, InboxRow};
 use crate::error::CommandError;
+use crate::implementation::master::{self, MasterRef};
 use crate::implementation::slots;
 use crate::mcp_access::tools::ToolCall;
 use crate::projects::model::ProjectSummary;
@@ -132,9 +133,17 @@ impl SessionRegistry {
         if message.trim().is_empty() {
             return Err(EMPTY_MESSAGE.to_owned());
         }
+        // Eine Station spricht nur mit ihrem Master (ADR 070, D9): im Sendeweg, nicht in `tool_target`,
+        // denn das nutzt auch `get_tldr`, und das bleibt offen.
+        let station_lock = self.station_lock(&caller);
         let mut seen: HashSet<&str> = HashSet::new();
         let mut targets: Vec<Arc<Session>> = Vec::new();
         for id in session_ids {
+            if let Some(master) = &station_lock
+                && let Some(refusal) = master::send_refusal(master.as_ref(), id)
+            {
+                return Err(refusal);
+            }
             if seen.insert(id.as_str()) {
                 targets.push(self.tool_target(&caller, id)?);
             }
@@ -222,6 +231,10 @@ impl SessionRegistry {
         model: Option<ModelId>,
     ) -> ToolReply {
         let caller = self.get(call.session_id).map_err(text_of)?;
+        // Vor dem Kasten (ADR 070, D9): Eine Station öffnet nie eine Session.
+        if let Some(master) = self.station_lock(&caller) {
+            return Err(master::open_refusal(master.as_ref()));
+        }
         if message.trim().is_empty() {
             return Err(EMPTY_MESSAGE.to_owned());
         }
@@ -368,6 +381,13 @@ impl SessionRegistry {
     /// Neustart nicht markiert und starten nicht (Critical Rule 4).
     pub fn deliver_inbox_on_start(app: AppHandle) {
         schedule_pass(&app);
+    }
+
+    /// Ist der Aufrufer eine Station, `Some(Master)` seiner Umsetzung (`None` darin: kein erreichbarer),
+    /// sonst `None`. Erst die Session kurz, danach die Datenbank ohne ihre Sperre.
+    fn station_lock(&self, caller: &Session) -> Option<Option<MasterRef>> {
+        let implementation_id: String = caller.lock().station_of.clone()?;
+        Some(self.master_of_station_in(&implementation_id))
     }
 
     /// Die Zielprüfung vor dem Kasten: unbekannt, anderes Vorhaben und eigene ID sind Fehler.

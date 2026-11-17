@@ -184,7 +184,7 @@ pub fn due_for_countdown(phases: &[PhaseView]) -> Vec<(&PhaseView, &StationView)
     due
 }
 
-/// Ist die Station an der Reihe: nicht fertig gemeldet, und alle Vorgänger sind fertig gemeldet. Ein
+/// Ist die Station an der Reihe: nicht angenommen, und alle Vorgänger sind angenommen. Ein
 /// Vorgänger, den es nicht gibt, ist nie fertig. Eine unbekannte Station ist nie an der Reihe. Ein
 /// Startfehler zählt hier nicht: Die Station bleibt bereit für ▶.
 pub fn is_due(phases: &[PhaseView], station_id: &str) -> bool {

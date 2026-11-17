@@ -1,0 +1,246 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Entwurf: Master-Session (Story 99)</title>
+<style>
+:root{color-scheme:dark;--bg:#1f1f1f;--side:#181818;--surf:#252526;--hover:#2e2e30;--sel:#37373d;--bds:#2b2b2b;--bd:#3c3c3c;--fg:#d4d4d4;--fg2:#b0b0b0;--fgm:#8f8f8f;--acc:#e0825c;--onacc:#1d130e;--acct:#eea283;--run:#5b9dff;--wait:#f2b33d;--err:#f47067;--ok:#4cc38a;--pause:#8f8f8f;--master:#8ab8ea;--scrim:rgba(0,0,0,.55);--shadow:0 10px 30px rgb(0 0 0/.45);--font:'Segoe UI Variable Text','Segoe UI',system-ui,sans-serif}
+:root[data-theme=light]{color-scheme:light;--bg:#fff;--side:#f3f3f3;--surf:#f7f7f7;--hover:#ececec;--sel:#e6e8f0;--bds:#ebebeb;--bd:#d4d4d4;--fg:#3c3c3c;--fg2:#5f5f5f;--fgm:#85858a;--acc:#c4572f;--onacc:#fff;--acct:#b04a26;--run:#2563eb;--wait:#a86a00;--err:#d23b33;--ok:#16803c;--pause:#85858a;--master:#3d6fa8;--scrim:rgba(0,0,0,.3);--shadow:0 10px 30px rgb(0 0 0/.14)}
+*{box-sizing:border-box}[hidden]{display:none!important}
+body{margin:0;background:var(--side);color:var(--fg);font:13px/1.45 var(--font)}
+main{max-width:1280px;margin:0 auto;padding:16px}
+h1{font-size:15px;margin:0 0 4px}.lead{margin:0 0 10px;color:var(--fg2)}
+button,textarea{font:inherit;color:inherit}
+button:focus-visible,textarea:focus-visible{outline:2px solid var(--acc);outline-offset:1px}
+#sim{display:flex;flex-wrap:wrap;gap:8px 20px;align-items:center;margin:0 0 12px;padding:8px 10px;border:1px dashed var(--bd);border-radius:6px}
+.g{display:flex;align-items:center;gap:8px}.g>span{color:var(--fgm);font-size:12px}
+.seg{display:inline-flex;border:1px solid var(--bd);border-radius:6px;overflow:hidden}
+.seg button{border:0;border-left:1px solid var(--bd);background:transparent;padding:3px 9px;font-size:12px;color:var(--fg2);cursor:pointer;white-space:nowrap}
+.seg button:first-child{border-left:0}.seg button[aria-pressed=true]{background:var(--sel);color:var(--fg)}
+.win{display:grid;grid-template-columns:250px 1fr 340px;min-height:600px;background:var(--bg);border:1px solid var(--bd);border-radius:10px;overflow:hidden}
+nav{background:var(--side);border-right:1px solid var(--bds);padding:10px 8px;font-size:12.5px}
+.brand{font-weight:600;padding:2px 6px 10px}
+.row{display:flex;align-items:center;gap:7px;padding:3px 8px;border-radius:6px;color:var(--fg2);white-space:nowrap;overflow:hidden}
+.row.on{background:var(--sel);color:var(--fg)}
+.row .meta{margin-left:auto;font-size:11px;color:var(--c,var(--fgm))}
+.l0{color:var(--fg)}.l1{padding-left:22px}.l2{padding-left:36px}.l3{padding-left:50px}
+.dot{width:7px;height:7px;border-radius:50%;flex:none;background:var(--c,var(--pause))}
+.gl{flex:none;display:block}
+.legend{display:grid;grid-template-columns:auto repeat(7,auto);gap:6px 14px;align-items:center;font-size:12px;margin:8px 0}
+.legend span{display:flex;align-items:center;gap:6px}
+.crown{font-size:10px;color:var(--master)}
+.center{display:flex;flex-direction:column;min-width:0}
+.head{display:flex;align-items:center;flex-wrap:wrap;gap:8px 12px;padding:9px 14px;border-bottom:1px solid var(--bds)}
+.head h2{margin:0;font-size:13px;font-weight:600}
+.chip{font-size:11.5px;padding:1px 8px;border-radius:99px;border:1px solid var(--c);color:var(--c)}
+.master{position:relative;margin-left:auto;display:flex;align-items:center;gap:6px;font-size:12px;color:var(--fg2)}
+.master b{color:var(--fg);font-weight:600}
+.link{border:0;background:transparent;color:var(--acct);cursor:pointer;padding:0;font-size:12px;text-decoration:underline}
+.warn{display:flex;align-items:center;gap:10px;padding:8px 14px;border-bottom:1px solid var(--bds);background:color-mix(in srgb,var(--err) 11%,transparent);font-size:12px}
+.pop{position:absolute;right:0;top:22px;z-index:20;width:260px;background:var(--surf);border:1px solid var(--bd);border-radius:8px;box-shadow:var(--shadow);padding:6px}
+.pop .t{font-size:11px;color:var(--fgm);padding:4px 6px}
+.pop button{display:flex;width:100%;align-items:center;gap:8px;border:0;background:transparent;padding:5px 6px;border-radius:6px;cursor:pointer;text-align:left}
+.pop button:hover{background:var(--hover)}
+.pop button:disabled{opacity:.45;cursor:default}
+.tl{padding:10px 14px;display:flex;flex-direction:column;gap:2px}
+.lane{font-size:11.5px;color:var(--fgm);margin:10px 0 2px}
+.st{display:flex;align-items:center;gap:8px;width:100%;text-align:left;border:0;background:transparent;border-radius:6px;padding:5px 8px;cursor:pointer}
+.st:hover{background:var(--hover)}.st.on{background:var(--sel)}
+.st .n{flex:1}
+.st .s{font-size:11.5px;color:var(--c)}
+.mark{font-size:10.5px;border:1px solid var(--bd);border-radius:99px;padding:0 6px;color:var(--fgm)}
+.mark.ok{border-color:var(--ok);color:var(--ok)}
+.kartei{border-left:1px solid var(--bds);padding:12px 14px;display:flex;flex-direction:column;gap:12px;overflow:auto}
+.kartei h3{margin:0;font-size:13px}
+.sec{border-top:1px solid var(--bds);padding-top:10px;display:flex;flex-direction:column;gap:6px}
+.sec h4{margin:0;font-size:12px;color:var(--fg2);font-weight:600}
+.subj{font-weight:600}
+.msg{background:var(--surf);border:1px solid var(--bds);border-radius:8px;padding:8px 10px;white-space:pre-wrap;font-size:12.5px}
+.note{font-size:12px;color:var(--fgm)}
+.hint{font-size:12px;padding:6px 8px;border-radius:6px;background:color-mix(in srgb,var(--c) 12%,transparent);border-left:3px solid var(--c)}
+.btns{display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap}
+.btn{border:1px solid var(--bd);border-radius:6px;background:transparent;padding:4px 12px;cursor:pointer}
+.btn.pri{background:var(--acc);border-color:var(--acc);color:var(--onacc)}
+.btn:disabled{opacity:.45;cursor:default}
+textarea{width:100%;background:var(--bg);border:1px solid var(--bd);border-radius:6px;padding:6px 8px;resize:vertical}
+.chat{border-top:1px solid var(--bds);padding:10px 14px;display:flex;flex-direction:column;gap:6px;font-size:12.5px}
+.chat h4{margin:0;font-size:12px;color:var(--fg2)}
+.from{font-size:11px;color:var(--fgm)}
+section.doc{margin-top:16px;color:var(--fg2);max-width:900px}
+section.doc h2{font-size:13px;color:var(--fg)}
+@media (max-width:1000px){.win{grid-template-columns:1fr}nav{display:none}.kartei{border-left:0;border-top:1px solid var(--bds)}}
+</style>
+</head>
+<body>
+<main>
+<h1>Entwurf: Master-Session (Story Taiga #99)</h1>
+<p class="lead">Zeigt die Oberfläche aus Phase 99.2 nach den Entscheidungen vom 2026-11-17. Die gestrichelte Leiste ist Simulation; alle Namen und Zahlen sind Beispieldaten.</p>
+<div id="sim" aria-label="Simulation">
+  <div class="g"><span>Farbschema</span><div class="seg" data-k="theme"><button data-v="dark">Dunkel</button><button data-v="light">Hell</button></div></div>
+  <div class="g"><span>Leiste</span><div class="seg" data-k="side"><button data-v="a">A · kompakt</button><button data-v="b">B · aufklappbar</button><button data-v="c">C · nur Umsetzung</button><button data-v="all">heute (ADR 065)</button></div></div>
+  <div class="g"><span>Szenario</span><div class="seg" data-k="scen"><button data-v="normal">Gemeldet, Master entscheidet</button><button data-v="cap">Rückgaben ausgeschöpft</button><button data-v="gone">Master ausgefallen</button></div></div>
+</div>
+
+<div class="win">
+  <nav aria-label="Vorhaben" id="nav"></nav>
+  <div class="center">
+    <div class="head">
+      <h2>Umsetzung · Master-Session (#99)</h2>
+      <span class="chip" style="--c:var(--run)">läuft · 3/9</span>
+      <div class="master" id="master"></div>
+    </div>
+    <div class="warn" id="warn" hidden></div>
+    <div class="tl" id="tl"></div>
+    <div class="chat" id="chat"></div>
+  </div>
+  <aside class="kartei" id="kartei" aria-label="Kartei"></aside>
+</div>
+
+<section class="doc">
+  <h2>Symbole</h2>
+  <div class="legend" id="legend"></div>
+  <p class="note" style="margin:0 0 8px">Gleiche Farben und gleiche Bedeutung der Formen; Sessions und Stationen rund (wie heute), Umsetzungen eckig. Die Farbe einer Umsetzung ist die ihrer dringendsten Station (<code>urgency</code>), wie heute.</p>
+  <h2>Was der Entwurf zeigt</h2>
+  <ul>
+    <li><b>Leiste</b>: Die Umsetzung hängt als eine Zeile unter ihrer Master-Session (◆ Master). Fällt der Master aus, steht sie wieder direkt im Vorhaben. Varianten für die Stationen darunter: <b>A</b> nur Stationen, die dich brauchen (fragt dich, wartet auf dich, Fehler); <b>B</b> wie A, ▸ klappt alle aktiven auf; <b>C</b> keine Stationszeilen, nur „N braucht dich“ an der Umsetzung; <b>heute</b> alle aktiven Stationen (ADR 065).</li>
+    <li><b>Kopf der Umsetzung</b>: „Master: #1 Architekt · ändern“. Die Auswahl nennt die Sessions des Vorhabens; Stationen sind ausgegraut. Nach dem Wechsel schickt der Verwalter dem neuen Master die Umsetzung und die offenen Meldungen.</li>
+    <li><b>Gemeldet</b> (hellblau wie „wartet auf Master“ im Dashboard): Die Station hat berichtet, der Master entscheidet, sobald ihr Zug beendet ist. Die Kartei zeigt den Bericht: Betreff (das Ergebnis), Notiz, Befund, Rückgaben „1 von 3“.</li>
+    <li><b>Ausgeschöpft</b>: Nach drei Rückgaben steht die Station auf „wartet auf dich“; du nimmst an oder gibst zurück. „Zurückgeben“ bleibt gesperrt, solange das Feld leer ist.</li>
+    <li><b>Freigegeben</b>: Eine Station „durch dich“, die der Master freigegeben hat, trägt die Marke „✓ freigegeben“; „Erledigt“ bleibt bei dir (Hervorheben und Warnung: #136).</li>
+    <li><b>Chat des Masters</b>: Die Weck-Nachricht des Verwalters nennt Station, Betreff und Notiz; der Master antwortet mit dem Werkzeug <code>implementation_review_station</code>.</li>
+  </ul>
+</section>
+</main>
+
+<script>
+const S = { theme: 'dark', scen: 'normal', sel: 'k2', pop: false, master: '#1 Architekt', side: 'a', open: false };
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+// Kreis-Familie wie StatusIcon der App (Session, Station); Quadrat-Familie für Umsetzungen, gleiche Bedeutung der Formen.
+function glyph(shape, kind, color) {
+  const sq = shape === 'square';
+  const frame = (w, extra = '') => sq ? `<rect x="1.6" y="1.6" width="8.8" height="8.8" rx="2" fill="none" stroke="currentColor" stroke-width="${w}" ${extra}/>` : `<circle cx="6" cy="6" r="4.5" fill="none" stroke="currentColor" stroke-width="${w}" ${extra}/>`;
+  const core = (r) => sq ? `<rect x="${6 - r}" y="${6 - r}" width="${2 * r}" height="${2 * r}" rx="${r / 3}" fill="currentColor"/>` : `<circle cx="6" cy="6" r="${r}" fill="currentColor"/>`;
+  const halo = sq ? '<rect x="0.5" y="0.5" width="11" height="11" rx="2.6" fill="currentColor" opacity="0.22"/>' : '<circle cx="6" cy="6" r="5.5" fill="currentColor" opacity="0.22"/>';
+  const inner = {
+    running: halo + core(sq ? 2.8 : 3),
+    waiting: frame(1.7) + core(1.6),
+    error: frame(1.4) + '<path d="M6 3.6v3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><circle cx="6" cy="8.5" r="0.8" fill="currentColor"/>',
+    paused: '<rect x="3" y="2.4" width="2.1" height="7.2" rx="0.6" fill="currentColor"/><rect x="6.9" y="2.4" width="2.1" height="7.2" rx="0.6" fill="currentColor"/>' + (sq ? frame(1, 'opacity="0.5"') : ''),
+    done: frame(1.3) + '<path d="M3.9 6.2l1.5 1.5 2.8-3" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>',
+    new: frame(1.2, 'stroke-dasharray="2 1.6"'),
+  }[kind];
+  return `<svg class="gl" width="12" height="12" viewBox="0 0 12 12" style="color:${color}" aria-hidden="true">${inner}</svg>`;
+}
+const KIND_OF = { running: 'running', reported: 'waiting', waits: 'waiting', byuser: 'waiting', done: 'done', pending: 'new', error: 'error' };
+const STATE = {
+  done: ['fertig', 'var(--ok)'], running: ['läuft', 'var(--run)'], reported: ['gemeldet', 'var(--master)'],
+  waits: ['wartet auf dich', 'var(--wait)'], pending: ['wartet auf Vorgänger', 'var(--pause)'], byuser: ['wartet auf dich', 'var(--wait)'],
+};
+function stations() {
+  const capped = S.scen === 'cap';
+  return [
+    { lane: 'Lane 1 · Kern', id: 'k1', name: '99.1 · Umsetzung', state: 'done' },
+    { lane: 'Lane 1 · Kern', id: 'k2', name: '99.1 · Review', state: capped ? 'waits' : 'reported', returns: capped ? 3 : 1,
+      result: 'Review mit Befund: Wecken fehlt bei Abbruch', fix: true,
+      note: 'Befund 1: station_session_ended weckt bei Cancelled nicht (mod.rs:575).\nBefund 2: Schlüssel ohne Zähler, zweite Meldung nach Rückgabe weckt nicht.\nAlles andere grün: cargo test implementation::, pnpm check.' },
+    { lane: 'Lane 1 · Kern', id: 'k3', name: '99.1 · PR', state: 'pending' },
+    { lane: 'Lane 1 · Kern', id: 'k4', name: '99.1 · Merge', state: 'byuser', released: true, byUser: true },
+    { lane: 'Lane 2 · Oberfläche', id: 'o1', name: '99.2 · Umsetzung', state: 'running' },
+    { lane: 'Lane 2 · Oberfläche', id: 'o2', name: '99.2 · Review', state: 'pending' },
+  ];
+}
+function render() {
+  document.documentElement.dataset.theme = S.theme;
+  document.querySelectorAll('.seg').forEach((seg) => seg.querySelectorAll('button').forEach((b) => b.setAttribute('aria-pressed', String(S[seg.dataset.k] === b.dataset.v))));
+  const gone = S.scen === 'gone';
+  const list = stations();
+  const active = list.filter((s) => s.state !== 'done' && s.state !== 'pending');
+  // Leiste: Kreis = Session/Station, Quadrat = Umsetzung (Farbe nach Dringlichkeit)
+  const needsYou = active.filter((x) => x.state === 'waits' || x.state === 'byuser');
+  const sess = (lvl, name, kind, color, meta, extra = '') => `<div class="row l${lvl}" style="--c:${color}">${glyph('circle', kind, color)}${name}${extra}<span class="meta">${meta}</span></div>`;
+  const stRows = (lvl, rows) => rows.map((x) => sess(lvl, esc(x.name), KIND_OF[x.state], STATE[x.state][1], STATE[x.state][0])).join('');
+  const urg = needsYou.length ? ['waiting', 'var(--wait)', 'wartet auf dich'] : ['running', 'var(--run)', 'läuft'];
+  const implRow = (lvl, name, g, prog, on = false) => `<div class="row l${lvl}${on ? ' on' : ''}" style="--c:${g[1]}" title="Umsetzung ${name} · ${g[2]}">${glyph('square', g[0], g[1])}${name}<span class="meta" style="--c:var(--fgm)">${prog}</span></div>`;
+  const badge = needsYou.length ? `<span class="meta" style="--c:var(--wait)">${needsYou.length} braucht dich</span>` : '';
+  const impl = (lvl) => {
+    const row = implRow(lvl, 'Master-Session', urg, S.side === 'c' && badge ? '' : '3/9', true).replace('</div>', S.side === 'c' ? badge + '</div>' : '</div>');
+    if (S.side === 'all') return row + stRows(lvl + 1, active);
+    if (S.side === 'a') return row + stRows(lvl + 1, needsYou);
+    if (S.side === 'c') return row;
+    const tog = `<button class="link" id="tog" style="color:var(--fgm);text-decoration:none;margin-right:2px" aria-expanded="${S.open}" aria-label="Stationen ${S.open ? 'zuklappen' : 'aufklappen'}">${S.open ? '▾' : '▸'}</button>`;
+    return row.replace(/(<div class="row[^>]*>)/, `$1${tog}`) + stRows(lvl + 1, S.open ? active : needsYou);
+  };
+  $('#nav').innerHTML = `<div class="brand">Agenten Verwalter 2000</div>
+    <div class="row l0">Agenten-Verwalter</div>
+    ${gone ? impl(1) : ''}
+    ${sess(1, esc(S.master), gone ? 'error' : 'done', gone ? 'var(--err)' : 'var(--pause)', gone ? 'Fehler' : 'ruht', gone ? '' : ' <span class="crown">◆ Master</span>')}
+    ${gone ? '' : impl(2)}
+    ${sess(1, '#4 Recherche', 'done', 'var(--pause)', 'ruht')}
+    <div class="row l0" style="margin-top:8px">Upstream-Features</div>
+    ${sess(1, '#2 Architekt', 'done', 'var(--pause)', 'ruht', ' <span class="crown">◆ Master</span>')}
+    ${implRow(2, 'Upstream selektiv', ['error', 'var(--err)', 'Fehler'], '2/5')}
+    ${sess(3, '104.3 · Messung', 'error', 'var(--err)', 'Fehler')}
+    ${sess(1, '#3 Architekt', 'done', 'var(--pause)', 'ruht', ' <span class="crown">◆ Master</span>')}
+    ${implRow(2, 'Zeitstempel im Chat', ['done', 'var(--ok)', 'fertig'], '6/6')}
+    <div class="row l0" style="margin-top:8px">Vault-Pflege</div>
+    ${sess(1, '#1 Destillieren', 'running', 'var(--run)', 'läuft')}`;
+  // Kopf
+  $('#master').innerHTML = `Master: <b style="${gone ? 'color:var(--err)' : ''}">${esc(S.master)}</b>${gone ? ' (Fehler)' : ''} · <button class="link" id="chg" aria-haspopup="true" aria-expanded="${S.pop}">ändern</button>
+    ${S.pop ? `<div class="pop" role="menu"><div class="t">Neuer Master (Sessions des Vorhabens)</div>
+      <button data-m="#4 Recherche" role="menuitem"><span class="dot"></span>#4 Recherche</button>
+      <button data-m="#6 Architekt (neu)" role="menuitem"><span class="dot"></span>#6 Architekt (neu)</button>
+      <button disabled title="Stationen können nicht Master werden"><span class="dot" style="--c:var(--run)"></span>#7 · 99.2 · Umsetzung (Station)</button></div>` : ''}`;
+  $('#warn').hidden = !gone;
+  $('#warn').innerHTML = gone ? `<span style="color:var(--err)">●</span> Die Master-Session ${esc(S.master)} steht auf Fehler. Meldungen warten, bis du einen neuen Master bestimmst. <button class="link" id="chg2">Master ändern</button>` : '';
+  // Zeitleiste
+  let lane = '';
+  $('#tl').innerHTML = list.map((s) => {
+    const head = s.lane !== lane ? `<div class="lane">${(lane = s.lane)}</div>` : '';
+    const marks = (s.returns ? `<span class="mark">zurückgegeben ${s.returns}/3</span>` : '') + (s.released ? '<span class="mark ok">✓ freigegeben</span>' : '');
+    return `${head}<button class="st${S.sel === s.id ? ' on' : ''}" data-id="${s.id}" style="--c:${STATE[s.state][1]}"><span class="dot"></span><span class="n">${esc(s.name)}</span>${marks}<span class="s">${STATE[s.state][0]}</span></button>`;
+  }).join('');
+  // Chat des Masters (Auszug)
+  const k2 = list.find((s) => s.id === 'k2');
+  $('#chat').innerHTML = `<h4>Chat von ${esc(S.master)} (Auszug)</h4>
+    <div class="from">[Nachricht von Session 0 „Verwalter“]</div>
+    <div class="msg">Meldung des Verwalters: Umsetzung „Master-Session“, Lane 1 · Kern, Stufe Review hat gemeldet und ihren Zug beendet: „${esc(k2.result)}“ (Befund). Notiz:\n${esc(k2.note)}</div>
+    <div class="from">${esc(S.master)} → implementation_review_station { station_id: "k2", answer: "${S.scen === 'cap' ? 'return' : 'accept'}" }</div>
+    ${S.scen === 'cap' ? '<div class="msg">Fehler: Die Station wurde schon dreimal zurückgegeben. Jetzt entscheidet der Benutzer.</div>' : '<div class="msg">Angenommen. Fix-Runde 99.1-F1 und zweites Review starten.</div>'}`;
+  // Kartei
+  const s = list.find((x) => x.id === S.sel);
+  const [label, c] = STATE[s.state];
+  let body = '';
+  if (s.result) {
+    body += `<div class="sec"><h4>Bericht an den Master</h4><div class="subj">${esc(s.result)}</div>${s.fix ? '<span class="mark" style="align-self:flex-start;border-color:var(--wait);color:var(--wait)">Befund · Fix-Runde bei Annahme</span>' : ''}<div class="msg">${esc(s.note)}</div><div class="note">gemeldet 11:42 · Zug beendet 11:44 · zurückgegeben ${s.returns} von 3</div></div>`;
+    if (s.state === 'reported') body += S.scen === 'gone' ? '<div class="hint" style="--c:var(--err)">Wartet auf einen neuen Master: Der bisherige steht auf Fehler.</div>' : `<div class="hint" style="--c:var(--master)">Wartet auf den Master ${esc(S.master)}. Er nimmt an oder gibt zurück.</div>`;
+    if (s.state === 'waits') body += `<div class="sec"><h4>Du entscheidest</h4><div class="hint" style="--c:var(--wait)">Der Master hat diese Station dreimal zurückgegeben.</div><textarea id="ret" rows="3" placeholder="Nachricht an die Station, wenn du zurückgibst …" aria-label="Nachricht an die Station"></textarea><div class="btns"><button class="btn" id="retBtn" disabled title="Erst Text eingeben">Zurückgeben</button><button class="btn pri">Annehmen</button></div></div>`;
+  }
+  if (s.byUser) body += `<div class="sec"><h4>Anweisung</h4><div>PR 99.1 nach dev mergen.</div><span class="mark ok" style="align-self:flex-start">✓ vom Master freigegeben</span><div class="btns"><button class="btn pri">Erledigt</button></div></div>`;
+  if (!body) body = `<div class="note">${s.state === 'running' ? 'Die Station arbeitet. Meldet sie sich, siehst du hier ihren Bericht an den Master.' : 'Noch kein Bericht.'}</div>`;
+  $('#kartei').innerHTML = `<div><h3>${esc(s.name)}</h3><span class="chip" style="--c:${c}">${label}</span></div>${body}`;
+  const ret = $('#ret');
+  if (ret) ret.addEventListener('input', () => { $('#retBtn').disabled = ret.value.trim() === ''; $('#retBtn').title = ret.value.trim() === '' ? 'Erst Text eingeben' : ''; });
+}
+document.addEventListener('click', (e) => {
+  const seg = e.target.closest('.seg button');
+  if (seg) { S[seg.parentElement.dataset.k] = seg.dataset.v; if (seg.parentElement.dataset.k === 'scen') { S.master = '#1 Architekt'; S.pop = false; } render(); return; }
+  if (e.target.closest('#tog')) { S.open = !S.open; render(); return; }
+  if (e.target.closest('#chg, #chg2')) { S.pop = !S.pop; render(); return; }
+  const m = e.target.closest('[data-m]');
+  if (m) { S.master = m.dataset.m; S.pop = false; if (S.scen === 'gone') S.scen = 'normal'; render(); return; }
+  const st = e.target.closest('.st');
+  if (st) { S.sel = st.dataset.id; render(); return; }
+  if (S.pop && !e.target.closest('.pop')) { S.pop = false; render(); }
+});
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && S.pop) { S.pop = false; render(); } });
+const hash = new URLSearchParams(location.hash.slice(1));
+for (const k of ['theme', 'scen', 'sel', 'side']) if (hash.has(k)) S[k] = hash.get(k);
+if (hash.has('pop')) S.pop = true;
+render();
+const LEG = [['running', 'var(--run)', 'läuft'], ['waiting', 'var(--wait)', 'wartet auf dich'], ['waiting', 'var(--master)', 'gemeldet / wartet auf Master'], ['error', 'var(--err)', 'Fehler'], ['paused', 'var(--pause)', 'pausiert'], ['done', 'var(--ok)', 'fertig'], ['new', 'var(--pause)', 'bereit / neu']];
+$('#legend').innerHTML = '<span>Session, Station</span>' + LEG.map(([k, c, t]) => `<span>${glyph('circle', k, c)}${t}</span>`).join('') + '<span>Umsetzung</span>' + LEG.map(([k, c, t]) => `<span>${glyph('square', k, c)}${t}</span>`).join('');
+</script>
+</body>
+</html>

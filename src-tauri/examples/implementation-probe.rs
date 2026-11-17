@@ -3,9 +3,13 @@
 //! `cargo run --manifest-path src-tauri/Cargo.toml --example implementation-probe -- <Datenbank-Kopie> create <Session-ID> <JSON-Datei>`
 //! bzw. `… -- <Datenbank-Kopie> show <Umsetzungs-ID>`
 //! bzw. `… -- <Datenbank-Kopie> report <Umsetzungs-ID>` (Lagebericht einer Rückfrage, mit „Ziel“)
-//! bzw. `… -- <Datenbank-Kopie> complete <Umsetzungs-ID> <Station-ID> "<Ergebnis>" [--fix]`
-//! (meldet die Station fertig, ohne etwas zu starten, und druckt, welche Stationen danach starten
-//! dürfen).
+//! bzw. `… -- <Datenbank-Kopie> complete <Umsetzungs-ID> <Station-ID> "<Ergebnis>" [--fix] [--report-only]`
+//! (meldet die Station an ihren Master und nimmt sie an, wie das Werkzeug des Masters (ADR 070), ohne etwas
+//! zu starten, und druckt den Zustand nach der Meldung, nach der Annahme und welche Stationen danach starten
+//! dürfen und welche Nachricht den Master weckt; `--report-only` bleibt bei der Meldung, denn der Zug der
+//! Station zählt hier als beendet).
+//! bzw. `… -- <Datenbank-Kopie> return <Umsetzungs-ID> <Station-ID> "<Nachricht>"` (der Master gibt die
+//! Meldung zurück: höchstens dreimal, danach nennt die Probe den Satz der Ablehnung).
 //! bzw. `… -- <Datenbank-Kopie> set-phases <Umsetzungs-ID> <JSON-Datei> [--apply]` (druckt die
 //! Unterschiede eines Vorschlags `{ "phases": [...] }`; mit `--apply` ersetzt er die kommenden Phasen
 //! wie „Übernehmen“, ohne Marken und ohne Vermerk, und behält dabei die Einstellungen der Stationen,
@@ -20,6 +24,10 @@
 //! Zusatztexts, einen Startfehler und ob sie auf der Karte angepasst ist; Stationen gelten als nicht
 //! gestartet, weil keine Session läuft.
 //! Fehler als `FEHLER: <Satz>`.
+//! `… --example implementation-probe -- --wake-texts <Ordner>` schreibt den Systemprompt der
+//! Session-Werkzeuge (`prompt.txt`) und je Weck-Ereignis die Nachricht, wie der Master sie liest, samt
+//! erster Zeile (`<Ereignis>.txt`), für die Messung des Wortlauts mit `claude -p --model haiku` (ADR 070);
+//! ohne Datenbank.
 //! `… --example implementation-probe -- --selftest` prüft die Planung aus Kanten (ADR 061) gegen eine
 //! **eigene temporäre** Datenbank: Sortierung, bereiter Satz, Zyklus, Einfügen, Verzweigung und
 //! Zusammenlauf, Migration aus Position und Welle, das Tor der globalen Warteschlange (ADR 068), dazu
@@ -43,9 +51,11 @@ use verwalter_lib::db::sessions::{self, SessionRow};
 use verwalter_lib::error::CommandError;
 use verwalter_lib::file_links::LinkRoots;
 use verwalter_lib::implementation::edit::edited_plan;
+use verwalter_lib::implementation::master::{self, Decider};
 use verwalter_lib::implementation::model::{
     BriefChange, BriefChangeKind, Handoff, ImplementationView, OnError, PhaseView, PlanEdit,
-    PredecessorsMay, StationOptions, StationSettings, StationState, StationView, effective_brief,
+    PredecessorsMay, StationOptions, StationSettings, StationState, StationView, StoredReport,
+    effective_brief,
 };
 use verwalter_lib::implementation::model::{
     MAX_NAME_CHARS, MAX_SOURCE_CHARS, PhaseInput, check_agents, check_length, validate,
@@ -61,7 +71,7 @@ use verwalter_lib::implementation::{
 use verwalter_lib::projects::model::ProjectPriority;
 use verwalter_lib::sessions::model::SessionStatus;
 
-const USAGE: &str = "Aufruf: implementation-probe --selftest | <Datenbank-Kopie> create <Session-ID> <JSON-Datei> | show <Umsetzungs-ID> | report <Umsetzungs-ID> | complete <Umsetzungs-ID> <Station-ID> \"<Ergebnis>\" [--fix] | set-phases <Umsetzungs-ID> <JSON-Datei> [--apply] | set-station <Umsetzungs-ID> <Station-ID> <JSON-Datei>";
+const USAGE: &str = "Aufruf: implementation-probe --selftest | <Datenbank-Kopie> create <Session-ID> <JSON-Datei> | show <Umsetzungs-ID> | report <Umsetzungs-ID> | --wake-texts <Ordner> | complete <Umsetzungs-ID> <Station-ID> \"<Ergebnis>\" [--fix] [--report-only] | return <Umsetzungs-ID> <Station-ID> \"<Nachricht>\" | set-phases <Umsetzungs-ID> <JSON-Datei> [--apply] | set-station <Umsetzungs-ID> <Station-ID> <JSON-Datei>";
 
 #[derive(Deserialize)]
 struct CreateInput {
@@ -83,6 +93,19 @@ fn main() -> ExitCode {
     let arguments: Vec<String> = env::args().skip(1).collect();
     if arguments.first().map(String::as_str) == Some("--selftest") {
         return run_selftest();
+    }
+    if arguments.first().map(String::as_str) == Some("--wake-texts") {
+        let Some(folder) = arguments.get(1) else {
+            eprintln!("{USAGE}");
+            return ExitCode::from(2);
+        };
+        return match write_wake_texts(Path::new(folder)) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(error) => {
+                println!("FEHLER: {error}");
+                ExitCode::from(1)
+            }
+        };
     }
     let Some(database_path) = arguments.first().map(PathBuf::from) else {
         eprintln!("{USAGE}");
@@ -106,16 +129,22 @@ fn main() -> ExitCode {
                 eprintln!("{USAGE}");
                 return ExitCode::from(2);
             };
-            let fix_needed: bool = arguments
-                .get(5)
-                .is_some_and(|flag: &String| flag == "--fix");
+            let has_flag = |name: &str| arguments.iter().skip(5).any(|flag: &String| flag == name);
             complete(
                 &database_path,
                 implementation_id,
                 station_id,
                 result,
-                fix_needed,
+                has_flag("--fix"),
+                !has_flag("--report-only"),
             )
+        }
+        (Some("return"), Some(implementation_id), Some(station_id)) => {
+            let Some(message) = arguments.get(4) else {
+                eprintln!("{USAGE}");
+                return ExitCode::from(2);
+            };
+            give_back(&database_path, implementation_id, station_id, message)
         }
         (Some("create"), Some(session_id), Some(json_file)) => {
             create(&database_path, session_id, Path::new(json_file))
@@ -211,28 +240,64 @@ fn create(database_path: &Path, session_id: &str, json_file: &Path) -> Result<St
     Ok(format!("Umsetzung {id} angelegt.\n\n{text}"))
 }
 
+/// Meldet die Station an ihren Master und nimmt sie an (ADR 070): dieselbe Prüfung, dieselben Schreiber
+/// und dieselbe Entscheidung zum Wecken wie die App; der Zug der Station gilt als beendet.
 fn complete(
     database_path: &Path,
     implementation_id: &str,
     station_id: &str,
     result: &str,
     fix_needed: bool,
+    is_accepted: bool,
 ) -> Result<String, String> {
     let database = Database::open(database_path).map_err(|error| error.to_string())?;
     let before = view_of(&database, implementation_id)?;
-    let (followups, hint) =
-        plan_completion_with_types(&before, station_id, fix_needed, &types_of(&database)?)?;
-    database
+    let types = types_of(&database)?;
+    let (followups, hint) = plan_completion_with_types(&before, station_id, fix_needed, &types)?;
+    let report = StoredReport {
+        result: result.trim().to_owned(),
+        note: "Meldung der Probe".to_owned(),
+        fix_needed,
+        handoff_note: None,
+        handoff_replace: Vec::new(),
+    };
+    let json = serde_json::to_string(&report).map_err(|error| error.to_string())?;
+    let is_stored = database
+        .with(|connection| implementations::set_report(connection, station_id, now_ms(), &json))
+        .map_err(|error| error.to_string())?;
+    if !is_stored {
+        return Err("Diese Station ist schon angenommen.".to_owned());
+    }
+    let reported = view_of(&database, implementation_id)?;
+    let mut text = format!(
+        "VORHER\n{}\n\nGEMELDET (Zustand: {})\n{}",
+        report::text(&before, now_ms(), false),
+        state_of_station(&reported, station_id),
+        wake_lines(&before, &reported, station_id, &report, false),
+    );
+    if !is_accepted {
+        return Ok(text);
+    }
+    let returns = station(&reported, &plan_id_of(&reported, station_id))
+        .map_or(0, |station: &StationView| station.returns);
+    if let Some(refusal) = master::accept_refusal(Decider::Master, true, true, returns) {
+        return Err(refusal);
+    }
+    let accepted = database
         .with(|connection| {
-            implementations::complete_station_with_followups(
+            implementations::accept_station_with_followups(
                 connection,
                 station_id,
                 now_ms(),
                 result,
                 &followups,
+                true,
             )
         })
         .map_err(|error| error.to_string())?;
+    if !accepted {
+        return Err("Über diese Meldung ist inzwischen entschieden.".to_owned());
+    }
     let after = view_of(&database, implementation_id)?;
     let startable: Vec<String> = after
         .phases
@@ -242,46 +307,86 @@ fn complete(
         .map(|(phase, station)| format!("  Phase {} · {}", phase.key, station.stage))
         .collect();
     let hint_line = hint
-        .map(|text: String| {
-            format!(
-                "
-Hinweis: {text}"
-            )
-        })
+        .map(|text: String| format!("\nHinweis: {text}"))
         .unwrap_or_default();
-    let wakes = wake_lines(&before, &after, station_id, result, fix_needed);
     let next = if startable.is_empty() {
         "  (keine)".to_owned()
     } else {
-        startable.join(
-            "
-",
-        )
+        startable.join("\n")
     };
-    Ok(format!(
-        "VORHER
-{}
-
-NACHHER
-{}
-
-Darf starten:
-{next}{wakes}{hint_line}",
-        report::text(&before, now_ms(), false),
+    text.push_str(&format!(
+        "\n\nNACHHER (angenommen)\n{}\n\nDarf starten:\n{next}{hint_line}{}",
         report::text(&after, now_ms(), false),
+        wake_lines(&reported, &after, station_id, &report, true),
+    ));
+    Ok(text)
+}
+
+fn plan_id_of(view: &ImplementationView, station_id: &str) -> String {
+    view.phases
+        .iter()
+        .flat_map(|phase| phase.stations.iter())
+        .find(|station| station.id == station_id)
+        .map_or_else(String::new, |station| station.plan_id.clone())
+}
+
+fn state_of_station(view: &ImplementationView, station_id: &str) -> String {
+    view.phases
+        .iter()
+        .flat_map(|phase| phase.stations.iter())
+        .find(|station| station.id == station_id)
+        .map_or_else(
+            || "unbekannt".to_owned(),
+            |station| format!("{:?}, Rückgaben {} von 3", station.state, station.returns),
+        )
+}
+
+/// Der Master gibt die Meldung zurück (ADR 070, D4): höchstens dreimal, mit einer Nachricht.
+fn give_back(
+    database_path: &Path,
+    implementation_id: &str,
+    station_id: &str,
+    message: &str,
+) -> Result<String, String> {
+    let database = Database::open(database_path).map_err(|error| error.to_string())?;
+    let rows = database
+        .with(|connection| implementations::load(connection, implementation_id))
+        .map_err(|error| error.to_string())?
+        .ok_or_else(|| format!("Umsetzung nicht gefunden: {implementation_id}"))?
+        .stations;
+    let row = rows
+        .iter()
+        .find(|row: &&StationRow| row.id == station_id)
+        .ok_or("Diese Station gehört nicht zur Umsetzung.")?;
+    if let Some(refusal) =
+        master::return_refusal(Decider::Master, row.report.is_some(), row.returns, message)
+    {
+        return Err(refusal);
+    }
+    let is_stored = database
+        .with(|connection| implementations::return_report(connection, station_id, row.returns))
+        .map_err(|error| error.to_string())?;
+    if !is_stored {
+        return Err("Über diese Meldung ist inzwischen entschieden.".to_owned());
+    }
+    let after = view_of(&database, implementation_id)?;
+    Ok(format!(
+        "Zurückgegeben. {}\n\n{}",
+        state_of_station(&after, station_id),
+        report::text(&after, now_ms(), false)
     ))
 }
 
-/// Die Nachrichten, die der Verwalter nach dieser Fertigmeldung dem Ersteller schickt (ADR 061),
-/// durch dieselbe Entscheidung wie die App, mit einem Ersteller, der da ist.
+/// Die Nachrichten, die der Verwalter dem Master schickt (ADR 070), durch dieselbe Entscheidung wie die App,
+/// mit einem Master, der da ist: nach der Meldung beim Zugende (`accepted` falsch), nach der Annahme durch
+/// den Benutzer, wenn es die letzte Station war.
 fn wake_lines(
     before: &ImplementationView,
     after: &ImplementationView,
     station_id: &str,
-    result: &str,
-    fix_needed: bool,
+    report: &StoredReport,
+    accepted: bool,
 ) -> String {
-    let is_finished = after.stations_done == after.stations_total;
     let Some((phase, station)) = before.phases.iter().find_map(|phase| {
         phase
             .stations
@@ -295,18 +400,43 @@ fn wake_lines(
         implementation: before.name.clone(),
         lane: phase.key.clone(),
         stage: station.stage.clone(),
-        text: result.trim().to_owned(),
+        text: report.result.clone(),
+        note: report.note.clone(),
+    };
+    let events = if accepted {
+        let is_finished = after.stations_done == after.stations_total;
+        wake::events_after_acceptance(station_id, is_finished, false)
+    } else {
+        wake::event_after_turn(&wake::TurnEnd {
+            station_id,
+            session: "",
+            has_ended: true,
+            is_restarting: false,
+            is_accepted: false,
+            outcome: wake::Outcome::Reported {
+                fix_needed: report.fix_needed,
+            },
+            returns: station.returns,
+            turn: 1,
+        })
+        .into_iter()
+        .collect()
     };
     let mut claimed = std::collections::HashSet::new();
-    let lines: Vec<String> = wake::events_after_completion(station_id, fix_needed, is_finished)
+    let lines: Vec<String> = events
         .iter()
         .filter_map(|event| wake::decide(event, &facts, true, &mut claimed))
         .map(|text: String| format!("  {text}"))
         .collect();
+    let when = if accepted {
+        "nach der Annahme durch dich"
+    } else {
+        "am Zugende"
+    };
     if lines.is_empty() {
-        return "\n\nWeckt den Ersteller: nein".to_owned();
+        return format!("\n\nWeckt den Master {when}: nein");
     }
-    format!("\n\nWeckt den Ersteller:\n{}", lines.join("\n"))
+    format!("\n\nWeckt den Master {when}:\n{}", lines.join("\n"))
 }
 
 fn types_of(database: &Database) -> Result<Vec<AgentType>, String> {
@@ -1072,7 +1202,7 @@ fn selftest(path: &Path) -> Result<bool, String> {
     all &= auto_resume(&database, path)?;
     all &= plan_edits(&database)?;
     all &= handoffs(&database)?;
-    all &= wakes();
+    all &= wakes(&database)?;
     Ok(all)
 }
 
@@ -1566,7 +1696,7 @@ fn station_options(database: &Database) -> Result<bool, String> {
     mark_done(database, &plan_view(database, &handoff)?, "build")?;
     let view = plan_view(database, &handoff)?;
     let message = station(&view, "append")
-        .map(|target| start::first_message(&view, &view.phases[0], target, &[]))
+        .map(|target| start::first_message(&view, &view.phases[0], target, &[], None))
         .unwrap_or_default();
     all &= check(
         "Vorgänger dürfen: ergänzen erlaubt, Ersatz nur bei „ergänzen und ändern“, „nicht anfassen“ lehnt ab",
@@ -1623,14 +1753,143 @@ fn station_options(database: &Database) -> Result<bool, String> {
     Ok(all)
 }
 
-/// Ersteller wecken (ADR 061): Ereignis → Nachricht oder keine, durch dieselbe Entscheidung wie die App.
-fn wakes() -> bool {
+/// Schreibt die Texte der Messung (ADR 070): den Systemprompt der Session-Werkzeuge und je Ereignis die
+/// Nachricht mit der ersten Zeile, die der Core setzt.
+fn write_wake_texts(folder: &Path) -> Result<(), String> {
+    fs::create_dir_all(folder).map_err(|error| error.to_string())?;
+    fs::write(
+        folder.join("prompt.txt"),
+        verwalter_lib::agents::claude::process::session_tools_prompt(),
+    )
+    .map_err(|error| error.to_string())?;
+    let facts = wake::WakeFacts {
+        implementation: "Master-Session".to_owned(),
+        lane: "99.1".to_owned(),
+        stage: "Umsetzung".to_owned(),
+        text: "Kern gebaut, Tests grün, Branch bereit".to_owned(),
+        note:
+            "Migration 030, Werkzeug und Sperren fertig; die Messung des Wortlauts steht noch aus."
+                .to_owned(),
+    };
+    let station = |name: &str| name.to_owned();
+    let reported = |fix_needed: bool| wake::WakeEvent::Reported {
+        station_id: station("s1"),
+        returns: 0,
+        turn: 1,
+        fix_needed,
+    };
+    let events: Vec<(&str, wake::WakeEvent, wake::WakeFacts)> = vec![
+        ("reported", reported(false), facts.clone()),
+        (
+            "reported-fix-needed",
+            reported(true),
+            wake::WakeFacts {
+                stage: "Review".to_owned(),
+                text: "2 Befunde, Fix-Runde nötig".to_owned(),
+                ..facts.clone()
+            },
+        ),
+        (
+            "interrupted",
+            wake::WakeEvent::Interrupted {
+                station_id: station("s1"),
+                returns: 0,
+                session: "Session #7, ID s-7".to_owned(),
+            },
+            facts.clone(),
+        ),
+        (
+            "unreported",
+            wake::WakeEvent::Unreported {
+                station_id: station("s1"),
+                returns: 0,
+                turn: 1,
+            },
+            wake::WakeFacts {
+                text: "…ich habe die Tests ergänzt. Soll ich noch den Rest der Doku schreiben?"
+                    .to_owned(),
+                ..facts.clone()
+            },
+        ),
+        (
+            "failed",
+            wake::WakeEvent::Failed {
+                station_id: station("s1"),
+                returns: 0,
+                turn: 1,
+                stopped: false,
+            },
+            facts.clone(),
+        ),
+        (
+            "failed-stopped",
+            wake::WakeEvent::Failed {
+                station_id: station("s1"),
+                returns: 0,
+                turn: 1,
+                stopped: true,
+            },
+            facts.clone(),
+        ),
+        (
+            "finished",
+            wake::WakeEvent::Finished {
+                station_id: station("s1"),
+            },
+            wake::WakeFacts {
+                stage: "Merge".to_owned(),
+                text: "PR gemergt".to_owned(),
+                ..facts.clone()
+            },
+        ),
+        (
+            "asking",
+            wake::WakeEvent::Asking {
+                station_id: station("s1"),
+                request_id: station("r1"),
+            },
+            wake::WakeFacts {
+                text: "Soll ich die alte Fertigmeldung entfernen oder behalten?".to_owned(),
+                ..facts.clone()
+            },
+        ),
+    ];
+    let sender = wake::sender();
+    let line = format!(
+        "[Nachricht von Session {} „{}“, ID {}]\n\n",
+        sender.number, sender.title, sender.id
+    );
+    for (name, event, facts) in &events {
+        let mut claimed = std::collections::HashSet::new();
+        let text = wake::decide(event, facts, true, &mut claimed).ok_or("kein Text")?;
+        fs::write(folder.join(format!("{name}.txt")), format!("{line}{text}"))
+            .map_err(|error| error.to_string())?;
+    }
+    let reports = [(
+        "st-7".to_owned(),
+        "99.1".to_owned(),
+        "Umsetzung".to_owned(),
+        "Kern gebaut, Tests grün, Branch bereit".to_owned(),
+    )];
+    for (name, reports) in [("new-master", &reports[..]), ("new-master-empty", &[][..])] {
+        let text = wake::new_master_message("Master-Session", reports);
+        fs::write(folder.join(format!("{name}.txt")), format!("{line}{text}"))
+            .map_err(|error| error.to_string())?;
+    }
+    println!("Texte in {} geschrieben.", folder.display());
+    Ok(())
+}
+
+/// Master wecken (ADR 070): Ereignis → Nachricht oder keine, Melden und Annehmen, Zurückgeben bis zur Grenze
+/// und der Wechsel des Masters, durch dieselben Regeln und Schreiber wie die App.
+fn wakes(database: &Database) -> Result<bool, String> {
     let mut all = true;
     let facts = wake::WakeFacts {
         implementation: "Probe".to_owned(),
         lane: "1".to_owned(),
         stage: "Review".to_owned(),
         text: "2 Befunde".to_owned(),
+        note: "Befund 1 steht in der Datei".to_owned(),
     };
     let finished = wake::WakeEvent::Finished {
         station_id: "s1".to_owned(),
@@ -1638,24 +1897,230 @@ fn wakes() -> bool {
     let mut claimed = std::collections::HashSet::new();
     let first = wake::decide(&finished, &facts, true, &mut claimed);
     all &= check(
-        "Ersteller wecken: Umsetzung fertig meldet mit Quelle und Ergebnis",
+        "Master wecken: Umsetzung fertig meldet mit Quelle und Ergebnis",
         first.is_some_and(|text| {
             text.starts_with("Meldung des Verwalters") && text.contains("2 Befunde")
         }),
     );
     all &= check(
-        "Ersteller wecken: dasselbe Ereignis ein zweites Mal meldet nichts",
+        "Master wecken: dasselbe Ereignis ein zweites Mal meldet nichts",
         wake::decide(&finished, &facts, true, &mut claimed).is_none(),
     );
     let mut none = std::collections::HashSet::new();
     all &= check(
-        "Ersteller wecken: ohne Ersteller keine Nachricht und kein Anspruch",
+        "Master wecken: ohne Master keine Nachricht und kein Anspruch",
         wake::decide(&finished, &facts, false, &mut none).is_none() && none.is_empty(),
     );
     all &= check(
-        "Ersteller wecken: Befund und Ende zugleich sind zwei Ereignisse, ohne beides keines",
-        wake::events_after_completion("s1", true, true).len() == 2
-            && wake::events_after_completion("s1", false, false).is_empty(),
+        "Master wecken: Fertig nur nach der Annahme der letzten Station durch den Benutzer",
+        wake::events_after_acceptance("s1", true, false).len() == 1
+            && wake::events_after_acceptance("s1", true, true).is_empty()
+            && wake::events_after_acceptance("s1", false, false).is_empty(),
     );
-    all
+
+    // Meldung mitten im Zug: weckt einmal, und erst nach dem Zug.
+    let turn = |has_ended: bool, returns: u32| wake::TurnEnd {
+        station_id: "s1",
+        session: "Session #7, ID s-7",
+        has_ended,
+        is_restarting: false,
+        is_accepted: false,
+        outcome: wake::Outcome::Reported { fix_needed: false },
+        returns,
+        turn: 7,
+    };
+    let mut claimed = std::collections::HashSet::new();
+    let mid_turn = wake::event_after_turn(&turn(false, 0));
+    let at_end = wake::event_after_turn(&turn(true, 0));
+    let woken: Vec<Option<String>> = [&at_end, &at_end]
+        .iter()
+        .map(|event| {
+            event
+                .as_ref()
+                .and_then(|event| wake::decide(event, &facts, true, &mut claimed))
+        })
+        .collect();
+    all &= check(
+        "Master wecken: Meldung mitten im Zug weckt einmal, nach dem Zug",
+        mid_turn.is_none() && woken[0].is_some() && woken[1].is_none(),
+    );
+    let again = wake::event_after_turn(&turn(true, 1));
+    all &= check(
+        "Master wecken: Meldung nach einer Rückgabe weckt erneut",
+        again.is_some_and(|event| wake::decide(&event, &facts, true, &mut claimed).is_some()),
+    );
+    let paused = wake::TurnEnd {
+        outcome: wake::Outcome::Failed { stopped: false },
+        is_restarting: true,
+        ..turn(true, 0)
+    };
+    all &= check(
+        "Master wecken: Fehler mit anstehendem Neustart weckt nicht, ein beendeter Zug ohne Meldung schon",
+        wake::event_after_turn(&paused).is_none()
+            && wake::event_after_turn(&wake::TurnEnd {
+                outcome: wake::Outcome::Silent,
+                ..turn(true, 0)
+            })
+            .is_some(),
+    );
+
+    // Annehmen vor dem Zugende wird abgelehnt, danach geht es; Zurückgeben bis zur Grenze.
+    let implementation = create_in(
+        database,
+        &phases_of(serde_json::json!([{ "key": "1", "title": "M", "stations": [
+            { "stage": "Umsetzung", "id": "build" },
+            { "stage": "Review", "id": "review", "after": ["build"] },
+        ] }]))?,
+    )?;
+    let build = id_of(&plan_view(database, &implementation)?, "build");
+    let report = StoredReport {
+        result: "PR offen".to_owned(),
+        note: "Alles gebaut".to_owned(),
+        fix_needed: false,
+        handoff_note: None,
+        handoff_replace: Vec::new(),
+    };
+    let json = serde_json::to_string(&report).map_err(|error| error.to_string())?;
+    database
+        .with(|connection| implementations::set_report(connection, &build, now_ms(), &json))
+        .map_err(|error| error.to_string())?;
+    let running = view_with(
+        database,
+        &implementation,
+        &HashMap::new(),
+        &[("build", SessionStatus::Running)],
+    )?;
+    let ended = master::turn_ended(SessionStatus::Completed, false);
+    let refusal = master::accept_refusal(
+        Decider::Master,
+        true,
+        master::turn_ended(SessionStatus::Running, false),
+        0,
+    );
+    all &= check(
+        "Master: Annehmen vor dem Zugende abgelehnt, der Satz sagt, dass der Verwalter erneut weckt",
+        station(&running, "build").is_some_and(|station| station.state == StationState::Reported)
+            && refusal.is_some_and(|text| text.contains("weckt dich erneut"))
+            && ended
+            && master::accept_refusal(Decider::Master, true, ended, 0).is_none(),
+    );
+    let mut stages: Vec<bool> = Vec::new();
+    for round in 0..4 {
+        let row = database
+            .with(|connection| implementations::load(connection, &implementation))
+            .map_err(|error| error.to_string())?
+            .and_then(|stored| stored.stations.into_iter().find(|row| row.id == build))
+            .ok_or("keine Station build")?;
+        let refused =
+            master::return_refusal(Decider::Master, true, row.returns, "Test fehlt").is_some();
+        stages.push(refused);
+        if refused {
+            break;
+        }
+        database
+            .with(|connection| implementations::return_report(connection, &build, row.returns))
+            .and_then(|_| {
+                database.with(|connection| {
+                    implementations::set_report(
+                        connection,
+                        &build,
+                        now_ms() + f64::from(round),
+                        &json,
+                    )
+                })
+            })
+            .map_err(|error| error.to_string())?;
+    }
+    let exhausted = view_with(
+        database,
+        &implementation,
+        &HashMap::new(),
+        &[("build", SessionStatus::Completed)],
+    )?;
+    all &= check(
+        "Master: Zurückgeben bis zur Grenze, die vierte Rückgabe abgelehnt, die Station wartet auf dich",
+        stages == [false, false, false, true]
+            && station(&exhausted, "build").is_some_and(|station| {
+                (station.state, station.returns, station.returns_left)
+                    == (StationState::WaitsForYou, 3, 0)
+            })
+            && master::accept_refusal(Decider::User, true, true, 3).is_none()
+            && master::accept_refusal(Decider::User, true, true, 2).is_some(),
+    );
+
+    // Masterwechsel: Der neue Master hört von der Umsetzung und der offenen Meldung.
+    database
+        .with(|connection| implementations::set_master(connection, &implementation, "neu"))
+        .map_err(|error| error.to_string())?;
+    let changed = view_with(
+        database,
+        &implementation,
+        &HashMap::new(),
+        &[("build", SessionStatus::Completed)],
+    )?;
+    let message = wake::new_master_message(
+        &changed.name,
+        &verwalter_lib::implementation::open_reports(&changed),
+    );
+    all &= check(
+        "Master wechseln: Nachricht mit Umsetzung und offener Meldung, Station und anderes Vorhaben abgelehnt, Pause ist kein Ausfall",
+        changed.master_session_id.as_deref() == Some("neu")
+            && message.contains("Probe")
+            && message.contains("Lane 1 · Umsetzung")
+            && message.contains("PR offen")
+            && master::set_master_refusal("probe", "probe", true).is_some()
+            && master::set_master_refusal("other", "probe", false).is_some()
+            && master::set_master_refusal("probe", "probe", false).is_none()
+            && !master::is_master_missing(Some(SessionStatus::Paused))
+            && master::is_master_missing(Some(SessionStatus::Error))
+            && master::is_master_missing(None),
+    );
+    // App-Start: Der Durchgang findet die gemeldete, nicht angenommene Station und weckt den Master.
+    let on_start = verwalter_lib::implementation::reported_sessions(std::slice::from_ref(&changed));
+    all &= check(
+        "Master wecken: nach dem App-Start weckt jede gemeldete, nicht angenommene Station",
+        on_start.len() == 1
+            && on_start[0].0 == changed.id
+            && verwalter_lib::implementation::master::turn_just_ended(
+                true,
+                true,
+                SessionStatus::Completed,
+                false,
+            ),
+    );
+    // Wiederhergestellt pausiert (Neustart): unterbrochen, mit scharfem Zeitgeber nichts, einmal je Lauf.
+    let restored = wake::TurnEnd {
+        station_id: "st",
+        session: "Session #7, ID s-7",
+        has_ended: verwalter_lib::implementation::master::turn_ended(SessionStatus::Paused, false),
+        is_restarting: false,
+        is_accepted: false,
+        outcome: wake::Outcome::Reported { fix_needed: false },
+        returns: 0,
+        turn: 1,
+    };
+    let interrupted = wake::event_on_start(&restored, true, false);
+    let facts = wake::WakeFacts {
+        implementation: "Probe".to_owned(),
+        lane: "1".to_owned(),
+        stage: "Umsetzung".to_owned(),
+        text: "PR offen".to_owned(),
+        note: String::new(),
+    };
+    let mut claimed = std::collections::HashSet::new();
+    let first = interrupted
+        .as_ref()
+        .and_then(|event: &wake::WakeEvent| wake::decide(event, &facts, true, &mut claimed));
+    let second = interrupted
+        .as_ref()
+        .and_then(|event: &wake::WakeEvent| wake::decide(event, &facts, true, &mut claimed));
+    all &= check(
+        "Master wecken: eine wiederhergestellte, pausierte Station ist unterbrochen, mit scharfem Zeitgeber nichts, einmal je Lauf",
+        !restored.has_ended
+            && first
+                .is_some_and(|text: String| text.contains("unterbrochen") && text.contains("st"))
+            && second.is_none()
+            && wake::event_on_start(&restored, true, true).is_none(),
+    );
+    Ok(all)
 }

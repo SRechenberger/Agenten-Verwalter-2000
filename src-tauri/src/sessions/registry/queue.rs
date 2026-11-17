@@ -166,7 +166,7 @@ impl SessionRegistry {
                 return;
             }
         }
-        // Fertig gemeldete Station (ADR 064): nichts schicken, der Schalter geht ohne Fehlerkarte aus.
+        // Angenommene Station (ADR 064): nichts schicken, der Schalter geht ohne Fehlerkarte aus.
         match self.resume_is_finished(session_id) {
             Ok(false) => {}
             Ok(true) => {

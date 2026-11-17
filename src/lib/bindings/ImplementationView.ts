@@ -14,4 +14,4 @@ currentPhase: number,
 /**
  * Dringendster Zustand über alle Stationen (`StationState::urgency_rank`).
  */
-urgency: StationState, lastActivityAt: number, unread: boolean, queued: number, autoResume: boolean, cancelledAt: number | null, pendingCancel: PendingCancel | null, };
+urgency: StationState, lastActivityAt: number, unread: boolean, queued: number, autoResume: boolean, cancelledAt: number | null, pendingCancel: PendingCancel | null, masterSessionId: string | null, masterMissing: boolean, };

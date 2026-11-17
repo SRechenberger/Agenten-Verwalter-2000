@@ -1,6 +1,7 @@
 //! Umsetzung eines Plans: Phasen, Stationen, Werkzeuge für den Agenten (ADR 048).
 pub mod changes;
 pub mod edit;
+pub mod master;
 pub mod model;
 pub mod plan;
 pub mod report;
@@ -26,22 +27,24 @@ use crate::db::implementations::{
 use crate::error::CommandError;
 use crate::sessions::model::SessionStatus;
 use crate::sessions::registry::SessionRegistry;
+use master::Decider;
 use model::{
     BriefChange, BriefChangeKind, ChangeSummary, ChangeView, Handoff, ImplementationChangedEvent,
     ImplementationRemovedEvent, ImplementationView, MAX_BRIEF_CHARS, MAX_PROMPT_CHARS,
-    MAX_SKILL_CHARS, OnError, PendingCancel, PendingChange, PhaseInput, PhaseView, PredecessorsMay,
-    StationInput, StationOptions, StationSettings, StationState, StationView, check_length,
+    MAX_RETURN_CHARS, MAX_SKILL_CHARS, OnError, PendingCancel, PendingChange, PhaseInput,
+    PhaseView, PredecessorsMay, StationInput, StationOptions, StationReport, StationSettings,
+    StationState, StationView, StoredReport, check_length,
 };
 
 pub const IMPLEMENTATION_CHANGED_EVENT: &str = "implementation://changed";
 /// Nach dem Löschen einer Umsetzung (ADR 066), mit `ImplementationRemovedEvent`.
 pub const IMPLEMENTATION_REMOVED_EVENT: &str = "implementation://removed";
-/// Fertigmeldung, Start und Neustart einer Station einer abgebrochenen Umsetzung (ADR 066).
+/// Meldung, Annahme, Start und Neustart einer Station einer abgebrochenen Umsetzung (ADR 066).
 pub const IS_CANCELLED: &str = "Die Umsetzung ist abgebrochen.";
 /// Abbrechen und Anfrage zum Abbrechen einer schon abgeschlossenen Umsetzung (ADR 066).
 pub const ALREADY_FINISHED: &str = "Umsetzung ist schon abgeschlossen.";
 
-/// So lange wartet eine Station nach der Fertigmeldung ihres Vorgängers, bevor sie startet.
+/// So lange wartet eine Station nach der Annahme ihres Vorgängers, bevor sie startet.
 pub const START_DELAY: Duration = Duration::from_secs(10);
 
 /// Stufe der eingehängten Station nach einem Review mit Befund.
@@ -60,7 +63,10 @@ const MAX_FIX_ROUNDS: usize = 2;
 const FIX_BRIEF: &str = "Behebe die Befunde der vorigen Review-Station (siehe Vorgänger).";
 const FIX_LIMIT_HINT: &str = "Zwei Fix-Runden sind durch; frag den Benutzer (🔴).";
 const NOT_IN_IMPLEMENTATION: &str = "Diese Station gehört nicht zur Umsetzung.";
-/// Session vorhanden oder fertig gemeldet: Ihre Einstellungen gelten nicht mehr.
+/// Die Antwort auf die Meldung einer Station (ADR 070).
+pub const REPORTED_ANSWER: &str = "Gemeldet. Dein Master entscheidet, sobald dein Zug beendet ist.";
+const ALREADY_DECIDED: &str = "Über diese Meldung ist inzwischen entschieden.";
+/// Session vorhanden oder angenommen: Ihre Einstellungen gelten nicht mehr.
 pub const STATION_BEGUN: &str = "Die Station hat schon begonnen: Typ, Modell, Denkaufwand, Zusatztext \
      und Skill sind festgeschrieben.";
 /// Der Auftrag samt Änderungen ist mit dem Start festgeschrieben (ADR 061).
@@ -74,7 +80,7 @@ const UNKNOWN_BRIEF_CHANGE: &str = "Diese Änderung am Auftrag gibt es nicht.";
 /// Die erste Nachricht nach einem Neustart wegen „Bei Fehler“ (ADR 061): dieselbe Session setzt fort.
 pub const RESTART_MESSAGE: &str = "Der vorige Lauf dieser Station endete mit einem Fehler; der \
      Verwalter startet sie neu („Bei Fehler“). Setze die Arbeit fort und melde die Station mit dem \
-     Werkzeug implementation_complete_station fertig.";
+     Werkzeug implementation_complete_station (Ergebnis und Notiz an deinen Master).";
 const STATION_OF_USER: &str = "Diese Station erledigst du selbst.";
 const AUTO_RESUME_FINISHED: &str =
     "Die Station ist fertig: „Automatisch fortsetzen“ ist nur lesbar.";
@@ -91,7 +97,7 @@ pub struct Countdowns {
     /// Zahl der freigegebenen Ansprüche: Ändert sie sich zwischen dem Zählen der Sessions und dem
     /// Beanspruchen, ist die Zählung veraltet (`slots::Countdowns::pass`).
     releases: u64,
-    /// Ereignisse, die den Ersteller schon geweckt haben (`wake::decide`, ADR 061).
+    /// Ereignisse, die den Master schon geweckt haben (`wake::decide`, ADR 070).
     pub(crate) woken: HashSet<String>,
     // Ab hier das Tor (ADR 068).
     /// Sessions, die gerade über das Tor starten (Zustellung, Fortsetzen, erste Nachricht).
@@ -181,7 +187,7 @@ pub struct StationRef {
     pub stage: String,
 }
 
-/// Was nach einer Fertigmeldung kommt.
+/// Was nach der Annahme einer Station kommt.
 #[derive(Debug, Default)]
 pub struct CompleteOutcome {
     /// Stationen, die danach starten (Countdown) oder bereitstehen.
@@ -199,9 +205,9 @@ pub struct CompleteOutcome {
 }
 
 impl CompleteOutcome {
-    /// Der Satz, den der Agent als Antwort der Fertigmeldung liest.
+    /// Der Satz, den der Master als Antwort auf `accept` liest.
     pub fn text(&self) -> String {
-        let mut text = String::from("Station fertig gemeldet.");
+        let mut text = String::from("Angenommen: Die Station ist fertig.");
         if self.is_finished {
             text.push_str(" Die Umsetzung ist fertig.");
         } else if self.next.is_empty() && self.queued > 0 {
@@ -262,10 +268,10 @@ pub fn announce_removed(app: &AppHandle, id: &str) {
     );
 }
 
-/// Meldet die Station fertig, hängt bei `fix_needed` Fix-Runde und zweites Review an und plant
-/// die Stationen, die danach starten dürfen. Läuft im MCP-Thread oder im Tauri-Befehl, ohne dass
-/// eine Sperre gehalten wird: die Registry nimmt Datenbank-, Vorhaben- und Session-Sperren selbst,
-/// nacheinander.
+/// „Erledigt“ des Benutzers für eine Station „durch dich“: nimmt sie ohne Meldung an, mit denselben
+/// Schritten wie `accept_station` (Weiterplanen, Ende der Umsetzung weckt den Master). Läuft im
+/// Tauri-Befehl, ohne dass eine Sperre gehalten wird: die Registry nimmt Datenbank-, Vorhaben- und
+/// Session-Sperren selbst, nacheinander.
 pub fn complete_station(
     app: &AppHandle,
     implementation_id: &str,
@@ -280,11 +286,94 @@ pub fn complete_station(
         result,
         fix_needed,
         &Handoff::default(),
+        Decider::User,
     )
 }
 
-/// Wie `complete_station`, mit Übergabenotiz (ADR 061, Werkzeuge): Sie ändert den Auftrag der
-/// wartenden Nachfolger, bevor sie geplant werden. Lehnt ein Nachfolger sie ab, ist nichts gemeldet.
+/// Die Meldung einer Station an ihren Master (ADR 070, D2): prüft wie die frühere Fertigmeldung (Station
+/// der eigenen Session, Umsetzung nicht abgebrochen, Station nicht angenommen, `handoff` gültig für die
+/// Nachfolger von jetzt), speichert nur die Meldung samt Notiz und ersetzt eine frühere. Nichts wird
+/// geplant und niemand geweckt: Das tut erst das Zugende der Station (`station_session_ended`) und die
+/// Annahme.
+pub fn report_station(
+    app: &AppHandle,
+    implementation_id: &str,
+    station_id: &str,
+    report: &StoredReport,
+) -> Result<(), CommandError> {
+    let registry = app.state::<SessionRegistry>();
+    let view = registry.implementation_view(implementation_id)?;
+    let types = registry.agent_types()?;
+    let (followups, _) = plan_completion_with_types(&view, station_id, report.fix_needed, &types)
+        .map_err(CommandError::Implementation)?;
+    let rows = registry.station_rows(implementation_id)?;
+    handoff_changes(&rows, station_id, &followups, &report.handoff(), now_ms())
+        .map_err(CommandError::Implementation)?;
+    if !registry.store_report(station_id, report)? {
+        return Err(CommandError::Implementation(
+            "Diese Station ist schon angenommen.".to_owned(),
+        ));
+    }
+    announce(app, &registry.implementation_view(implementation_id)?);
+    Ok(())
+}
+
+/// Der Master oder der Benutzer nimmt die Meldung an (ADR 070, D3): nur wenn die Station gemeldet und ihr
+/// Zug beendet ist, und der Benutzer erst, wenn die Rückgaben des Masters verbraucht sind. Danach laufen die
+/// Schritte der früheren Fertigmeldung mit der gespeicherten Meldung (Fix-Runde, Übergabe, Weiterplanen).
+pub fn accept_station(
+    app: &AppHandle,
+    implementation_id: &str,
+    station_id: &str,
+    decider: Decider,
+) -> Result<CompleteOutcome, CommandError> {
+    let registry = app.state::<SessionRegistry>();
+    let view = registry.implementation_view(implementation_id)?;
+    if view.cancelled_at.is_some() {
+        return Err(CommandError::Implementation(format!(
+            "{IS_CANCELLED} Es gibt nichts mehr zu entscheiden."
+        )));
+    }
+    let (_, station) = station_in(&view, station_id)?;
+    let rows = registry.station_rows(implementation_id)?;
+    let row = stored_row(&rows, station_id)?;
+    let report = stored_report(row);
+    let has_turn_ended = station
+        .session_id
+        .as_deref()
+        .is_none_or(|session_id: &str| registry.station_turn_ended(session_id));
+    if row.completed_at.is_some() {
+        return Err(CommandError::Implementation(
+            "Diese Station ist schon angenommen.".to_owned(),
+        ));
+    }
+    if let Some(refusal) =
+        master::accept_refusal(decider, report.is_some(), has_turn_ended, row.returns)
+    {
+        return Err(CommandError::Implementation(refusal));
+    }
+    let Some(report) = report else {
+        return Err(CommandError::Implementation(
+            master::NOT_REPORTED.to_owned(),
+        ));
+    };
+    complete_station_with_handoff(
+        app,
+        implementation_id,
+        station_id,
+        &report.result,
+        report.fix_needed,
+        &report.handoff(),
+        decider,
+    )
+}
+
+/// Die Schritte der früheren Fertigmeldung (ADR 061), jetzt der Weg des Annehmens: Prüfen
+/// (`plan_completion_with_types`), Übergabe (`handoff_changes`), Speichern in einer Transaktion,
+/// Zeitgeber aus, Aufträge der Nachfolger ändern, Weiterplanen. Eine Station des Agenten braucht dazu
+/// ihre Meldung (die Transaktion prüft sie noch einmal); „Erledigt“ einer Station des Benutzers nicht.
+/// Hat der Benutzer die letzte Station angenommen, weckt das den Master (`wake::events_after_acceptance`).
+/// Lehnt ein Nachfolger die Übergabenotiz ab, ist nichts angenommen.
 pub fn complete_station_with_handoff(
     app: &AppHandle,
     implementation_id: &str,
@@ -292,6 +381,7 @@ pub fn complete_station_with_handoff(
     result: &str,
     fix_needed: bool,
     handoff: &Handoff,
+    decider: Decider,
 ) -> Result<CompleteOutcome, CommandError> {
     let registry = app.state::<SessionRegistry>();
     let view = registry.implementation_view(implementation_id)?;
@@ -301,13 +391,13 @@ pub fn complete_station_with_handoff(
     let rows = registry.station_rows(implementation_id)?;
     let changes = handoff_changes(&rows, station_id, &followups, handoff, now_ms())
         .map_err(CommandError::Implementation)?;
-    registry.store_station_completion(station_id, result.trim(), &followups)?;
-    // Eine fertig gemeldete Station setzt nicht fort (ADR 064): ihr Zeitgeber endet mit der Meldung.
-    if let Some(station) = view
-        .phases
-        .iter()
-        .flat_map(|phase: &PhaseView| phase.stations.iter())
-        .find(|station: &&StationView| station.id == station_id)
+    let station = find_station(&view, station_id).map(|(_, station)| station);
+    let needs_report = station.is_some_and(|station: &StationView| !station.by_user);
+    if !registry.store_station_completion(station_id, result.trim(), &followups, needs_report)? {
+        return Err(CommandError::Implementation(ALREADY_DECIDED.to_owned()));
+    }
+    // Eine angenommene Station setzt nicht fort (ADR 064): ihr Zeitgeber endet mit der Annahme.
+    if let Some(station) = station
         && let Err(error) = switch_timer(app, station, false)
     {
         eprintln!("Zeitgeber der fertigen Station {station_id} nicht ausgeschaltet: {error}");
@@ -325,11 +415,172 @@ pub fn complete_station_with_handoff(
         }
     }
     let mut outcome = after_completion(app, &registry, implementation_id)?;
-    wake_creator_after_completion(app, &view, station_id, result.trim(), fix_needed, &outcome);
+    wake_master_after_acceptance(
+        app,
+        &view,
+        station_id,
+        result.trim(),
+        &outcome,
+        decider == Decider::Master,
+    );
     outcome.hint = hint;
     outcome.handoff_unused = handoff.note.is_some() && handed.is_empty();
     outcome.handed = handed;
     Ok(outcome)
+}
+
+fn stored_row<'a>(
+    rows: &'a [StationRow],
+    station_id: &str,
+) -> Result<&'a StationRow, CommandError> {
+    rows.iter()
+        .find(|row: &&StationRow| row.id == station_id)
+        .ok_or_else(|| CommandError::Implementation(NOT_IN_IMPLEMENTATION.to_owned()))
+}
+
+/// Die gespeicherte Meldung der Zeile; eine unlesbare zählt als keine.
+fn stored_report(row: &StationRow) -> Option<StoredReport> {
+    row.report
+        .as_deref()
+        .and_then(|json: &str| serde_json::from_str::<StoredReport>(json).ok())
+}
+
+/// Der Master gibt die Meldung zurück oder der Benutzer, wenn die Rückgaben verbraucht sind (ADR 070, D4):
+/// löscht die Meldung, zählt `returns` hoch und stellt die Nachricht der Station zu; an eine Station mit Fehler
+/// oder Abbruch geht sie über Neustart und Senden. Gibt die Zahl der Rückgaben zurück.
+pub fn return_station(
+    app: &AppHandle,
+    implementation_id: &str,
+    station_id: &str,
+    message: &str,
+    decider: Decider,
+) -> Result<u32, CommandError> {
+    let registry = app.state::<SessionRegistry>();
+    let view = registry.implementation_view(implementation_id)?;
+    if view.cancelled_at.is_some() {
+        return Err(CommandError::Implementation(format!(
+            "{IS_CANCELLED} Es gibt nichts mehr zu entscheiden."
+        )));
+    }
+    let (_, station) = station_in(&view, station_id)?;
+    let rows = registry.station_rows(implementation_id)?;
+    let row = stored_row(&rows, station_id)?;
+    if row.completed_at.is_some() {
+        return Err(CommandError::Implementation(
+            "Diese Station ist schon angenommen.".to_owned(),
+        ));
+    }
+    if let Some(refusal) =
+        master::return_refusal(decider, row.report.is_some(), row.returns, message)
+    {
+        return Err(CommandError::Implementation(refusal));
+    }
+    check_length("message", message.trim(), 1, MAX_RETURN_CHARS)
+        .map_err(CommandError::Implementation)?;
+    let Some(session_id) = station.session_id.clone() else {
+        return Err(CommandError::Implementation(
+            master::NOT_REPORTED.to_owned(),
+        ));
+    };
+    if !registry.store_return(station_id, row.returns)? {
+        return Err(CommandError::Implementation(ALREADY_DECIDED.to_owned()));
+    }
+    let text = return_text(decider, message);
+    let sent = registry.send_to_station(app, &session_id, view.master_session_id.as_deref(), &text);
+    announce(app, &registry.implementation_view(implementation_id)?);
+    sent.map_err(|error: CommandError| {
+        CommandError::Implementation(format!(
+            "Die Rückgabe zählt, aber die Nachricht kam nicht an: {error}"
+        ))
+    })?;
+    Ok(row.returns + 1)
+}
+
+/// Der Text, den die Station zur Rückgabe liest.
+fn return_text(decider: Decider, message: &str) -> String {
+    let from = match decider {
+        Decider::Master => "Dein Master",
+        Decider::User => "Der Benutzer",
+    };
+    format!(
+        "{from} gibt deine Meldung zurück: {} Arbeite weiter und melde die Station danach erneut \
+         mit dem Werkzeug implementation_complete_station.",
+        message.trim()
+    )
+}
+
+/// Der Master gibt eine Station „durch dich“ frei (ADR 070, D5): setzt nur die Marke; die Station bleibt
+/// beim Benutzer.
+pub fn release_station(
+    app: &AppHandle,
+    implementation_id: &str,
+    station_id: &str,
+) -> Result<(), CommandError> {
+    let registry = app.state::<SessionRegistry>();
+    let view = registry.implementation_view(implementation_id)?;
+    let (_, station) = station_in(&view, station_id)?;
+    if let Some(refusal) = master::release_refusal(station.by_user, station.state) {
+        return Err(CommandError::Implementation(refusal.to_owned()));
+    }
+    if !registry.store_release(station_id)? {
+        return Err(CommandError::Implementation(
+            master::NOT_FOR_RELEASE.to_owned(),
+        ));
+    }
+    announce(app, &registry.implementation_view(implementation_id)?);
+    Ok(())
+}
+
+/// Der Benutzer bestimmt einen neuen Master (ADR 070, D11): dasselbe Vorhaben, keine Station. Der neue Master
+/// bekommt eine Nachricht mit der Umsetzung und den offenen Meldungen.
+pub fn set_master(
+    app: &AppHandle,
+    implementation_id: &str,
+    session_id: &str,
+) -> Result<ImplementationView, CommandError> {
+    let registry = app.state::<SessionRegistry>();
+    let view = registry.implementation_view(implementation_id)?;
+    registry.store_master(implementation_id, &view.project_id, session_id)?;
+    let view = registry.implementation_view(implementation_id)?;
+    announce(app, &view);
+    let text = wake::new_master_message(&view.name, &open_reports(&view));
+    let thread_app = app.clone();
+    let session_id = session_id.to_owned();
+    let spawned = std::thread::Builder::new()
+        .name("implementation-wake".to_owned())
+        .spawn(move || {
+            thread_app
+                .state::<SessionRegistry>()
+                .tell_master(&thread_app, &session_id, &text);
+        });
+    if let Err(error) = spawned {
+        eprintln!("Neuer Master der Umsetzung nicht benachrichtigt: {error}");
+    }
+    Ok(view)
+}
+
+/// Die offenen Meldungen (Lane, Stufe, Betreff) für die Nachricht an einen neuen Master.
+pub fn open_reports(view: &ImplementationView) -> Vec<(String, String, String, String)> {
+    view.phases
+        .iter()
+        .flat_map(|phase: &PhaseView| phase.stations.iter().map(move |station| (phase, station)))
+        .filter(|(_, station): &(&PhaseView, &StationView)| {
+            station.completed_at.is_none() && station.report.is_some()
+        })
+        .map(|(phase, station): (&PhaseView, &StationView)| {
+            let subject = station
+                .report
+                .as_ref()
+                .map(|report: &StationReport| report.result.clone())
+                .unwrap_or_default();
+            (
+                station.id.clone(),
+                phase.key.clone(),
+                station.stage.clone(),
+                subject,
+            )
+        })
+        .collect()
 }
 
 /// Die Änderungen am Auftrag, die eine Übergabenotiz bewirkt (ADR 061, Werkzeuge): `note` ergänzt jeden
@@ -401,7 +652,7 @@ pub fn handoff_changes(
     Ok(planned)
 }
 
-/// Prüft die Fertigmeldung und liefert die Stationen, die dahinter einzuhängen sind (Fix-Runde und
+/// Prüft die Meldung (und beim Annehmen noch einmal) und liefert die Stationen, die dahinter einzuhängen sind (Fix-Runde und
 /// zweites Review), sowie den Hinweis an den Agenten, wenn die Fix-Runden erschöpft sind. Ohne
 /// Agententypen; der Betrieb ruft `plan_completion_with_types`.
 pub fn plan_completion(
@@ -425,7 +676,7 @@ pub fn plan_completion_with_types(
     let (phase, station) =
         find_station(view, station_id).ok_or_else(|| NOT_IN_IMPLEMENTATION.to_owned())?;
     if station.state == StationState::Done {
-        return Err("Diese Station ist schon fertig gemeldet.".to_owned());
+        return Err("Diese Station ist schon angenommen.".to_owned());
     }
     if !fix_needed {
         return Ok((Vec::new(), None));
@@ -438,12 +689,16 @@ pub fn plan_completion_with_types(
     Ok((Vec::new(), Some(FIX_LIMIT_HINT.to_owned())))
 }
 
-/// Sessions der Stationen mit Fehler, auch wenn ein Halt ihren Neustart gerade verbietet.
-fn errored_sessions(view: &ImplementationView) -> Vec<String> {
+/// Sessions der Stationen mit Fehler, auch wenn ein Halt ihren Neustart gerade verbietet. Eine gemeldete
+/// Station zeigt `Reported` statt `Error`, ihre Session kann trotzdem im Fehler enden; den Merker zu
+/// löschen schadet bei einer Session ohne Fehler nicht.
+pub fn errored_sessions(view: &ImplementationView) -> Vec<String> {
     view.phases
         .iter()
         .flat_map(|phase: &PhaseView| phase.stations.iter())
-        .filter(|station: &&StationView| station.state == StationState::Error)
+        .filter(|station: &&StationView| {
+            station.state == StationState::Error || station.report.is_some()
+        })
         .filter_map(|station: &StationView| station.session_id.clone())
         .collect()
 }
@@ -460,7 +715,7 @@ pub fn consume_halt(
     registry.store_implementation_flags(&view.id, false, false, finished_at)
 }
 
-/// Stellt nach einer Fertigmeldung fest, was kommt: Ende, Halt oder die nächsten Stationen.
+/// Stellt nach einer Annahme fest, was kommt: Ende, Halt oder die nächsten Stationen.
 fn after_completion(
     app: &AppHandle,
     registry: &SessionRegistry,
@@ -490,18 +745,18 @@ fn after_completion(
     Ok(outcome)
 }
 
-/// Ersteller wecken (ADR 061): Nach der Fertigmeldung geht je Ereignis eine Nachricht an die Session,
-/// die die Umsetzung angelegt hat. Im eigenen Thread, denn die Zustellung kann einen Agenten starten.
-/// `view` ist die Ansicht vor der Meldung, daher findet sich die Station noch.
-fn wake_creator_after_completion(
+/// Master wecken (ADR 070), Ende der Umsetzung: Hat der Benutzer die letzte Station angenommen, geht eine
+/// Nachricht an den Master. Im eigenen Thread, denn die Zustellung kann einen Agenten starten. `view` ist
+/// die Ansicht vor der Annahme, daher findet sich die Station noch.
+fn wake_master_after_acceptance(
     app: &AppHandle,
     view: &ImplementationView,
     station_id: &str,
     result: &str,
-    fix_needed: bool,
     outcome: &CompleteOutcome,
+    is_by_master: bool,
 ) {
-    let events = wake::events_after_completion(station_id, fix_needed, outcome.is_finished);
+    let events = wake::events_after_acceptance(station_id, outcome.is_finished, is_by_master);
     let Some((phase, station)) = find_station(view, station_id) else {
         return;
     };
@@ -513,25 +768,36 @@ fn wake_creator_after_completion(
         lane: phase.key.clone(),
         stage: station.stage.clone(),
         text: result.to_owned(),
+        note: String::new(),
     };
-    let implementation_id = view.id.clone();
+    spawn_wake(app, &view.id, events, facts);
+}
+
+/// Legt die Weck-Nachrichten im eigenen Thread zu (`implementation-wake`).
+fn spawn_wake(
+    app: &AppHandle,
+    implementation_id: &str,
+    events: Vec<wake::WakeEvent>,
+    facts: wake::WakeFacts,
+) {
+    let implementation_id = implementation_id.to_owned();
     let thread_app = app.clone();
     let spawned = std::thread::Builder::new()
         .name("implementation-wake".to_owned())
         .spawn(move || {
             let registry = thread_app.state::<SessionRegistry>();
             for event in &events {
-                registry.wake_creator(&thread_app, &implementation_id, event, &facts);
+                registry.wake_master(&thread_app, &implementation_id, event, &facts);
             }
         });
     if let Err(error) = spawned {
-        eprintln!("Ersteller der Umsetzung nicht geweckt: {error}");
+        eprintln!("Master der Umsetzung nicht geweckt: {error}");
     }
 }
 
-/// Ersteller wecken, Rückfrage (ADR 061): Die Session einer Station hat eine Frage gestellt. Gilt nur,
+/// Master wecken, Rückfrage (ADR 061, 070): Die Session einer Station hat eine Frage gestellt. Gilt nur,
 /// solange die Station noch fragt; eine schon beantwortete Frage meldet nichts mehr.
-pub fn wake_creator_of_question(
+pub fn wake_master_of_question(
     app: &AppHandle,
     implementation_id: &str,
     session_id: &str,
@@ -550,7 +816,7 @@ pub fn wake_creator_of_question(
     let Some((phase, station)) = asking else {
         return Ok(());
     };
-    registry.wake_creator(
+    registry.wake_master(
         app,
         implementation_id,
         &wake::WakeEvent::Asking {
@@ -562,16 +828,144 @@ pub fn wake_creator_of_question(
             lane: phase.key.clone(),
             stage: station.stage.clone(),
             text: station.question.clone().unwrap_or_default(),
+            note: String::new(),
         },
     );
     Ok(())
 }
 
-/// Neuer Haken (ADR 061): Die Session einer Station endet mit Fehler, Abbruch, Rückfrage oder ohne
-/// Fertigmeldung. Ihr Platz ist frei (ADR 068), ein Durchgang läuft: Er startet sie nach „Bei Fehler“
+/// Master wecken, Zugende (ADR 070, D7): Die Session einer Station hat ihren Zug beendet. Nur ein wirklich
+/// beendeter Zug weckt (nicht Pause, wartendes Skript oder Subagent, anstehender Neustart nach „Bei Fehler“,
+/// nicht nach der Annahme): eine Meldung, eine Antwort ohne Meldung oder ein Fehler, je Zug genau einmal.
+/// Mit `at_start` (Weckdurchgang beim App-Start) weckt auch eine pausierte gemeldete Station ohne scharfen
+/// Zeitgeber, mit „Unterbrochen“ (`wake::event_on_start`).
+fn wake_master_after_turn(
+    app: &AppHandle,
+    implementation_id: &str,
+    session_id: &str,
+    at_start: bool,
+) -> Result<(), CommandError> {
+    let registry = app.state::<SessionRegistry>();
+    let view = registry.implementation_view(implementation_id)?;
+    let found = view
+        .phases
+        .iter()
+        .flat_map(|phase: &PhaseView| phase.stations.iter().map(move |station| (phase, station)))
+        .find(|(_, station): &(&PhaseView, &StationView)| {
+            station.session_id.as_deref() == Some(session_id)
+        });
+    let (Some((phase, station)), Some(turn)) = (found, registry.station_turn(session_id)) else {
+        return Ok(());
+    };
+    let outcome = match (&station.report, turn.status) {
+        (Some(report), _) => wake::Outcome::Reported {
+            fix_needed: report.fix_needed,
+        },
+        (None, SessionStatus::Error) => wake::Outcome::Failed { stopped: false },
+        (None, SessionStatus::Cancelled) => wake::Outcome::Failed { stopped: true },
+        (None, _) => wake::Outcome::Silent,
+    };
+    let session = format!(
+        "Session #{}, ID {session_id}",
+        registry.session_number(session_id)
+    );
+    let facts = wake::TurnEnd {
+        station_id: &station.id,
+        session: &session,
+        has_ended: turn.has_ended,
+        is_restarting: station.restarting,
+        is_accepted: station.completed_at.is_some(),
+        outcome,
+        returns: station.returns,
+        turn: turn.marker,
+    };
+    let event = if at_start {
+        wake::event_on_start(
+            &facts,
+            turn.status == SessionStatus::Paused,
+            turn.is_timer_armed,
+        )
+    } else {
+        wake::event_after_turn(&facts)
+    };
+    let Some(event) = event else {
+        return Ok(());
+    };
+    let text = match (&station.report, outcome) {
+        (Some(report), _) => report.result.clone(),
+        (None, wake::Outcome::Silent) => wake::end_of(&registry.last_answer_of(session_id)),
+        (None, _) => String::new(),
+    };
+    let facts = wake::WakeFacts {
+        implementation: view.name.clone(),
+        lane: phase.key.clone(),
+        stage: station.stage.clone(),
+        text,
+        note: station
+            .report
+            .as_ref()
+            .map(|report: &StationReport| report.note.clone())
+            .unwrap_or_default(),
+    };
+    registry.wake_master(app, implementation_id, &event, &facts);
+    Ok(())
+}
+
+/// Sessions der gemeldeten, noch nicht angenommenen Stationen laufender Umsetzungen (ADR 070).
+pub fn reported_sessions(views: &[ImplementationView]) -> Vec<(String, String)> {
+    views
+        .iter()
+        .filter(|view: &&ImplementationView| {
+            view.cancelled_at.is_none() && view.finished_at.is_none()
+        })
+        .flat_map(|view: &ImplementationView| {
+            view.phases
+                .iter()
+                .flat_map(|phase: &PhaseView| phase.stations.iter())
+                .filter(|station: &&StationView| {
+                    station.report.is_some() && station.completed_at.is_none()
+                })
+                .filter_map(|station: &StationView| {
+                    station
+                        .session_id
+                        .clone()
+                        .map(|session_id: String| (view.id.clone(), session_id))
+                })
+        })
+        .collect()
+}
+
+/// Weckdurchgang beim App-Start: Die Wecker leben nur im Speicher, ein Neustart zwischen Meldung und
+/// Zugende ließe die Meldung sonst liegen. Jede gemeldete Station mit beendetem Zug weckt ihren Master
+/// mit „Gemeldet“, jede pausierte ohne scharfen Zeitgeber mit „Unterbrochen“ (`wake_master_after_turn`
+/// mit `at_start` prüft den Zug und den Schlüssel). Im eigenen Thread: Die Zustellung kann
+/// einen Agenten starten.
+pub fn wake_reported_on_start(app: AppHandle) {
+    let spawned = std::thread::Builder::new()
+        .name("implementation-wake-start".to_owned())
+        .spawn(move || {
+            let Ok(views) = app.state::<SessionRegistry>().implementation_views() else {
+                return;
+            };
+            for (implementation_id, session_id) in reported_sessions(&views) {
+                if let Err(error) =
+                    wake_master_after_turn(&app, &implementation_id, &session_id, true)
+                {
+                    eprintln!("Master nach dem App-Start nicht geweckt: {error}");
+                }
+            }
+        });
+    if let Err(error) = spawned {
+        eprintln!("Weckdurchgang nach dem App-Start nicht gestartet: {error}");
+    }
+}
+
+/// Neuer Haken (ADR 061, 070): Die Session einer Station endet mit Fehler, Abbruch, Rückfrage oder ohne
+/// Meldung. Ihr Platz ist frei (ADR 068), ein Durchgang läuft: Er startet sie nach „Bei Fehler“
 /// neu und lässt die globale Warteschlange nachrücken. Eine neue Kontingent-Pause schaltet zuerst den
 /// Zeitgeber von „Automatisch fortsetzen“ scharf (ADR 064): Bis dahin hält die Session ihren Platz
 /// (`slots::awaits_arming`), erst danach gibt sie ihn frei, und ein Durchgang läuft (ADR 068, Regel d).
+/// Zuletzt weckt das Zugende den Master.
 pub fn station_session_ended(
     app: &AppHandle,
     implementation_id: &str,
@@ -582,13 +976,20 @@ pub fn station_session_ended(
     }
     let registry = app.state::<SessionRegistry>();
     registry.arming_decided(app, session_id);
-    let view = registry.implementation_view(implementation_id)?;
-    if resumes_queue(&view) {
-        start::schedule_ready(app, implementation_id)?;
-    } else {
-        start::refill(app);
-    }
-    Ok(())
+    let scheduled =
+        registry
+            .implementation_view(implementation_id)
+            .and_then(|view: ImplementationView| {
+                if resumes_queue(&view) {
+                    start::schedule_ready(app, implementation_id).map(|_next: Vec<StationRef>| ())
+                } else {
+                    start::refill(app);
+                    Ok(())
+                }
+            });
+    // Auch wenn das Planen scheitert: Der Master erfährt vom Zugende.
+    let woken = wake_master_after_turn(app, implementation_id, session_id, false);
+    scheduled.and(woken)
 }
 
 /// Die Session einer Station pausiert neu am Kontingent: Sperren nacheinander, nie zugleich — erst die
@@ -637,7 +1038,7 @@ pub fn continues_after_quota(effective: bool, resets_at_ms: Option<f64>, now_ms:
     effective && resets_at_ms.is_some_and(|resets_at: f64| resets_at > now_ms)
 }
 
-/// `continues_after_quota` für eine Station: eine fertig gemeldete schaltet nie scharf.
+/// `continues_after_quota` für eine Station: eine angenommene schaltet nie scharf.
 pub fn arms_on_new_pause(station: &StationView, resets_at_ms: f64, now_ms: f64) -> bool {
     station.completed_at.is_none()
         && continues_after_quota(station.resumes_automatically, Some(resets_at_ms), now_ms)
@@ -803,7 +1204,7 @@ pub fn replan_after_failed_change(app: &AppHandle, implementation_id: &str) {
     }
 }
 
-/// Darf ein Ereignis außerhalb der Fertigmeldung die bereiten Stationen dieser Umsetzung in die globale
+/// Darf ein Ereignis außerhalb der Annahme die bereiten Stationen dieser Umsetzung in die globale
 /// Warteschlange nehmen (ADR 068): Automatik, ohne Halt, solange die Umsetzung läuft. Sonst rückt nur
 /// die Warteschlange der übrigen nach (`start::refill`).
 pub fn resumes_queue(view: &ImplementationView) -> bool {
@@ -1247,6 +1648,10 @@ fn fix_stations(
         brief_changes: Vec::new(),
         restarts: 0,
         auto_resume: carried.auto_resume,
+        reported_at: None,
+        report: None,
+        returns: 0,
+        released_at: None,
     };
     vec![
         row(FIX_STAGE.to_owned(), FIX_BRIEF.to_owned(), fix_carried),
@@ -1381,6 +1786,9 @@ pub fn build_view(
             .pending_cancel
             .as_deref()
             .and_then(|json: &str| serde_json::from_str::<PendingCancel>(json).ok()),
+        master_session_id: row.master_session_id.clone(),
+        // Ob die Session ausfällt, liest die Registry (`apply_master_state`); ohne Master gibt es keinen.
+        master_missing: row.master_session_id.is_none(),
     }
 }
 
@@ -1439,20 +1847,40 @@ fn station_view(
             })
             .ok()
     };
+    let session_state = session.map_or(StationState::Pending, |session: &SessionLive| {
+        state_of(
+            session.status,
+            session.awaits_script,
+            session.waits_for_quota,
+        )
+    });
+    let report: Option<StationReport> = station
+        .report
+        .as_deref()
+        .and_then(|json: &str| serde_json::from_str::<StoredReport>(json).ok())
+        .map(|stored: StoredReport| StationReport {
+            result: stored.result,
+            note: stored.note,
+            fix_needed: stored.fix_needed,
+            reported_at: station.reported_at.unwrap_or_default(),
+        });
+    let returns_left = master::returns_left(station.returns);
+    // Gemeldet (ADR 070) wartet auf den Master; sind seine Rückgaben verbraucht, auf den Benutzer. Eine
+    // Rückfrage geht vor: Der Benutzer muss sie beantworten.
     let state = if station.completed_at.is_some() {
         StationState::Done
+    } else if report.is_some() && session_state != StationState::Asking {
+        if returns_left == 0 {
+            StationState::WaitsForYou
+        } else {
+            StationState::Reported
+        }
     } else {
-        session.map_or(StationState::Pending, |session: &SessionLive| {
-            state_of(
-                session.status,
-                session.awaits_script,
-                session.waits_for_quota,
-            )
-        })
+        session_state
     };
     // Kein Neustart nach Halt oder Ende (auch Abbruch), während eine Anfrage zum Abbrechen liegt
     // (ADR 066), und keiner für einen Fehler von vor dem App-Neustart.
-    let restarting = state == StationState::Error
+    let restarting = session_state == StationState::Error
         && session.is_some_and(|session: &SessionLive| session.is_fresh_error)
         && station.restarts < station.on_error.max_restarts()
         && !implementation.stop_after_current
@@ -1506,6 +1934,10 @@ fn station_view(
         restarting,
         auto_resume: station.auto_resume,
         resumes_automatically: station.auto_resume.unwrap_or(implementation.auto_resume),
+        report,
+        returns: station.returns,
+        returns_left,
+        released: station.released_at.is_some(),
     }
 }
 
@@ -1603,6 +2035,7 @@ pub fn new_rows(
         name: name.trim().to_owned(),
         source: source.trim().to_owned(),
         created_by_session_id: Some(created_by_session_id.to_owned()),
+        master_session_id: Some(created_by_session_id.to_owned()),
         created_at: now_ms,
         finished_at: None,
         auto_start: true,
@@ -1763,5 +2196,9 @@ pub fn station_row(
         brief_changes: Vec::new(),
         restarts: 0,
         auto_resume: None,
+        reported_at: None,
+        report: None,
+        returns: 0,
+        released_at: None,
     }
 }

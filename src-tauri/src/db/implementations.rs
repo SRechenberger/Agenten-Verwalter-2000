@@ -20,6 +20,9 @@ pub struct ImplementationRow {
     pub name: String,
     pub source: String,
     pub created_by_session_id: Option<String>,
+    /// Die Session, die die Umsetzung leitet und die Meldungen der Stationen entscheidet (ADR 070);
+    /// anfangs der Ersteller, der Benutzer kann sie wechseln.
+    pub master_session_id: Option<String>,
     pub created_at: f64,
     pub finished_at: Option<f64>,
     pub auto_start: bool,
@@ -88,6 +91,14 @@ pub struct StationRow {
     pub restarts: u32,
     /// „Automatisch fortsetzen“ der Station; `None` = wie die Umsetzung (ADR 064).
     pub auto_resume: Option<bool>,
+    /// Seit wann die Meldung beim Master liegt (ADR 070); `completed_at` heißt „angenommen“.
+    pub reported_at: Option<f64>,
+    /// `StoredReport` als JSON, bis der Master entscheidet; eine Rückgabe löscht sie.
+    pub report: Option<String>,
+    /// Rückgaben des Masters bisher (höchstens `model::MAX_RETURNS`).
+    pub returns: u32,
+    /// Der Master hat die Station „durch dich“ freigegeben.
+    pub released_at: Option<f64>,
 }
 
 #[derive(Debug, Clone)]
@@ -114,13 +125,14 @@ pub struct StoredImplementation {
 
 const IMPLEMENTATION_COLUMNS: &str = "id, project_id, name, source, created_by_session_id, \
      created_at, finished_at, auto_start, stop_after_current, pending_change, auto_resume, \
-     cancelled_at, pending_cancel";
+     cancelled_at, pending_cancel, master_session_id";
 const PHASE_COLUMNS: &str = "id, implementation_id, position, key, title, description, wave, mark";
 /// Die Reihenfolge muss mit `StoredStation::read` übereinstimmen.
 const STATION_COLUMNS: &str = "s.id, s.phase_id, s.position, s.stage, s.model, s.by_user, \
      s.skill, s.brief, s.session_id, s.started_at, s.completed_at, s.result, s.agent, \
      s.agent_used, s.effort, s.prompt, s.start_error, s.edited, s.plan_id, s.after_ids, s.priority, \
-     s.auto_start, s.on_error, s.predecessors_may, s.brief_changes, s.restarts, s.auto_resume";
+     s.auto_start, s.on_error, s.predecessors_may, s.brief_changes, s.restarts, s.auto_resume, \
+     s.reported_at, s.report, s.returns, s.released_at";
 
 /// Legt die Umsetzung mit ihren Phasen und Stationen in einem Zug an.
 pub fn insert(
@@ -133,7 +145,7 @@ pub fn insert(
     transaction.execute(
         &format!(
             "INSERT INTO implementations ({IMPLEMENTATION_COLUMNS}) \
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)"
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)"
         ),
         params![
             row.id,
@@ -149,6 +161,7 @@ pub fn insert(
             row.auto_resume,
             row.cancelled_at,
             row.pending_cancel,
+            row.master_session_id,
         ],
     )?;
     insert_phases(&transaction, phases, stations)?;
@@ -184,9 +197,10 @@ fn insert_phases(
             "INSERT INTO implementation_stations (id, phase_id, position, stage, model, by_user, \
                  skill, brief, session_id, started_at, completed_at, result, agent, agent_used, \
                  effort, prompt, start_error, edited, plan_id, after_ids, priority, auto_start, \
-                 on_error, predecessors_may, brief_changes, restarts, auto_resume) \
+                 on_error, predecessors_may, brief_changes, restarts, auto_resume, reported_at, \
+                 report, returns, released_at) \
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, \
-                 ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27)",
+                 ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31)",
             params![
                 station.id,
                 station.phase_id,
@@ -215,6 +229,10 @@ fn insert_phases(
                 changes_json(&station.brief_changes)?,
                 station.restarts,
                 station.auto_resume,
+                station.reported_at,
+                station.report,
+                station.returns,
+                station.released_at,
             ],
         )?;
     }
@@ -369,6 +387,7 @@ fn read_implementation(row: &Row<'_>) -> rusqlite::Result<ImplementationRow> {
         auto_resume: row.get(10)?,
         cancelled_at: row.get(11)?,
         pending_cancel: row.get(12)?,
+        master_session_id: row.get(13)?,
     })
 }
 
@@ -446,6 +465,10 @@ impl StoredStation {
                 brief_changes: Vec::new(),
                 restarts: row.get(25)?,
                 auto_resume: row.get(26)?,
+                reported_at: row.get(27)?,
+                report: row.get(28)?,
+                returns: row.get(29)?,
+                released_at: row.get(30)?,
             },
             model: row.get(4)?,
             effort: row.get(14)?,
@@ -648,8 +671,37 @@ pub fn complete_station_with_followups(
     result: &str,
     followups: &[StationRow],
 ) -> Result<(), CommandError> {
+    accept_station_with_followups(
+        connection,
+        station_id,
+        completed_at,
+        result,
+        followups,
+        false,
+    )
+    .map(|_accepted: bool| ())
+}
+
+/// Nimmt die Station an (ADR 070) wie `complete_station_with_followups`, aber nur, solange sie noch
+/// nicht angenommen ist und, mit `needs_report`, noch eine Meldung liegt: Von zwei gleichzeitigen
+/// Annahmen und gegen eine Rückgabe dazwischen gewinnt genau eine. `false`: nichts ist geschrieben.
+pub fn accept_station_with_followups(
+    connection: &mut Connection,
+    station_id: &str,
+    completed_at: f64,
+    result: &str,
+    followups: &[StationRow],
+    needs_report: bool,
+) -> Result<bool, CommandError> {
     let transaction = connection.transaction()?;
-    complete_station(&transaction, station_id, completed_at, result)?;
+    let changed = transaction.execute(
+        "UPDATE implementation_stations SET completed_at = ?2, result = ?3 \
+         WHERE id = ?1 AND completed_at IS NULL AND (?4 = 0 OR report IS NOT NULL)",
+        params![station_id, completed_at, result, needs_report],
+    )?;
+    if changed != 1 {
+        return Ok(false);
+    }
     if !followups.is_empty() {
         let (phase_id, position, plan_id): (String, u32, String) = transaction.query_row(
             "SELECT phase_id, position, plan_id FROM implementation_stations WHERE id = ?1",
@@ -700,6 +752,67 @@ pub fn complete_station_with_followups(
         }
     }
     transaction.commit()?;
+    Ok(true)
+}
+
+/// Legt die Meldung der Station ab und ersetzt eine frühere (ADR 070), solange sie nicht angenommen ist.
+/// `false`: Sie ist inzwischen angenommen, nichts ist geschrieben.
+pub fn set_report(
+    connection: &Connection,
+    station_id: &str,
+    reported_at: f64,
+    report: &str,
+) -> Result<bool, CommandError> {
+    let changed = connection.execute(
+        "UPDATE implementation_stations SET reported_at = ?2, report = ?3 \
+         WHERE id = ?1 AND completed_at IS NULL",
+        params![station_id, reported_at, report],
+    )?;
+    Ok(changed == 1)
+}
+
+/// Gibt die Meldung zurück (ADR 070): löscht sie und zählt `returns` hoch, aber nur, wenn noch `seen`
+/// Rückgaben gezählt sind und die Meldung liegt: Von zwei gleichzeitigen Rückgaben zählt eine, und gegen
+/// eine Annahme dazwischen gewinnt genau eine. `false`: nichts ist geschrieben.
+pub fn return_report(
+    connection: &Connection,
+    station_id: &str,
+    seen: u32,
+) -> Result<bool, CommandError> {
+    let changed = connection.execute(
+        "UPDATE implementation_stations \
+         SET report = NULL, reported_at = NULL, returns = returns + 1 \
+         WHERE id = ?1 AND completed_at IS NULL AND report IS NOT NULL AND returns = ?2",
+        params![station_id, seen],
+    )?;
+    Ok(changed == 1)
+}
+
+/// Der Master gibt eine Station „durch dich“ frei (ADR 070): setzt nur `released_at`. `false`: Die
+/// Station ist angenommen oder gehört dem Agenten, nichts ist geschrieben.
+pub fn release_station(
+    connection: &Connection,
+    station_id: &str,
+    at: f64,
+) -> Result<bool, CommandError> {
+    let changed = connection.execute(
+        "UPDATE implementation_stations SET released_at = ?2 \
+         WHERE id = ?1 AND completed_at IS NULL AND by_user = 1",
+        params![station_id, at],
+    )?;
+    Ok(changed == 1)
+}
+
+/// Setzt den Master der Umsetzung (ADR 070).
+pub fn set_master(
+    connection: &Connection,
+    implementation_id: &str,
+    session_id: &str,
+) -> Result<(), CommandError> {
+    connection.execute(
+        "UPDATE implementations SET master_session_id = ?2 WHERE id = ?1",
+        params![implementation_id, session_id],
+    )?;
     Ok(())
 }
 
@@ -1089,7 +1202,7 @@ pub fn station_of_session(
     Ok(found)
 }
 
-/// `true`, wenn die Station der Session fertig gemeldet ist; eine Session ohne Station ist es nicht.
+/// `true`, wenn die Station der Session angenommen ist (`completed_at`, ADR 070); eine Session ohne Station ist es nicht.
 pub fn session_station_is_completed(
     connection: &Connection,
     session_id: &str,

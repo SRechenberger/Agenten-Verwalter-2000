@@ -19,7 +19,7 @@ const NO_PROPOSAL: &str = "Es liegt kein Vorschlag vor.";
 const IS_FINISHED: &str = "Die Umsetzung ist fertig; es gibt nichts mehr zu ändern.";
 const APPLIED: &str = "Übernommen.";
 
-/// Eine Phase hat begonnen, sobald eine ihrer Stationen eine Session hat oder fertig gemeldet ist.
+/// Eine Phase hat begonnen, sobald eine ihrer Stationen eine Session hat oder angenommen ist.
 pub fn is_begun(phase: &PhaseView) -> bool {
     phase
         .stations

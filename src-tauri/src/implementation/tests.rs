@@ -62,6 +62,10 @@ fn station(stage: &str, model: ModelId, skill: &str) -> StationView {
         restarting: false,
         auto_resume: None,
         resumes_automatically: false,
+        report: None,
+        returns: 0,
+        returns_left: 3,
+        released: false,
     }
 }
 
@@ -107,6 +111,8 @@ fn view_of(phase: PhaseView) -> ImplementationView {
         auto_resume: false,
         cancelled_at: None,
         pending_cancel: None,
+        master_session_id: None,
+        master_missing: false,
     }
 }
 
@@ -601,6 +607,7 @@ fn implementation_row() -> ImplementationRow {
         auto_resume: false,
         cancelled_at: None,
         pending_cancel: None,
+        master_session_id: None,
     }
 }
 
@@ -646,6 +653,10 @@ fn station_row(id: &str, position: u32, stage: &str) -> StationRow {
         brief_changes: Vec::new(),
         restarts: 0,
         auto_resume: None,
+        reported_at: None,
+        report: None,
+        returns: 0,
+        released_at: None,
     }
 }
 
@@ -930,7 +941,7 @@ fn first_message_with(station_skill: Option<&str>, type_skills: &[&str]) -> Stri
         .iter()
         .map(|skill: &&str| (*skill).to_owned())
         .collect();
-    start::first_message(&view, phase, &phase.stations[0], &type_skills)
+    start::first_message(&view, phase, &phase.stations[0], &type_skills, None)
 }
 
 fn first_lines(message: &str, count: usize) -> Vec<&str> {
@@ -1612,6 +1623,7 @@ fn agent_types_tool_is_allowed_in_side_questions() {
         "implementation_set_phases",
         "implementation_describe_phase",
         "implementation_complete_station",
+        "implementation_review_station",
     ] {
         assert!(
             !tools::side_may_call(writing),
@@ -1660,6 +1672,15 @@ fn tools_list_marks_only_the_agent_types_tool_read_only() {
         Box::new(ListOnly(tools::ImplementationTools)),
     ];
     let listed = rpc::list(&caller, &sets);
+    // Das Werkzeug des Masters (ADR 070) steht in der Liste und trägt keine Kennzeichnung.
+    assert!(
+        listed["tools"]
+            .as_array()
+            .expect("tools/list liefert eine Liste")
+            .iter()
+            .any(|tool: &Value| tool["name"] == tools::REVIEW_STATION),
+        "{listed}"
+    );
     let marked: Vec<Value> = listed["tools"]
         .as_array()
         .expect("tools/list liefert eine Liste")
@@ -2405,7 +2426,7 @@ fn first_message_names_only_the_results_of_its_predecessors() {
         node("c", &["b"]),
     ]);
     let phase = &view.phases[0];
-    let message = start::first_message(&view, phase, shown(&view, "c"), &[]);
+    let message = start::first_message(&view, phase, shown(&view, "c"), &[], None);
     assert!(
         message.contains("Vorgänger:\n- Phase 1 · Umsetzung: Ergebnis b"),
         "{message}"
@@ -3041,7 +3062,7 @@ fn first_message_sends_the_brief_with_the_changes_of_predecessors() {
         "Achte auf die Migration.",
     )];
     let view = graph(vec![finished(node("build", &[])), station]);
-    let message = start::first_message(&view, &view.phases[0], shown(&view, "review"), &[]);
+    let message = start::first_message(&view, &view.phases[0], shown(&view, "review"), &[], None);
     assert!(
         message.contains("Auftrag: Prüfe den Diff.\nAchte auf die Migration."),
         "{message}"
@@ -3785,7 +3806,7 @@ fn first_message_explains_the_handoff_and_names_its_sources() {
         ..change("1", BriefChangeKind::Append, "Achte auf X.")
     }];
     let view = graph(vec![finished(node("a", &[])), target]);
-    let message = start::first_message(&view, &view.phases[0], shown(&view, "b"), &[]);
+    let message = start::first_message(&view, &view.phases[0], shown(&view, "b"), &[], None);
     assert!(
         message.contains("Auftrag: Prüfe.\nAchte auf X."),
         "{message}"
@@ -5744,5 +5765,580 @@ fn a_cancel_request_or_a_stop_holds_back_the_countdown_waiters_of_an_armed_imple
         waiting(&stopping),
         0,
         "Halt nach dieser Session: kein Countdown-Wartender"
+    );
+}
+
+// Master-Session (ADR 070): Meldung, Annahme, Rückgabe, Freigabe, Ansicht und Migration.
+
+fn stored_report(result: &str, fix_needed: bool) -> StoredReport {
+    StoredReport {
+        result: result.to_owned(),
+        note: "Notiz an den Master".to_owned(),
+        fix_needed,
+        handoff_note: None,
+        handoff_replace: Vec::new(),
+    }
+}
+
+fn report_json(report: &StoredReport) -> String {
+    serde_json::to_string(report).expect("JSON")
+}
+
+fn session_live(status: SessionStatus) -> SessionLive {
+    SessionLive {
+        status,
+        number: 1,
+        running_ms: 0.0,
+        question: None,
+        last_activity_at: 1.0,
+        unread: false,
+        awaits_script: false,
+        is_fresh_error: false,
+        waits_for_quota: false,
+    }
+}
+
+/// Die Ansicht einer Station mit Session und dieser Zeile, so wie `build_view` sie zeigt.
+fn view_of_row(row: StationRow, status: SessionStatus) -> StationView {
+    let live = HashMap::from([("session".to_owned(), session_live(status))]);
+    let stored = StoredImplementation {
+        row: implementation_row(),
+        phases: vec![phase_row()],
+        stations: vec![StationRow {
+            session_id: Some("session".to_owned()),
+            ..row
+        }],
+        changes: Vec::new(),
+    };
+    build_view(&stored, &live, &HashMap::new(), &HashMap::new(), &[]).phases[0].stations[0].clone()
+}
+
+fn reported_row(returns: u32) -> StationRow {
+    StationRow {
+        reported_at: Some(5.0),
+        report: Some(report_json(&stored_report("PR offen", false))),
+        returns,
+        ..station_row("s", 0, "Umsetzung")
+    }
+}
+
+#[test]
+fn a_report_leaves_the_station_reported_until_the_master_accepts() {
+    let reported = view_of_row(reported_row(0), SessionStatus::Completed);
+    assert_eq!(reported.state, StationState::Reported);
+    assert_eq!(
+        reported.report,
+        Some(StationReport {
+            result: "PR offen".to_owned(),
+            note: "Notiz an den Master".to_owned(),
+            fix_needed: false,
+            reported_at: 5.0,
+        })
+    );
+    assert_eq!((reported.returns, reported.returns_left), (0, 3));
+    assert!(!is_done(&reported), "gemeldet ist noch nicht fertig");
+    let accepted = view_of_row(
+        StationRow {
+            completed_at: Some(9.0),
+            result: Some("PR offen".to_owned()),
+            ..reported_row(0)
+        },
+        SessionStatus::Completed,
+    );
+    assert_eq!(accepted.state, StationState::Done);
+}
+
+#[test]
+fn a_report_mid_turn_is_already_reported_and_a_question_still_asks_the_user() {
+    let running = view_of_row(reported_row(0), SessionStatus::Running);
+    assert_eq!(running.state, StationState::Reported);
+    let asking = view_of_row(reported_row(0), SessionStatus::Waiting);
+    assert_eq!(
+        asking.state,
+        StationState::Asking,
+        "eine Rückfrage beantwortet der Benutzer"
+    );
+}
+
+#[test]
+fn a_reported_station_with_returns_used_up_waits_for_you_not_for_the_master() {
+    let used_up = view_of_row(reported_row(3), SessionStatus::Completed);
+    assert_eq!(
+        (used_up.state, used_up.returns, used_up.returns_left),
+        (StationState::WaitsForYou, 3, 0)
+    );
+    let beyond = view_of_row(reported_row(5), SessionStatus::Completed);
+    assert_eq!(beyond.returns_left, 0, "nie negativ");
+    let one_left = view_of_row(reported_row(2), SessionStatus::Completed);
+    assert_eq!(
+        (one_left.state, one_left.returns_left),
+        (StationState::Reported, 1)
+    );
+}
+
+#[test]
+fn reported_ranks_like_running() {
+    assert_eq!(
+        StationState::Reported.urgency_rank(),
+        StationState::Running.urgency_rank()
+    );
+    assert!(
+        StationState::Reported.urgency_rank() < StationState::WaitsForYou.urgency_rank(),
+        "gemeldet wartet nicht auf dich"
+    );
+    assert_eq!(
+        serde_json::to_value(StationState::Reported).expect("JSON"),
+        json!("reported")
+    );
+}
+
+#[test]
+fn a_reported_station_is_neither_working_nor_to_stop_by_its_state_alone() {
+    let mut reported = station("Umsetzung", ModelId::Sonnet, "implement");
+    reported.id = "reported".to_owned();
+    reported.state = StationState::Reported;
+    reported.session_id = Some("session-reported".to_owned());
+    let view = view_of(PhaseView {
+        stations: vec![reported],
+        ..phase_with(vec![station("x", ModelId::Sonnet, "y")], 0)
+    });
+    assert!(changes::sessions_to_stop(&view, |_: &str| false).is_empty());
+    assert_eq!(changes::working_station(&view, |_: &str| false), None);
+    assert!(
+        changes::working_station(&view, |id: &str| id == "reported").is_some(),
+        "arbeitet ihre Session noch (die Registry fragt das), sperrt sie das Löschen"
+    );
+}
+
+#[test]
+fn a_second_report_replaces_the_first() {
+    let database = database_with(&[station_row("s", 0, "Umsetzung")]);
+    let write = |report: &StoredReport, at: f64| {
+        database
+            .with(|connection| {
+                implementation_rows::set_report(connection, "s", at, &report_json(report))
+            })
+            .expect("schreibbar")
+    };
+    assert!(write(&stored_report("erste", false), 1.0));
+    assert!(write(&stored_report("zweite", true), 2.0));
+    let row = stored_stations(&database).remove(0);
+    let report: StoredReport = serde_json::from_str(&row.report.expect("Meldung")).expect("JSON");
+    assert_eq!(
+        (report.result.as_str(), report.fix_needed, row.reported_at),
+        ("zweite", true, Some(2.0))
+    );
+}
+
+#[test]
+fn a_report_of_an_accepted_station_is_not_stored() {
+    let database = database_with(&[StationRow {
+        completed_at: Some(1.0),
+        ..station_row("s", 0, "Umsetzung")
+    }]);
+    let written = database
+        .with(|connection| implementation_rows::set_report(connection, "s", 2.0, "{}"))
+        .expect("schreibbar");
+    assert!(!written);
+    assert!(stored_stations(&database)[0].report.is_none());
+}
+
+#[test]
+fn a_return_deletes_the_report_counts_up_and_a_stale_count_loses() {
+    let database = database_with(&[reported_row(0)]);
+    let give_back = |seen: u32| {
+        database
+            .with(|connection| implementation_rows::return_report(connection, "s", seen))
+            .expect("schreibbar")
+    };
+    assert!(give_back(0));
+    let row = stored_stations(&database).remove(0);
+    assert_eq!((row.returns, row.report, row.reported_at), (1, None, None));
+    assert!(
+        !give_back(0),
+        "ohne Meldung und mit altem Stand zählt nichts"
+    );
+    assert_eq!(stored_stations(&database)[0].returns, 1);
+}
+
+#[test]
+fn accept_runs_fix_round_and_handoff_of_the_stored_report() {
+    let mut review = station_row("review", 0, "Review");
+    review.plan_id = "1-1".to_owned();
+    let mut next = station_row("next", 1, "PR");
+    next.plan_id = "1-2".to_owned();
+    next.after = vec!["1-1".to_owned()];
+    let mut build = station_row("build", 2, "Umsetzung");
+    build.plan_id = "1-3".to_owned();
+    let report = StoredReport {
+        handoff_note: Some("Befund 1 zuerst".to_owned()),
+        ..stored_report("Befund", true)
+    };
+    review.report = Some(report_json(&report));
+    review.reported_at = Some(1.0);
+    let rows = vec![review.clone(), next, build];
+    let view = view_with(rows.clone(), &[]);
+    // Die Meldung trägt, was die Annahme braucht: Befund und Übergabenotiz.
+    let (followups, _) = plan_completion(&view, "review", report.fix_needed).expect("Fix-Runde");
+    assert_eq!(followups.len(), 2, "Fix-Runde und zweites Review");
+    let changes =
+        handoff_changes(&rows, "review", &followups, &report.handoff(), 2.0).expect("Übergabe");
+    assert_eq!(changes.len(), 1);
+    assert_eq!(changes[0].2.text, "Befund 1 zuerst");
+    let database = database_with(&rows);
+    let accepted = database
+        .with(|connection| {
+            implementation_rows::accept_station_with_followups(
+                connection, "review", 3.0, "Befund", &followups, true,
+            )
+        })
+        .expect("schreibbar");
+    assert!(accepted);
+    let stored = stored_stations(&database);
+    assert_eq!(stored.len(), 5, "die Fix-Runde steht in der Phase");
+    assert_eq!(stored[0].completed_at, Some(3.0));
+}
+
+#[test]
+fn two_acceptances_and_an_acceptance_after_a_return_write_only_once() {
+    let database = database_with(&[reported_row(0)]);
+    let accept = || {
+        database
+            .with(|connection| {
+                implementation_rows::accept_station_with_followups(
+                    connection,
+                    "s",
+                    3.0,
+                    "PR offen",
+                    &[],
+                    true,
+                )
+            })
+            .expect("schreibbar")
+    };
+    assert!(accept());
+    assert!(
+        !accept(),
+        "die zweite gleichzeitige Annahme schreibt nichts"
+    );
+    let returned = database_with(&[reported_row(0)]);
+    returned
+        .with(|connection| implementation_rows::return_report(connection, "s", 0))
+        .expect("schreibbar");
+    let written = returned
+        .with(|connection| {
+            implementation_rows::accept_station_with_followups(
+                connection,
+                "s",
+                3.0,
+                "PR offen",
+                &[],
+                true,
+            )
+        })
+        .expect("schreibbar");
+    assert!(!written, "nach der Rückgabe gibt es nichts anzunehmen");
+    assert!(stored_stations(&returned)[0].completed_at.is_none());
+}
+
+#[test]
+fn release_marks_only_an_open_station_by_you() {
+    let mut by_user = station_row("user", 0, "Merge");
+    by_user.by_user = true;
+    let database = database_with(&[by_user, station_row("agent", 1, "Umsetzung")]);
+    let release = |id: &str| {
+        database
+            .with(|connection| implementation_rows::release_station(connection, id, 4.0))
+            .expect("schreibbar")
+    };
+    assert!(release("user"));
+    assert!(
+        !release("agent"),
+        "eine Station des Agenten gibt es nicht frei"
+    );
+    let stored = stored_stations(&database);
+    assert_eq!(
+        (stored[0].released_at, stored[0].completed_at),
+        (Some(4.0), None),
+        "setzt nur die Marke"
+    );
+    assert_eq!(stored[1].released_at, None);
+}
+
+#[test]
+fn a_report_needs_a_note_and_a_note_is_at_most_1000_characters() {
+    assert!(check_length("note", "", 1, model::MAX_NOTE_CHARS).is_err());
+    assert!(check_length("note", &"x".repeat(1001), 1, model::MAX_NOTE_CHARS).is_err());
+    assert!(check_length("note", &"x".repeat(1000), 1, model::MAX_NOTE_CHARS).is_ok());
+    let tool = tools::ImplementationTools
+        .tools()
+        .into_iter()
+        .find(|spec: &ToolSpec| spec.name == "implementation_complete_station")
+        .expect("Werkzeug");
+    assert_eq!(tool.input_schema["required"], json!(["result", "note"]));
+}
+
+#[test]
+fn the_review_tool_has_three_answers_and_needs_only_station_and_answer() {
+    let tool = tools::ImplementationTools
+        .tools()
+        .into_iter()
+        .find(|spec: &ToolSpec| spec.name == tools::REVIEW_STATION)
+        .expect("Werkzeug");
+    assert_eq!(
+        tool.input_schema["properties"]["answer"]["enum"],
+        json!(["accept", "return", "release"])
+    );
+    assert_eq!(
+        tool.input_schema["required"],
+        json!(["station_id", "answer"])
+    );
+    assert!(!tools::ImplementationTools.blocks());
+    assert!(!tools::ImplementationTools.is_read_only(tools::REVIEW_STATION));
+}
+
+#[test]
+fn review_tool_is_blocked_in_side_questions() {
+    assert!(!tools::side_may_call(tools::REVIEW_STATION));
+}
+
+#[test]
+fn the_accept_answer_says_accepted_and_names_the_started_successors() {
+    let outcome = CompleteOutcome {
+        next: vec![StationRef {
+            phase_key: "99.1".to_owned(),
+            stage: "Review".to_owned(),
+        }],
+        ..CompleteOutcome::default()
+    };
+    let text = outcome.text();
+    assert!(text.starts_with("Angenommen:"), "{text}");
+    assert!(
+        text.contains("Als Nächstes startet: Lane 99.1 · Review."),
+        "{text}"
+    );
+    assert!(
+        REPORTED_ANSWER.starts_with("Gemeldet.")
+            && REPORTED_ANSWER.contains("Dein Master entscheidet")
+    );
+}
+
+#[test]
+fn the_view_names_the_master_and_new_implementations_start_with_the_creator_as_master() {
+    let (row, _, _) = new_rows(
+        "project",
+        "creator",
+        "Name",
+        "",
+        &[PhaseInput {
+            key: "1".to_owned(),
+            title: "Phase".to_owned(),
+            description: None,
+            wave: None,
+            stations: vec![model::StationInput {
+                stage: "Umsetzung".to_owned(),
+                ..Default::default()
+            }],
+        }],
+        1.0,
+        false,
+    )
+    .expect("gültig");
+    assert_eq!(row.master_session_id.as_deref(), Some("creator"));
+    let stored = StoredImplementation {
+        row,
+        phases: vec![phase_row()],
+        stations: Vec::new(),
+        changes: Vec::new(),
+    };
+    let view = build_view(
+        &stored,
+        &HashMap::new(),
+        &HashMap::new(),
+        &HashMap::new(),
+        &[],
+    );
+    assert_eq!(view.master_session_id.as_deref(), Some("creator"));
+    assert!(!view.master_missing);
+    let without = StoredImplementation {
+        row: implementation_row(),
+        ..stored
+    };
+    let view = build_view(
+        &without,
+        &HashMap::new(),
+        &HashMap::new(),
+        &HashMap::new(),
+        &[],
+    );
+    assert!(view.master_missing, "ohne Master gibt es keinen");
+}
+
+#[test]
+fn migration_030_makes_the_creator_the_master() {
+    let database = Database::open(Path::new(":memory:")).expect("Datenbank im Speicher");
+    let sql = include_str!("../db/migrations/030_master_session.sql");
+    // Die Spalten stehen nach den Migrationen da, `returns` zählt ab 0 und ist nie leer.
+    let (columns, returns): (Vec<String>, (Option<String>, bool)) = database
+        .with(|connection| {
+            let mut statement = connection.prepare(
+                "SELECT name FROM pragma_table_info('implementation_stations') \
+                 UNION ALL SELECT 'implementations.' || name FROM pragma_table_info('implementations')",
+            )?;
+            let columns = statement
+                .query_map([], |row| row.get(0))?
+                .collect::<rusqlite::Result<Vec<String>>>()?;
+            let returns = connection.query_row(
+                "SELECT dflt_value, \"notnull\" FROM pragma_table_info('implementation_stations') \
+                 WHERE name = 'returns'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )?;
+            Ok((columns, returns))
+        })
+        .expect("lesbar");
+    for column in [
+        "reported_at",
+        "report",
+        "returns",
+        "released_at",
+        "implementations.master_session_id",
+    ] {
+        assert!(
+            columns.iter().any(|name: &String| name == column),
+            "{column}"
+        );
+    }
+    assert_eq!(returns, (Some("0".to_owned()), true));
+    // Die Anweisung, die den Bestand füllt, auf einer Umsetzung ohne Master.
+    let update = sql
+        .lines()
+        .find(|line: &&str| line.starts_with("UPDATE implementations"))
+        .expect("Anweisung der Migration");
+    let master: Option<String> = database
+        .with(|connection| {
+            connection.execute(
+                "INSERT INTO projects (id, name, created_at) VALUES ('project', 'Vorhaben', 1.0)",
+                [],
+            )?;
+            connection.execute(
+                "INSERT INTO implementations (id, project_id, name, source, created_by_session_id, \
+                     created_at, auto_start, stop_after_current, auto_resume) \
+                 VALUES ('i', 'project', 'Umsetzung', '', 'creator', 1.0, 1, 0, 0)",
+                [],
+            )?;
+            connection.execute(update, [])?;
+            Ok(connection.query_row(
+                "SELECT master_session_id FROM implementations WHERE id = 'i'",
+                [],
+                |row| row.get(0),
+            )?)
+        })
+        .expect("lesbar");
+    assert_eq!(master.as_deref(), Some("creator"), "{update}");
+}
+
+#[test]
+fn first_message_names_the_master_with_number_and_id() {
+    let view = graph(vec![node("a", &[])]);
+    let phase = &view.phases[0];
+    let master = master::MasterRef {
+        id: "11111111-2222".to_owned(),
+        number: 4,
+        title: "Architekt".to_owned(),
+    };
+    let message = start::first_message(&view, phase, shown(&view, "a"), &[], Some(&master));
+    assert!(
+        message.contains("Master: Session #4 „Architekt“, ID 11111111-2222"),
+        "{message}"
+    );
+    let footer = message.lines().last().expect("Schlusssatz");
+    for part in ["an deinen Master", "Notiz", "geht sie an deinen Master"] {
+        assert!(
+            footer.contains(part),
+            "{part} fehlt im Schlusssatz: {footer}"
+        );
+    }
+    assert!(
+        !start::first_message(&view, phase, shown(&view, "a"), &[], None)
+            .lines()
+            .any(|line: &str| line.starts_with("Master: ")),
+        "ohne Master keine Zeile"
+    );
+}
+
+#[test]
+fn master_commands_are_classified_in_the_access_table() {
+    use crate::remote::access::{Class, class_of, ids_of};
+    for command in [
+        "implementation_set_master",
+        "implementation_accept_station",
+        "implementation_return_station",
+    ] {
+        assert_eq!(class_of(command), Some(Class::HostWrite), "{command}");
+    }
+    let ids = ids_of(
+        "implementation_set_master",
+        &json!({ "id": "impl", "masterSessionId": "master" }),
+    );
+    assert!(
+        ids.iter().any(|target| target.value == "master"),
+        "ein Gast setzt keine Session, die er nicht sieht: {ids:?}"
+    );
+}
+
+#[test]
+fn a_reported_station_whose_session_may_have_failed_is_among_the_errored_sessions() {
+    let mut failed = station("Fehler", ModelId::Opus, "skill");
+    failed.state = StationState::Error;
+    failed.session_id = Some("failed".to_owned());
+    let mut reported = station("Gemeldet", ModelId::Opus, "skill");
+    reported.state = StationState::Reported;
+    reported.report = Some(StationReport {
+        result: "x".to_owned(),
+        note: "y".to_owned(),
+        fix_needed: false,
+        reported_at: 1.0,
+    });
+    reported.session_id = Some("reported".to_owned());
+    let mut running = station("Läuft", ModelId::Opus, "skill");
+    running.state = StationState::Running;
+    running.session_id = Some("running".to_owned());
+    let view = view_of(phase_with(vec![failed, reported, running], 2));
+    assert_eq!(errored_sessions(&view), vec!["failed", "reported"]);
+}
+
+#[test]
+fn the_start_pass_finds_only_reported_stations_of_running_implementations() {
+    let mut reported = station("Gemeldet", ModelId::Opus, "skill");
+    reported.state = StationState::Reported;
+    reported.completed_at = None;
+    reported.session_id = Some("reported".to_owned());
+    reported.report = Some(StationReport {
+        result: "x".to_owned(),
+        note: "y".to_owned(),
+        fix_needed: false,
+        reported_at: 1.0,
+    });
+    let mut exhausted = reported.clone();
+    exhausted.state = StationState::WaitsForYou;
+    exhausted.returns = 3;
+    exhausted.returns_left = 0;
+    exhausted.session_id = Some("exhausted".to_owned());
+    let mut accepted = reported.clone();
+    accepted.completed_at = Some(2.0);
+    accepted.session_id = Some("accepted".to_owned());
+    let mut quiet = station("Still", ModelId::Opus, "skill");
+    quiet.session_id = Some("quiet".to_owned());
+    let view = view_of(phase_with(vec![reported, exhausted, accepted, quiet], 3));
+    let mut cancelled = view.clone();
+    cancelled.cancelled_at = Some(1.0);
+    assert_eq!(
+        reported_sessions(&[view, cancelled]),
+        vec![
+            ("implementation".to_owned(), "reported".to_owned()),
+            ("implementation".to_owned(), "exhausted".to_owned()),
+        ],
+        "gemeldet und gemeldet ohne Rückgaben zählen, angenommen, ohne Meldung und abgebrochen nicht"
     );
 }

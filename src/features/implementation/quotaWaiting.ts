@@ -6,7 +6,7 @@ import type { StationView } from '@/lib/bindings/StationView';
 
 /** Eine Station, deren Session am Kontingent pausiert. */
 export interface QuotaPause {
-  /** Die Station ist fertig gemeldet; sie zählt nicht. */
+  /** Die Station ist angenommen; sie zählt nicht. */
   isDone: boolean;
   /** Rücksetzzeit in ms seit der Epoche; `null`: unbekannt, die Station setzt nicht fort. */
   resetsAt: number | null;
