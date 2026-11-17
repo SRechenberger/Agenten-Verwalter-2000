@@ -3875,7 +3875,9 @@ impl SessionState {
             resets_at,
             auto_resume: false,
         });
-        self.awaits_arming = slots::awaits_arming(self.station_of.is_some(), resets_at, now_ms());
+        // Nur mit Haken: Ohne Statuswechsel (schon pausiert) entscheidet keiner und gäbe den Platz frei.
+        self.awaits_arming = outbox.station_idle.is_some()
+            && slots::awaits_arming(self.station_of.is_some(), resets_at, now_ms());
         // Wie beim Fehler: der Agent hat abgegeben, die Sidebar soll es zeigen.
         self.touch_activity(outbox);
     }

@@ -133,6 +133,18 @@ pub fn awaits_arming(is_station: bool, resets_at: Option<f64>, now: f64) -> bool
     is_station && resets_at.is_some_and(|resets_at: f64| resets_at > now)
 }
 
+/// Ein Fortsetzen wartet nur, solange seine Session keinen Platz belegt (Regel a): Zählen und Sammeln
+/// eines Durchgangs lesen die Uhr nacheinander, und wird die Fortsetzung dazwischen fällig, stünde sie
+/// sonst in `busy` und unter den Wartenden und ginge ohne Platzprüfung durch `pass`.
+pub fn without_held_resumes(waiters: Vec<Waiter>, busy: &[String]) -> Vec<Waiter> {
+    waiters
+        .into_iter()
+        .filter(|waiter: &Waiter| {
+            waiter.entry.kind != QueueKind::Resume || !busy.contains(&waiter.key)
+        })
+        .collect()
+}
+
 /// Wartet eine Session auf einen Platz, weil sie bei vollem Tor geöffnet wurde: neu, und ihre erste
 /// Nachricht liegt im Posteingang. Die Session-Werkzeuge nennen sie und reihen Nachrichten an sie ein.
 pub fn waits_for_slot(status: SessionStatus, has_waiting_message: bool) -> bool {

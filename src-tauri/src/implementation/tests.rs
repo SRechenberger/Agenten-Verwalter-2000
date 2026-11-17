@@ -5338,7 +5338,7 @@ fn a_failed_send_returns_its_claim() {
     );
 }
 
-/// Drei Wartende „Fortsetzen“, fällig seit `due_at`.
+/// Wartende „Fortsetzen“, je einer je Schlüssel, fällig seit `due_at`.
 fn resumes(keys: &[&str], due_at: f64) -> Vec<slots::Waiter> {
     keys.iter()
         .map(|key: &&str| {
@@ -5418,6 +5418,27 @@ fn due_resumes_start_only_up_to_the_free_slots() {
         .map(|entry: &slots::QueueEntry| (entry.title.as_str(), entry.kind))
         .collect();
     assert_eq!(waiting, [("q3", slots::QueueKind::Resume)]);
+}
+
+#[test]
+fn a_resume_counted_as_busy_is_no_waiter_of_the_same_pass() {
+    // Probelauf, Lauf 4, Rennen im Durchgang: Gezählt wurde vor der Fälligkeit (alle drei belegen),
+    // gesammelt danach (alle drei fällig). Ohne Filter gingen alle drei ohne Platzprüfung durch.
+    let busy: Vec<String> = ["q1", "q2", "q3"].map(str::to_owned).to_vec();
+    let mut waiters = resumes(&["q1", "q2", "q3"], 10.0);
+    waiters.push(session_waiter(
+        "q1",
+        slots::QueueKind::Message,
+        ProjectPriority::Normal,
+        5.0,
+    ));
+    let waiters = slots::without_held_resumes(waiters, &busy);
+    assert_eq!(waiters.len(), 1, "nur die Nachricht bleibt");
+    let mut countdowns = Countdowns::default();
+    let claimed = countdowns
+        .pass(0, Some(2), &busy, waiters, 50.0, 60.0)
+        .expect("frische Zählung");
+    assert_eq!(claimed_keys(claimed), ["q1"], "kein Fortsetzen beansprucht");
 }
 
 #[test]

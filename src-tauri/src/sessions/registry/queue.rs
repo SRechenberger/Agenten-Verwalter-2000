@@ -63,7 +63,7 @@ impl SessionRegistry {
             let seen: u64 = self.lock_countdowns().releases();
             let limit = self.max_agents();
             let busy = self.busy_sessions();
-            let waiters = self.waiters();
+            let waiters = slots::without_held_resumes(self.waiters(), &busy);
             let now = now_ms();
             let ends_at = now + START_DELAY.as_secs_f64() * 1000.0;
             if let Some(claimed) = self
