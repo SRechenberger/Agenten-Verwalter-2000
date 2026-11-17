@@ -1,4 +1,4 @@
--- Master-Session (ADR 069): Eine Station meldet an ihren Master, der Master nimmt an, gibt zurück oder
+-- Master-Session (ADR 070): Eine Station meldet an ihren Master, der Master nimmt an, gibt zurück oder
 -- gibt frei. `completed_at` heißt jetzt „angenommen“; `report` ist die Meldung als JSON, bis der Master
 -- entschieden hat; `returns` zählt seine Rückgaben, `released_at` die Freigabe einer Station des Benutzers.
 ALTER TABLE implementation_stations ADD COLUMN reported_at REAL;

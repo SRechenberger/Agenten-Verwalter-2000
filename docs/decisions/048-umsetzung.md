@@ -1,6 +1,6 @@
 # 048 — Umsetzung: Phasen und Stationen eines Plans im Verwalter
 
-**Status:** angenommen; „fertig mit Fertigmeldung“, die Werkzeugliste und die Bindung der Meldung an die Session überholt [ADR 069](069-master-session.md) (Meldung an den Master, Annahme durch den Master) · **Datum:** 2026-11-03
+**Status:** angenommen; „fertig mit Fertigmeldung“, die Werkzeugliste und die Bindung der Meldung an die Session überholt [ADR 070](070-master-session.md) (Meldung an den Master, Annahme durch den Master) · **Datum:** 2026-11-03
 
 ## Kontext
 

@@ -1,6 +1,6 @@
 # 061 — Constraint-Abläufe: Planung aus Kanten statt aus Position und Welle
 
-**Status:** angenommen, umgesetzt (Kern, Konfiguration je Station, Werkzeuge, Oberfläche, Ersteller wecken, das [ADR 069](069-master-session.md) zu „Master wecken“ mit neuem Wortlaut und neuer Messung macht); „Automatisch fortsetzen“ nach leerem Kontingent (Story 56) regelt [ADR 064](064-automatisch-fortsetzen.md), dort sind Kern und Oberfläche gebaut; die Abnahme in der echten App steht aus; „Parallel max.“, die Warteschlange je Umsetzung und die Liste „Aktiv“ überholt [ADR 068](068-globale-warteschlange.md) (globale Warteschlange, ▶ ignoriert die Grenze weiter); in der Leiste der Umsetzung ersetzt „Plätze n von m (App)“ den Zähler „Parallel max.“ und „Warteschlange: N“ · **Datum:** 2026-11-11
+**Status:** angenommen, umgesetzt (Kern, Konfiguration je Station, Werkzeuge, Oberfläche, Ersteller wecken, das [ADR 070](070-master-session.md) zu „Master wecken“ mit neuem Wortlaut und neuer Messung macht); „Automatisch fortsetzen“ nach leerem Kontingent (Story 56) regelt [ADR 064](064-automatisch-fortsetzen.md), dort sind Kern und Oberfläche gebaut; die Abnahme in der echten App steht aus; „Parallel max.“, die Warteschlange je Umsetzung und die Liste „Aktiv“ überholt [ADR 068](068-globale-warteschlange.md) (globale Warteschlange, ▶ ignoriert die Grenze weiter); in der Leiste der Umsetzung ersetzt „Plätze n von m (App)“ den Zähler „Parallel max.“ und „Warteschlange: N“ · **Datum:** 2026-11-11
 
 ## Kontext
 

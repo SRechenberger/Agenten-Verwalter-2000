@@ -328,7 +328,7 @@ pub fn ids_of(command: &str, payload: &Value) -> Vec<TargetId> {
         }
     };
     read("sessionId", IdKind::Session);
-    // Der Master einer Umsetzung (ADR 069): Ein Gast setzt keine Session, die er nicht sieht.
+    // Der Master einer Umsetzung (ADR 070): Ein Gast setzt keine Session, die er nicht sieht.
     read("masterSessionId", IdKind::Session);
     read("projectId", IdKind::Project);
     if let Some((_, Some(kind @ (IdKind::Implementation | IdKind::Terminal)))) = entry_of(command) {

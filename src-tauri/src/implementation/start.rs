@@ -22,7 +22,7 @@ use crate::settings::model::OperatingMode;
 const HELD_BY_CANCEL: &str =
     "Eine Anfrage zum Abbrechen liegt vor; erst bestätigen oder verwerfen.";
 
-// Wie man meldet, samt Übergabenotiz (ADR 061, 069); die Felder nennt die Beschreibung des Werkzeugs,
+// Wie man meldet, samt Übergabenotiz (ADR 061, 070); die Felder nennt die Beschreibung des Werkzeugs,
 // nicht dieser Text.
 const FIRST_MESSAGE_FOOTER: &str = "Melde diese Station mit dem Werkzeug \
     implementation_complete_station an deinen Master: mit einem Betreff in einer Zeile und einer \
@@ -35,7 +35,7 @@ const FIRST_MESSAGE_FOOTER: &str = "Melde diese Station mit dem Werkzeug \
 /// weil die Kommandozeile einen Befehl nur am Anfang erkennt: der Skill der Station, sonst der erste
 /// ihres Typs. Die übrigen Skills des Typs nennen die Zeile darunter als Anweisung (ADR 060); ob es
 /// sie gibt, prüft niemand. Der Master steht mit Nummer, Titel und ID da, denn `verwalter_send_message_to`
-/// braucht die ID (ADR 069).
+/// braucht die ID (ADR 070).
 pub fn first_message(
     view: &ImplementationView,
     phase: &PhaseView,

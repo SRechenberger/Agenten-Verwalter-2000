@@ -327,7 +327,7 @@ pub async fn implementation_complete_station(
     Ok(())
 }
 
-/// Der Benutzer bestimmt einen neuen Master (ADR 069, D11): eine Session des Vorhabens, keine Station.
+/// Der Benutzer bestimmt einen neuen Master (ADR 070, D11): eine Session des Vorhabens, keine Station.
 /// Der neue Master bekommt eine Nachricht mit der Umsetzung und den offenen Meldungen.
 #[tauri::command]
 pub async fn implementation_set_master(
@@ -339,7 +339,7 @@ pub async fn implementation_set_master(
 }
 
 /// Der Benutzer nimmt eine gemeldete Station an, wenn der Master seine drei Rückgaben verbraucht hat
-/// (ADR 069, D4). Dieselben Schritte wie die Annahme durch den Master.
+/// (ADR 070, D4). Dieselben Schritte wie die Annahme durch den Master.
 #[tauri::command]
 pub async fn implementation_accept_station(
     app: AppHandle,
@@ -357,7 +357,7 @@ pub async fn implementation_accept_station(
 }
 
 /// Der Benutzer gibt eine gemeldete Station zurück, wenn der Master seine drei Rückgaben verbraucht hat,
-/// ohne Grenze (ADR 069, D4).
+/// ohne Grenze (ADR 070, D4).
 #[tauri::command]
 pub async fn implementation_return_station(
     app: AppHandle,

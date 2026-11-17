@@ -48,7 +48,7 @@ const TONE: Record<StationState, StationTone> = {
   waitsForQuota: 'todo',
   asking: 'wait',
   waitsForYou: 'wait',
-  // Wie „läuft“: Der Master entscheidet, nicht du (ADR 069).
+  // Wie „läuft“: Der Master entscheidet, nicht du (ADR 070).
   reported: 'run',
   done: 'done',
   error: 'error',

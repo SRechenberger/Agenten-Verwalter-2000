@@ -23,11 +23,11 @@ pub const MAX_PROMPT_CHARS: usize = 4000;
 pub const MAX_PLAN_ID_CHARS: usize = 40;
 /// Grund einer Anfrage zum Abbrechen (ADR 066), getrimmt.
 pub const MAX_CANCEL_REASON_CHARS: usize = 300;
-/// Notiz einer Meldung an den Master (ADR 069), getrimmt.
+/// Notiz einer Meldung an den Master (ADR 070), getrimmt.
 pub const MAX_NOTE_CHARS: usize = 1000;
-/// Nachricht einer Rückgabe (ADR 069), getrimmt.
+/// Nachricht einer Rückgabe (ADR 070), getrimmt.
 pub const MAX_RETURN_CHARS: usize = 4000;
-/// So oft darf der Master eine Meldung zurückgeben; danach entscheidet der Benutzer (ADR 069).
+/// So oft darf der Master eine Meldung zurückgeben; danach entscheidet der Benutzer (ADR 070).
 pub const MAX_RETURNS: u32 = 3;
 
 /// Eine neue Rückfrage: die Session und der Lagebericht, der als ungesendeter Anhang an ihr hängt.
@@ -55,7 +55,7 @@ pub enum StationState {
     WaitsForQuota,
     Asking,
     WaitsForYou,
-    // Gemeldet (ADR 069): Der Master entscheidet; die Station wartet nicht auf den Benutzer.
+    // Gemeldet (ADR 070): Der Master entscheidet; die Station wartet nicht auf den Benutzer.
     Reported,
     Done,
     Error,
@@ -88,7 +88,7 @@ pub enum PhaseMark {
     Moved,
 }
 
-// Die Meldung einer Station an ihren Master (ADR 069), solange er nicht entschieden hat.
+// Die Meldung einer Station an ihren Master (ADR 070), solange er nicht entschieden hat.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct StationReport {
@@ -183,7 +183,7 @@ pub struct StationView {
     // ADR 064: „Automatisch fortsetzen“ der Station (`None` = wie die Umsetzung) und der wirksame Wert.
     pub auto_resume: Option<bool>,
     pub resumes_automatically: bool,
-    // Ab hier ADR 069: die Meldung an den Master (`None` nach einer Rückgabe und vor der ersten), die
+    // Ab hier ADR 070: die Meldung an den Master (`None` nach einer Rückgabe und vor der ersten), die
     // Rückgaben bisher und die übrigen (3 − `returns`, nie negativ) und ob der Master die Station
     // „durch dich“ freigegeben hat.
     pub report: Option<StationReport>,
@@ -473,7 +473,7 @@ pub struct ImplementationView {
     #[ts(type = "number | null")]
     pub cancelled_at: Option<f64>,
     pub pending_cancel: Option<PendingCancel>,
-    // ADR 069: die Session, die die Meldungen entscheidet, und ob sie ausfällt (gelöscht, Fehler; eine
+    // ADR 070: die Session, die die Meldungen entscheidet, und ob sie ausfällt (gelöscht, Fehler; eine
     // Kontingent-Pause ist kein Ausfall) oder fehlt.
     pub master_session_id: Option<String>,
     pub master_missing: bool,

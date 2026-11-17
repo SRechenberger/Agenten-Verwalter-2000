@@ -20,7 +20,7 @@ pub struct ImplementationRow {
     pub name: String,
     pub source: String,
     pub created_by_session_id: Option<String>,
-    /// Die Session, die die Umsetzung leitet und die Meldungen der Stationen entscheidet (ADR 069);
+    /// Die Session, die die Umsetzung leitet und die Meldungen der Stationen entscheidet (ADR 070);
     /// anfangs der Ersteller, der Benutzer kann sie wechseln.
     pub master_session_id: Option<String>,
     pub created_at: f64,
@@ -91,7 +91,7 @@ pub struct StationRow {
     pub restarts: u32,
     /// „Automatisch fortsetzen“ der Station; `None` = wie die Umsetzung (ADR 064).
     pub auto_resume: Option<bool>,
-    /// Seit wann die Meldung beim Master liegt (ADR 069); `completed_at` heißt „angenommen“.
+    /// Seit wann die Meldung beim Master liegt (ADR 070); `completed_at` heißt „angenommen“.
     pub reported_at: Option<f64>,
     /// `StoredReport` als JSON, bis der Master entscheidet; eine Rückgabe löscht sie.
     pub report: Option<String>,
@@ -682,7 +682,7 @@ pub fn complete_station_with_followups(
     .map(|_accepted: bool| ())
 }
 
-/// Nimmt die Station an (ADR 069) wie `complete_station_with_followups`, aber nur, solange sie noch
+/// Nimmt die Station an (ADR 070) wie `complete_station_with_followups`, aber nur, solange sie noch
 /// nicht angenommen ist und, mit `needs_report`, noch eine Meldung liegt: Von zwei gleichzeitigen
 /// Annahmen und gegen eine Rückgabe dazwischen gewinnt genau eine. `false`: nichts ist geschrieben.
 pub fn accept_station_with_followups(
@@ -755,7 +755,7 @@ pub fn accept_station_with_followups(
     Ok(true)
 }
 
-/// Legt die Meldung der Station ab und ersetzt eine frühere (ADR 069), solange sie nicht angenommen ist.
+/// Legt die Meldung der Station ab und ersetzt eine frühere (ADR 070), solange sie nicht angenommen ist.
 /// `false`: Sie ist inzwischen angenommen, nichts ist geschrieben.
 pub fn set_report(
     connection: &Connection,
@@ -771,7 +771,7 @@ pub fn set_report(
     Ok(changed == 1)
 }
 
-/// Gibt die Meldung zurück (ADR 069): löscht sie und zählt `returns` hoch, aber nur, wenn noch `seen`
+/// Gibt die Meldung zurück (ADR 070): löscht sie und zählt `returns` hoch, aber nur, wenn noch `seen`
 /// Rückgaben gezählt sind und die Meldung liegt: Von zwei gleichzeitigen Rückgaben zählt eine, und gegen
 /// eine Annahme dazwischen gewinnt genau eine. `false`: nichts ist geschrieben.
 pub fn return_report(
@@ -788,7 +788,7 @@ pub fn return_report(
     Ok(changed == 1)
 }
 
-/// Der Master gibt eine Station „durch dich“ frei (ADR 069): setzt nur `released_at`. `false`: Die
+/// Der Master gibt eine Station „durch dich“ frei (ADR 070): setzt nur `released_at`. `false`: Die
 /// Station ist angenommen oder gehört dem Agenten, nichts ist geschrieben.
 pub fn release_station(
     connection: &Connection,
@@ -803,7 +803,7 @@ pub fn release_station(
     Ok(changed == 1)
 }
 
-/// Setzt den Master der Umsetzung (ADR 069).
+/// Setzt den Master der Umsetzung (ADR 070).
 pub fn set_master(
     connection: &Connection,
     implementation_id: &str,
@@ -1202,7 +1202,7 @@ pub fn station_of_session(
     Ok(found)
 }
 
-/// `true`, wenn die Station der Session angenommen ist (`completed_at`, ADR 069); eine Session ohne Station ist es nicht.
+/// `true`, wenn die Station der Session angenommen ist (`completed_at`, ADR 070); eine Session ohne Station ist es nicht.
 pub fn session_station_is_completed(
     connection: &Connection,
     session_id: &str,

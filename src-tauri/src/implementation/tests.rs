@@ -1672,7 +1672,7 @@ fn tools_list_marks_only_the_agent_types_tool_read_only() {
         Box::new(ListOnly(tools::ImplementationTools)),
     ];
     let listed = rpc::list(&caller, &sets);
-    // Das Werkzeug des Masters (ADR 069) steht in der Liste und trägt keine Kennzeichnung.
+    // Das Werkzeug des Masters (ADR 070) steht in der Liste und trägt keine Kennzeichnung.
     assert!(
         listed["tools"]
             .as_array()
@@ -5768,7 +5768,7 @@ fn a_cancel_request_or_a_stop_holds_back_the_countdown_waiters_of_an_armed_imple
     );
 }
 
-// Master-Session (ADR 069): Meldung, Annahme, Rückgabe, Freigabe, Ansicht und Migration.
+// Master-Session (ADR 070): Meldung, Annahme, Rückgabe, Freigabe, Ansicht und Migration.
 
 fn stored_report(result: &str, fix_needed: bool) -> StoredReport {
     StoredReport {

@@ -1,6 +1,6 @@
 # Design-Entwurf: Master-Session einer Umsetzung
 
-**Status:** freigegeben am 2026-11-17 mit dem Plan „Master-Session“ (Taiga-Story 99, [ADR 069](../../decisions/069-master-session.md)). Gebaut ist der Kern (Phase 99.1: Migration 30, Melden und Annehmen getrennt, Werkzeug `implementation_review_station`, Wecken am Zugende, Sperren für Stationen, Master wechseln, Bindings und die mechanischen Fälle für den Zustand „gemeldet“); die Oberfläche folgt in Phase 99.2, die Abnahme in der echten App in 99.A.
+**Status:** freigegeben am 2026-11-17 mit dem Plan „Master-Session“ (Taiga-Story 99, [ADR 070](../../decisions/070-master-session.md)). Gebaut ist der Kern (Phase 99.1: Migration 30, Melden und Annehmen getrennt, Werkzeug `implementation_review_station`, Wecken am Zugende, Sperren für Stationen, Master wechseln, Bindings und die mechanischen Fälle für den Zustand „gemeldet“); die Oberfläche folgt in Phase 99.2, die Abnahme in der echten App in 99.A.
 
 ## Ansehen
 

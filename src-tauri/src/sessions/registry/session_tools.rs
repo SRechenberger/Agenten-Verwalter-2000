@@ -133,7 +133,7 @@ impl SessionRegistry {
         if message.trim().is_empty() {
             return Err(EMPTY_MESSAGE.to_owned());
         }
-        // Eine Station spricht nur mit ihrem Master (ADR 069, D9): im Sendeweg, nicht in `tool_target`,
+        // Eine Station spricht nur mit ihrem Master (ADR 070, D9): im Sendeweg, nicht in `tool_target`,
         // denn das nutzt auch `get_tldr`, und das bleibt offen.
         let station_lock = self.station_lock(&caller);
         let mut seen: HashSet<&str> = HashSet::new();
@@ -231,7 +231,7 @@ impl SessionRegistry {
         model: Option<ModelId>,
     ) -> ToolReply {
         let caller = self.get(call.session_id).map_err(text_of)?;
-        // Vor dem Kasten (ADR 069, D9): Eine Station öffnet nie eine Session.
+        // Vor dem Kasten (ADR 070, D9): Eine Station öffnet nie eine Session.
         if let Some(master) = self.station_lock(&caller) {
             return Err(master::open_refusal(master.as_ref()));
         }

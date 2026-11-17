@@ -46,7 +46,7 @@ const NOT_DELETABLE: &str = "Nur abgebrochene oder nie gestartete Umsetzungen la
 const NO_CANCEL_REQUEST: &str = "Es liegt keine Anfrage zum Abbrechen vor.";
 const CANCEL_REQUESTED: &str = "Es liegt schon eine Anfrage vor.";
 
-/// Wie der Zug einer Station steht, für das Wecken des Masters (ADR 069).
+/// Wie der Zug einer Station steht, für das Wecken des Masters (ADR 070).
 pub struct StationTurn {
     /// Der rohe Status der Session (`Completed`, auch mit wartendem Subagenten).
     pub status: SessionStatus,
@@ -400,7 +400,7 @@ impl SessionRegistry {
         })
     }
 
-    /// Legt die Meldung der Station ab (ADR 069) und ersetzt eine frühere; `false`, wenn sie schon
+    /// Legt die Meldung der Station ab (ADR 070) und ersetzt eine frühere; `false`, wenn sie schon
     /// angenommen ist.
     pub fn store_report(
         &self,
@@ -427,7 +427,7 @@ impl SessionRegistry {
         })
     }
 
-    /// Setzt den Master der Umsetzung (ADR 069, D11): die Session gehört zum selben Vorhaben und ist keine
+    /// Setzt den Master der Umsetzung (ADR 070, D11): die Session gehört zum selben Vorhaben und ist keine
     /// Station. Die Session-Sperre kurz, die Datenbank danach ohne sie.
     pub fn store_master(
         &self,
@@ -528,7 +528,7 @@ impl SessionRegistry {
         self.master_ref(master_id.as_deref())
     }
 
-    /// Stellt der Station die Rückgabe zu (ADR 069, D4): eine Session mit Fehler oder Abbruch startet neu
+    /// Stellt der Station die Rückgabe zu (ADR 070, D4): eine Session mit Fehler oder Abbruch startet neu
     /// und bekommt den Text mit dem Senden, jede andere über `deliver` (Absender der Master, sonst der
     /// Verwalter). Nie unter einer Sperre aufrufen.
     pub fn send_to_station(
@@ -561,7 +561,7 @@ impl SessionRegistry {
         }
     }
 
-    /// Eine Nachricht des Verwalters an den neuen Master (ADR 069, D11); scheitert die Zustellung, steht
+    /// Eine Nachricht des Verwalters an den neuen Master (ADR 070, D11); scheitert die Zustellung, steht
     /// der Grund in seinem Protokoll.
     pub fn tell_master(&self, app: &AppHandle, session_id: &str, text: &str) {
         let Ok(master) = self.get(session_id) else {
@@ -1036,7 +1036,7 @@ impl SessionRegistry {
     }
 
     /// Startet die Station gerade, oder arbeitet die Session einer gemeldeten Station noch (ihr Zug ist
-    /// nicht beendet und sie pausiert nicht, ADR 069)? Dann sperrt sie das Löschen, und Abbrechen stoppt sie.
+    /// nicht beendet und sie pausiert nicht, ADR 070)? Dann sperrt sie das Löschen, und Abbrechen stoppt sie.
     fn is_busy(&self, view: &ImplementationView, station_id: &str) -> bool {
         if self.is_starting(station_id) {
             return true;
@@ -1066,7 +1066,7 @@ impl SessionRegistry {
         self.lock_countdowns().release_start(station_id);
     }
 
-    /// Master wecken (ADR 069): legt die Nachricht zu `event` auf demselben Weg wie
+    /// Master wecken (ADR 070): legt die Nachricht zu `event` auf demselben Weg wie
     /// `verwalter_send_message_to` in die Warteschlange des Masters der Umsetzung. Keine Nachricht, wenn er
     /// fehlt (gelöscht, archiviert, nie gesetzt) oder das Ereignis schon meldete (`wake::decide`). Nie
     /// unter einer Sperre aufrufen: Die Zustellung kann einen Agenten starten.

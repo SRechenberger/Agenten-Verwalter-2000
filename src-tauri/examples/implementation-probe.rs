@@ -4,7 +4,7 @@
 //! bzw. `… -- <Datenbank-Kopie> show <Umsetzungs-ID>`
 //! bzw. `… -- <Datenbank-Kopie> report <Umsetzungs-ID>` (Lagebericht einer Rückfrage, mit „Ziel“)
 //! bzw. `… -- <Datenbank-Kopie> complete <Umsetzungs-ID> <Station-ID> "<Ergebnis>" [--fix] [--report-only]`
-//! (meldet die Station an ihren Master und nimmt sie an, wie das Werkzeug des Masters (ADR 069), ohne etwas
+//! (meldet die Station an ihren Master und nimmt sie an, wie das Werkzeug des Masters (ADR 070), ohne etwas
 //! zu starten, und druckt den Zustand nach der Meldung, nach der Annahme und welche Stationen danach starten
 //! dürfen und welche Nachricht den Master weckt; `--report-only` bleibt bei der Meldung, denn der Zug der
 //! Station zählt hier als beendet).
@@ -26,7 +26,7 @@
 //! Fehler als `FEHLER: <Satz>`.
 //! `… --example implementation-probe -- --wake-texts <Ordner>` schreibt den Systemprompt der
 //! Session-Werkzeuge (`prompt.txt`) und je Weck-Ereignis die Nachricht, wie der Master sie liest, samt
-//! erster Zeile (`<Ereignis>.txt`), für die Messung des Wortlauts mit `claude -p --model haiku` (ADR 069);
+//! erster Zeile (`<Ereignis>.txt`), für die Messung des Wortlauts mit `claude -p --model haiku` (ADR 070);
 //! ohne Datenbank.
 //! `… --example implementation-probe -- --selftest` prüft die Planung aus Kanten (ADR 061) gegen eine
 //! **eigene temporäre** Datenbank: Sortierung, bereiter Satz, Zyklus, Einfügen, Verzweigung und
@@ -240,7 +240,7 @@ fn create(database_path: &Path, session_id: &str, json_file: &Path) -> Result<St
     Ok(format!("Umsetzung {id} angelegt.\n\n{text}"))
 }
 
-/// Meldet die Station an ihren Master und nimmt sie an (ADR 069): dieselbe Prüfung, dieselben Schreiber
+/// Meldet die Station an ihren Master und nimmt sie an (ADR 070): dieselbe Prüfung, dieselben Schreiber
 /// und dieselbe Entscheidung zum Wecken wie die App; der Zug der Station gilt als beendet.
 fn complete(
     database_path: &Path,
@@ -341,7 +341,7 @@ fn state_of_station(view: &ImplementationView, station_id: &str) -> String {
         )
 }
 
-/// Der Master gibt die Meldung zurück (ADR 069, D4): höchstens dreimal, mit einer Nachricht.
+/// Der Master gibt die Meldung zurück (ADR 070, D4): höchstens dreimal, mit einer Nachricht.
 fn give_back(
     database_path: &Path,
     implementation_id: &str,
@@ -377,7 +377,7 @@ fn give_back(
     ))
 }
 
-/// Die Nachrichten, die der Verwalter dem Master schickt (ADR 069), durch dieselbe Entscheidung wie die App,
+/// Die Nachrichten, die der Verwalter dem Master schickt (ADR 070), durch dieselbe Entscheidung wie die App,
 /// mit einem Master, der da ist: nach der Meldung beim Zugende (`accepted` falsch), nach der Annahme durch
 /// den Benutzer, wenn es die letzte Station war.
 fn wake_lines(
@@ -1752,7 +1752,7 @@ fn station_options(database: &Database) -> Result<bool, String> {
     Ok(all)
 }
 
-/// Schreibt die Texte der Messung (ADR 069): den Systemprompt der Session-Werkzeuge und je Ereignis die
+/// Schreibt die Texte der Messung (ADR 070): den Systemprompt der Session-Werkzeuge und je Ereignis die
 /// Nachricht mit der ersten Zeile, die der Core setzt.
 fn write_wake_texts(folder: &Path) -> Result<(), String> {
     fs::create_dir_all(folder).map_err(|error| error.to_string())?;
@@ -1878,7 +1878,7 @@ fn write_wake_texts(folder: &Path) -> Result<(), String> {
     Ok(())
 }
 
-/// Master wecken (ADR 069): Ereignis → Nachricht oder keine, Melden und Annehmen, Zurückgeben bis zur Grenze
+/// Master wecken (ADR 070): Ereignis → Nachricht oder keine, Melden und Annehmen, Zurückgeben bis zur Grenze
 /// und der Wechsel des Masters, durch dieselben Regeln und Schreiber wie die App.
 fn wakes(database: &Database) -> Result<bool, String> {
     let mut all = true;

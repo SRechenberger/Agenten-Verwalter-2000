@@ -4087,7 +4087,7 @@ fn update<R>(
         // ausgeschalteter Zeitgeber gibt einen Platz frei (ADR 068).
         outbox.slots_changed |= held_slot != state.holds_slot_at(now_ms());
         // Zugende ohne Statuswechsel: Ein wartendes Skript oder ein Subagent einer abgegebenen Station
-        // endet mit dem Prozess, der Status bleibt `Completed`. Auch das weckt den Master (ADR 069).
+        // endet mit dem Prozess, der Status bleibt `Completed`. Auch das weckt den Master (ADR 070).
         if outbox.station_idle.is_none()
             && crate::implementation::master::turn_just_ended(
                 held_slot,

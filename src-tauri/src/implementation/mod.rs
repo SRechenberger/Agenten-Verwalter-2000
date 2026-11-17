@@ -63,7 +63,7 @@ const MAX_FIX_ROUNDS: usize = 2;
 const FIX_BRIEF: &str = "Behebe die Befunde der vorigen Review-Station (siehe Vorgänger).";
 const FIX_LIMIT_HINT: &str = "Zwei Fix-Runden sind durch; frag den Benutzer (🔴).";
 const NOT_IN_IMPLEMENTATION: &str = "Diese Station gehört nicht zur Umsetzung.";
-/// Die Antwort auf die Meldung einer Station (ADR 069).
+/// Die Antwort auf die Meldung einer Station (ADR 070).
 pub const REPORTED_ANSWER: &str = "Gemeldet. Dein Master entscheidet, sobald dein Zug beendet ist.";
 const ALREADY_DECIDED: &str = "Über diese Meldung ist inzwischen entschieden.";
 /// Session vorhanden oder angenommen: Ihre Einstellungen gelten nicht mehr.
@@ -97,7 +97,7 @@ pub struct Countdowns {
     /// Zahl der freigegebenen Ansprüche: Ändert sie sich zwischen dem Zählen der Sessions und dem
     /// Beanspruchen, ist die Zählung veraltet (`slots::Countdowns::pass`).
     releases: u64,
-    /// Ereignisse, die den Master schon geweckt haben (`wake::decide`, ADR 069).
+    /// Ereignisse, die den Master schon geweckt haben (`wake::decide`, ADR 070).
     pub(crate) woken: HashSet<String>,
     // Ab hier das Tor (ADR 068).
     /// Sessions, die gerade über das Tor starten (Zustellung, Fortsetzen, erste Nachricht).
@@ -290,7 +290,7 @@ pub fn complete_station(
     )
 }
 
-/// Die Meldung einer Station an ihren Master (ADR 069, D2): prüft wie die frühere Fertigmeldung (Station
+/// Die Meldung einer Station an ihren Master (ADR 070, D2): prüft wie die frühere Fertigmeldung (Station
 /// der eigenen Session, Umsetzung nicht abgebrochen, Station nicht angenommen, `handoff` gültig für die
 /// Nachfolger von jetzt), speichert nur die Meldung samt Notiz und ersetzt eine frühere. Nichts wird
 /// geplant und niemand geweckt: Das tut erst das Zugende der Station (`station_session_ended`) und die
@@ -318,7 +318,7 @@ pub fn report_station(
     Ok(())
 }
 
-/// Der Master oder der Benutzer nimmt die Meldung an (ADR 069, D3): nur wenn die Station gemeldet und ihr
+/// Der Master oder der Benutzer nimmt die Meldung an (ADR 070, D3): nur wenn die Station gemeldet und ihr
 /// Zug beendet ist, und der Benutzer erst, wenn die Rückgaben des Masters verbraucht sind. Danach laufen die
 /// Schritte der früheren Fertigmeldung mit der gespeicherten Meldung (Fix-Runde, Übergabe, Weiterplanen).
 pub fn accept_station(
@@ -445,7 +445,7 @@ fn stored_report(row: &StationRow) -> Option<StoredReport> {
         .and_then(|json: &str| serde_json::from_str::<StoredReport>(json).ok())
 }
 
-/// Der Master gibt die Meldung zurück oder der Benutzer, wenn die Rückgaben verbraucht sind (ADR 069, D4):
+/// Der Master gibt die Meldung zurück oder der Benutzer, wenn die Rückgaben verbraucht sind (ADR 070, D4):
 /// löscht die Meldung, zählt `returns` hoch und stellt die Nachricht der Station zu; an eine Station mit Fehler
 /// oder Abbruch geht sie über Neustart und Senden. Gibt die Zahl der Rückgaben zurück.
 pub fn return_station(
@@ -509,7 +509,7 @@ fn return_text(decider: Decider, message: &str) -> String {
     )
 }
 
-/// Der Master gibt eine Station „durch dich“ frei (ADR 069, D5): setzt nur die Marke; die Station bleibt
+/// Der Master gibt eine Station „durch dich“ frei (ADR 070, D5): setzt nur die Marke; die Station bleibt
 /// beim Benutzer.
 pub fn release_station(
     app: &AppHandle,
@@ -531,7 +531,7 @@ pub fn release_station(
     Ok(())
 }
 
-/// Der Benutzer bestimmt einen neuen Master (ADR 069, D11): dasselbe Vorhaben, keine Station. Der neue Master
+/// Der Benutzer bestimmt einen neuen Master (ADR 070, D11): dasselbe Vorhaben, keine Station. Der neue Master
 /// bekommt eine Nachricht mit der Umsetzung und den offenen Meldungen.
 pub fn set_master(
     app: &AppHandle,
@@ -745,7 +745,7 @@ fn after_completion(
     Ok(outcome)
 }
 
-/// Master wecken (ADR 069), Ende der Umsetzung: Hat der Benutzer die letzte Station angenommen, geht eine
+/// Master wecken (ADR 070), Ende der Umsetzung: Hat der Benutzer die letzte Station angenommen, geht eine
 /// Nachricht an den Master. Im eigenen Thread, denn die Zustellung kann einen Agenten starten. `view` ist
 /// die Ansicht vor der Annahme, daher findet sich die Station noch.
 fn wake_master_after_acceptance(
@@ -795,7 +795,7 @@ fn spawn_wake(
     }
 }
 
-/// Master wecken, Rückfrage (ADR 061, 069): Die Session einer Station hat eine Frage gestellt. Gilt nur,
+/// Master wecken, Rückfrage (ADR 061, 070): Die Session einer Station hat eine Frage gestellt. Gilt nur,
 /// solange die Station noch fragt; eine schon beantwortete Frage meldet nichts mehr.
 pub fn wake_master_of_question(
     app: &AppHandle,
@@ -834,7 +834,7 @@ pub fn wake_master_of_question(
     Ok(())
 }
 
-/// Master wecken, Zugende (ADR 069, D7): Die Session einer Station hat ihren Zug beendet. Nur ein wirklich
+/// Master wecken, Zugende (ADR 070, D7): Die Session einer Station hat ihren Zug beendet. Nur ein wirklich
 /// beendeter Zug weckt (nicht Pause, wartendes Skript oder Subagent, anstehender Neustart nach „Bei Fehler“,
 /// nicht nach der Annahme): eine Meldung, eine Antwort ohne Meldung oder ein Fehler, je Zug genau einmal.
 fn wake_master_after_turn(
@@ -904,7 +904,7 @@ fn wake_master_after_turn(
     Ok(())
 }
 
-/// Sessions der gemeldeten, noch nicht angenommenen Stationen laufender Umsetzungen (ADR 069).
+/// Sessions der gemeldeten, noch nicht angenommenen Stationen laufender Umsetzungen (ADR 070).
 pub fn reported_sessions(views: &[ImplementationView]) -> Vec<(String, String)> {
     views
         .iter()
@@ -952,7 +952,7 @@ pub fn wake_reported_on_start(app: AppHandle) {
     }
 }
 
-/// Neuer Haken (ADR 061, 069): Die Session einer Station endet mit Fehler, Abbruch, Rückfrage oder ohne
+/// Neuer Haken (ADR 061, 070): Die Session einer Station endet mit Fehler, Abbruch, Rückfrage oder ohne
 /// Meldung. Ihr Platz ist frei (ADR 068), ein Durchgang läuft: Er startet sie nach „Bei Fehler“
 /// neu und lässt die globale Warteschlange nachrücken. Eine neue Kontingent-Pause schaltet zuerst den
 /// Zeitgeber von „Automatisch fortsetzen“ scharf (ADR 064): Bis dahin hält die Session ihren Platz
@@ -968,16 +968,17 @@ pub fn station_session_ended(
     }
     let registry = app.state::<SessionRegistry>();
     registry.arming_decided(app, session_id);
-    let scheduled = registry
-        .implementation_view(implementation_id)
-        .and_then(|view: ImplementationView| {
-            if resumes_queue(&view) {
-                start::schedule_ready(app, implementation_id).map(|_next: Vec<StationRef>| ())
-            } else {
-                start::refill(app);
-                Ok(())
-            }
-        });
+    let scheduled =
+        registry
+            .implementation_view(implementation_id)
+            .and_then(|view: ImplementationView| {
+                if resumes_queue(&view) {
+                    start::schedule_ready(app, implementation_id).map(|_next: Vec<StationRef>| ())
+                } else {
+                    start::refill(app);
+                    Ok(())
+                }
+            });
     // Auch wenn das Planen scheitert: Der Master erfährt vom Zugende.
     let woken = wake_master_after_turn(app, implementation_id, session_id, false);
     scheduled.and(woken)
@@ -1856,7 +1857,7 @@ fn station_view(
             reported_at: station.reported_at.unwrap_or_default(),
         });
     let returns_left = master::returns_left(station.returns);
-    // Gemeldet (ADR 069) wartet auf den Master; sind seine Rückgaben verbraucht, auf den Benutzer. Eine
+    // Gemeldet (ADR 070) wartet auf den Master; sind seine Rückgaben verbraucht, auf den Benutzer. Eine
     // Rückfrage geht vor: Der Benutzer muss sie beantworten.
     let state = if station.completed_at.is_some() {
         StationState::Done

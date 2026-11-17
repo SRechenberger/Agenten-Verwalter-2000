@@ -1,4 +1,4 @@
-# 069 — Master-Session: Meldung und Annahme getrennt
+# 070 — Master-Session: Meldung und Annahme getrennt
 
 **Status:** angenommen, Kern umgesetzt (Migration 30, Melden und Annehmen getrennt, Werkzeug `implementation_review_station`, Wecken am Zugende, Sperren für Stationen, Master wechseln, Bindings; Story Taiga #99, Phase 99.1); die Oberfläche (Phase 99.2) und die Abnahme in der echten App (99.A) stehen aus · **Datum:** 2026-11-17
 
@@ -74,7 +74,7 @@ Nachtrag **Unterbrochen** (Fix round 2, Wortlaut `wake.rs`, `--wake-texts`): dre
 - **App-Neustart:** Das Wecken ist nur im Speicher gemerkt. Beim App-Start läuft deshalb ein Weckdurchgang (`wake_reported_on_start`): Er nimmt jede gemeldete, nicht angenommene Station einer laufenden Umsetzung (`wake::event_on_start`). Ist ihr Zug beendet, weckt er den Master mit „Gemeldet“ wie am Zugende. Der Neustart setzt eine laufende Station auf `paused` (`SessionState::restored`), und eine Pause ist kein Zugende (D7): Ist die Session `paused` und kein Zeitgeber „Automatisch fortsetzen“ scharf, weckt er mit dem Ereignis **Unterbrochen** (Umsetzung, Lane, Stufe, `station_id`, Betreff; der Zug ist unterbrochen, die Station setzt mit der nächsten Nachricht fort, angenommen wird erst nach ihrem Zugende; kein Auftrag). Der Durchgang unterscheidet nicht, ob die Pause vom Neustart oder vom Benutzer kommt. Ein scharfer Zeitgeber weckt nicht: Die Station setzt von selbst fort, und ihr Zugende weckt. Das Annehmen bleibt bis dahin abgelehnt (`TURN_NOT_ENDED`); der Master kann der Station mit `verwalter_send_message_to` schreiben (zählt keine Rückgabe) oder sie zurückgeben. Schlüssel von „Unterbrochen“: Station und `returns`, einmal je Lauf der App. Ein Zugende, das nur den Hintergrund ändert (Skript oder Subagent endet mit dem Prozess, der Status bleibt „abgegeben“), löst den Haken ebenfalls aus. Eine Station, die vor dem Neustart ohne Meldung endete, weckt nicht. Nach einem Neustart ist der Schlüssel der Weck-Ereignisse leer: Hörte der Master eine Meldung schon vor dem Neustart, hört er sie danach ein zweites Mal. Das ist gewollt; pro Lauf der App weckt jede Meldung höchstens einmal.
 - **Rückgabe ohne Zustellung:** Scheitert das Zustellen der Rückgabe nach dem Zählen (Session gelöscht), zählt sie trotzdem; der Fehlersatz des Werkzeugs sagt es.
 - **Oberfläche:** Zustand „gemeldet“, Bericht in der Kartei, Master im Kopf und die Leiste folgen in Phase 99.2; bis dahin zeigt die Oberfläche den neuen Zustand nur mechanisch (Beschriftung, Ton, Rang).
-- **Doppelte Nummer 068:** Auf `dev` tragen zwei ADRs die Nummer 068; diese ADR hat die Nummer 069 und fasst sie nicht an.
+- **Nummer:** 069 ist an „Zeitpunkt im Chat“ vergeben; diese ADR hat die Nummer 070 und fasst jene nicht an.
 
 ## Prüfung
 

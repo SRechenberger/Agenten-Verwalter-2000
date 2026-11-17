@@ -1,4 +1,4 @@
-//! Master wecken (ADR 069, überholt „Ersteller wecken“ aus ADR 061): Der Verwalter legt bei jedem Zugende einer
+//! Master wecken (ADR 070, überholt „Ersteller wecken“ aus ADR 061): Der Verwalter legt bei jedem Zugende einer
 //! Station, bei einer Rückfrage und beim Ende der Umsetzung eine Nachricht in die `session_inbox` des
 //! Masters. Hier steht die Entscheidung „Zugende → Ereignis“ und „Ereignis → Nachricht oder keine“ als
 //! reine Funktion samt Wortlaut; Zustellung und Anschluss an die Ereignisse stehen in
@@ -7,7 +7,7 @@ use std::collections::HashSet;
 
 use crate::agents::event::SessionRef;
 
-/// Der Wortlaut ist an Haiku gemessen (ADR 069); eine Änderung braucht eine neue Messung. Er nennt die
+/// Der Wortlaut ist an Haiku gemessen (ADR 070); eine Änderung braucht eine neue Messung. Er nennt die
 /// Quelle, sagt, was geschah, und sagt nicht, dass er keine Anweisung sei.
 const SOURCE: &str = "Meldung des Verwalters";
 /// Betreff und Schluss der Antwort kommen auf eine Zeile und diese Länge; die Notiz einer Meldung darf
@@ -160,7 +160,7 @@ pub struct TurnEnd<'a> {
     pub turn: u64,
 }
 
-/// Das Ereignis, das ein Zugende weckt (ADR 069, D7), oder keines: nicht bei Pause, wartendem Skript oder
+/// Das Ereignis, das ein Zugende weckt (ADR 070, D7), oder keines: nicht bei Pause, wartendem Skript oder
 /// Subagenten (kein beendeter Zug), nicht bei anstehendem Neustart nach „Bei Fehler“, nicht nach der Annahme.
 pub fn event_after_turn(turn: &TurnEnd) -> Option<WakeEvent> {
     if !turn.has_ended || turn.is_restarting || turn.is_accepted {
@@ -189,7 +189,7 @@ pub fn event_after_turn(turn: &TurnEnd) -> Option<WakeEvent> {
     })
 }
 
-/// Das Ereignis des Weckdurchgangs beim App-Start für eine gemeldete Station (ADR 069): Ist der Zug
+/// Das Ereignis des Weckdurchgangs beim App-Start für eine gemeldete Station (ADR 070): Ist der Zug
 /// beendet, wie am Zugende. Ist die Session pausiert (Neustart oder Pause, nicht zu unterscheiden) und kein
 /// Zeitgeber „Automatisch fortsetzen“ scharf, ist der Zug „unterbrochen“. Ein scharfer Zeitgeber setzt von
 /// selbst fort, und sein Zugende weckt. Angenommen: nichts.
@@ -222,7 +222,7 @@ pub fn events_after_acceptance(
     }
 }
 
-/// Die Nachricht an einen neuen Master (ADR 069, D11): die Umsetzung und ihre offenen Meldungen (Lane,
+/// Die Nachricht an einen neuen Master (ADR 070, D11): die Umsetzung und ihre offenen Meldungen (Lane,
 /// Stufe, Betreff). Keine Ereignisse: Der Benutzer hat ihn bestimmt, nichts ist neu geschehen.
 pub fn new_master_message(
     implementation: &str,

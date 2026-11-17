@@ -1,4 +1,4 @@
-//! Master-Session (ADR 069): Eine Station meldet an ihren Master; er nimmt an, gibt zurück (höchstens
+//! Master-Session (ADR 070): Eine Station meldet an ihren Master; er nimmt an, gibt zurück (höchstens
 //! dreimal) oder gibt eine Station „durch dich“ frei. Hier stehen die Regeln als reine Funktionen: Wann
 //! ein Zug beendet ist, wann der Master entscheiden darf, wann ihn der Verwalter ersetzt und was eine
 //! Station an Sessions schicken darf. Die Registry und die Werkzeuge rufen sie nur.
@@ -27,7 +27,7 @@ pub enum Decider {
     User,
 }
 
-/// Ist der Zug der Station beendet (ADR 069, U1)? Abgabe, Fehler und Abbruch zählen; eine Pause nicht,
+/// Ist der Zug der Station beendet (ADR 070, U1)? Abgabe, Fehler und Abbruch zählen; eine Pause nicht,
 /// und eine Abgabe, nach der noch ein Hintergrund-Befehl, ein Subagent oder das Weitermachen von selbst
 /// aussteht (`background_pending`), auch nicht.
 pub fn turn_ended(status: SessionStatus, background_pending: bool) -> bool {
@@ -65,7 +65,7 @@ pub fn returns_left(returns: u32) -> u32 {
     MAX_RETURNS.saturating_sub(returns)
 }
 
-/// Fällt der Master aus (ADR 069, U8)? `None`: Die Session ist gelöscht. Ein Fehler zählt, eine
+/// Fällt der Master aus (ADR 070, U8)? `None`: Die Session ist gelöscht. Ein Fehler zählt, eine
 /// Kontingent-Pause und alles andere nicht.
 pub fn is_master_missing(master: Option<SessionStatus>) -> bool {
     master.is_none_or(|status: SessionStatus| status == SessionStatus::Error)
@@ -76,7 +76,7 @@ pub fn is_master(master_session_id: Option<&str>, caller: &str) -> bool {
     master_session_id == Some(caller)
 }
 
-/// Der Satz, der eine Annahme ablehnt, sonst `None` (ADR 069, D3 und D4): Die Station muss gemeldet und
+/// Der Satz, der eine Annahme ablehnt, sonst `None` (ADR 070, D3 und D4): Die Station muss gemeldet und
 /// ihr Zug beendet sein; der Benutzer nimmt nur an, wenn die Rückgaben des Masters verbraucht sind.
 pub fn accept_refusal(
     decider: Decider,
@@ -123,13 +123,13 @@ fn user_waits_for_master(decider: Decider, returns: u32) -> Option<String> {
     })
 }
 
-/// Freigeben (ADR 069, D5) gilt nur für eine Station „durch dich“, die an der Reihe ist: Sie wartet dann
+/// Freigeben (ADR 070, D5) gilt nur für eine Station „durch dich“, die an der Reihe ist: Sie wartet dann
 /// auf den Benutzer.
 pub fn release_refusal(is_by_user: bool, state: StationState) -> Option<&'static str> {
     (!(is_by_user && state == StationState::WaitsForYou)).then_some(NOT_FOR_RELEASE)
 }
 
-/// Prüft `implementation_set_master` (ADR 069, D11): dasselbe Vorhaben, keine Station.
+/// Prüft `implementation_set_master` (ADR 070, D11): dasselbe Vorhaben, keine Station.
 pub fn set_master_refusal(
     session_project: &str,
     implementation_project: &str,
@@ -169,7 +169,7 @@ fn only_to_master(master: Option<&MasterRef>) -> String {
     }
 }
 
-/// Darf eine Station an dieses Ziel senden (ADR 069, D9)? Nur an ihren Master; sonst der Satz, der ihn nennt.
+/// Darf eine Station an dieses Ziel senden (ADR 070, D9)? Nur an ihren Master; sonst der Satz, der ihn nennt.
 pub fn send_refusal(master: Option<&MasterRef>, target_id: &str) -> Option<String> {
     match master {
         Some(master) if master.id == target_id => None,
@@ -177,7 +177,7 @@ pub fn send_refusal(master: Option<&MasterRef>, target_id: &str) -> Option<Strin
     }
 }
 
-/// Eine Station öffnet nie eine Session (ADR 069, D9); der Satz nennt den Master.
+/// Eine Station öffnet nie eine Session (ADR 070, D9); der Satz nennt den Master.
 pub fn open_refusal(master: Option<&MasterRef>) -> String {
     only_to_master(master)
 }
@@ -302,6 +302,26 @@ mod tests {
         assert!(accept_refusal(Decider::User, true, true, MAX_RETURNS).is_none());
         // Ohne Grenze: Der Benutzer gibt auch nach der vierten Rückgabe zurück.
         assert!(return_refusal(Decider::User, true, MAX_RETURNS + 2, "nein").is_none());
+    }
+
+    #[test]
+    fn release_is_refused_for_a_reported_station_that_is_not_by_you() {
+        // Gemeldet (auch mit verbrauchten Rückgaben, dann `WaitsForYou`) gehört dem Master, nicht „durch dich“.
+        for state in [
+            StationState::Reported,
+            StationState::WaitsForYou,
+            StationState::Running,
+        ] {
+            assert_eq!(
+                release_refusal(false, state),
+                Some(NOT_FOR_RELEASE),
+                "{state:?}"
+            );
+        }
+        assert_eq!(
+            release_refusal(true, StationState::Reported),
+            Some(NOT_FOR_RELEASE)
+        );
     }
 
     #[test]

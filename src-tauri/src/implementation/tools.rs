@@ -33,7 +33,7 @@ pub const SET_PHASES: &str = "implementation_set_phases";
 pub const EDIT: &str = "implementation_edit";
 const DESCRIBE_PHASE: &str = "implementation_describe_phase";
 const COMPLETE_STATION: &str = "implementation_complete_station";
-/// Das einzige Werkzeug des Masters (ADR 069): annehmen, zurückgeben oder freigeben.
+/// Das einzige Werkzeug des Masters (ADR 070): annehmen, zurückgeben oder freigeben.
 pub const REVIEW_STATION: &str = "implementation_review_station";
 /// Fragt an, die Umsetzung abzubrechen (ADR 066); wirkt erst nach Bestätigen auf der Karte.
 pub const CANCEL: &str = "implementation_cancel";
@@ -602,7 +602,7 @@ fn checked_handoff(arguments: Option<HandoffArguments>) -> Result<Handoff, Strin
 }
 
 /// Die Station wird über die aufrufende Session gefunden, nie über eine Angabe des Agenten. Sie meldet
-/// an ihren Master (ADR 069); angenommen ist sie erst, wenn der Master es tut.
+/// an ihren Master (ADR 070); angenommen ist sie erst, wenn der Master es tut.
 fn complete_station(call: &ToolCall, registry: &SessionRegistry) -> Result<ToolResult, String> {
     let arguments: CompleteArguments = parse(call.arguments)?;
     check_length("result", arguments.result.trim(), 1, MAX_RESULT_CHARS)?;
@@ -639,7 +639,7 @@ struct ReviewArguments {
     message: Option<String>,
 }
 
-/// Das Werkzeug des Masters (ADR 069, D6): Der Aufrufer muss der Master der Umsetzung sein, in der die
+/// Das Werkzeug des Masters (ADR 070, D6): Der Aufrufer muss der Master der Umsetzung sein, in der die
 /// Station liegt.
 fn review_station(call: &ToolCall, registry: &SessionRegistry) -> Result<ToolResult, String> {
     let arguments: ReviewArguments = parse(call.arguments)?;
