@@ -22,9 +22,9 @@
 //! Fehler als `FEHLER: <Satz>`.
 //! `… --example implementation-probe -- --selftest` prüft die Planung aus Kanten (ADR 061) gegen eine
 //! **eigene temporäre** Datenbank: Sortierung, bereiter Satz, Zyklus, Einfügen, Verzweigung und
-//! Zusammenlauf, Migration aus Position und Welle, Warteschlange, dazu die Konfiguration je Station
-//! (Automatisch starten, Sperren nach Zustand, Vorgänger dürfen, Bei Fehler) und „Automatisch
-//! fortsetzen“ nach dem Kontingent (ADR 064). Je Fall eine Zeile `PASS`/`FAIL`, Exit 1 bei einem
+//! Zusammenlauf, Migration aus Position und Welle, das Tor der globalen Warteschlange (ADR 068), dazu
+//! die Konfiguration je Station (Automatisch starten, Sperren nach Zustand, Vorgänger dürfen, Bei
+//! Fehler) und „Automatisch fortsetzen“ nach dem Kontingent (ADR 064). Je Fall eine Zeile `PASS`/`FAIL`, Exit 1 bei einem
 //! Fehlschlag.
 use std::collections::HashMap;
 use std::env;
@@ -48,16 +48,18 @@ use verwalter_lib::implementation::model::{
     PredecessorsMay, StationOptions, StationSettings, StationState, StationView, effective_brief,
 };
 use verwalter_lib::implementation::model::{
-    MAX_NAME_CHARS, MAX_SOURCE_CHARS, PhaseInput, check_agents, check_length, check_max_parallel,
+    MAX_NAME_CHARS, MAX_SOURCE_CHARS, PhaseInput, check_agents, check_length, refuse_max_parallel,
     validate,
 };
 use verwalter_lib::implementation::report::Extras;
+use verwalter_lib::implementation::slots::{self, Start};
 use verwalter_lib::implementation::{
     Countdowns, STATION_BEGUN, SessionLive, amended_brief_changes, arms_on_new_pause, build_view,
     changes, checked_options, checked_settings, continues_after_quota, handoff_changes,
     kept_phases, link, new_rows, now_ms, plan_completion, plan_completion_with_types, report,
     schedule, start, wake,
 };
+use verwalter_lib::projects::model::ProjectPriority;
 use verwalter_lib::sessions::model::SessionStatus;
 
 const USAGE: &str = "Aufruf: implementation-probe --selftest | <Datenbank-Kopie> create <Session-ID> <JSON-Datei> | show <Umsetzungs-ID> | report <Umsetzungs-ID> | complete <Umsetzungs-ID> <Station-ID> \"<Ergebnis>\" [--fix] | set-phases <Umsetzungs-ID> <JSON-Datei> [--apply] | set-station <Umsetzungs-ID> <Station-ID> <JSON-Datei>";
@@ -70,8 +72,9 @@ struct CreateInput {
     source: Option<String>,
     #[serde(default, alias = "lanes")]
     phases: Vec<PhaseInput>,
+    // Gibt es nicht mehr (ADR 068); abgelehnt wie von `implementation_create`.
     #[serde(default)]
-    max_parallel: Option<u32>,
+    max_parallel: Option<serde_json::Value>,
 }
 
 #[derive(Deserialize)]
@@ -170,11 +173,11 @@ fn create(database_path: &Path, session_id: &str, json_file: &Path) -> Result<St
         .map_err(|error| format!("{} nicht lesbar: {error}", json_file.display()))?;
     let input: CreateInput =
         serde_json::from_str(&json).map_err(|error| format!("Eingabe nicht lesbar: {error}"))?;
+    refuse_max_parallel(input.max_parallel.as_ref())?;
     check_length("name", input.name.trim(), 1, MAX_NAME_CHARS)?;
     let source = input.source.unwrap_or_default();
     check_length("source", source.trim(), 0, MAX_SOURCE_CHARS)?;
     validate(&input.phases)?;
-    check_max_parallel(input.max_parallel)?;
     let database = Database::open(database_path).map_err(|error| error.to_string())?;
     let id = database
         .with(|connection| {
@@ -201,7 +204,6 @@ fn create(database_path: &Path, session_id: &str, json_file: &Path) -> Result<St
                 &input.name,
                 &source,
                 &input.phases,
-                input.max_parallel,
                 now_ms(),
                 false,
             )
@@ -585,21 +587,9 @@ fn phases_of(json: serde_json::Value) -> Result<Vec<PhaseInput>, String> {
 }
 
 /// Legt eine Umsetzung im Vorhaben der Session `probe` an, wie `implementation_create`.
-fn create_in(
-    database: &Database,
-    phases: &[PhaseInput],
-    max_parallel: Option<u32>,
-) -> Result<String, String> {
-    let (implementation, phase_rows, station_rows) = new_rows(
-        "probe",
-        "probe",
-        "Probe",
-        "",
-        phases,
-        max_parallel,
-        now_ms(),
-        false,
-    )?;
+fn create_in(database: &Database, phases: &[PhaseInput]) -> Result<String, String> {
+    let (implementation, phase_rows, station_rows) =
+        new_rows("probe", "probe", "Probe", "", phases, now_ms(), false)?;
     database
         .with(|connection| {
             implementations::insert(connection, &implementation, &phase_rows, &station_rows)
@@ -692,26 +682,40 @@ fn mark_done(database: &Database, view: &ImplementationView, plan_id: &str) -> R
         .map_err(|error| error.to_string())
 }
 
-/// Countdowns wie `schedule_ready`: Zählen und Beginnen unter der Sperre von `countdowns`.
-fn begin(countdowns: &Mutex<Countdowns>, view: &ImplementationView) -> Vec<String> {
-    let stations: Vec<&StationView> = view
+/// Ein Durchgang wie `SessionRegistry::run_pass` (ADR 068) für eine markierte Umsetzung unter der
+/// Grenze `limit`: belegt sind die Sessions der Stationen, die einen Platz halten (wie `holds_slot`),
+/// gezählt und beansprucht unter der Sperre von `countdowns`. Gibt die Stationen zurück, deren
+/// Countdown beginnt, und trägt die Warteschlange in die Ansicht ein.
+fn begin(
+    countdowns: &Mutex<Countdowns>,
+    view: &mut ImplementationView,
+    limit: Option<u32>,
+) -> Vec<String> {
+    let busy: Vec<String> = view
         .phases
         .iter()
         .flat_map(|phase: &PhaseView| phase.stations.iter())
-        .collect();
-    let candidates: Vec<String> = schedule::due_for_countdown(&view.phases)
-        .into_iter()
-        .map(|(_, station): (&PhaseView, &StationView)| station.id.clone())
-        .collect();
-    let candidates: Vec<&str> = candidates.iter().map(String::as_str).collect();
-    countdowns
-        .lock()
-        .map(|mut countdowns| {
-            countdowns.begin_within(&stations, &candidates, view.max_parallel, now_ms())
+        .filter(|station: &&StationView| {
+            matches!(
+                station.state,
+                StationState::Starting | StationState::Running | StationState::WaitsForQuota
+            )
         })
-        .unwrap_or_default()
+        .filter_map(|station: &StationView| station.session_id.clone())
+        .collect();
+    let waiters = slots::station_waiters(view, true, ProjectPriority::Normal);
+    let Ok(mut countdowns) = countdowns.lock() else {
+        return Vec::new();
+    };
+    let seen = countdowns.releases();
+    let claimed = countdowns
+        .pass(seen, limit, &busy, waiters, now_ms(), now_ms())
+        .unwrap_or_default();
+    slots::apply_queue(view, countdowns.queue());
+    claimed
         .into_iter()
-        .map(|(id, _): (String, u64)| id)
+        .filter(|(waiter, _): &slots::Claimed| waiter.start == Start::Countdown)
+        .map(|(waiter, _): slots::Claimed| waiter.key)
         .collect()
 }
 
@@ -753,7 +757,6 @@ fn selftest(path: &Path) -> Result<bool, String> {
             { "stage": "C", "id": "c", "priority": 3 },
             { "stage": "D", "id": "d" },
         ] }]))?,
-        None,
     )?;
     all &= check(
         "Sortierung: priority absteigend, dann Planreihenfolge",
@@ -768,7 +771,6 @@ fn selftest(path: &Path) -> Result<bool, String> {
             { "stage": "Doku", "id": "docs" },
             { "stage": "Umsetzung", "id": "build", "after": ["test"] },
         ] }]))?,
-        None,
     )?;
     let before = plan_view(&database, &chain)?;
     mark_done(&database, &before, "test")?;
@@ -785,7 +787,6 @@ fn selftest(path: &Path) -> Result<bool, String> {
             { "stage": "A", "id": "a", "after": ["b"] },
             { "stage": "B", "id": "b", "after": ["a"] },
         ] }]))?,
-        None,
     );
     all &= check(
         "Zyklus: beim Anlegen abgelehnt mit „Zyklus: a → b → a“",
@@ -799,7 +800,6 @@ fn selftest(path: &Path) -> Result<bool, String> {
             { "key": "1", "title": "A", "stations": [{ "stage": "Umsetzung" }] },
             { "key": "2", "title": "B", "stations": [{ "stage": "Umsetzung" }] },
         ]))?,
-        None,
     )?;
     // A ist fertig, die Phase also begonnen; die Änderung ersetzt nur die kommenden Phasen.
     mark_done(&database, &plan_view(&database, &insert)?, "1-1")?;
@@ -845,7 +845,6 @@ fn selftest(path: &Path) -> Result<bool, String> {
         &phases_of(serde_json::json!([{ "key": "1", "title": "F", "stations": [
             { "stage": "Umsetzung" }, { "stage": "Review" }, { "stage": "PR" },
         ] }]))?,
-        None,
     )?;
     let fix_view = plan_view(&database, &fix)?;
     mark_done(&database, &fix_view, "1-1")?;
@@ -880,7 +879,6 @@ fn selftest(path: &Path) -> Result<bool, String> {
             { "stage": "Rechts", "id": "right", "after": ["start"] },
             { "stage": "Join", "id": "join", "after": ["left", "right"] },
         ] }]))?,
-        None,
     )?;
     let join_view = plan_view(&database, &join)?;
     mark_done(&database, &join_view, "start")?;
@@ -927,7 +925,6 @@ fn selftest(path: &Path) -> Result<bool, String> {
             { "key": "2", "title": "B", "wave": 1, "stations": [{ "stage": "Umsetzung" }] },
             { "key": "3", "title": "C", "stations": [{ "stage": "PR" }] },
         ]))?,
-        None,
     )?;
     database
         .with(|connection| {
@@ -957,19 +954,21 @@ fn selftest(path: &Path) -> Result<bool, String> {
         edges == expected && due(&migrated) == ["1-1", "2-1"],
     );
 
-    // Warteschlange.
+    // Tor der globalen Warteschlange (ADR 068), Grenze „Gleichzeitige Agenten max.“ 2.
+    let limit = Some(2);
     let queue_plan = phases_of(serde_json::json!([{ "key": "1", "title": "Q", "stations": [
         { "stage": "A", "id": "a", "after": [] },
         { "stage": "B", "id": "b", "after": [] },
         { "stage": "C", "id": "c", "after": [] },
         { "stage": "D", "id": "d", "after": [] },
     ] }]))?;
-    let queued = create_in(&database, &queue_plan, Some(2))?;
+    let queued = create_in(&database, &queue_plan)?;
     let countdowns = Mutex::new(Countdowns::default());
-    let begun = begin(&countdowns, &plan_view(&database, &queued)?);
-    let waiting = view_with(&database, &queued, &ends_of(&countdowns), &[])?;
+    let begun = begin(&countdowns, &mut plan_view(&database, &queued)?, limit);
+    let mut waiting = view_with(&database, &queued, &ends_of(&countdowns), &[])?;
+    begin(&countdowns, &mut waiting, limit);
     all &= check(
-        "Warteschlange, Grenze: max_parallel 2 startet a und b, c und d warten",
+        "Warteschlange, Grenze: 2 Plätze starten a und b, c und d warten app-weit",
         plan_ids(&waiting, &begun) == ["a", "b"]
             && waiting.queued == 2
             && station(&waiting, "c").and_then(|c| c.queue_position) == Some(1),
@@ -979,18 +978,20 @@ fn selftest(path: &Path) -> Result<bool, String> {
     let full = Mutex::new(Countdowns::default());
     let none_begun = begin(
         &full,
-        &view_with(&database, &queued, &HashMap::new(), &running)?,
+        &mut view_with(&database, &queued, &HashMap::new(), &running)?,
+        limit,
     );
     let done_a = plan_view(&database, &queued)?;
     mark_done(&database, &done_a, "a")?;
     let moved = begin(
         &full,
-        &view_with(
+        &mut view_with(
             &database,
             &queued,
             &HashMap::new(),
             &[("b", SessionStatus::Running)],
         )?,
+        limit,
     );
     let after_done = plan_view(&database, &queued)?;
     all &= check(
@@ -1001,12 +1002,13 @@ fn selftest(path: &Path) -> Result<bool, String> {
     let failing = Mutex::new(Countdowns::default());
     let after_error = begin(
         &failing,
-        &view_with(
+        &mut view_with(
             &database,
             &queued,
             &HashMap::new(),
             &[("b", SessionStatus::Error), ("c", SessionStatus::Running)],
         )?,
+        limit,
     );
     all &= check(
         "Warteschlange, Fehlerfall: b endet mit Fehler, sein Platz geht an d",
@@ -1019,8 +1021,8 @@ fn selftest(path: &Path) -> Result<bool, String> {
         let handles: Vec<_> = (0..2)
             .map(|_| {
                 let shared = Arc::clone(&shared);
-                let view = &view;
-                scope.spawn(move || begin(&shared, view).len())
+                let mut view = view.clone();
+                scope.spawn(move || begin(&shared, &mut view, Some(1)).len())
             })
             .collect();
         handles
@@ -1029,8 +1031,27 @@ fn selftest(path: &Path) -> Result<bool, String> {
             .sum()
     });
     all &= check(
-        "Warteschlange, Zählen unter Sperre: zwei gleichzeitige Planungen beginnen zusammen 2",
-        counted == 2,
+        "Warteschlange, Zählen unter Sperre: zwei gleichzeitige Durchgänge beginnen bei einem Platz zusammen 1",
+        counted == 1,
+    );
+
+    let mut user_over = view_with(
+        &database,
+        &queued,
+        &HashMap::new(),
+        &[("b", SessionStatus::Running), ("c", SessionStatus::Running)],
+    )?;
+    let over = begin(&Mutex::new(Countdowns::default()), &mut user_over, Some(1));
+    let unlimited = begin(
+        &Mutex::new(Countdowns::default()),
+        &mut plan_view(&database, &queued)?,
+        None,
+    );
+    all &= check(
+        "Warteschlange, über der Grenze: zwei laufen bei Grenze 1, nichts rückt nach; leer = kein Warten",
+        over.is_empty()
+            && user_over.queued == 1
+            && plan_ids(&after_done, &unlimited) == ["b", "c", "d"],
     );
 
     // Neustart: Die Sessions sind pausiert, Countdowns liegen nur im Speicher. Geprüft wird die
@@ -1106,7 +1127,6 @@ fn plan_edits(database: &Database) -> Result<bool, String> {
             { "stage": "Umsetzung", "id": "a", "after": [] },
             { "stage": "Review", "id": "b", "after": ["a"] },
         ] }]))?,
-        None,
     )?;
     let applied = edit_in(
         database,
@@ -1117,7 +1137,6 @@ fn plan_edits(database: &Database) -> Result<bool, String> {
             "lanes": [{ "key": "2", "title": "Neu", "stations": [
                 { "stage": "PR", "after": ["b"] },
             ] }],
-            "maxParallel": 2,
         }),
         &[],
     )?;
@@ -1125,12 +1144,11 @@ fn plan_edits(database: &Database) -> Result<bool, String> {
     mark_done(database, &view, "a")?;
     let after_a = plan_view(database, &plan)?;
     all &= check(
-        "Bearbeiten: Delta → Plan (Station eingefügt, Kante geändert, neue Lane, Grenze)",
+        "Bearbeiten: Delta → Plan (Station eingefügt, Kante geändert, neue Lane)",
         applied.is_ok()
             && after_of(&view, "x") == ["a"]
             && after_of(&view, "b") == ["x"]
             && after_of(&view, "2-1") == ["b"]
-            && view.max_parallel == Some(2)
             && view.phases.len() == 2
             && due(&after_a) == ["x"],
     );
@@ -1219,7 +1237,6 @@ fn handoffs(database: &Database) -> Result<bool, String> {
               "predecessorsMay": "handsOff" },
             { "stage": "PR", "id": "later", "after": ["append"] },
         ] }]))?,
-        None,
     )?;
     let rows = rows_of(database, &plan)?;
     let build = id_of(&plan_view(database, &plan)?, "build");
@@ -1334,7 +1351,7 @@ fn auto_resume(database: &Database, path: &Path) -> Result<bool, String> {
         { "stage": "B", "id": "b", "after": [] },
         { "stage": "C", "id": "c", "after": [] },
     ] }]))?;
-    let implementation = create_in(database, &plan, Some(1))?;
+    let implementation = create_in(database, &plan)?;
     let view = plan_view(database, &implementation)?;
     let (a, b) = (id_of(&view, "a"), id_of(&view, "b"));
     let write_station = |station_id: &str, value: Option<bool>| {
@@ -1389,6 +1406,9 @@ fn auto_resume(database: &Database, path: &Path) -> Result<bool, String> {
         &HashMap::new(),
         &[("a", SessionStatus::Paused)],
     )?;
+    let (mut waiting, mut disarmed) = (waiting, disarmed);
+    begin(&Mutex::new(Countdowns::default()), &mut waiting, Some(1));
+    begin(&Mutex::new(Countdowns::default()), &mut disarmed, Some(1));
     let holds = station(&waiting, "a").is_some_and(|station: &StationView| {
         station.state == StationState::WaitsForQuota && station.is_active()
     }) && waiting.queued == 2;
@@ -1440,7 +1460,7 @@ fn station_options(database: &Database) -> Result<bool, String> {
         { "stage": "B", "id": "off", "after": [], "autoStart": false },
         { "stage": "C", "id": "inherits", "after": [] },
     ] }]))?;
-    let implementation = create_in(database, &plan, None)?;
+    let implementation = create_in(database, &plan)?;
     let set_auto = |enabled: bool| {
         database
             .with(|connection| {
@@ -1513,7 +1533,6 @@ fn station_options(database: &Database) -> Result<bool, String> {
             { "stage": "Review", "id": "off", "after": ["build"], "brief": "Prüfe.",
               "predecessorsMay": "handsOff" },
         ] }]))?,
-        None,
     )?;
     let hint = |kind: BriefChangeKind| BriefChange {
         id: "hint".to_owned(),
@@ -1554,7 +1573,6 @@ fn station_options(database: &Database) -> Result<bool, String> {
             { "stage": "A", "id": "failing", "after": [], "onError": "restartUpToThree" },
             { "stage": "B", "id": "waiting", "after": [] },
         ] }]))?,
-        Some(1),
     )?;
     let failing_id = id_of(&plan_view(database, &failing)?, "failing");
     let mut restarts_seen: Vec<bool> = Vec::new();
@@ -1563,8 +1581,10 @@ fn station_options(database: &Database) -> Result<bool, String> {
         let view = view_failed(database, &failing, "failing", true)?;
         let is_restarting = station(&view, "failing").is_some_and(|failed| failed.restarting);
         restarts_seen.push(is_restarting);
+        // Der Neustart wartet am Tor (ADR 068) und rückt vor der bereiten Station nach.
+        let mut view = view;
+        let begun = begin(&Mutex::new(Countdowns::default()), &mut view, Some(1));
         held_place &= is_restarting == (view.queued == 1);
-        let begun = begin(&Mutex::new(Countdowns::default()), &view);
         held_place &= is_restarting == begun.is_empty();
         // Wie `restart_failed`: Gezählt wird nur ein Neustart, der ansteht.
         if is_restarting {
@@ -1584,7 +1604,7 @@ fn station_options(database: &Database) -> Result<bool, String> {
         .map_err(|error| error.to_string())?;
     let after_app_restart = view_failed(database, &failing, "failing", false)?;
     all &= check(
-        "Bei Fehler: bis 3× neu starten, Platz belegt solange, danach frei; nach App-Neustart kein Neustart",
+        "Bei Fehler: bis 3× neu starten, der Neustart rückt am Tor vor der bereiten Station nach, danach frei; nach App-Neustart kein Neustart",
         restarts_seen == [true, true, true, false]
             && held_place
             && station(&after_app_restart, "failing").is_some_and(|failed| !failed.restarting),

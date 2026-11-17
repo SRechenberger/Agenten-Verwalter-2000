@@ -135,6 +135,7 @@ const TABLE: &[(Class, Option<IdKind>, &[&str])] = &[
         &[
             "project_rename",
             "project_set_self_release",
+            "project_set_priority",
             "retro_run",
             "session_create_in_project",
             "terminal_open",
@@ -151,7 +152,6 @@ const TABLE: &[(Class, Option<IdKind>, &[&str])] = &[
             "implementation_set_stop_after_current",
             "implementation_set_auto_resume",
             "implementation_set_station_auto_resume",
-            "implementation_set_max_parallel",
             "implementation_start_station",
             "implementation_set_station_agent",
             "implementation_set_station_options",
@@ -220,6 +220,7 @@ const TABLE: &[(Class, Option<IdKind>, &[&str])] = &[
         Class::LocalOnly,
         None,
         &[
+            "agent_queue",
             "app_info",
             "account_load",
             "account_login",

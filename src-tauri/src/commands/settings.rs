@@ -3,6 +3,7 @@ use std::sync::Arc;
 use crate::db::Database;
 use crate::error::CommandError;
 use crate::lmstudio::{self, model::LocalModels};
+use crate::sessions::registry::schedule_pass;
 use crate::settings::{
     self,
     model::{OperatingMode, Settings, SettingsChange, SettingsOverview},
@@ -27,7 +28,12 @@ pub async fn settings_update(
     change: SettingsChange,
 ) -> Result<Settings, CommandError> {
     let changes_operating_mode = matches!(change, SettingsChange::OperatingMode { .. });
+    let changes_limit = matches!(change, SettingsChange::MaxAgents { .. });
     let updated = settings::update(&database, change)?;
+    // Eine höhere Grenze lässt sofort nachrücken, eine niedrigere beendet nichts (ADR 068).
+    if changes_limit {
+        schedule_pass(&app);
+    }
     // Das Kontingent gehört zum Abo der Betriebsart; der Stand der alten gilt nicht weiter.
     if changes_operating_mode
         && matches!(

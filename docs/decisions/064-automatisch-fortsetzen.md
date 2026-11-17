@@ -1,6 +1,6 @@
 # 064 — „Automatisch fortsetzen“ je Umsetzung und Station
 
-**Status:** angenommen, umgesetzt: Kern (Migration 27, Befehle, Zeitgeber, Zustand, Einstellung) und Oberfläche (Leiste, Warnleiste, Zeile, Kartei, Einstellungszeile; Story Taiga #56); die Abnahme in der echten App steht aus · **Datum:** 2026-11-15
+**Status:** angenommen, umgesetzt: Kern (Migration 27, Befehle, Zeitgeber, Zustand, Einstellung) und Oberfläche (Leiste, Warnleiste, Zeile, Kartei, Einstellungszeile; Story Taiga #56); die Abnahme in der echten App steht aus; `WaitsForQuota` hält seither einen Platz der globalen Warteschlange statt einen unter „Parallel max.“ ([ADR 068](068-globale-warteschlange.md)) · **Datum:** 2026-11-15
 
 ## Kontext
 

@@ -4,6 +4,7 @@ use rusqlite::{Connection, OptionalExtension, Row, params};
 use crate::agents::event::ModelId;
 use crate::db::{enum_from_text, enum_to_text, project_groups};
 use crate::error::CommandError;
+use crate::projects::model::ProjectPriority;
 use crate::session_tools::model::SelfRelease;
 
 const COLUMNS: &str = "id, name, created_at, tldr, tldr_at, tldr_sources, name_auto, \
@@ -171,6 +172,41 @@ pub fn set_self_release(
             enum_to_text(&value.tldr_model)?,
         ],
     )?;
+    Ok(())
+}
+
+/// Stufe jedes nicht archivierten Vorhabens in der globalen Warteschlange (ADR 068); ein unlesbarer
+/// Wert gilt als normal. Neue Vorhaben bekommen den Standard der Spalte.
+pub fn priorities(connection: &Connection) -> Result<Vec<(String, ProjectPriority)>, CommandError> {
+    let mut statement =
+        connection.prepare("SELECT id, priority FROM projects WHERE archived_at IS NULL")?;
+    let rows = statement
+        .query_map([], |row| {
+            let text: String = row.get(1)?;
+            Ok((
+                row.get::<_, String>(0)?,
+                enum_from_text::<ProjectPriority>(&text).unwrap_or_default(),
+            ))
+        })?
+        .collect::<rusqlite::Result<Vec<(String, ProjectPriority)>>>()?;
+    Ok(rows)
+}
+
+/// Ein unbekanntes Vorhaben ist ein Fehler, ohne dass sich etwas ändert.
+pub fn set_priority(
+    connection: &Connection,
+    id: &str,
+    priority: ProjectPriority,
+) -> Result<(), CommandError> {
+    let changed = connection.execute(
+        "UPDATE projects SET priority = ?2 WHERE id = ?1",
+        params![id, enum_to_text(&priority)?],
+    )?;
+    if changed == 0 {
+        return Err(CommandError::Internal(format!(
+            "Vorhaben nicht gefunden: {id}"
+        )));
+    }
     Ok(())
 }
 

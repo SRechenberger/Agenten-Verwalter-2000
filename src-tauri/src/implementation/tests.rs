@@ -13,6 +13,7 @@ use crate::db::{Database, agent_types as agent_type_rows};
 use crate::error::CommandError;
 use crate::mcp_access::tools::{ToolCall, ToolResult, ToolSet, ToolSpec};
 use crate::mcp_access::{Caller, ProcessKind, rpc};
+use crate::projects::model::ProjectPriority;
 use crate::session_tools::tools::SessionTools;
 use crate::settings::model::OperatingMode;
 use model::{PendingChange, PhaseInput, StationSettings, check_agents, validate};
@@ -102,7 +103,6 @@ fn view_of(phase: PhaseView) -> ImplementationView {
         urgency: StationState::Running,
         last_activity_at: 0.0,
         unread: false,
-        max_parallel: None,
         queued: 0,
         auto_resume: false,
         cancelled_at: None,
@@ -598,7 +598,6 @@ fn implementation_row() -> ImplementationRow {
         auto_start: true,
         stop_after_current: false,
         pending_change: None,
-        max_parallel: None,
         auto_resume: false,
         cancelled_at: None,
         pending_cancel: None,
@@ -1906,7 +1905,7 @@ fn finished(mut row: StationRow) -> StationRow {
 /// und laufenden Countdowns der genannten Stationen.
 fn limited_view(
     stations: Vec<StationRow>,
-    max_parallel: Option<u32>,
+    _max_parallel: Option<u32>,
     auto_start: bool,
     counting_down: &[&str],
 ) -> ImplementationView {
@@ -1919,7 +1918,6 @@ fn limited_view(
         .collect();
     let stored = StoredImplementation {
         row: ImplementationRow {
-            max_parallel,
             auto_start,
             ..implementation_row()
         },
@@ -2041,7 +2039,6 @@ fn created(phases: Value) -> Result<Vec<StationRow>, String> {
         "Umsetzung",
         "",
         &inputs(phases),
-        None,
         1.0,
         false,
     )
@@ -2144,7 +2141,7 @@ fn plan_prompt_names_no_field_of_the_schema() {
     // Die Beschreibung von `implementation_create` ist die einzige Quelle der Feldnamen: Ändert
     // Phase 76.2 das Schema, darf der Prompt nicht brechen.
     let prompt = plan::plan_prompt("");
-    for field in ["after", "wave", "phases", "max_parallel"] {
+    for field in ["after", "wave", "phases"] {
         assert!(
             !prompt.to_lowercase().contains(field),
             "der Prompt nennt das Feld „{field}“"
@@ -2165,13 +2162,18 @@ fn station_id_over_40_chars_is_rejected_naming_the_field() {
 }
 
 #[test]
-fn max_parallel_of_zero_is_rejected() {
+fn a_planner_call_with_max_parallel_is_rejected_naming_the_global_setting() {
     assert_eq!(
-        model::check_max_parallel(Some(0)),
-        Err("max_parallel: mindestens 1".to_owned())
+        model::refuse_max_parallel(Some(&json!(2))),
+        Err(model::MAX_PARALLEL_GONE.to_owned())
     );
-    assert_eq!(model::check_max_parallel(Some(1)), Ok(()));
-    assert_eq!(model::check_max_parallel(None), Ok(()));
+    assert_eq!(
+        model::refuse_max_parallel(Some(&json!(0))),
+        Err(model::MAX_PARALLEL_GONE.to_owned())
+    );
+    assert_eq!(model::refuse_max_parallel(None), Ok(()));
+    assert!(model::MAX_PARALLEL_GONE.contains("„Gleichzeitige Agenten max.“"));
+    assert!(model::MAX_PARALLEL_GONE.starts_with("`max_parallel` gibt es nicht mehr"));
 }
 
 /// Die Regel vor ADR 061 als Vergleich: Gruppen aus Wellen nacheinander, in der Phase der Reihe
@@ -2226,7 +2228,6 @@ fn assert_same_starts_as_position_and_wave(spec: &[(Option<u32>, usize)]) {
         "Umsetzung",
         "",
         &inputs(Value::Array(phases)),
-        None,
         1.0,
         false,
     )
@@ -2342,7 +2343,7 @@ fn migration_backfills_plan_ids_and_edges_from_position_and_wave() {
 }
 
 #[test]
-fn stored_station_keeps_plan_id_after_and_priority_and_the_implementation_its_limit() {
+fn stored_station_keeps_plan_id_after_and_priority() {
     let mut station = node("b", &["a"]);
     station.priority = -3;
     let database = database_with(&[node("a", &[]), station]);
@@ -2353,16 +2354,6 @@ fn stored_station_keeps_plan_id_after_and_priority_and_the_implementation_its_li
         (&stored.plan_id, &stored.after, stored.priority),
         (&"b".to_owned(), &vec!["a".to_owned()], -3)
     );
-    database
-        .with(|connection| {
-            implementation_rows::set_max_parallel(connection, "implementation", Some(2))
-        })
-        .expect("schreibbar");
-    let limit = database
-        .with(|connection| implementation_rows::load(connection, "implementation"))
-        .expect("lesbar")
-        .map(|stored: StoredImplementation| stored.row.max_parallel);
-    assert_eq!(limit, Some(Some(2)));
 }
 
 #[test]
@@ -2423,11 +2414,16 @@ fn first_message_names_only_the_results_of_its_predecessors() {
 }
 
 #[test]
-fn queue_holds_ready_stations_beyond_max_parallel_in_start_order() {
+fn queue_holds_ready_stations_beyond_the_limit_in_start_order() {
     let mut urgent = node("urgent", &[]);
     urgent.priority = 1;
     let rows = vec![node("a", &[]), node("b", &[]), node("c", &[]), urgent];
-    let view = limited_view(rows.clone(), Some(2), true, &["a"]);
+    let mut view = limited_view(rows.clone(), None, true, &["a"]);
+    let mut countdowns = Countdowns::default();
+    countdowns.begin("a", 5.0);
+    let claimed = claimed_keys(pass_over(&mut countdowns, Some(2), &[], &view));
+    assert_eq!(claimed, ["urgent"], "ein Platz frei: urgent zuerst");
+    slots::apply_queue(&mut view, countdowns.queue());
     assert_eq!(view.queued, 2);
     let positions: Vec<(&str, Option<u32>)> = view.phases[0]
         .stations
@@ -2442,22 +2438,26 @@ fn queue_holds_ready_stations_beyond_max_parallel_in_start_order() {
             ("c", Some(2)),
             ("urgent", None)
         ],
-        "ein Platz frei: urgent zuerst, dann b und c in Planreihenfolge"
+        "dann b und c in Planreihenfolge"
     );
-    let without_automatic = limited_view(rows.clone(), Some(2), false, &["a"]);
-    assert_eq!(
-        without_automatic.queued, 0,
+    let without_automatic = limited_view(rows.clone(), None, false, &["a"]);
+    assert!(
+        slots::station_waiters(&without_automatic, true, ProjectPriority::Normal).is_empty(),
         "ohne Automatik keine Warteschlange"
     );
-    assert_eq!(
-        limited_view(rows, None, true, &["a"]).queued,
-        0,
-        "ohne Grenze keine"
+    let mut unlimited = Countdowns::default();
+    unlimited.begin("a", 5.0);
+    pass_over(
+        &mut unlimited,
+        None,
+        &[],
+        &limited_view(rows, None, true, &["a"]),
     );
+    assert!(unlimited.queue().entries.is_empty(), "ohne Grenze keine");
 }
 
 #[test]
-fn counting_and_beginning_under_one_lock_never_exceeds_the_limit() {
+fn slots_never_exceed_the_limit_when_two_passes_claim_at_once() {
     use std::sync::{Arc, Mutex};
     let view = limited_view(
         vec![
@@ -2466,25 +2466,24 @@ fn counting_and_beginning_under_one_lock_never_exceeds_the_limit() {
             node("c", &[]),
             node("d", &[]),
         ],
-        Some(2),
+        None,
         true,
         &[],
     );
     let countdowns = Arc::new(Mutex::new(Countdowns::default()));
-    let begun: usize = std::thread::scope(|scope| {
+    let claimed: usize = std::thread::scope(|scope| {
         let handles: Vec<_> = (0..2)
             .map(|_| {
                 let countdowns = Arc::clone(&countdowns);
                 let view = &view;
                 scope.spawn(move || {
-                    let stations: Vec<&StationView> = view.phases[0].stations.iter().collect();
-                    let candidates: Vec<String> = due_ids(view);
-                    let candidates: Vec<&str> = candidates.iter().map(String::as_str).collect();
-                    countdowns
-                        .lock()
-                        .expect("Sperre")
-                        .begin_within(&stations, &candidates, view.max_parallel, 1.0)
-                        .len()
+                    // Beide zählen mit demselben Stand, bevor einer beansprucht.
+                    let waiters = slots::station_waiters(view, true, ProjectPriority::Normal);
+                    let mut guard = countdowns.lock().expect("Sperre");
+                    let seen = guard.releases();
+                    guard
+                        .pass(seen, Some(2), &[], waiters, 1.0, 2.0)
+                        .map_or(0, |claimed: Vec<slots::Claimed>| claimed.len())
                 })
             })
             .collect();
@@ -2494,45 +2493,55 @@ fn counting_and_beginning_under_one_lock_never_exceeds_the_limit() {
             .sum()
     });
     assert_eq!(
-        begun, 2,
-        "zwei gleichzeitige Fertigmeldungen mit demselben Stand"
+        claimed, 2,
+        "zwei gleichzeitige Durchgänge mit demselben Stand"
+    );
+    assert_eq!(
+        countdowns.lock().expect("Sperre").queue().entries.len(),
+        2,
+        "c und d warten"
     );
 }
 
 #[test]
 fn countdown_ending_into_a_start_keeps_the_station_counted() {
-    let view = limited_view(vec![node("a", &[]), node("b", &[])], Some(1), true, &[]);
-    let stations: Vec<&StationView> = view.phases[0].stations.iter().collect();
+    let view = limited_view(vec![node("a", &[]), node("b", &[])], None, true, &[]);
     let mut countdowns = Countdowns::default();
-    let [(_, token)] = &countdowns.begin_within(&stations, &["a", "b"], Some(1), 1.0)[..] else {
+    let claimed = pass_over(&mut countdowns, Some(1), &[], &view);
+    let [(waiter, token)] = &claimed[..] else {
         panic!("Erwartet: ein Countdown");
     };
+    assert_eq!(waiter.key, "a");
     assert!(countdowns.take_for_start("a", *token));
+    countdowns.bind("a", "session-a");
     assert!(
-        countdowns
-            .begin_within(&stations, &["a", "b"], Some(1), 1.0)
-            .is_empty(),
-        "a startet und belegt den Platz"
+        pass_over(&mut countdowns, Some(1), &["session-a".to_owned()], &view).is_empty(),
+        "a startet und belegt den Platz, seine Session zählt nicht doppelt"
     );
+    assert_eq!(countdowns.used(&["session-a".to_owned()]), 1);
     countdowns.release_start("a");
+    assert!(
+        pass_over(&mut countdowns, Some(1), &["session-a".to_owned()], &view).is_empty(),
+        "danach zählt a's Session"
+    );
+    // a's Session ist gebunden und hat ihren Zug beendet: Ihr Platz ist frei.
+    let mut ended = view.clone();
+    let station = &mut ended.phases[0].stations[0];
+    station.session_id = Some("session-a".to_owned());
+    station.state = StationState::WaitsForYou;
     assert_eq!(
-        countdowns
-            .begin_within(&stations, &["b"], Some(1), 1.0)
-            .len(),
-        1
+        claimed_keys(pass_over(&mut countdowns, Some(1), &[], &ended)),
+        ["b"]
     );
 }
 
 #[test]
-fn queue_is_only_replanned_on_session_end_with_a_limit_and_automatic_start() {
-    let view = |max_parallel: Option<u32>, auto_start: bool| {
-        limited_view(vec![node("a", &[])], max_parallel, auto_start, &[])
-    };
-    assert!(resumes_queue(&view(Some(1), true)));
-    assert!(!resumes_queue(&view(None, true)), "ohne Grenze wie früher");
+fn queue_is_replanned_on_session_end_only_with_automatic_start() {
+    let view = |auto_start: bool| limited_view(vec![node("a", &[])], None, auto_start, &[]);
+    assert!(resumes_queue(&view(true)));
     assert!(
-        !resumes_queue(&view(Some(1), false)),
-        "ohne Automatik keine Warteschlange"
+        !resumes_queue(&view(false)),
+        "ohne Automatik wartet keine Station dieser Umsetzung"
     );
 }
 
@@ -2568,37 +2577,35 @@ fn station_inserted_between_a_and_b_by_plan_change_makes_b_wait_without_changing
 fn queue_moves_up_when_a_countdown_ends_in_a_start_error() {
     let mut failed = node("a", &[]);
     failed.start_error = Some("Den Typ „reviewr“ gibt es nicht mehr.".to_owned());
-    let rows = vec![failed, node("b", &[])];
+    let rows = vec![
+        failed,
+        node("b", &[]),
+        with_auto_start(node("off", &[]), Some(false)),
+    ];
     assert!(resumes_queue_after_start_error(
-        &limited_view(rows.clone(), Some(1), true, &[]),
+        &limited_view(rows.clone(), None, true, &[]),
         "a"
     ));
     assert!(
-        !resumes_queue_after_start_error(&limited_view(rows.clone(), Some(1), true, &[]), "b"),
+        !resumes_queue_after_start_error(&limited_view(rows.clone(), None, true, &[]), "b"),
         "ohne gespeicherten Startfehler nicht: sonst versuchte der Countdown es endlos"
     );
     assert!(
-        !resumes_queue_after_start_error(&limited_view(rows, None, true, &[]), "a"),
-        "ohne Grenze wie früher"
+        resumes_queue_after_start_error(&limited_view(rows, None, true, &[]), "off"),
+        "eine Station, deren Automatik aus ist, wartet nicht mehr"
     );
 }
 
 #[test]
 fn a_running_countdown_is_not_begun_again() {
-    let view = limited_view(vec![node("a", &[]), node("b", &[])], Some(2), true, &[]);
-    let stations: Vec<&StationView> = view.phases[0].stations.iter().collect();
+    let view = limited_view(vec![node("a", &[]), node("b", &[])], None, true, &[]);
     let mut countdowns = Countdowns::default();
-    let [(_, token)] = &countdowns.begin_within(&stations, &["a"], Some(2), 1.0)[..] else {
-        panic!("Erwartet: ein Countdown");
-    };
-    let again: Vec<String> = countdowns
-        .begin_within(&stations, &["a", "b"], Some(2), 2.0)
-        .into_iter()
-        .map(|(id, _): (String, u64)| id)
-        .collect();
-    assert_eq!(again, ["b"], "a zählt schon, nur b beginnt");
+    let token = countdowns.begin("a", 1.0);
+    // Die Ansicht kennt a's Countdown noch nicht: a steht unter den Wartenden.
+    let claimed = claimed_keys(pass_over(&mut countdowns, Some(2), &[], &view));
+    assert_eq!(claimed, ["b"], "a zählt schon, nur b beginnt");
     assert!(
-        countdowns.take("a", *token),
+        countdowns.take("a", token),
         "a's Countdown läuft unverändert weiter"
     );
 }
@@ -2607,42 +2614,50 @@ fn a_running_countdown_is_not_begun_again() {
 fn a_station_with_an_active_session_counts_against_the_limit() {
     let mut view = limited_view(
         vec![node("a", &[]), node("b", &[]), node("c", &[])],
-        Some(2),
+        None,
         true,
         &[],
     );
     let running = &mut view.phases[0].stations[0];
     running.session_id = Some("session-a".to_owned());
     running.state = StationState::Running;
-    let stations: Vec<&StationView> = view.phases[0].stations.iter().collect();
-    let begun: Vec<String> = Countdowns::default()
-        .begin_within(&stations, &["b", "c"], Some(2), 1.0)
-        .into_iter()
-        .map(|(id, _): (String, u64)| id)
-        .collect();
-    assert_eq!(begun, ["b"]);
+    let claimed = claimed_keys(pass_over(
+        &mut Countdowns::default(),
+        Some(2),
+        &["session-a".to_owned()],
+        &view,
+    ));
+    assert_eq!(claimed, ["b"]);
 }
 
 #[test]
 fn counting_against_a_view_read_before_a_start_ended_begins_nothing() {
-    let view = limited_view(vec![node("a", &[]), node("b", &[])], Some(1), true, &[]);
-    let stations: Vec<&StationView> = view.phases[0].stations.iter().collect();
+    let view = limited_view(vec![node("a", &[]), node("b", &[])], None, true, &[]);
+    let waiters = || slots::station_waiters(&view, true, ProjectPriority::Normal);
     let mut countdowns = Countdowns::default();
     assert!(countdowns.claim_start("a"));
     let seen = countdowns.releases();
-    // Die Ansicht oben kennt a's Session noch nicht; jetzt endet a's Start.
+    // Die Sessions sind gezählt, a's Session noch nicht als laufend; jetzt endet a's Start.
     countdowns.release_start("a");
     assert_eq!(
-        countdowns.begin_if_current(seen, &stations, &["b"], Some(1), 1.0),
+        countdowns.pass(seen, Some(1), &[], waiters(), 1.0, 2.0),
         None,
-        "veraltete Ansicht: neu lesen statt b über die Grenze zu starten"
+        "veraltete Zählung: neu zählen statt b über die Grenze zu starten"
     );
     let fresh = countdowns.releases();
     assert_eq!(
         countdowns
-            .begin_if_current(fresh, &stations, &["b"], Some(1), 1.0)
-            .map(|begun: Vec<(String, u64)>| begun.len()),
-        Some(1)
+            .pass(
+                fresh,
+                Some(1),
+                &["session-a".to_owned()],
+                waiters(),
+                1.0,
+                2.0
+            )
+            .map(|claimed: Vec<slots::Claimed>| claimed.len()),
+        Some(0),
+        "neu gezählt belegt a's Session den Platz"
     );
 }
 
@@ -2673,7 +2688,7 @@ fn fix_round_and_second_review_inherit_the_priority_of_the_review() {
 /// Lauf der App).
 fn view_with_sessions(
     stations: Vec<StationRow>,
-    max_parallel: Option<u32>,
+    _max_parallel: Option<u32>,
     auto_start: bool,
     sessions: &[(&str, SessionStatus, bool)],
 ) -> ImplementationView {
@@ -2703,7 +2718,6 @@ fn view_with_sessions(
     }
     let stored = StoredImplementation {
         row: ImplementationRow {
-            max_parallel,
             auto_start,
             ..implementation_row()
         },
@@ -2742,17 +2756,20 @@ fn station_auto_start_on_schedules_it_although_the_implementation_has_no_automat
 
 #[test]
 fn station_auto_start_off_keeps_it_out_of_countdown_and_queue() {
-    let view = limited_view(
+    let mut view = limited_view(
         vec![
             with_auto_start(node("off", &[]), Some(false)),
             node("a", &[]),
             node("b", &[]),
         ],
-        Some(1),
+        None,
         true,
         &[],
     );
     assert_eq!(due_ids(&view), ["a", "b"]);
+    let mut countdowns = Countdowns::default();
+    pass_over(&mut countdowns, Some(1), &[], &view);
+    slots::apply_queue(&mut view, countdowns.queue());
     assert_eq!(
         view.queued, 1,
         "nur b wartet, off steht nicht in der Warteschlange"
@@ -3059,22 +3076,30 @@ fn failing(on_error: OnError, restarts: u32) -> StationRow {
 }
 
 #[test]
-fn on_error_restarts_a_fresh_failure_and_keeps_its_place_in_the_queue() {
+fn on_error_restart_of_a_fresh_failure_goes_through_the_gate_first() {
     let view = view_with_sessions(
         vec![failing(OnError::RestartOnce, 0), node("waiting", &[])],
-        Some(1),
+        None,
         true,
         &[("failing", SessionStatus::Error, true)],
     );
     let failed = shown(&view, "failing");
-    assert!(failed.restarting && failed.is_active());
-    assert_eq!(view.queued, 1, "waiting bleibt in der Warteschlange");
-    let stations: Vec<&StationView> = view.phases[0].stations.iter().collect();
     assert!(
-        Countdowns::default()
-            .begin_within(&stations, &["waiting"], Some(1), 1.0)
-            .is_empty()
+        failed.restarting && !failed.is_active(),
+        "der Fehler gibt den Platz frei"
     );
+    let mut countdowns = Countdowns::default();
+    let claimed = pass_over(&mut countdowns, Some(1), &[], &view);
+    assert_eq!(
+        claimed
+            .iter()
+            .map(|(waiter, _): &slots::Claimed| (waiter.key.as_str(), waiter.start))
+            .collect::<Vec<_>>(),
+        [("failing", slots::Start::Restart)],
+        "der Neustart rückt vor der bereiten Station nach"
+    );
+    assert!(countdowns.is_starting("failing"));
+    assert_eq!(countdowns.queue().entries.len(), 1, "waiting wartet");
 }
 
 #[test]
@@ -3097,9 +3122,13 @@ fn on_error_counts_its_restarts_and_then_waits_for_the_user() {
             is_restarting,
             "{on_error:?} nach {restarts}"
         );
+        let restarts_waiting = slots::station_waiters(&view, false, ProjectPriority::Normal)
+            .iter()
+            .filter(|waiter: &&slots::Waiter| waiter.start == slots::Start::Restart)
+            .count();
         assert_eq!(
-            view.queued,
-            u32::from(is_restarting),
+            restarts_waiting,
+            usize::from(is_restarting),
             "{on_error:?} nach {restarts}"
         );
     }
@@ -3222,24 +3251,17 @@ fn a_claimed_restart_keeps_its_place_while_the_session_is_briefly_paused() {
     // `SessionRegistry::restart` setzt die Session auf pausiert, bevor die Nachricht sie startet.
     let view = view_with_sessions(
         vec![failing(OnError::RestartOnce, 1), node("waiting", &[])],
-        Some(1),
+        None,
         true,
         &[("failing", SessionStatus::Paused, false)],
     );
-    let stations: Vec<&StationView> = view.phases[0].stations.iter().collect();
     let mut countdowns = Countdowns::default();
     assert!(countdowns.claim_start("failing"));
-    assert!(
-        countdowns
-            .begin_within(&stations, &["waiting"], Some(1), 1.0)
-            .is_empty()
-    );
+    assert!(pass_over(&mut countdowns, Some(1), &[], &view).is_empty());
     countdowns.release_start("failing");
     assert_eq!(
-        countdowns
-            .begin_within(&stations, &["waiting"], Some(1), 1.0)
-            .len(),
-        1
+        claimed_keys(pass_over(&mut countdowns, Some(1), &[], &view)),
+        ["waiting"]
     );
 }
 
@@ -3259,13 +3281,8 @@ fn switching_automatic_off_frees_the_place_for_a_queued_station_with_its_own_on(
     assert!(refills_after_switch_off(&view));
     assert_eq!(due_ids(&view), ["b"]);
 
-    let without_own_on = limited_view(vec![begun.clone(), node("a", &[])], Some(1), false, &[]);
+    let without_own_on = limited_view(vec![begun, node("a", &[])], Some(1), false, &[]);
     assert!(!refills_after_switch_off(&without_own_on));
-    let without_limit = limited_view(vec![begun, own_on.clone()], None, false, &[]);
-    assert!(
-        !refills_after_switch_off(&without_limit),
-        "ohne Grenze läuft ihr Countdown schon"
-    );
     let not_begun = limited_view(vec![node("a", &[]), own_on], Some(1), false, &[]);
     assert!(
         !refills_after_switch_off(&not_begun),
@@ -3339,7 +3356,7 @@ fn after_in(rows: &[StationRow], id: &str) -> Vec<String> {
 }
 
 #[test]
-fn create_schema_names_id_after_priority_max_parallel_and_lanes() {
+fn create_schema_names_id_after_priority_and_lanes() {
     let spec = tool("implementation_create");
     let station =
         &spec.input_schema["properties"]["phases"]["items"]["properties"]["stations"]["items"];
@@ -3350,7 +3367,10 @@ fn create_schema_names_id_after_priority_max_parallel_and_lanes() {
         );
     }
     let properties = &spec.input_schema["properties"];
-    assert_eq!(properties["max_parallel"]["minimum"], json!(1));
+    assert!(
+        properties["max_parallel"].is_null(),
+        "die Grenze gilt app-weit"
+    );
     assert!(properties["lanes"].is_object());
     assert_eq!(spec.input_schema["required"], json!(["name"]));
     for field in [
@@ -3372,12 +3392,13 @@ fn create_schema_names_id_after_priority_max_parallel_and_lanes() {
 fn edit_tool_is_listed_and_not_read_only() {
     let spec = tool("implementation_edit");
     assert!(spec.description.contains("übernimmt"));
-    for field in ["lanes", "add", "change", "remove", "max_parallel"] {
+    for field in ["lanes", "add", "change", "remove"] {
         assert!(
             spec.input_schema["properties"][field].is_object(),
             "{field}"
         );
     }
+    assert!(spec.input_schema["properties"]["max_parallel"].is_null());
     assert!(!tools::ImplementationTools.is_read_only("implementation_edit"));
     assert!(!tools::side_may_call("implementation_edit"));
 }
@@ -3409,7 +3430,7 @@ fn lanes_reads_like_phases_in_an_edit_and_a_stored_proposal() {
     let lanes: Vec<PhaseInput> = inputs(json!([{ "key": "1", "title": "L", "stations": [
         { "stage": "Test" },
     ] }]));
-    let edit = delta(json!({ "lanes": lanes, "maxParallel": 2 }));
+    let edit = delta(json!({ "lanes": lanes, "remove": ["a"] }));
     let pending = PendingChange {
         session_id: "s".to_owned(),
         session_number: 1,
@@ -3532,7 +3553,7 @@ fn edit_errors_name_the_field() {
     let cases = [
         (
             json!({}),
-            "Die Änderung ist leer: nenne lanes, add, change, remove oder max_parallel.",
+            "Die Änderung ist leer: nenne lanes, add, change oder remove.",
         ),
         (
             json!({ "remove": ["zz"] }),
@@ -3586,23 +3607,16 @@ fn edit_with_a_new_brief_drops_the_changes_of_predecessors() {
 }
 
 #[test]
-fn edit_max_parallel_zero_lifts_the_limit_and_new_lanes_are_marked_new() {
+fn edit_new_lanes_are_marked_new() {
     let edited = edited_with(
         vec![node("a", &[])],
         json!({
-            "maxParallel": 0,
             "lanes": [{ "key": "2", "title": "Neu", "stations": [{ "stage": "T", "after": ["a"] }] }],
         }),
     )
     .expect("gültig");
-    assert_eq!(edited.max_parallel, Some(None));
     assert_eq!(edited.phases[0].mark, Some(model::PhaseMark::New));
     assert_eq!(after_in(&edited.inserted, "2-1"), ["a"]);
-    assert_eq!(
-        edited_with(vec![node("a", &[])], json!({ "maxParallel": 3 }))
-            .map(|edited: edit::EditedPlan| edited.max_parallel),
-        Ok(Some(Some(3)))
-    );
 }
 
 fn note(text: &str) -> model::Handoff {
@@ -3723,21 +3737,24 @@ fn completion_answer_names_the_successors_the_handoff_changed() {
 }
 
 #[test]
-fn report_names_lanes_start_stations_limit_and_edges() {
-    let view = limited_view(
+fn report_names_lanes_start_stations_queue_and_edges() {
+    let mut view = limited_view(
         vec![
             finished(node("a", &[])),
             node("b", &["a"]),
             node("c", &["a"]),
         ],
-        Some(1),
+        None,
         true,
         &[],
     );
+    let mut countdowns = Countdowns::default();
+    pass_over(&mut countdowns, Some(1), &[], &view);
+    slots::apply_queue(&mut view, countdowns.queue());
     let text = report::text(&view, 0.0, false);
     for expected in [
         "Stand: Lane 1 von 1",
-        "Parallel: höchstens 1 · Warteschlange: 1",
+        "Warteschlange (app-weit): 1",
         "Startstationen: a",
         "Lane 1 · Umsetzung — Ergebnis a",
         "  a — Lane 1 · Umsetzung · Stufe 1 · fertig · wartet auf: – · danach: b, c",
@@ -3746,6 +3763,7 @@ fn report_names_lanes_start_stations_limit_and_edges() {
         assert!(text.contains(expected), "{expected}\n{text}");
     }
     assert!(!text.contains("Phase"), "{text}");
+    assert!(!text.contains("Parallel"), "{text}");
 }
 
 #[test]
@@ -3778,36 +3796,19 @@ fn edit_plan_command_is_class_c_in_the_access_table() {
 // Fix-Runde 1 der Werkzeuge (ADR 061, Werkzeuge).
 
 #[test]
-fn edit_summary_names_a_changed_max_parallel() {
-    let summary_of = |edit: Value| -> model::ChangeSummary {
-        edited_with(vec![node("a", &[])], edit)
-            .expect("gültig")
-            .summary
-    };
-    assert_eq!(
-        changes::describe(&summary_of(json!({ "maxParallel": 3 }))),
-        "parallel höchstens 3"
-    );
-    assert_eq!(
-        changes::describe(&summary_of(json!({ "maxParallel": 0 }))),
-        "parallel unbegrenzt"
-    );
-    let with_station = summary_of(json!({
-        "add": [{ "lane": "1", "stage": "Test" }],
-        "maxParallel": 2,
-    }));
-    assert_eq!(
-        changes::describe(&with_station),
-        "neu 1-1, parallel höchstens 2"
-    );
-    let stored: model::ChangeSummary =
-        serde_json::from_str(&serde_json::to_string(&with_station).expect("JSON")).expect("lesbar");
-    assert_eq!(stored.max_parallel, Some(2), "die Karte bekommt die Grenze");
-    assert_eq!(
-        summary_of(json!({ "remove": ["a"] })).max_parallel,
-        None,
-        "ohne Grenze im Delta keine Grenze in der Zusammenfassung"
-    );
+fn edit_summary_names_no_limit_and_an_old_stored_limit_is_ignored() {
+    let summary = edited_with(
+        vec![node("a", &[])],
+        json!({ "add": [{ "lane": "1", "stage": "Test" }] }),
+    )
+    .expect("gültig")
+    .summary;
+    assert_eq!(changes::describe(&summary), "neu 1-1");
+    let stored: model::ChangeSummary = serde_json::from_value(json!({
+        "added": ["1-1"], "moved": [], "removed": [], "maxParallel": 2,
+    }))
+    .expect("eine gespeicherte Änderung mit Grenze bleibt lesbar");
+    assert_eq!(changes::describe(&stored), "neu 1-1");
 }
 
 #[test]
@@ -3860,7 +3861,7 @@ fn tools_refuse_predecessors_may() {
 fn quota_view(
     stations: Vec<StationRow>,
     auto_resume: bool,
-    max_parallel: Option<u32>,
+    _max_parallel: Option<u32>,
     sessions: &[(&str, SessionStatus, bool)],
 ) -> ImplementationView {
     let mut stations: Vec<StationRow> = (0..)
@@ -3896,7 +3897,6 @@ fn quota_view(
     let stored = StoredImplementation {
         row: ImplementationRow {
             auto_resume,
-            max_parallel,
             ..implementation_row()
         },
         phases: vec![phase_row()],
@@ -3994,31 +3994,44 @@ fn a_paused_session_waits_for_quota_only_with_an_armed_timer() {
 
 #[test]
 fn waits_for_quota_counts_as_active_for_the_queue() {
-    let view = quota_view(
+    let mut view = quota_view(
         vec![node("waiting", &[]), node("next", &[])],
         true,
-        Some(1),
+        None,
         &[("waiting", SessionStatus::Paused, true)],
     );
     let waiting = shown(&view, "waiting");
     assert_eq!(waiting.state, StationState::WaitsForQuota);
     assert!(waiting.is_active());
+    // Die Registry zählt die Session mit scharfem Zeitgeber als belegt (`holds_slot`).
+    let mut countdowns = Countdowns::default();
+    pass_over(
+        &mut countdowns,
+        Some(1),
+        &["session-waiting".to_owned()],
+        &view,
+    );
+    slots::apply_queue(&mut view, countdowns.queue());
     assert_eq!(view.queued, 1, "der Platz bleibt belegt, next wartet");
     assert_eq!(shown(&view, "next").queue_position, Some(1));
 }
 
 #[test]
 fn disarming_a_waiting_station_frees_its_slot() {
-    let view = quota_view(
+    let mut view = quota_view(
         vec![node("waiting", &[]), node("next", &[])],
         true,
-        Some(1),
+        None,
         &[("waiting", SessionStatus::Paused, false)],
     );
     let waiting = shown(&view, "waiting");
     assert_eq!(waiting.state, StationState::WaitsForYou);
     assert!(!waiting.is_active());
-    assert_eq!(view.queued, 0, "next rückt nach");
+    let mut countdowns = Countdowns::default();
+    let claimed = claimed_keys(pass_over(&mut countdowns, Some(1), &[], &view));
+    slots::apply_queue(&mut view, countdowns.queue());
+    assert_eq!(claimed, ["next"], "next rückt nach");
+    assert_eq!(view.queued, 0);
     assert_eq!(shown(&view, "next").queue_position, None);
 }
 
@@ -4138,7 +4151,6 @@ fn new_implementation_copies_default_auto_resume() {
             "Umsetzung",
             "",
             &inputs(json!([{ "key": "1", "title": "P", "stations": [{ "stage": "Umsetzung" }] }])),
-            None,
             1.0,
             default,
         )
@@ -4260,7 +4272,7 @@ fn new_commands_are_class_c_in_the_access_table() {
 // Umsetzung abbrechen und löschen (ADR 066).
 use model::PendingCancel;
 
-/// Zwei Startstationen mit `max_parallel = 1`: ohne Abbruch zählt eine herunter, die andere wartet in
+/// Zwei Startstationen: bei einem freien Platz zählt ohne Abbruch eine herunter, die andere wartet in
 /// der Warteschlange.
 fn two_start_stations(
     row: ImplementationRow,
@@ -4271,10 +4283,7 @@ fn two_start_stations(
     let mut second = station_row("second", 1, "Umsetzung");
     second.plan_id = "1-2".to_owned();
     let stored = StoredImplementation {
-        row: ImplementationRow {
-            max_parallel: Some(1),
-            ..row
-        },
+        row,
         phases: vec![phase_row()],
         stations: vec![first, second],
         changes: Vec::new(),
@@ -4308,8 +4317,11 @@ fn cancelled_implementation_starts_no_queued_station() {
         due_ids(&running),
         vec!["first".to_owned(), "second".to_owned()]
     );
+    let mut countdowns = Countdowns::default();
+    pass_over(&mut countdowns, Some(1), &[], &running);
     assert_eq!(
-        running.queued, 1,
+        countdowns.queue().entries.len(),
+        1,
         "ohne Abbruch wartet eine in der Warteschlange"
     );
     assert_eq!(start::is_held(&running), None);
@@ -4327,7 +4339,10 @@ fn cancelled_implementation_starts_no_queued_station() {
         due_ids(&cancelled).is_empty(),
         "kein Countdown wird geplant"
     );
-    assert_eq!(cancelled.queued, 0, "die Warteschlange ist leer");
+    assert!(
+        slots::station_waiters(&cancelled, true, ProjectPriority::Normal).is_empty(),
+        "die Warteschlange ist leer"
+    );
     assert_eq!(start::is_held(&cancelled), Some(IS_CANCELLED));
 }
 
@@ -4829,6 +4844,473 @@ fn auto_resume_timer_of_cancelled_station_sends_nothing() {
         .expect("abgebrochen");
     let cancelled = registry_with_station_session(database, SessionStatus::Paused);
     assert!(cancelled.resume_is_cancelled("session").expect("lesbar"));
+}
+
+// Ab hier ADR 068: die globale Warteschlange, das Tor und „Gleichzeitige Agenten max.“.
+
+/// Ein Durchgang mit den Wartenden einer markierten Umsetzung (Stufe normal) und frischer Zählung.
+fn pass_over(
+    countdowns: &mut Countdowns,
+    limit: Option<u32>,
+    busy: &[String],
+    view: &ImplementationView,
+) -> Vec<slots::Claimed> {
+    let waiters = slots::station_waiters(view, true, ProjectPriority::Normal);
+    let seen = countdowns.releases();
+    countdowns
+        .pass(seen, limit, busy, waiters, 1.0, 2.0)
+        .expect("frische Zählung")
+}
+
+fn claimed_keys(claimed: Vec<slots::Claimed>) -> Vec<String> {
+    claimed
+        .into_iter()
+        .map(|(waiter, _): slots::Claimed| waiter.key)
+        .collect()
+}
+
+/// Ein Wartender einer Session (Nachricht oder Fortsetzen) im Vorhaben mit dieser Stufe.
+fn session_waiter(
+    key: &str,
+    kind: slots::QueueKind,
+    priority: ProjectPriority,
+    since_ms: f64,
+) -> slots::Waiter {
+    slots::Waiter {
+        entry: slots::QueueEntry {
+            position: 0,
+            kind,
+            project_id: format!("project-{key}"),
+            session_id: Some(key.to_owned()),
+            implementation_id: None,
+            station_id: None,
+            title: key.to_owned(),
+            priority,
+            station_priority: 0,
+            since_ms,
+        },
+        key: key.to_owned(),
+        start: slots::Start::Session,
+    }
+}
+
+/// Ein Wartender einer Station mit Vorrang `station_priority`.
+fn station_waiter(key: &str, priority: ProjectPriority, station_priority: i32) -> slots::Waiter {
+    let mut waiter = session_waiter(key, slots::QueueKind::Station, priority, 0.0);
+    waiter.entry.session_id = None;
+    waiter.entry.station_id = Some(key.to_owned());
+    waiter.entry.station_priority = station_priority;
+    waiter.start = slots::Start::Countdown;
+    waiter
+}
+
+fn keys(waiters: &[slots::Waiter]) -> Vec<&str> {
+    waiters
+        .iter()
+        .map(|waiter: &slots::Waiter| waiter.key.as_str())
+        .collect()
+}
+
+#[test]
+fn rank_orders_by_project_level_then_station_priority_then_waiting_time() {
+    let mut waiters = vec![
+        session_waiter(
+            "low-early",
+            slots::QueueKind::Message,
+            ProjectPriority::Low,
+            1.0,
+        ),
+        session_waiter(
+            "normal-late",
+            slots::QueueKind::Message,
+            ProjectPriority::Normal,
+            9.0,
+        ),
+        station_waiter("normal-urgent", ProjectPriority::Normal, 2),
+        session_waiter(
+            "normal-early",
+            slots::QueueKind::Resume,
+            ProjectPriority::Normal,
+            3.0,
+        ),
+        station_waiter("high", ProjectPriority::High, -5),
+        station_waiter("normal-first", ProjectPriority::Normal, 0),
+        station_waiter("normal-second", ProjectPriority::Normal, 0),
+    ];
+    slots::rank(&mut waiters);
+    assert_eq!(
+        keys(&waiters),
+        [
+            "high",
+            "normal-urgent",
+            "normal-first",
+            "normal-second",
+            "normal-early",
+            "normal-late",
+            "low-early"
+        ],
+        "Stufe vor Vorrang vor Wartezeit; Gleiche in Sammelreihenfolge, kein Altern"
+    );
+    let positions: Vec<u32> = waiters
+        .iter()
+        .map(|waiter: &slots::Waiter| waiter.entry.position)
+        .collect();
+    assert_eq!(positions, [1, 2, 3, 4, 5, 6, 7]);
+}
+
+#[test]
+fn waiting_sources_are_merged_into_one_order() {
+    let mut view = limited_view(vec![node("a", &[]), node("b", &[])], None, true, &[]);
+    view.project_id = "project-stations".to_owned();
+    let mut waiters = slots::station_waiters(&view, true, ProjectPriority::Low);
+    waiters.push(session_waiter(
+        "message",
+        slots::QueueKind::Message,
+        ProjectPriority::High,
+        5.0,
+    ));
+    waiters.push(session_waiter(
+        "resume",
+        slots::QueueKind::Resume,
+        ProjectPriority::Normal,
+        0.0,
+    ));
+    let mut countdowns = Countdowns::default();
+    let claimed = countdowns
+        .pass(0, Some(1), &[], waiters, 1.0, 2.0)
+        .expect("frische Zählung");
+    assert_eq!(claimed_keys(claimed), ["message"]);
+    let queue = countdowns.queue();
+    let order: Vec<(&str, slots::QueueKind, u32)> = queue
+        .entries
+        .iter()
+        .map(|entry: &slots::QueueEntry| (entry.title.as_str(), entry.kind, entry.position))
+        .collect();
+    assert_eq!(
+        order,
+        [
+            ("resume", slots::QueueKind::Resume, 1),
+            (
+                "Umsetzung · Lane 1 · Umsetzung",
+                slots::QueueKind::Station,
+                2
+            ),
+            (
+                "Umsetzung · Lane 1 · Umsetzung",
+                slots::QueueKind::Station,
+                3
+            ),
+        ]
+    );
+    assert_eq!((queue.limit, queue.used), (Some(1), 1));
+}
+
+#[test]
+fn a_user_start_may_exceed_the_limit_but_nothing_is_started_while_over() {
+    let view = limited_view(vec![node("a", &[])], None, true, &[]);
+    // Drei Sessions laufen, zwei davon hat der Benutzer über die Grenze hinaus gestartet.
+    let busy: Vec<String> = ["one", "two", "three"].map(str::to_owned).to_vec();
+    let mut countdowns = Countdowns::default();
+    assert!(pass_over(&mut countdowns, Some(1), &busy, &view).is_empty());
+    assert_eq!(countdowns.queue().used, 3);
+    assert_eq!(countdowns.queue().entries.len(), 1, "a wartet");
+    assert_eq!(
+        countdowns.claim_session(countdowns.releases(), Some(1), &busy, "message"),
+        Some(false),
+        "auch keine Zustellung, solange die Zahl über der Grenze liegt"
+    );
+}
+
+#[test]
+fn empty_limit_never_makes_anything_wait() {
+    let view = limited_view(
+        vec![node("a", &[]), node("b", &[]), node("c", &[])],
+        None,
+        true,
+        &[],
+    );
+    let busy: Vec<String> = (0..20).map(|index: i32| format!("s{index}")).collect();
+    let mut countdowns = Countdowns::default();
+    assert_eq!(pass_over(&mut countdowns, None, &busy, &view).len(), 3);
+    assert!(countdowns.queue().entries.is_empty());
+    assert_eq!(
+        countdowns.claim_session(countdowns.releases(), None, &busy, "message"),
+        Some(true)
+    );
+    assert!(slots::has_room(None, usize::MAX - 1));
+}
+
+#[test]
+fn a_restart_after_error_passes_the_gate() {
+    let view = view_with_sessions(
+        vec![failing(OnError::RestartOnce, 0)],
+        None,
+        true,
+        &[("failing", SessionStatus::Error, true)],
+    );
+    let mut countdowns = Countdowns::default();
+    assert!(
+        pass_over(&mut countdowns, Some(1), &["other".to_owned()], &view).is_empty(),
+        "voll: der Neustart wartet"
+    );
+    assert_eq!(
+        countdowns.queue().entries[0].kind,
+        slots::QueueKind::Station
+    );
+    let claimed = pass_over(&mut countdowns, Some(1), &[], &view);
+    assert_eq!(
+        claimed
+            .iter()
+            .map(|(waiter, _): &slots::Claimed| (waiter.key.as_str(), waiter.start))
+            .collect::<Vec<_>>(),
+        [("failing", slots::Start::Restart)]
+    );
+    assert!(countdowns.is_starting("failing"));
+    assert_eq!(
+        countdowns.used(&["session-failing".to_owned()]),
+        1,
+        "die Session des Neustarts zählt nicht neben ihm"
+    );
+    countdowns.release_start("failing");
+    assert_eq!(countdowns.used(&[]), 0);
+}
+
+#[test]
+fn raising_the_limit_starts_waiters_in_rank_order() {
+    let mut urgent = node("urgent", &[]);
+    urgent.priority = 1;
+    let view = limited_view(
+        vec![node("a", &[]), node("b", &[]), node("c", &[]), urgent],
+        None,
+        true,
+        &[],
+    );
+    let mut countdowns = Countdowns::default();
+    assert_eq!(
+        claimed_keys(pass_over(&mut countdowns, Some(1), &[], &view)),
+        ["urgent"]
+    );
+    assert_eq!(
+        claimed_keys(pass_over(&mut countdowns, Some(3), &[], &view)),
+        ["a", "b"],
+        "die Grenze steigt auf 3: zwei rücken in Reihenfolge nach"
+    );
+    assert_eq!(countdowns.queue().entries.len(), 1);
+}
+
+#[test]
+fn lowering_the_limit_stops_nothing() {
+    let view = limited_view(
+        vec![node("a", &[]), node("b", &[]), node("c", &[])],
+        None,
+        true,
+        &[],
+    );
+    let mut countdowns = Countdowns::default();
+    let claimed = pass_over(&mut countdowns, Some(2), &[], &view);
+    assert_eq!(claimed.len(), 2);
+    assert!(pass_over(&mut countdowns, Some(1), &[], &view).is_empty());
+    for (waiter, token) in claimed {
+        assert!(
+            countdowns.take(&waiter.key, token),
+            "{} läuft weiter",
+            waiter.key
+        );
+    }
+    assert_eq!(
+        countdowns.queue().used,
+        2,
+        "über der Grenze, nichts beendet"
+    );
+}
+
+#[test]
+fn waits_for_quota_holds_a_slot() {
+    // Die Session einer Station mit scharfem Zeitgeber zählt (`holds_slot`); ihr Fortsetzen braucht
+    // keinen weiteren Platz und lässt keinen frei.
+    let busy = vec!["paused-station".to_owned()];
+    let mut countdowns = Countdowns::default();
+    assert_eq!(countdowns.used(&busy), 1);
+    let waiters = vec![
+        session_waiter(
+            "paused-station",
+            slots::QueueKind::Resume,
+            ProjectPriority::Low,
+            1.0,
+        ),
+        session_waiter(
+            "message",
+            slots::QueueKind::Message,
+            ProjectPriority::High,
+            1.0,
+        ),
+    ];
+    let claimed = countdowns
+        .pass(0, Some(1), &busy, waiters, 1.0, 2.0)
+        .expect("frische Zählung");
+    assert_eq!(claimed_keys(claimed), ["paused-station"]);
+    assert_eq!(countdowns.used(&busy), 1);
+    assert_eq!(countdowns.queue().entries.len(), 1, "die Nachricht wartet");
+}
+
+#[test]
+fn a_failed_send_returns_its_claim() {
+    let mut countdowns = Countdowns::default();
+    let seen = countdowns.releases();
+    assert_eq!(
+        countdowns.claim_session(seen, Some(1), &[], "target"),
+        Some(true)
+    );
+    assert_eq!(countdowns.used(&[]), 1);
+    assert_eq!(
+        countdowns.claim_session(countdowns.releases(), Some(2), &[], "target"),
+        Some(false),
+        "dieselbe Session startet nicht zweimal"
+    );
+    // Das Senden scheiterte: Die Session läuft nicht, der Anspruch geht sofort zurück.
+    countdowns.release_session("target");
+    assert_eq!(countdowns.used(&[]), 0);
+    assert_ne!(
+        countdowns.releases(),
+        seen,
+        "laufende Zählungen sind veraltet"
+    );
+    assert_eq!(
+        countdowns.claim_session(countdowns.releases(), Some(1), &[], "other"),
+        Some(true)
+    );
+}
+
+#[test]
+fn tool_schemas_do_not_name_max_parallel() {
+    for name in [
+        "implementation_create",
+        "implementation_edit",
+        "implementation_set_phases",
+    ] {
+        let spec = tool(name);
+        assert!(
+            !spec.input_schema.to_string().contains("max_parallel"),
+            "{name}"
+        );
+        assert!(!spec.description.contains("max_parallel"), "{name}");
+    }
+}
+
+#[test]
+fn project_priority_defaults_to_normal_and_survives_a_restart() {
+    use crate::db::projects as project_rows;
+    let path = std::env::temp_dir().join(format!("verwalter-{}.db", uuid::Uuid::new_v4()));
+    let insert = |database: &Database, id: &str| {
+        database
+            .with(|connection| {
+                connection.execute(
+                    "INSERT INTO projects (id, name, created_at) VALUES (?1, 'Vorhaben', 1.0)",
+                    [id],
+                )?;
+                Ok(())
+            })
+            .expect("schreibbar");
+    };
+    {
+        let database = Database::open(&path).expect("Datenbank");
+        insert(&database, "new");
+        insert(&database, "raised");
+        database
+            .with(|connection| {
+                project_rows::set_priority(connection, "raised", ProjectPriority::High)
+            })
+            .expect("schreibbar");
+        assert!(
+            database
+                .with(|connection| {
+                    project_rows::set_priority(connection, "unknown", ProjectPriority::Low)
+                })
+                .is_err()
+        );
+    }
+    let reopened = Database::open(&path).expect("Datenbank nach dem Neustart");
+    let mut priorities = reopened
+        .with(|connection| project_rows::priorities(connection))
+        .expect("lesbar");
+    priorities.sort();
+    drop(reopened);
+    let _ = std::fs::remove_file(&path);
+    assert_eq!(
+        priorities,
+        [
+            ("new".to_owned(), ProjectPriority::Normal),
+            ("raised".to_owned(), ProjectPriority::High),
+        ]
+    );
+}
+
+#[test]
+fn migration_029_sets_existing_projects_to_normal() {
+    let database = Database::open(Path::new(":memory:")).expect("Datenbank im Speicher");
+    let (default, not_null, has_limit): (Option<String>, bool, bool) = database
+        .with(|connection| {
+            let (default, not_null) = connection.query_row(
+                "SELECT dflt_value, \"notnull\" FROM pragma_table_info('projects') \
+                 WHERE name = 'priority'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )?;
+            let has_limit: bool = connection.query_row(
+                "SELECT COUNT(*) > 0 FROM pragma_table_info('implementations') \
+                 WHERE name = 'max_parallel'",
+                [],
+                |row| row.get(0),
+            )?;
+            Ok((default, not_null, has_limit))
+        })
+        .expect("lesbar");
+    assert_eq!(
+        (default.as_deref(), not_null, has_limit),
+        (Some("'normal'"), true, false),
+        "bestehende Zeilen bekommen den Standard, die Spalte der Grenze je Umsetzung entfällt"
+    );
+}
+
+#[test]
+fn new_commands_are_classified_in_the_access_table() {
+    use crate::remote::access::{Class, class_of};
+    assert_eq!(class_of("project_set_priority"), Some(Class::HostWrite));
+    assert_eq!(class_of("agent_queue"), Some(Class::LocalOnly));
+    assert_eq!(class_of("implementation_set_max_parallel"), None);
+}
+
+#[test]
+fn settings_change_max_agents_has_the_json_form_of_its_neighbours() {
+    use crate::settings::model::SettingsChange;
+    let form = |change: &SettingsChange| serde_json::to_value(change).expect("JSON");
+    assert_eq!(
+        form(&SettingsChange::MaxAgents { value: Some(3) }),
+        json!({ "kind": "maxAgents", "value": 3 })
+    );
+    assert_eq!(
+        form(&SettingsChange::MaxAgents { value: None }),
+        json!({ "kind": "maxAgents", "value": null })
+    );
+    assert_eq!(
+        form(&SettingsChange::DefaultAutoResume { value: true }),
+        json!({ "kind": "defaultAutoResume", "value": true })
+    );
+    let database = Database::open(Path::new(":memory:")).expect("Datenbank im Speicher");
+    let limit = |database: &Database| crate::settings::load(database).expect("lesbar").max_agents;
+    assert_eq!(
+        limit(&database),
+        Some(4),
+        "Standard 4 ohne gespeicherten Wert"
+    );
+    assert!(
+        crate::settings::update(&database, SettingsChange::MaxAgents { value: Some(0) }).is_err()
+    );
+    crate::settings::update(&database, SettingsChange::MaxAgents { value: None }).expect("leer");
+    assert_eq!(limit(&database), None, "leer = unbegrenzt");
+    crate::settings::update(&database, SettingsChange::MaxAgents { value: Some(2) })
+        .expect("gesetzt");
+    assert_eq!(limit(&database), Some(2));
 }
 
 fn station_with_session(id: &str, position: u32) -> StationRow {

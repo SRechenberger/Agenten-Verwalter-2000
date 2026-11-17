@@ -47,7 +47,6 @@ import {
   setImplementationAutoResume,
   setImplementationAutoStart,
   setImplementationStopAfterCurrent,
-  setMaxParallel,
   setStationAgent,
   setStationAutoResume,
   startStation,
@@ -502,9 +501,6 @@ export function ImplementationView({
         onSetAutoResume={setAutoResume}
         onSetStopAfterCurrent={(enabled: boolean): void => {
           run(() => setImplementationStopAfterCurrent(implementationId, enabled));
-        }}
-        onSetMaxParallel={(maxParallel: number | null): void => {
-          run(() => setMaxParallel(implementationId, maxParallel));
         }}
         isNewLaneOpen={isNewLaneOpen}
         onToggleNewLane={(): void => {

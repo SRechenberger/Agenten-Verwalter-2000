@@ -65,7 +65,7 @@ use crate::implementation::plan::{
 use crate::mcp::model::{McpAction, McpActionError, McpAuthWait, McpChangedEvent, McpServer};
 use crate::mcp_access::{McpAccess, ProcessKind};
 use crate::notices::model::{Denial, Notice};
-use crate::projects::model::{ProjectCreated, ProjectGroup, ProjectSummary};
+use crate::projects::model::{ProjectCreated, ProjectGroup, ProjectPriority, ProjectSummary};
 use crate::prompt_cache::model::PromptCache;
 use crate::prompt_cache::{TTL_1H_MS, TTL_5M_MS};
 use crate::remote::RemoteControl;
@@ -95,6 +95,7 @@ mod commit_scan;
 mod implementation;
 mod mcp;
 mod overlaps;
+mod queue;
 mod remote;
 mod restore;
 mod retro;
@@ -107,6 +108,7 @@ mod terminal;
 mod tldr;
 
 use self::implementation::ReportUpdate;
+pub use self::queue::{AGENT_QUEUE_CHANGED_EVENT, schedule_pass};
 
 const SESSION_CHANGED_EVENT: &str = "session://changed";
 const PROJECT_CHANGED_EVENT: &str = "project://changed";
@@ -162,6 +164,8 @@ struct ProjectState {
     name_auto: bool,
     self_release: SelfRelease,
     group_id: Option<String>,
+    /// Stufe in der globalen Warteschlange (ADR 068).
+    priority: ProjectPriority,
     created_at: f64,
     tldr: Option<ProjectTldr>,
     tldr_at: Option<f64>,
@@ -181,6 +185,7 @@ impl ProjectState {
             name_auto: false,
             self_release: SelfRelease::OFF,
             group_id: None,
+            priority: ProjectPriority::Normal,
             created_at,
             tldr: None,
             tldr_at: None,
@@ -473,9 +478,12 @@ struct Outbox {
     open_urls: Vec<String>,
     /// Jüngster Kontingent-Stand aus einer Antwort des Claude-Abos.
     rate_limit: Option<RateLimitInfo>,
-    /// Die Antwort endete als abgeschlossen; nach dem Freigeben der Sperre prüft die Warteschlange
-    /// der Session-Nachrichten, ob sie zustellt (ADR 052).
+    /// Die Antwort endete als abgeschlossen; nach dem Freigeben der Sperre läuft ein Durchgang der
+    /// globalen Warteschlange, der auch die Session-Nachrichten zustellt (ADR 052, 068).
     turn_completed: bool,
+    /// Die Session belegt jetzt einen Platz oder gibt ihn frei (ADR 068): nach dem Freigeben der Sperre
+    /// läuft ein Durchgang.
+    slots_changed: bool,
     /// Die Session einer Station ist nicht mehr aktiv (fertig, pausiert, Fehler, Abbruch): nach dem
     /// Freigeben der Sperre plant die Umsetzung ihre Warteschlange neu (ADR 061).
     station_idle: Option<String>,
@@ -512,34 +520,43 @@ impl SessionRegistry {
         database: Arc<Database>,
         remote: Arc<RemoteControl>,
     ) -> Result<SessionRegistry, CommandError> {
-        let (project_list, loaded): (Vec<ProjectRow>, Vec<StoredSession>) =
-            database.with(|connection| {
-                let project_list = project_rows::load_active(connection)?;
-                let rows = session_rows::load_active(connection)?;
-                let stations: HashMap<String, String> =
-                    implementation_rows::station_sessions(connection)?
-                        .into_iter()
-                        .collect();
-                let loaded = rows
+        let (project_list, priorities, loaded): (
+            Vec<ProjectRow>,
+            Vec<(String, ProjectPriority)>,
+            Vec<StoredSession>,
+        ) = database.with(|connection| {
+            let project_list = project_rows::load_active(connection)?;
+            let priorities = project_rows::priorities(connection)?;
+            let rows = session_rows::load_active(connection)?;
+            let stations: HashMap<String, String> =
+                implementation_rows::station_sessions(connection)?
                     .into_iter()
-                    .map(|row: SessionRow| {
-                        let repositories = session_repositories::load(connection, &row.id)?;
-                        let ticket_worktrees = session_ticket_worktrees::load(connection, &row.id)?;
-                        Ok(StoredSession {
-                            station_of: stations.get(&row.id).cloned(),
-                            row,
-                            repositories,
-                            ticket_worktrees,
-                        })
+                    .collect();
+            let loaded = rows
+                .into_iter()
+                .map(|row: SessionRow| {
+                    let repositories = session_repositories::load(connection, &row.id)?;
+                    let ticket_worktrees = session_ticket_worktrees::load(connection, &row.id)?;
+                    Ok(StoredSession {
+                        station_of: stations.get(&row.id).cloned(),
+                        row,
+                        repositories,
+                        ticket_worktrees,
                     })
-                    .collect::<Result<Vec<StoredSession>, CommandError>>()?;
-                Ok((project_list, loaded))
-            })?;
+                })
+                .collect::<Result<Vec<StoredSession>, CommandError>>()?;
+            Ok((project_list, priorities, loaded))
+        })?;
         let registry = SessionRegistry::new(Arc::clone(&database), remote);
         {
             let mut projects = registry.lock_projects();
             for project in project_list {
                 projects.insert(project.id.clone(), ProjectState::restored(&project));
+            }
+            for (id, priority) in priorities {
+                if let Some(project) = projects.get_mut(&id) {
+                    project.priority = priority;
+                }
             }
             // Eine Session, deren Vorhaben fehlt, bekommt eins im Speicher — sonst verschwände sie
             // aus der Liste, obwohl ihre Zeile noch aktiv ist.
@@ -820,7 +837,7 @@ impl SessionRegistry {
 
     /// Unbekanntes Vorhaben → Fehler.
     pub fn project_summary(&self, project_id: &str) -> Result<ProjectSummary, CommandError> {
-        let (name, created_at, self_release, group_id) = {
+        let (name, created_at, self_release, group_id, priority) = {
             let projects = self.lock_projects();
             let project = projects
                 .get(project_id)
@@ -830,6 +847,7 @@ impl SessionRegistry {
                 project.created_at,
                 project.self_release,
                 project.group_id.clone(),
+                project.priority,
             )
         };
         Ok(ProjectSummary {
@@ -840,6 +858,7 @@ impl SessionRegistry {
             self_release,
             group_id,
             access: self.remote.with(|control| control.access(project_id)),
+            priority,
         })
     }
 
@@ -1038,6 +1057,31 @@ impl SessionRegistry {
         }
         let _ = app.emit(PROJECT_CHANGED_EVENT, self.project_summary(project_id)?);
         Ok(())
+    }
+
+    /// Stufe des Vorhabens in der globalen Warteschlange (ADR 068); unbekanntes oder archiviertes
+    /// Vorhaben → Fehler, ohne dass sich etwas ändert. Die neue Rangfolge gilt ab dem nächsten
+    /// Durchgang; einer läuft gleich, damit die Liste der Wartenden sie zeigt.
+    pub fn set_project_priority(
+        &self,
+        app: &AppHandle,
+        project_id: &str,
+        priority: ProjectPriority,
+    ) -> Result<ProjectSummary, CommandError> {
+        {
+            // Über das Schreiben gehalten wie in `set_project_group`.
+            let mut projects = self.lock_projects();
+            let project = projects
+                .get_mut(project_id)
+                .ok_or_else(|| project_not_found(project_id))?;
+            self.database
+                .with(|connection| project_rows::set_priority(connection, project_id, priority))?;
+            project.priority = priority;
+        }
+        let summary = self.project_summary(project_id)?;
+        let _ = app.emit(PROJECT_CHANGED_EVENT, &summary);
+        schedule_pass(app);
+        Ok(summary)
     }
 
     /// Immer die volle Liste: die Oberfläche ersetzt ihre Gruppen, statt Änderungen einzuarbeiten.
@@ -2805,6 +2849,40 @@ impl SessionState {
         })
     }
 
+    /// Belegt einen Platz der globalen Warteschlange (ADR 068, Regel a): Der Agent hat einen Zug (auch
+    /// während er auf einen Subagenten wartet), oder die Session einer Station wartet mit scharfem
+    /// Zeitgeber auf das Kontingent.
+    fn holds_slot(&self) -> bool {
+        matches!(
+            self.status,
+            SessionStatus::Starting | SessionStatus::Running
+        ) || self.is_awaiting_subagent()
+            || (self.station_of.is_some() && self.waits_for_resume())
+    }
+
+    /// Pausiert am Kontingent mit scharfem Zeitgeber und bekannter Rücksetzzeit (ADR 051).
+    fn waits_for_resume(&self) -> bool {
+        self.status == SessionStatus::Paused
+            && matches!(
+                self.pause_reason,
+                Some(PauseReason::Quota {
+                    resets_at: Some(_),
+                    auto_resume: true,
+                })
+            )
+    }
+
+    /// Das Fortsetzen ist fällig und wartet auf einen Platz (ADR 068).
+    fn resume_is_due(&self, now: f64) -> bool {
+        match self.pause_reason {
+            Some(PauseReason::Quota {
+                resets_at: Some(resets_at),
+                auto_resume: true,
+            }) if self.status == SessionStatus::Paused => auto_resume::is_due(resets_at, now),
+            _ => false,
+        }
+    }
+
     /// Abgeschlossen, ohne offene Rückfrage, ohne laufenden Subagent oder Skript: Eine neue Eingabe
     /// unterbricht nichts und beantwortet nichts.
     fn rests(&self) -> bool {
@@ -2900,6 +2978,7 @@ impl SessionState {
         if self.status == status {
             return;
         }
+        let held_slot = self.holds_slot();
         let now = now_ms();
         if self.status == SessionStatus::Running
             && let Some(since) = self.running_since.take()
@@ -2916,6 +2995,7 @@ impl SessionState {
             self.pause_reason = None;
         }
         self.fresh_error = status == SessionStatus::Error;
+        outbox.slots_changed |= held_slot != self.holds_slot();
         if matches!(
             status,
             SessionStatus::Completed
@@ -3815,6 +3895,8 @@ impl SessionState {
         *auto_resume = enabled;
         self.auto_resume_token += 1;
         outbox.summary_dirty = true;
+        // Eine Station mit scharfem Zeitgeber belegt einen Platz (ADR 068).
+        outbox.slots_changed |= self.station_of.is_some() && was_armed != enabled;
         if was_armed {
             outbox.station_disarmed.clone_from(&self.station_of);
         }
@@ -3998,9 +4080,13 @@ fn update<R>(
     if !windows.is_empty() {
         commit_scan::schedule(Arc::clone(session), windows);
     }
-    // Die Session-Sperre ist hier frei: Der Thread der Warteschlange nimmt seine Sperren selbst.
-    if outbox.turn_completed {
-        session_tools::schedule_inbox_delivery(app, session);
+    // Die Session-Sperre ist hier frei: Der Durchgang nimmt seine Sperren selbst. Die Haken einer
+    // Station lassen ihn selbst laufen.
+    if (outbox.turn_completed || outbox.slots_changed)
+        && outbox.station_idle.is_none()
+        && outbox.station_disarmed.is_none()
+    {
+        schedule_pass(app);
     }
     if let Some(implementation_id) = outbox.station_idle.take() {
         implementation::schedule_station_session_end(app, implementation_id, session.id.clone());

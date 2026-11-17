@@ -47,14 +47,6 @@ export const AUTO_RESUME_LABEL = 'Automatisch fortsetzen';
 export const AUTO_RESUME_GLYPH = '↻';
 export const AUTO_RESUME_TITLE =
   'Setzt jede Station nach leerem Kontingent 30 Sekunden nach dem Zurücksetzen selbst fort. Schaltet alle Stationen, die noch nicht fertig sind; ↻ in der Zeile oder die Kartei schalten nur eine (die letzte Aktion gewinnt).';
-export const MAX_PARALLEL_LABEL = 'Parallel max.';
-export const MAX_PARALLEL_TITLE =
-  'Höchstens so viele Stationen laufen gleichzeitig. Weitere bereite Stationen starten selbst, sobald ein Platz frei wird – nur bei Stationen, die automatisch starten. Ein Klick auf ▶ ignoriert die Grenze.';
-export const MAX_PARALLEL_LESS = 'weniger';
-export const MAX_PARALLEL_MORE = 'mehr';
-/** Anzeige ohne Grenze. */
-export const MAX_PARALLEL_UNLIMITED = '∞';
-export const MAX_PARALLEL_UNLIMITED_TITLE = 'unbegrenzt';
 
 /** „17:04“ in Ortszeit. */
 export function clockText(at: number): string {
@@ -456,7 +448,7 @@ export const MANUAL_MARK_TITLE = 'Startet nie von selbst, auch mit „Automatisc
 export const AUTOMATIC_MARK = '▶ automatisch';
 export const AUTOMATIC_MARK_TITLE = 'Startet von selbst, obwohl „Automatisch starten“ aus ist';
 export const ROW_START_LABEL = '▶';
-export const ROW_START_TITLE = 'Jetzt starten (ignoriert die Grenze „Parallel max.“)';
+export const ROW_START_TITLE = 'Jetzt starten (ignoriert die Grenze „Gleichzeitige Agenten max.“)';
 export const ROW_OPEN_LABEL = 'Öffnen';
 export const ROW_OPEN_TITLE = 'Öffnet die Station in der Kartei';
 export const ROW_OPEN_CHAT_TITLE = 'Öffnet den Chat dieser Station; die Frage beantwortest du dort';
@@ -846,7 +838,6 @@ export const PROPOSAL_EMPTY_BRIEF = '(leer)';
 export const PROPOSAL_HINT =
   'Du kannst den Vorschlag übernehmen, wie er ist, oder Typ, Modell, Denkaufwand und Auftrag vorher ändern. Alles Weitere (System-Prompt, Automatik) steht nach dem Übernehmen in der Kartei.';
 export const CHANGED_LABEL = 'Geändert';
-export const MAX_PARALLEL_CHANGE_LABEL = 'Parallel max.';
 
 /** Obergrenze des Auftrags im Core (`MAX_BRIEF_CHARS`). */
 export const MAX_BRIEF_CHARS = 1000;

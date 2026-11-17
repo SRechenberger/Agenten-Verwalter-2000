@@ -7,7 +7,6 @@ use std::time::Duration;
 
 use tauri::{AppHandle, Manager};
 
-use crate::implementation::IS_CANCELLED;
 use crate::sessions::registry::{SessionRegistry, now_ms};
 
 pub const RESUME_TEXT: &str =
@@ -29,6 +28,12 @@ pub(crate) struct ArmedResume {
 pub enum WaitEnd {
     Due,
     Cancelled,
+}
+
+/// Ist das Fortsetzen fällig: Rücksetzzeit samt Aufschlag erreicht. Ein fälliges Fortsetzen, das am Tor
+/// keinen Platz bekam, sammelt der Durchgang der globalen Warteschlange ein (ADR 068).
+pub fn is_due(resets_at: f64, now: f64) -> bool {
+    now >= resets_at + RESUME_MARGIN_MS
 }
 
 /// Wartet auf die Wanduhr, nicht auf eine Gesamtdauer: nach einem Ruhezustand des Rechners ist das
@@ -71,10 +76,11 @@ pub(crate) fn spawn(app: &AppHandle, session_id: &str, armed: ArmedResume) {
     }
 }
 
-/// Läuft im Thread des Zeitgebers, ohne gehaltene Sperre. Prüfen (unter der Sperre der Session, in
-/// `auto_resume_is_current`) und Senden sind getrennt: eine Nachricht des Users genau dazwischen ist
-/// akzeptiert, der Agent bekommt den Text dann zusätzlich. Die Prüfung muss vor `send` liegen, weil
-/// `send` eine beendete Session neu startet und dabei die Begründung löscht.
+/// Läuft im Thread des Zeitgebers, ohne gehaltene Sperre. Danach geht das Fortsetzen durch das Tor der
+/// globalen Warteschlange (ADR 068). Prüfen (unter der Sperre der Session) und Senden sind getrennt: eine
+/// Nachricht des Users genau dazwischen ist akzeptiert, der Agent bekommt den Text dann zusätzlich. Die
+/// Prüfung muss vor `send` liegen, weil `send` eine beendete Session neu startet und dabei die
+/// Begründung löscht.
 fn run(app: &AppHandle, session_id: &str, armed: ArmedResume) {
     let registry = app.state::<SessionRegistry>();
     let end: WaitEnd = wait_until(
@@ -86,32 +92,5 @@ fn run(app: &AppHandle, session_id: &str, armed: ArmedResume) {
     if end == WaitEnd::Cancelled {
         return;
     }
-    // Station einer abgebrochenen Umsetzung (ADR 066): nichts schicken, der Schalter geht aus.
-    match registry.resume_is_cancelled(session_id) {
-        Ok(false) => {}
-        Ok(true) => {
-            registry.fail_auto_resume(app, session_id, IS_CANCELLED.to_owned());
-            return;
-        }
-        Err(error) => {
-            registry.fail_auto_resume(app, session_id, error.to_string());
-            return;
-        }
-    }
-    // Fertig gemeldete Station (ADR 064): nichts schicken, der Schalter geht ohne Fehlerkarte aus.
-    match registry.resume_is_finished(session_id) {
-        Ok(false) => {}
-        Ok(true) => {
-            // Ohne Pause oder Session gibt es nichts auszuschalten.
-            let _ = registry.set_auto_resume(app, session_id, false);
-            return;
-        }
-        Err(error) => {
-            registry.fail_auto_resume(app, session_id, error.to_string());
-            return;
-        }
-    }
-    if let Err(error) = registry.send(app, session_id, RESUME_TEXT, &[], &[], None) {
-        registry.fail_auto_resume(app, session_id, error.to_string());
-    }
+    registry.resume_through_gate(app, session_id);
 }

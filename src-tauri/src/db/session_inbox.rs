@@ -10,6 +10,8 @@ pub struct InboxRow {
     pub text: String,
     /// `auto_chain` der sendenden Session beim Senden.
     pub chain: u32,
+    /// Eingang in ms; die globale Warteschlange ordnet danach (ADR 068).
+    pub created_at: f64,
 }
 
 pub fn insert(
@@ -41,7 +43,8 @@ pub fn insert(
 pub fn oldest(connection: &Connection, session_id: &str) -> Result<Option<InboxRow>, CommandError> {
     let row = connection
         .query_row(
-            "SELECT id, sender_id, sender_number, sender_title, text, chain FROM session_inbox \
+            "SELECT id, sender_id, sender_number, sender_title, text, chain, created_at \
+             FROM session_inbox \
              WHERE session_id = ?1 ORDER BY id LIMIT 1",
             params![session_id],
             |row| {
@@ -54,6 +57,7 @@ pub fn oldest(connection: &Connection, session_id: &str) -> Result<Option<InboxR
                     },
                     text: row.get(4)?,
                     chain: row.get(5)?,
+                    created_at: row.get(6)?,
                 })
             },
         )

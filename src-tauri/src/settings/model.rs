@@ -82,6 +82,9 @@ pub struct Settings {
     // „Automatisch fortsetzen“, das eine neue Umsetzung übernimmt; bestehende bleiben unverändert
     // (ADR 064).
     pub default_auto_resume: bool,
+    // „Gleichzeitige Agenten max.“ (ADR 068): so viele Agenten startet der Verwalter höchstens von
+    // selbst; `None` = unbegrenzt, sonst mindestens 1.
+    pub max_agents: Option<u32>,
     pub terminal_placement: TerminalPlacement,
     /// Gezogene Höhe des Terminal-Docks in Pixeln.
     pub terminal_height: u32,
@@ -145,6 +148,10 @@ pub enum SettingsChange {
     },
     DefaultAutoResume {
         value: bool,
+    },
+    // `None` = unbegrenzt (ADR 068).
+    MaxAgents {
+        value: Option<u32>,
     },
     TerminalPlacement {
         value: TerminalPlacement,

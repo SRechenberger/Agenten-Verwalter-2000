@@ -6,7 +6,8 @@ use std::thread;
 use tauri::{AppHandle, Manager};
 
 use super::model::{BriefChange, ImplementationView, PhaseView, StationState, StationView};
-use super::{IS_CANCELLED, START_DELAY, StationRef, announce, now_ms, schedule, station_in};
+use super::slots::{Claimed, Start};
+use super::{IS_CANCELLED, START_DELAY, StationRef, announce, schedule, station_in};
 use crate::agent_types::model::{AgentType, AgentValueSource};
 use crate::agent_types::prompt::{Folders, PromptError};
 use crate::agent_types::{self, StationValues, UnknownAgent};
@@ -177,60 +178,44 @@ pub fn start_plan(
     })
 }
 
-/// Plant für Stationen, die jetzt starten dürfen, einen Countdown, nach Vorrang und Planreihenfolge
-/// und höchstens bis `max_parallel` aktive Stationen; gibt die geplanten zurück. Die übrigen bleiben
-/// in der Warteschlange (ADR 061). Stationen des Benutzers, solche mit laufendem Countdown und solche
-/// mit Startfehler bleiben außen vor. Abgebrochen oder mit offener Anfrage zum Abbrechen plant es
-/// nichts (ADR 066).
+/// Nimmt die bereiten Stationen der Umsetzung in die globale Warteschlange (ADR 068) und lässt einen
+/// Durchgang laufen: Er plant Countdowns nach Stufe des Vorhabens, Vorrang und Wartezeit, höchstens bis
+/// zur Grenze „Gleichzeitige Agenten max.“; die übrigen warten. Stationen des Benutzers, solche mit
+/// laufendem Countdown und solche mit Startfehler bleiben außen vor; abgebrochen oder mit offener
+/// Anfrage zum Abbrechen plant er nichts (ADR 066). Gibt die Stationen dieser Umsetzung zurück, deren
+/// Countdown begann.
 pub fn schedule_ready(
     app: &AppHandle,
     implementation_id: &str,
 ) -> Result<Vec<StationRef>, CommandError> {
     let registry = app.state::<SessionRegistry>();
-    // Endet dazwischen ein Start, ist die Ansicht veraltet: neu lesen (ADR 061).
-    let (view, begun) = loop {
-        let seen: u64 = registry.start_releases();
-        let view = registry.implementation_view(implementation_id)?;
-        if is_held(&view).is_some() {
-            announce(app, &view);
-            return Ok(Vec::new());
-        }
-        let stations: Vec<&StationView> = view
-            .phases
-            .iter()
-            .flat_map(|phase: &PhaseView| phase.stations.iter())
-            .collect();
-        let candidates: Vec<&str> = schedule::due_for_countdown(&view.phases)
-            .into_iter()
-            .map(|(_, station): (&PhaseView, &StationView)| station.id.as_str())
-            .collect();
-        let ends_at: f64 = now_ms() + START_DELAY.as_secs_f64() * 1000.0;
-        if let Some(begun) =
-            registry.begin_countdowns(seen, &stations, &candidates, view.max_parallel, ends_at)
-        {
-            break (view, begun);
-        }
-    };
-    let due = schedule::due_for_countdown(&view.phases);
-    let mut scheduled: Vec<StationRef> = Vec::new();
-    for (station_id, token) in begun {
-        run_timer(app, implementation_id, &station_id, token)?;
-        if let Some((phase, station)) = due
-            .iter()
-            .find(|(_, station): &&(&PhaseView, &StationView)| station.id == station_id)
-        {
-            scheduled.push(StationRef {
-                phase_key: phase.key.clone(),
-                stage: station.stage.clone(),
-            });
-        }
-    }
-    announce(app, &registry.implementation_view(implementation_id)?);
+    registry.arm_implementation(implementation_id);
+    let claimed: Vec<Claimed> = registry.run_pass(app);
+    let view = registry.implementation_view(implementation_id)?;
+    let scheduled: Vec<StationRef> = claimed
+        .iter()
+        .filter(|(waiter, _): &&Claimed| {
+            waiter.start == Start::Countdown
+                && waiter.entry.implementation_id.as_deref() == Some(implementation_id)
+        })
+        .filter_map(|(waiter, _): &Claimed| super::find_station(&view, &waiter.key))
+        .map(|(phase, station): (&PhaseView, &StationView)| StationRef {
+            phase_key: phase.key.clone(),
+            stage: station.stage.clone(),
+        })
+        .collect();
+    announce(app, &view);
     Ok(scheduled)
 }
 
+/// Ein Platz ist frei geworden, ohne dass eine Umsetzung neu plant (ADR 068): ein Durchgang, der auch
+/// Stationen nach „Bei Fehler“ neu startet. Nie unter einer Sperre aufrufen.
+pub fn refill(app: &AppHandle) {
+    app.state::<SessionRegistry>().run_pass(app);
+}
+
 /// Startet den Zeitgeber eines schon begonnenen Countdowns.
-fn run_timer(
+pub(crate) fn run_timer(
     app: &AppHandle,
     implementation_id: &str,
     station_id: &str,
@@ -292,61 +277,56 @@ fn fire(app: &AppHandle, implementation_id: &str, station_id: &str, token: u64) 
     }
     // Nicht gestartet: die Station steht wieder bereit (▶), die Oberfläche zeigt das.
     if let Ok(fresh) = registry.implementation_view(implementation_id) {
+        announce(app, &fresh);
         if super::resumes_queue_after_start_error(&fresh, station_id) {
-            // Der Platz ist frei: die Warteschlange rückt nach; `schedule_ready` meldet die Ansicht.
-            if let Err(error) = schedule_ready(app, implementation_id) {
-                eprintln!("Warteschlange nach Startfehler nicht neu geplant: {error}");
-            }
-        } else {
-            announce(app, &fresh);
+            // Der Platz ist frei: die globale Warteschlange rückt nach.
+            refill(app);
         }
     }
 }
 
-/// „Bei Fehler“ (ADR 061): Startet jede Station neu, deren Session in diesem Lauf der App mit Fehler
-/// endete und die noch Neustarts übrig hat (`StationView::restarting`). Neu starten heißt: dieselbe
-/// Session, ihr Agent wird neu gestartet (`SessionRegistry::restart`) und bekommt `RESTART_MESSAGE`;
-/// die Bindung Station–Session und die Momentaufnahme des Starts bleiben. Der Startanspruch hält ihren
-/// Platz unter `max_parallel` bis zur Nachricht, der Zähler `restarts` steigt vor dem Versuch, damit
-/// zwei Aufrufer nicht zweimal neu starten und ein scheiternder Versuch die Neustarts verbraucht.
-pub fn restart_failed(app: &AppHandle, implementation_id: &str) -> Result<(), CommandError> {
+/// „Bei Fehler“ (ADR 061) für eine Station, der ein Durchgang der globalen Warteschlange einen Platz
+/// gegeben hat (ADR 068; der Durchgang sammelt jede Station, deren Session in diesem Lauf der App mit
+/// Fehler endete und die noch Neustarts übrig hat, `StationView::restarting`). Neu starten heißt:
+/// dieselbe Session, ihr Agent wird neu gestartet (`SessionRegistry::restart`) und bekommt
+/// `RESTART_MESSAGE`; die Bindung Station–Session und die Momentaufnahme des Starts bleiben. Der
+/// Startanspruch hält ihren Platz bis zur Nachricht und endet hier; der Zähler `restarts` steigt vor dem
+/// Versuch, damit ein scheiternder Versuch die Neustarts verbraucht.
+pub fn restart_station(app: &AppHandle, implementation_id: &str, station_id: &str) {
     let registry = app.state::<SessionRegistry>();
-    loop {
-        let view = registry.implementation_view(implementation_id)?;
-        let Some(station) = view
-            .phases
-            .iter()
-            .flat_map(|phase: &PhaseView| phase.stations.iter())
-            .find(|station: &&StationView| station.restarting)
-        else {
-            return Ok(());
-        };
-        let Some(session_id) = station.session_id.as_deref() else {
-            return Ok(());
-        };
-        // Ein anderer Aufrufer startet sie schon.
-        if registry
-            .claim_start(implementation_id, &station.id)
-            .is_err()
-        {
-            return Ok(());
-        }
-        let restarted = restart_claimed(
-            app,
-            &registry,
-            implementation_id,
-            &station.id,
-            session_id,
-            station.restarts,
-        );
-        registry.release_start(&station.id);
-        if let Err(error) = restarted {
-            registry.log_session_line(
-                session_id,
-                format!("Neustart nach Fehler gescheitert: {error}"),
-            );
-        }
-        announce(app, &registry.implementation_view(implementation_id)?);
+    let restarted =
+        registry
+            .implementation_view(implementation_id)
+            .and_then(|view: ImplementationView| {
+                let (_, station) = station_in(&view, station_id)?;
+                match (&station.session_id, station.restarting) {
+                    (Some(session_id), true) => {
+                        let session_id = session_id.clone();
+                        restart_claimed(
+                            app,
+                            &registry,
+                            implementation_id,
+                            station_id,
+                            &session_id,
+                            station.restarts,
+                        )
+                        .map_err(|error: CommandError| {
+                            registry.log_session_line(
+                                &session_id,
+                                format!("Neustart nach Fehler gescheitert: {error}"),
+                            );
+                            error
+                        })
+                    }
+                    _ => Ok(()),
+                }
+            });
+    registry.release_start(station_id);
+    if let Err(error) = restarted {
+        eprintln!("Neustart nach Fehler gescheitert: {error}");
+    }
+    if let Ok(view) = registry.implementation_view(implementation_id) {
+        announce(app, &view);
     }
 }
 
@@ -412,10 +392,10 @@ pub(super) fn is_allowed(trigger: Trigger, phases: &[PhaseView], station_id: &st
     }
 }
 
-/// ▶: Startet die Station sofort, auch nach einem Startfehler und über `max_parallel` hinaus:
-/// frische Session, Name, Modell und Denkaufwand, Bindung, Systemprompt, erste Nachricht. Ein
-/// laufender Countdown wird beendet. Mit Grenze setzt ▶ danach die Warteschlange fort, etwa nach
-/// einem Neustart (ADR 061).
+/// ▶: Startet die Station sofort, auch nach einem Startfehler und über die Grenze „Gleichzeitige
+/// Agenten max.“ hinaus, zählt aber als belegter Platz (ADR 068): frische Session, Name, Modell und
+/// Denkaufwand, Bindung, Systemprompt, erste Nachricht. Ein laufender Countdown wird beendet. Danach
+/// nimmt ▶ die Umsetzung in die globale Warteschlange, etwa nach einem Neustart.
 pub fn start_now(
     app: &AppHandle,
     implementation_id: &str,
@@ -508,6 +488,8 @@ fn start_claimed(
     };
     let created: SessionSummary = registry.create_fresh_in_project(&view.project_id)?;
     registry.bind_station(app, implementation_id, station_id, &created.id)?;
+    // Ab jetzt zählt der Start, nicht die Session (ADR 068).
+    registry.note_station_session(station_id, &created.id);
     if phase.mark.is_some() {
         registry.clear_phase_mark(&phase.id)?;
     }

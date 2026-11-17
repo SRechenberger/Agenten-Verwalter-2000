@@ -31,6 +31,8 @@ const KEY_MASTER_DIR: &str = "master_dir";
 const KEY_MARK_UNSOURCED: &str = "mark_unsourced";
 const KEY_DEFAULT_SELF_RELEASE: &str = "default_self_release";
 const KEY_DEFAULT_AUTO_RESUME: &str = "default_auto_resume";
+/// Leer = unbegrenzt; fehlt der Schlüssel, gilt der Standard (ADR 068).
+const KEY_MAX_AGENTS: &str = "max_agents";
 const KEY_TERMINAL_PLACEMENT: &str = "terminal_placement";
 const KEY_TERMINAL_HEIGHT: &str = "terminal_height";
 const KEY_TERMINAL_WIDTH: &str = "terminal_width";
@@ -73,6 +75,7 @@ pub const DEFAULT_SETTINGS: Settings = Settings {
     mark_unsourced: true,
     default_self_release: SelfRelease::OFF,
     default_auto_resume: false,
+    max_agents: Some(4),
     terminal_placement: TerminalPlacement::Bottom,
     terminal_height: 260,
     terminal_width: 460,
@@ -120,6 +123,11 @@ pub fn load(database: &Database) -> Result<Settings, CommandError> {
             .get(KEY_DEFAULT_AUTO_RESUME)
             .and_then(|text: &String| text.parse::<bool>().ok())
             .unwrap_or(DEFAULT_SETTINGS.default_auto_resume),
+        max_agents: stored
+            .get(KEY_MAX_AGENTS)
+            .map_or(DEFAULT_SETTINGS.max_agents, |text: &String| {
+                stored_max_agents(text)
+            }),
         terminal_placement: stored_or(
             &stored,
             KEY_TERMINAL_PLACEMENT,
@@ -155,6 +163,11 @@ pub fn update(database: &Database, change: SettingsChange) -> Result<Settings, C
     {
         return Err(CommandError::Internal(
             "Terminalgröße außerhalb 100–10000 px".to_owned(),
+        ));
+    }
+    if let SettingsChange::MaxAgents { value: Some(0) } = &change {
+        return Err(CommandError::Internal(
+            "Gleichzeitige Agenten: mindestens 1 oder leer".to_owned(),
         ));
     }
     if let SettingsChange::PanelWidth {
@@ -208,6 +221,12 @@ pub fn update(database: &Database, change: SettingsChange) -> Result<Settings, C
                 let text = serde_json::to_string(&value)
                     .map_err(|error| CommandError::Internal(error.to_string()))?;
                 setting_rows::write(&transaction, KEY_DEFAULT_SELF_RELEASE, &text)?;
+            }
+            SettingsChange::MaxAgents { value } => {
+                let text = value
+                    .map(|limit: u32| limit.to_string())
+                    .unwrap_or_default();
+                setting_rows::write(&transaction, KEY_MAX_AGENTS, &text)?;
             }
             SettingsChange::DefaultAutoResume { value } => {
                 setting_rows::write(&transaction, KEY_DEFAULT_AUTO_RESUME, &value.to_string())?;
@@ -302,6 +321,19 @@ pub fn remote_host_id(database: &Database) -> Result<String, CommandError> {
         setting_rows::write(connection, KEY_REMOTE_HOST_ID, &id)?;
         Ok(id)
     })
+}
+
+/// Gespeicherter Wert von „Gleichzeitige Agenten max.“: leer = unbegrenzt, ein unlesbarer Wert oder 0
+/// = der Standard.
+fn stored_max_agents(text: &str) -> Option<u32> {
+    let text = text.trim();
+    if text.is_empty() {
+        return None;
+    }
+    text.parse::<u32>()
+        .ok()
+        .filter(|limit: &u32| *limit >= 1)
+        .or(DEFAULT_SETTINGS.max_agents)
 }
 
 fn stored_or<T: DeserializeOwned>(stored: &HashMap<String, String>, key: &str, default: T) -> T {
