@@ -291,7 +291,9 @@ fn message(event: &WakeEvent, facts: &WakeFacts) -> String {
             "{SOURCE}: In der Umsetzung „{implementation}“, die du leitest, ist der Zug von \
              Lane {lane} · {stage} (station_id: {id}) unterbrochen (Neustart der App oder Pause); \
              die Station hatte sich gemeldet, Betreff: „{text}“. Sie setzt mit der nächsten Nachricht \
-             fort, und angenommen werden kann sie erst nach ihrem Zugende."
+             fort, und angenommen werden kann sie erst nach ihrem Zugende. Du kannst ihr mit \
+             verwalter_send_message_to schreiben (das zählt keine Rückgabe) oder sie mit dem Werkzeug \
+             implementation_review_station zurückgeben; der Benutzer kann sie auch fortsetzen."
         ),
         WakeEvent::Unreported { .. } => format!(
             "{SOURCE}: In der Umsetzung „{implementation}“, die du leitest, hat \
@@ -654,7 +656,8 @@ mod tests {
     }
 
     #[test]
-    fn an_interrupted_station_wakes_once_per_return_and_the_text_gives_no_order() {
+    fn an_interrupted_station_wakes_once_per_return_and_the_text_offers_the_ways_without_an_order()
+    {
         let event = |returns: u32| WakeEvent::Interrupted {
             station_id: "st-3".to_owned(),
             returns,
@@ -676,7 +679,15 @@ mod tests {
         ] {
             assert!(text.contains(part), "{part}: {text}");
         }
-        assert!(!text.contains("implementation_review_station"), "{text}");
+        // Die Wege des Masters stehen als Möglichkeit da („Du kannst …“), nicht als Auftrag.
+        for part in [
+            "Du kannst ihr mit verwalter_send_message_to",
+            "implementation_review_station",
+            "keine Rückgabe",
+        ] {
+            assert!(text.contains(part), "{part}: {text}");
+        }
+        assert!(!text.contains("Bitte") && !text.contains("musst"), "{text}");
     }
 
     #[test]

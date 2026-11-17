@@ -837,6 +837,8 @@ pub fn wake_master_of_question(
 /// Master wecken, Zugende (ADR 070, D7): Die Session einer Station hat ihren Zug beendet. Nur ein wirklich
 /// beendeter Zug weckt (nicht Pause, wartendes Skript oder Subagent, anstehender Neustart nach „Bei Fehler“,
 /// nicht nach der Annahme): eine Meldung, eine Antwort ohne Meldung oder ein Fehler, je Zug genau einmal.
+/// Mit `at_start` (Weckdurchgang beim App-Start) weckt auch eine pausierte gemeldete Station ohne scharfen
+/// Zeitgeber, mit „Unterbrochen“ (`wake::event_on_start`).
 fn wake_master_after_turn(
     app: &AppHandle,
     implementation_id: &str,
@@ -930,7 +932,8 @@ pub fn reported_sessions(views: &[ImplementationView]) -> Vec<(String, String)> 
 
 /// Weckdurchgang beim App-Start: Die Wecker leben nur im Speicher, ein Neustart zwischen Meldung und
 /// Zugende ließe die Meldung sonst liegen. Jede gemeldete Station mit beendetem Zug weckt ihren Master
-/// (`wake_master_after_turn` prüft den Zug und den Schlüssel). Im eigenen Thread: Die Zustellung kann
+/// mit „Gemeldet“, jede pausierte ohne scharfen Zeitgeber mit „Unterbrochen“ (`wake_master_after_turn`
+/// mit `at_start` prüft den Zug und den Schlüssel). Im eigenen Thread: Die Zustellung kann
 /// einen Agenten starten.
 pub fn wake_reported_on_start(app: AppHandle) {
     let spawned = std::thread::Builder::new()

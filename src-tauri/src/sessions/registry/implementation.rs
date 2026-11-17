@@ -474,14 +474,7 @@ impl SessionRegistry {
                 state.status,
                 state.awaits_background() || state.continues_by_itself,
             ),
-            is_timer_armed: state.status == SessionStatus::Paused
-                && matches!(
-                    state.pause_reason,
-                    Some(PauseReason::Quota {
-                        auto_resume: true,
-                        ..
-                    })
-                ),
+            is_timer_armed: state.waits_for_resume(),
             marker: state.last_activity_at.to_bits(),
         })
     }
