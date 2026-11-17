@@ -23,7 +23,7 @@ Verbindlich sind die Einträge im [Glossar](../../glossary.md).
 | Leiste der Vorhaben | je Vorhaben „n wartet“, bei hoch ▲, bei niedrig ▼; keine Knöpfe in der Zeile | 103.2 |
 | Fuß der Leiste | Marke „n warten“, nur wenn etwas wartet; sonst „Alle Agenten laufen.“ | 103.2 |
 | Kopf des Vorhabens | Priorität als drei Stufen | 103.2 (Befehl `project_set_priority` in 103.1) |
-| Leiste der Umsetzung | „Plätze n von m (App)“ mit Füllstand, bei Überschreitung „über der Grenze: dein Start“, Link in die Einstellungen; kein Zähler „Parallel max.“ mehr | 103.2 (Zähler entfernt in 103.1) |
+| Leiste der Umsetzung | „Plätze n von m (App)“ mit Füllstand, bei Überschreitung „über der Grenze“, Link in die Einstellungen; kein Zähler „Parallel max.“ mehr | 103.2 (Zähler entfernt in 103.1) |
 | Zeilen | „läuft“, „läuft · von dir gestartet“, „bereit · Warteschlange n“ (global), „Nachricht wartet · Platz n“ | 103.2 (Plätze aus `queuePosition` in 103.1) |
 | Liste der Warteschlange | Rang, Was, Vorhaben, Stufe, wartet seit | 103.2 (`agent_queue` in 103.1) |
 | Einstellungen · Agent | Zeile „Gleichzeitige Agenten max.“ | 103.2 (Einstellung `max_agents` in 103.1) |
@@ -60,9 +60,10 @@ Stand nach Phase 103.2, verglichen Zustand für Zustand mit dem Entwurf (`#scen=
 - **Marke geschlossen umrandet:** Der Entwurf zeigt sie gefüllt, weil seine Liste immer offen ist; in der App ist sie gefüllt, solange das Popover offen ist (`aria-expanded`).
 - **Priorität im Kopf der Übersicht:** Die Schaltergruppe steht im Kopf des Vorhabens (Übersicht), nicht über der Leiste der Umsetzung; die Ansicht einer Umsetzung hat ihren eigenen Kopf mit der Umsetzung als Titel.
 - **„läuft · von dir gestartet“ fehlt:** Der Core sagt nicht, wer einen Zug gestartet hat; die Zeile zeigt wie bisher „läuft · Dauer“.
-- **„über der Grenze: dein Start“ auch nach dem Senken der Grenze:** Der Text erscheint, wann immer belegt > Grenze ist; die Oberfläche kennt den Grund nicht.
+- **„über der Grenze“ statt „über der Grenze: dein Start“:** Der Text erscheint, wann immer belegt > Grenze ist. Grund: Die Oberfläche kennt den Grund nicht (eigener Start oder gesenkte Grenze); der Tooltip der Leiste nennt beide.
 - **„Nachricht wartet · Platz n“ in der Sidebar kurz:** In der schmalen Session- und Stationszeile „✉ Platz n“ (sonst verschwände der Name); der volle Satz steht in Tooltip und Screenreader-Namen. In der Zeitleiste der volle Satz.
 - **„wartet“ als echte Zeit:** „gerade eben“, „vor n min“, „vor n h“ aus `sinceMs`.
+- **„wartet“ bei „Fortsetzen“ als „–“:** Grund: Der Core setzt `sinceMs` eines Eintrags „Fortsetzen“ bei jedem Durchgang auf jetzt (`queue.rs`), die Spalte stünde sonst immer auf „gerade eben“. Bis der Core den echten Zeitpunkt liefert, steht dort „–“.
 - **Einstellungszeile:** Die Beschreibung steht im ⓘ wie bei den Nachbarn, nicht unter dem Namen; eine ungültige Eingabe bleibt mit dem Satz „Eine ganze Zahl von 1 bis 9999; leer = unbegrenzt.“ stehen, Esc nimmt sie zurück. „Grenze in den Einstellungen“ öffnet die Kategorie Agent, ohne das Feld zu fokussieren.
 
 ### Stand der Sichtprüfung (2026-11-17)

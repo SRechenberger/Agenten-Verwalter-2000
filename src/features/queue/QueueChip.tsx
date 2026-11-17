@@ -3,13 +3,13 @@ import type { ReactElement } from 'react';
 import { Popover } from '@/components/Popover';
 import { useNow } from '@/features/background/useNow';
 import {
+  entrySinceText,
   entryStage,
   entryWhat,
   QUEUE_LIST_LABEL,
   QUEUE_ORDER_NOTE,
   WAITING_CHIP_TITLE,
   waitingChipText,
-  waitingSinceText,
 } from '@/features/queue/queueTexts';
 import type { AgentQueue } from '@/lib/bindings/AgentQueue';
 import type { ProjectSummary } from '@/lib/bindings/ProjectSummary';
@@ -80,7 +80,7 @@ export function QueueChip({ projects }: QueueChipProps): ReactElement | null {
                   <td>{entryWhat(entry)}</td>
                   <td>{projectName(entry.projectId)}</td>
                   <td>{entryStage(entry)}</td>
-                  <td className="queue-chip__since">{waitingSinceText(entry.sinceMs, now)}</td>
+                  <td className="queue-chip__since">{entrySinceText(entry, now)}</td>
                 </tr>
               ))}
             </tbody>

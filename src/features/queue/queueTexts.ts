@@ -84,6 +84,11 @@ export function entryStage(entry: QueueEntry): string {
     : `${level} · Station ${entry.stationPriority > 0 ? '+' : ''}${String(entry.stationPriority)}`;
 }
 
+/** Spalte „wartet“ einer Zeile; „–“ bei „Fortsetzen“, weil der Core dort `sinceMs` bei jedem Durchgang neu setzt. */
+export function entrySinceText(entry: QueueEntry, now: number): string {
+  return entry.kind === 'resume' ? '–' : waitingSinceText(entry.sinceMs, now);
+}
+
 /** Spalte „wartet“: „gerade eben“, „vor 4 min“, „vor 2 h“. */
 export function waitingSinceText(sinceMs: number, now: number): string {
   const minutes: number = Math.floor(Math.max(0, now - sinceMs) / MS_PER_MINUTE);
@@ -117,15 +122,15 @@ export function messageWaitShort(position: number): string {
   return `✉ Platz ${String(position)}`;
 }
 
-/** Leiste der Umsetzung: „Plätze 3 von 4 (App)“, über der Grenze mit „· über der Grenze: dein Start“. */
+/** Leiste der Umsetzung: „Plätze 3 von 4 (App)“, über der Grenze mit „· über der Grenze“. */
 export function slotsText(queue: AgentQueue): string {
   const limit: string = queue.limit === null ? '∞' : String(queue.limit);
   const base = `Plätze ${String(queue.used)} von ${limit} (App)`;
-  return isOverLimit(queue) ? `${base} · über der Grenze: dein Start` : base;
+  return isOverLimit(queue) ? `${base} · über der Grenze` : base;
 }
 
 export const SLOTS_TITLE =
-  'Agenten, die gerade einen Platz belegen, über alle Vorhaben. Eigene Nachrichten starten sofort, auch über der Grenze; was der Verwalter von selbst startet, wartet.';
+  'Agenten, die gerade einen Platz belegen, über alle Vorhaben. Eigene Nachrichten starten sofort, auch über der Grenze; was der Verwalter von selbst startet, wartet. Über der Grenze liegt die Zahl nach einem eigenen Start oder nach dem Senken der Grenze.';
 export const SLOTS_SETTINGS_LINK = 'Grenze in den Einstellungen';
 
 export function isOverLimit(queue: AgentQueue): boolean {

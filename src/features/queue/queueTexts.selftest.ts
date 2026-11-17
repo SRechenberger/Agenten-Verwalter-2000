@@ -2,8 +2,10 @@
 // (`pnpm selftest`). Je Fall `PASS`/`FAIL`, Exit 1 bei einem Fehlschlag. Node streicht die Typen; die geprüfte
 // Datei importiert nur Typen.
 import {
+  entrySinceText,
   entryStage,
   entryWhat,
+  MAX_AGENTS_INVALID_TEXT,
   parseMaxAgents,
   messageWaitPosition,
   messageWaitShort,
@@ -52,6 +54,16 @@ const CASES: { name: string; actual: () => unknown; expected: unknown }[] = [
   },
   { name: 'max_agents_empty_is_unlimited', actual: () => parseMaxAgents('  '), expected: null },
   { name: 'max_agents_number', actual: () => parseMaxAgents(' 6 '), expected: 6 },
+  {
+    name: 'max_agents_above_9999_is_invalid',
+    actual: () => parseMaxAgents('10000'),
+    expected: undefined,
+  },
+  {
+    name: 'max_agents_invalid_text_names_upper_bound',
+    actual: () => MAX_AGENTS_INVALID_TEXT,
+    expected: 'Eine ganze Zahl von 1 bis 9999; leer = unbegrenzt.',
+  },
   { name: 'max_agents_zero_is_invalid', actual: () => parseMaxAgents('0'), expected: undefined },
   {
     name: 'max_agents_negative_is_invalid',
@@ -97,6 +109,16 @@ const CASES: { name: string; actual: () => unknown; expected: unknown }[] = [
     expected: 'gerade eben',
   },
   {
+    name: 'since_resume_shows_dash',
+    actual: () => entrySinceText(entry({ kind: 'resume', sinceMs: 0 }), 4 * MINUTE),
+    expected: '–',
+  },
+  {
+    name: 'since_station_shows_time',
+    actual: () => entrySinceText(entry({ sinceMs: 0 }), 4 * MINUTE),
+    expected: 'vor 4 min',
+  },
+  {
     name: 'message_wait_uses_core_position',
     actual: () => messageWaitPosition(ENTRIES, 'a'),
     expected: 2,
@@ -123,9 +145,9 @@ const CASES: { name: string; actual: () => unknown; expected: unknown }[] = [
     expected: 'Plätze 3 von 4 (App)',
   },
   {
-    name: 'slots_over_limit_names_own_start',
+    name: 'slots_over_limit_names_no_reason',
     actual: () => slotsText(queue(4, 5)),
-    expected: 'Plätze 5 von 4 (App) · über der Grenze: dein Start',
+    expected: 'Plätze 5 von 4 (App) · über der Grenze',
   },
   {
     name: 'slots_unlimited',
