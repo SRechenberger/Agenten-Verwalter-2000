@@ -4087,11 +4087,11 @@ fn update<R>(
         // ausgeschalteter Zeitgeber gibt einen Platz frei (ADR 068).
         outbox.slots_changed |= held_slot != state.holds_slot_at(now_ms());
         // Zugende ohne Statuswechsel: Ein wartendes Skript oder ein Subagent einer abgegebenen Station
-        // endet (Prozess beendet), der Status bleibt `Completed`. Auch das ist ein Zugende (ADR 069).
-        if held_slot
-            && state.station_of.is_some()
-            && outbox.station_idle.is_none()
-            && crate::implementation::master::turn_ended(
+        // endet mit dem Prozess, der Status bleibt `Completed`. Auch das weckt den Master (ADR 069).
+        if outbox.station_idle.is_none()
+            && crate::implementation::master::turn_just_ended(
+                held_slot,
+                state.station_of.is_some(),
                 state.status,
                 state.awaits_background() || state.continues_by_itself,
             )

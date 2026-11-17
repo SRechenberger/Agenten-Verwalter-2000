@@ -42,6 +42,24 @@ pub fn turn_ended(status: SessionStatus, background_pending: bool) -> bool {
     }
 }
 
+/// Ist der Zug einer Station gerade zu Ende gegangen, ohne dass der Status wechselte? Sie hielt vorher einen
+/// Platz (Zug oder Warten auf Skript oder Subagent) und ist jetzt beendet: Der Hintergrund einer
+/// abgegebenen Station endete mit ihrem Prozess, der Status blieb `Completed`.
+pub fn turn_just_ended(
+    held_slot: bool,
+    is_station: bool,
+    status: SessionStatus,
+    background_pending: bool,
+) -> bool {
+    held_slot && is_station && turn_ended(status, background_pending)
+}
+
+/// Arbeitet die Session einer gemeldeten Station noch? Eine Pause zählt nicht: Sie sperrt das Löschen nicht
+/// und wird beim Abbrechen nicht gestoppt, wie bei einer Station ohne Meldung.
+pub fn turn_in_progress(status: SessionStatus, background_pending: bool) -> bool {
+    status != SessionStatus::Paused && !turn_ended(status, background_pending)
+}
+
 /// Wie viele Rückgaben dem Master noch bleiben, nie negativ.
 pub fn returns_left(returns: u32) -> u32 {
     MAX_RETURNS.saturating_sub(returns)
@@ -181,6 +199,38 @@ mod tests {
         assert!(!turn_ended(SessionStatus::Paused, false));
         assert!(!turn_ended(SessionStatus::Running, false));
         assert!(!turn_ended(SessionStatus::Waiting, false));
+    }
+
+    #[test]
+    fn a_turn_ends_without_a_status_change_when_the_background_stops_under_completed() {
+        assert!(turn_just_ended(true, true, SessionStatus::Completed, false));
+        assert!(
+            !turn_just_ended(true, true, SessionStatus::Completed, true),
+            "das Skript läuft noch"
+        );
+        assert!(!turn_just_ended(
+            false,
+            true,
+            SessionStatus::Completed,
+            false
+        ));
+        assert!(
+            !turn_just_ended(true, false, SessionStatus::Completed, false),
+            "keine Station"
+        );
+        assert!(
+            !turn_just_ended(true, true, SessionStatus::Paused, false),
+            "eine Pause beendet den Zug nicht"
+        );
+    }
+
+    #[test]
+    fn a_paused_reported_station_is_not_busy_but_a_running_or_waiting_one_is() {
+        assert!(!turn_in_progress(SessionStatus::Paused, false));
+        assert!(turn_in_progress(SessionStatus::Running, false));
+        assert!(turn_in_progress(SessionStatus::Completed, true));
+        assert!(!turn_in_progress(SessionStatus::Completed, false));
+        assert!(!turn_in_progress(SessionStatus::Error, false));
     }
 
     #[test]

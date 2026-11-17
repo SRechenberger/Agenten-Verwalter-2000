@@ -2064,5 +2064,18 @@ fn wakes(database: &Database) -> Result<bool, String> {
             && master::is_master_missing(Some(SessionStatus::Error))
             && master::is_master_missing(None),
     );
+    // App-Start: Der Durchgang findet die gemeldete, nicht angenommene Station und weckt den Master.
+    let on_start = verwalter_lib::implementation::reported_sessions(std::slice::from_ref(&changed));
+    all &= check(
+        "Master wecken: nach dem App-Start weckt jede gemeldete, nicht angenommene Station",
+        on_start.len() == 1
+            && on_start[0].0 == changed.id
+            && verwalter_lib::implementation::master::turn_just_ended(
+                true,
+                true,
+                SessionStatus::Completed,
+                false,
+            ),
+    );
     Ok(all)
 }

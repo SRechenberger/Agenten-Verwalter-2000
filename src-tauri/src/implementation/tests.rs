@@ -6320,16 +6320,25 @@ fn the_start_pass_finds_only_reported_stations_of_running_implementations() {
         fix_needed: false,
         reported_at: 1.0,
     });
+    let mut exhausted = reported.clone();
+    exhausted.state = StationState::WaitsForYou;
+    exhausted.returns = 3;
+    exhausted.returns_left = 0;
+    exhausted.session_id = Some("exhausted".to_owned());
     let mut accepted = reported.clone();
     accepted.completed_at = Some(2.0);
     accepted.session_id = Some("accepted".to_owned());
     let mut quiet = station("Still", ModelId::Opus, "skill");
     quiet.session_id = Some("quiet".to_owned());
-    let view = view_of(phase_with(vec![reported, accepted, quiet], 2));
+    let view = view_of(phase_with(vec![reported, exhausted, accepted, quiet], 3));
     let mut cancelled = view.clone();
     cancelled.cancelled_at = Some(1.0);
     assert_eq!(
         reported_sessions(&[view, cancelled]),
-        vec![("implementation".to_owned(), "reported".to_owned())]
+        vec![
+            ("implementation".to_owned(), "reported".to_owned()),
+            ("implementation".to_owned(), "exhausted".to_owned()),
+        ],
+        "gemeldet und gemeldet ohne Rückgaben zählen, angenommen, ohne Meldung und abgebrochen nicht"
     );
 }

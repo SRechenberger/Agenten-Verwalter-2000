@@ -452,6 +452,16 @@ impl SessionRegistry {
             .is_none_or(|turn: StationTurn| turn.has_ended)
     }
 
+    /// Arbeitet die Session noch (`master::turn_in_progress`)? `None` für eine unbekannte.
+    fn station_busy(&self, session_id: &str) -> Option<bool> {
+        let session = self.get(session_id).ok()?;
+        let state = session.lock();
+        Some(master::turn_in_progress(
+            state.status,
+            state.awaits_background() || state.continues_by_itself,
+        ))
+    }
+
     /// Der Zug der Session einer Station, kurz unter ihrer Sperre; `None` für eine unbekannte.
     pub fn station_turn(&self, session_id: &str) -> Option<StationTurn> {
         let session = self.get(session_id).ok()?;
@@ -1030,11 +1040,8 @@ impl SessionRegistry {
                     && station
                         .session_id
                         .as_deref()
-                        .and_then(|session_id: &str| self.station_turn(session_id))
-                        // Eine Pause ist kein Zug in Arbeit, wie bei einer ungemeldeten Station.
-                        .is_some_and(|turn: StationTurn| {
-                            !turn.has_ended && turn.status != SessionStatus::Paused
-                        })
+                        .and_then(|session_id: &str| self.station_busy(session_id))
+                        .unwrap_or(false)
             })
     }
 
