@@ -337,6 +337,16 @@ pub fn complete_station_with_handoff(
     let changes = handoff_changes(&rows, station_id, &followups, handoff, now_ms())
         .map_err(CommandError::Implementation)?;
     registry.store_station_completion(station_id, result.trim(), &followups)?;
+    // Eine fertig gemeldete Station setzt nicht fort (ADR 064): ihr Zeitgeber endet mit der Meldung.
+    if let Some(station) = view
+        .phases
+        .iter()
+        .flat_map(|phase: &PhaseView| phase.stations.iter())
+        .find(|station: &&StationView| station.id == station_id)
+        && let Err(error) = switch_timer(app, station, false)
+    {
+        eprintln!("Zeitgeber der fertigen Station {station_id} nicht ausgeschaltet: {error}");
+    }
     let mut handed: Vec<(String, BriefChangeKind)> = Vec::new();
     for (target_id, plan_id, change) in changes {
         let kind = change.kind;

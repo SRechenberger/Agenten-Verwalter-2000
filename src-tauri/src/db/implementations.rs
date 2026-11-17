@@ -1109,6 +1109,21 @@ pub fn station_of_session(
     Ok(found)
 }
 
+/// `true`, wenn die Station der Session fertig gemeldet ist; eine Session ohne Station ist es nicht.
+pub fn session_station_is_completed(
+    connection: &Connection,
+    session_id: &str,
+) -> Result<bool, CommandError> {
+    let completed_at: Option<Option<f64>> = connection
+        .query_row(
+            "SELECT completed_at FROM implementation_stations WHERE session_id = ?1",
+            params![session_id],
+            |row: &Row<'_>| row.get(0),
+        )
+        .optional()?;
+    Ok(completed_at.flatten().is_some())
+}
+
 /// Alle Sessions, die Stationen sind, als (Session, Umsetzung) — für den App-Start.
 pub fn station_sessions(connection: &Connection) -> Result<Vec<(String, String)>, CommandError> {
     let mut statement = connection.prepare(
