@@ -58,14 +58,14 @@ use crate::db::{
 use crate::error::CommandError;
 use crate::filesystem::workspace::{home_dir, new_session_workspace, stored_session_workspace};
 use crate::git::model::GitBusySession;
-use crate::implementation::Countdowns;
 use crate::implementation::plan::{
     self, GuardStep, PLAN_REMINDER_TEXT, PlanGuard, advance_guard, plan_prompt,
 };
+use crate::implementation::{Countdowns, slots};
 use crate::mcp::model::{McpAction, McpActionError, McpAuthWait, McpChangedEvent, McpServer};
 use crate::mcp_access::{McpAccess, ProcessKind};
 use crate::notices::model::{Denial, Notice};
-use crate::projects::model::{ProjectCreated, ProjectGroup, ProjectSummary};
+use crate::projects::model::{ProjectCreated, ProjectGroup, ProjectPriority, ProjectSummary};
 use crate::prompt_cache::model::PromptCache;
 use crate::prompt_cache::{TTL_1H_MS, TTL_5M_MS};
 use crate::remote::RemoteControl;
@@ -95,6 +95,7 @@ mod commit_scan;
 mod implementation;
 mod mcp;
 mod overlaps;
+mod queue;
 mod remote;
 mod restore;
 mod retro;
@@ -107,6 +108,7 @@ mod terminal;
 mod tldr;
 
 use self::implementation::ReportUpdate;
+pub use self::queue::{AGENT_QUEUE_CHANGED_EVENT, schedule_pass};
 
 const SESSION_CHANGED_EVENT: &str = "session://changed";
 const PROJECT_CHANGED_EVENT: &str = "project://changed";
@@ -162,6 +164,8 @@ struct ProjectState {
     name_auto: bool,
     self_release: SelfRelease,
     group_id: Option<String>,
+    /// Stufe in der globalen Warteschlange (ADR 068).
+    priority: ProjectPriority,
     created_at: f64,
     tldr: Option<ProjectTldr>,
     tldr_at: Option<f64>,
@@ -181,6 +185,7 @@ impl ProjectState {
             name_auto: false,
             self_release: SelfRelease::OFF,
             group_id: None,
+            priority: ProjectPriority::Normal,
             created_at,
             tldr: None,
             tldr_at: None,
@@ -195,6 +200,7 @@ impl ProjectState {
     fn restored(row: &ProjectRow) -> Self {
         let mut state = ProjectState::new(row.name.clone(), row.created_at);
         state.name_auto = row.name_auto;
+        state.priority = row.priority;
         state.self_release = row.self_release;
         state.group_id = row.group_id.clone();
         state.tldr = row
@@ -279,6 +285,10 @@ struct SessionState {
     /// Der Status `Error` kam in diesem Lauf der App; nur im Speicher. „Bei Fehler“ einer Station startet
     /// nur dann neu, nach einem App-Neustart nicht (ADR 061).
     fresh_error: bool,
+    /// Ein Subagent oder Skript, auf den der Agent nach seiner Antwort wartete, ist fertig; der Agent
+    /// macht gleich von selbst weiter (`wake_if_idle`). Bis zum nächsten Status oder Prozessende hält
+    /// die Session so ihren Platz (ADR 068). Nur im Speicher.
+    continues_by_itself: bool,
     /// `tool_use`-IDs der Session-Werkzeuge, die `gate` schon gesehen hat. Nur im Speicher.
     seen_tool_uses: HashSet<String>,
     /// Marke von „Automatisch fortsetzen“: jedes Umlegen erhöht sie, der Zeitgeber vergleicht sie. Nur
@@ -473,9 +483,12 @@ struct Outbox {
     open_urls: Vec<String>,
     /// Jüngster Kontingent-Stand aus einer Antwort des Claude-Abos.
     rate_limit: Option<RateLimitInfo>,
-    /// Die Antwort endete als abgeschlossen; nach dem Freigeben der Sperre prüft die Warteschlange
-    /// der Session-Nachrichten, ob sie zustellt (ADR 052).
+    /// Die Antwort endete als abgeschlossen; nach dem Freigeben der Sperre läuft ein Durchgang der
+    /// globalen Warteschlange, der auch die Session-Nachrichten zustellt (ADR 052, 068).
     turn_completed: bool,
+    /// Die Session belegt nach `update` einen Platz oder gibt ihn frei (ADR 068, `holds_slot` vorher und
+    /// nachher): nach dem Freigeben der Sperre läuft ein Durchgang.
+    slots_changed: bool,
     /// Die Session einer Station ist nicht mehr aktiv (fertig, pausiert, Fehler, Abbruch): nach dem
     /// Freigeben der Sperre plant die Umsetzung ihre Warteschlange neu (ADR 061).
     station_idle: Option<String>,
@@ -663,6 +676,7 @@ impl SessionRegistry {
             name_auto: true,
             self_release: default_self_release,
             group_id,
+            priority: project.priority,
         };
         let saved = self.database.with(|connection| {
             project_rows::insert(connection, &project_row)?;
@@ -820,7 +834,7 @@ impl SessionRegistry {
 
     /// Unbekanntes Vorhaben → Fehler.
     pub fn project_summary(&self, project_id: &str) -> Result<ProjectSummary, CommandError> {
-        let (name, created_at, self_release, group_id) = {
+        let (name, created_at, self_release, group_id, priority) = {
             let projects = self.lock_projects();
             let project = projects
                 .get(project_id)
@@ -830,6 +844,7 @@ impl SessionRegistry {
                 project.created_at,
                 project.self_release,
                 project.group_id.clone(),
+                project.priority,
             )
         };
         Ok(ProjectSummary {
@@ -840,6 +855,7 @@ impl SessionRegistry {
             self_release,
             group_id,
             access: self.remote.with(|control| control.access(project_id)),
+            priority,
         })
     }
 
@@ -1038,6 +1054,31 @@ impl SessionRegistry {
         }
         let _ = app.emit(PROJECT_CHANGED_EVENT, self.project_summary(project_id)?);
         Ok(())
+    }
+
+    /// Stufe des Vorhabens in der globalen Warteschlange (ADR 068); unbekanntes oder archiviertes
+    /// Vorhaben → Fehler, ohne dass sich etwas ändert. Die neue Rangfolge gilt ab dem nächsten
+    /// Durchgang; einer läuft gleich, damit die Liste der Wartenden sie zeigt.
+    pub fn set_project_priority(
+        &self,
+        app: &AppHandle,
+        project_id: &str,
+        priority: ProjectPriority,
+    ) -> Result<ProjectSummary, CommandError> {
+        {
+            // Über das Schreiben gehalten wie in `set_project_group`.
+            let mut projects = self.lock_projects();
+            let project = projects
+                .get_mut(project_id)
+                .ok_or_else(|| project_not_found(project_id))?;
+            self.database
+                .with(|connection| project_rows::set_priority(connection, project_id, priority))?;
+            project.priority = priority;
+        }
+        let summary = self.project_summary(project_id)?;
+        let _ = app.emit(PROJECT_CHANGED_EVENT, &summary);
+        schedule_pass(app);
+        Ok(summary)
     }
 
     /// Immer die volle Liste: die Oberfläche ersetzt ihre Gruppen, statt Änderungen einzuarbeiten.
@@ -2411,6 +2452,7 @@ impl SessionState {
             auto_chain: 0,
             pause_reason: None,
             fresh_error: false,
+            continues_by_itself: false,
             seen_tool_uses: HashSet::new(),
             auto_resume_token: 0,
             seen_at: now,
@@ -2805,6 +2847,43 @@ impl SessionState {
         })
     }
 
+    /// Belegt einen Platz der globalen Warteschlange (ADR 068, Regel a; `slots::holds_slot`).
+    fn holds_slot(&self) -> bool {
+        slots::holds_slot(
+            self.status,
+            self.awaits_background() || self.continues_by_itself,
+            self.station_of.is_some() && self.waits_for_resume(),
+        )
+    }
+
+    /// Abgegeben, ein Subagent oder ein Skript läuft noch, nach dem der Agent von selbst weitermacht.
+    fn awaits_background(&self) -> bool {
+        self.is_awaiting_subagent() || self.awaited_script().is_some()
+    }
+
+    /// Pausiert am Kontingent mit scharfem Zeitgeber und bekannter Rücksetzzeit (ADR 051).
+    fn waits_for_resume(&self) -> bool {
+        self.status == SessionStatus::Paused
+            && matches!(
+                self.pause_reason,
+                Some(PauseReason::Quota {
+                    resets_at: Some(_),
+                    auto_resume: true,
+                })
+            )
+    }
+
+    /// Das Fortsetzen ist fällig und wartet auf einen Platz (ADR 068).
+    fn resume_is_due(&self, now: f64) -> bool {
+        match self.pause_reason {
+            Some(PauseReason::Quota {
+                resets_at: Some(resets_at),
+                auto_resume: true,
+            }) if self.status == SessionStatus::Paused => auto_resume::is_due(resets_at, now),
+            _ => false,
+        }
+    }
+
     /// Abgeschlossen, ohne offene Rückfrage, ohne laufenden Subagent oder Skript: Eine neue Eingabe
     /// unterbricht nichts und beantwortet nichts.
     fn rests(&self) -> bool {
@@ -2897,6 +2976,8 @@ impl SessionState {
     }
 
     fn set_status(&mut self, outbox: &mut Outbox, status: SessionStatus) {
+        // Auch ohne Wechsel: Ein Zugende nach dem Hintergrund-Eintrag beendet das Weitermachen.
+        self.continues_by_itself = false;
         if self.status == status {
             return;
         }
@@ -3533,6 +3614,7 @@ impl SessionState {
         else {
             return;
         };
+        let awaited = self.awaits_background();
         let item = &mut self.background[index];
         item.state = match end {
             TaskEnd::Completed => BackgroundState::Completed,
@@ -3558,6 +3640,8 @@ impl SessionState {
             }
             BackgroundKind::Command => {}
         }
+        // Sonst gäbe der Durchgang den Platz frei, bevor der Agent aufwacht (ADR 068).
+        self.continues_by_itself |= awaited && !self.awaits_background() && self.process.is_some();
         self.touch_background(outbox, index);
     }
 
@@ -3853,6 +3937,7 @@ impl SessionState {
 
     fn process_exited(&mut self, outbox: &mut Outbox, exit_code: Option<i32>) {
         self.process = None;
+        self.continues_by_itself = false;
         self.forget_mcp(outbox);
         // Vor der frühen Rückkehr: auch nach einem Fehler vom Agenten stünden laufende Einträge
         // sonst bis zum nächsten App-Start auf „läuft“.
@@ -3979,7 +4064,11 @@ fn update<R>(
     let mut outbox = Outbox::default();
     let result = {
         let mut state = session.lock_loaded()?;
+        let held_slot = state.holds_slot();
         let result = change(&mut state, &mut outbox);
+        // Vorher und nachher, nicht je Statuswechsel: Auch ein endender Subagent oder ein
+        // ausgeschalteter Zeitgeber gibt einen Platz frei (ADR 068).
+        outbox.slots_changed |= held_slot != state.holds_slot();
         // Auch bei einem Fehler: die Closure kann den Zustand schon verändert haben.
         persist(session, &mut state, &outbox);
         if outbox.summary_dirty {
@@ -3998,9 +4087,13 @@ fn update<R>(
     if !windows.is_empty() {
         commit_scan::schedule(Arc::clone(session), windows);
     }
-    // Die Session-Sperre ist hier frei: Der Thread der Warteschlange nimmt seine Sperren selbst.
-    if outbox.turn_completed {
-        session_tools::schedule_inbox_delivery(app, session);
+    // Die Session-Sperre ist hier frei: Der Durchgang nimmt seine Sperren selbst. Die Haken einer
+    // Station lassen ihn selbst laufen.
+    if (outbox.turn_completed || outbox.slots_changed)
+        && outbox.station_idle.is_none()
+        && outbox.station_disarmed.is_none()
+    {
+        schedule_pass(app);
     }
     if let Some(implementation_id) = outbox.station_idle.take() {
         implementation::schedule_station_session_end(app, implementation_id, session.id.clone());
@@ -4526,6 +4619,7 @@ fn retire_idle_process(state: &mut SessionState, outbox: &mut Outbox) {
     state.generation += 1;
     outbox.retire(state);
     state.process = None;
+    state.continues_by_itself = false;
     state.forget_mcp(outbox);
     state.interrupt_background(outbox);
     // Ein losgelöstes Skript kann noch einen Kasten offen haben; danach darf nichts mehr zugestellt werden.

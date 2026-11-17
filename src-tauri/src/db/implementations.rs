@@ -26,8 +26,6 @@ pub struct ImplementationRow {
     pub stop_after_current: bool,
     /// `PendingChange` als JSON.
     pub pending_change: Option<String>,
-    /// Grenze gleichzeitig aktiver Stationen (ADR 061); `None` = unbegrenzt.
-    pub max_parallel: Option<u32>,
     /// „Automatisch fortsetzen“ nach aufgebrauchtem Kontingent (ADR 064).
     pub auto_resume: bool,
     /// Abgebrochen (ADR 066); dann ist auch `finished_at` gesetzt.
@@ -115,7 +113,7 @@ pub struct StoredImplementation {
 }
 
 const IMPLEMENTATION_COLUMNS: &str = "id, project_id, name, source, created_by_session_id, \
-     created_at, finished_at, auto_start, stop_after_current, pending_change, max_parallel, auto_resume, \
+     created_at, finished_at, auto_start, stop_after_current, pending_change, auto_resume, \
      cancelled_at, pending_cancel";
 const PHASE_COLUMNS: &str = "id, implementation_id, position, key, title, description, wave, mark";
 /// Die Reihenfolge muss mit `StoredStation::read` übereinstimmen.
@@ -135,7 +133,7 @@ pub fn insert(
     transaction.execute(
         &format!(
             "INSERT INTO implementations ({IMPLEMENTATION_COLUMNS}) \
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)"
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)"
         ),
         params![
             row.id,
@@ -148,7 +146,6 @@ pub fn insert(
             row.auto_start,
             row.stop_after_current,
             row.pending_change,
-            row.max_parallel,
             row.auto_resume,
             row.cancelled_at,
             row.pending_cancel,
@@ -369,10 +366,9 @@ fn read_implementation(row: &Row<'_>) -> rusqlite::Result<ImplementationRow> {
         auto_start: row.get(7)?,
         stop_after_current: row.get(8)?,
         pending_change: row.get(9)?,
-        max_parallel: row.get(10)?,
-        auto_resume: row.get(11)?,
-        cancelled_at: row.get(12)?,
-        pending_cancel: row.get(13)?,
+        auto_resume: row.get(10)?,
+        cancelled_at: row.get(11)?,
+        pending_cancel: row.get(12)?,
     })
 }
 
@@ -792,19 +788,6 @@ pub fn backfill_edges(connection: &Connection) -> Result<(), CommandError> {
     Ok(())
 }
 
-/// `None` = unbegrenzt (ADR 061).
-pub fn set_max_parallel(
-    connection: &Connection,
-    implementation_id: &str,
-    max_parallel: Option<u32>,
-) -> Result<(), CommandError> {
-    connection.execute(
-        "UPDATE implementations SET max_parallel = ?2 WHERE id = ?1",
-        params![implementation_id, max_parallel],
-    )?;
-    Ok(())
-}
-
 /// „Automatisch fortsetzen“ der Umsetzung (ADR 064): Die letzte Aktion gewinnt, also stehen alle nicht
 /// fertigen Stationen danach wieder auf „wie die Umsetzung“; ein Schritt.
 pub fn set_auto_resume(
@@ -989,7 +972,7 @@ pub fn replace_upcoming_phases(
 
 /// Wendet eine Plan-Änderung als Delta in einem Zug an (ADR 061, Werkzeuge): entfernt und ändert nur
 /// Stationen, die weder eine Session haben noch fertig sind, löscht danach leere Lanes, legt neue Lanes
-/// hinter die bestehenden und die neuen Stationen an und setzt `max_parallel`. Mit `change` (ein
+/// hinter die bestehenden und die neuen Stationen an. Mit `change` (ein
 /// übernommener Vorschlag) hält sie die Änderung fest und verwirft den Vorschlag. `false`: Eine Station
 /// hat inzwischen begonnen; nichts ist geschrieben.
 pub fn apply_plan_edit(
@@ -1054,9 +1037,6 @@ pub fn apply_plan_edit(
         })
         .collect();
     insert_phases(&transaction, &shifted, &edited.inserted)?;
-    if let Some(max_parallel) = edited.max_parallel {
-        set_max_parallel(&transaction, implementation_id, max_parallel)?;
-    }
     if let Some(change) = change {
         insert_change(&transaction, change)?;
         set_pending_change(&transaction, implementation_id, None)?;

@@ -11,9 +11,9 @@ use super::model::{
     Handoff, ImplementationChangedEvent, ImplementationView, MAX_BRIEF_CHARS,
     MAX_CANCEL_REASON_CHARS, MAX_DESCRIPTION_CHARS, MAX_NAME_CHARS, MAX_PLAN_ID_CHARS,
     MAX_PROMPT_CHARS, MAX_SOURCE_CHARS, MAX_TITLE_CHARS, PhaseInput, PlanEdit, StationAddition,
-    StationPatch, check_length, check_max_parallel, refuse_user_options, stations_in, validate,
+    StationPatch, check_length, refuse_max_parallel, refuse_user_options, stations_in, validate,
 };
-use super::{IMPLEMENTATION_CHANGED_EVENT, changes, edit};
+use super::{IMPLEMENTATION_CHANGED_EVENT, changes, edit, start};
 use crate::agent_types::model::AgentType;
 use crate::error::CommandError;
 use crate::mcp_access::ProcessKind;
@@ -62,7 +62,6 @@ impl ToolSet for ImplementationTools {
                         },
                         "phases": phases_schema(false),
                         "lanes": { "description": "Gleichwertiger Name für phases; nenne nur eines von beiden" },
-                        "max_parallel": { "type": "integer", "minimum": 1, "description": "Höchstens so viele Stationen laufen gleichzeitig; ohne das Feld unbegrenzt. Weitere bereite Stationen warten in einer Warteschlange und rücken selbst nach" },
                     },
                     "required": ["name"],
                     "additionalProperties": false,
@@ -71,7 +70,7 @@ impl ToolSet for ImplementationTools {
             ToolSpec {
                 name: GET,
                 description: "Liefert den Lagebericht der Umsetzung, zu der diese Session gehört \
-                              (sonst der neuesten des Vorhabens): Stand, Grenze und Warteschlange, \
+                              (sonst der neuesten des Vorhabens): Stand, Warteschlange (app-weit), \
                               Startstationen, was läuft, was fertig ist, was offen ist, und je \
                               Station ihre Lane, Stufe, Vorgänger und Nachfolger.",
                 input_schema: json!({
@@ -118,7 +117,7 @@ impl ToolSet for ImplementationTools {
                               danach auf deren Vorgänger), `change` ändert nicht gestartete Stationen \
                               (nur die genannten Felder; ein neuer `brief` verwirft Ergänzungen der \
                               Vorgänger), `add` hängt Stationen an eine bestehende Lane, `lanes` \
-                              legt neue Lanes an, `max_parallel` setzt die Grenze (0 = unbegrenzt). \
+                              legt neue Lanes an. \
                               Die Felder einer Station sind die von implementation_create, aber ohne \
                               `wave`; eine Station ohne `after` ist eine Startstation und startet \
                               sofort, auch neben der Station davor in ihrer Lane. Typ, Modell, Denkaufwand \
@@ -160,7 +159,6 @@ impl ToolSet for ImplementationTools {
                             },
                         },
                         "remove": { "type": "array", "items": { "type": "string" }, "description": "Kennungen der Stationen" },
-                        "max_parallel": { "type": "integer", "minimum": 0 },
                     },
                     "additionalProperties": false,
                 }),
@@ -315,8 +313,8 @@ const CREATE_DESCRIPTION: &str = "Legt nach der Freigabe eines Plans die Umsetzu
      Kanten: Eine Station hat eine Kennung `id` (ohne Angabe `<Lane-Schlüssel>-<Nummer>`, die Nummer \
      1-basiert in der Lane) und nennt in `after` die Kennungen der Stationen, auf die sie wartet; ohne \
      `after` ist sie eine Startstation und darf sofort und parallel zu anderen starten. Unter bereiten \
-     Stationen startet höhere `priority` zuerst. `max_parallel` begrenzt, wie viele gleichzeitig \
-     laufen. Nennt keine Station `after`, gilt das alte Schema: Stationen einer Lane nacheinander, \
+     Stationen startet höhere `priority` zuerst; wie viele Agenten gleichzeitig laufen, begrenzt der \
+     Benutzer app-weit. Nennt keine Station `after`, gilt das alte Schema: Stationen einer Lane nacheinander, \
      aufeinanderfolgende Lanes mit derselben `wave` gleichzeitig, sonst eine nach der anderen. Zyklen, \
      unbekannte Kennungen und Selbstverweise lehnt der Verwalter mit einem Satz ab, der die Stationen \
      nennt. Liefert den Lagebericht samt Startstationen.";
@@ -384,8 +382,9 @@ struct CreateArguments {
     source: Option<String>,
     #[serde(default, alias = "lanes")]
     phases: Vec<PhaseInput>,
+    // Gibt es nicht mehr (ADR 068); nur gelesen, um es mit einem Satz abzulehnen.
     #[serde(default)]
-    max_parallel: Option<u32>,
+    max_parallel: Option<Value>,
 }
 
 #[derive(Deserialize)]
@@ -406,8 +405,9 @@ struct EditArguments {
     change: Vec<StationPatch>,
     #[serde(default)]
     remove: Vec<String>,
+    // Wie bei `CreateArguments`.
     #[serde(default)]
-    max_parallel: Option<u32>,
+    max_parallel: Option<Value>,
 }
 
 fn set_phases(call: &ToolCall) -> Result<ToolResult, String> {
@@ -440,12 +440,12 @@ struct DescribeArguments {
 /// Vorschlag, den der Benutzer übernimmt; die drei Einstellungen nur des Benutzers gar nicht.
 fn edit_plan(call: &ToolCall) -> Result<ToolResult, String> {
     let arguments: EditArguments = parse(call.arguments)?;
+    refuse_max_parallel(arguments.max_parallel.as_ref())?;
     let edit = PlanEdit {
         lanes: arguments.lanes,
         add: arguments.add,
         change: arguments.change,
         remove: arguments.remove,
-        max_parallel: arguments.max_parallel,
     };
     refuse_user_options(&edit.new_stations())?;
     let text = edit::propose(call.app, call.session_id, &edit)?;
@@ -457,20 +457,14 @@ fn edit_plan(call: &ToolCall) -> Result<ToolResult, String> {
 
 fn create(call: &ToolCall, registry: &SessionRegistry) -> Result<ToolResult, String> {
     let arguments: CreateArguments = parse(call.arguments)?;
+    refuse_max_parallel(arguments.max_parallel.as_ref())?;
     check_length("name", arguments.name.trim(), 1, MAX_NAME_CHARS)?;
     let source = arguments.source.unwrap_or_default();
     check_length("source", source.trim(), 0, MAX_SOURCE_CHARS)?;
     validate(&arguments.phases)?;
     refuse_user_options(&stations_in("phases", &arguments.phases))?;
-    check_max_parallel(arguments.max_parallel)?;
     let view = registry
-        .create_implementation(
-            call.session_id,
-            &arguments.name,
-            &source,
-            &arguments.phases,
-            arguments.max_parallel,
-        )
+        .create_implementation(call.session_id, &arguments.name, &source, &arguments.phases)
         .map_err(|error| error.to_string())?;
     announce(call, &view);
     // Die erste Station steht bereit (▶): wann die Umsetzung beginnt, entscheidet der Benutzer. Die
@@ -613,6 +607,8 @@ fn cancel(call: &ToolCall, registry: &SessionRegistry) -> Result<ToolResult, Str
         MAX_CANCEL_REASON_CHARS,
     )?;
     let view = registry.request_cancel(call.session_id, &arguments.reason, arguments.delete)?;
+    // Die beendeten Countdowns geben ihre Plätze frei (ADR 068); die Anfrage hält die Umsetzung an.
+    start::refill(call.app);
     announce(call, &view);
     Ok(ToolResult::Ok {
         text: "Anfrage liegt beim Benutzer.".to_owned(),

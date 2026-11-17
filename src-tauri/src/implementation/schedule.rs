@@ -1,7 +1,7 @@
 //! Planung aus Kanten (ADR 061): Bereit ist eine Station, deren Vorgänger (`after`) alle fertig
 //! gemeldet sind; unter bereiten Stationen zuerst höherer Vorrang (`priority`), dann die
-//! Planreihenfolge. Dazu die Stufe (längste Kette), die Warteschlange hinter `max_parallel`, die
-//! Ableitung der Kanten aus Position und Welle (Regel R1) und die Prüfung eines Plans.
+//! Planreihenfolge. Dazu die Stufe (längste Kette), die Ableitung der Kanten aus Position und Welle
+//! (Regel R1) und die Prüfung eines Plans. Die Warteschlange ist global (`slots`, ADR 068).
 use std::cmp::Reverse;
 use std::collections::{HashMap, HashSet};
 
@@ -182,25 +182,6 @@ pub fn due_for_countdown(phases: &[PhaseView]) -> Vec<(&PhaseView, &StationView)
     // Stabil: Gleicher Vorrang behält die Planreihenfolge.
     due.sort_by_key(|(_, station): &(&PhaseView, &StationView)| Reverse(station.priority));
     due
-}
-
-/// Die Warteschlange (ADR 061): nur mit Grenze die bereiten Stationen mit Automatik, die über die
-/// freien Plätze hinaus warten, in der Reihenfolge, in der sie nachrücken (`id`).
-pub fn queue(phases: &[PhaseView], max_parallel: Option<u32>) -> Vec<String> {
-    let Some(limit) = max_parallel else {
-        return Vec::new();
-    };
-    let active = all_stations(phases)
-        .filter(|station: &&StationView| station.is_active())
-        .count();
-    let free = usize::try_from(limit)
-        .unwrap_or(usize::MAX)
-        .saturating_sub(active);
-    due_for_countdown(phases)
-        .into_iter()
-        .skip(free)
-        .map(|(_, station): (&PhaseView, &StationView)| station.id.clone())
-        .collect()
 }
 
 /// Ist die Station an der Reihe: nicht fertig gemeldet, und alle Vorgänger sind fertig gemeldet. Ein

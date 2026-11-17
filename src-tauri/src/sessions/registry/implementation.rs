@@ -28,7 +28,7 @@ use crate::implementation::changes as implementation_changes;
 use crate::implementation::edit::EditedPlan;
 use crate::implementation::model::{
     BriefChange, ImplementationView, InquiryCreated, PendingCancel, PendingChange, PhaseInput,
-    PhaseView, StationOptions, StationSettings, StationView, check_agents,
+    PhaseView, StationOptions, StationSettings, check_agents,
 };
 use crate::implementation::report::{self, Extras};
 use crate::implementation::wake::{self, WakeEvent, WakeFacts};
@@ -133,7 +133,6 @@ impl SessionRegistry {
         name: &str,
         source: &str,
         phases: &[PhaseInput],
-        max_parallel: Option<u32>,
     ) -> Result<ImplementationView, CommandError> {
         let project_id = self.get(session_id)?.project_id.clone();
         let default_auto_resume = settings::load(&self.database)?.default_auto_resume;
@@ -143,7 +142,6 @@ impl SessionRegistry {
             name,
             source,
             phases,
-            max_parallel,
             now_ms(),
             default_auto_resume,
         )
@@ -444,17 +442,6 @@ impl SessionRegistry {
         }
     }
 
-    /// Setzt `max_parallel` (ADR 061); `None` = unbegrenzt.
-    pub fn store_max_parallel(
-        &self,
-        implementation_id: &str,
-        max_parallel: Option<u32>,
-    ) -> Result<(), CommandError> {
-        self.database.with(|connection| {
-            implementation_rows::set_max_parallel(connection, implementation_id, max_parallel)
-        })
-    }
-
     /// Gibt der Umsetzung den Namen, den der Nutzer gewählt hat.
     pub fn rename_implementation(
         &self,
@@ -499,6 +486,8 @@ impl SessionRegistry {
                 );
             }
         }
+        // Die beendeten Countdowns geben ihre Plätze frei (ADR 068); die Umsetzung selbst wartet nicht.
+        self.run_pass(app);
         self.implementation_view(id)
     }
 
@@ -780,25 +769,6 @@ impl SessionRegistry {
         self.lock_countdowns().begin(station_id, ends_at)
     }
 
-    /// Zählt die aktiven Stationen und beginnt Countdowns bis zur Grenze unter der Sperre der
-    /// Countdowns (`Countdowns::begin_if_current`, ADR 061); `None`: Die Ansicht ist veraltet.
-    pub fn begin_countdowns(
-        &self,
-        seen: u64,
-        stations: &[&StationView],
-        candidates: &[&str],
-        max_parallel: Option<u32>,
-        ends_at: f64,
-    ) -> Option<Vec<(String, u64)>> {
-        self.lock_countdowns()
-            .begin_if_current(seen, stations, candidates, max_parallel, ends_at)
-    }
-
-    /// Vor der Ansicht lesen, die `begin_countdowns` bekommt.
-    pub fn start_releases(&self) -> u64 {
-        self.lock_countdowns().releases()
-    }
-
     /// Countdown-Ende und Startanspruch in einem Schritt (`Countdowns::take_for_start`).
     pub fn take_countdown_for_start(&self, station_id: &str, token: u64) -> bool {
         self.lock_countdowns().take_for_start(station_id, token)
@@ -824,15 +794,16 @@ impl SessionRegistry {
         }
     }
 
-    /// „Abbrechen“ von außen: Eine Station einer fremden Umsetzung läuft weiter. Gibt die Umsetzung
-    /// nach dem Abbruch zurück.
+    /// „Abbrechen“ von außen: Eine Station einer fremden Umsetzung läuft weiter. Die Station bleibt
+    /// bereit, wartet aber erst nach einem Ereignis ihrer Umsetzung wieder (`Countdowns::hold`). Gibt
+    /// die Umsetzung nach dem Abbruch zurück.
     pub fn cancel_countdown_of(
         &self,
         implementation_id: &str,
         station_id: &str,
     ) -> Result<ImplementationView, CommandError> {
         station_in(&self.implementation_view(implementation_id)?, station_id)?;
-        let _ = self.cancel_countdown(station_id);
+        let _ = self.lock_countdowns().hold(implementation_id, station_id);
         self.implementation_view(implementation_id)
     }
 
@@ -909,7 +880,7 @@ impl SessionRegistry {
         }
     }
 
-    fn lock_countdowns(&self) -> MutexGuard<'_, Countdowns> {
+    pub(super) fn lock_countdowns(&self) -> MutexGuard<'_, Countdowns> {
         self.implementation_countdowns
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
@@ -1033,7 +1004,9 @@ impl SessionRegistry {
             })
             .map(|member: &Arc<Session>| (member.id.clone(), live_of(member, now)))
             .collect();
-        build_view(stored, &live, &numbers, &countdowns, types)
+        let mut view = build_view(stored, &live, &numbers, &countdowns, types);
+        self.apply_agent_queue(&mut view);
+        view
     }
 }
 

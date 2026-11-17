@@ -144,19 +144,20 @@ pub struct StationView {
 }
 
 impl StationView {
-    /// Zählt gegen `max_parallel` (ADR 061); eine Station, die nach einem Fehler neu startet, behält
-    /// ihren Platz, eine, die auf das Kontingent wartet, auch (ADR 064).
+    /// Belegt einen Platz der globalen Warteschlange (ADR 068, Regel a): Countdown, Start, ein Agent
+    /// mit Zug, das Warten auf ein Skript und eine Station, die auf das Kontingent wartet (ADR 064).
+    /// Eine Rückfrage und ein Fehler (auch vor dem Neustart nach „Bei Fehler“) belegen keinen.
+    /// Gezählt wird nach `slots::holds_slot` und im Tor; außerhalb der Tests ruft `is_active` niemand
+    /// mehr auf, beide Fassungen müssen deshalb von Hand gleich bleiben.
     pub fn is_active(&self) -> bool {
-        self.restarting
-            || matches!(
-                self.state,
-                StationState::Countdown
-                    | StationState::Starting
-                    | StationState::Running
-                    | StationState::WaitsForScript
-                    | StationState::WaitsForQuota
-                    | StationState::Asking
-            )
+        matches!(
+            self.state,
+            StationState::Countdown
+                | StationState::Starting
+                | StationState::Running
+                | StationState::WaitsForScript
+                | StationState::WaitsForQuota
+        )
     }
 
     /// Der Auftrag samt Änderungen durch Vorgänger, wie die erste Nachricht ihn sendet.
@@ -264,10 +265,6 @@ pub struct ChangeSummary {
     // `added` und `removed` nennen dort neue Lanes und Plan-Kennungen.
     #[serde(default)]
     pub changed: Vec<String>,
-    // Neue Grenze aus dem Delta, 0 = unbegrenzt; fehlt, wenn das Delta sie nicht ändert.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub max_parallel: Option<u32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
@@ -303,8 +300,7 @@ pub struct PendingChange {
 // Eine Plan-Änderung als Delta (ADR 061, Werkzeuge): `implementation_edit` schlägt sie vor, der Befehl
 // `implementation_edit_plan` wendet sie für den Benutzer direkt an. Reihenfolge: entfernen (die
 // Nachfolger erben die Vorgänger), ändern, Stationen an bestehende Lanes hängen, neue Lanes hinter die
-// bestehenden, dann `max_parallel` (0 = unbegrenzt). Eine Station ohne `after` ist eine Startstation;
-// Position und Welle gelten hier nicht.
+// bestehenden. Eine Station ohne `after` ist eine Startstation; Position und Welle gelten hier nicht.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct PlanEdit {
@@ -316,9 +312,6 @@ pub struct PlanEdit {
     pub change: Vec<StationPatch>,
     #[serde(default)]
     pub remove: Vec<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub max_parallel: Option<u32>,
 }
 
 impl PlanEdit {
@@ -327,7 +320,6 @@ impl PlanEdit {
             && self.add.is_empty()
             && self.change.is_empty()
             && self.remove.is_empty()
-            && self.max_parallel.is_none()
     }
 
     /// Alle Stationen, die das Delta neu anlegt, mit dem Feld, unter dem sie stehen.
@@ -423,9 +415,7 @@ pub struct ImplementationView {
     #[ts(type = "number")]
     pub last_activity_at: f64,
     pub unread: bool,
-    // ADR 061: Grenze gleichzeitig aktiver Stationen (`None` = unbegrenzt) und Zahl der Stationen in
-    // der Warteschlange.
-    pub max_parallel: Option<u32>,
+    // Zahl der Stationen dieser Umsetzung in der globalen Warteschlange (ADR 068).
     pub queued: u32,
     // ADR 064: „Automatisch fortsetzen“ nach aufgebrauchtem Kontingent.
     pub auto_resume: bool,
@@ -717,12 +707,17 @@ pub fn validate_station(field: &str, station: &StationInput) -> Result<(), Strin
     Ok(())
 }
 
-/// `max_parallel` einer Umsetzung (ADR 061): mindestens 1, `None` = unbegrenzt.
-pub fn check_max_parallel(max_parallel: Option<u32>) -> Result<(), String> {
-    if max_parallel == Some(0) {
-        return Err("max_parallel: mindestens 1".to_owned());
+/// Satz für einen Planer, der noch `max_parallel` übergibt (ADR 068): Statt es still zu übergehen,
+/// nennt der Verwalter die Einstellung, die jetzt gilt.
+pub const MAX_PARALLEL_GONE: &str = "`max_parallel` gibt es nicht mehr: Die Grenze gilt app-weit \
+     (Einstellung „Gleichzeitige Agenten max.“).";
+
+/// Lehnt ein übergebenes `max_parallel` mit `MAX_PARALLEL_GONE` ab.
+pub fn refuse_max_parallel(value: Option<&serde_json::Value>) -> Result<(), String> {
+    match value {
+        Some(_) => Err(MAX_PARALLEL_GONE.to_owned()),
+        None => Ok(()),
     }
-    Ok(())
 }
 
 /// Prüft das Feld `agent` jeder Station gegen die Typen (ADR 060); wie die Auflösung getrimmt und

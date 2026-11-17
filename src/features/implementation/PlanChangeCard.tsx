@@ -12,8 +12,6 @@ import {
   EFFORT_LABEL,
   keysText,
   MAX_BRIEF_CHARS,
-  MAX_PARALLEL_CHANGE_LABEL,
-  MAX_PARALLEL_UNLIMITED,
   MODEL_LABEL,
   NO_TYPE_LABEL,
   OPEN_CHAT_LABEL,
@@ -468,14 +466,6 @@ export function PlanChangeCard({
         <dd>{keysText(summary.moved)}</dd>
         <dt>Entfallen</dt>
         <dd>{keysText(summary.removed)}</dd>
-        {summary.maxParallel !== undefined && (
-          <>
-            <dt>{MAX_PARALLEL_CHANGE_LABEL}</dt>
-            <dd>
-              {summary.maxParallel === 0 ? MAX_PARALLEL_UNLIMITED : String(summary.maxParallel)}
-            </dd>
-          </>
-        )}
       </dl>
       <p className="station-card__state">
         Stationen {String(stationsBefore)} → {String(stationsAfter)}

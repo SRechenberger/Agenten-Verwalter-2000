@@ -3,7 +3,7 @@ use std::sync::Arc;
 use crate::agents::event::{Effort, Mode, ModelId};
 use crate::db::Database;
 use crate::error::CommandError;
-use crate::projects::model::{ProjectCreated, ProjectGroup, ProjectSummary};
+use crate::projects::model::{ProjectCreated, ProjectGroup, ProjectPriority, ProjectSummary};
 use crate::remote::client::RemoteClients;
 use crate::remote::guest;
 use crate::session_tools::model::SelfRelease;
@@ -72,6 +72,17 @@ pub async fn project_set_self_release(
     value: SelfRelease,
 ) -> Result<ProjectSummary, CommandError> {
     registry.set_project_self_release(&app, &project_id, value)
+}
+
+/// Stufe des Vorhabens in der globalen Warteschlange (ADR 068).
+#[tauri::command]
+pub async fn project_set_priority(
+    app: tauri::AppHandle,
+    registry: tauri::State<'_, SessionRegistry>,
+    project_id: String,
+    value: ProjectPriority,
+) -> Result<ProjectSummary, CommandError> {
+    registry.set_project_priority(&app, &project_id, value)
 }
 
 #[tauri::command]

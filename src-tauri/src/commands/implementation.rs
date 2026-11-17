@@ -5,11 +5,12 @@ use tauri::AppHandle;
 use crate::error::CommandError;
 use crate::implementation::model::{
     ImplementationView, InquiryCreated, PhaseView, PlanEdit, StationOptions, StationSettings,
-    StationView, check_max_parallel,
+    StationView,
 };
+use crate::implementation::slots::AgentQueue;
 use crate::implementation::{
-    self, ALREADY_FINISHED, announce, announce_removed, changes, edit, has_begun, is_automatic,
-    now_ms, refills_after_switch_off, replans_after_plan_change, start,
+    self, ALREADY_FINISHED, announce, announce_removed, changes, edit, now_ms,
+    refills_after_switch_off, replans_after_plan_change, start,
 };
 use crate::remote::client::RemoteClients;
 use crate::remote::guest;
@@ -62,8 +63,8 @@ pub async fn implementation_rename(
 }
 
 /// Schaltet „Automatisch weiter“. Aus: laufende Countdowns enden, außer an Stationen, deren
-/// „Automatisch starten“ an ist; deren Warteschlange rückt in die frei gewordenen Plätze (ADR 061).
-/// An: Stationen, die starten dürfen, bekommen einen Countdown.
+/// „Automatisch starten“ an ist; in die frei gewordenen Plätze rückt die globale Warteschlange
+/// (ADR 061, 068). An: Stationen, die starten dürfen, warten auf einen Platz.
 #[tauri::command]
 pub async fn implementation_set_auto_start(
     app: AppHandle,
@@ -87,34 +88,21 @@ pub async fn implementation_set_auto_start(
         }
         if refills_after_switch_off(&registry.implementation_view(&id)?) {
             start::schedule_ready(&app, &id)?;
+        } else {
+            start::refill(&app);
         }
     }
     announce(&app, &registry.implementation_view(&id)?);
     Ok(())
 }
 
-/// „Parallel max.“ (ADR 061): Grenze gleichzeitig aktiver Stationen, `None` = unbegrenzt. Plant die
-/// Warteschlange neu, sobald die Umsetzung begonnen hat und die Automatik an ist.
+/// Die globale Warteschlange (ADR 068): Grenze, belegte Plätze und die Wartenden in der Reihenfolge,
+/// in der sie nachrücken. Änderungen meldet das Ereignis `agent_queue://changed`.
 #[tauri::command]
-pub async fn implementation_set_max_parallel(
-    app: AppHandle,
+pub async fn agent_queue(
     registry: tauri::State<'_, SessionRegistry>,
-    id: String,
-    max_parallel: Option<u32>,
-) -> Result<(), CommandError> {
-    check_max_parallel(max_parallel).map_err(CommandError::Implementation)?;
-    registry.implementation_view(&id)?;
-    registry.store_max_parallel(&id, max_parallel)?;
-    let view = registry.implementation_view(&id)?;
-    if has_begun(&view)
-        && is_automatic(&view)
-        && !view.stop_after_current
-        && view.finished_at.is_none()
-    {
-        start::schedule_ready(&app, &id)?;
-    }
-    announce(&app, &registry.implementation_view(&id)?);
-    Ok(())
+) -> Result<AgentQueue, CommandError> {
+    Ok(registry.agent_queue())
 }
 
 /// „Automatisch fortsetzen“ der Umsetzung nach aufgebrauchtem Kontingent (ADR 064): Die letzte Aktion
@@ -152,7 +140,7 @@ pub async fn implementation_set_stop_after_current(
     registry.store_implementation_flags(&id, view.auto_start, enabled, view.finished_at)?;
     if !enabled {
         // Ein Neustart nach Fehler, den der Halt aufhielt, hat sonst keinen Auslöser mehr.
-        start::restart_failed(&app, &id)?;
+        start::refill(&app);
     }
     announce(&app, &registry.implementation_view(&id)?);
     Ok(())
@@ -212,6 +200,8 @@ pub async fn implementation_cancel_countdown(
     station_id: String,
 ) -> Result<(), CommandError> {
     announce(&app, &registry.cancel_countdown_of(&id, &station_id)?);
+    // Der Countdown belegte einen Platz; der Durchgang lässt die gehaltene Station aus (ADR 068).
+    start::refill(&app);
     Ok(())
 }
 
@@ -293,9 +283,10 @@ pub async fn implementation_discard_cancel(
     id: String,
 ) -> Result<(), CommandError> {
     let view = registry.discard_cancel(&id)?;
-    start::restart_failed(&app, &id)?;
     if replans_after_plan_change(&view) {
         start::schedule_ready(&app, &id)?;
+    } else {
+        start::refill(&app);
     }
     announce(&app, &registry.implementation_view(&id)?);
     Ok(())

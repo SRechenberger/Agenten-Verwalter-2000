@@ -50,7 +50,9 @@ impl ToolSet for SessionTools {
             },
             ToolSpec {
                 name: GET_SESSIONS,
-                description: "Nennt ID und Titel der laufenden Sessions im selben Vorhaben, ohne die eigene.",
+                description: "Nennt ID und Titel der laufenden Sessions im selben Vorhaben, ohne die eigene. \
+                    Eine geöffnete Session, die noch auf einen freien Platz wartet, trägt waitsForSlot: true; \
+                    Nachrichten an sie warten (queued).",
                 input_schema: json!({ "type": "object", "properties": {} }),
             },
             ToolSpec {

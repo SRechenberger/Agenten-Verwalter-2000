@@ -3,4 +3,4 @@ import type { PhaseInput } from "./PhaseInput";
 import type { StationAddition } from "./StationAddition";
 import type { StationPatch } from "./StationPatch";
 
-export type PlanEdit = { lanes: Array<PhaseInput>, add: Array<StationAddition>, change: Array<StationPatch>, remove: Array<string>, maxParallel?: number, };
+export type PlanEdit = { lanes: Array<PhaseInput>, add: Array<StationAddition>, change: Array<StationPatch>, remove: Array<string>, };

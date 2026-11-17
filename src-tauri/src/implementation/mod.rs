@@ -5,6 +5,7 @@ pub mod model;
 pub mod plan;
 pub mod report;
 pub mod schedule;
+pub mod slots;
 pub mod start;
 pub mod tools;
 pub mod wake;
@@ -78,20 +79,36 @@ const STATION_OF_USER: &str = "Diese Station erledigst du selbst.";
 const AUTO_RESUME_FINISHED: &str =
     "Die Station ist fertig: „Automatisch fortsetzen“ ist nur lesbar.";
 
-/// Countdowns und Startsperren der Stationen; liegt in der `SessionRegistry` (eigene Sperre, nie
-/// zusammen mit einer anderen gehalten).
+/// Countdowns und Startsperren der Stationen, dazu das Tor der globalen Warteschlange (`slots`,
+/// ADR 068); liegt in der `SessionRegistry` (eigene Sperre, nie zusammen mit einer anderen gehalten).
 #[derive(Default)]
 pub struct Countdowns {
     next_token: u64,
     /// Station → (Marke, Ende in ms).
     running: HashMap<String, (u64, f64)>,
-    /// Stationen, deren Session gerade angelegt wird.
+    /// Stationen, deren Session gerade angelegt oder neu gestartet wird.
     starting: HashSet<String>,
-    /// Zahl der freigegebenen Starts: Ändert sie sich zwischen Ansicht und Zählen, ist die Ansicht
-    /// veraltet (`begin_if_current`).
+    /// Zahl der freigegebenen Ansprüche: Ändert sie sich zwischen dem Zählen der Sessions und dem
+    /// Beanspruchen, ist die Zählung veraltet (`slots::Countdowns::pass`).
     releases: u64,
     /// Ereignisse, die den Ersteller schon geweckt haben (`wake::decide`, ADR 061).
     pub(crate) woken: HashSet<String>,
+    // Ab hier das Tor (ADR 068).
+    /// Sessions, die gerade über das Tor starten (Zustellung, Fortsetzen, erste Nachricht).
+    claims: HashSet<String>,
+    /// Startende Station → ihre schon gebundene Session; die Session zählt dann nicht doppelt.
+    bound: HashMap<String, String>,
+    /// Umsetzungen, deren bereite Stationen in diesem Lauf der App warten dürfen.
+    armed: HashSet<String>,
+    /// Station → Umsetzung: Countdown per „Abbrechen“ angehalten; wartet erst nach dem nächsten
+    /// Ereignis ihrer Umsetzung (`arm`) wieder.
+    held: HashMap<String, String>,
+    /// Sessions, deren Start aus der Warteschlange scheiterte: Der nächste Durchgang überspringt sie.
+    skipped: HashSet<String>,
+    /// Seit wann ein Wartender wartet (Schlüssel wie `slots::Waiter::key`), in ms.
+    waiting_since: HashMap<String, f64>,
+    /// Die Warteschlange des letzten Durchgangs.
+    queue: slots::AgentQueue,
 }
 
 impl Countdowns {
@@ -140,72 +157,20 @@ impl Countdowns {
     }
 
     /// Wie `take`, und die Station gilt im selben Schritt als startend (`claim_start`): Dazwischen
-    /// zählte sie sonst nicht gegen `max_parallel` (ADR 061). `false`: Der Countdown galt nicht mehr
+    /// zählte sie sonst nicht als belegter Platz (ADR 068). `false`: Der Countdown galt nicht mehr
     /// oder die Station startet schon; dann ist nichts beansprucht.
     pub fn take_for_start(&mut self, station_id: &str, token: u64) -> bool {
         self.take(station_id, token) && self.claim_start(station_id)
     }
 
-    /// Zählen und Beginnen unter dieser einen Sperre (ADR 061): beginnt Countdowns für `candidates`
-    /// (bereit, in Startreihenfolge), bis `limit` Stationen aktiv sind; `None` = alle. `stations` sind
-    /// alle Stationen der Umsetzung aus der Ansicht: Eine mit Session zählt nach ihrem Zustand, eine
-    /// ohne nach den Countdowns und Starts hier, die die Ansicht vielleicht noch nicht kannte. Gibt
-    /// (Station, Marke) der begonnenen Countdowns zurück.
-    pub fn begin_within(
-        &mut self,
-        stations: &[&StationView],
-        candidates: &[&str],
-        limit: Option<u32>,
-        ends_at: f64,
-    ) -> Vec<(String, u64)> {
-        let is_pending_here =
-            |id: &str| self.running.contains_key(id) || self.starting.contains(id);
-        let active: usize = stations
-            .iter()
-            .filter(|station: &&&StationView| match station.session_id {
-                // Auch mit Session: Ein Neustart nach Fehler hält hier den Start (ADR 061).
-                Some(_) => station.is_active() || is_pending_here(&station.id),
-                None => is_pending_here(&station.id),
-            })
-            .count();
-        let free: usize = limit.map_or(usize::MAX, |limit: u32| {
-            usize::try_from(limit)
-                .unwrap_or(usize::MAX)
-                .saturating_sub(active)
-        });
-        let fresh: Vec<&str> = candidates
-            .iter()
-            .copied()
-            .filter(|id: &&str| !is_pending_here(id))
-            .take(free)
-            .collect();
-        fresh
-            .into_iter()
-            .map(|id: &str| (id.to_owned(), self.begin(id, ends_at)))
-            .collect()
-    }
-
     pub fn release_start(&mut self, station_id: &str) {
         self.starting.remove(station_id);
+        self.bound.remove(station_id);
         self.releases += 1;
     }
 
     pub fn releases(&self) -> u64 {
         self.releases
-    }
-
-    /// `begin_within`, aber nur, wenn seit `seen` (gelesen vor der Ansicht) kein Start freigegeben
-    /// wurde; sonst `None`, und der Aufrufer liest die Ansicht neu. Eine Station, deren Start nach
-    /// dem Lesen endet, zählte sonst weder nach der Ansicht (noch ohne Session) noch hier (ADR 061).
-    pub fn begin_if_current(
-        &mut self,
-        seen: u64,
-        stations: &[&StationView],
-        candidates: &[&str],
-        limit: Option<u32>,
-        ends_at: f64,
-    ) -> Option<Vec<(String, u64)>> {
-        (self.releases == seen).then(|| self.begin_within(stations, candidates, limit, ends_at))
     }
 }
 
@@ -223,7 +188,7 @@ pub struct CompleteOutcome {
     pub next: Vec<StationRef>,
     /// Nichts startet von selbst: Halt, Automatik aus oder eine Station des Benutzers ist dran.
     pub waits_for_user: bool,
-    /// Bereite Stationen, die auf einen freien Platz unter `max_parallel` warten (ADR 061).
+    /// Bereite Stationen, die in der globalen Warteschlange auf einen freien Platz warten (ADR 068).
     pub queued: u32,
     pub is_finished: bool,
     pub hint: Option<String>,
@@ -602,12 +567,11 @@ pub fn wake_creator_of_question(
     Ok(())
 }
 
-/// Neuer Haken (ADR 061): Die Session einer Station endet mit Fehler, Abbruch oder ohne
-/// Fertigmeldung. Erlaubt „Bei Fehler“ es, startet die Station zuerst neu und behält ihren Platz;
-/// sonst ist ihr Platz unter `max_parallel` frei, die Warteschlange rückt nach. Ohne Grenze und ohne
-/// „Bei Fehler“ ändert sich nichts gegenüber früher. Eine neue Kontingent-Pause schaltet zuerst den
-/// Zeitgeber von „Automatisch fortsetzen“ scharf (ADR 064): Erst danach plant die Warteschlange, sonst
-/// sähe sie „wartet auf dich“ und gäbe den Platz frei.
+/// Neuer Haken (ADR 061): Die Session einer Station endet mit Fehler, Abbruch, Rückfrage oder ohne
+/// Fertigmeldung. Ihr Platz ist frei (ADR 068), ein Durchgang läuft: Er startet sie nach „Bei Fehler“
+/// neu und lässt die globale Warteschlange nachrücken. Eine neue Kontingent-Pause schaltet zuerst den
+/// Zeitgeber von „Automatisch fortsetzen“ scharf (ADR 064): Erst danach läuft der Durchgang, sonst
+/// sähe er „wartet auf dich“ und gäbe den Platz frei.
 pub fn station_session_ended(
     app: &AppHandle,
     implementation_id: &str,
@@ -616,12 +580,13 @@ pub fn station_session_ended(
     if let Err(error) = arm_new_quota_pause(app, implementation_id, session_id) {
         eprintln!("Zeitgeber nach der Kontingent-Pause nicht scharf geschaltet: {error}");
     }
-    start::restart_failed(app, implementation_id)?;
     let view = app
         .state::<SessionRegistry>()
         .implementation_view(implementation_id)?;
     if resumes_queue(&view) {
         start::schedule_ready(app, implementation_id)?;
+    } else {
+        start::refill(app);
     }
     Ok(())
 }
@@ -651,14 +616,16 @@ fn arm_new_quota_pause(
 }
 
 /// Der Zeitgeber einer Station ging ohne neuen Status aus („Automatisch fortsetzen“ aus, Senden
-/// gescheitert, ADR 064): Ihr Platz unter `max_parallel` ist frei, die Warteschlange rückt nach. Ruft
-/// den Haken `station_session_ended` bewusst nicht, der schaltete sonst wieder scharf.
+/// gescheitert, ADR 064): Ihr Platz ist frei (ADR 068), die globale Warteschlange rückt nach. Ruft den
+/// Haken `station_session_ended` bewusst nicht, der schaltete sonst wieder scharf.
 pub fn station_disarmed(app: &AppHandle, implementation_id: &str) -> Result<(), CommandError> {
     let view = app
         .state::<SessionRegistry>()
         .implementation_view(implementation_id)?;
     if resumes_queue(&view) {
         start::schedule_ready(app, implementation_id)?;
+    } else {
+        start::refill(app);
     }
     Ok(())
 }
@@ -828,36 +795,36 @@ pub fn replan_after_failed_change(app: &AppHandle, implementation_id: &str) {
     else {
         return;
     };
-    if replans_after_plan_change(&view)
-        && let Err(error) = start::schedule_ready(app, implementation_id)
-    {
+    if !replans_after_plan_change(&view) {
+        // Die Plätze der beendeten Countdowns gehen trotzdem an die Warteschlange (ADR 068).
+        start::refill(app);
+    } else if let Err(error) = start::schedule_ready(app, implementation_id) {
         eprintln!("Warteschlange nach gescheiterter Änderung nicht neu geplant: {error}");
     }
 }
 
-/// Plant ein Ereignis außerhalb der Fertigmeldung die Warteschlange neu: nur mit Grenze und
-/// Automatik, ohne Halt, solange die Umsetzung läuft.
+/// Darf ein Ereignis außerhalb der Fertigmeldung die bereiten Stationen dieser Umsetzung in die globale
+/// Warteschlange nehmen (ADR 068): Automatik, ohne Halt, solange die Umsetzung läuft. Sonst rückt nur
+/// die Warteschlange der übrigen nach (`start::refill`).
 pub fn resumes_queue(view: &ImplementationView) -> bool {
-    view.max_parallel.is_some()
-        && is_automatic(view)
-        && !view.stop_after_current
-        && view.finished_at.is_none()
+    is_automatic(view) && !view.stop_after_current && view.finished_at.is_none()
 }
 
 /// Ein Schalter der Automatik geht aus (Umsetzung oder Station): Der beendete Countdown gibt seinen
-/// Platz frei, und eine Station mit eigenem „an“ aus der Warteschlange rückt nach (ADR 061).
+/// Platz frei, und eine Station mit eigenem „an“ rückt nach (ADR 061); ohne sie rückt nur die
+/// Warteschlange der übrigen Umsetzungen nach.
 pub fn refills_after_switch_off(view: &ImplementationView) -> bool {
     has_begun(view) && resumes_queue(view)
 }
 
-/// Ein Countdown endete in einem Startfehler: Der Platz ist frei, aber keine Session endet, also
-/// greift der Haken nicht, und die Warteschlange rückt hier nach (ADR 061). Nur nach gespeichertem
-/// Startfehler, denn den lässt `due_for_countdown` aus: Die Station wird nicht erneut versucht, eine
-/// Schleife entsteht nicht.
+/// Ein Countdown endete, ohne zu starten (Startfehler, Automatik aus, Halt): Der Platz ist frei, aber
+/// keine Session endet, also greift der Haken nicht, und die Warteschlange rückt hier nach (ADR 068).
+/// Nur wenn die Station dabei nicht mehr wartet (`due_for_countdown` lässt einen gespeicherten
+/// Startfehler aus): Sonst bekäme sie gleich wieder einen Countdown, eine Schleife.
 pub fn resumes_queue_after_start_error(view: &ImplementationView, station_id: &str) -> bool {
-    resumes_queue(view)
-        && find_station(view, station_id)
-            .is_some_and(|(_, station): (&PhaseView, &StationView)| station.start_error.is_some())
+    !schedule::due_for_countdown(&view.phases)
+        .iter()
+        .any(|(_, station): &(&PhaseView, &StationView)| station.id == station_id)
 }
 
 fn find_station<'a>(
@@ -970,8 +937,6 @@ pub fn set_station_options(
     if !registry.store_station_options(station_id, options)? {
         return Err(CommandError::Implementation(OPTIONS_BEGUN.to_owned()));
     }
-    // Wer nun neu startet, braucht den Auslöser, den sonst das Ende einer Session gäbe.
-    start::restart_failed(app, implementation_id)?;
     let view = registry.implementation_view(implementation_id)?;
     let (_, station) = station_in(&view, station_id)?;
     let reschedules = if station.starts_automatically {
@@ -985,6 +950,9 @@ pub fn set_station_options(
         start::schedule_ready(app, implementation_id)?;
         return Ok(());
     }
+    // Wer nun neu startet („Bei Fehler“) oder einen frei gewordenen Platz bekommt, braucht den
+    // Auslöser, den sonst das Ende einer Session gäbe.
+    start::refill(app);
     announce(app, &registry.implementation_view(implementation_id)?);
     Ok(())
 }
@@ -1344,7 +1312,7 @@ pub fn build_view(
     if row.cancelled_at.is_none() {
         settle_waiting(&mut phases, countdowns);
     }
-    let queued = link_view(&mut phases, row.max_parallel);
+    link_view(&mut phases);
     let all_stations: Vec<&StationView> = phases
         .iter()
         .flat_map(|phase: &PhaseView| phase.stations.iter())
@@ -1405,8 +1373,8 @@ pub fn build_view(
             .as_deref()
             .and_then(|json: &str| serde_json::from_str::<PendingChange>(json).ok()),
         phases,
-        max_parallel: row.max_parallel,
-        queued,
+        // Die Plätze in der globalen Warteschlange trägt die Registry ein (`slots::apply_queue`).
+        queued: 0,
         auto_resume: row.auto_resume,
         cancelled_at: row.cancelled_at,
         pending_cancel: row
@@ -1416,11 +1384,9 @@ pub fn build_view(
     }
 }
 
-/// Stufe, Nachfolger und Platz in der Warteschlange jeder Station (ADR 061); gibt die Länge der
-/// Warteschlange zurück.
-fn link_view(phases: &mut [PhaseView], max_parallel: Option<u32>) -> u32 {
+/// Stufe und Nachfolger jeder Station (ADR 061).
+fn link_view(phases: &mut [PhaseView]) {
     let levels = schedule::levels(phases);
-    let queue = schedule::queue(phases, max_parallel);
     let edges: Vec<(String, Vec<String>)> = phases
         .iter()
         .flat_map(|phase: &PhaseView| phase.stations.iter())
@@ -1436,12 +1402,7 @@ fn link_view(phases: &mut [PhaseView], max_parallel: Option<u32>) -> u32 {
             .filter(|(_, after): &&(String, Vec<String>)| after.contains(&station.plan_id))
             .map(|(id, _): &(String, Vec<String>)| id.clone())
             .collect();
-        station.queue_position = queue
-            .iter()
-            .position(|queued: &String| *queued == station.id)
-            .map(|index: usize| count(index + 1));
     }
-    count(queue.len())
 }
 
 fn station_view(
@@ -1632,7 +1593,6 @@ pub fn new_rows(
     name: &str,
     source: &str,
     inputs: &[PhaseInput],
-    max_parallel: Option<u32>,
     now_ms: f64,
     auto_resume: bool,
 ) -> Result<(ImplementationRow, Vec<PhaseRow>, Vec<StationRow>), String> {
@@ -1648,7 +1608,6 @@ pub fn new_rows(
         auto_start: true,
         stop_after_current: false,
         pending_change: None,
-        max_parallel,
         auto_resume,
         cancelled_at: None,
         pending_cancel: None,

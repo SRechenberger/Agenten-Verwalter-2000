@@ -20,8 +20,7 @@ use crate::db::implementations::{ChangeRow, PhaseRow, StationRow};
 use crate::error::CommandError;
 use crate::sessions::registry::SessionRegistry;
 
-const EMPTY_EDIT: &str =
-    "Die Änderung ist leer: nenne lanes, add, change, remove oder max_parallel.";
+const EMPTY_EDIT: &str = "Die Änderung ist leer: nenne lanes, add, change oder remove.";
 const IS_FINISHED: &str = "Die Umsetzung ist fertig; es gibt nichts mehr zu ändern.";
 pub const BEGUN_MEANWHILE: &str =
     "Eine Station hat inzwischen begonnen; die Änderung ist nicht übernommen.";
@@ -37,7 +36,6 @@ pub struct EditedPlan {
     pub updated: Vec<StationRow>,
     pub removed: Vec<String>,
     pub removed_phases: Vec<String>,
-    pub max_parallel: Option<Option<u32>>,
     pub summary: ChangeSummary,
 }
 
@@ -55,10 +53,7 @@ pub fn edited_plan(
         return Err(EMPTY_EDIT.to_owned());
     }
     let mut plan: Vec<StationRow> = rows.to_vec();
-    let mut summary = ChangeSummary {
-        max_parallel: edit.max_parallel,
-        ..ChangeSummary::default()
-    };
+    let mut summary = ChangeSummary::default();
     let mut touched: HashSet<String> = HashSet::new();
     let mut removed: Vec<String> = Vec::new();
     for (index, plan_id) in edit.remove.iter().enumerate() {
@@ -148,10 +143,6 @@ pub fn edited_plan(
         updated,
         removed,
         removed_phases,
-        // 0 hebt die Grenze auf.
-        max_parallel: edit
-            .max_parallel
-            .map(|limit: u32| (limit > 0).then_some(limit)),
         summary,
     })
 }
@@ -341,6 +332,9 @@ pub fn apply(
     announce(app, &fresh);
     if replans_after_plan_change(&fresh) {
         start::schedule_ready(app, &view.id)?;
+    } else {
+        // Beendete Countdowns geben ihre Plätze frei (ADR 068).
+        start::refill(app);
     }
     Ok(())
 }

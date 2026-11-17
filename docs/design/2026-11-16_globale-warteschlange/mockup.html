@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Entwurf: Globale Warteschlange mit Prioritäten (Story 103)</title>
+<style>
+:root{color-scheme:dark;--bg:#1f1f1f;--side:#181818;--surf:#252526;--hover:#2e2e30;--sel:#37373d;--bds:#2b2b2b;--bd:#3c3c3c;--fg:#d4d4d4;--fg2:#b0b0b0;--fgm:#8f8f8f;--acc:#e0825c;--onacc:#1d130e;--acct:#eea283;--run:#5b9dff;--wait:#f2b33d;--ok:#4cc38a;--accs:rgba(224,130,92,.14);--waits:rgba(242,179,61,.12);--font:'Segoe UI Variable Text','Segoe UI',system-ui,sans-serif}
+:root[data-theme=light]{color-scheme:light;--bg:#fff;--side:#f3f3f3;--surf:#f7f7f7;--hover:#ececec;--sel:#e6e8f0;--bds:#ebebeb;--bd:#d4d4d4;--fg:#3c3c3c;--fg2:#5f5f5f;--fgm:#85858a;--acc:#c4572f;--onacc:#fff;--acct:#b04a26;--run:#2563eb;--wait:#a86a00;--ok:#16803c;--accs:rgba(196,87,47,.10);--waits:rgba(168,106,0,.10)}
+@media(prefers-color-scheme:light){:root:not([data-theme=dark]){color-scheme:light;--bg:#fff;--side:#f3f3f3;--surf:#f7f7f7;--hover:#ececec;--sel:#e6e8f0;--bds:#ebebeb;--bd:#d4d4d4;--fg:#3c3c3c;--fg2:#5f5f5f;--fgm:#85858a;--acc:#c4572f;--onacc:#fff;--acct:#b04a26;--run:#2563eb;--wait:#a86a00;--ok:#16803c;--accs:rgba(196,87,47,.10);--waits:rgba(168,106,0,.10)}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--side);color:var(--fg);font:13px/1.45 var(--font)}
+main{max-width:1160px;margin:0 auto;padding:16px}
+.lead{margin:0 0 10px;color:var(--fg2)}
+button,input{font:inherit;color:inherit}
+button:focus-visible,input:focus-visible{outline:2px solid var(--acc);outline-offset:1px}
+#sim{display:flex;flex-wrap:wrap;gap:8px 18px;align-items:center;margin:0 0 12px;padding:8px 10px;border:1px dashed var(--bd);border-radius:6px}
+.g{display:flex;align-items:center;gap:8px}.g>span{color:var(--fgm);font-size:12px}
+.seg{display:inline-flex;border:1px solid var(--bd);border-radius:6px;overflow:hidden}
+.seg button{border:0;border-left:1px solid var(--bd);background:transparent;padding:3px 9px;font-size:12px;color:var(--fg2);cursor:pointer;white-space:nowrap}
+.seg button:first-child{border-left:0}
+.seg button[aria-pressed=true]{background:var(--sel);color:var(--fg)}
+.mini{border:1px solid var(--bd);border-radius:6px;background:transparent;padding:3px 9px;font-size:12px;cursor:pointer;color:var(--fg2)}
+.mini.dash{border-style:dashed}.mini:disabled{opacity:.45;cursor:default}
+.win{display:grid;grid-template-columns:230px minmax(0,1fr);background:var(--bg);border:1px solid var(--bd);border-radius:10px;overflow:hidden}
+@media(max-width:760px){.win{grid-template-columns:1fr}}
+.side{background:var(--side);border-right:1px solid var(--bds);display:flex;flex-direction:column;min-height:420px}
+.side h6{margin:0;padding:10px 12px 4px;font-size:11px;letter-spacing:.04em;text-transform:uppercase;color:var(--fgm);font-weight:600}
+.vrow{display:flex;align-items:center;gap:8px;height:32px;padding:0 12px;cursor:pointer;white-space:nowrap}
+.vrow:hover{background:var(--hover)}.vrow.sel{background:var(--sel)}
+.vrow .n{overflow:hidden;text-overflow:ellipsis;flex:1}
+.mk{font-size:11px;color:var(--acct)}.mk.low{color:var(--fgm)}
+.cnt{font-size:11px;color:var(--fgm)}
+.foot{margin-top:auto;border-top:1px solid var(--bds);padding:8px 12px;min-height:38px;display:flex;align-items:center}
+.qchip{border:1px solid var(--wait);color:var(--wait);background:var(--waits);border-radius:99px;padding:1px 10px;font-size:12px;cursor:pointer}
+.qchip[aria-expanded=true]{background:var(--wait);color:var(--bg)}
+.head{display:flex;align-items:center;gap:12px;padding:9px 14px;border-bottom:1px solid var(--bds);flex-wrap:wrap}
+.head h2{margin:0;font-size:13px;font-weight:600}
+.head .pr{margin-left:auto;display:flex;align-items:center;gap:8px;color:var(--fgm);font-size:12px}
+.bar{display:flex;flex-wrap:wrap;align-items:center;gap:6px 18px;padding:7px 14px;border-bottom:1px solid var(--bds);font-size:12px;color:var(--fg2)}
+.bar a{color:var(--acct);cursor:pointer;text-decoration:underline}
+.fill{display:inline-flex;gap:2px;vertical-align:middle;margin-right:6px}.fill i{width:10px;height:10px;border-radius:2px;border:1px solid var(--bd)}.fill i.on{background:var(--acc);border-color:var(--acc)}.fill i.over{background:var(--wait);border-color:var(--wait)}
+.row{display:grid;grid-template-columns:18px minmax(0,1fr) auto;gap:10px;align-items:center;min-height:36px;padding:0 14px;border-bottom:1px solid var(--bds)}
+.dot{width:16px;height:16px;border-radius:50%;display:grid;place-items:center;font-size:10px;border:1.5px solid currentColor}
+.t-run{color:var(--run)}.t-q{color:var(--acct)}.t-pend{color:var(--fgm)}.t-msg{color:var(--wait)}
+.meta{color:var(--fgm);font-size:12px}
+.state{font-size:12px;white-space:nowrap}
+.two{display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:12px;margin-top:12px}
+.panel{background:var(--bg);border:1px solid var(--bd);border-radius:10px;padding:12px 14px}
+.panel h4{margin:0 0 8px;font-size:13px}
+.srow{display:flex;gap:14px;align-items:flex-start;justify-content:space-between}
+.sl{font-weight:600}.sd{color:var(--fgm);font-size:12px;margin-top:2px}
+.num{width:64px;text-align:center;border:1px solid var(--bd);border-radius:6px;background:var(--surf);padding:3px 6px}
+table{width:100%;border-collapse:collapse;font-size:12px}
+th{text-align:left;color:var(--fgm);font-weight:400;padding:3px 6px;border-bottom:1px solid var(--bds)}
+td{padding:4px 6px;border-bottom:1px solid var(--bds)}
+td.r{color:var(--acct);font-weight:600}
+.cap{margin:10px 0 0;color:var(--fgm);font-size:12px}
+.how{margin-top:14px;color:var(--fg2)}.how summary{cursor:pointer;color:var(--fg)}.how li{margin:3px 0}
+.hide{display:none}
+</style>
+</head>
+<body>
+<main>
+<p class="lead"><b>Entwurf zu Taiga-Story 103.</b> Zeigt, was neu ist: die Einstellung „Gleichzeitige Agenten max.“, die Priorität am Vorhaben, die Marke „n warten“ mit der Liste der Warteschlange, die Zustände in Zeile und Sidebar und die Leiste ohne den Zähler „Parallel max.“. Alle Namen, Zeiten und Zahlen sind Beispieldaten; gestrichelt umrandete Knöpfe sind Simulation und gehören nicht zur App.</p>
+<div id="sim"></div>
+<div class="win" id="win"></div>
+<div class="two">
+  <div class="panel" id="queue"></div>
+  <div class="panel" id="settings"></div>
+</div>
+<details class="how" open>
+<summary>Was du hier prüfen kannst</summary>
+<ol>
+<li><b>Marke nur bei Warteschlange:</b> unten links in der Sidebar steht „n warten“ nur, solange etwas wartet; ein Klick zeigt die Liste unten links im Entwurf (in der App ein Popover). Frei: keine Marke, kein Platz auf dem Bildschirm.</li>
+<li><b>Priorität am Vorhaben:</b> drei Stufen im Kopf des Vorhabens. In der Sidebar nur eine kleine Marke ▲ (hoch) oder ▼ (niedrig), kein Knopf in der Zeile. Umlegen ordnet die Liste sofort neu: Stufe des Vorhabens, dann Priorität der Station, dann wer früher wartet.</li>
+<li><b>Eigene Nachrichten gehen vor:</b> „Du schreibst im Chat“ startet sofort, auch über der Grenze (gelbe Kästchen); die Warteschlange rückt dann erst nach, wenn wieder ein Platz unter der Grenze frei ist.</li>
+<li><b>Nachrücken:</b> „Ein Agent endet“ gibt einen Platz frei und der erste der Liste startet; die Leiste der Umsetzung nennt „Plätze n von m (App)“ statt des Zählers „Parallel max.“ und verweist in die Einstellungen.</li>
+<li><b>Grenze:</b> die Zeile „Gleichzeitige Agenten max.“ in der Kategorie „Agent“; leer = unbegrenzt. Eine höhere Zahl lässt sofort nachrücken, eine niedrigere beendet nichts.</li>
+<li><b>Nachricht wartet:</b> eine zugestellte Session-Nachricht ohne freien Platz bleibt im Posteingang und steht in der Liste als „Nachricht“; die Zeile der Session zeigt „Nachricht wartet“.</li>
+</ol>
+</details>
+</main>
+<script>
+(() => {
+  const $ = (s) => document.querySelector(s);
+  const P = { p1: 'Upstream selektiv', p2: 'Agententypen per MCP', p3: 'Chat-Zeitstempel' };
+  const LV = { high: 2, normal: 1, low: 0 };
+  const LVT = { high: 'hoch', normal: 'normal', low: 'niedrig' };
+  const S = { limit: 4, sel: 'p1', prio: { p1: 'normal', p2: 'normal', p3: 'low' }, run: [], wait: [], seq: 0, theme: 'system' };
+  const run = (t, p, user = false) => ({ t, p, user });
+  const wt = (kind, t, p, sp = 0) => ({ kind, t, p, sp, since: ++S.seq });
+  const SC = {
+    frei: { n: 'Frei', f() { S.limit = 4; S.run = [run('Lane 4 · Umsetzung', 'p1'), run('Chat: Architekt', 'p2', true)]; S.wait = []; } },
+    voll: { n: 'Voll · es wartet etwas', f() { S.limit = 4; S.run = [run('Lane 4 · Umsetzung', 'p1'), run('Lane 3 · Umsetzung', 'p1'), run('Lane 1 · Review', 'p2'), run('Chat: Architekt', 'p2', true)];
+      S.wait = [wt('station', 'Lane 1 · Umsetzung', 'p1'), wt('station', 'Lane 2 · Umsetzung', 'p1'), wt('station', 'Lane 3 · Umsetzung', 'p2', 1), wt('message', 'Fertigmeldung an Architekt', 'p2'), wt('resume', 'Lane 1 · Kontingent', 'p3')]; } },
+  };
+  const rank = (a, b) => LV[S.prio[b.p]] - LV[S.prio[a.p]] || b.sp - a.sp || a.since - b.since;
+  const sorted = () => [...S.wait].sort(rank);
+  const drain = () => { while (S.limit !== null && S.run.length < S.limit && S.wait.length) { const e = sorted()[0]; S.wait = S.wait.filter((x) => x !== e); S.run.push(run(e.t, e.p)); } };
+  const KIND = { station: 'Station', message: 'Nachricht', resume: 'Fortsetzen' };
+  const ago = (e) => `vor ${(S.seq - e.since + 1) * 2} min`;
+
+  function render() {
+    drain();
+    const q = sorted(), used = S.run.length, lim = S.limit;
+    const over = lim !== null && used > lim;
+    const sl = Math.max(lim ?? used, used);
+    const fill = Array.from({ length: Math.min(sl, 12) }, (_, i) => `<i class="${i < used ? (lim !== null && i >= lim ? 'over' : 'on') : ''}"></i>`).join('');
+    const vrow = (id) => {
+      const w = q.filter((e) => e.p === id).length;
+      const m = S.prio[id] === 'high' ? '<span class="mk" title="Priorität hoch">▲</span>' : S.prio[id] === 'low' ? '<span class="mk low" title="Priorität niedrig">▼</span>' : '';
+      return `<div class="vrow ${S.sel === id ? 'sel' : ''}" data-v="${id}"><span class="n">${P[id]}</span>${m}${w ? `<span class="cnt">${w} wartet</span>` : ''}</div>`;
+    };
+    const mine = [...S.run.filter((r) => r.p === S.sel).map((r) => ({ t: r.t, s: 'run', u: r.user })), ...q.map((e, i) => ({ ...e, pos: i + 1 })).filter((e) => e.p === S.sel).map((e) => ({ t: e.t, s: e.kind === 'message' ? 'msg' : 'q', pos: e.pos, kind: e.kind }))];
+    const rows = mine.length ? mine.map((r) => {
+      const st = r.s === 'run' ? { c: 't-run', g: '●', x: r.u ? 'läuft · von dir gestartet' : 'läuft' } : r.s === 'msg' ? { c: 't-msg', g: '✉', x: `Nachricht wartet · Platz ${r.pos}` } : { c: 't-q', g: '▶', x: `bereit · Warteschlange ${r.pos}` };
+      return `<div class="row"><span class="dot ${st.c}">${st.g}</span><span>${r.t}</span><span class="state ${st.c}">${st.x}</span></div>`;
+    }).join('') : '<div class="row"><span></span><span class="meta">Keine Station läuft oder wartet.</span><span></span></div>';
+    const seg = (['high', 'normal', 'low']).map((k) => `<button data-p="${k}" aria-pressed="${S.prio[S.sel] === k}">${LVT[k]}</button>`).join('');
+    $('#win').innerHTML = `<div class="side"><h6>Vorhaben</h6>${['p1', 'p2', 'p3'].map(vrow).join('')}
+      <div class="foot">${q.length ? `<button class="qchip" id="qc" aria-expanded="true" title="Liste der Warteschlange">${q.length} warten</button>` : '<span class="meta">Alle Agenten laufen.</span>'}</div></div>
+      <div><div class="head"><h2>${P[S.sel]}</h2><span class="pr">Priorität <span class="seg" role="group" aria-label="Priorität des Vorhabens">${seg}</span></span></div>
+      <div class="bar"><span><span class="fill">${fill}</span>Plätze ${used} von ${lim ?? '∞'} (App)${over ? ' · über der Grenze: dein Start' : ''}</span><span>Automatisch starten: an</span><a id="tosett">Grenze in den Einstellungen</a></div>${rows}</div>`;
+    $('#queue').innerHTML = `<h4>Warteschlange (Liste hinter der Marke „${q.length} warten“)</h4>${q.length ? `<table><tr><th>Rang</th><th>Was</th><th>Vorhaben</th><th>Stufe</th><th>wartet</th></tr>${q.map((e, i) => `<tr><td class="r">${i + 1}</td><td>${KIND[e.kind]} · ${e.t}</td><td>${P[e.p]}</td><td>${LVT[S.prio[e.p]]}${e.sp ? ` · Station +${e.sp}` : ''}</td><td>${ago(e)}</td></tr>`).join('')}</table>` : '<p class="meta">Es wartet nichts; die Marke ist ausgeblendet.</p>'}<p class="cap">Reihenfolge: Stufe des Vorhabens, dann Priorität der Station, dann wer früher wartet.</p>`;
+    $('#settings').innerHTML = `<h4>Einstellungen · Agent</h4><div class="srow"><div><div class="sl">Gleichzeitige Agenten max.</div><div class="sd">Was der Verwalter von selbst startet, wartet, wenn so viele Agenten laufen. Eigene Nachrichten starten sofort. Leer = unbegrenzt.</div></div><input class="num" id="lim" type="number" min="1" inputmode="numeric" placeholder="∞" aria-label="Gleichzeitige Agenten max." value="${lim ?? ''}"></div>
+      <p class="cap">Ersetzt „Parallel max.“ je Umsetzung. Standard 4.</p>`;
+    $('#win').querySelectorAll('[data-v]').forEach((el) => (el.onclick = () => { S.sel = el.dataset.v; render(); }));
+    $('#win').querySelectorAll('[data-p]').forEach((el) => (el.onclick = () => { S.prio[S.sel] = el.dataset.p; render(); }));
+    $('#lim').onchange = (e) => { const v = e.target.value.trim(); S.limit = v === '' ? null : Math.max(1, parseInt(v, 10) || 1); render(); };
+    const t = $('#tosett'); if (t) t.onclick = () => $('#lim').focus();
+    $('#end').disabled = !S.run.length;
+  }
+
+  $('#sim').innerHTML = `<div class="g"><span>Szenario</span><span class="seg" id="sc">${Object.entries(SC).map(([k, v]) => `<button data-s="${k}">${v.n}</button>`).join('')}</span></div>
+    <div class="g"><button class="mini dash" id="end">Ein Agent endet</button><button class="mini dash" id="usr">Du schreibst im Chat (Chat-Zeitstempel)</button><button class="mini dash" id="add">Neue Station wird bereit</button></div>
+    <div class="g"><span>Farbschema</span><span class="seg" id="th">${['system', 'light', 'dark'].map((k) => `<button data-t="${k}">${{ system: 'System', light: 'Hell', dark: 'Dunkel' }[k]}</button>`).join('')}</span></div>`;
+  const mark = () => { $('#sc').querySelectorAll('button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.s === S.scen))); $('#th').querySelectorAll('button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.t === S.theme))); };
+  S.scen = 'voll';
+  $('#sc').onclick = (e) => { const k = e.target.dataset?.s; if (k) { S.scen = k; SC[k].f(); mark(); render(); } };
+  $('#th').onclick = (e) => { const k = e.target.dataset?.t; if (k) { S.theme = k; k === 'system' ? document.documentElement.removeAttribute('data-theme') : document.documentElement.setAttribute('data-theme', k); mark(); } };
+  $('#end').onclick = () => { S.run.shift(); render(); };
+  $('#usr').onclick = () => { S.run.push(run('Chat: von dir', 'p3', true)); render(); };
+  $('#add').onclick = () => { S.wait.push(wt('station', `Lane ${S.seq + 2} · Umsetzung`, S.sel)); render(); };
+  const h = new URLSearchParams(location.hash.slice(1));
+  if (h.get('theme')) { S.theme = h.get('theme'); document.documentElement.setAttribute('data-theme', S.theme); }
+  S.scen = SC[h.get('scen')] ? h.get('scen') : 'voll';
+  SC[S.scen].f(); mark(); render();
+})();
+</script>
+</body>
+</html>

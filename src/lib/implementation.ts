@@ -152,12 +152,6 @@ export async function applyImplementationChange(id: string, accept: boolean): Pr
   await invoke('implementation_apply_change', { id, accept });
 }
 
-/** „Parallel max.“: höchstens so viele Stationen zugleich; `null` hebt die Grenze auf (ADR 061).
- *  @throws {import('@/lib/bindings/CommandError').CommandError} `implementation` (0), `database` */
-export async function setMaxParallel(id: string, maxParallel: number | null): Promise<void> {
-  await invoke('implementation_set_max_parallel', { id, maxParallel });
-}
-
 /** Der Benutzer ändert den Plan direkt mit einem Delta (Kanten-Chips, Auftrag, „+ Lane“), ohne Karte.
  *  @throws {import('@/lib/bindings/CommandError').CommandError} `implementation` (Satz mit dem Feld, Zyklus mit den Stationen), `database` */
 export async function editPlan(id: string, edit: PlanEdit): Promise<void> {

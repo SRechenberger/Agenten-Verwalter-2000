@@ -57,13 +57,10 @@ pub fn text_with(
         view.stations_done,
         view.stations_total
     ));
-    lines.push(match view.max_parallel {
-        Some(limit) => format!(
-            "Parallel: höchstens {limit} · Warteschlange: {}",
-            view.queued
-        ),
-        None => "Parallel: unbegrenzt".to_owned(),
-    });
+    // Die Grenze gilt app-weit (ADR 068); hier nur, wie viele Stationen dieser Umsetzung warten.
+    if view.queued > 0 {
+        lines.push(format!("Warteschlange (app-weit): {}", view.queued));
+    }
     let starts: Vec<&str> = stations(view)
         .filter(|(_, station): &(&PhaseView, &StationView)| station.after.is_empty())
         .map(|(_, station): (&PhaseView, &StationView)| station.plan_id.as_str())

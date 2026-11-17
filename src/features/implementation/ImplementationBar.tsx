@@ -23,12 +23,6 @@ import {
   deleteQuestion,
   INQUIRY_LABEL,
   INQUIRY_TITLE,
-  MAX_PARALLEL_LABEL,
-  MAX_PARALLEL_LESS,
-  MAX_PARALLEL_MORE,
-  MAX_PARALLEL_TITLE,
-  MAX_PARALLEL_UNLIMITED,
-  MAX_PARALLEL_UNLIMITED_TITLE,
   NEW_LANE_LABEL,
   NEW_LANE_TITLE,
   progressLine,
@@ -41,9 +35,6 @@ import {
 } from '@/features/implementation/implementationTexts';
 import type { ImplementationView } from '@/lib/bindings/ImplementationView';
 import './ImplementationBar.css';
-
-/** Höchster Wert des Zählers „Parallel max.“; darüber steht „∞“ (keine Grenze). */
-const MAX_PARALLEL_STEPS = 6;
 
 interface ImplementationBarProps {
   implementation: ImplementationView;
@@ -58,8 +49,6 @@ interface ImplementationBarProps {
   onSetAutoStart: (enabled: boolean) => void;
   onSetAutoResume: (enabled: boolean) => void;
   onSetStopAfterCurrent: (enabled: boolean) => void;
-  /** `null` hebt die Grenze auf. */
-  onSetMaxParallel: (maxParallel: number | null) => void;
   /** „Neue Lane“ ist offen. */
   isNewLaneOpen: boolean;
   onToggleNewLane: () => void;
@@ -83,7 +72,6 @@ export function ImplementationBar({
   onSetAutoStart,
   onSetAutoResume,
   onSetStopAfterCurrent,
-  onSetMaxParallel,
   isNewLaneOpen,
   onToggleNewLane,
   onNewInquiry,
@@ -106,10 +94,6 @@ export function ImplementationBar({
       : confirm === 'delete' && canDelete && working === undefined
         ? 'delete'
         : null;
-  const limit: number | null = implementation.maxParallel;
-  // Zähler: 1 … MAX_PARALLEL_STEPS, darüber keine Grenze.
-  const less: number | null = limit === null ? MAX_PARALLEL_STEPS : limit - 1;
-  const more: number | null = limit === null || limit >= MAX_PARALLEL_STEPS ? null : limit + 1;
   const share: number =
     implementation.stationsTotal === 0
       ? 0
@@ -148,7 +132,8 @@ export function ImplementationBar({
     );
   }
 
-  /** „Automatisch weiter“ und „Parallel max.“; eine abgebrochene Umsetzung zeigt stattdessen das Datum. */
+  /** „Automatisch weiter“ und „Automatisch fortsetzen“; eine abgebrochene Umsetzung zeigt stattdessen das
+   *  Datum. */
   function renderAutomation(): ReactElement {
     return (
       <>
@@ -168,34 +153,6 @@ export function ImplementationBar({
           isCompact
           onChange={onSetAutoResume}
         />
-        <span className="implementation-bar__switch" title={MAX_PARALLEL_TITLE}>
-          {MAX_PARALLEL_LABEL}
-          <span className="implementation-bar__step">
-            <button
-              type="button"
-              aria-label={MAX_PARALLEL_LESS}
-              disabled={isLocked || (limit !== null && limit <= 1)}
-              onClick={(): void => {
-                onSetMaxParallel(less);
-              }}
-            >
-              −
-            </button>
-            <b title={limit === null ? MAX_PARALLEL_UNLIMITED_TITLE : undefined}>
-              {limit === null ? MAX_PARALLEL_UNLIMITED : String(limit)}
-            </b>
-            <button
-              type="button"
-              aria-label={MAX_PARALLEL_MORE}
-              disabled={isLocked || limit === null}
-              onClick={(): void => {
-                onSetMaxParallel(more);
-              }}
-            >
-              +
-            </button>
-          </span>
-        </span>
       </>
     );
   }

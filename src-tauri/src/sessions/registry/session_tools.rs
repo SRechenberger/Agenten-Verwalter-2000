@@ -5,14 +5,13 @@ use std::cmp::max;
 use std::collections::HashSet;
 use std::sync::Arc;
 use std::sync::mpsc;
-use std::thread;
 
 use serde_json::{Value, json};
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::{AppHandle, Emitter};
 
 use super::{
     Outbox, PROJECT_CHANGED_EVENT, PendingRequest, Session, SessionRegistry, SessionState,
-    TurnOrigin, now_ms, project_not_found, start_turn, update,
+    TurnOrigin, now_ms, project_not_found, schedule_pass, start_turn, update,
 };
 use crate::agent_types::model::{AgentType, AgentTypeInput};
 use crate::agent_types::tools as agent_type_tools;
@@ -23,6 +22,7 @@ use crate::agents::event::{
 use crate::db::projects as project_rows;
 use crate::db::session_inbox::{self, InboxRow};
 use crate::error::CommandError;
+use crate::implementation::slots;
 use crate::mcp_access::tools::ToolCall;
 use crate::projects::model::ProjectSummary;
 use crate::session_tools::model::SelfRelease;
@@ -89,12 +89,25 @@ enum Release {
 impl SessionRegistry {
     pub fn tool_get_sessions(&self, caller_id: &str) -> ToolReply {
         let caller = self.get(caller_id).map_err(text_of)?;
+        // Vor den Session-Sperren: Die Datenbank kommt nur nach einer Session-Sperre an die Reihe.
+        let with_messages: HashSet<String> = self
+            .database
+            .with(|connection| session_inbox::session_ids(connection))
+            .unwrap_or_default()
+            .into_iter()
+            .collect();
         let sessions: Vec<Value> = self
             .project_members(&caller.project_id)
             .iter()
             .filter(|member: &&Arc<Session>| member.id != caller.id)
             .filter_map(|member: &Arc<Session>| {
                 let state = member.lock();
+                // Bei vollem Tor geöffnet (ADR 068): schon da, startet aber erst mit einem Platz.
+                if slots::waits_for_slot(state.status, with_messages.contains(&member.id)) {
+                    return Some(
+                        json!({ "id": member.id, "title": state.name, "waitsForSlot": true }),
+                    );
+                }
                 let is_running = !matches!(
                     state.status,
                     SessionStatus::New | SessionStatus::Cancelled | SessionStatus::Error
@@ -268,7 +281,28 @@ impl SessionRegistry {
             })
             .map_err(text_of)?;
         let sender = session_ref(&caller);
-        if let Err(error) = self.start_first_turn(app, &session, &sender, &message) {
+        // Durch das Tor (ADR 068): Ist kein Platz frei, wartet die erste Nachricht im Posteingang der
+        // neuen Session, und ein Durchgang startet sie, sobald sie dran ist.
+        let started = if self.claim_session_slot(&session.id) {
+            let started = self.start_first_turn(app, &session, &sender, &message);
+            self.release_session_slot(&session.id);
+            started
+        } else {
+            session
+                .database
+                .with(|connection| {
+                    session_inbox::insert(
+                        connection,
+                        &session.id,
+                        &sender,
+                        &message,
+                        chain,
+                        now_ms(),
+                    )
+                })
+                .map(|()| schedule_pass(app))
+        };
+        if let Err(error) = started {
             // Keine leere Session zurücklassen: Ergebnis und Seitenleiste sollen dasselbe sagen.
             let _ = self.delete_session(app, &session.id);
             return Err(text_of(error));
@@ -328,28 +362,12 @@ impl SessionRegistry {
         Ok(summary)
     }
 
-    /// Beim App-Start je Session in `Completed` die älteste wartende Nachricht. Im eigenen Thread:
-    /// startet Agenten und darf den Start nicht aufhalten.
+    /// Beim App-Start die wartenden Nachrichten ruhender Sessions: ein Durchgang der globalen
+    /// Warteschlange im eigenen Thread, also nur bis zur Grenze, der Rest rückt nach (ADR 068). Eine
+    /// archivierte Session fehlt in der Map; ihre Zeilen warten mit ihr. Stationen sind nach dem
+    /// Neustart nicht markiert und starten nicht (Critical Rule 4).
     pub fn deliver_inbox_on_start(app: AppHandle) {
-        let spawned = thread::Builder::new()
-            .name("session-inbox-start".to_owned())
-            .spawn(move || {
-                let registry = app.state::<SessionRegistry>();
-                let ids = registry
-                    .database
-                    .with(|connection| session_inbox::session_ids(connection))
-                    .unwrap_or_default();
-                for id in ids {
-                    // Eine archivierte Session fehlt in der Map; ihre Zeilen warten mit ihr.
-                    if let Ok(session) = registry.get(&id) {
-                        registry.deliver_oldest(&app, &session);
-                    }
-                }
-            });
-        // Ohne den Thread warten die Nachrichten bis zur nächsten abgeschlossenen Antwort.
-        if let Err(error) = spawned {
-            eprintln!("Warteschlange der Session-Nachrichten nicht gestartet: {error}");
-        }
+        schedule_pass(&app);
     }
 
     /// Die Zielprüfung vor dem Kasten: unbekannt, anderes Vorhaben und eigene ID sind Fehler.
@@ -515,7 +533,9 @@ impl SessionRegistry {
     }
 
     /// Stellt zu oder reiht ein, geprüft unter derselben Session-Sperre wie das Senden. Eine wartende
-    /// Nachricht wird nicht überholt. Liefert Status und Grund für das Ergebnis des Werkzeugs.
+    /// Nachricht wird nicht überholt. Zugestellt wird nur mit einem Platz vom Tor (ADR 068), der vor der
+    /// Session-Sperre beansprucht und nach dem Senden freigegeben wird; sonst wartet sie (`queued`).
+    /// Liefert Status und Grund für das Ergebnis des Werkzeugs.
     pub(super) fn deliver(
         &self,
         app: &AppHandle,
@@ -526,15 +546,23 @@ impl SessionRegistry {
     ) -> (&'static str, Option<String>) {
         // Vor `update`: Die Abfrage bei LM Studio gehört nicht unter die Sperre.
         let input = self.prepare_turn(target, text);
+        let claimed = self.claim_session_slot(&target.id);
         // Ruht das Ziel trotz wartender Zeile, käme ohne Anstoß kein Haken mehr, etwa nach einem
-        // gescheiterten Start oder einem Subagenten, der erst nach dem Haken endete.
+        // gescheiterten Start, einem Subagenten, der erst nach dem Haken endete, oder einem vollen Tor.
         let mut needs_nudge = false;
         let delivered = update(
             app,
             target,
             |state: &mut SessionState, outbox: &mut Outbox| {
+                // Session-Sperre, dann Datenbank: die erlaubte Reihenfolge.
+                let has_waiting = target
+                    .database
+                    .with(|connection| session_inbox::oldest(connection, &target.id))?
+                    .is_some();
+                // Eine bei vollem Tor geöffnete Session wartet auf ihren Platz (ADR 068): einreihen.
+                let waits_for_slot = slots::waits_for_slot(state.status, has_waiting);
                 let reason = match state.status {
-                    SessionStatus::New => Some(NOT_STARTED),
+                    SessionStatus::New if !waits_for_slot => Some(NOT_STARTED),
                     SessionStatus::Cancelled => Some(CANCELLED),
                     SessionStatus::Error => Some(FAILED),
                     _ => None,
@@ -542,16 +570,11 @@ impl SessionRegistry {
                 if let Some(reason) = reason {
                     return Ok(("undeliverable", Some(reason.to_owned())));
                 }
-                // Session-Sperre, dann Datenbank: die erlaubte Reihenfolge.
-                let has_waiting = target
-                    .database
-                    .with(|connection| session_inbox::oldest(connection, &target.id))?
-                    .is_some();
-                if has_waiting || !state.rests() {
+                if has_waiting || !state.rests() || !claimed {
                     target.database.with(|connection| {
                         session_inbox::insert(connection, &target.id, sender, text, chain, now_ms())
                     })?;
-                    needs_nudge = state.rests();
+                    needs_nudge = state.rests() || waits_for_slot;
                     return Ok(("queued", None));
                 }
                 start_turn(
@@ -567,8 +590,11 @@ impl SessionRegistry {
                 Ok(("delivered", None))
             },
         );
+        if claimed {
+            self.release_session_slot(&target.id);
+        }
         if needs_nudge {
-            schedule_inbox_delivery(app, target);
+            schedule_pass(app);
         }
         delivered.unwrap_or_else(|error: CommandError| ("undeliverable", Some(text_of(error))))
     }
@@ -599,13 +625,15 @@ impl SessionRegistry {
         )
     }
 
-    /// Die älteste wartende Nachricht, falls die Session ruht. Nie unter einer Sperre aufrufen.
-    fn deliver_oldest(&self, app: &AppHandle, session: &Arc<Session>) {
+    /// Die älteste wartende Nachricht, falls die Session ruht oder als geöffnete Session noch nie lief.
+    /// Nur mit einem Platz vom Tor (der Durchgang hält ihn). Nie unter einer Sperre aufrufen. `false`,
+    /// wenn der Start scheiterte.
+    pub(super) fn deliver_oldest(&self, app: &AppHandle, session: &Arc<Session>) -> bool {
         let Ok(Some(row)) = session
             .database
             .with(|connection| session_inbox::oldest(connection, &session.id))
         else {
-            return;
+            return true;
         };
         let input = self.prepare_turn(session, &row.text);
         let started = update(
@@ -616,7 +644,8 @@ impl SessionRegistry {
                 let current = session
                     .database
                     .with(|connection| session_inbox::oldest(connection, &session.id))?;
-                if !state.rests() || current.as_ref().map(|row: &InboxRow| row.id) != Some(row.id) {
+                let takes = state.rests() || slots::waits_for_slot(state.status, current.is_some());
+                if !takes || current.as_ref().map(|row: &InboxRow| row.id) != Some(row.id) {
                     return Ok(false);
                 }
                 start_turn(
@@ -637,6 +666,7 @@ impl SessionRegistry {
         // Erst nach `update`, denn dort geht die Nachricht an den Agenten: Scheitert der Start oder das
         // Schreiben, bleibt die Zeile, und der nächste Haken versucht es erneut. Ein Absturz genau
         // zwischen Schreiben und Löschen stellt sie nach dem Neustart doppelt zu; das ist hingenommen.
+        let has_failed = started.is_err();
         let finished = started.and_then(|has_started: bool| {
             if !has_started {
                 return Ok(());
@@ -648,29 +678,7 @@ impl SessionRegistry {
         if let Err(error) = finished {
             session.log_line(format!("Warteschlange der Session-Nachrichten: {error}"));
         }
-    }
-}
-
-/// Haken `turn_completed`: Nie unter einer Sperre aufrufen. Der eigene Thread schützt den Lese-Thread
-/// des Agenten vor LM Studio, Dateizugriffen und einem Prozessstart.
-pub(super) fn schedule_inbox_delivery(app: &AppHandle, session: &Arc<Session>) {
-    let waiting = session
-        .database
-        .with(|connection| session_inbox::oldest(connection, &session.id));
-    if !matches!(waiting, Ok(Some(_))) {
-        return;
-    }
-    let thread_app = app.clone();
-    let thread_session = Arc::clone(session);
-    let spawned = thread::Builder::new()
-        .name("session-inbox".to_owned())
-        .spawn(move || {
-            thread_app
-                .state::<SessionRegistry>()
-                .deliver_oldest(&thread_app, &thread_session);
-        });
-    if let Err(error) = spawned {
-        session.log_line(format!("Warteschlange nicht gestartet: {error}"));
+        !has_failed
     }
 }
 

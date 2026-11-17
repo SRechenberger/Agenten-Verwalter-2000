@@ -227,7 +227,6 @@ fn registry_with_two_implementations() -> SessionRegistry {
                         auto_start: true,
                         stop_after_current: false,
                         pending_change: None,
-                        max_parallel: None,
                         auto_resume: false,
                         cancelled_at: None,
                         pending_cancel: None,
