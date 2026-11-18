@@ -18,6 +18,7 @@ import {
   NO_GROUP_LABEL,
   KIND_LABEL,
 } from './dashboardTexts.ts';
+import { emptyDraft, pickOption, type QuestionEntry } from '../chat/questionDraft.ts';
 import type { ChatEntry } from '@/lib/bindings/ChatEntry';
 import type { DashboardFlow } from '@/lib/bindings/DashboardFlow';
 import type { DashboardTask } from '@/lib/bindings/DashboardTask';
@@ -175,7 +176,22 @@ function chat(...parts: string[]): ChatEntry[] {
   });
 }
 
+// Ziffer 1 im Kasten „sendMessage“: dieselbe Sperre wie der Knopf „Erlauben“ (die Taste nimmt `pickOption`).
+function toolEntry(message: string): QuestionEntry {
+  return JSON.parse(
+    `{"kind":"question","seq":0,"requestId":"r","questionKind":"sessionTool","questions":[{"header":"","question":"?","multiSelect":false,"options":[{"label":"Erlauben","hint":""},{"label":"Ablehnen","hint":""}]}],"answer":null,"toolRequest":{"kind":"sendMessage","recipients":[],"message":${JSON.stringify(message)}},"chainLimited":false,"origin":null,"at":null}`,
+  ) as QuestionEntry;
+}
+
+function pickKind(message: string, optionIndex: number): string {
+  const entry: QuestionEntry = toolEntry(message);
+  return pickOption(entry, emptyDraft(entry), 0, optionIndex)?.kind ?? 'none';
+}
+
 const MORE: { name: string; actual: () => unknown; expected: unknown }[] = [
+  { name: 'key_allow_blocked_on_blank_message', actual: () => pickKind('  ', 0), expected: 'none' },
+  { name: 'key_allow_with_message', actual: () => pickKind(' x ', 0), expected: 'answer' },
+  { name: 'key_deny_with_blank_message', actual: () => pickKind('  ', 1), expected: 'answer' },
   { name: 'empty_message_blank', actual: () => isMessageEmpty(' \n\t '), expected: true },
   { name: 'empty_message_text', actual: () => isMessageEmpty(' x '), expected: false },
   {
@@ -193,6 +209,11 @@ const MORE: { name: string; actual: () => unknown; expected: unknown }[] = [
     actual: () =>
       JSON.stringify(lastExchange(chat('user:a', 'text:b', 'user:c', 'text:d', 'text:e'))),
     expected: '{"answer":"e","before":"c"}',
+  },
+  {
+    name: 'exchange_message_before_may_be_a_session_message',
+    actual: () => JSON.stringify(lastExchange(chat('sessionMessage:m', 'text:b'))),
+    expected: '{"answer":"b","before":"m"}',
   },
   {
     name: 'exchange_without_answer',
