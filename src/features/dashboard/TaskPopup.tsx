@@ -85,6 +85,7 @@ export function TaskPopup({
   onClose,
   error,
   run,
+  report,
 }: TaskPopupProps): ReactElement {
   const isLocked: boolean = useProjectLocked(task.projectId);
   // Eine Sache der Session öffnet die Session, eine der Station oder Umsetzung die Umsetzung.
@@ -138,7 +139,7 @@ export function TaskPopup({
           ✕
         </button>
       </header>
-      {renderBody({ task, sessions, implementations, projects, isLocked, run, open })}
+      {renderBody({ task, sessions, implementations, projects, isLocked, run, report, open })}
       {error !== null && (
         <p className="task-popup__error" role="alert">
           {error}

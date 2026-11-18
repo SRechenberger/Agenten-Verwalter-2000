@@ -56,6 +56,7 @@ export interface PopupProps {
   /** Ein anderes Gerät steuert das Vorhaben, oder der Host fehlt: Die Knöpfe, die schreiben, ruhen. */
   isLocked: boolean;
   run: ActionError['run'];
+  report: ActionError['report'];
   open: ReactElement | null;
 }
 
@@ -209,7 +210,7 @@ export function PlanChangeBody(props: PopupProps): ReactElement {
 }
 
 export function CancelRequestBody(props: PopupProps): ReactElement {
-  const { isLocked, run, open } = props;
+  const { isLocked, run, report, open } = props;
   const implementation: ImplementationView | undefined = implementationOf(props);
   const request = implementation?.pendingCancel ?? null;
   if (implementation === undefined || request === null) {
@@ -228,7 +229,7 @@ export function CancelRequestBody(props: PopupProps): ReactElement {
                 accept,
               );
               if (notDeleted !== null) {
-                throw new Error(`${CANCELLED_NOT_DELETED}: ${notDeleted}`);
+                report(`${CANCELLED_NOT_DELETED}: ${notDeleted}`);
               }
             },
             accept ? 'Bestätigen fehlgeschlagen' : 'Verwerfen fehlgeschlagen',
