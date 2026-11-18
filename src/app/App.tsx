@@ -488,6 +488,7 @@ export function App(): ReactElement {
 
   function handleSessionDeleted(session: SessionSummary, isProjectDeleted: boolean): void {
     removeSession(session.id);
+    reloadImplementations();
     if (isProjectDeleted) {
       removeProject(session.projectId);
     }
