@@ -85,6 +85,8 @@ export function MasterPicker({
       {isOpen && (
         <Popover
           label={MASTER_POPOVER_TITLE}
+          className="master-picker__menu"
+          detached
           placement="below"
           align="end"
           width={280}
