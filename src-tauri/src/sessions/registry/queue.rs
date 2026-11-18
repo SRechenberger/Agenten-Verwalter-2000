@@ -10,6 +10,7 @@ use std::thread;
 
 use tauri::{AppHandle, Emitter, Manager};
 
+use super::session_tools::takes_oldest;
 use super::{Session, SessionRegistry, now_ms};
 use crate::db::session_inbox;
 use crate::implementation::model::ImplementationView;
@@ -186,8 +187,9 @@ impl SessionRegistry {
 
     /// Alle Wartenden: bereite Stationen markierter Umsetzungen, Stationen vor dem Neustart nach „Bei
     /// Fehler“, die älteste Nachricht jeder ruhenden Session (auch einer geöffneten, die noch nie lief)
-    /// und fällige Fortsetzungen. In der Reihenfolge des Sammelns; ordnen tut das Tor.
-    fn waiters(&self, now: f64) -> Vec<Waiter> {
+    /// und fällige Fortsetzungen; dazu die pausierte Station ohne scharfen Zeitgeber, in deren Posteingang
+    /// eine Nachricht ihres Masters seit Beginn der Pause liegt (`takes_oldest`). In der Reihenfolge des Sammelns; ordnen tut das Tor.
+    pub(super) fn waiters(&self, now: f64) -> Vec<Waiter> {
         let priorities: HashMap<String, ProjectPriority> = self
             .lock_projects()
             .iter()
@@ -213,12 +215,20 @@ impl SessionRegistry {
         let sessions: Vec<Arc<Session>> = self.lock_sessions().values().cloned().collect();
         for session in sessions {
             let has_message = with_messages.contains(&session.id);
+            // Vor der Session-Sperre: erst die Session kurz, dann die Datenbank.
+            let master_waits = has_message && self.master_message_waits(&session);
             let (title, takes_message, resume_due_at) = {
                 let state = session.lock();
                 (
                     state.name.clone(),
-                    (state.rests() && has_message)
-                        || slots::waits_for_slot(state.status, has_message),
+                    has_message
+                        && takes_oldest(
+                            state.status,
+                            state.rests(),
+                            slots::waits_for_slot(state.status, has_message),
+                            state.waits_for_resume(),
+                            master_waits,
+                        ),
                     state.resume_due_at().filter(|due_at: &f64| *due_at <= now),
                 )
             };

@@ -500,6 +500,7 @@ export function App(): ReactElement {
 
   function handleSessionDeleted(session: SessionSummary, isProjectDeleted: boolean): void {
     removeSession(session.id);
+    reloadImplementations();
     // Das Löschen sendet kein Ereignis: Die Karte „Master ausgefallen“ stünde sonst erst beim nächsten.
     reloadDashboard();
     if (isProjectDeleted) {
