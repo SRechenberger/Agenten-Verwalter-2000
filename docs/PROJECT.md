@@ -33,7 +33,7 @@ Danach (Reihenfolge laut Konzept, Abschnitt 66): OpenCode-Provider (der LM-Studi
 
 ## Nicht-Ziele
 
-Keine IDE, kein VS-Code-Ersatz, kein vollständiger Git-Client, kein Ticket-System, kein CI/CD-Dashboard, kein Cloud-Dienst, kein LSP-Host, kein Debugger, kein Dev-Container-Manager, kein allgemeiner LLM-Chat-Client, keine Workflow-DSL. Kein permanenter Code-Editor, keine KPI-Dashboards, keine Toast-Flut bei Statuswechseln.
+Keine IDE, kein VS-Code-Ersatz, kein vollständiger Git-Client, kein Ticket-System, kein CI/CD-Dashboard, kein Cloud-Dienst, kein LSP-Host, kein Debugger, kein Dev-Container-Manager, kein allgemeiner LLM-Chat-Client, keine Workflow-DSL. Kein permanenter Code-Editor, keine KPI-Dashboards (das Dashboard der [ADR 071](decisions/071-dashboard.md) ist eine Arbeitsliste dessen, was auf dich wartet, kein Messinstrument), keine Toast-Flut bei Statuswechseln.
 
 ## Stack
 
