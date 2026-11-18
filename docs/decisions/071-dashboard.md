@@ -1,6 +1,6 @@
 # 071 — Dashboard: eine Arbeitsliste aus den Zuständen des Kerns
 
-**Status:** angenommen, Kern umgesetzt (Migration 31, Karten, Abläufe und Sessions als reine Funktion `dashboard::build`, Befehle `dashboard_get` und `dashboard_dismiss`, Antwort am Zugende, Sperre leerer Nachrichten, Bindings; Story Taiga #102, Phase 102.1); die Einordnung (102.2) und die Oberfläche (102.3) folgen.
+**Status:** angenommen, Kern umgesetzt (Migration 31, Karten, Abläufe und Sessions als reine Funktion `dashboard::build`, Befehle `dashboard_get` und `dashboard_dismiss`, Antwort am Zugende, Sperre leerer Nachrichten, Bindings; Story Taiga #102, Phase 102.1); die Einordnung ist seit Phase 102.2 umgesetzt, die Oberfläche (102.3) folgt.
 
 ## Kontext
 
@@ -13,7 +13,7 @@ Vom Benutzer entschieden (B1 bis B14, Nachtrag in der Story vom 2026-11-17):
 - **B1/B2:** Alles, was auf dich wartet, wird eine **Karte**; der Kern erzeugt sie aus seinen Zuständen, nicht die Oberfläche. Eine Aufforderung per Werkzeug gibt es nicht.
 - **B3/B4:** Die Arten und die Reihenfolge stehen unten; blockierende Karten (ein Agent hängt an der Antwort) kommen zuerst, „Fertig“ zuletzt, innerhalb einer Stufe die am längsten wartende vorn.
 - **B5:** Eine Karte verschwindet, wenn der Zustand dahinter endet. Karten aus Textantworten, Fehlern und Pausen einer Session gehen außerdem mit „Gelesen“; die Session zu öffnen genügt nicht.
-- **B6:** Ein Modell ordnet die letzte Antwort ein (`asks`, `requests`, `done` samt Einzeiler); ohne Einordnung bleibt die Karte `answer`. Folgt in Phase 102.2.
+- **B6:** Ein Modell ordnet die letzte Antwort ein (`asks`, `requests`, `done` samt Einzeiler); ohne Einordnung bleibt die Karte `answer` (Phase 102.2, Abschnitt „Einordnung“).
 - **B7/B8:** Stationen bekommen keine eingeordneten Karten; eine Antwort ohne Meldung geht an den Master („wartet auf Master“). Ein Fehler einer Station bleibt eine Karte für dich.
 - **B9:** Rechts stehen die Abläufe und die aktiven Sessions ohne Station.
 - **B13:** Keine leeren Nachrichten.
@@ -83,7 +83,64 @@ Endet ein Zug einer Session ohne Station mit `TurnEnd::Completed`, setzt `end_tu
 
 ## Einordnung
 
-Folgt (Phase 102.2).
+Eine Karte `answer` („Antwort liegt vor“) zeigt nur den Anfang der Antwort. Ein kleines Modell ordnet sie ein: `asks` (der Agent fragt oder verlangt eine Entscheidung), `requests` (der Agent bittet um eine Handlung außerhalb der Session) oder `done` (Bericht, nichts erwartet), dazu ein deutscher Einzeiler für die Karte. Aus `answer` wird dann `asks`, `requests` oder `done` mit dem Einzeiler als `title` (B6).
+
+- **Auslöser:** `update` startet die Einordnung, wenn ein Zug mit `TurnEnd::Completed` endet, die Session keine Station ist, keine Anfrage offen ist und die Einstellung `answer_model` nicht aus ist. Pause, Kontingent, Fehler und Abbruch lösen nichts aus. Die Eingabe sammelt `end_turn` unter der Session-Sperre aus `entries` im Speicher; danach läuft alles ohne Sperre.
+- **Eingabe** (`dashboard::classify::collect`): die Nachricht, die den Zug begann (der letzte `User`- oder `SessionMessage`-Eintrag vor den `Text`-Einträgen des Zugs, höchstens 2000 Zeichen vom Anfang), und die letzte `Text`-Antwort des Zugs (höchstens 6000 Zeichen vom Ende). Die Probe `answer-probe --texts` schreibt dieselbe Eingabe durch dieselbe Funktion.
+- **Prompt und Schema** stehen in `src-tauri/src/dashboard/classify.rs` (deutscher Systemprompt; Schema `{"kind": "asks" | "requests" | "done", "line": string}`). „Fertig. Soll ich noch X?“ ist `asks`.
+- **Aufruf:** `print_program` und `ask_model` (wie das TL;DR) in einem eigenen Thread je Aufruf, Zeitlimit 60 s, nie unter einer Sperre. Je Session läuft höchstens ein Aufruf (`classify_running`); endet ein weiterer Zug währenddessen, wartet nur der jüngste in `classify_next` und läuft danach. Der Ort ist `sessions/registry/classify.rs`.
+- **Speichern:** unter der Sperre nur, wenn `answer_at` noch dasselbe Zugende nennt (`same_turn`): Ein neuer Zug ändert `answer_at` und macht das Ergebnis wertlos; „Gelesen“ ändert es nicht. Dann setzt `update` `answer_kind` und `answer_line` (getrimmt, höchstens 120 Zeichen an einer Zeichengrenze), schreibt sie und sendet `session://changed`.
+- **Rückfall:** Fehler, Zeitlimit, eine unlesbare Antwort, eine unbekannte Art oder ein leerer Einzeiler schreiben nichts; eine Zeile im Log der Session, die Karte bleibt `answer`.
+- **Einstellung:** `Settings.answerModel: ModelId | null` (Schlüssel `answer_model`, Standard Haiku, leerer Wert = aus), global. Ohne Schlüssel gilt Haiku, auch in einer bestehenden Datenbank; eine Migration gibt es nicht. In den Einstellungen steht die Zeile „Modell der Einordnung“ im Abschnitt „Dashboard“ gleich hinter „Modell des TL;DR“, mit der Wahl „Aus“.
+- **Kosten:** ein Aufruf je abgegebenem Zug einer Session ohne Station, mit Haiku unter 0,01 $ (gemessen 0,0001 bis 0,0013 $, im Mittel 0,0003 $).
+- **LM Studio, Autark, Codex:** Dort antwortet das lokale Modell, gleich welches Modell die Einstellung nennt (`ask_model`); „Aus“ gilt auch dort.
+- **Kein Nachholen:** Beim App-Start ordnet nichts nach. Eine Antwort, die zum Zeitpunkt des Zugendes nicht eingeordnet wurde (Modell aus, Aufruf gescheitert, App beendet), bleibt `answer`; auch die Karten, die Migration 31 für abgegebene Bestandssessions anlegt.
+- **Warum automatisch trotz ADR 011:** [ADR 011](011-vorhaben-und-sessions.md) legt das TL;DR auf den Knopf, weil es bei jeder Antwort veralten würde und jeden Aufruf kostet. Die Einordnung gilt genau einem Zugende, veraltet nie (ein neuer Zug löscht sie), kostet wenige Zehntel Cent und ist der Zweck der Karte: Ohne sie müsste der Benutzer jede Antwort öffnen, um zu sehen, ob sie auf ihn wartet (B6). Wer das nicht will, schaltet sie aus.
+
+### Messung
+
+Wortlaut und Eingabe wie die App (`answer-probe --texts`, 12 Beispiele: je vier `asks`, `requests`, `done`, Deutsch und Englisch; Grenzfälle: Frage am Ende eines langen Berichts, „Fertig. Soll ich noch …?“, eine Bitte um Datei oder Programmstart außerhalb, ein Bericht ohne Frage). Je Beispiel drei Läufe mit `claude -p --model haiku --tools "" --setting-sources "" --no-session-persistence --output-format json`, `--system-prompt` aus `prompt.txt`, `--json-schema` aus `schema.json`, Eingabe aus der Datei auf der Standardeingabe, Wegwerf-`HOME` mit nur der verlinkten `.credentials.json`, ohne `CLAUDE*`-Variablen. Claude Code 2.1.296, Modell `claude-haiku-5-5`, 2026-11-18, keine Läufe mit 429.
+
+**Ergebnis: 36 von 36 richtig**, Kosten zusammen 0,0119 $. Auffällig nur: Lauf 10-done-3 erfindet im Einzeiler „Git-Commits ungeprüft (kein Repo)“, was nicht in der Antwort steht; die Art stimmt. Der Einzeiler ist Beiwerk, das die Karte zeigt, und wird nicht als Entscheidung gelesen.
+
+| Lauf | Soll | Ist | Einzeiler | Kosten ($) |
+|---|---|---|---|---|
+| 01-asks-1 | asks | asks | Soll ich die Zeilen in 500er-Transaktionen bündeln und die Ländertabelle cachen, oder den Import auf eine Staging-Tabelle umbauen? | 0.0003 |
+| 01-asks-2 | asks | asks | Soll ich die Transaktionen bündeln und die Ländertabelle cachen, oder den Import auf eine Staging-Tabelle umbauen? | 0.0013 |
+| 01-asks-3 | asks | asks | Soll ich nur Transaktionen bündeln und die Ländertabelle cachen (3,2 s statt 41 s) oder den Import auf eine Staging-Tabelle umbauen? | 0.0001 |
+| 02-asks-1 | asks | asks | Soll ich zusätzlich den Migrationsguide für die umbenannten Config-Keys aktualisieren? | 0.0003 |
+| 02-asks-2 | asks | asks | Soll ich auch den Migrationsleitfaden für die umbenannten Config-Keys aktualisieren? | 0.0005 |
+| 02-asks-3 | asks | asks | Soll ich auch den Migrationsguide für die umbenannten Config-Keys aktualisieren? | 0.0001 |
+| 03-asks-1 | asks | asks | Soll die Suche in der Projektliste zusätzlich mit Tastenkürzeln (Strg+F zum Öffnen, Esc zum Schließen) ausgestattet werden? | 0.0002 |
+| 03-asks-2 | asks | asks | Soll die Suche in der Projektliste noch Tastenkürzel (Strg+F zum Öffnen, Esc zum Schließen) bekommen? | 0.0001 |
+| 03-asks-3 | asks | asks | Soll ich die Tastenkürzel Strg+F und Esc für die Suche in der Projektliste noch ergänzen? | 0.0001 |
+| 04-asks-1 | asks | asks | Retry-Strategie: ganzer Upload neu mit Backoff (a) oder Fortsetzen ab letztem Chunk (b), wofür Staging noch keinen Offset liefert? | 0.0003 |
+| 04-asks-2 | asks | asks | Ganzer Upload neu mit Backoff, oder ab letztem Chunk fortsetzen? Staging liefert den Offset noch nicht. | 0.0002 |
+| 04-asks-3 | asks | asks | Vollständiger Neuversuch mit Backoff oder Resume ab letztem Chunk? Staging-Server liefert den Offset noch nicht. | 0.0006 |
+| 05-requests-1 | requests | requests | Starte pnpm dev, öffne http://localhost:5173 und sag, ob die Startseite ohne Fehler in der Konsole lädt. | 0.0005 |
+| 05-requests-2 | requests | requests | Dev-Server mit pnpm dev starten, http://localhost:5173 im Browser öffnen und melden, ob die Startseite ohne Konsolenfehler lädt. | 0.0002 |
+| 05-requests-3 | requests | requests | Bitte `pnpm dev` starten, http://localhost:5173 öffnen und melden, ob die Startseite ohne Konsolenfehler lädt. | 0.0003 |
+| 06-requests-1 | requests | requests | Bitte service-account.json in den Ordner secrets/ des Repos legen, damit die Integrationstests gegen den echten Endpoint laufen können | 0.0005 |
+| 06-requests-2 | requests | requests | Bitte service-account.json in den Ordner secrets/ des Repositories legen, damit die Integrationstests gegen den echten Endpoint laufen können. | 0.0003 |
+| 06-requests-3 | requests | requests | Bitte service-account.json in den Ordner secrets/ des Repositories legen, damit die Integrationstests laufen können. | 0.0002 |
+| 07-requests-1 | requests | requests | Im Dashboard des Zahlungsanbieters Live-Schlüssel erzeugen und als PAYMENT_KEY in .env.production eintragen. | 0.0005 |
+| 07-requests-2 | requests | requests | Im Dashboard des Zahlungsanbieters Live-Schlüssel erzeugen und als PAYMENT_KEY in .env.production eintragen | 0.0003 |
+| 07-requests-3 | requests | requests | Live-Schlüssel im Zahlungsanbieter-Dashboard erzeugen und als PAYMENT_KEY in .env.production eintragen | 0.0001 |
+| 08-requests-1 | requests | requests | Bitte App mit leerer Settings-Datei starten, prüfen, ob sie startet, und ob die Warnung im Log erscheint. | 0.0005 |
+| 08-requests-2 | requests | requests | Bitte App mit leerer Settings-Datei starten, prüfen ob sie startet und die Warnung im Log erscheint | 0.0002 |
+| 08-requests-3 | requests | requests | Bitte App mit leerer Settings-Datei starten, prüfen ob sie startet und die Warnung im Log erscheint | 0.0001 |
+| 09-done-1 | done | done | Vier ungenutzte Pakete (lodash, moment, classnames, uuid) entfernt; Build und 212 Tests grün, Bundle 74 KB kleiner. | 0.0003 |
+| 09-done-2 | done | done | Vier ungenutzte Pakete (lodash, moment, classnames, uuid) entfernt; Build und 212 Tests grün, Bundle 74 KB kleiner. | 0.0006 |
+| 09-done-3 | done | done | Vier ungenutzte Pakete (lodash, moment, classnames, uuid) entfernt; Build und 212 Tests grün, Bundle 74 KB kleiner. | 0.0001 |
+| 10-done-1 | done | done | Auth-Modul: Session-Token laufen nach 12 statt 24 Stunden ab, Reset-Mail neu mit Request-IP, verifyToken gibt null statt zu werfen. | 0.0003 |
+| 10-done-2 | done | done | Auth seit letzter Woche: Sessions 12 h statt 24 h, neues Reset-Mail-Template mit IP, verifyToken gibt null zurück. | 0.0007 |
+| 10-done-3 | done | done | Auth-Modul: Session 12h statt 24h, Reset-Mail neu mit IP, verifyToken gibt null; Git-Commits ungeprüft (kein Repo) | 0.0004 |
+| 11-done-1 | done | done | Alle 42 Tests sind grün (Dauer 8,3 s). | 0.0005 |
+| 11-done-2 | done | done | Alle 42 Tests sind grün (Dauer 8,3 s). | 0.0001 |
+| 11-done-3 | done | done | Alle 42 Tests laufen grün, Dauer 8,3 s. | 0.0001 |
+| 12-done-1 | done | done | Umbenennung fmtDate zu formatDate abgeschlossen: 23 Stellen in 9 Dateien, Type-Check und Lint laufen durch. | 0.0005 |
+| 12-done-2 | done | done | Helper fmtDate in 9 Dateien zu formatDate umbenannt (23 Stellen), Typcheck und Lint bestehen; Changelog unberührt. | 0.0002 |
+| 12-done-3 | done | done | Helper fmtDate in 9 Dateien (23 Stellen) zu formatDate umbenannt; Typecheck und Lint laufen durch, Changelog unverändert. | 0.0001 |
 
 ## Oberfläche
 
@@ -95,4 +152,4 @@ Nichts. [ADR 070](070-master-session.md) bleibt in Kraft: Das Dashboard liest `S
 
 ## Tests
 
-`cargo test --manifest-path src-tauri/Cargo.toml --lib -- implementation:: agent_types:: dashboard::` führt die Regeln unter `dashboard::` mit (Karten je Art mit Gegenfall, Reihenfolge, Kennungen, Abläufe, Sessions, Auszug, Migration 31); die Sperre leerer Nachrichten und das Festhalten der Antwort am Zugende laufen unter `sessions::registry::tests::`.
+`cargo test --manifest-path src-tauri/Cargo.toml --lib -- implementation:: agent_types:: dashboard::` führt die Regeln unter `dashboard::` mit (Karten je Art mit Gegenfall, Reihenfolge, Kennungen, Abläufe, Sessions, Auszug, Migration 31); die Einordnung (Auslöser, Eingabe, veraltetes Ergebnis, Einzeiler, Einstellung) unter `dashboard::classify::`; die Sperre leerer Nachrichten und das Festhalten der Antwort am Zugende laufen unter `sessions::registry::tests::`.
