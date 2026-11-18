@@ -401,6 +401,19 @@ fn a_by_you_station_is_a_card_and_carries_the_release() {
             .tasks
             .is_empty()
     );
+    // Auch „durch dich“ ist erst eine Karte, wenn die Station an der Reihe ist.
+    for state in [StationState::Pending, StationState::Done] {
+        let not_yet = StationFacts {
+            by_user: true,
+            ..station("st", state)
+        };
+        assert!(
+            view_of(vec![], vec![flow("i", vec![not_yet])])
+                .tasks
+                .is_empty(),
+            "{state:?}"
+        );
+    }
 }
 
 #[test]
@@ -850,6 +863,33 @@ fn sessions_column_lists_only_active_sessions_without_station() {
             ("script", DashboardSessionState::Running),
         ]
     );
+}
+
+#[test]
+fn a_plan_change_of_a_session_is_no_session_card_in_the_sessions_column() {
+    let proposal = |session_id: &str| PendingFacts {
+        at: 210.0,
+        session_id: session_id.to_owned(),
+        session_number: 3,
+    };
+    let with_change = || FlowFacts {
+        pending_change: Some(proposal("m")),
+        pending_cancel: Some(proposal("m")),
+        ..flow("i", vec![station("st", StationState::Running)])
+    };
+    // Läuft der Master, bleibt er `running`, auch mit Vorschlag.
+    let view = view_of(
+        vec![session("m", SessionStatus::Running)],
+        vec![with_change()],
+    );
+    assert_eq!(view.sessions[0].state, DashboardSessionState::Running);
+    // Abgegeben und gelesen: nicht gelistet, der Vorschlag allein macht keine Session-Karte.
+    let read = SessionFacts {
+        dismissed_at: Some(1000.0),
+        ..answered("m", 50.0)
+    };
+    let view = view_of(vec![read], vec![with_change()]);
+    assert!(view.sessions.is_empty());
 }
 
 #[test]

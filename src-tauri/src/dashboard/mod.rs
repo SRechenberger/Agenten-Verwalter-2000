@@ -548,7 +548,12 @@ fn sessions_of(
                     .filter(own)
                     .any(|task: &DashboardTask| match kind {
                         Some(kind) => task.kind == kind,
-                        None => task.kind != DashboardTaskKind::Error && !task.blocking,
+                        // Nur Session-Karten; `planChange` und `cancelRequest` tragen die Session des Vorschlags.
+                        None => {
+                            task.implementation_id.is_none()
+                                && !task.blocking
+                                && task.kind != DashboardTaskKind::Error
+                        }
                     })
             };
             let state = if session.requests.is_empty() {
