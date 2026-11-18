@@ -447,11 +447,13 @@ fn stored_report(row: &StationRow) -> Option<StoredReport> {
 
 /// Der Master gibt die Meldung zurück oder der Benutzer, wenn die Rückgaben verbraucht sind (ADR 070, D4):
 /// löscht die Meldung, zählt `returns` hoch und stellt die Nachricht der Station zu; an eine Station mit Fehler
-/// oder Abbruch geht sie über Neustart und Senden. Gibt die Zahl der Rückgaben zurück.
+/// oder Abbruch geht sie über Neustart und Senden. Mit `subject` (der Master) kommt sie als Betreff mit
+/// Referenz an (ADR 072). Gibt die Zahl der Rückgaben zurück.
 pub fn return_station(
     app: &AppHandle,
     implementation_id: &str,
     station_id: &str,
+    subject: Option<&str>,
     message: &str,
     decider: Decider,
 ) -> Result<u32, CommandError> {
@@ -486,7 +488,13 @@ pub fn return_station(
         return Err(CommandError::Implementation(ALREADY_DECIDED.to_owned()));
     }
     let text = return_text(decider, message);
-    let sent = registry.send_to_station(app, &session_id, view.master_session_id.as_deref(), &text);
+    let sent = registry.send_to_station(
+        app,
+        &session_id,
+        view.master_session_id.as_deref(),
+        subject,
+        &text,
+    );
     announce(app, &registry.implementation_view(implementation_id)?);
     sent.map_err(|error: CommandError| {
         CommandError::Implementation(format!(

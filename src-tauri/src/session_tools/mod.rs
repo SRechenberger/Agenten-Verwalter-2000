@@ -2,4 +2,5 @@
 //! miteinander sprechen. Nur in der Betriebsart Claude. Der Zustand und die Zustellung liegen in
 //! `sessions/registry/session_tools.rs`.
 pub mod model;
+pub mod reference;
 pub mod tools;

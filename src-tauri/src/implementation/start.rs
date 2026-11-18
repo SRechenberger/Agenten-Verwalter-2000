@@ -15,6 +15,7 @@ use crate::agent_types::{self, StationValues, UnknownAgent};
 use crate::agents::event::{Effort, ModelId};
 use crate::error::CommandError;
 use crate::filesystem::workspace::home_dir;
+use crate::session_tools::tools::MAX_SUBJECT_CHARS;
 use crate::sessions::model::SessionSummary;
 use crate::sessions::registry::SessionRegistry;
 use crate::settings::model::OperatingMode;
@@ -143,6 +144,23 @@ pub fn first_message(
     lines.push(String::new());
     lines.push(FIRST_MESSAGE_FOOTER.to_owned());
     lines.join("\n")
+}
+
+/// Der Betreff der ersten Nachricht: Lane, Stufe und Umsetzung, höchstens so lang wie jeder Betreff.
+fn first_message_subject(
+    view: &ImplementationView,
+    phase: &PhaseView,
+    station: &StationView,
+) -> String {
+    let subject = format!(
+        "Auftrag: Lane {} · {} in „{}“",
+        phase.key, station.stage, view.name
+    );
+    if subject.chars().count() <= MAX_SUBJECT_CHARS {
+        return subject;
+    }
+    let cut: String = subject.chars().take(MAX_SUBJECT_CHARS - 1).collect();
+    format!("{cut}…")
 }
 
 /// Was der Start einer Station setzt (ADR 060): Typ, Modell und Denkaufwand.
@@ -531,7 +549,9 @@ fn start_claimed(
     let master = registry.master_ref(view.master_session_id.as_deref());
     let message: String = first_message(&view, phase, station, type_skills, master.as_ref());
     stop_if_cancelled(app, registry, implementation_id, &created.id)?;
-    if let Err(error) = registry.send(app, &created.id, &message, &[], &[], None) {
+    // Der Chat zeigt den ganzen Text; an den Agenten geht `/<skill>` und die Referenz (ADR 072).
+    let subject = first_message_subject(&view, phase, station);
+    if let Err(error) = registry.send_by_reference(app, &created.id, &message, &subject) {
         registry.log_session_line(
             &created.id,
             format!("Erste Nachricht nicht gesendet: {error}"),

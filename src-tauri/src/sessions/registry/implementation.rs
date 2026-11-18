@@ -22,6 +22,7 @@ use crate::db::agent_types as agent_type_rows;
 use crate::db::implementations::{
     self as implementation_rows, ChangeRow, PhaseRow, StationRow, StoredImplementation,
 };
+use crate::db::session_inbox::Reference;
 use crate::error::CommandError;
 use crate::file_links;
 use crate::implementation::changes as implementation_changes;
@@ -523,19 +524,24 @@ impl SessionRegistry {
 
     /// Stellt der Station die Rückgabe zu (ADR 070, D4): eine Session mit Fehler oder Abbruch startet neu
     /// und bekommt den Text mit dem Senden, jede andere über `deliver` (Absender der Master, sonst der
-    /// Verwalter). Nie unter einer Sperre aufrufen.
+    /// Verwalter). Mit `subject` (die Rückgabe des Masters) geht der Text über eine Referenz (ADR 072).
+    /// Nie unter einer Sperre aufrufen.
     pub fn send_to_station(
         &self,
         app: &AppHandle,
         session_id: &str,
         master_session_id: Option<&str>,
+        subject: Option<&str>,
         text: &str,
     ) -> Result<(), CommandError> {
         let session = self.get(session_id)?;
         let status = session.lock().status;
         if matches!(status, SessionStatus::Error | SessionStatus::Cancelled) {
             self.restart(app, session_id)?;
-            return self.send(app, session_id, text, &[], &[], None);
+            return match subject {
+                Some(subject) => self.send_by_reference(app, session_id, text, subject),
+                None => self.send(app, session_id, text, &[], &[], None),
+            };
         }
         let sender =
             self.master_ref(master_session_id)
@@ -544,7 +550,11 @@ impl SessionRegistry {
                     number: master.number,
                     title: master.title,
                 });
-        match self.deliver(app, &session, &sender, text, 0) {
+        let reference = subject.map(|subject: &str| Reference {
+            subject,
+            note: None,
+        });
+        match self.deliver(app, &session, &sender, text, 0, reference) {
             ("undeliverable", reason) => {
                 Err(CommandError::Implementation(reason.unwrap_or_else(|| {
                     "Die Session nimmt die Nachricht nicht an.".to_owned()
@@ -560,7 +570,7 @@ impl SessionRegistry {
         let Ok(master) = self.get(session_id) else {
             return;
         };
-        let (status, reason) = self.deliver(app, &master, &wake::sender(), text, 0);
+        let (status, reason) = self.deliver(app, &master, &wake::sender(), text, 0, None);
         if let Some(reason) = reason {
             master.log_line(format!(
                 "Meldung des Verwalters nicht zugestellt ({status}): {reason}"
@@ -1088,7 +1098,15 @@ impl SessionRegistry {
         let (Some(master), Some(text)) = (master, text) else {
             return;
         };
-        let (status, reason) = self.deliver(app, &master, &wake::sender(), &text, 0);
+        // „Gemeldet“: nur die Notiz geht über eine Referenz, ihr Betreff ist das Ergebnis (ADR 072).
+        let by_reference = wake::note_reference(event, facts);
+        let reference = by_reference
+            .as_ref()
+            .map(|(subject, note): &(String, &str)| Reference {
+                subject,
+                note: Some(note),
+            });
+        let (status, reason) = self.deliver(app, &master, &wake::sender(), &text, 0, reference);
         if let Some(reason) = reason {
             master.log_line(format!(
                 "Meldung des Verwalters nicht zugestellt ({status}): {reason}"

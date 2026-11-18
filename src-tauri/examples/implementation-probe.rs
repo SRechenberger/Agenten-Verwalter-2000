@@ -27,7 +27,8 @@
 //! `… --example implementation-probe -- --wake-texts <Ordner>` schreibt den Systemprompt der
 //! Session-Werkzeuge (`prompt.txt`) und je Weck-Ereignis die Nachricht, wie der Master sie liest, samt
 //! erster Zeile (`<Ereignis>.txt`), für die Messung des Wortlauts mit `claude -p --model haiku` (ADR 070);
-//! ohne Datenbank.
+//! dazu die Fassungen mit Referenz `message-ref`, `first-message-ref` und `reported-ref` samt Inhalt
+//! (`<Name>.content.txt`, ADR 072); ohne Datenbank.
 //! `… --example implementation-probe -- --selftest` prüft die Planung aus Kanten (ADR 061) gegen eine
 //! **eigene temporäre** Datenbank: Sortierung, bereiter Satz, Zyklus, Einfügen, Verzweigung und
 //! Zusammenlauf, Migration aus Position und Welle, das Tor der globalen Warteschlange (ADR 068), dazu
@@ -44,6 +45,7 @@ use std::thread;
 
 use serde::Deserialize;
 use verwalter_lib::agent_types::{self, model::AgentType, model::AgentValueSource};
+use verwalter_lib::agents::event::SessionRef;
 use verwalter_lib::db::Database;
 use verwalter_lib::db::agent_types as agent_type_rows;
 use verwalter_lib::db::implementations::{self, PhaseRow, StationRow, StoredImplementation};
@@ -69,6 +71,7 @@ use verwalter_lib::implementation::{
     schedule, start, wake,
 };
 use verwalter_lib::projects::model::ProjectPriority;
+use verwalter_lib::session_tools::reference;
 use verwalter_lib::sessions::model::SessionStatus;
 
 const USAGE: &str = "Aufruf: implementation-probe --selftest | <Datenbank-Kopie> create <Session-ID> <JSON-Datei> | show <Umsetzungs-ID> | report <Umsetzungs-ID> | --wake-texts <Ordner> | complete <Umsetzungs-ID> <Station-ID> \"<Ergebnis>\" [--fix] [--report-only] | return <Umsetzungs-ID> <Station-ID> \"<Nachricht>\" | set-phases <Umsetzungs-ID> <JSON-Datei> [--apply] | set-station <Umsetzungs-ID> <Station-ID> <JSON-Datei>";
@@ -1876,8 +1879,61 @@ fn write_wake_texts(folder: &Path) -> Result<(), String> {
         fs::write(folder.join(format!("{name}.txt")), format!("{line}{text}"))
             .map_err(|error| error.to_string())?;
     }
+    write_reference_texts(folder, &events[0].2)?;
     println!("Texte in {} geschrieben.", folder.display());
     Ok(())
+}
+
+/// Die Fassungen mit Referenz (ADR 072) durch dieselben Funktionen wie die Zustellung: je `<name>-ref.txt`
+/// der Text an den Agenten und `<name>-ref.content.txt` der Inhalt, den `verwalter_read_message` liefert
+/// (Eingabe der Messung an Haiku).
+fn write_reference_texts(folder: &Path, facts: &wake::WakeFacts) -> Result<(), String> {
+    let write = |name: &str, text: &str, content: &str| -> Result<(), String> {
+        fs::write(folder.join(format!("{name}-ref.txt")), text)
+            .map_err(|error| error.to_string())?;
+        fs::write(folder.join(format!("{name}-ref.content.txt")), content)
+            .map_err(|error| error.to_string())
+    };
+    let reviewer = SessionRef {
+        id: "0b6c1f3e-5d0a-4d0e-9a53-6d5a4c1e9f10".to_owned(),
+        number: 2,
+        title: "Architekt".to_owned(),
+    };
+    let order = "Prüfe bitte, ob die Migration 030 auf einer Datenbank der Version 29 sauber \
+                 läuft, und schreibe das Ergebnis in den Brief. Ändere nichts am Code.";
+    write(
+        "message",
+        &reference::by_reference(&reviewer, "Migration 030 auf Version 29 prüfen", 12),
+        order,
+    )?;
+    let verwalter = wake::sender();
+    let message = "/vault:role-rust-developer\nStation: Phase 99.1 „Master-Session“ · Umsetzung\n\
+                   Auftrag: Brief lesen und die Lane umsetzen.";
+    let (command, content) = reference::split_command(message);
+    write(
+        "first-message",
+        &reference::station(
+            command,
+            &verwalter,
+            "Auftrag: Lane 99.1 · Umsetzung in „Master-Session“",
+            13,
+        ),
+        content,
+    )?;
+    let event = wake::WakeEvent::Reported {
+        station_id: "s1".to_owned(),
+        returns: 0,
+        turn: 1,
+        fix_needed: false,
+    };
+    let full = wake::decide(&event, facts, true, &mut std::collections::HashSet::new())
+        .ok_or("kein Text")?;
+    let (_, note) = wake::note_reference(&event, facts).ok_or("keine Notiz")?;
+    write(
+        "reported",
+        &reference::by_note(&verwalter, &full, note, 14),
+        note,
+    )
 }
 
 /// Master wecken (ADR 070): Ereignis → Nachricht oder keine, Melden und Annehmen, Zurückgeben bis zur Grenze

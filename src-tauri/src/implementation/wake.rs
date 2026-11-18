@@ -263,6 +263,30 @@ pub fn new_master_message(
     )
 }
 
+/// Der Betreff der Zeile, die die Notiz trägt: das Ergebnis der Station in einer Zeile.
+pub fn subject_of(result: &str) -> String {
+    let subject = shorten_to(result, crate::session_tools::tools::MAX_SUBJECT_CHARS);
+    if subject.is_empty() {
+        "Meldung".to_owned()
+    } else {
+        subject
+    }
+}
+
+/// Was an der Nachricht eines Ereignisses über eine Referenz geht (ADR 072): nur bei „Gemeldet“ die
+/// Notiz, mit dem Ergebnis als Betreff. Alle anderen Weck-Texte bleiben direkt.
+pub fn note_reference<'a>(event: &WakeEvent, facts: &'a WakeFacts) -> Option<(String, &'a str)> {
+    let is_reported = matches!(event, WakeEvent::Reported { .. });
+    (is_reported && !facts.note.trim().is_empty())
+        .then(|| (subject_of(&facts.text), facts.note.as_str()))
+}
+
+/// Die Notiz, wie `message` sie in „Gemeldet“ schreibt; an dieser Stelle setzt die Zustellung die
+/// Referenz ein (ADR 072).
+pub fn note_fragment(note: &str) -> String {
+    format!("Notiz: „{}“", shorten_to(note, MAX_NOTE_CHARS))
+}
+
 fn message(event: &WakeEvent, facts: &WakeFacts) -> String {
     let WakeFacts {
         implementation,
