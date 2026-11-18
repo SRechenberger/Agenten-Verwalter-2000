@@ -77,6 +77,16 @@ Gebaut in Phase 99.2 nach dem Entwurf [`docs/design/2026-11-17_master-session/`]
 - **Leiste (U9, Variante A):** Die Umsetzung steht als eine Zeile unter der Session aus `masterSessionId`, darunter nur Stationen in `asking`, `waitsForYou` und `error`. Ohne Master, bei ausgefallenem Master (`masterMissing`) oder wenn die Session keine eigene Zeile im Vorhaben hat, bleibt sie im Vorhaben. Ein weggeklappter Master (gekürzte Liste ab `COLLAPSE_FROM`) bleibt sichtbar, damit er seine Umsetzung nicht versteckt. Die Regeln stehen in `src/app/sidebarPlacement.ts` (nur Typen, Selbsttest `sidebarPlacement.selftest.ts`). Die Rückfall-Markierung aus [ADR 065](065-stationen-in-der-sidebar.md) gilt weiter: Im Chat einer Station ohne eigene Zeile trägt die Umsetzung die Markierung.
 - **Symbole (D17):** `StatusIcon` hat `shape: 'circle' | 'square'`; Umsetzungen nutzen `square` in Leiste und Kopf, mit derselben Formbedeutung und denselben Farben wie die runden Symbole.
 
+## Zustand der Session an der Station (`live`, `pause`)
+
+`state` bleibt, was der Ablauf braucht: Fortschritt, Nachfolger, Abschluss und das Wecken des Masters sehen `done` und `reported` unverändert. Daneben liefert `station_view` zwei Felder (Taiga #152, #38):
+
+- **`live`** ist der Zustand der Session einer fertigen oder gemeldeten Station, solange sie nicht ruht: startet, läuft, wartet auf ein Skript, fragt, pausiert (mit scharfem Zeitgeber `waitsForQuota`, sonst `waitsForYou`) oder im Fehler. Eine abgegebene Session ohne Skript ruht (`null`). Bei einer fertigen Station gilt `live` nur, wenn die Session nach der Annahme aktiv war (`last_activity_at` über `completed_at`); eine Annahme setzt die Aktivität nicht selbst, ein alter Fehler zeigt sich also nicht.
+- **`pause`** nennt den Grund, solange die Session pausiert ist: `quota` mit der Rücksetzzeit (oder ohne), sonst `other` (vom Benutzer pausiert oder nach dem Neustart der App, denn dann ist der Grund gelöscht, ADR 051 und 064).
+- **Dringlichkeit:** `urgency` der Umsetzung ist das Maximum von `urgency_rank` über `state` und `live`.
+- **Gemeldet und pausiert** (Hinweis 7 der Abnahme): Die Station bleibt `reported`, `live` ist `waitsForYou`; Zeile, Kartei und Leiste zeigen „gemeldet · pausiert“, das Dashboard eine Karte `paused`.
+- **Oberfläche:** Eine fertige Station mit `live` behält den Haken in der Farbe der Session („fertig · läuft wieder“, „fertig · fragt dich“, „fertig · pausiert“, „fertig · Fehler“); eine pausierte nennt den Grund als Chip („Kontingent bis HH:MM“, „Kontingent“, bei `other` keiner). Das eckige Symbol einer fertigen Umsetzung, deren `urgency` nicht `done` ist, zeigt einen Haken in der Farbe der Dringlichkeit. Die Regeln stehen in `stationLive.ts`, ihre Fälle in `sidebarPlacement.selftest.ts`.
+
 ## Bekannte Grenzen
 
 - **Codex:** Ohne MCP des Verwalters melden Stationen dort nicht, und ein Master dort entscheidet nicht; die Umsetzung braucht Claude, LM Studio oder Autark.

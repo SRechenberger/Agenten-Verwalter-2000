@@ -33,6 +33,10 @@ Die Idee kommt aus Upstream, das in Phasen nacheinander plant. Der Fork plant se
 - **Platz:** Die Umsetzung steht als eine Zeile unter ihrer Master-Session, ihre Stationen eine Ebene tiefer; ohne Master oder bei ausgefallenem bleibt sie im Vorhaben. Ein weggeklappter Master bleibt sichtbar.
 - **Rückfall-Markierung:** Zeigt die Hauptfläche den Chat einer Station ohne eigene Zeile (das sind jetzt auch laufende und gemeldete), trägt ihre Umsetzung die Markierung (`stationSessionIds` in `Sidebar.tsx`).
 
+## Nachtrag: Zustand der Session ([ADR 070](070-master-session.md))
+
+- Unter der Umsetzung steht eine Station auch dann, wenn nicht `state`, sondern `live` in `asking`, `waitsForYou` oder `error` liegt: eine fertige oder gemeldete Station, deren Session wieder fragt, pausiert oder scheitert (`isBelowImplementation`). Eine pausierte Station trägt dort den Grund als Chip („Kontingent bis HH:MM“).
+
 ## Konsequenzen
 
 - Der Baum wird bei parallelen Stationen länger: je aktiver Station eine Zeile; eine lange Warteschlange steht ganz in der Sidebar.
