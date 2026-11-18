@@ -188,6 +188,7 @@
   }
 
   &__archive,
+  &__dashboard,
   &__settings {
     display: flex;
     align-items: center;
@@ -215,6 +216,22 @@
     &--active:hover {
       background: var(--color-bg-selected);
     }
+  }
+
+  &__dashboard {
+    margin-top: var(--space-xs);
+  }
+
+  &__dashboard-count {
+    min-width: 18px;
+    margin-left: auto;
+    padding: 0 5px;
+    border-radius: var(--radius-full);
+    background: var(--color-status-waiting);
+    color: var(--color-bg-base);
+    font-size: var(--font-size-2xs);
+    font-weight: 600;
+    text-align: center;
   }
 
   &__settings-dot {

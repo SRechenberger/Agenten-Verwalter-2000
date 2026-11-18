@@ -18,6 +18,7 @@ import {
 import { isLocked, isRemote, LOCKED_TITLE } from '@/features/remote/projectAccess';
 import { displayStatus } from '@/features/sessions/sessionStatus';
 import { QueueChip } from '@/features/queue/QueueChip';
+import { badgeCount } from '@/features/dashboard/dashboardTexts';
 import { messageWaitPosition } from '@/features/queue/queueTexts';
 import { UsageSection } from '@/features/usage/UsageSection';
 import type { ImplementationView } from '@/lib/bindings/ImplementationView';
@@ -39,6 +40,7 @@ import { deleteSession, renameSession } from '@/lib/sessions';
 import { useActionError } from '@/lib/useActionError';
 import { needsAttention } from '@/features/environment/environmentTexts';
 import { useAppUpdateStore } from '@/stores/appUpdate';
+import { useDashboardStore } from '@/stores/dashboard';
 import { useEnvironmentStore } from '@/stores/environment';
 import { useSessionsStore } from '@/stores/sessions';
 import type { RenameKind, RenameTarget } from '@/stores/sessions';
@@ -82,6 +84,8 @@ interface SidebarProps {
   activeImplementationId: string | null;
   showProjectOverview: boolean;
   isSettingsOpen: boolean;
+  /** Die Hauptfläche zeigt das Dashboard. */
+  isDashboardOpen: boolean;
   /** Satz zum Lade- oder Abo-Fehler der Listen; `null` ohne Fehler. */
   loadError: string | null;
   onSelectSession: (sessionId: string) => void;
@@ -90,6 +94,7 @@ interface SidebarProps {
   /** Legt eine Rückfrage zur Umsetzung an und öffnet sie. */
   onNew: () => void;
   onOpenSettings: () => void;
+  onOpenDashboard: () => void;
   onOpenArchive: () => void;
   onArchived: (projectId: string) => void;
   /** Rückgabe des Core nach Übernehmen oder Zurückgeben — schneller als dessen Ereignis. */
@@ -108,12 +113,14 @@ export function Sidebar({
   activeImplementationId,
   showProjectOverview,
   isSettingsOpen,
+  isDashboardOpen,
   loadError,
   onSelectSession,
   onSelectProject,
   onSelectImplementation,
   onNew,
   onOpenSettings,
+  onOpenDashboard,
   onOpenArchive,
   onArchived,
   onProjectChanged,
@@ -123,6 +130,10 @@ export function Sidebar({
   const expanded: Record<string, boolean> = useSessionsStore((state) => state.expanded);
   const startRenameRaw = useSessionsStore((state) => state.startRename);
   const stopRename = useSessionsStore((state) => state.stopRename);
+  // Alle offenen Karten, nicht die gefilterten der Ansicht; bei 0 keine Zahl.
+  const cardCount: number | null = useDashboardStore((state) =>
+    badgeCount(state.view?.tasks ?? []),
+  );
   const showAllSessions: Record<string, boolean> = useSessionsStore(
     (state) => state.showAllSessions,
   );
@@ -711,6 +722,39 @@ export function Sidebar({
           </svg>
           <span className="sidebar__new-label">Neues Vorhaben</span>
           <kbd className="sidebar__new-key">Ctrl N</kbd>
+        </button>
+        <button
+          type="button"
+          className={`sidebar__dashboard${isDashboardOpen ? ' sidebar__dashboard--active' : ''}`}
+          aria-current={isDashboardOpen ? 'page' : undefined}
+          onClick={onOpenDashboard}
+        >
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 14 14"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+          >
+            <rect x="1.5" y="1.5" width="4.5" height="4.5" rx="1" />
+            <rect x="8" y="1.5" width="4.5" height="4.5" rx="1" />
+            <rect x="1.5" y="8" width="4.5" height="4.5" rx="1" />
+            <rect x="8" y="8" width="4.5" height="4.5" rx="1" />
+          </svg>
+          <span>Dashboard</span>
+          {cardCount !== null && (
+            <span
+              className="sidebar__dashboard-count"
+              title="Aufgaben, die auf dich warten"
+              aria-label={`${String(cardCount)} Aufgaben warten auf dich`}
+            >
+              {cardCount}
+            </span>
+          )}
         </button>
       </div>
       {loadError !== null && (

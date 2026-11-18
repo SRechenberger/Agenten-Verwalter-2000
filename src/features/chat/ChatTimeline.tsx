@@ -1,4 +1,4 @@
-import { useEffect, useEffectEvent, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { MouseEvent, ReactElement } from 'react';
 import { useVirtualizer, type VirtualItem } from '@tanstack/react-virtual';
 import { FileLinkSessionContext } from '@/components/FileLinkSessionContext';
@@ -14,17 +14,16 @@ import { lastAnswerSeq } from '@/features/chat/handoff';
 import { QuestionBlock } from '@/features/chat/QuestionBlock';
 import { SessionMessage } from '@/features/chat/SessionMessage';
 import { SessionToolBlock } from '@/features/chat/SessionToolBlock';
+import {
+  isTextTarget,
+  useQuestionAnswering,
+  useQuestionKeys,
+  type QuestionAnswering,
+} from '@/features/chat/useQuestionAnswering';
 import { NoticeBlock } from '@/features/notices/NoticeBlock';
 import { SelectionMenu } from '@/features/side/SelectionMenu';
 import { selectedChatText } from '@/features/side/selectionText';
 import {
-  draftAnswer,
-  emptyDraft,
-  EMPTY_TOOL_DRAFT,
-  isComplete,
-  needsSubmit,
-  pickOption,
-  type PickResult,
   type QuestionDraft,
   type QuestionEntry,
   type ToolDraft,
@@ -45,13 +44,10 @@ import type { SelfRelease } from '@/lib/bindings/SelfRelease';
 import type { SessionSummary } from '@/lib/bindings/SessionSummary';
 import type { SessionStatus } from '@/lib/bindings/SessionStatus';
 import type { TodoItem } from '@/lib/bindings/TodoItem';
-import { answerQuestion } from '@/lib/chat';
-import { commandErrorText } from '@/lib/errors';
 import { useArtifactsStore } from '@/stores/artifacts';
-import { useSessionErrorsStore } from '@/stores/sessionErrors';
 import { lockNote } from '@/features/remote/projectAccess';
 import { useOperatingMode } from '@/features/remote/useOperatingMode';
-import { useProjectIsRemote, useProjectLock } from '@/features/remote/useProjectAccess';
+import { useProjectIsRemote } from '@/features/remote/useProjectAccess';
 import { useSessionsStore } from '@/stores/sessions';
 import './ChatTimeline.css';
 
@@ -71,8 +67,6 @@ function toolKey(toolUseId: string): string {
 }
 /** Solange der Agent arbeitet oder die Session leer ist, steht unter der Antwort kein „Weiter“-Knopf. */
 const HANDOFF_HIDDEN_STATUSES: readonly SessionStatus[] = ['starting', 'running', 'new'];
-const DIGIT_KEYS: readonly string[] = ['1', '2', '3', '4', '5', '6', '7', '8', '9'];
-const ENTER_KEY = 'Enter';
 
 interface ChatTimelineProps {
   session: SessionSummary;
@@ -124,23 +118,14 @@ export function ChatTimeline({
   const [containerHeight, setContainerHeight] = useState<number>(0);
   // Auf-/Zugeklappt und halbe Antworten leben hier, nicht im Block: ein Block verlässt beim Scrollen das DOM.
   const [expandedKeys, setExpandedKeys] = useState<ReadonlySet<string>>(() => new Set<string>());
-  const [drafts, setDrafts] = useState<ReadonlyMap<string, QuestionDraft>>(
-    () => new Map<string, QuestionDraft>(),
-  );
-  const [toolDrafts, setToolDrafts] = useState<ReadonlyMap<string, ToolDraft>>(
-    () => new Map<string, ToolDraft>(),
-  );
-  const [sendingIds, setSendingIds] = useState<ReadonlySet<string>>(() => new Set<string>());
   const [selectionMenu, setSelectionMenu] = useState<SelectionMenuState | null>(null);
   const operatingMode: OperatingMode = useOperatingMode(session.projectId);
   const isClaude: boolean = operatingMode === 'claude';
-  const reportSessionError = useSessionErrorsStore((state) => state.report);
-  const clearSessionError = useSessionErrorsStore((state) => state.clear);
-  // Solange ein Gast steuert oder der Host fehlt, bleiben Rückfragen sichtbar, aber unbeantwortbar.
-  const lock = useProjectLock(session.projectId);
+  // Entwürfe und Senden der Antworten teilt der Chat mit dem Popup des Dashboards.
+  const answering: QuestionAnswering = useQuestionAnswering(session.id, session.projectId);
+  const { lock } = answering;
   // Ein Dateiverweis öffnete die Datei am Bildschirm des Hosts: Bei dessen Vorhaben bleibt der Pfad Text.
   const isRemote: boolean = useProjectIsRemote(session.projectId);
-  const isLocked: boolean = lock !== null;
   const scrollRef = useRef<HTMLDivElement>(null);
   const stickToBottomRef = useRef<boolean>(true);
   const layoutMarkRef = useRef<LayoutMark>({ firstSeq: null, scrollHeight: 0 });
@@ -256,56 +241,7 @@ export function ChatTimeline({
     }
   }, [hasMore, loadingOlder, olderError, containerHeight, totalSize, onLoadOlder]);
 
-  const handleDigit = useEffectEvent((event: KeyboardEvent): void => {
-    if (event.defaultPrevented || event.ctrlKey || event.altKey || event.metaKey) {
-      return;
-    }
-    if (isTextTarget(event.target) || oldestOpenQuestion === null) {
-      return;
-    }
-    if (sendingIds.has(oldestOpenQuestion.requestId) || isLocked) {
-      return;
-    }
-    // Einen Vorschlag beantwortet nur sein Kasten; `chat_answer` wiese „1“ und „2“ ab.
-    if (oldestOpenQuestion.toolRequest?.kind === 'agentType') {
-      return;
-    }
-    // Beim Ändern stehen „Erlauben“ und „Ablehnen“ nicht da; eine Ziffer darf den alten Text nicht senden.
-    if ((toolDrafts.get(oldestOpenQuestion.requestId)?.edit ?? null) !== null) {
-      return;
-    }
-    const draft: QuestionDraft = draftFor(oldestOpenQuestion);
-    if (event.key === ENTER_KEY) {
-      // Auf einem Knopf oder Link löst Enter dessen Klick aus, nicht das Senden.
-      if (
-        event.shiftKey ||
-        isControlTarget(event.target) ||
-        !needsSubmit(oldestOpenQuestion, draft) ||
-        !isComplete(oldestOpenQuestion, draft)
-      ) {
-        return;
-      }
-      event.preventDefault();
-      submit(oldestOpenQuestion, draftAnswer(draft));
-      return;
-    }
-    const optionIndex: number = DIGIT_KEYS.indexOf(event.key);
-    if (optionIndex === -1) {
-      return;
-    }
-    event.preventDefault();
-    pick(oldestOpenQuestion, draft.active, optionIndex);
-  });
-
-  useEffect(() => {
-    function handleKeyDown(event: KeyboardEvent): void {
-      handleDigit(event);
-    }
-    window.addEventListener('keydown', handleKeyDown);
-    return (): void => {
-      window.removeEventListener('keydown', handleKeyDown);
-    };
-  }, []);
+  useQuestionKeys(oldestOpenQuestion, answering);
 
   function handleScroll(): void {
     const element: HTMLDivElement | null = scrollRef.current;
@@ -375,56 +311,6 @@ export function ChatTimeline({
       }
       return next;
     });
-  }
-
-  function draftFor(entry: QuestionEntry): QuestionDraft {
-    return drafts.get(entry.requestId) ?? emptyDraft(entry);
-  }
-
-  function submit(entry: QuestionEntry, answer: QuestionAnswer): void {
-    if (isLocked) {
-      return;
-    }
-    const requestId: string = entry.requestId;
-    setSendingIds((current: ReadonlySet<string>) => new Set<string>(current).add(requestId));
-    answerQuestion(session.id, requestId, answer)
-      .then(() => {
-        clearSessionError(session.id);
-      })
-      .catch((reason: unknown) => {
-        console.error('Rückfrage nicht beantwortbar', reason);
-        reportSessionError(session.id, `Antwort nicht gesendet: ${commandErrorText(reason)}`);
-      })
-      .finally(() => {
-        setSendingIds((current: ReadonlySet<string>) => {
-          const next = new Set<string>(current);
-          next.delete(requestId);
-          return next;
-        });
-      });
-  }
-
-  function pick(entry: QuestionEntry, questionIndex: number, optionIndex: number): void {
-    const result: PickResult | null = pickOption(
-      entry,
-      draftFor(entry),
-      questionIndex,
-      optionIndex,
-    );
-    if (result === null) {
-      return;
-    }
-    if (result.kind === 'answer') {
-      submit(entry, result.answer);
-      return;
-    }
-    storeDraft(entry, result.draft);
-  }
-
-  function storeDraft(entry: QuestionEntry, draft: QuestionDraft): void {
-    setDrafts((current: ReadonlyMap<string, QuestionDraft>) =>
-      new Map<string, QuestionDraft>(current).set(entry.requestId, draft),
-    );
   }
 
   function renderEntry(key: string, entry: Exclude<ChatEntry, { kind: 'tool' }>): ReactElement {
@@ -499,34 +385,32 @@ export function ChatTimeline({
             sessionNumber={session.number}
             projectId={session.projectId}
             selfRelease={selfRelease}
-            draft={toolDrafts.get(entry.requestId) ?? EMPTY_TOOL_DRAFT}
-            isSending={sendingIds.has(entry.requestId) || isLocked}
+            draft={answering.toolDraftFor(entry.requestId)}
+            isSending={answering.isSending(entry.requestId)}
             onPick={(optionIndex: number): void => {
-              pick(entry, 0, optionIndex);
+              answering.pick(entry, 0, optionIndex);
             }}
             onSubmit={(answer: QuestionAnswer): void => {
-              submit(entry, answer);
+              answering.submit(entry, answer);
             }}
             onDraft={(next: ToolDraft): void => {
-              setToolDrafts((current: ReadonlyMap<string, ToolDraft>) =>
-                new Map<string, ToolDraft>(current).set(entry.requestId, next),
-              );
+              answering.storeToolDraft(entry.requestId, next);
             }}
           />
         ) : (
           <QuestionBlock
             entry={entry}
-            draft={draftFor(entry)}
+            draft={answering.draftFor(entry)}
             lockNote={lock === null ? null : lockNote(lock)}
-            isSending={sendingIds.has(entry.requestId) || isLocked}
+            isSending={answering.isSending(entry.requestId)}
             onPick={(questionIndex: number, optionIndex: number): void => {
-              pick(entry, questionIndex, optionIndex);
+              answering.pick(entry, questionIndex, optionIndex);
             }}
             onSubmit={(answer: QuestionAnswer): void => {
-              submit(entry, answer);
+              answering.submit(entry, answer);
             }}
             onDraft={(next: QuestionDraft): void => {
-              storeDraft(entry, next);
+              answering.storeDraft(entry, next);
             }}
           />
         );
@@ -711,19 +595,6 @@ function findLastUserBlockIndex(blocks: readonly ChatBlock[]): number {
     }
   }
   return -1;
-}
-
-function isTextTarget(target: EventTarget | null): boolean {
-  if (!(target instanceof HTMLElement)) {
-    return false;
-  }
-  return (
-    target.closest('input, textarea, [contenteditable]:not([contenteditable="false"])') !== null
-  );
-}
-
-function isControlTarget(target: EventTarget | null): boolean {
-  return target instanceof HTMLElement && target.closest('button, a, [role="button"]') !== null;
 }
 
 function isLinkTarget(target: EventTarget | null): boolean {

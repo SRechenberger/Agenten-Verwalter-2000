@@ -16,6 +16,8 @@ import { IMPLEMENTATION_ARTIFACTS_HEADING } from '@/features/artifacts/artifactT
 import { ArtifactsView } from '@/features/artifacts/ArtifactsView';
 import { useProjectArtifacts } from '@/features/artifacts/useProjectArtifacts';
 import { ChatView } from '@/features/chat/ChatView';
+import { DashboardView } from '@/features/dashboard/DashboardView';
+import { useDashboard } from '@/features/dashboard/useDashboard';
 import { useGitStatus } from '@/features/git/useGitStatus';
 import { implementationArtifacts } from '@/features/implementation/implementationArtifacts';
 import { ImplementationView as ImplementationMain } from '@/features/implementation/ImplementationView';
@@ -98,6 +100,8 @@ export function App(): ReactElement {
   } = useImplementations();
   // Die globale Warteschlange für Leiste, Marke „n warten“ und Zeilen (ADR 068).
   useAgentQueueSync();
+  // Aufgaben, Abläufe und Sessions des Dashboards; das Löschen einer Session sendet kein Ereignis.
+  const reloadDashboard = useDashboard();
   // Fernsteuerung: Geräte und Hosts für Einstellungen, Leiste und Köpfe; die Rechte der Listen für gesperrte Bedienelemente.
   useRemoteSync();
   useProjectAccessSync(projects, sessions);
@@ -120,6 +124,7 @@ export function App(): ReactElement {
   const showProjectOverview: boolean = useSessionsStore((state) => state.showProjectOverview);
   const showNewSession: boolean = useSessionsStore((state) => state.showNewSession);
   const showSettings: boolean = useSessionsStore((state) => state.showSettings);
+  const showDashboard: boolean = useSessionsStore((state) => state.showDashboard);
   const activeView: SessionView = useSessionsStore((state) => state.activeView);
   const projectView: ProjectView = useSessionsStore((state) => state.projectView);
   const showView = useSessionsStore((state) => state.showView);
@@ -130,6 +135,7 @@ export function App(): ReactElement {
   const openNewSession = useSessionsStore((state) => state.openNewSession);
   const closeNewSession = useSessionsStore((state) => state.closeNewSession);
   const openSettings = useSessionsStore((state) => state.openSettings);
+  const openDashboard = useSessionsStore((state) => state.openDashboard);
   const [isArchiveOpen, setIsArchiveOpen] = useState<boolean>(false);
   const isBackgroundOpen: boolean = useBackgroundStore((state) => state.isOpen);
   const toggleBackground = useBackgroundStore((state) => state.toggle);
@@ -159,7 +165,12 @@ export function App(): ReactElement {
     onArtifactShow((event: ArtifactShowEvent) => {
       useArtifactsStore.getState().select(event.projectId, event.file);
       const state = useSessionsStore.getState();
-      if (state.showNewSession || state.showSettings || state.showImplementation) {
+      if (
+        state.showNewSession ||
+        state.showSettings ||
+        state.showDashboard ||
+        state.showImplementation
+      ) {
         return;
       }
       if (state.showProjectOverview) {
@@ -190,8 +201,9 @@ export function App(): ReactElement {
     };
   }, []);
   useSessionOverlaps();
-  // „Neues Vorhaben“ und die Einstellungen ersetzen den Inhalt; Session und Übersicht sind dann nicht sichtbar.
-  const isPageReplaced: boolean = showNewSession || showSettings;
+  // „Neues Vorhaben“, die Einstellungen und das Dashboard ersetzen den Inhalt; Session und Übersicht sind dann
+  // nicht sichtbar, und keine Session gilt als gelesen (ADR 019).
+  const isPageReplaced: boolean = showNewSession || showSettings || showDashboard;
   // Beendet der Host die Freigabe, verschwindet das Vorhaben aus den Listen; die offene Ansicht zeigt dann den
   // Hinweis, statt auf eine andere Session auszuweichen.
   const endedSelection: EndedShare | undefined = isPageReplaced
@@ -488,6 +500,8 @@ export function App(): ReactElement {
 
   function handleSessionDeleted(session: SessionSummary, isProjectDeleted: boolean): void {
     removeSession(session.id);
+    // Das Löschen sendet kein Ereignis: Die Karte „Master ausgefallen“ stünde sonst erst beim nächsten.
+    reloadDashboard();
     if (isProjectDeleted) {
       removeProject(session.projectId);
     }
@@ -683,6 +697,17 @@ export function App(): ReactElement {
         />
       );
     }
+    if (showDashboard) {
+      return (
+        <DashboardView
+          sessions={sessions}
+          implementations={implementations}
+          projects={projects}
+          onOpenSession={selectSession}
+          onOpenImplementation={selectImplementation}
+        />
+      );
+    }
     if (showNewSession) {
       return <NewSession groups={groups} onCreated={handleCreated} onCancel={closeNewSession} />;
     }
@@ -770,12 +795,14 @@ export function App(): ReactElement {
         activeImplementationId={isImplementation ? (shownImplementation?.id ?? null) : null}
         showProjectOverview={(isOverview && !isImplementation) || offeredProject !== undefined}
         isSettingsOpen={showSettings}
+        isDashboardOpen={showDashboard}
         loadError={projectsError ?? groupsError ?? sessionsError ?? implementationsError}
         onSelectSession={selectSession}
         onSelectProject={selectProject}
         onSelectImplementation={selectImplementation}
         onNew={openNewSession}
         onOpenSettings={openSettings}
+        onOpenDashboard={openDashboard}
         onOpenArchive={(): void => {
           setIsArchiveOpen(true);
         }}

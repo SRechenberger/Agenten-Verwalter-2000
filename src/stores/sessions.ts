@@ -35,6 +35,8 @@ interface SessionsState {
   newSessionPrefill: NewSessionPrefill | null;
   /** `true`: die Einstellungsseite statt Session, Übersicht oder „Neues Vorhaben“. */
   showSettings: boolean;
+  /** `true`: das Dashboard statt Session, Übersicht, Umsetzung oder Einstellungen; Startansicht (ADR 071). */
+  showDashboard: boolean;
   activeProjectId: string | null;
   /** `true`: die Übersicht des Vorhabens `activeProjectId` statt einer Session. */
   showProjectOverview: boolean;
@@ -61,6 +63,7 @@ interface SessionsState {
   openNewSessionWith: (prefill: NewSessionPrefill) => void;
   closeNewSession: () => void;
   openSettings: () => void;
+  openDashboard: () => void;
   closeSettings: () => void;
   setExpanded: (projectId: string, value: boolean) => void;
   setShowAllSessions: (projectId: string, value: boolean) => void;
@@ -75,6 +78,7 @@ export const useSessionsStore = create<SessionsState>((set) => ({
   showNewSession: false,
   newSessionPrefill: null,
   showSettings: false,
+  showDashboard: true,
   activeProjectId: null,
   showProjectOverview: false,
   showImplementation: false,
@@ -90,6 +94,7 @@ export const useSessionsStore = create<SessionsState>((set) => ({
       activeView: state.viewBySession[sessionId] ?? 'chat',
       showNewSession: false,
       showSettings: false,
+      showDashboard: false,
       showProjectOverview: false,
       showImplementation: false,
     }));
@@ -105,6 +110,7 @@ export const useSessionsStore = create<SessionsState>((set) => ({
       projectView: 'overview',
       showNewSession: false,
       showSettings: false,
+      showDashboard: false,
     });
   },
   showView: (view: SessionView): void => {
@@ -126,6 +132,7 @@ export const useSessionsStore = create<SessionsState>((set) => ({
       implementationView: 'flow',
       showProjectOverview: false,
       showSettings: false,
+      showDashboard: false,
       showNewSession: false,
     });
   },
@@ -137,6 +144,7 @@ export const useSessionsStore = create<SessionsState>((set) => ({
       showNewSession: true,
       newSessionPrefill: null,
       showSettings: false,
+      showDashboard: false,
       showProjectOverview: false,
       showImplementation: false,
     });
@@ -146,6 +154,7 @@ export const useSessionsStore = create<SessionsState>((set) => ({
       showNewSession: true,
       newSessionPrefill: prefill,
       showSettings: false,
+      showDashboard: false,
       showProjectOverview: false,
       showImplementation: false,
     });
@@ -156,6 +165,16 @@ export const useSessionsStore = create<SessionsState>((set) => ({
   openSettings: (): void => {
     set({
       showSettings: true,
+      showDashboard: false,
+      showNewSession: false,
+      showProjectOverview: false,
+      showImplementation: false,
+    });
+  },
+  openDashboard: (): void => {
+    set({
+      showDashboard: true,
+      showSettings: false,
       showNewSession: false,
       showProjectOverview: false,
       showImplementation: false,

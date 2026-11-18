@@ -15,14 +15,16 @@ import {
   openingLevel,
   type StationRef,
 } from '@/features/implementation/implementationOrder';
-import { patchEdit } from '@/features/implementation/implementationGraph';
 import {
   APPLY_FAILED,
   CANCELLED_NOT_DELETED,
   START_FAILED,
-  proposalAppliedWithFailures,
-  stationNotFound,
 } from '@/features/implementation/implementationTexts';
+import {
+  answerCancelRequest,
+  applyEditedProposal,
+  freshStations,
+} from '@/features/implementation/implementationActions';
 import { MasterWarning } from '@/features/implementation/MasterPicker';
 import { NewLaneForm } from '@/features/implementation/NewLaneForm';
 import type { ProposalOverride } from '@/features/implementation/PlanChangeCard';
@@ -32,23 +34,16 @@ import { Timeline } from '@/features/implementation/Timeline';
 import { useProjectLocked } from '@/features/remote/useProjectAccess';
 import type { ImplementationView as Implementation } from '@/lib/bindings/ImplementationView';
 import type { SessionSummary } from '@/lib/bindings/SessionSummary';
-import type { StationPatch } from '@/lib/bindings/StationPatch';
-import { commandErrorText } from '@/lib/errors';
 import {
-  applyImplementationCancel,
   applyImplementationChange,
   cancelImplementation,
   cancelStationCountdown,
   completeStationByUser,
   deleteImplementation,
-  discardImplementationCancel,
-  editPlan,
-  listImplementations,
   loadImplementationReport,
   setImplementationAutoResume,
   setImplementationAutoStart,
   setImplementationStopAfterCurrent,
-  setStationAgent,
   setStationAutoResume,
   startStation,
 } from '@/lib/implementation';
@@ -105,75 +100,6 @@ function arrowStep(key: string): number {
     return 1;
   }
   return key === 'ArrowUp' ? -1 : 0;
-}
-
-/** Die Stationen einer Umsetzung, wie der Core sie jetzt hält; nach einem Befehl, bevor das Ereignis da ist. */
-async function freshStations(implementationId: string): Promise<StationRef[]> {
-  const fresh: Implementation | undefined = (await listImplementations()).find(
-    (candidate: Implementation) => candidate.id === implementationId,
-  );
-  return fresh === undefined ? [] : flatStations(fresh);
-}
-
-/** „Übernehmen“ mit geänderten Werten: erst der Vorschlag wie vorgeschlagen (damit die Plan-Änderung mit
- *  ihrer Quelle vermerkt ist), dann Typ, Modell und Denkaufwand je Station und der Auftrag als Delta. Die
- *  Stationen findet die Funktion über ihre Kennung, neue ohne Kennung über Lane und Name unter den neuen. */
-async function applyEditedProposal(
-  implementationId: string,
-  before: ReadonlySet<string>,
-  overrides: readonly ProposalOverride[],
-): Promise<void> {
-  await applyImplementationChange(implementationId, true);
-  const refs: StationRef[] = await freshStations(implementationId);
-  const used = new Set<string>();
-  const briefs: StationPatch[] = [];
-  const failures: string[] = [];
-  for (const override of overrides) {
-    // Der Core speichert den Namen gekürzt.
-    const stage: string = override.stage.trim();
-    const target: StationRef | undefined = refs.find(
-      (ref: StationRef) =>
-        !used.has(ref.station.planId) &&
-        (override.planId === null
-          ? !before.has(ref.station.planId) &&
-            ref.phase.key === override.lane &&
-            ref.station.stage === stage
-          : ref.station.planId === override.planId),
-    );
-    if (target === undefined) {
-      failures.push(stationNotFound(stage, override.lane));
-      continue;
-    }
-    used.add(target.station.planId);
-    const { station } = target;
-    if (override.changed.agent || override.changed.model || override.changed.effort) {
-      try {
-        await setStationAgent(implementationId, station.id, {
-          agent: override.agent,
-          model: override.model,
-          effort: override.effort,
-          prompt: station.prompt,
-          skill: station.skill,
-        });
-      } catch (reason: unknown) {
-        failures.push(`${stage} (Lane ${override.lane}): ${commandErrorText(reason)}`);
-        continue;
-      }
-    }
-    if (override.changed.brief) {
-      briefs.push({ id: station.planId, brief: override.brief });
-    }
-  }
-  if (briefs.length > 0) {
-    try {
-      await editPlan(implementationId, patchEdit(...briefs));
-    } catch (reason: unknown) {
-      failures.push(commandErrorText(reason));
-    }
-  }
-  if (failures.length > 0) {
-    throw new Error(proposalAppliedWithFailures(failures));
-  }
 }
 
 /** Hauptfläche einer Umsetzung (ADR 048): Kopfzeile, darunter Zeitleiste mit Kartei oder die Changes. */
@@ -407,16 +333,15 @@ export function ImplementationView({
           run(() => applyEditedProposal(implementationId, before, overrides), APPLY_FAILED);
         }}
         onApplyCancel={(accept: boolean): void => {
-          if (!accept) {
-            run(() => discardImplementationCancel(implementationId), 'Verwerfen fehlgeschlagen');
-            return;
-          }
-          run(async (): Promise<void> => {
-            const notDeleted: string | null = await applyImplementationCancel(implementationId);
-            if (notDeleted !== null) {
-              reportFailure(`${CANCELLED_NOT_DELETED}: ${notDeleted}`);
-            }
-          }, 'Bestätigen fehlgeschlagen');
+          run(
+            async (): Promise<void> => {
+              const notDeleted: string | null = await answerCancelRequest(implementationId, accept);
+              if (notDeleted !== null) {
+                reportFailure(`${CANCELLED_NOT_DELETED}: ${notDeleted}`);
+              }
+            },
+            accept ? 'Bestätigen fehlgeschlagen' : 'Verwerfen fehlgeschlagen',
+          );
         }}
         run={run}
       />
