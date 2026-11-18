@@ -5775,6 +5775,14 @@ mod tests {
             })
         );
         assert_eq!(implementation::return_reference(None), None);
+        let master =
+            implementation::return_sender(Some(crate::implementation::master::MasterRef {
+                id: "m".to_owned(),
+                number: 3,
+                title: "Master".to_owned(),
+            }));
+        assert_eq!((master.id.as_str(), master.number), ("m", 3));
+        assert_eq!(implementation::return_sender(None).id, "verwalter");
     }
 
     #[test]

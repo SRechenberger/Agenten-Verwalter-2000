@@ -68,6 +68,15 @@ pub(super) struct ReportUpdate {
     pub summary: String,
 }
 
+/// Absender einer Rückgabe: der Master, sonst der Verwalter.
+pub(super) fn return_sender(master: Option<MasterRef>) -> SessionRef {
+    master.map_or_else(wake::sender, |master: MasterRef| SessionRef {
+        id: master.id,
+        number: master.number,
+        title: master.title,
+    })
+}
+
 /// Die Rückgabe des Masters mit Betreff geht über eine Referenz, ohne Betreff (Rückgabe des Benutzers)
 /// direkt (ADR 072).
 pub(super) fn return_reference(subject: Option<&str>) -> Option<Reference<'_>> {
@@ -545,13 +554,7 @@ impl SessionRegistry {
     ) -> Result<(), CommandError> {
         let session = self.get(session_id)?;
         let status = session.lock().status;
-        let sender =
-            self.master_ref(master_session_id)
-                .map_or_else(wake::sender, |master: MasterRef| SessionRef {
-                    id: master.id,
-                    number: master.number,
-                    title: master.title,
-                });
+        let sender = return_sender(self.master_ref(master_session_id));
         if matches!(status, SessionStatus::Error | SessionStatus::Cancelled) {
             self.restart(app, session_id)?;
             return match subject {
