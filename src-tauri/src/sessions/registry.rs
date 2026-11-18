@@ -5240,4 +5240,102 @@ mod tests {
         state.end_turn(&mut outbox, TurnEnd::Completed, None, Vec::new(), None);
         assert!(outbox.classify.is_none(), "Pause");
     }
+
+    /// Der Weg einer Nachricht an `state`: mit Platz, ohne wartende Nachricht, vom Master, bis ein
+    /// Test es ändert.
+    fn route_to(
+        state: &SessionState,
+        change: impl FnOnce(&mut session_tools::Delivery),
+    ) -> session_tools::Route {
+        let mut delivery = session_tools::Delivery {
+            status: state.status,
+            rests: state.rests(),
+            has_waiting: false,
+            claimed: true,
+            timer_armed: state.waits_for_resume(),
+            from_master: true,
+        };
+        change(&mut delivery);
+        session_tools::route_message(&delivery)
+    }
+
+    fn state_with(status: SessionStatus) -> SessionState {
+        let mut state = state();
+        state.status = status;
+        state
+    }
+
+    fn paused(auto_resume: bool) -> SessionState {
+        let mut state = state_with(SessionStatus::Paused);
+        state.pause_reason = Some(PauseReason::Quota {
+            resets_at: Some(1.0),
+            auto_resume,
+        });
+        state
+    }
+
+    #[test]
+    fn a_message_of_the_master_resumes_its_paused_station() {
+        assert_eq!(route_to(&paused(false), |_| {}), session_tools::Route::Now);
+        // Auch ohne Grund der Pause (zum Beispiel nach einem Neustart der App).
+        let mut restarted = state_with(SessionStatus::Paused);
+        restarted.pause_reason = None;
+        assert_eq!(route_to(&restarted, |_| {}), session_tools::Route::Now);
+    }
+
+    #[test]
+    fn a_message_of_another_session_to_a_paused_station_waits() {
+        assert_eq!(
+            route_to(&paused(false), |d| d.from_master = false),
+            session_tools::Route::Queue { nudge: false }
+        );
+    }
+
+    #[test]
+    fn a_paused_station_with_an_armed_timer_keeps_the_message_waiting() {
+        assert_eq!(
+            route_to(&paused(true), |_| {}),
+            session_tools::Route::Queue { nudge: false }
+        );
+    }
+
+    #[test]
+    fn a_message_to_a_resting_session_is_delivered_as_before() {
+        let resting = state_with(SessionStatus::Completed);
+        assert_eq!(
+            route_to(&resting, |d| d.from_master = false),
+            session_tools::Route::Now
+        );
+        assert_eq!(route_to(&resting, |_| {}), session_tools::Route::Now);
+    }
+
+    #[test]
+    fn a_message_to_a_running_session_waits_as_before() {
+        let running = state_with(SessionStatus::Running);
+        assert_eq!(
+            route_to(&running, |_| {}),
+            session_tools::Route::Queue { nudge: false }
+        );
+    }
+
+    #[test]
+    fn an_older_waiting_message_goes_first() {
+        assert_eq!(
+            route_to(&paused(false), |d| d.has_waiting = true),
+            session_tools::Route::Queue { nudge: false }
+        );
+        let resting = state_with(SessionStatus::Completed);
+        assert_eq!(
+            route_to(&resting, |d| d.has_waiting = true),
+            session_tools::Route::Queue { nudge: true }
+        );
+    }
+
+    #[test]
+    fn without_a_slot_the_message_waits() {
+        assert_eq!(
+            route_to(&paused(false), |d| d.claimed = false),
+            session_tools::Route::Queue { nudge: false }
+        );
+    }
 }
