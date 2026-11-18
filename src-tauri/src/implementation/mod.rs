@@ -1884,8 +1884,10 @@ fn station_view(
     let live = live_state(station, state, report.is_some(), session);
     let pause = session.and_then(|session: &SessionLive| pause_of(session, station, live));
     // Kein Neustart nach Halt oder Ende (auch Abbruch), während eine Anfrage zum Abbrechen liegt
-    // (ADR 066), und keiner für einen Fehler von vor dem App-Neustart.
-    let restarting = session_state == StationState::Error
+    // (ADR 066), keiner für einen Fehler von vor dem App-Neustart und keiner für eine fertige Station:
+    // Ihr Fehler nach der Annahme wird eine Karte `error` (ADR 071).
+    let restarting = station.completed_at.is_none()
+        && session_state == StationState::Error
         && session.is_some_and(|session: &SessionLive| session.is_fresh_error)
         && station.restarts < station.on_error.max_restarts()
         && !implementation.stop_after_current

@@ -6552,16 +6552,58 @@ fn a_done_station_with_a_failed_session_reaches_the_dashboard_as_an_error_card()
 }
 
 #[test]
-fn stations_done_ignores_live() {
-    let mut row = station_row("s", 0, "Umsetzung");
+fn stations_done_and_successors_ignore_live() {
+    let mut first = node("first", &[]);
+    first.session_id = Some("session".to_owned());
+    first.completed_at = Some(10.0);
+    let stored = StoredImplementation {
+        row: implementation_row(),
+        phases: vec![phase_row()],
+        stations: vec![first, node("second", &["first"])],
+        changes: Vec::new(),
+    };
+    let live: HashMap<String, SessionLive> = HashMap::from([(
+        "session".to_owned(),
+        SessionLive {
+            last_activity_at: 20.0,
+            ..session_live(SessionStatus::Error)
+        },
+    )]);
+    let view = build_view(&stored, &live, &HashMap::new(), &HashMap::new(), &[]);
+    assert_eq!(shown(&view, "first").live, Some(StationState::Error));
+    assert_eq!(view.stations_done, 1);
+    assert!(is_done(shown(&view, "first")));
+    assert_eq!(
+        shown(&view, "second").state,
+        StationState::Ready,
+        "der Nachfolger wird bereit, auch wenn die Session der angenommenen Station im Fehler ist"
+    );
+}
+
+#[test]
+fn a_finished_station_with_a_fresh_error_does_not_restart() {
+    use crate::dashboard::model::{DashboardTaskKind, ProjectFacts, Snapshot};
+    let mut row = failing(OnError::RestartOnce, 0);
     row.plan_id = "a".to_owned();
     let session = SessionLive {
         last_activity_at: 20.0,
+        is_fresh_error: true,
         ..session_live(SessionStatus::Error)
     };
     let view = live_view(row, Some(10.0), Some(session));
-    assert_eq!(view.stations_done, 1);
-    assert!(is_done(&view.phases[0].stations[0]));
+    assert!(!view.phases[0].stations[0].restarting);
+    let snapshot = Snapshot {
+        projects: vec![ProjectFacts {
+            id: "project".to_owned(),
+            name: "Vorhaben".to_owned(),
+            group_name: None,
+        }],
+        sessions: Vec::new(),
+        flows: vec![crate::dashboard::flow_facts(&view)],
+    };
+    let dashboard = crate::dashboard::build(&snapshot, 100.0);
+    let kinds: Vec<DashboardTaskKind> = dashboard.tasks.iter().map(|task| task.kind).collect();
+    assert!(kinds.contains(&DashboardTaskKind::Error), "{kinds:?}");
 }
 
 #[test]
