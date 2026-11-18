@@ -66,6 +66,8 @@ fn station(stage: &str, model: ModelId, skill: &str) -> StationView {
         returns: 0,
         returns_left: 3,
         released: false,
+        live: None,
+        pause: None,
     }
 }
 
@@ -2743,6 +2745,7 @@ fn view_with_sessions(
                 awaits_script: false,
                 is_fresh_error,
                 waits_for_quota: false,
+                pause_reason: None,
             },
         );
     }
@@ -3207,6 +3210,7 @@ fn on_error_does_not_restart_after_an_app_restart_a_cancel_or_a_halt() {
             awaits_script: false,
             is_fresh_error: true,
             waits_for_quota: false,
+            pause_reason: None,
         },
     )]);
     let halted = build_view(&stored, &live, &HashMap::new(), &HashMap::new(), &[]);
@@ -3922,6 +3926,7 @@ fn quota_view(
                 awaits_script: false,
                 is_fresh_error: false,
                 waits_for_quota,
+                pause_reason: None,
             },
         );
     }
@@ -4415,6 +4420,7 @@ fn cancel_stops_countdown_and_retry() {
                 awaits_script: false,
                 is_fresh_error: true,
                 waits_for_quota: false,
+                pause_reason: None,
             },
         )]);
         let stored = StoredImplementation {
@@ -5826,6 +5832,7 @@ fn session_live(status: SessionStatus) -> SessionLive {
         awaits_script: false,
         is_fresh_error: false,
         waits_for_quota: false,
+        pause_reason: None,
     }
 }
 
@@ -6372,4 +6379,175 @@ fn the_start_pass_finds_only_reported_stations_of_running_implementations() {
         ],
         "gemeldet und gemeldet ohne Rückgaben zählen, angenommen, ohne Meldung und abgebrochen nicht"
     );
+}
+
+/// Die Umsetzung mit einer Station, deren Session so ist; `done_at` ist die Annahme.
+fn live_view(
+    row: StationRow,
+    done_at: Option<f64>,
+    session: Option<SessionLive>,
+) -> ImplementationView {
+    let live: HashMap<String, SessionLive> = session
+        .map(|session: SessionLive| HashMap::from([("session".to_owned(), session)]))
+        .unwrap_or_default();
+    let stored = StoredImplementation {
+        row: implementation_row(),
+        phases: vec![phase_row()],
+        stations: vec![StationRow {
+            session_id: Some("session".to_owned()).filter(|_| !live.is_empty()),
+            completed_at: done_at,
+            ..row
+        }],
+        changes: Vec::new(),
+    };
+    build_view(&stored, &live, &HashMap::new(), &HashMap::new(), &[])
+}
+
+/// Eine angenommene Station (Annahme bei 10) mit einer Session, die nach der Annahme aktiv war.
+fn accepted_view(status: SessionStatus) -> StationView {
+    let session = SessionLive {
+        last_activity_at: 20.0,
+        ..session_live(status)
+    };
+    live_view(station_row("s", 0, "Umsetzung"), Some(10.0), Some(session)).phases[0].stations[0]
+        .clone()
+}
+
+#[test]
+fn a_done_station_whose_session_runs_again_is_live_running() {
+    let station = accepted_view(SessionStatus::Running);
+    assert_eq!(station.state, StationState::Done);
+    assert_eq!(station.live, Some(StationState::Running));
+}
+
+#[test]
+fn a_done_station_without_activity_after_acceptance_has_no_live() {
+    let session = SessionLive {
+        last_activity_at: 10.0,
+        ..session_live(SessionStatus::Error)
+    };
+    let view = live_view(station_row("s", 0, "Umsetzung"), Some(10.0), Some(session));
+    let station = &view.phases[0].stations[0];
+    assert_eq!((station.live, station.pause), (None, None));
+    assert_eq!(view.urgency, StationState::Done);
+}
+
+#[test]
+fn a_done_station_asking_again_is_live_asking_and_raises_urgency() {
+    let session = SessionLive {
+        last_activity_at: 20.0,
+        ..session_live(SessionStatus::Waiting)
+    };
+    let view = live_view(station_row("s", 0, "Umsetzung"), Some(10.0), Some(session));
+    assert_eq!(view.phases[0].stations[0].live, Some(StationState::Asking));
+    assert_eq!(view.urgency, StationState::Asking);
+}
+
+#[test]
+fn a_done_station_with_a_failed_session_is_live_error() {
+    for status in [SessionStatus::Error, SessionStatus::Cancelled] {
+        assert_eq!(accepted_view(status).live, Some(StationState::Error));
+    }
+}
+
+#[test]
+fn a_reported_paused_station_is_live_waits_for_you_with_its_pause() {
+    let station = view_of_row(reported_row(0), SessionStatus::Paused);
+    assert_eq!(station.state, StationState::Reported);
+    assert_eq!(station.live, Some(StationState::WaitsForYou));
+    assert_eq!(
+        station.pause,
+        Some(StationPause {
+            reason: StationPauseReason::Other,
+            resets_at: None
+        })
+    );
+}
+
+#[test]
+fn a_quota_pause_names_quota_with_its_reset_time() {
+    let paused = |resets_at: Option<f64>, armed: bool| {
+        let session = SessionLive {
+            waits_for_quota: armed,
+            pause_reason: Some(PauseReason::Quota {
+                resets_at,
+                auto_resume: armed,
+            }),
+            ..session_live(SessionStatus::Paused)
+        };
+        live_view(reported_row(0), None, Some(session)).phases[0].stations[0].clone()
+    };
+    let known = paused(Some(7.0), true);
+    assert_eq!(known.live, Some(StationState::WaitsForQuota));
+    assert_eq!(
+        known.pause,
+        Some(StationPause {
+            reason: StationPauseReason::Quota,
+            resets_at: Some(7.0)
+        })
+    );
+    assert_eq!(
+        paused(None, false).pause.map(|pause| pause.resets_at),
+        Some(None)
+    );
+    assert_eq!(
+        paused(None, false).pause.map(|pause| pause.reason),
+        Some(StationPauseReason::Quota)
+    );
+}
+
+#[test]
+fn a_pause_by_the_user_or_after_restart_is_other() {
+    let station = live_view(
+        station_row("s", 0, "Umsetzung"),
+        None,
+        Some(session_live(SessionStatus::Paused)),
+    )
+    .phases[0]
+        .stations[0]
+        .clone();
+    assert_eq!(station.state, StationState::WaitsForYou);
+    assert_eq!(
+        station.pause,
+        Some(StationPause {
+            reason: StationPauseReason::Other,
+            resets_at: None
+        })
+    );
+}
+
+#[test]
+fn a_resting_or_sessionless_station_has_no_live() {
+    assert_eq!(accepted_view(SessionStatus::Completed).live, None);
+    let sessionless = live_view(station_row("s", 0, "Umsetzung"), Some(10.0), None);
+    assert_eq!(sessionless.phases[0].stations[0].live, None);
+    let unreported = view_of_row(station_row("s", 0, "Umsetzung"), SessionStatus::Running);
+    assert_eq!((unreported.live, unreported.pause), (None, None));
+}
+
+#[test]
+fn stations_done_and_successors_ignore_live() {
+    let mut row = station_row("s", 0, "Umsetzung");
+    row.plan_id = "a".to_owned();
+    let session = SessionLive {
+        last_activity_at: 20.0,
+        ..session_live(SessionStatus::Error)
+    };
+    let view = live_view(row, Some(10.0), Some(session));
+    assert_eq!(view.stations_done, 1);
+    assert!(is_done(&view.phases[0].stations[0]));
+}
+
+#[test]
+fn urgency_is_the_maximum_over_state_and_live() {
+    let live = |status: SessionStatus| {
+        let session = SessionLive {
+            last_activity_at: 20.0,
+            ..session_live(status)
+        };
+        live_view(station_row("s", 0, "Umsetzung"), Some(10.0), Some(session)).urgency
+    };
+    assert_eq!(live(SessionStatus::Running), StationState::Running);
+    assert_eq!(live(SessionStatus::Error), StationState::Error);
+    assert_eq!(live(SessionStatus::Paused), StationState::WaitsForYou);
 }

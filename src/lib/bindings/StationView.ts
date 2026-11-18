@@ -5,6 +5,7 @@ import type { Effort } from "./Effort";
 import type { ModelId } from "./ModelId";
 import type { OnError } from "./OnError";
 import type { PredecessorsMay } from "./PredecessorsMay";
+import type { StationPause } from "./StationPause";
 import type { StationReport } from "./StationReport";
 import type { StationState } from "./StationState";
 
@@ -20,4 +21,4 @@ question: string | null,
 /**
  * Laufzeit der Session in ms (abgeschlossene Abschnitte + laufender).
  */
-runningMs: number, agent: string | null, effort: Effort | null, prompt: string | null, agentType: string | null, agentModel: ModelId | null, agentModelFrom: AgentValueSource | null, agentEffort: Effort | null, agentEffortFrom: AgentValueSource | null, startError: string | null, planId: string, after: Array<string>, next: Array<string>, priority: number, level: number, queuePosition: number | null, autoStart: boolean | null, startsAutomatically: boolean, onError: OnError, restarts: number, predecessorsMay: PredecessorsMay, briefChanges: Array<BriefChange>, restarting: boolean, autoResume: boolean | null, resumesAutomatically: boolean, report: StationReport | null, returns: number, returnsLeft: number, released: boolean, };
+runningMs: number, agent: string | null, effort: Effort | null, prompt: string | null, agentType: string | null, agentModel: ModelId | null, agentModelFrom: AgentValueSource | null, agentEffort: Effort | null, agentEffortFrom: AgentValueSource | null, startError: string | null, planId: string, after: Array<string>, next: Array<string>, priority: number, level: number, queuePosition: number | null, autoStart: boolean | null, startsAutomatically: boolean, onError: OnError, restarts: number, predecessorsMay: PredecessorsMay, briefChanges: Array<BriefChange>, restarting: boolean, autoResume: boolean | null, resumesAutomatically: boolean, report: StationReport | null, returns: number, returnsLeft: number, released: boolean, live: StationState | null, pause: StationPause | null, };

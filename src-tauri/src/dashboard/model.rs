@@ -246,6 +246,8 @@ pub struct StationFacts {
     pub label: String,
     pub by_user: bool,
     pub state: StationState,
+    /// Zustand der Session einer fertigen oder gemeldeten Station (`StationView::live`).
+    pub live: Option<StationState>,
     pub restarting: bool,
     pub starts_automatically: bool,
     pub session_id: Option<String>,
