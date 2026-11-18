@@ -92,7 +92,7 @@ export function ImplementationHeader({
         </svg>
         <h1 className="session-header__name">{implementationTitle(implementation)}</h1>
         <span
-          className={`session-header__status session-header__status--${implementationIcon(implementation).status}`}
+          className={`session-header__status session-header__status--${implementationIcon(implementation).tint ?? implementationIcon(implementation).status}`}
         >
           <StatusIcon {...implementationIcon(implementation)} size={10} shape="square" />
           <span>{stateLabel(implementation.urgency)}</span>

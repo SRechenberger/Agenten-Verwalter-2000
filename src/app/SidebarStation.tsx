@@ -7,7 +7,7 @@ import {
   stationLabel,
   stationMeta,
 } from '@/features/implementation/implementationTexts';
-import { pauseChip } from '@/features/implementation/stationLive';
+import { liveText, pauseChip } from '@/features/implementation/stationLive';
 import {
   stationIcon,
   stateLabel,
@@ -61,6 +61,8 @@ export function SidebarStation({
       ? stationMeta(station, now) || stateLabel(station.state)
       : messageWaitShort(messageWait);
   const chip: string | null = pauseChip(station);
+  // Zustandstext und Chip einer Station mit Session-Zustand sind zu lang für die Zeile des Namens.
+  const isStacked: boolean = chip !== null || liveText(station) !== null;
   const opening: string =
     station.sessionId === null ? 'öffnet die Karte in der Umsetzung' : 'öffnet den Chat';
   return (
@@ -69,7 +71,7 @@ export function SidebarStation({
     >
       <button
         type="button"
-        className={`sidebar-station__button${isActive ? ' sidebar-station__button--active' : ''}`}
+        className={`sidebar-station__button${isActive ? ' sidebar-station__button--active' : ''}${isStacked ? ' sidebar-station__button--stacked' : ''}`}
         aria-current={isActive ? 'page' : undefined}
         title={`${label} · Lane ${phase.key} ${phase.title} · ${rowStateText(station, now)} · ${opening}${WAITING_JUMP_HINT}`}
         onClick={onSelect}
@@ -79,12 +81,6 @@ export function SidebarStation({
         </span>
         <span className="sidebar-station__name">{label}</span>
         <span className="sidebar-station__phase">{phase.key}</span>
-        <span
-          className={`sidebar-station__meta sidebar-station__meta--${metaTone(stationTone(station))}`}
-        >
-          {meta}
-        </span>
-        {chip !== null && <span className="sidebar-station__chip">{chip}</span>}
         {isUnread && (
           <span
             className="sidebar-station__unread"
@@ -93,6 +89,14 @@ export function SidebarStation({
             title="Neue Nachricht in dieser Station, seit du zuletzt drin warst"
           />
         )}
+        <span className="sidebar-station__tail">
+          <span
+            className={`sidebar-station__meta sidebar-station__meta--${metaTone(stationTone(station))}`}
+          >
+            {meta}
+          </span>
+          {chip !== null && <span className="sidebar-station__chip">{chip}</span>}
+        </span>
       </button>
     </div>
   );
