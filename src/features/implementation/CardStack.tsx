@@ -17,6 +17,7 @@ import {
   SHOW_PENDING_TITLE,
   stationMeta,
 } from '@/features/implementation/implementationTexts';
+import { masterOf } from '@/features/implementation/masterTexts';
 import { PlanChangeCard, type ProposalOverride } from '@/features/implementation/PlanChangeCard';
 import { latestSessionOf } from '@/features/implementation/stationAgent';
 import { StationCard, type CardSectionKey } from '@/features/implementation/StationCard';
@@ -229,6 +230,7 @@ export function CardStack({
         onStart={onStart}
         onCancelCountdown={onCancelCountdown}
         onCompleteByUser={onCompleteByUser}
+        master={implementation.masterMissing ? null : masterOf(implementation, sessions)}
         isLocked={isLocked}
       />
     );

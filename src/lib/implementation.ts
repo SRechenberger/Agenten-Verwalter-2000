@@ -111,6 +111,25 @@ export async function completeStationByUser(
   await invoke('implementation_complete_station', { id, stationId, result });
 }
 
+/** Bestimmt eine andere Session des Vorhabens zum Master der Umsetzung; der neue Master bekommt die
+ *  Umsetzung und die offenen Meldungen (ADR 070).
+ *  @throws {import('@/lib/bindings/CommandError').CommandError} `implementation` (keine Session des Vorhabens, eine Station), `database` */
+export async function setMaster(id: string, masterSessionId: string): Promise<void> {
+  await invoke('implementation_set_master', { id, masterSessionId });
+}
+
+/** Der Benutzer nimmt eine gemeldete Station an, deren Rückgaben erschöpft sind.
+ *  @throws {import('@/lib/bindings/CommandError').CommandError} `implementation` (nicht gemeldet, Zug nicht beendet), `database` */
+export async function acceptStation(id: string, stationId: string): Promise<void> {
+  await invoke('implementation_accept_station', { id, stationId });
+}
+
+/** Der Benutzer gibt eine gemeldete Station mit einer Nachricht zurück.
+ *  @throws {import('@/lib/bindings/CommandError').CommandError} `implementation` (nicht gemeldet, leere Nachricht), `database` */
+export async function returnStation(id: string, stationId: string, message: string): Promise<void> {
+  await invoke('implementation_return_station', { id, stationId, message });
+}
+
 /** Meldet, dass eine Umsetzung gelöscht wurde (ADR 066); der Aufrufer nimmt sie aus seinen Listen. */
 export function onImplementationRemoved(callback: (id: string) => void): Promise<UnlistenFn> {
   return listen<ImplementationRemovedEvent>(

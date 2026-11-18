@@ -1,4 +1,10 @@
 import {
+  BELOW_IMPLEMENTATION_STATES,
+  placeImplementations,
+  shownSessions,
+  type Placement,
+} from '@/app/sidebarPlacement';
+import {
   liveStations,
   NEEDS_USER_STATES,
   type StationRef,
@@ -35,7 +41,14 @@ export type SidebarRow = (
       sessions: readonly SessionSummary[];
       isExpanded: boolean;
     }
-  | { kind: 'implementation'; key: string; implementation: ImplementationView; isLast: boolean }
+  | {
+      kind: 'implementation';
+      key: string;
+      implementation: ImplementationView;
+      /** `true`: eine Ebene unter der Master-Session, die sie leitet (ADR 070). */
+      underMaster: boolean;
+      isLast: boolean;
+    }
   | {
       kind: 'station';
       key: string;
@@ -43,9 +56,18 @@ export type SidebarRow = (
       entry: StationRef;
       /** `true`: eine Ebene unter der Umsetzung; `false`: auf Höhe der Umsetzungen (zugeklapptes Vorhaben). */
       isNested: boolean;
+      /** `true`: ihre Umsetzung steht unter einem Master, die Station eine Ebene tiefer. */
+      underMaster: boolean;
       isLast: boolean;
     }
-  | { kind: 'session'; key: string; session: SessionSummary; isLast: boolean }
+  | {
+      kind: 'session';
+      key: string;
+      session: SessionSummary;
+      /** `true`: die Session leitet eine Umsetzung, die unter ihr steht (ADR 070). */
+      isMaster: boolean;
+      isLast: boolean;
+    }
   | {
       kind: 'more';
       key: string;
@@ -149,36 +171,35 @@ function expandedChildren(
   dropGroup: string,
 ): SidebarRow[] {
   const children: SidebarRow[] = [];
-  for (const implementation of implementations) {
-    children.push({
-      kind: 'implementation',
-      key: `implementation:${implementation.id}`,
-      implementation,
-      isLast: false,
-      dropGroup,
-    });
-    for (const entry of liveStations(implementation)) {
-      children.push(stationRow(implementation.id, entry, true, dropGroup));
-    }
-  }
   const ownSessions: SessionSummary[] = visibleSessions(sessions);
   const isLong: boolean = ownSessions.length >= COLLAPSE_FROM;
-  const shown: SessionSummary[] =
-    isLong && !showAll
-      ? ownSessions.filter(
-          (session: SessionSummary, index: number) =>
-            index < VISIBLE_COUNT || pinnedIds.has(session.id),
-        )
-      : ownSessions;
+  const placement: Placement<ImplementationView> = placeImplementations(
+    implementations,
+    new Set<string>(ownSessions.map((session: SessionSummary) => session.id)),
+  );
+  const shown: SessionSummary[] = shownSessions(ownSessions, {
+    collapseFrom: COLLAPSE_FROM,
+    visibleCount: VISIBLE_COUNT,
+    showAll,
+    pinnedIds,
+    masterIds: new Set<string>(placement.under.keys()),
+  });
   const hiddenCount: number = ownSessions.length - shown.length;
+  for (const implementation of placement.inProject) {
+    children.push(...implementationRows(implementation, false, dropGroup));
+  }
   for (const session of shown) {
     children.push({
       kind: 'session',
       key: `session:${session.id}`,
       session,
+      isMaster: placement.under.has(session.id),
       isLast: false,
       dropGroup,
     });
+    for (const implementation of placement.under.get(session.id) ?? []) {
+      children.push(...implementationRows(implementation, true, dropGroup));
+    }
   }
   if (isLong && (showAll || hiddenCount > 0)) {
     children.push({
@@ -202,17 +223,42 @@ function waitingChildren(
   for (const implementation of implementations) {
     for (const entry of liveStations(implementation)) {
       if (NEEDS_USER_STATES.includes(entry.station.state)) {
-        children.push(stationRow(implementation.id, entry, false, dropGroup));
+        children.push(stationRow(implementation.id, entry, false, false, dropGroup));
       }
     }
   }
   return children;
 }
 
+/** Die Zeile einer Umsetzung, darunter nur ihre Stationen, die den Benutzer brauchen (ADR 070, Variante A). */
+function implementationRows(
+  implementation: ImplementationView,
+  underMaster: boolean,
+  dropGroup: string,
+): SidebarRow[] {
+  const rows: SidebarRow[] = [
+    {
+      kind: 'implementation',
+      key: `implementation:${implementation.id}`,
+      implementation,
+      underMaster,
+      isLast: false,
+      dropGroup,
+    },
+  ];
+  for (const entry of liveStations(implementation)) {
+    if (BELOW_IMPLEMENTATION_STATES.includes(entry.station.state)) {
+      rows.push(stationRow(implementation.id, entry, true, underMaster, dropGroup));
+    }
+  }
+  return rows;
+}
+
 function stationRow(
   implementationId: string,
   entry: StationRef,
   isNested: boolean,
+  underMaster: boolean,
   dropGroup: string,
 ): SidebarRow {
   return {
@@ -221,6 +267,7 @@ function stationRow(
     implementationId,
     entry,
     isNested,
+    underMaster,
     isLast: false,
     dropGroup,
   };

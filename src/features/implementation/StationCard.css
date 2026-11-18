@@ -19,6 +19,10 @@
     border-left-color: var(--color-status-running);
   }
 
+  &--reported {
+    border-left-color: var(--color-status-reported);
+  }
+
   &--wait {
     border-color: var(--color-status-waiting);
     border-left-color: var(--color-status-waiting);
@@ -204,6 +208,77 @@
   &__label {
     min-width: 96px;
     color: var(--color-fg-muted);
+  }
+
+  /* Bericht an den Master (ADR 070): Betreff, Marke, Notiz, Zeile mit den Rückgaben. */
+  &__report {
+    display: grid;
+    gap: var(--space-sm);
+    padding-top: var(--space-md);
+    border-top: 1px solid var(--color-border-subtle);
+  }
+
+  &__report-title {
+    margin: 0;
+    color: var(--color-fg-secondary);
+    font-size: var(--font-size-xs);
+    font-weight: 600;
+  }
+
+  &__report-subject {
+    margin: 0;
+    color: var(--color-fg-primary);
+    font-weight: 600;
+  }
+
+  &__report-note {
+    margin: 0;
+    padding: var(--space-md) var(--space-lg);
+    border: 1px solid var(--color-border-subtle);
+    border-radius: var(--radius-md);
+    background: var(--color-bg-base);
+    color: var(--color-fg-primary);
+    white-space: pre-wrap;
+  }
+
+  &__report-line {
+    margin: 0;
+    color: var(--color-fg-muted);
+    font-size: var(--font-size-xs);
+  }
+
+  &__report-hint {
+    margin: 0;
+    padding: var(--space-md) var(--space-lg);
+    border-left: 3px solid var(--color-status-reported);
+    border-radius: var(--radius-sm);
+    background: color-mix(in srgb, var(--color-status-reported) 12%, transparent);
+    font-size: var(--font-size-xs);
+
+    &--wait {
+      border-left-color: var(--color-status-waiting);
+      background: var(--color-status-waiting-subtle);
+    }
+  }
+
+  &__actions--end {
+    justify-content: flex-end;
+  }
+
+  /* Marke an der Kartei: „Befund“, „vom Master freigegeben“. */
+  &__mark {
+    justify-self: start;
+    padding: 0 var(--space-md);
+    border: 1px solid var(--color-status-waiting);
+    border-radius: var(--radius-full);
+    color: var(--color-status-waiting);
+    font-size: var(--font-size-2xs);
+    line-height: 1.5;
+
+    &--ok {
+      border-color: var(--color-status-completed);
+      color: var(--color-status-completed);
+    }
   }
 
   &__hint,

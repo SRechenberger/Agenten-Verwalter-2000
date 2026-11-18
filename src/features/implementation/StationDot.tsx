@@ -12,6 +12,7 @@ const GLYPH: Partial<Record<StationState, string>> = {
   asking: '?',
   waitsForYou: '?',
   waitsForQuota: '↻',
+  reported: '↑',
   error: '!',
 };
 

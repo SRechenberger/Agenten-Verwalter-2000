@@ -7,9 +7,12 @@ import {
   lanesActiveText,
   VIEW_LABEL,
 } from '@/features/implementation/implementationTexts';
+import { MasterPicker } from '@/features/implementation/MasterPicker';
 import { stateIcon, stateLabel } from '@/features/implementation/stationState';
 import { RemoteGiveBack, RemoteHostBadge } from '@/features/remote/RemoteHeaderTools';
 import type { ImplementationView } from '@/lib/bindings/ImplementationView';
+import type { SessionSummary } from '@/lib/bindings/SessionSummary';
+import type { ActionError } from '@/lib/useActionError';
 import { IMPLEMENTATION_VIEWS, type ImplementationViewKind } from '@/stores/sessions';
 import '@/app/SessionHeader.css';
 import './ImplementationBar.css';
@@ -30,6 +33,11 @@ interface ImplementationHeaderProps {
   terminalCount: number;
   isTerminalOpen: boolean;
   onToggleTerminal: () => void;
+  /** Alle Sessions; „Master“ wählt unter denen des Vorhabens. */
+  sessions: readonly SessionSummary[];
+  /** Gesperrt, solange ein anderes Gerät das Vorhaben steuert oder der Host fehlt. */
+  isLocked: boolean;
+  run: ActionError['run'];
 }
 
 /** Kopfzeile „<Vorhaben> › Umsetzung <Name>“ mit den Reitern „Ablauf · Changes · Artefakte“ und dem
@@ -46,6 +54,9 @@ export function ImplementationHeader({
   terminalCount,
   isTerminalOpen,
   onToggleTerminal,
+  sessions,
+  isLocked,
+  run,
 }: ImplementationHeaderProps): ReactElement {
   const views: readonly ImplementationViewKind[] = IMPLEMENTATION_VIEWS.filter(
     (view: ImplementationViewKind) =>
@@ -83,7 +94,7 @@ export function ImplementationHeader({
         <span
           className={`session-header__status session-header__status--${stateIcon(implementation.urgency)}`}
         >
-          <StatusIcon status={stateIcon(implementation.urgency)} size={10} />
+          <StatusIcon status={stateIcon(implementation.urgency)} size={10} shape="square" />
           <span>{stateLabel(implementation.urgency)}</span>
         </span>
         {activeLanes >= 2 && (
@@ -113,6 +124,12 @@ export function ImplementationHeader({
         ))}
       </div>
       <div className="session-header__tools">
+        <MasterPicker
+          implementation={implementation}
+          sessions={sessions}
+          isLocked={isLocked}
+          run={run}
+        />
         <RemoteHostBadge projectId={implementation.projectId} />
         <button
           type="button"

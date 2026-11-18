@@ -51,6 +51,7 @@ import {
   latestSessionOf,
   type CardAgentFacts,
 } from '@/features/implementation/stationAgent';
+import { RELEASED_CHIP, RELEASED_TITLE, returnsChip } from '@/features/implementation/masterTexts';
 import { StationDot } from '@/features/implementation/StationDot';
 import { messageWaitPosition, messageWaitText } from '@/features/queue/queueTexts';
 import { useOperatingMode } from '@/features/remote/useOperatingMode';
@@ -295,6 +296,30 @@ export function Timeline({
     return null;
   }
 
+  /** „zurückgegeben 1/3“ und „✓ freigegeben“ vor dem Zustand (ADR 070). */
+  function renderMasterChips(station: StationView): ReactElement | null {
+    if (station.returns === 0 && !station.released) {
+      return null;
+    }
+    return (
+      <>
+        {station.returns > 0 && (
+          <span className="timeline__chip timeline__chip--static timeline__chip--state">
+            {returnsChip(station.returns)}
+          </span>
+        )}
+        {station.released && (
+          <span
+            className="timeline__chip timeline__chip--static timeline__chip--state timeline__chip--ok"
+            title={RELEASED_TITLE}
+          >
+            {RELEASED_CHIP}
+          </span>
+        )}
+      </>
+    );
+  }
+
   /** ↻ neben der Mini-Aktion, außerhalb des Titel-Knopfs; ein Punkt zeigt die Abweichung von der Umsetzung. */
   function renderResume(station: StationView): ReactElement | null {
     if (station.byUser) {
@@ -353,6 +378,7 @@ export function Timeline({
         </button>
         <span className={`timeline__state timeline__state--${tone}`}>
           {rowText(station)}
+          {renderMasterChips(station)}
           {renderQuotaChip(station)}
           {renderAction(station)}
           {renderResume(station)}

@@ -20,6 +20,8 @@ interface SidebarItemProps {
   status: DisplayStatus;
   /** Platz der zugestellten Nachricht, die auf einen Platz wartet (ADR 068); `null` ohne. */
   messageWait: number | null;
+  /** Die Session leitet eine Umsetzung, die unter ihr steht (ADR 070). */
+  isMaster: boolean;
   isActive: boolean;
   isRenaming: boolean;
   onSelect: () => void;
@@ -39,6 +41,7 @@ export function SidebarItem({
   session,
   status,
   messageWait,
+  isMaster,
   isActive,
   isRenaming,
   onSelect,
@@ -89,6 +92,16 @@ export function SidebarItem({
         >
           {session.name}
         </span>
+        {isMaster && (
+          <span
+            className="sidebar-item__master"
+            role="img"
+            aria-label="Master einer Umsetzung"
+            title="Master: leitet die Umsetzung unter ihr"
+          >
+            ◆
+          </span>
+        )}
         {status === 'script' && session.awaitedScript !== null && (
           <span className="sidebar-item__clock" title={session.awaitedScript.title}>
             {formatDuration(now - session.awaitedScript.startedAt)}

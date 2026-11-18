@@ -35,7 +35,7 @@ const ICON: Record<StationState, DisplayStatus> = {
 };
 
 /** Farbfamilie eines Zustands für Punkt, Linie und Kartenrand. */
-export type StationTone = 'done' | 'run' | 'wait' | 'error' | 'todo';
+export type StationTone = 'done' | 'run' | 'reported' | 'wait' | 'error' | 'todo';
 
 const TONE: Record<StationState, StationTone> = {
   pending: 'todo',
@@ -48,8 +48,8 @@ const TONE: Record<StationState, StationTone> = {
   waitsForQuota: 'todo',
   asking: 'wait',
   waitsForYou: 'wait',
-  // Wie „läuft“: Der Master entscheidet, nicht du (ADR 070).
-  reported: 'run',
+  // Eigene Farbe, in der Dringlichkeit wie „läuft“: Der Master entscheidet, nicht du (ADR 070).
+  reported: 'reported',
   done: 'done',
   error: 'error',
 };

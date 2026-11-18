@@ -31,6 +31,8 @@ interface SidebarStationProps {
   entry: StationRef;
   /** `true`: eine Ebene unter der Umsetzung; `false`: auf Höhe der Umsetzungen. */
   isNested: boolean;
+  /** `true`: ihre Umsetzung steht unter einem Master, die Station eine Ebene tiefer. */
+  underMaster: boolean;
   isActive: boolean;
   isUnread: boolean;
   onSelect: () => void;
@@ -40,6 +42,7 @@ interface SidebarStationProps {
 export function SidebarStation({
   entry,
   isNested,
+  underMaster,
   isActive,
   isUnread,
   onSelect,
@@ -59,7 +62,9 @@ export function SidebarStation({
   const opening: string =
     station.sessionId === null ? 'öffnet die Karte in der Umsetzung' : 'öffnet den Chat';
   return (
-    <div className={`sidebar-station${isNested ? ' sidebar-station--nested' : ''}`}>
+    <div
+      className={`sidebar-station${isNested ? ' sidebar-station--nested' : ''}${underMaster ? ' sidebar-station--deep' : ''}`}
+    >
       <button
         type="button"
         className={`sidebar-station__button${isActive ? ' sidebar-station__button--active' : ''}`}

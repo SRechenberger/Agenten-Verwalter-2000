@@ -123,6 +123,10 @@
       color: var(--color-status-running);
     }
 
+    &--reported {
+      color: var(--color-status-reported);
+    }
+
     &--ready,
     &--countdown {
       color: var(--color-status-handoff);
