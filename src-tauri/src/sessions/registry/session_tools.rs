@@ -849,8 +849,7 @@ pub(super) fn route_message(input: &Delivery) -> Route {
         SessionStatus::Error => return Route::Undeliverable(FAILED),
         _ => {}
     }
-    let wakes_paused =
-        input.from_master && input.status == SessionStatus::Paused && !input.timer_armed;
+    let wakes_paused = wakes_paused(input.status, input.timer_armed, input.from_master);
     if input.has_waiting || !(input.rests || wakes_paused) || !input.claimed {
         // Auch die Nachricht des Masters an seine pausierte Station holt ein Durchgang ab (`takes_oldest`).
         return Route::Queue {
@@ -870,7 +869,13 @@ pub(super) fn takes_oldest(
     timer_armed: bool,
     master_waits: bool,
 ) -> bool {
-    rests || waits_for_slot || (master_waits && status == SessionStatus::Paused && !timer_armed)
+    rests || waits_for_slot || wakes_paused(status, timer_armed, master_waits)
+}
+
+/// Die eine Bedingung für `route_message` und den Durchgang: pausiert, ohne scharfen Zeitgeber, und eine
+/// Nachricht des Masters der Station ist im Spiel.
+fn wakes_paused(status: SessionStatus, timer_armed: bool, master_involved: bool) -> bool {
+    master_involved && status == SessionStatus::Paused && !timer_armed
 }
 
 fn session_ref(session: &Session) -> SessionRef {
