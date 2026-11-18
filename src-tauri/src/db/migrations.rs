@@ -40,14 +40,14 @@ const MIGRATIONS: [&str; 32] = [
     include_str!("migrations/032_session_messages.sql"),
 ];
 
-/// Nach dieser Migration leitet Rust die Kanten der Bestandsdaten ab (ADR 061, Regel R1), in
-/// derselben Transaktion.
 /// Die ersten `count` Skripte, für Tests, die einen alten Stand nachbauen.
 #[cfg(test)]
 pub(crate) fn first(count: usize) -> impl Iterator<Item = &'static str> {
     MIGRATIONS.iter().copied().take(count)
 }
 
+/// Nach dieser Migration leitet Rust die Kanten der Bestandsdaten ab (ADR 061, Regel R1), in
+/// derselben Transaktion.
 const EDGES_MIGRATION: usize = 25;
 
 pub fn run(connection: &mut Connection) -> Result<(), CommandError> {

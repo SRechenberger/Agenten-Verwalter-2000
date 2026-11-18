@@ -25,7 +25,6 @@ use crate::db::session_messages;
 use crate::error::CommandError;
 use crate::implementation::master::{self, MasterRef};
 use crate::implementation::slots;
-use crate::implementation::wake;
 use crate::mcp_access::tools::ToolCall;
 use crate::projects::model::ProjectSummary;
 use crate::session_tools::model::SelfRelease;
@@ -902,13 +901,13 @@ pub(super) fn agent_message(
 /// Absender ist der Verwalter.
 pub(super) fn station_message(
     session: &Session,
+    sender: &SessionRef,
     text: &str,
     subject: &str,
 ) -> Result<String, CommandError> {
     let (command, content) = message_text::split_command(text);
-    let sender = wake::sender();
-    let id = store_message(session, &sender, subject, content)?;
-    Ok(message_text::station(command, &sender, subject, id))
+    let id = store_message(session, sender, subject, content)?;
+    Ok(message_text::station(command, sender, subject, id))
 }
 
 fn store_message(

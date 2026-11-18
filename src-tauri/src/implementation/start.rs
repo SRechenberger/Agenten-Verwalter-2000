@@ -551,7 +551,9 @@ fn start_claimed(
     stop_if_cancelled(app, registry, implementation_id, &created.id)?;
     // Der Chat zeigt den ganzen Text; an den Agenten geht `/<skill>` und die Referenz (ADR 072).
     let subject = first_message_subject(&view, phase, station);
-    if let Err(error) = registry.send_by_reference(app, &created.id, &message, &subject) {
+    if let Err(error) =
+        registry.send_by_reference(app, &created.id, &super::wake::sender(), &message, &subject)
+    {
         registry.log_session_line(
             &created.id,
             format!("Erste Nachricht nicht gesendet: {error}"),

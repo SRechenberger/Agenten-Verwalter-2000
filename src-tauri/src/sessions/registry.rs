@@ -4,6 +4,7 @@
 //! Oberfläche und Zeilen an den Prozess gehen erst nach dem Freigeben der Sperre hinaus. Ein
 //! Schreiben in die Pipe unter der Sperre könnte sich mit dem Lese-Thread verklemmen — der
 //! Agent blockiert auf einer vollen Ausgabe-Pipe, der Lese-Thread wartet auf die Sperre.
+use std::borrow::Cow;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -467,7 +468,7 @@ enum TurnOrigin<'a> {
         planning: PlanTurn,
         /// Betreff der ersten Nachricht einer Station (ADR 072): `/<skill>` bleibt die erste Zeile, der
         /// Rest geht über eine Referenz an den Agenten, der Chat zeigt den ganzen Text.
-        station_subject: Option<&'a str>,
+        station_subject: Option<(&'a str, &'a SessionRef)>,
     },
     Session {
         sender: &'a SessionRef,
@@ -476,9 +477,26 @@ enum TurnOrigin<'a> {
     },
 }
 
-/// Nur die Betriebsart Claude hat `verwalter_read_message`; sonst geht der ganze Text (ADR 072).
-fn readable(reference: Option<Reference<'_>>, mode: OperatingMode) -> Option<Reference<'_>> {
-    reference.filter(|_| mode == OperatingMode::Claude)
+/// Nur die Betriebsart Claude hat `verwalter_read_message`; sonst geht der ganze Text (ADR 072). Die
+/// einzige Stelle, die das für Nachrichten, Rückgaben und erste Nachrichten entscheidet.
+fn readable<T>(by_reference: Option<T>, mode: OperatingMode) -> Option<T> {
+    by_reference.filter(|_| mode == OperatingMode::Claude)
+}
+
+/// Der Text der ersten Nachricht einer Station an den Agenten: mit Betreff und Betriebsart Claude über
+/// eine Referenz, sonst der Text selbst.
+fn station_agent_text<'t>(
+    session: &Session,
+    text: &'t str,
+    station: Option<(&str, &SessionRef)>,
+    mode: OperatingMode,
+) -> Result<Cow<'t, str>, CommandError> {
+    Ok(match readable(station, mode) {
+        Some((subject, sender)) => Cow::Owned(session_tools::station_message(
+            session, sender, text, subject,
+        )?),
+        None => Cow::Borrowed(text),
+    })
 }
 
 /// Wie ein Zug zum Wächter steht (ADR 062).
@@ -1313,6 +1331,7 @@ impl SessionRegistry {
         &self,
         app: &AppHandle,
         session_id: &str,
+        sender: &SessionRef,
         text: &str,
         subject: &str,
     ) -> Result<(), CommandError> {
@@ -1325,7 +1344,7 @@ impl SessionRegistry {
             &[],
             None,
             PlanTurn::No,
-            Some(subject),
+            Some((subject, sender)),
         )
     }
 
@@ -1468,7 +1487,7 @@ impl SessionRegistry {
         comments: &[ReviewComment],
         device: Option<&str>,
         planning: PlanTurn,
-        station_subject: Option<&str>,
+        station_subject: Option<(&str, &SessionRef)>,
     ) -> Result<(), CommandError> {
         let session = self.get(session_id)?;
         review::validate(comments)?;
@@ -4554,21 +4573,13 @@ fn start_turn(
             }
             let mut agent_attachments = sent_attachments.clone();
             agent_attachments.extend(extra_attachments);
-            let planned: String;
-            let by_reference: String;
-            let for_agent: &str = if planning == PlanTurn::Start {
-                planned = plan_prompt(sent_text);
-                &planned
-            } else if let Some(subject) =
-                station_subject.filter(|_| operating_mode == OperatingMode::Claude)
-            {
-                by_reference = session_tools::station_message(session, sent_text, subject)?;
-                &by_reference
+            let for_agent: Cow<str> = if planning == PlanTurn::Start {
+                Cow::Owned(plan_prompt(sent_text))
             } else {
-                sent_text
+                station_agent_text(session, sent_text, station_subject, operating_mode)?
             };
             let agent_text = with_overlap_hint(
-                review::agent_text(for_agent, &comments, folders),
+                review::agent_text(&for_agent, &comments, folders),
                 state,
                 input.overlap.as_ref(),
             );
@@ -5697,6 +5708,7 @@ mod tests {
         let session = recipient("s");
         let text = session_tools::station_message(
             &session,
+            &wake::sender(),
             "/role-rust-developer\nStation: Phase 1\nAuftrag: Brief",
             "Auftrag: Lane 1 · Umsetzung in „U“",
         )
@@ -5713,10 +5725,56 @@ mod tests {
         let read = read(&session, "s", "msg-1").expect("liest");
         assert_eq!(read["text"], "Station: Phase 1\nAuftrag: Brief");
         // Ohne Skill: nur die drei Zeilen.
-        let plain =
-            session_tools::station_message(&session, "Station: Phase 2", "Auftrag: x").expect("ok");
+        let plain = session_tools::station_message(
+            &session,
+            &wake::sender(),
+            "Station: Phase 2",
+            "Auftrag: x",
+        )
+        .expect("ok");
         assert!(plain.starts_with("[Nachricht von Session 0"), "{plain}");
         assert_eq!(plain.lines().count(), 3);
+    }
+
+    #[test]
+    fn the_first_message_of_a_station_keeps_the_full_text_in_another_operating_mode() {
+        let session = recipient("s");
+        let sender = wake::sender();
+        let text = "/role-rust-developer\nStation: Phase 1";
+        for mode in [
+            OperatingMode::ClaudeCodeLocal,
+            OperatingMode::Standalone,
+            OperatingMode::Codex,
+        ] {
+            let sent = station_agent_text(&session, text, Some(("Auftrag", &sender)), mode)
+                .expect("gebaut");
+            assert_eq!(sent, text, "{mode:?}");
+        }
+        assert_eq!(
+            read(&session, "s", "msg-1"),
+            Err("Unbekannte Referenz.".to_owned()),
+            "ohne Referenz entsteht keine Zeile"
+        );
+        let by_claude = station_agent_text(
+            &session,
+            text,
+            Some(("Auftrag", &sender)),
+            OperatingMode::Claude,
+        )
+        .expect("gebaut");
+        assert!(by_claude.starts_with("/role-rust-developer\n[Nachricht von Session 0"));
+    }
+
+    #[test]
+    fn a_return_with_a_subject_becomes_a_reference_and_without_one_stays_direct() {
+        assert_eq!(
+            implementation::return_reference(Some("Randfall fehlt")),
+            Some(Reference {
+                subject: "Randfall fehlt",
+                note: None
+            })
+        );
+        assert_eq!(implementation::return_reference(None), None);
     }
 
     #[test]

@@ -68,6 +68,15 @@ pub(super) struct ReportUpdate {
     pub summary: String,
 }
 
+/// Die Rückgabe des Masters mit Betreff geht über eine Referenz, ohne Betreff (Rückgabe des Benutzers)
+/// direkt (ADR 072).
+pub(super) fn return_reference(subject: Option<&str>) -> Option<Reference<'_>> {
+    subject.map(|subject: &str| Reference {
+        subject,
+        note: None,
+    })
+}
+
 impl SessionRegistry {
     /// Alle Umsetzungen nicht archivierter Vorhaben, neueste zuerst.
     pub fn implementation_views(&self) -> Result<Vec<ImplementationView>, CommandError> {
@@ -536,13 +545,6 @@ impl SessionRegistry {
     ) -> Result<(), CommandError> {
         let session = self.get(session_id)?;
         let status = session.lock().status;
-        if matches!(status, SessionStatus::Error | SessionStatus::Cancelled) {
-            self.restart(app, session_id)?;
-            return match subject {
-                Some(subject) => self.send_by_reference(app, session_id, text, subject),
-                None => self.send(app, session_id, text, &[], &[], None),
-            };
-        }
         let sender =
             self.master_ref(master_session_id)
                 .map_or_else(wake::sender, |master: MasterRef| SessionRef {
@@ -550,10 +552,14 @@ impl SessionRegistry {
                     number: master.number,
                     title: master.title,
                 });
-        let reference = subject.map(|subject: &str| Reference {
-            subject,
-            note: None,
-        });
+        if matches!(status, SessionStatus::Error | SessionStatus::Cancelled) {
+            self.restart(app, session_id)?;
+            return match subject {
+                Some(subject) => self.send_by_reference(app, session_id, &sender, text, subject),
+                None => self.send(app, session_id, text, &[], &[], None),
+            };
+        }
+        let reference = return_reference(subject);
         match self.deliver(app, &session, &sender, text, 0, reference) {
             ("undeliverable", reason) => {
                 Err(CommandError::Implementation(reason.unwrap_or_else(|| {
