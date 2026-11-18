@@ -70,15 +70,17 @@ pub fn delete(connection: &Connection, id: i64) -> Result<(), CommandError> {
     Ok(())
 }
 
-/// Wartet im Posteingang der Session eine Nachricht von diesem Absender.
-pub fn has_from(
+/// Wartet im Posteingang der Session eine Nachricht von diesem Absender, die ab `since` (ms) einging.
+pub fn has_from_since(
     connection: &Connection,
     session_id: &str,
     sender_id: &str,
+    since: f64,
 ) -> Result<bool, CommandError> {
     Ok(connection.query_row(
-        "SELECT EXISTS(SELECT 1 FROM session_inbox WHERE session_id = ?1 AND sender_id = ?2)",
-        params![session_id, sender_id],
+        "SELECT EXISTS(SELECT 1 FROM session_inbox \
+         WHERE session_id = ?1 AND sender_id = ?2 AND created_at >= ?3)",
+        params![session_id, sender_id, since],
         |row| row.get(0),
     )?)
 }

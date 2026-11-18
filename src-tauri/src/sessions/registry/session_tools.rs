@@ -399,15 +399,25 @@ impl SessionRegistry {
             .is_some_and(|master: MasterRef| master.id == sender.id)
     }
 
-    /// Wartet im Posteingang der Station eine Nachricht ihres Masters. Nie unter einer Session-Sperre.
+    /// Wartet im Posteingang der Station eine Nachricht ihres Masters, die seit Beginn der Pause einging.
+    /// Eine ältere (eingereiht, als die Station noch lief) setzt eine Pause des Benutzers nicht außer
+    /// Kraft. Ohne Pausenbeginn (nicht pausiert) `false`. Nie unter einer Session-Sperre.
     pub(super) fn master_message_waits(&self, session: &Session) -> bool {
-        let station_of: Option<String> = session.lock().station_of.clone();
+        let (station_of, idle_since) = {
+            let state = session.lock();
+            (state.station_of.clone(), state.idle_since)
+        };
+        let Some(since) = idle_since else {
+            return false;
+        };
         station_of
             .and_then(|implementation_id: String| self.master_of_station_in(&implementation_id))
             .is_some_and(|master: MasterRef| {
                 session
                     .database
-                    .with(|connection| session_inbox::has_from(connection, &session.id, &master.id))
+                    .with(|connection| {
+                        session_inbox::has_from_since(connection, &session.id, &master.id, since)
+                    })
                     .unwrap_or(false)
             })
     }

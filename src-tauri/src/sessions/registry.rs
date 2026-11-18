@@ -5362,4 +5362,31 @@ mod tests {
         assert!(!takes(&state_with(SessionStatus::Running), true));
         assert!(takes(&state_with(SessionStatus::Completed), false));
     }
+
+    #[test]
+    fn only_a_master_message_since_the_pause_counts_for_the_pass() {
+        use crate::db::{Database, session_inbox};
+        let database = Database::open(std::path::Path::new(":memory:")).expect("Datenbank");
+        let master = SessionRef {
+            id: "m".to_owned(),
+            number: 1,
+            title: "Master".to_owned(),
+        };
+        database
+            .with(|connection| {
+                // Nur die Posteingangs-Abfrage ist von Belang, keine Session-Zeile.
+                connection.execute_batch("PRAGMA foreign_keys = OFF")?;
+                session_inbox::insert(connection, "s", &master, "alt", 0, 100.0)
+            })
+            .expect("einreihen");
+        let counts = |sender: &str, since: f64| {
+            database
+                .with(|connection| session_inbox::has_from_since(connection, "s", sender, since))
+                .expect("lesen")
+        };
+        // Eingereiht vor der Pause (Pausenbeginn 200): zählt nicht, die Pause des Benutzers bleibt.
+        assert!(!counts("m", 200.0));
+        assert!(counts("m", 100.0));
+        assert!(!counts("x", 0.0));
+    }
 }
