@@ -32,7 +32,7 @@ Das Dashboard ist eine **Arbeitsliste**: Es zeigt, was auf dich wartet, und sons
 
 ## Abweichungen vom Mock
 
-Gegenüber dem Mock **entfallen** „Als fertig markieren“ bei Fehlern (es gibt keinen Befehl; der Neustart geht wie im Chat) und „Merge“ (#134). Es **kommen dazu** die Karten „Unterbrochen“ (Session oder Station pausiert ohne scharfen Zeitgeber „Automatisch fortsetzen“; Station nur ohne Meldung) und „Abbrechen?“ (Anfrage eines Agenten, die Umsetzung abzubrechen) sowie „Fehler“ auch für Sessions ohne Station (D13).
+Gegenüber dem Mock **entfallen** „Als fertig markieren“ bei Fehlern (es gibt keinen Befehl; der Neustart geht wie im Chat) und „Merge“ (#134). Es **kommen dazu** die Karten „Unterbrochen“ (Session oder Station pausiert ohne scharfen Zeitgeber „Automatisch fortsetzen“, mit oder ohne Meldung) und „Abbrechen?“ (Anfrage eines Agenten, die Umsetzung abzubrechen) sowie „Fehler“ auch für Sessions ohne Station (D13).
 
 ## Abweichungen
 

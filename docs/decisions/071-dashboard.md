@@ -43,7 +43,7 @@ Vom Architekten (D1 bis D18, hier die Teile des Kerns):
 | `error` (Session) | Status `Error` | letzte Aktivität (`Error` schreibt sie) | der Fehler endet, „Gelesen“ |
 | `error` (Station) | Station im Fehler, kein Neustart („Bei Fehler“) ansteht | letzte Aktivität der Session | der Fehler endet |
 | `paused` (Session) | Status `Paused`, kein scharfer Zeitgeber „Automatisch fortsetzen“ | Beginn der Ruhe (`idle_since`, nach App-Neustart letzte Aktivität) | sie läuft weiter, „Gelesen“ |
-| `paused` (Station) | Station wartet auf dich, ohne Meldung, Session pausiert ohne scharfen Zeitgeber | wie bei der Session | sie läuft weiter |
+| `paused` (Station) | Station wartet auf dich, mit oder ohne Meldung, Session pausiert ohne scharfen Zeitgeber | wie bei der Session | sie läuft weiter |
 | `planChange`, `cancelRequest` | `pendingChange`, `pendingCancel` einer Umsetzung | Zeitpunkt des Vorschlags oder der Anfrage | übernommen, bestätigt oder verworfen |
 | `byYou` | Station „durch dich“ an der Reihe | letzte Aktivität der Umsetzung (Näherung: die jüngste Annahme eines Vorgängers) | erledigt |
 | `returnsExhausted` | gemeldete Station, keine Rückgabe übrig | Zeitpunkt der Meldung | angenommen oder zurückgegeben |
@@ -64,9 +64,9 @@ Vom Architekten (D1 bis D18, hier die Teile des Kerns):
 
 ## Antwort am Zugende und leere Nachrichten
 
-Endet ein Zug einer Session ohne Station mit `TurnEnd::Completed`, setzt `end_turn` `answer_at` auf die Zeit, die das Zugende als `last_activity_at` schreibt, `answer_excerpt` auf die erste nicht leere Zeile der letzten `Text`-Antwort des Zugs (getrimmt, höchstens 160 Zeichen, mit „…“, wenn gekürzt) und löscht `answer_kind` und `answer_line`. Pause, Kontingent, Fehler und Abbruch setzen `answer_at` nicht. Ein Zugende mit wartendem Skript oder Subagent zeigt erst danach eine Karte, weil die Regel am Status der Momentaufnahme hängt.
+Endet ein Zug einer Session ohne Station mit `TurnEnd::Completed`, setzt `end_turn` `answer_at` auf die Zeit, die das Zugende als `last_activity_at` schreibt, `answer_excerpt` auf die erste nicht leere Zeile der letzten `Text`-Antwort des Zugs (getrimmt, höchstens 160 Zeichen, mit „…“, wenn gekürzt) und löscht `answer_kind` und `answer_line`. Pause, Kontingent, Fehler und Abbruch setzen `answer_at` nicht. Ein Zugende mit wartendem Skript oder Subagent zeigt erst danach eine Karte, weil die Regel am Status der Momentaufnahme hängt. Beginnt ein neuer Zug (Nachricht des Benutzers oder einer Session, Fortsetzen), leert `note_input` alle vier Felder der Antwort und speichert; so zeigt eine Session nach Archivieren und Zurückholen keine Karte mit dem Auszug eines früheren Zugs.
 
-`SessionRegistry::send` lehnt Text ab, der leer ist oder nur aus Leerzeichen besteht, wenn weder Anhänge noch Kommentare dabei sind („Leere Nachricht: Text, Anhang oder Kommentar fehlt.“). Der Satz kommt als `CommandError::Implementation`, wie die übrigen Sätze über Eingaben („Plane Vorhaben“ braucht einen Auftrag); eine neue Variante hätte jede Behandlung der Fehler in der Oberfläche berührt.
+`SessionRegistry::send` lehnt Text ab, der leer ist oder nur aus Leerzeichen besteht, wenn weder Anhänge noch Kommentare dabei sind („Leere Nachricht: Text, Anhang oder Kommentar fehlt.“). Der Satz kommt als `CommandError::Implementation`, wie die übrigen Sätze über Eingaben („Plane Vorhaben“ braucht einen Auftrag); eine neue Variante hätte jede Behandlung der Fehler in der Oberfläche berührt. Dieselbe Prüfung mit demselben Satz steht am Anfang von `create_project` (Vorhaben anlegen; der Auftrag ist die erste Nachricht, ein Anhang genügt wie bei `send`); einziger Aufrufer ist der Befehl `project_create`, den Oberfläche und Fernsteuerung gemeinsam nutzen.
 
 ## Grenzen
 
