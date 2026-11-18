@@ -214,7 +214,7 @@ mod tests {
 
     #[test]
     fn a_result_for_an_older_turn_is_discarded() {
-        // Die Prüfung steht in `SessionState::store_classification`; hier ihr Kern: nur dasselbe
+        // Die Prüfung steht in `store` (`sessions/registry/classify.rs`); hier ihr Kern: nur dasselbe
         // Zugende zählt.
         assert!(same_turn(Some(5.0), 5.0));
         assert!(!same_turn(Some(6.0), 5.0));

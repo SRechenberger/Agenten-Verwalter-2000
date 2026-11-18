@@ -5176,4 +5176,68 @@ mod tests {
             assert_eq!(state.answer_excerpt, None);
         }
     }
+
+    /// Eine Session mit einer Frage des Nutzers und einer Antwort, bereit für `end_turn`.
+    fn answered() -> (SessionState, Outbox) {
+        let mut state = state();
+        let mut outbox = Outbox::default();
+        state.push_entry(&mut outbox, |seq: u32| ChatEntry::User {
+            seq,
+            text: "Prüfe das".to_owned(),
+            sent_at: 0.0,
+            attachments: Vec::new(),
+            skill: None,
+            comments: Vec::new(),
+            origin: None,
+        });
+        say(&mut state, &mut outbox, "Geprüft.");
+        (state, outbox)
+    }
+
+    #[test]
+    fn a_completed_turn_hands_its_input_and_time_to_the_classification() {
+        let (mut state, mut outbox) = answered();
+        state.end_turn(&mut outbox, TurnEnd::Completed, None, Vec::new(), None);
+        let job = outbox.classify.expect("Zugende ohne Station und Anfrage");
+        assert_eq!(Some(job.answer_at), state.answer_at);
+        assert_eq!(job.input.started_by, "Prüfe das");
+        assert_eq!(job.input.answer, "Geprüft.");
+        assert!(!job.has_station && !job.has_open_request);
+    }
+
+    #[test]
+    fn an_open_request_is_marked_in_the_classification_job() {
+        let (mut state, mut outbox) = answered();
+        state.ask(
+            &mut outbox,
+            "r".to_owned(),
+            QuestionKind::AskUser,
+            Vec::new(),
+            Value::Null,
+            None,
+        );
+        state.end_turn(&mut outbox, TurnEnd::Completed, None, Vec::new(), None);
+        assert!(outbox.classify.expect("Auftrag").has_open_request);
+    }
+
+    #[test]
+    fn a_turn_that_did_not_complete_starts_no_classification() {
+        let ends = [
+            TurnEnd::Failed("kaputt".to_owned()),
+            TurnEnd::QuotaExhausted {
+                text: "voll".to_owned(),
+                resets_at: None,
+            },
+            TurnEnd::Aborted,
+        ];
+        for end in ends {
+            let (mut state, mut outbox) = answered();
+            state.end_turn(&mut outbox, end, None, Vec::new(), None);
+            assert!(outbox.classify.is_none());
+        }
+        let (mut state, mut outbox) = answered();
+        state.pause_requested = true;
+        state.end_turn(&mut outbox, TurnEnd::Completed, None, Vec::new(), None);
+        assert!(outbox.classify.is_none(), "Pause");
+    }
 }
