@@ -12,6 +12,7 @@ pub mod codex;
 pub mod codex_account;
 pub mod commands;
 pub mod context;
+pub mod dashboard;
 pub mod db;
 pub mod environment;
 pub mod error;
@@ -170,6 +171,8 @@ pub fn run() {
         .invoke_handler(remote::intercept::guarded(tauri::generate_handler![
             commands::app::app_info,
             commands::projects::project_list,
+            commands::dashboard::dashboard_get,
+            commands::dashboard::dashboard_dismiss,
             commands::projects::project_create,
             commands::projects::project_rename,
             commands::projects::project_set_self_release,

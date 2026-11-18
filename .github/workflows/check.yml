@@ -31,7 +31,7 @@ jobs:
       - run: "cargo test --manifest-path src-tauri/Cargo.toml --lib remote::"
       - run: "cargo test --manifest-path src-tauri/Cargo.toml --lib processes::"
       - run: "cargo test --manifest-path src-tauri/Cargo.toml --lib -- agents::event:: sessions::registry::tests::"
-      - run: "cargo test --manifest-path src-tauri/Cargo.toml --lib -- implementation:: agent_types::"
+      - run: "cargo test --manifest-path src-tauri/Cargo.toml --lib -- implementation:: agent_types:: dashboard::"
       - name: Bindings sind aktuell
         shell: bash
         run: |

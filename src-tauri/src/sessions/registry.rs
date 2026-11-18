@@ -92,6 +92,7 @@ use crate::worktrees::{self, SessionRepository, TicketRoot, WorktreeCheck};
 
 mod artifacts;
 mod commit_scan;
+mod dashboard;
 mod implementation;
 mod mcp;
 mod overlaps;
@@ -127,6 +128,7 @@ const MAX_LOG_LINES: usize = 300;
 const MAX_LOG_LINE_CHARS: usize = 500;
 const MAX_HISTORY_PAGE: u32 = 500;
 const RESUME_MESSAGE: &str = "Mach weiter.";
+const EMPTY_MESSAGE: &str = "Leere Nachricht: Text, Anhang oder Kommentar fehlt.";
 const PLAN_NEEDS_TASK: &str = "„Plane Vorhaben“ braucht einen Auftrag.";
 const PLAN_NEEDS_CLAUDE: &str = "„Plane Vorhaben“ gibt es nur in der Betriebsart „Claude“: Nur dort \
      hat die Session die Werkzeuge des Verwalters.";
@@ -391,6 +393,15 @@ struct SessionState {
     /// Speicher. Jeder neue Zug setzt ihn neu, die Antwort auf eine Rückfrage und eine Erinnerung des
     /// Wächters lassen ihn stehen.
     plan_guard: Option<PlanGuard>,
+    /// Das Zugende der letzten abgegebenen Antwort einer Session ohne Station, ihr Auszug und die
+    /// Einordnung des Modells (Dashboard, ADR 071); gespeichert. `answer_kind` und `answer_line`
+    /// setzt erst die Einordnung, jedes neue Zugende löscht sie.
+    answer_at: Option<f64>,
+    answer_excerpt: Option<String>,
+    answer_kind: Option<String>,
+    answer_line: Option<String>,
+    /// Zeitpunkt von „Gelesen“ im Dashboard; gespeichert.
+    card_dismissed_at: Option<f64>,
 }
 
 /// Eine Session, wie `SessionRegistry::restore` sie aus der Datenbank liest.
@@ -1252,6 +1263,7 @@ impl SessionRegistry {
         comments: &[ReviewComment],
         device: Option<&str>,
     ) -> Result<(), CommandError> {
+        refuse_empty_message(text, attachment_ids, comments)?;
         self.send_turn(
             app,
             session_id,
@@ -2511,6 +2523,11 @@ impl SessionState {
             agent_prompt: None,
             last_report: None,
             plan_guard: None,
+            answer_at: None,
+            answer_excerpt: None,
+            answer_kind: None,
+            answer_line: None,
+            card_dismissed_at: None,
         }
     }
 
@@ -2543,6 +2560,11 @@ impl SessionState {
         state.scratchpad_dir = row.scratchpad_dir.clone();
         state.inquiry_of = row.inquiry_of.clone();
         state.agent_prompt = row.agent_prompt.clone();
+        state.answer_at = row.answer_at;
+        state.answer_excerpt = row.answer_excerpt.clone();
+        state.answer_kind = row.answer_kind.clone();
+        state.answer_line = row.answer_line.clone();
+        state.card_dismissed_at = row.card_dismissed_at;
         state.idle_since = None;
         state.entries_loaded = false;
         state.needs_settling = was_active;
@@ -3725,6 +3747,8 @@ impl SessionState {
             self.end_sourcing();
             return;
         }
+        // Vor `note_unsourced`, das die Einträge der Antwort abgibt.
+        let excerpt: Option<String> = self.turn_excerpt();
         let unsourced: Vec<u32> = self.note_unsourced(outbox);
         self.note_turn_summary(outbox, denials, total_cost_usd, unsourced);
         // Aufschlüsselung und MCP-Liste sind Beiwerk: ein Fehler beim Einreihen darf das Ende der Antwort nicht stören.
@@ -3750,10 +3774,35 @@ impl SessionState {
             }
             TurnEnd::Completed => {
                 self.set_status(outbox, SessionStatus::Completed);
+                self.note_answer(outbox, excerpt);
                 outbox.turn_completed = true;
                 self.check_plan(outbox);
             }
         }
+    }
+
+    /// Auszug der letzten Antwort dieses Zugs für das Dashboard; liest nur die Einträge des Zugs.
+    fn turn_excerpt(&self) -> Option<String> {
+        let text: &str = self.turn_texts.iter().rev().find_map(|seq: &u32| {
+            match self.entries.get(*seq as usize) {
+                Some(ChatEntry::Text { text, .. }) => Some(text.as_str()),
+                _ => None,
+            }
+        })?;
+        crate::dashboard::excerpt(text)
+    }
+
+    /// Ein abgegebener Zug einer Session ohne Station: Zeitpunkt und Auszug für das Dashboard. Pause,
+    /// Kontingent, Fehler und Abbruch kommen hier nie an. Eine Einordnung des vorigen Zugs gilt nicht mehr.
+    fn note_answer(&mut self, outbox: &mut Outbox, excerpt: Option<String>) {
+        if self.station_of.is_some() {
+            return;
+        }
+        self.answer_at = Some(self.last_activity_at);
+        self.answer_excerpt = excerpt;
+        self.answer_kind = None;
+        self.answer_line = None;
+        outbox.summary_dirty = true;
     }
 
     /// Der Wächter am Ende eines abgeschlossenen Zugs (ADR 062). Arbeitet noch ein Subagent oder ein
@@ -4163,6 +4212,19 @@ fn schedule_plan_reminder(app: &AppHandle, session: &Arc<Session>) {
     }
 }
 
+/// Text, der leer ist oder nur aus Leerzeichen besteht, beginnt keinen Zug — es sei denn, ein Anhang
+/// oder ein Kommentar kommt mit.
+fn refuse_empty_message(
+    text: &str,
+    attachment_ids: &[String],
+    comments: &[ReviewComment],
+) -> Result<(), CommandError> {
+    if text.trim().is_empty() && attachment_ids.is_empty() && comments.is_empty() {
+        return Err(CommandError::Implementation(EMPTY_MESSAGE.to_owned()));
+    }
+    Ok(())
+}
+
 /// Ohne Anhänge bleibt die Nachricht ein String wie vor den Anhängen.
 fn message_line(text: &str, attachments: &[Attachment]) -> Result<String, CommandError> {
     if attachments.is_empty() {
@@ -4204,6 +4266,11 @@ fn row_of(session: &Session, state: &SessionState) -> SessionRow {
         tldr_seq: None,
         inquiry_of: state.inquiry_of.clone(),
         agent_prompt: state.agent_prompt.clone(),
+        answer_at: state.answer_at,
+        answer_excerpt: state.answer_excerpt.clone(),
+        answer_kind: state.answer_kind.clone(),
+        answer_line: state.answer_line.clone(),
+        card_dismissed_at: state.card_dismissed_at,
     }
 }
 
@@ -4919,5 +4986,114 @@ mod tests {
         state.todos_seq = Some(0);
         state.update_todos(&mut outbox, Vec::new());
         assert_eq!(state.entries[0].at(), None);
+    }
+    #[test]
+    fn an_empty_message_without_attachments_or_comments_is_refused() {
+        for text in ["", "   ", "\n\t \n"] {
+            let refused = refuse_empty_message(text, &[], &[]);
+            assert!(
+                matches!(&refused, Err(CommandError::Implementation(message)) if message == EMPTY_MESSAGE),
+                "{text:?}: {refused:?}"
+            );
+        }
+        assert_eq!(
+            EMPTY_MESSAGE,
+            "Leere Nachricht: Text, Anhang oder Kommentar fehlt."
+        );
+        assert!(refuse_empty_message("Hallo", &[], &[]).is_ok());
+        assert!(refuse_empty_message("  Hallo  ", &[], &[]).is_ok());
+    }
+
+    #[test]
+    fn whitespace_only_text_with_an_attachment_or_comment_is_allowed() {
+        let attachment = vec!["anhang".to_owned()];
+        assert!(refuse_empty_message("", &attachment, &[]).is_ok());
+        assert!(refuse_empty_message("  ", &attachment, &[]).is_ok());
+        let comment = ReviewComment {
+            target: crate::review::model::CommentTarget::Diff,
+            repository_key: "0".to_owned(),
+            repository_name: "repo".to_owned(),
+            path: "a.rs".to_owned(),
+            kind: crate::changes::model::DiffLineKind::Added,
+            line: 1,
+            code: "x".to_owned(),
+            text: "Kommentar".to_owned(),
+        };
+        assert!(refuse_empty_message("", &[], std::slice::from_ref(&comment)).is_ok());
+        assert!(refuse_empty_message(" \n", &[], &[comment]).is_ok());
+    }
+
+    fn say(state: &mut SessionState, outbox: &mut Outbox, text: &str) {
+        let seq = state.push_entry(outbox, |seq: u32| ChatEntry::Text {
+            seq,
+            text: text.to_owned(),
+            unsourced: Vec::new(),
+            at: None,
+        });
+        state.turn_texts.push(seq);
+    }
+
+    #[test]
+    fn a_completed_turn_keeps_its_time_and_the_excerpt_of_the_last_text() {
+        let mut state = state();
+        state.answer_kind = Some("done".to_owned());
+        state.answer_line = Some("alt".to_owned());
+        let mut outbox = Outbox::default();
+        say(&mut state, &mut outbox, "Zwischenstand");
+        say(
+            &mut state,
+            &mut outbox,
+            "\n  Fertig und grün.  \nDetails folgen",
+        );
+        state.end_turn(&mut outbox, TurnEnd::Completed, None, Vec::new(), None);
+        assert_eq!(state.status, SessionStatus::Completed);
+        assert_eq!(state.answer_at, Some(state.last_activity_at));
+        assert_eq!(state.answer_excerpt.as_deref(), Some("Fertig und grün."));
+        assert_eq!(
+            state.answer_kind, None,
+            "die Einordnung des vorigen Zugs ist weg"
+        );
+        assert_eq!(state.answer_line, None);
+        assert!(outbox.summary_dirty, "wird mit der Session gespeichert");
+        assert_eq!(row_of_state(&state).answer_at, state.answer_at);
+    }
+
+    fn row_of_state(current: &SessionState) -> SessionRow {
+        let session = Session {
+            id: "s".to_owned(),
+            project_id: "p".to_owned(),
+            number: 1,
+            workspace: PathBuf::new(),
+            repositories: RwLock::new(Vec::new()),
+            database: Arc::new(
+                crate::db::Database::open(Path::new(":memory:")).expect("Datenbank im Speicher"),
+            ),
+            state: Mutex::new(state()),
+            deleted: AtomicBool::new(false),
+        };
+        row_of(&session, current)
+    }
+
+    #[test]
+    fn a_completed_turn_of_a_station_keeps_no_answer() {
+        let mut state = state();
+        state.station_of = Some("umsetzung".to_owned());
+        let mut outbox = Outbox::default();
+        say(&mut state, &mut outbox, "Antwort der Station");
+        state.end_turn(&mut outbox, TurnEnd::Completed, None, Vec::new(), None);
+        assert_eq!(state.answer_at, None);
+        assert_eq!(state.answer_excerpt, None);
+    }
+
+    #[test]
+    fn failed_and_aborted_turns_keep_no_answer() {
+        for end in [TurnEnd::Failed("kaputt".to_owned()), TurnEnd::Aborted] {
+            let mut state = state();
+            let mut outbox = Outbox::default();
+            say(&mut state, &mut outbox, "Teilantwort");
+            state.end_turn(&mut outbox, end, None, Vec::new(), None);
+            assert_eq!(state.answer_at, None);
+            assert_eq!(state.answer_excerpt, None);
+        }
     }
 }
