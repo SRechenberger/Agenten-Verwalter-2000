@@ -399,6 +399,19 @@ impl SessionRegistry {
             .is_some_and(|master: MasterRef| master.id == sender.id)
     }
 
+    /// Wartet im Posteingang der Station eine Nachricht ihres Masters. Nie unter einer Session-Sperre.
+    pub(super) fn master_message_waits(&self, session: &Session) -> bool {
+        let station_of: Option<String> = session.lock().station_of.clone();
+        station_of
+            .and_then(|implementation_id: String| self.master_of_station_in(&implementation_id))
+            .is_some_and(|master: MasterRef| {
+                session
+                    .database
+                    .with(|connection| session_inbox::has_from(connection, &session.id, &master.id))
+                    .unwrap_or(false)
+            })
+    }
+
     /// Die Zielprüfung vor dem Kasten: unbekannt, anderes Vorhaben und eigene ID sind Fehler.
     fn tool_target(&self, caller: &Session, id: &str) -> Result<Arc<Session>, String> {
         if id == caller.id {
@@ -677,6 +690,8 @@ impl SessionRegistry {
             return true;
         };
         let input = self.prepare_turn(session, &row.text);
+        // Vor der Session-Sperre: erst die Session kurz, dann die Datenbank.
+        let master_waits = self.master_message_waits(session);
         let started = update(
             app,
             session,
@@ -685,7 +700,13 @@ impl SessionRegistry {
                 let current = session
                     .database
                     .with(|connection| session_inbox::oldest(connection, &session.id))?;
-                let takes = state.rests() || slots::waits_for_slot(state.status, current.is_some());
+                let takes = takes_oldest(
+                    state.status,
+                    state.rests(),
+                    slots::waits_for_slot(state.status, current.is_some()),
+                    state.waits_for_resume(),
+                    master_waits,
+                );
                 if !takes || current.as_ref().map(|row: &InboxRow| row.id) != Some(row.id) {
                     return Ok(false);
                 }
@@ -831,11 +852,25 @@ pub(super) fn route_message(input: &Delivery) -> Route {
     let wakes_paused =
         input.from_master && input.status == SessionStatus::Paused && !input.timer_armed;
     if input.has_waiting || !(input.rests || wakes_paused) || !input.claimed {
+        // Auch die Nachricht des Masters an seine pausierte Station holt ein Durchgang ab (`takes_oldest`).
         return Route::Queue {
-            nudge: input.rests || waits_for_slot,
+            nudge: input.rests || waits_for_slot || wakes_paused,
         };
     }
     Route::Now
+}
+
+/// Nimmt der Durchgang die älteste wartende Nachricht der Session zu: sie ruht, wartet auf ihren Platz,
+/// oder sie ist pausiert ohne scharfen Zeitgeber und im Posteingang liegt eine Nachricht ihres Masters.
+/// Die älteste geht zuerst, auch wenn sie von jemand anderem ist; sie setzt die Station fort.
+pub(super) fn takes_oldest(
+    status: SessionStatus,
+    rests: bool,
+    waits_for_slot: bool,
+    timer_armed: bool,
+    master_waits: bool,
+) -> bool {
+    rests || waits_for_slot || (master_waits && status == SessionStatus::Paused && !timer_armed)
 }
 
 fn session_ref(session: &Session) -> SessionRef {

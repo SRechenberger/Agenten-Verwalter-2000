@@ -5322,7 +5322,7 @@ mod tests {
     fn an_older_waiting_message_goes_first() {
         assert_eq!(
             route_to(&paused(false), |d| d.has_waiting = true),
-            session_tools::Route::Queue { nudge: false }
+            session_tools::Route::Queue { nudge: true }
         );
         let resting = state_with(SessionStatus::Completed);
         assert_eq!(
@@ -5335,7 +5335,31 @@ mod tests {
     fn without_a_slot_the_message_waits() {
         assert_eq!(
             route_to(&paused(false), |d| d.claimed = false),
-            session_tools::Route::Queue { nudge: false }
+            session_tools::Route::Queue { nudge: true }
         );
+    }
+
+    /// `takes_oldest` für `state`, mit einer Nachricht des Masters im Posteingang, bis der Test es ändert.
+    fn takes(state: &SessionState, master_waits: bool) -> bool {
+        session_tools::takes_oldest(
+            state.status,
+            state.rests(),
+            false,
+            state.waits_for_resume(),
+            master_waits,
+        )
+    }
+
+    #[test]
+    fn the_pass_takes_a_waiting_master_message_for_a_paused_station_once_a_slot_is_free() {
+        assert!(takes(&paused(false), true));
+        assert!(!takes(&paused(false), false));
+    }
+
+    #[test]
+    fn the_pass_leaves_a_paused_station_with_an_armed_timer_and_a_running_session_alone() {
+        assert!(!takes(&paused(true), true));
+        assert!(!takes(&state_with(SessionStatus::Running), true));
+        assert!(takes(&state_with(SessionStatus::Completed), false));
     }
 }

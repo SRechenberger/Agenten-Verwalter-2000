@@ -70,6 +70,19 @@ pub fn delete(connection: &Connection, id: i64) -> Result<(), CommandError> {
     Ok(())
 }
 
+/// Wartet im Posteingang der Session eine Nachricht von diesem Absender.
+pub fn has_from(
+    connection: &Connection,
+    session_id: &str,
+    sender_id: &str,
+) -> Result<bool, CommandError> {
+    Ok(connection.query_row(
+        "SELECT EXISTS(SELECT 1 FROM session_inbox WHERE session_id = ?1 AND sender_id = ?2)",
+        params![session_id, sender_id],
+        |row| row.get(0),
+    )?)
+}
+
 /// Alle Sessions mit wartenden Nachrichten.
 pub fn session_ids(connection: &Connection) -> Result<Vec<String>, CommandError> {
     let mut statement = connection.prepare("SELECT DISTINCT session_id FROM session_inbox")?;

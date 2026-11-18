@@ -10,6 +10,7 @@ use std::thread;
 
 use tauri::{AppHandle, Emitter, Manager};
 
+use super::session_tools::takes_oldest;
 use super::{Session, SessionRegistry, now_ms};
 use crate::db::session_inbox;
 use crate::implementation::model::ImplementationView;
@@ -213,12 +214,20 @@ impl SessionRegistry {
         let sessions: Vec<Arc<Session>> = self.lock_sessions().values().cloned().collect();
         for session in sessions {
             let has_message = with_messages.contains(&session.id);
+            // Vor der Session-Sperre: erst die Session kurz, dann die Datenbank.
+            let master_waits = has_message && self.master_message_waits(&session);
             let (title, takes_message, resume_due_at) = {
                 let state = session.lock();
                 (
                     state.name.clone(),
-                    (state.rests() && has_message)
-                        || slots::waits_for_slot(state.status, has_message),
+                    has_message
+                        && takes_oldest(
+                            state.status,
+                            state.rests(),
+                            slots::waits_for_slot(state.status, has_message),
+                            state.waits_for_resume(),
+                            master_waits,
+                        ),
                     state.resume_due_at().filter(|due_at: &f64| *due_at <= now),
                 )
             };
