@@ -142,6 +142,15 @@ pub enum AnswerKind {
 }
 
 impl AnswerKind {
+    /// Der gespeicherte Text (Spalte `answer_kind`).
+    pub fn text(self) -> &'static str {
+        match self {
+            AnswerKind::Asks => "asks",
+            AnswerKind::Requests => "requests",
+            AnswerKind::Done => "done",
+        }
+    }
+
     /// Aus dem gespeicherten Text; ein unbekannter Wert gilt als nicht eingeordnet.
     pub fn from_text(text: &str) -> Option<AnswerKind> {
         match text {
