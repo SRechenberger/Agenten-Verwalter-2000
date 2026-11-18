@@ -8,4 +8,8 @@ import type { SessionRef } from "./SessionRef";
 /**
  * Worum ein Agent im Kasten bittet.
  */
-export type ToolRequest = { "kind": "sendMessage", recipients: Array<SessionRef>, message: string, } | { "kind": "getTldr", target: SessionRef, } | { "kind": "openSession", message: string, model: ModelId, effort: Effort, } | { "kind": "agentType", base: AgentType | null, proposal: AgentTypeInput, };
+export type ToolRequest = { "kind": "sendMessage", recipients: Array<SessionRef>, message: string, 
+/**
+ * Einträge von vorher haben den Betreff nicht (ADR 072).
+ */
+subject: string | null, } | { "kind": "getTldr", target: SessionRef, } | { "kind": "openSession", message: string, subject: string | null, model: ModelId, effort: Effort, } | { "kind": "agentType", base: AgentType | null, proposal: AgentTypeInput, };

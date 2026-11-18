@@ -8,15 +8,18 @@ interface SessionMessageProps {
   sessionId: string;
   text: string;
   sender: SessionRef;
+  /** Betreff der Nachricht; alte Einträge haben keinen. */
+  subject: string | null;
   /** Der Absender steht noch in der Liste; sonst gibt es keinen Sprung. */
   canJump: boolean;
 }
 
-/** Nachricht einer anderen Session: Absender als Kopf, Text wie eine Nutzernachricht. */
+/** Nachricht einer anderen Session: Absender als Kopf, darunter der Betreff, Text wie eine Nutzernachricht. */
 export function SessionMessage({
   sessionId,
   text,
   sender,
+  subject,
   canJump,
 }: SessionMessageProps): ReactElement {
   const selectSession = useSessionsStore((state) => state.selectSession);
@@ -37,6 +40,7 @@ export function SessionMessage({
       ) : (
         <span className="session-message__from">{from}</span>
       )}
+      {subject !== null && <span className="session-message__subject">Betreff: {subject}</span>}
       <UserMessage
         sessionId={sessionId}
         text={text}

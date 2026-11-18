@@ -394,6 +394,7 @@ export function ChatTimeline({
             sessionId={session.id}
             text={entry.text}
             sender={entry.sender}
+            subject={entry.subject}
             canJump={sessions.some((other: SessionSummary) => other.id === entry.sender.id)}
           />
         );

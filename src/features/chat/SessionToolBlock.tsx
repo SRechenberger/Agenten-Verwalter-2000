@@ -151,6 +151,9 @@ function SessionToolCallBlock({
           <>
             <p className="question-block__text">Claude möchte eine Nachricht senden an:</p>
             <ul className="session-tool__sessions">{request.recipients.map(renderSession)}</ul>
+            {request.subject !== null && (
+              <p className="session-tool__subject">Betreff: {request.subject}</p>
+            )}
             {edit === null && <p className="session-tool__message">{request.message}</p>}
           </>
         );
@@ -165,6 +168,9 @@ function SessionToolCallBlock({
         return (
           <>
             <p className="question-block__text">Claude möchte eine neue Session öffnen:</p>
+            {request.subject !== null && (
+              <p className="session-tool__subject">Betreff: {request.subject}</p>
+            )}
             {edit === null && (
               <>
                 <p className="session-tool__message">{request.message}</p>
