@@ -5,7 +5,12 @@ import { ModelMenu } from '@/components/ModelMenu';
 import { StatusIcon } from '@/components/StatusIcon';
 import { Switch } from '@/components/Switch';
 import { AgentTypeProposalBlock } from '@/features/agenttypes/AgentTypeProposalBlock';
-import type { QuestionEntry, ToolDraft, ToolEdit } from '@/features/chat/questionDraft';
+import {
+  isAllowBlocked,
+  type QuestionEntry,
+  type ToolDraft,
+  type ToolEdit,
+} from '@/features/chat/questionDraft';
 import { SelectButton } from '@/features/settings/SelectButton';
 import { useProjectLocked } from '@/features/remote/useProjectAccess';
 import type { Effort } from '@/lib/bindings/Effort';
@@ -93,9 +98,7 @@ function SessionToolCallBlock({
   const options: readonly QuestionOption[] = entry.questions[QUESTION_INDEX]?.options ?? [];
   const edit: ToolEdit | null = isAnswered ? null : draft.edit;
   // Eine leere Nachricht geht nie an eine Session (B13): „Erlauben“ bleibt gesperrt, „Ablehnen“ nicht.
-  const isMessageEmpty: boolean =
-    (request.kind === 'sendMessage' || request.kind === 'openSession') &&
-    request.message.trim() === '';
+  const isMessageEmpty: boolean = isAllowBlocked(request);
 
   // Der Fokus wandert nur nach dem Klick, der ihn verlangt — nicht bei jedem Neuaufbau des Verlaufs.
   useEffect(() => {

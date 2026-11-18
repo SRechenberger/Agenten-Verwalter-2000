@@ -336,7 +336,11 @@ export function MasterMissingBody(props: PopupProps): ReactElement {
 }
 
 /** „Gelesen“ gibt es nur bei einer Session ohne Station. */
-function ReadButton({ task, run }: Pick<PopupProps, 'task' | 'run'>): ReactElement | null {
+function ReadButton({
+  task,
+  run,
+  isLocked,
+}: Pick<PopupProps, 'task' | 'run' | 'isLocked'>): ReactElement | null {
   const { sessionId } = task;
   if (sessionId === null || task.stationId !== null) {
     return null;
@@ -345,6 +349,7 @@ function ReadButton({ task, run }: Pick<PopupProps, 'task' | 'run'>): ReactEleme
     <button
       type="button"
       className="popup-button"
+      disabled={isLocked}
       onClick={(): void => {
         run(() => dismissCard(sessionId), 'Gelesen fehlgeschlagen');
       }}
@@ -362,7 +367,7 @@ export function ErrorBody(props: PopupProps): ReactElement {
       open={open}
       actions={
         <>
-          <ReadButton task={task} run={run} />
+          <ReadButton task={task} run={run} isLocked={isLocked} />
           {sessionId !== null && (
             <button
               type="button"
@@ -391,7 +396,7 @@ export function PausedBody(props: PopupProps): ReactElement {
       open={open}
       actions={
         <>
-          <ReadButton task={task} run={run} />
+          <ReadButton task={task} run={run} isLocked={isLocked} />
           {sessionId !== null && (
             <button
               type="button"
@@ -465,7 +470,7 @@ function OpenAnswerBody({
       open={open}
       actions={
         <>
-          <ReadButton task={task} run={run} />
+          <ReadButton task={task} run={run} isLocked={isLocked} />
           <button
             type="button"
             className="popup-button popup-button--primary"
