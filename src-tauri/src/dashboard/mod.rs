@@ -1,6 +1,7 @@
 //! Das Dashboard (ADR 071): eine Arbeitsliste aus den Zuständen des Kerns. `build` bildet die
 //! Karten, die Abläufe und die aktiven Sessions als reine Funktion über einer Momentaufnahme; die
 //! Oberfläche rechnet nichts nach. Die Momentaufnahme liest `SessionRegistry::dashboard_snapshot`.
+pub mod classify;
 pub mod model;
 #[cfg(test)]
 mod tests;

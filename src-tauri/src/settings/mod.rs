@@ -31,6 +31,8 @@ const KEY_MASTER_DIR: &str = "master_dir";
 const KEY_MARK_UNSOURCED: &str = "mark_unsourced";
 const KEY_DEFAULT_SELF_RELEASE: &str = "default_self_release";
 const KEY_DEFAULT_AUTO_RESUME: &str = "default_auto_resume";
+/// Leer = aus; fehlt der Schlüssel, gilt Haiku (ADR 071).
+const KEY_ANSWER_MODEL: &str = "answer_model";
 /// Leer = unbegrenzt; fehlt der Schlüssel, gilt der Standard (ADR 068).
 const KEY_MAX_AGENTS: &str = "max_agents";
 const KEY_TERMINAL_PLACEMENT: &str = "terminal_placement";
@@ -75,6 +77,7 @@ pub const DEFAULT_SETTINGS: Settings = Settings {
     mark_unsourced: true,
     default_self_release: SelfRelease::OFF,
     default_auto_resume: false,
+    answer_model: Some(ModelId::Haiku),
     max_agents: Some(4),
     terminal_placement: TerminalPlacement::Bottom,
     terminal_height: 260,
@@ -123,6 +126,11 @@ pub fn load(database: &Database) -> Result<Settings, CommandError> {
             .get(KEY_DEFAULT_AUTO_RESUME)
             .and_then(|text: &String| text.parse::<bool>().ok())
             .unwrap_or(DEFAULT_SETTINGS.default_auto_resume),
+        answer_model: stored
+            .get(KEY_ANSWER_MODEL)
+            .map_or(DEFAULT_SETTINGS.answer_model, |text: &String| {
+                stored_answer_model(text)
+            }),
         max_agents: stored
             .get(KEY_MAX_AGENTS)
             .map_or(DEFAULT_SETTINGS.max_agents, |text: &String| {
@@ -231,6 +239,17 @@ pub fn update(database: &Database, change: SettingsChange) -> Result<Settings, C
             SettingsChange::DefaultAutoResume { value } => {
                 setting_rows::write(&transaction, KEY_DEFAULT_AUTO_RESUME, &value.to_string())?;
             }
+            SettingsChange::AnswerModel { value } => {
+                // Leer = aus; `load` liest nur den leeren Text so.
+                let text = value
+                    .map(|model: ModelId| enum_to_text(&model))
+                    .transpose()?;
+                setting_rows::write(
+                    &transaction,
+                    KEY_ANSWER_MODEL,
+                    text.as_deref().unwrap_or(""),
+                )?;
+            }
             SettingsChange::TerminalPlacement { value } => {
                 setting_rows::write(&transaction, KEY_TERMINAL_PLACEMENT, &enum_to_text(&value)?)?;
             }
@@ -321,6 +340,16 @@ pub fn remote_host_id(database: &Database) -> Result<String, CommandError> {
         setting_rows::write(connection, KEY_REMOTE_HOST_ID, &id)?;
         Ok(id)
     })
+}
+
+/// Gespeicherter Wert von „Modell der Einordnung“: leer = aus, ein unlesbarer Wert = der Standard.
+fn stored_answer_model(text: &str) -> Option<ModelId> {
+    if text.trim().is_empty() {
+        return None;
+    }
+    enum_from_text(text.trim())
+        .ok()
+        .or(DEFAULT_SETTINGS.answer_model)
 }
 
 /// Gespeicherter Wert von „Gleichzeitige Agenten max.“: leer = unbegrenzt, ein unlesbarer Wert oder 0

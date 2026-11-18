@@ -91,6 +91,7 @@ use crate::usage::{UsageService, reset_text};
 use crate::worktrees::{self, SessionRepository, TicketRoot, WorktreeCheck};
 
 mod artifacts;
+mod classify;
 mod commit_scan;
 mod dashboard;
 mod implementation;
@@ -402,6 +403,10 @@ struct SessionState {
     answer_line: Option<String>,
     /// Zeitpunkt von „Gelesen“ im Dashboard; gespeichert.
     card_dismissed_at: Option<f64>,
+    /// Eine Einordnung läuft (ADR 071); nur im Speicher. Ein weiteres Zugende währenddessen wartet
+    /// in `classify_next`, nur das jüngste.
+    classify_running: bool,
+    classify_next: Option<(classify::Job, ModelId)>,
 }
 
 /// Eine Session, wie `SessionRegistry::restore` sie aus der Datenbank liest.
@@ -526,6 +531,9 @@ struct Outbox {
     plan_reminder: bool,
     /// Befehlsliste aus `system/init`; gespeichert nach dem Freigeben der Sperre.
     slash_commands: Option<Vec<String>>,
+    /// Ein Zug endete abgeschlossen: nach dem Freigeben der Sperre fragt ein Thread das Modell der
+    /// Einordnung, falls die Einstellung es verlangt (ADR 071).
+    classify: Option<classify::Job>,
 }
 
 impl SessionRegistry {
@@ -2536,6 +2544,8 @@ impl SessionState {
             answer_kind: None,
             answer_line: None,
             card_dismissed_at: None,
+            classify_running: false,
+            classify_next: None,
         }
     }
 
@@ -3762,6 +3772,7 @@ impl SessionState {
         }
         // Vor `note_unsourced`, das die Einträge der Antwort abgibt.
         let excerpt: Option<String> = self.turn_excerpt();
+        let classify_input = crate::dashboard::classify::collect(&self.entries, &self.turn_texts);
         let unsourced: Vec<u32> = self.note_unsourced(outbox);
         self.note_turn_summary(outbox, denials, total_cost_usd, unsourced);
         // Aufschlüsselung und MCP-Liste sind Beiwerk: ein Fehler beim Einreihen darf das Ende der Antwort nicht stören.
@@ -3788,6 +3799,12 @@ impl SessionState {
             TurnEnd::Completed => {
                 self.set_status(outbox, SessionStatus::Completed);
                 self.note_answer(outbox, excerpt);
+                outbox.classify = classify_input.map(|input| classify::Job {
+                    has_station: self.station_of.is_some(),
+                    has_open_request: !self.pending.is_empty(),
+                    answer_at: self.last_activity_at,
+                    input,
+                });
                 outbox.turn_completed = true;
                 self.check_plan(outbox);
             }
@@ -4202,6 +4219,9 @@ fn update<R>(
     }
     if outbox.plan_reminder {
         schedule_plan_reminder(app, session);
+    }
+    if let Some(job) = outbox.classify.take() {
+        classify::schedule(app, session, job);
     }
     let value = result?;
     outbox.deliver(session)?;
@@ -5155,5 +5175,69 @@ mod tests {
             assert_eq!(state.answer_at, None);
             assert_eq!(state.answer_excerpt, None);
         }
+    }
+
+    /// Eine Session mit einer Frage des Nutzers und einer Antwort, bereit für `end_turn`.
+    fn answered() -> (SessionState, Outbox) {
+        let mut state = state();
+        let mut outbox = Outbox::default();
+        state.push_entry(&mut outbox, |seq: u32| ChatEntry::User {
+            seq,
+            text: "Prüfe das".to_owned(),
+            sent_at: 0.0,
+            attachments: Vec::new(),
+            skill: None,
+            comments: Vec::new(),
+            origin: None,
+        });
+        say(&mut state, &mut outbox, "Geprüft.");
+        (state, outbox)
+    }
+
+    #[test]
+    fn a_completed_turn_hands_its_input_and_time_to_the_classification() {
+        let (mut state, mut outbox) = answered();
+        state.end_turn(&mut outbox, TurnEnd::Completed, None, Vec::new(), None);
+        let job = outbox.classify.expect("Zugende ohne Station und Anfrage");
+        assert_eq!(Some(job.answer_at), state.answer_at);
+        assert_eq!(job.input.started_by, "Prüfe das");
+        assert_eq!(job.input.answer, "Geprüft.");
+        assert!(!job.has_station && !job.has_open_request);
+    }
+
+    #[test]
+    fn an_open_request_is_marked_in_the_classification_job() {
+        let (mut state, mut outbox) = answered();
+        state.ask(
+            &mut outbox,
+            "r".to_owned(),
+            QuestionKind::AskUser,
+            Vec::new(),
+            Value::Null,
+            None,
+        );
+        state.end_turn(&mut outbox, TurnEnd::Completed, None, Vec::new(), None);
+        assert!(outbox.classify.expect("Auftrag").has_open_request);
+    }
+
+    #[test]
+    fn a_turn_that_did_not_complete_starts_no_classification() {
+        let ends = [
+            TurnEnd::Failed("kaputt".to_owned()),
+            TurnEnd::QuotaExhausted {
+                text: "voll".to_owned(),
+                resets_at: None,
+            },
+            TurnEnd::Aborted,
+        ];
+        for end in ends {
+            let (mut state, mut outbox) = answered();
+            state.end_turn(&mut outbox, end, None, Vec::new(), None);
+            assert!(outbox.classify.is_none());
+        }
+        let (mut state, mut outbox) = answered();
+        state.pause_requested = true;
+        state.end_turn(&mut outbox, TurnEnd::Completed, None, Vec::new(), None);
+        assert!(outbox.classify.is_none(), "Pause");
     }
 }

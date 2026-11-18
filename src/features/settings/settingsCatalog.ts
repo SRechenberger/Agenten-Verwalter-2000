@@ -181,6 +181,12 @@ const ENTRY_DATA = {
     label: 'Modell des TL;DR',
     info: 'Mit diesem Modell entsteht das TL;DR, das ein Agent über das Session-Werkzeug abruft.',
   },
+  answerModel: {
+    category: 'agent',
+    section: 'Dashboard',
+    label: 'Modell der Einordnung',
+    info: 'Am Ende eines Zugs ordnet dieses Modell die Textantwort einer Session ohne Station ein: fragt, bittet oder fertig, mit einem Einzeiler für die Karte im Dashboard. Ein Aufruf kostet unter 0,01 $ mit Haiku. „Aus“ lässt die Karte bei „Antwort liegt vor“, ebenso ein gescheiterter Aufruf. In LM Studio, Autark und Codex antwortet das lokale Modell. Gilt für die ganze App.',
+  },
   userSkills: {
     category: 'skills',
     section: 'Skills',
