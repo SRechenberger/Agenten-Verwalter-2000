@@ -1,6 +1,6 @@
 # Design-Entwurf: Dashboard
 
-**Status:** freigegeben am 2026-11-17 (Taiga-Story 102, [ADR 071](../../decisions/071-dashboard.md)). Gebaut ist der Kern (Phase 102.1: Migration 31, Karten, Abläufe und Sessions als reine Funktion, `dashboard_get` und `dashboard_dismiss`, Antwort am Zugende, Sperre leerer Nachrichten); Einordnung (102.2) und Oberfläche (102.3) folgen.
+**Status:** freigegeben am 2026-11-17 (Taiga-Story 102, [ADR 071](../../decisions/071-dashboard.md)). Gebaut sind der Kern (Phase 102.1: Migration 31, Karten, Abläufe und Sessions als reine Funktion, `dashboard_get` und `dashboard_dismiss`, Antwort am Zugende, Sperre leerer Nachrichten) und die Oberfläche (Phase 102.3); die Einordnung (102.2) folgt.
 
 ## Zweck
 
@@ -36,4 +36,17 @@ Gegenüber dem Mock **entfallen** „Als fertig markieren“ bei Fehlern (es gib
 
 ## Abweichungen
 
-Leer; 102.3 trägt hier ein, was die gebaute Oberfläche anders macht als der Mock.
+Die gebaute Oberfläche (`src/features/dashboard/`) weicht so vom Mock ab:
+
+- **Popups mit den Bausteinen der App.** Rückfrage, Rechte-Abfrage und Kasten zeigen `QuestionBlock` und `SessionToolBlock`, Plan-Änderung `PlanChangeCard`, „Abbrechen?“ `CancelRequestCard`, „Zurückgeben ausgeschöpft“ `StationReportSection`, „Master ausgefallen“ `MasterWarning` und `MasterPicker`. Grund: Eine zweite Fassung derselben Eingaben liefe auseinander (Ziffern, Entwürfe, Rechte). Folge: Die Knöpfe „Antworten“, „Übernehmen“, „Erlauben“ stehen im Baustein statt in der Fußzeile des Popups, der Baustein hat einen eigenen Rahmen im Popup, und der Master wird über „ändern“ gewählt statt über eine Liste im Popup. Der Kasten bietet „Erlauben“/„Ablehnen“ als Optionsknöpfe, ein Vorschlag für einen Agententyp zeigt nur eine Zeile.
+- **„Durch dich“:** Das Ergebnis ist eine Zeile (wie in der Kartei) statt eines Textfelds; der Auftrag steht als Text, ohne Haken je Schritt (die Station kennt keine Schritte).
+- **Alter** der Karte in der Form des Mocks („4 min“, „1 h 10 min“), darüber hinaus „2 d 3 h“.
+- **Zeile im Popup-Kopf:** Vorhaben · Session oder Station · „seit …“; der Kopf trägt die Farbe der Art als linken Streifen.
+- **Eintrag in der Leiste:** zwei mal zwei Kästchen statt „▦“; die Zahl steht in der Farbe „wartet“.
+- **Antwort-Popup:** zeigt zusätzlich die Nachricht vor der letzten Antwort (aus `chat_history`).
+- **Fehler** zeigt den Text der Karte; „Als fertig markieren“ entfällt (s. o.).
+- Das Popup nimmt den Fokus auf das erste bedienbare Element (der Schließen-Knopf, wenn der Baustein keins hat).
+
+## Stand der Sichtprüfung
+
+Gesehen, Hell und Dunkel, je Popup einzeln gegen den Mock verglichen (Bilder im Scratchpad der Umsetzung): alle Arten von Karten, Gruppierung nach Vorhaben, Art und Gruppe, der Filter, die Abläufe in allen fünf Zuständen, die Sessions rechts, jedes Popup. Die Oberfläche lief dafür mit festen Beispieldaten in einem Browser (Befehle des Kerns als Attrappe) und der Start in der echten App mit Wegwerf-`HOME`, einer Kopie der Datenbank und der Attrappe der Kommandozeile (Start auf dem Dashboard, Eintrag mit Zahl 3, Abläufe, Sessions, Karten „Unterbrochen“). Nicht gesehen: Klicks in den Popups der echten App (Antworten, Übernehmen, Erledigen) und das Schließen eines Popups, wenn der Kern die Karte entzieht; beides ist nur gelesen.
