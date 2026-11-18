@@ -418,9 +418,9 @@ fn station_card_of(
             station.reported_at.unwrap_or(flow.last_activity_at),
             RETURNS_EXHAUSTED_TITLE.to_owned(),
         ),
-        // Pausiert und ohne Meldung; bei scharfem Zeitgeber ist der Zustand `WaitsForQuota`.
+        // Pausiert, mit oder ohne Meldung: Der Master kann eine pausierte Station nicht anstoßen.
+        // Bei scharfem Zeitgeber ist der Zustand `WaitsForQuota`.
         _ if waits_for_you
-            && station.reported_at.is_none()
             && session.is_some_and(|session: &SessionFacts| {
                 session.status == SessionStatus::Paused && !is_timer_armed(session)
             }) =>

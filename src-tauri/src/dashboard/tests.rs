@@ -480,7 +480,7 @@ fn a_paused_session_is_a_card_naming_the_reason() {
 }
 
 #[test]
-fn a_paused_station_with_a_report_is_no_card() {
+fn a_paused_station_is_a_card_with_or_without_report() {
     let paused = || with_session(station("st", StationState::WaitsForYou));
     let without = view_of(
         vec![station_session(SessionStatus::Paused)],
@@ -495,7 +495,11 @@ fn a_paused_station_with_a_report_is_no_card() {
         vec![station_session(SessionStatus::Paused)],
         vec![flow("i", vec![reported])],
     );
-    assert!(with.tasks.is_empty(), "eine Meldung geht an den Master");
+    assert_eq!(
+        kinds(&with),
+        vec![DashboardTaskKind::Paused],
+        "der Master kann eine pausierte Station nicht anstoßen"
+    );
 }
 
 #[test]

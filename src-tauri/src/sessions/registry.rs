@@ -426,6 +426,13 @@ pub struct NewSession<'a> {
     pub group_id: Option<String>,
 }
 
+impl NewSession<'_> {
+    /// Der Auftrag eines neuen Vorhabens ist die erste Nachricht: leer wie bei `send` nur mit Anhang.
+    fn refuse_empty_task(&self) -> Result<(), CommandError> {
+        refuse_empty_message(self.task, self.attachment_ids, &[])
+    }
+}
+
 /// Was `start_turn` vor der Session-Sperre braucht (`prepare_turn`).
 struct TurnInput {
     /// Als Text, weil eine offene Rückfrage sich auch ohne LM Studio beantworten lässt.
@@ -612,6 +619,8 @@ impl SessionRegistry {
         app: &AppHandle,
         request: NewSession<'_>,
     ) -> Result<ProjectCreated, CommandError> {
+        // Vor allem anderen: ein leerer Auftrag und eine unbekannte Gruppe lassen nichts zurück.
+        request.refuse_empty_task()?;
         let NewSession {
             task,
             attachment_ids,
@@ -622,7 +631,6 @@ impl SessionRegistry {
             mode,
             group_id,
         } = request;
-        // Vor allem anderen: eine unbekannte Gruppe lässt nichts zurück.
         if let Some(group_id) = &group_id {
             self.database
                 .with(|connection| group_rows::require(connection, group_id))?;
@@ -3100,10 +3108,15 @@ impl SessionState {
         self.note_input(outbox);
     }
 
-    /// Eine neue Eingabe ist da: Die Einstiegszeilen der letzten Antwort gelten nicht mehr.
+    /// Eine neue Eingabe ist da: Die Einstiegszeilen und die Antwort des Dashboards (Auszug und
+    /// Einordnung) der letzten Antwort gelten nicht mehr, auch nicht nach Archivieren und Zurückholen.
     fn note_input(&mut self, outbox: &mut Outbox) {
         self.touch_activity(outbox);
         self.handoff_lines.clear();
+        self.answer_at = None;
+        self.answer_excerpt = None;
+        self.answer_kind = None;
+        self.answer_line = None;
     }
 
     /// Eine Rückfrage ist beantwortet; ist sie die letzte, arbeitet der Agent weiter.
@@ -5072,6 +5085,49 @@ mod tests {
             deleted: AtomicBool::new(false),
         };
         row_of(&session, current)
+    }
+
+    #[test]
+    fn a_new_input_clears_the_answer_of_the_last_turn() {
+        let mut state = state();
+        let mut outbox = Outbox::default();
+        say(&mut state, &mut outbox, "Fertig.");
+        state.end_turn(&mut outbox, TurnEnd::Completed, None, Vec::new(), None);
+        state.answer_kind = Some("done".to_owned());
+        state.answer_line = Some("Fertig".to_owned());
+        assert!(state.answer_at.is_some());
+        let mut outbox = Outbox::default();
+        state.push_user(&mut outbox, "weiter", Vec::new(), None, Vec::new(), None);
+        assert_eq!(state.answer_at, None);
+        assert_eq!(state.answer_excerpt, None);
+        assert_eq!(state.answer_kind, None);
+        assert_eq!(state.answer_line, None);
+        assert!(outbox.summary_dirty, "wird mit der Session gespeichert");
+        assert_eq!(row_of_state(&state).answer_at, None);
+    }
+
+    #[test]
+    fn a_new_project_without_task_attachment_is_refused_like_an_empty_message() {
+        let new = |task: &'static str, attachments: &'static [String]| NewSession {
+            task,
+            attachment_ids: attachments,
+            repository_ids: &[],
+            model: ModelId::Sonnet,
+            codex_model: None,
+            effort: Effort::Medium,
+            mode: Mode::Edit,
+            group_id: None,
+        };
+        let attachment = [String::from("a")];
+        for task in ["", "  \n\t"] {
+            let refused = new(task, &[]).refuse_empty_task();
+            assert!(
+                matches!(&refused, Err(CommandError::Implementation(message)) if message == EMPTY_MESSAGE),
+                "{refused:?}"
+            );
+        }
+        assert!(new("  ", Box::leak(Box::new(attachment))).refuse_empty_task().is_ok());
+        assert!(new("Aufgabe", &[]).refuse_empty_task().is_ok());
     }
 
     #[test]
