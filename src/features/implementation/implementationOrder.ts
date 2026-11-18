@@ -1,4 +1,4 @@
-import { urgencyRank } from '@/features/implementation/stationState';
+import { stationUrgencyRank } from '@/features/implementation/stationState';
 import type { ChangeView } from '@/lib/bindings/ChangeView';
 import type { ImplementationView } from '@/lib/bindings/ImplementationView';
 import type { PhaseView } from '@/lib/bindings/PhaseView';
@@ -21,6 +21,14 @@ const ACTIVE_STATES: readonly StationState[] = [
 ];
 /** Zustände, in denen eine Station auf den Benutzer wartet. */
 export const NEEDS_USER_STATES: readonly StationState[] = ['asking', 'waitsForYou'];
+/** Wartet die Station auf den Benutzer, auch eine fertige oder gemeldete, deren Session fragt oder pausiert? */
+export function needsUser(station: StationView): boolean {
+  return (
+    NEEDS_USER_STATES.includes(station.state) ||
+    (station.live !== null && NEEDS_USER_STATES.includes(station.live))
+  );
+}
+
 /** Zustände einer aktiven Station: Sidebar, Rückweg-Leiste, Zeitleisten-Sprung (ADR 065). */
 export const LIVE_STATES: readonly StationState[] = [
   'ready',
@@ -114,7 +122,7 @@ function currentStationId(implementation: ImplementationView): string | null {
   for (const candidate of refs) {
     if (
       best === undefined ||
-      urgencyRank(candidate.station.state) < urgencyRank(best.station.state)
+      stationUrgencyRank(candidate.station) < stationUrgencyRank(best.station)
     ) {
       best = candidate;
     }

@@ -396,8 +396,12 @@ fn station_card_of(
         .as_deref()
         .and_then(|id: &str| context.sessions.get(id).copied());
     let waits_for_you = station.state == StationState::WaitsForYou;
+    // Eine fertige oder gemeldete Station, deren Session pausiert (ohne scharfen Zeitgeber) oder mit
+    // Fehler endete, gibt dieselbe Karte wie eine laufende.
+    let live_pause = station.live == Some(StationState::WaitsForYou);
+    let failed = station.state == StationState::Error || station.live == Some(StationState::Error);
     let (kind, since, title) = match station.state {
-        StationState::Error if !station.restarting => (
+        _ if failed && !station.restarting => (
             DashboardTaskKind::Error,
             session.map_or(flow.last_activity_at, |session: &SessionFacts| {
                 session.last_activity_at
@@ -421,7 +425,7 @@ fn station_card_of(
         ),
         // Pausiert, mit oder ohne Meldung: Der Master kann eine pausierte Station nicht anstoßen.
         // Bei scharfem Zeitgeber ist der Zustand `WaitsForQuota`.
-        _ if waits_for_you
+        _ if (waits_for_you || live_pause)
             && session.is_some_and(|session: &SessionFacts| {
                 session.status == SessionStatus::Paused && !is_timer_armed(session)
             }) =>
@@ -622,6 +626,7 @@ pub fn flow_facts(view: &ImplementationView) -> FlowFacts {
                     label: format!("{} · {}", phase.title, station.stage),
                     by_user: station.by_user,
                     state: station.state,
+                    live: station.live,
                     restarting: station.restarting,
                     starts_automatically: station.starts_automatically,
                     session_id: station.session_id.clone(),

@@ -25,15 +25,15 @@ use crate::db::implementations::{
     ChangeRow, ImplementationRow, PhaseRow, StationRow, StoredImplementation,
 };
 use crate::error::CommandError;
-use crate::sessions::model::SessionStatus;
+use crate::sessions::model::{PauseReason, SessionStatus};
 use crate::sessions::registry::SessionRegistry;
 use master::Decider;
 use model::{
     BriefChange, BriefChangeKind, ChangeSummary, ChangeView, Handoff, ImplementationChangedEvent,
     ImplementationRemovedEvent, ImplementationView, MAX_BRIEF_CHARS, MAX_PROMPT_CHARS,
     MAX_RETURN_CHARS, MAX_SKILL_CHARS, OnError, PendingCancel, PendingChange, PhaseInput,
-    PhaseView, PredecessorsMay, StationInput, StationOptions, StationReport, StationSettings,
-    StationState, StationView, StoredReport, check_length,
+    PhaseView, PredecessorsMay, StationInput, StationOptions, StationPause, StationPauseReason,
+    StationReport, StationSettings, StationState, StationView, StoredReport, check_length,
 };
 
 pub const IMPLEMENTATION_CHANGED_EVENT: &str = "implementation://changed";
@@ -1682,6 +1682,8 @@ pub struct SessionLive {
     pub is_fresh_error: bool,
     /// Pausiert am Kontingent mit scharfem Zeitgeber von „Automatisch fortsetzen“ (ADR 064).
     pub waits_for_quota: bool,
+    /// Warum die Session pausiert ist (ADR 051); nur im Speicher.
+    pub pause_reason: Option<PauseReason>,
 }
 
 /// Baut die Ansicht aus den Zeilen. `live` enthält die Sessions der Stationen, `numbers` die
@@ -1735,7 +1737,8 @@ pub fn build_view(
         .unwrap_or(phases.len().saturating_sub(1));
     let urgency = all_stations
         .iter()
-        .map(|station: &&StationView| station.state)
+        .flat_map(|station: &&StationView| [Some(station.state), station.live])
+        .flatten()
         .max_by_key(|state: &StationState| state.urgency_rank())
         .unwrap_or(StationState::Done);
     let mut last_activity_at = row.created_at;
@@ -1878,9 +1881,13 @@ fn station_view(
     } else {
         session_state
     };
+    let live = live_state(station, state, report.is_some(), session);
+    let pause = session.and_then(|session: &SessionLive| pause_of(session, station, live));
     // Kein Neustart nach Halt oder Ende (auch Abbruch), während eine Anfrage zum Abbrechen liegt
-    // (ADR 066), und keiner für einen Fehler von vor dem App-Neustart.
-    let restarting = session_state == StationState::Error
+    // (ADR 066), keiner für einen Fehler von vor dem App-Neustart und keiner für eine fertige Station:
+    // Ihr Fehler nach der Annahme wird eine Karte `error` (ADR 071).
+    let restarting = station.completed_at.is_none()
+        && session_state == StationState::Error
         && session.is_some_and(|session: &SessionLive| session.is_fresh_error)
         && station.restarts < station.on_error.max_restarts()
         && !implementation.stop_after_current
@@ -1938,7 +1945,60 @@ fn station_view(
         returns: station.returns,
         returns_left,
         released: station.released_at.is_some(),
+        live,
+        pause,
     }
+}
+
+/// Zustand der Session einer fertigen oder gemeldeten Station (`StationView::live`). Eine fertige
+/// Station zeigt ihn nur, wenn die Session nach der Annahme aktiv war; eine Annahme setzt die
+/// Aktivität der Session nicht selbst.
+fn live_state(
+    station: &StationRow,
+    state: StationState,
+    has_report: bool,
+    session: Option<&SessionLive>,
+) -> Option<StationState> {
+    let applies = station.completed_at.is_some() || (has_report && state != StationState::Asking);
+    let session = session.filter(|session: &&SessionLive| {
+        applies
+            && station
+                .completed_at
+                .is_none_or(|completed_at: f64| session.last_activity_at > completed_at)
+    })?;
+    match session.status {
+        SessionStatus::Starting | SessionStatus::New => Some(StationState::Starting),
+        SessionStatus::Running => Some(StationState::Running),
+        SessionStatus::Completed if session.awaits_script => Some(StationState::WaitsForScript),
+        SessionStatus::Completed => None,
+        SessionStatus::Waiting => Some(StationState::Asking),
+        SessionStatus::Paused if session.waits_for_quota => Some(StationState::WaitsForQuota),
+        SessionStatus::Paused => Some(StationState::WaitsForYou),
+        SessionStatus::Error | SessionStatus::Cancelled => Some(StationState::Error),
+    }
+}
+
+/// Grund der Pause (`StationView::pause`); eine fertige Station ohne Aktivität nach der Annahme
+/// zeigt keine, wie bei `live`.
+fn pause_of(
+    session: &SessionLive,
+    station: &StationRow,
+    live: Option<StationState>,
+) -> Option<StationPause> {
+    let accepted_idle = station.completed_at.is_some() && live.is_none();
+    if session.status != SessionStatus::Paused || accepted_idle {
+        return None;
+    }
+    Some(match session.pause_reason {
+        Some(PauseReason::Quota { resets_at, .. }) => StationPause {
+            reason: StationPauseReason::Quota,
+            resets_at,
+        },
+        None => StationPause {
+            reason: StationPauseReason::Other,
+            resets_at: None,
+        },
+    })
 }
 
 /// Fertig heißt gemeldet: eine Antwort ohne Meldung wartet auf den Benutzer — außer ein

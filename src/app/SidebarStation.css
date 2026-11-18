@@ -48,6 +48,31 @@
     }
   }
 
+  /* Mit Chip steht der Zustand samt Chip in einer zweiten Zeile: Die Leiste ist zu schmal für beides neben dem Namen. */
+  &__button--stacked {
+    flex-wrap: wrap;
+    row-gap: 2px;
+    height: auto;
+    min-height: 26px;
+    padding-block: 3px;
+  }
+
+  &__tail {
+    display: flex;
+    align-items: center;
+    flex-shrink: 0;
+    gap: var(--space-md);
+    flex-wrap: wrap;
+    margin-left: auto;
+    min-width: 0;
+
+    .sidebar-station__button--stacked & {
+      flex-basis: 100%;
+      min-width: 0;
+      padding-left: 18px;
+    }
+  }
+
   &__status {
     display: flex;
     align-items: center;
@@ -57,6 +82,8 @@
   }
 
   &__name {
+    flex: 1 1 0;
+    min-width: 4ch;
     overflow: hidden;
     white-space: nowrap;
     text-overflow: ellipsis;
@@ -70,8 +97,11 @@
   }
 
   &__meta {
-    flex-shrink: 0;
-    margin-left: auto;
+    flex-shrink: 1;
+    min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
     font-size: var(--font-size-2xs);
     font-variant-numeric: tabular-nums;
 
@@ -86,6 +116,29 @@
     &--error {
       color: var(--color-status-error);
     }
+  }
+
+  /* Grund der Pause, wie der Chip der Zeitleiste. */
+  &__chip {
+    flex-shrink: 0;
+    padding: 0 var(--space-sm);
+    border: 1px solid var(--color-status-waiting);
+    border-radius: var(--radius-full);
+    color: var(--color-status-waiting);
+    font-size: var(--font-size-2xs);
+    line-height: 1.4;
+  }
+
+  /* Grund der Pause, wie der Chip der Zeitleiste. */
+  &__chip {
+    flex-shrink: 0;
+    padding: 0 var(--space-sm);
+    border: 1px solid var(--color-status-waiting);
+    border-radius: var(--radius-full);
+    color: var(--color-status-waiting);
+    font-size: var(--font-size-2xs);
+    line-height: 1.4;
+    white-space: nowrap;
   }
 
   &__unread {

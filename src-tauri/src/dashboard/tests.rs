@@ -76,6 +76,7 @@ fn station(id: &str, state: StationState) -> StationFacts {
         label: "Lane · Stufe".to_owned(),
         by_user: false,
         state,
+        live: None,
         restarting: false,
         starts_automatically: true,
         session_id: None,
@@ -1006,4 +1007,61 @@ fn migration_31_gives_answer_at_only_to_unread_completed_sessions_without_statio
         })
         .expect("lesbar");
     assert_eq!(at, 50.0, "answer_at ist die letzte Aktivität");
+}
+
+fn done_with_live(live: StationState) -> StationFacts {
+    StationFacts {
+        live: Some(live),
+        ..with_session(station("st", StationState::Done))
+    }
+}
+
+#[test]
+fn a_done_station_with_live_error_is_an_error_card() {
+    let view = view_of(
+        vec![station_session(SessionStatus::Error)],
+        vec![flow("i", vec![done_with_live(StationState::Error)])],
+    );
+    assert_eq!(kinds(&view), vec![DashboardTaskKind::Error]);
+    assert_eq!(view.flows[0].open, 1);
+}
+
+#[test]
+fn a_done_station_with_live_waits_for_you_is_a_paused_card() {
+    let view = view_of(
+        vec![station_session(SessionStatus::Paused)],
+        vec![flow("i", vec![done_with_live(StationState::WaitsForYou)])],
+    );
+    assert_eq!(kinds(&view), vec![DashboardTaskKind::Paused]);
+    assert_eq!(view.flows[0].open, 1);
+}
+
+#[test]
+fn a_done_station_running_again_is_no_card() {
+    for live in [
+        StationState::Running,
+        StationState::Starting,
+        StationState::WaitsForScript,
+        StationState::WaitsForQuota,
+    ] {
+        let view = view_of(
+            vec![station_session(SessionStatus::Running)],
+            vec![flow("i", vec![done_with_live(live)])],
+        );
+        assert!(view.tasks.is_empty(), "{live:?}");
+    }
+}
+
+#[test]
+fn a_reported_paused_station_is_a_paused_card() {
+    let reported = StationFacts {
+        reported_at: Some(300.0),
+        live: Some(StationState::WaitsForYou),
+        ..with_session(station("st", StationState::Reported))
+    };
+    let view = view_of(
+        vec![station_session(SessionStatus::Paused)],
+        vec![flow("i", vec![reported])],
+    );
+    assert_eq!(kinds(&view), vec![DashboardTaskKind::Paused]);
 }

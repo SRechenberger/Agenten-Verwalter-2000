@@ -190,6 +190,30 @@ pub struct StationView {
     pub returns: u32,
     pub returns_left: u32,
     pub released: bool,
+    // Zustand der Session einer fertigen oder gemeldeten Station, solange sie nicht ruht; `state`
+    // bleibt, was der Ablauf braucht. `None`: ruht, hat keine Session oder die Station ist weder
+    // fertig noch gemeldet.
+    pub live: Option<StationState>,
+    // Warum die Session pausiert ist; `None`, solange sie nicht pausiert.
+    pub pause: Option<StationPause>,
+}
+
+// Grund der Pause einer Session an der Station.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct StationPause {
+    pub reason: StationPauseReason,
+    /// Rücksetzzeit des Kontingents, ms seit der Epoche; nur bei `Quota` und bekannter Zeit.
+    #[ts(type = "number | null")]
+    pub resets_at: Option<f64>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub enum StationPauseReason {
+    Quota,
+    // Vom Benutzer pausiert oder nach dem Neustart der App (ADR 051: dann ist der Grund gelöscht).
+    Other,
 }
 
 impl StationView {

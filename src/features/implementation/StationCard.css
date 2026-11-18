@@ -67,6 +67,17 @@
     color: var(--color-fg-secondary);
   }
 
+  /* Grund der Pause hinter dem Zustand, wie der Chip der Zeitleiste. */
+  &__chip {
+    margin-left: var(--space-md);
+    padding: 0 var(--space-md);
+    border: 1px solid var(--color-status-waiting);
+    border-radius: var(--radius-full);
+    color: var(--color-status-waiting);
+    font-size: var(--font-size-2xs);
+    line-height: 1.5;
+  }
+
   &__question {
     padding: var(--space-md) var(--space-lg);
     border-radius: var(--radius-md);

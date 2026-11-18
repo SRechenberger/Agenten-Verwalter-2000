@@ -41,9 +41,9 @@ Vom Architekten (D1 bis D18, hier die Teile des Kerns):
 | `asks`, `requests`, `done` | Session ohne Station, `Completed`, kein wartendes Skript, kein wartender Subagent, `answer_at` und `answer_kind` gesetzt | `answer_at` | du schreibst oder „Gelesen“ |
 | `answer` | wie oben, `answer_kind` leer; Titel ist der Auszug | `answer_at` | wie oben |
 | `error` (Session) | Status `Error` | letzte Aktivität (`Error` schreibt sie) | der Fehler endet, „Gelesen“ |
-| `error` (Station) | Station im Fehler, kein Neustart („Bei Fehler“) ansteht | letzte Aktivität der Session | der Fehler endet |
+| `error` (Station) | Station im Fehler (`state` oder, bei einer fertigen oder gemeldeten Station, `live`), kein Neustart („Bei Fehler“) ansteht | letzte Aktivität der Session | der Fehler endet |
 | `paused` (Session) | Status `Paused`, kein scharfer Zeitgeber „Automatisch fortsetzen“ | Beginn der Ruhe (`idle_since`, nach App-Neustart letzte Aktivität) | sie läuft weiter, „Gelesen“ |
-| `paused` (Station) | Station wartet auf dich, mit oder ohne Meldung, Session pausiert ohne scharfen Zeitgeber | wie bei der Session | sie läuft weiter |
+| `paused` (Station) | Station wartet auf dich (`state` oder, bei einer fertigen oder gemeldeten Station, `live = waitsForYou`), mit oder ohne Meldung, Session pausiert ohne scharfen Zeitgeber | wie bei der Session | sie läuft weiter |
 | `planChange`, `cancelRequest` | `pendingChange`, `pendingCancel` einer Umsetzung | Zeitpunkt des Vorschlags oder der Anfrage | übernommen, bestätigt oder verworfen |
 | `byYou` | Station „durch dich“ an der Reihe | letzte Aktivität der Umsetzung (Näherung: die jüngste Annahme eines Vorgängers) | erledigt |
 | `returnsExhausted` | gemeldete Station, keine Rückgabe übrig | Zeitpunkt der Meldung | angenommen oder zurückgegeben |
@@ -72,7 +72,7 @@ Endet ein Zug einer Session ohne Station mit `TurnEnd::Completed`, setzt `end_tu
 
 - **Gäste sehen nur Lokales:** `dashboard_get` ist Klasse G; Karten aus Vorhaben eines Hosts erscheinen nicht, eine Zusammenführung über Hosts wäre eigene Arbeit.
 - **Ctrl J behält seine Liste** (`waitingQueue.ts`); das Dashboard ersetzt sie nicht.
-- **Wieder laufende fertige Station:** Taiga #152 bleibt offen und gehört nicht hierher.
+- **Wieder laufende fertige Station:** Sie bleibt fertig; ihre Session gibt eine Karte `error` oder `paused` nur im Fehler ohne Neustart und bei einer Pause ohne scharfen Zeitgeber (`StationView::live`, Taiga #152). Läuft sie, fragt sie oder wartet sie auf das Kontingent, gibt es keine Karte aus `live`; Anfragen bleiben Karten wie bisher. Die Karten zählen in `open` des Ablaufs, sein `state` folgt den Regeln oben.
 - **Nach einem App-Neustart** steht jede vorher aktive Session auf `Paused` und bekommt eine Karte „Unterbrochen“; „Gelesen“ räumt sie ab.
 - **`since` von `byYou`, `ready` und `masterMissing`** ist die letzte Aktivität der Umsetzung, nicht der Zeitpunkt, an dem die Station an der Reihe wurde; der Kern speichert diesen Zeitpunkt nicht.
 - **Die Bestandsregel der Migration** kennt nur `completed` und `seen_at`; eine Session, die vor dem Update abgegeben hat und gelesen wurde, bekommt keine Karte, auch wenn sie nie beantwortet wurde.

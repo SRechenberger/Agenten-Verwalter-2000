@@ -29,6 +29,7 @@ import { RELEASED_MARK, RELEASED_TITLE } from '@/features/implementation/masterT
 import { StationReportSection } from '@/features/implementation/StationReportSection';
 import { StationFlowSection } from '@/features/implementation/StationFlowSection';
 import { typeNamed, typeOfStation } from '@/features/implementation/stationAgent';
+import { pauseChip } from '@/features/implementation/stationLive';
 import { stationTone } from '@/features/implementation/stationState';
 import type { AgentType } from '@/lib/bindings/AgentType';
 import type { OperatingMode } from '@/lib/bindings/OperatingMode';
@@ -250,7 +251,12 @@ export function StationCard({
         <span className="station-card__number">{number}</span>
       </div>
       <p className="station-card__phase">{phase.title}</p>
-      <p className="station-card__state">{rowStateText(station, now)}</p>
+      <p className="station-card__state">
+        {rowStateText(station, now)}
+        {pauseChip(station) !== null && (
+          <span className="station-card__chip">{pauseChip(station)}</span>
+        )}
+      </p>
       {renderPurpose()}
       {station.released && (
         <span className="station-card__mark station-card__mark--ok" title={RELEASED_TITLE}>

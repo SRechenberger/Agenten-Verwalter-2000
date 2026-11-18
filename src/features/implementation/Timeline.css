@@ -133,7 +133,8 @@
     }
 
     /* Neutral, nicht Bernstein: „wartet auf dich“ bleibt der einzige bernsteinfarbene Wartezustand. */
-    &--waitsForQuota {
+    &--waitsForQuota,
+    &--live {
       color: var(--color-fg-secondary);
     }
 

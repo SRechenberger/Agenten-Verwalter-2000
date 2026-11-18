@@ -769,6 +769,7 @@ fn view_with_quota(
                 awaits_script: false,
                 is_fresh_error: false,
                 waits_for_quota: waiting_for_quota.contains(plan_id),
+                pause_reason: None,
             },
         );
     }
@@ -1445,6 +1446,7 @@ fn view_failed(
             awaits_script: false,
             is_fresh_error: fresh,
             waits_for_quota: false,
+            pause_reason: None,
         },
     )]);
     Ok(build_view(

@@ -1336,5 +1336,6 @@ fn live_of(session: &Session, now: f64) -> SessionLive {
                     ..
                 })
             ),
+        pause_reason: state.pause_reason.clone(),
     }
 }
