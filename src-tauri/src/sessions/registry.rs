@@ -5126,7 +5126,11 @@ mod tests {
                 "{refused:?}"
             );
         }
-        assert!(new("  ", Box::leak(Box::new(attachment))).refuse_empty_task().is_ok());
+        assert!(
+            new("  ", Box::leak(Box::new(attachment)))
+                .refuse_empty_task()
+                .is_ok()
+        );
         assert!(new("Aufgabe", &[]).refuse_empty_task().is_ok());
     }
 
