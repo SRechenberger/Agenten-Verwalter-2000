@@ -683,6 +683,10 @@ export function App(): ReactElement {
             ?.selfRelease ?? null
         }
         sessions={sessions}
+        implementations={implementations}
+        projects={projects}
+        onOpenSession={selectSession}
+        onOpenImplementation={selectImplementation}
       />
     );
   }

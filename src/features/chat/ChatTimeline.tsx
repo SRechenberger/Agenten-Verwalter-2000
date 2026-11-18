@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useEffectEvent, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { MouseEvent, ReactElement } from 'react';
 import { useVirtualizer, type VirtualItem } from '@tanstack/react-virtual';
 import { FileLinkSessionContext } from '@/components/FileLinkSessionContext';
@@ -7,6 +7,9 @@ import { BackgroundLine } from '@/features/chat/BackgroundLine';
 import { buildBlocks, type ChatBlock, type ToolEntry } from '@/features/chat/buildBlocks';
 import { entryTime, dayDividers } from '@/features/chat/entryTimeText';
 import { EntryTime } from '@/features/chat/EntryTime';
+import { ChatTaskFrameHead, type ChatTaskActions } from '@/features/chat/ChatTaskRow';
+import type { ChatCard, JumpTarget } from '@/features/chat/chatTasks';
+import { kindTone } from '@/features/dashboard/dashboardTexts';
 import { ErrorBlock } from '@/features/chat/ErrorBlock';
 import { HandoffAnswer } from '@/features/chat/HandoffAnswer';
 import { PinnedUserMessage } from '@/features/chat/PinnedUserMessage';
@@ -68,6 +71,13 @@ function toolKey(toolUseId: string): string {
 /** Solange der Agent arbeitet oder die Session leer ist, steht unter der Antwort kein „Weiter“-Knopf. */
 const HANDOFF_HIDDEN_STATUSES: readonly SessionStatus[] = ['starting', 'running', 'new'];
 
+/** „Zur Stelle“ aus der Leiste: `nonce` zählt hoch, damit derselbe Sprung zweimal wirkt. */
+export interface JumpRequest {
+  target: JumpTarget;
+  requestId: string | null;
+  nonce: number;
+}
+
 interface ChatTimelineProps {
   session: SessionSummary;
   entries: readonly ChatEntry[];
@@ -87,6 +97,10 @@ interface ChatTimelineProps {
   /** Höhe der Überlagerung oben (TL;DR) und unten (Eingabe); der Verlauf lässt so viel Platz frei. */
   topInset: number;
   bottomInset: number;
+  /** B (#128): die Karte, die die letzte Antwort einrahmt; `null` ohne. */
+  frame: ChatCard | null;
+  actions: ChatTaskActions;
+  jump: JumpRequest | null;
 }
 
 /** Das offene Rechtsklick-Menü: markierter Text und Mausposition in Fensterkoordinaten. */
@@ -114,6 +128,9 @@ export function ChatTimeline({
   sessions,
   topInset,
   bottomInset,
+  frame,
+  actions,
+  jump,
 }: ChatTimelineProps): ReactElement {
   const [containerHeight, setContainerHeight] = useState<number>(0);
   // Auf-/Zugeklappt und halbe Antworten leben hier, nicht im Block: ein Block verlässt beim Scrollen das DOM.
@@ -173,6 +190,10 @@ export function ChatTimeline({
     [entries],
   );
   const answerSeq: number | null = useMemo(() => lastAnswerSeq(entries), [entries]);
+  const lastTextSeq: number | null = useMemo(
+    () => findLastSeq(entries, (entry: ChatEntry) => entry.kind === 'text'),
+    [entries],
+  );
   // „In neuem Vorhaben starten“ legte ein Vorhaben auf diesem Gerät an, nicht auf dem Host der Session.
   const showsHandoff: boolean =
     session.handoffLines.length > 0 &&
@@ -288,6 +309,26 @@ export function ChatTimeline({
     focusFirstMark(scrollRef.current, seq, FOCUS_ATTEMPTS);
   }
 
+  const scrollToTask = useEffectEvent((request: JumpRequest): void => {
+    const seq: number | null =
+      request.target === 'answer'
+        ? lastTextSeq
+        : findLastSeq(
+            entries,
+            (entry: ChatEntry) =>
+              entry.kind === 'question' && entry.requestId === request.requestId,
+          );
+    if (seq !== null) {
+      jumpToEntry(seq);
+    }
+  });
+
+  useEffect(() => {
+    if (jump !== null) {
+      scrollToTask(jump);
+    }
+  }, [jump]);
+
   /** `null`, sobald ein Text der Antwort nicht im geladenen Verlauf steht (Nachladen holt ihn später). */
   function countUnsourced(seqs: readonly number[]): number | null {
     let total = 0;
@@ -326,17 +367,27 @@ export function ChatTimeline({
             origin={entry.origin}
           />
         );
-      case 'text':
-        return showsHandoff && entry.seq === answerSeq ? (
-          <HandoffAnswer
-            text={entry.text}
-            unsourced={entry.unsourced}
-            sessionId={session.id}
-            lines={session.handoffLines}
-          />
+      case 'text': {
+        const text: ReactElement =
+          showsHandoff && entry.seq === answerSeq ? (
+            <HandoffAnswer
+              text={entry.text}
+              unsourced={entry.unsourced}
+              sessionId={session.id}
+              lines={session.handoffLines}
+            />
+          ) : (
+            <TextBlock text={entry.text} unsourced={entry.unsourced} />
+          );
+        return frame !== null && entry.seq === lastTextSeq ? (
+          <div className={`chat-task-frame chat-task-frame--${kindTone(frame.task.kind)}`}>
+            <ChatTaskFrameHead card={frame} {...actions} />
+            {text}
+          </div>
         ) : (
-          <TextBlock text={entry.text} unsourced={entry.unsourced} />
+          text
         );
+      }
       case 'sessionMessage':
         return (
           <SessionMessage
