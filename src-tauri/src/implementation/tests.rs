@@ -6394,7 +6394,7 @@ fn live_view(
         row: implementation_row(),
         phases: vec![phase_row()],
         stations: vec![StationRow {
-            session_id: Some("session".to_owned()).filter(|_| !live.is_empty()),
+            session_id: (!live.is_empty()).then(|| "session".to_owned()),
             completed_at: done_at,
             ..row
         }],
