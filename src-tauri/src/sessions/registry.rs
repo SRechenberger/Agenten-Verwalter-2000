@@ -333,6 +333,9 @@ struct SessionState {
     mcp_auth: Option<McpAuthWait>,
     /// Seit wann die Session ruht (`completed`/`paused`) — Grundlage für `reap_idle`.
     idle_since: Option<f64>,
+    /// Seit wann die Session pausiert ist. Anders als `idle_since` löschen weder der Reaper noch ein
+    /// Neustart es: Grundlage dafür, welche Nachricht des Masters die Pause überhaupt aufheben darf.
+    paused_since: Option<f64>,
     /// Eine wiederhergestellte Session lädt ihren Verlauf erst beim ersten Zugriff (`Session::lock_loaded`).
     entries_loaded: bool,
     /// Die Session war beim Beenden aktiv: beim Laden des Verlaufs werden offene Rückfragen und
@@ -2506,6 +2509,7 @@ impl SessionState {
             mcp_error: None,
             mcp_auth: None,
             idle_since: None,
+            paused_since: None,
             entries_loaded: true,
             needs_settling: false,
             entries: Vec::new(),
@@ -2584,6 +2588,8 @@ impl SessionState {
         state.answer_line = row.answer_line.clone();
         state.card_dismissed_at = row.card_dismissed_at;
         state.idle_since = None;
+        // Vorher eingereihte Nachrichten zählen nicht: die Pause beginnt mit dem Laden.
+        state.paused_since = (state.status == SessionStatus::Paused).then(now_ms);
         state.entries_loaded = false;
         state.needs_settling = was_active;
         // Ein gespeichertes TL;DR, das sich nicht mehr lesen lässt, gilt als nicht vorhanden.
@@ -3046,6 +3052,7 @@ impl SessionState {
         }
         self.idle_since =
             matches!(status, SessionStatus::Completed | SessionStatus::Paused).then_some(now);
+        self.paused_since = (status == SessionStatus::Paused).then_some(now);
         self.status = status;
         if status != SessionStatus::Paused {
             self.pause_reason = None;
@@ -5239,5 +5246,278 @@ mod tests {
         state.pause_requested = true;
         state.end_turn(&mut outbox, TurnEnd::Completed, None, Vec::new(), None);
         assert!(outbox.classify.is_none(), "Pause");
+    }
+
+    /// Der Weg einer Nachricht an `state`: mit Platz, ohne wartende Nachricht, vom Master, bis ein
+    /// Test es ändert.
+    fn route_to(
+        state: &SessionState,
+        change: impl FnOnce(&mut session_tools::Delivery),
+    ) -> session_tools::Route {
+        let mut delivery = session_tools::Delivery {
+            status: state.status,
+            rests: state.rests(),
+            has_waiting: false,
+            claimed: true,
+            timer_armed: state.waits_for_resume(),
+            from_master: true,
+        };
+        change(&mut delivery);
+        session_tools::route_message(&delivery)
+    }
+
+    fn state_with(status: SessionStatus) -> SessionState {
+        let mut state = state();
+        state.status = status;
+        state
+    }
+
+    fn paused(auto_resume: bool) -> SessionState {
+        let mut state = state_with(SessionStatus::Paused);
+        state.pause_reason = Some(PauseReason::Quota {
+            resets_at: Some(1.0),
+            auto_resume,
+        });
+        state
+    }
+
+    #[test]
+    fn a_message_of_the_master_resumes_its_paused_station() {
+        assert_eq!(route_to(&paused(false), |_| {}), session_tools::Route::Now);
+        // Auch ohne Grund der Pause (zum Beispiel nach einem Neustart der App).
+        let mut restarted = state_with(SessionStatus::Paused);
+        restarted.pause_reason = None;
+        assert_eq!(route_to(&restarted, |_| {}), session_tools::Route::Now);
+    }
+
+    #[test]
+    fn a_message_of_another_session_to_a_paused_station_waits() {
+        assert_eq!(
+            route_to(&paused(false), |d| d.from_master = false),
+            session_tools::Route::Queue { nudge: false }
+        );
+    }
+
+    #[test]
+    fn a_paused_station_with_an_armed_timer_keeps_the_message_waiting() {
+        assert_eq!(
+            route_to(&paused(true), |_| {}),
+            session_tools::Route::Queue { nudge: false }
+        );
+    }
+
+    #[test]
+    fn a_message_to_a_resting_session_is_delivered_as_before() {
+        let resting = state_with(SessionStatus::Completed);
+        assert_eq!(
+            route_to(&resting, |d| d.from_master = false),
+            session_tools::Route::Now
+        );
+        assert_eq!(route_to(&resting, |_| {}), session_tools::Route::Now);
+    }
+
+    #[test]
+    fn a_message_to_a_running_session_waits_as_before() {
+        let running = state_with(SessionStatus::Running);
+        assert_eq!(
+            route_to(&running, |_| {}),
+            session_tools::Route::Queue { nudge: false }
+        );
+    }
+
+    #[test]
+    fn an_older_waiting_message_goes_first() {
+        assert_eq!(
+            route_to(&paused(false), |d| d.has_waiting = true),
+            session_tools::Route::Queue { nudge: true }
+        );
+        let resting = state_with(SessionStatus::Completed);
+        assert_eq!(
+            route_to(&resting, |d| d.has_waiting = true),
+            session_tools::Route::Queue { nudge: true }
+        );
+    }
+
+    #[test]
+    fn without_a_slot_the_message_waits() {
+        assert_eq!(
+            route_to(&paused(false), |d| d.claimed = false),
+            session_tools::Route::Queue { nudge: true }
+        );
+    }
+
+    /// `takes_oldest` für `state`, mit einer Nachricht des Masters im Posteingang, bis der Test es ändert.
+    fn takes(state: &SessionState, master_waits: bool) -> bool {
+        session_tools::takes_oldest(
+            state.status,
+            state.rests(),
+            false,
+            state.waits_for_resume(),
+            master_waits,
+        )
+    }
+
+    #[test]
+    fn the_pass_takes_a_waiting_master_message_for_a_paused_station_once_a_slot_is_free() {
+        assert!(takes(&paused(false), true));
+        assert!(!takes(&paused(false), false));
+    }
+
+    #[test]
+    fn the_pass_leaves_a_paused_station_with_an_armed_timer_and_a_running_session_alone() {
+        assert!(!takes(&paused(true), true));
+        assert!(!takes(&state_with(SessionStatus::Running), true));
+        assert!(takes(&state_with(SessionStatus::Completed), false));
+    }
+
+    #[test]
+    fn only_a_master_message_since_the_pause_counts_for_the_pass() {
+        use crate::db::{Database, session_inbox};
+        let database = Database::open(std::path::Path::new(":memory:")).expect("Datenbank");
+        let master = SessionRef {
+            id: "m".to_owned(),
+            number: 1,
+            title: "Master".to_owned(),
+        };
+        database
+            .with(|connection| {
+                // Nur die Posteingangs-Abfrage ist von Belang, keine Session-Zeile.
+                connection.execute_batch("PRAGMA foreign_keys = OFF")?;
+                session_inbox::insert(connection, "s", &master, "alt", 0, 100.0)
+            })
+            .expect("einreihen");
+        let counts = |sender: &str, since: f64| {
+            database
+                .with(|connection| session_inbox::has_from_since(connection, "s", sender, since))
+                .expect("lesen")
+        };
+        // Eingereiht vor der Pause (Pausenbeginn 200): zählt nicht, die Pause des Benutzers bleibt.
+        assert!(!counts("m", 200.0));
+        assert!(counts("m", 100.0));
+        assert!(!counts("x", 0.0));
+    }
+
+    /// Eine Registry mit pausierter Station `s` und ihrem Master `m` (echte Datenbank im Speicher);
+    /// `paused_since` ist der Pausenbeginn der Station.
+    fn registry_with_master(paused_since: Option<f64>) -> SessionRegistry {
+        use crate::db::{Database, implementations};
+        let database = Database::open(std::path::Path::new(":memory:")).expect("Datenbank");
+        database
+            .with(|connection| {
+                connection.execute_batch("PRAGMA foreign_keys = OFF")?;
+                let row = implementations::ImplementationRow {
+                    id: "i".to_owned(),
+                    project_id: "p".to_owned(),
+                    name: "Umsetzung".to_owned(),
+                    source: String::new(),
+                    created_by_session_id: None,
+                    master_session_id: Some("m".to_owned()),
+                    created_at: 1.0,
+                    finished_at: None,
+                    auto_start: false,
+                    stop_after_current: false,
+                    pending_change: None,
+                    auto_resume: false,
+                    cancelled_at: None,
+                    pending_cancel: None,
+                };
+                implementations::insert(connection, &row, &[], &[])
+            })
+            .expect("Umsetzung");
+        let registry = SessionRegistry::new(Arc::new(database), Arc::new(RemoteControl::default()));
+        registry.add_station_session_for_test("s", "p", "i", SessionStatus::Paused);
+        registry.add_session_for_test("m", "p", SessionStatus::Running);
+        registry.get("s").expect("Station").lock().paused_since = paused_since;
+        registry
+    }
+
+    fn master_writes(registry: &SessionRegistry, created_at: f64) {
+        writes_from(registry, "m", created_at);
+    }
+
+    fn writes_from(registry: &SessionRegistry, sender_id: &str, created_at: f64) {
+        let master = SessionRef {
+            id: sender_id.to_owned(),
+            number: 1,
+            title: "Absender".to_owned(),
+        };
+        registry
+            .database
+            .with(|connection| {
+                crate::db::session_inbox::insert(connection, "s", &master, "los", 0, created_at)
+            })
+            .expect("einreihen");
+    }
+
+    fn passes_message_of(registry: &SessionRegistry) -> bool {
+        registry
+            .waiters(1e12)
+            .iter()
+            .any(|waiter| waiter.entry.session_id.as_deref() == Some("s"))
+    }
+
+    #[test]
+    fn the_pass_takes_a_master_message_queued_after_the_pause() {
+        let registry = registry_with_master(Some(100.0));
+        master_writes(&registry, 150.0);
+        assert!(registry.master_message_waits(&registry.get("s").expect("Station")));
+        assert!(passes_message_of(&registry));
+    }
+
+    #[test]
+    fn a_master_message_queued_before_the_pause_leaves_the_users_pause_in_force() {
+        let registry = registry_with_master(Some(200.0));
+        master_writes(&registry, 150.0);
+        assert!(!passes_message_of(&registry));
+    }
+
+    #[test]
+    fn a_pause_without_a_start_takes_no_master_message() {
+        let registry = registry_with_master(None);
+        master_writes(&registry, 150.0);
+        assert!(!passes_message_of(&registry));
+    }
+
+    #[test]
+    fn the_pause_start_is_set_on_pausing_and_survives_the_reaper() {
+        let mut state = state();
+        let mut outbox = Outbox::default();
+        state.set_status(&mut outbox, SessionStatus::Paused);
+        let since = state.paused_since.expect("Pausenbeginn beim Wechsel");
+        retire_idle_process(&mut state, &mut outbox);
+        assert_eq!(state.idle_since, None);
+        assert_eq!(
+            state.paused_since,
+            Some(since),
+            "der Reaper löscht ihn nicht"
+        );
+        state.set_status(&mut outbox, SessionStatus::Running);
+        assert_eq!(state.paused_since, None);
+    }
+
+    #[test]
+    fn a_restored_paused_session_starts_its_pause_at_load_time() {
+        let mut current = state();
+        let mut outbox = Outbox::default();
+        current.set_status(&mut outbox, SessionStatus::Running);
+        let before = now_ms();
+        // Aktiv beendet: kommt pausiert zurück, Pausenbeginn = Ladezeitpunkt, `idle_since` leer.
+        let restored = SessionState::restored(&row_of_state(&current));
+        assert_eq!(restored.status, SessionStatus::Paused);
+        assert!(restored.paused_since.is_some_and(|since| since >= before));
+        assert_eq!(restored.idle_since, None);
+        // Nicht pausiert zurück: kein Pausenbeginn.
+        current.set_status(&mut outbox, SessionStatus::Completed);
+        assert_eq!(
+            SessionState::restored(&row_of_state(&current)).paused_since,
+            None
+        );
+    }
+
+    #[test]
+    fn a_message_of_another_session_since_the_pause_does_not_resume_the_station() {
+        let registry = registry_with_master(Some(100.0));
+        writes_from(&registry, "x", 150.0);
+        assert!(!passes_message_of(&registry));
     }
 }

@@ -390,6 +390,38 @@ impl SessionRegistry {
         Some(self.master_of_station_in(&implementation_id))
     }
 
+    /// Ist `sender` der Master der Umsetzung, zu der `target` als Station gehört. Nie unter einer
+    /// Session-Sperre aufrufen.
+    fn is_master_of(&self, target: &Session, sender: &SessionRef) -> bool {
+        let station_of: Option<String> = target.lock().station_of.clone();
+        station_of
+            .and_then(|implementation_id: String| self.master_of_station_in(&implementation_id))
+            .is_some_and(|master: MasterRef| master.id == sender.id)
+    }
+
+    /// Wartet im Posteingang der Station eine Nachricht ihres Masters, die seit Beginn der Pause (`paused_since`) einging.
+    /// Eine ältere (eingereiht, als die Station noch lief) setzt eine Pause des Benutzers nicht außer
+    /// Kraft. Ohne Pausenbeginn (nicht pausiert) `false`. Nie unter einer Session-Sperre.
+    pub(super) fn master_message_waits(&self, session: &Session) -> bool {
+        let (station_of, paused_since) = {
+            let state = session.lock();
+            (state.station_of.clone(), state.paused_since)
+        };
+        let Some(since) = paused_since else {
+            return false;
+        };
+        station_of
+            .and_then(|implementation_id: String| self.master_of_station_in(&implementation_id))
+            .is_some_and(|master: MasterRef| {
+                session
+                    .database
+                    .with(|connection| {
+                        session_inbox::has_from_since(connection, &session.id, &master.id, since)
+                    })
+                    .unwrap_or(false)
+            })
+    }
+
     /// Die Zielprüfung vor dem Kasten: unbekannt, anderes Vorhaben und eigene ID sind Fehler.
     fn tool_target(&self, caller: &Session, id: &str) -> Result<Arc<Session>, String> {
         if id == caller.id {
@@ -567,6 +599,8 @@ impl SessionRegistry {
         // Vor `update`: Die Abfrage bei LM Studio gehört nicht unter die Sperre.
         let input = self.prepare_turn(target, text);
         let claimed = self.claim_session_slot(&target.id);
+        // Vor der Session-Sperre: erst die Session kurz, dann die Datenbank.
+        let is_from_master = self.is_master_of(target, sender);
         // Ruht das Ziel trotz wartender Zeile, käme ohne Anstoß kein Haken mehr, etwa nach einem
         // gescheiterten Start, einem Subagenten, der erst nach dem Haken endete, oder einem vollen Tor.
         let mut needs_nudge = false;
@@ -579,23 +613,33 @@ impl SessionRegistry {
                     .database
                     .with(|connection| session_inbox::oldest(connection, &target.id))?
                     .is_some();
-                // Eine bei vollem Tor geöffnete Session wartet auf ihren Platz (ADR 068): einreihen.
-                let waits_for_slot = slots::waits_for_slot(state.status, has_waiting);
-                let reason = match state.status {
-                    SessionStatus::New if !waits_for_slot => Some(NOT_STARTED),
-                    SessionStatus::Cancelled => Some(CANCELLED),
-                    SessionStatus::Error => Some(FAILED),
-                    _ => None,
-                };
-                if let Some(reason) = reason {
-                    return Ok(("undeliverable", Some(reason.to_owned())));
-                }
-                if has_waiting || !state.rests() || !claimed {
-                    target.database.with(|connection| {
-                        session_inbox::insert(connection, &target.id, sender, text, chain, now_ms())
-                    })?;
-                    needs_nudge = state.rests() || waits_for_slot;
-                    return Ok(("queued", None));
+                let route = route_message(&Delivery {
+                    status: state.status,
+                    rests: state.rests(),
+                    has_waiting,
+                    claimed,
+                    timer_armed: state.waits_for_resume(),
+                    from_master: is_from_master,
+                });
+                match route {
+                    Route::Undeliverable(reason) => {
+                        return Ok(("undeliverable", Some(reason.to_owned())));
+                    }
+                    Route::Queue { nudge } => {
+                        target.database.with(|connection| {
+                            session_inbox::insert(
+                                connection,
+                                &target.id,
+                                sender,
+                                text,
+                                chain,
+                                now_ms(),
+                            )
+                        })?;
+                        needs_nudge = nudge;
+                        return Ok(("queued", None));
+                    }
+                    Route::Now => {}
                 }
                 start_turn(
                     app,
@@ -645,7 +689,8 @@ impl SessionRegistry {
         )
     }
 
-    /// Die älteste wartende Nachricht, falls die Session ruht oder als geöffnete Session noch nie lief.
+    /// Die älteste wartende Nachricht, falls die Session ruht, als geöffnete Session noch nie lief oder
+    /// als pausierte Station eine Nachricht ihres Masters seit Beginn der Pause hat (`takes_oldest`).
     /// Nur mit einem Platz vom Tor (der Durchgang hält ihn). Nie unter einer Sperre aufrufen. `false`,
     /// wenn der Start scheiterte.
     pub(super) fn deliver_oldest(&self, app: &AppHandle, session: &Arc<Session>) -> bool {
@@ -656,6 +701,8 @@ impl SessionRegistry {
             return true;
         };
         let input = self.prepare_turn(session, &row.text);
+        // Vor der Session-Sperre: erst die Session kurz, dann die Datenbank.
+        let master_waits = self.master_message_waits(session);
         let started = update(
             app,
             session,
@@ -664,7 +711,13 @@ impl SessionRegistry {
                 let current = session
                     .database
                     .with(|connection| session_inbox::oldest(connection, &session.id))?;
-                let takes = state.rests() || slots::waits_for_slot(state.status, current.is_some());
+                let takes = takes_oldest(
+                    state.status,
+                    state.rests(),
+                    slots::waits_for_slot(state.status, current.is_some()),
+                    state.waits_for_resume(),
+                    master_waits,
+                );
                 if !takes || current.as_ref().map(|row: &InboxRow| row.id) != Some(row.id) {
                     return Ok(false);
                 }
@@ -769,6 +822,71 @@ pub(super) fn session_message_text(sender: &SessionRef, text: &str) -> String {
         "[Nachricht von Session {} „{}“, ID {}]\n\n{text}",
         sender.number, sender.title, sender.id
     )
+}
+
+/// Was `deliver` über den Weg einer Nachricht wissen muss.
+pub(super) struct Delivery {
+    pub status: SessionStatus,
+    /// `SessionState::rests`.
+    pub rests: bool,
+    /// Im Posteingang des Ziels wartet schon eine Nachricht.
+    pub has_waiting: bool,
+    /// Der Platz vom Tor (ADR 068) ist beansprucht.
+    pub claimed: bool,
+    /// Pausiert mit scharfem Zeitgeber „Automatisch fortsetzen“: setzt von selbst fort.
+    pub timer_armed: bool,
+    /// Absender ist der Master der Umsetzung, zu der das Ziel als Station gehört.
+    pub from_master: bool,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub(super) enum Route {
+    Undeliverable(&'static str),
+    /// Einreihen; `nudge`: Ein Durchgang soll die Zeile abholen.
+    Queue {
+        nudge: bool,
+    },
+    Now,
+}
+
+/// Der Weg einer Nachricht (ADR 070, „Bekannte Grenzen“): Eine wartende Nachricht wird nicht überholt,
+/// ohne Platz wartet sie. Nur der Master weckt seine pausierte Station ohne scharfen Zeitgeber.
+pub(super) fn route_message(input: &Delivery) -> Route {
+    // Eine bei vollem Tor geöffnete Session wartet auf ihren Platz (ADR 068): einreihen.
+    let waits_for_slot = slots::waits_for_slot(input.status, input.has_waiting);
+    match input.status {
+        SessionStatus::New if !waits_for_slot => return Route::Undeliverable(NOT_STARTED),
+        SessionStatus::Cancelled => return Route::Undeliverable(CANCELLED),
+        SessionStatus::Error => return Route::Undeliverable(FAILED),
+        _ => {}
+    }
+    let wakes_paused = wakes_paused(input.status, input.timer_armed, input.from_master);
+    if input.has_waiting || !(input.rests || wakes_paused) || !input.claimed {
+        // Auch die Nachricht des Masters an seine pausierte Station holt ein Durchgang ab (`takes_oldest`).
+        return Route::Queue {
+            nudge: input.rests || waits_for_slot || wakes_paused,
+        };
+    }
+    Route::Now
+}
+
+/// Nimmt der Durchgang die älteste wartende Nachricht der Session zu: sie ruht, wartet auf ihren Platz,
+/// oder sie ist pausiert ohne scharfen Zeitgeber und im Posteingang liegt eine Nachricht ihres Masters.
+/// Die älteste geht zuerst, auch wenn sie von jemand anderem ist; sie setzt die Station fort.
+pub(super) fn takes_oldest(
+    status: SessionStatus,
+    rests: bool,
+    waits_for_slot: bool,
+    timer_armed: bool,
+    master_waits: bool,
+) -> bool {
+    rests || waits_for_slot || wakes_paused(status, timer_armed, master_waits)
+}
+
+/// Die eine Bedingung für `route_message` und den Durchgang: pausiert, ohne scharfen Zeitgeber, und eine
+/// Nachricht des Masters der Station ist im Spiel.
+fn wakes_paused(status: SessionStatus, timer_armed: bool, master_involved: bool) -> bool {
+    master_involved && status == SessionStatus::Paused && !timer_armed
 }
 
 fn session_ref(session: &Session) -> SessionRef {
