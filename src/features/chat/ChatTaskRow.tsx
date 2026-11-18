@@ -12,18 +12,21 @@ export interface ChatTaskActions {
 
 interface ChatTaskButtonsProps extends ChatTaskActions {
   card: ChatCard;
+  /** `false` im Hinweis (C): „Zur Stelle“ gehört dort nur zur Karte, die sonst keinen Knopf hätte. */
+  withJump?: boolean;
 }
 
 /** „Zur Stelle“, „Öffnen“ und „Gelesen“ nach den Regeln der Karte (V128, A). */
 export function ChatTaskButtons({
   card,
+  withJump = true,
   onJump,
   onOpen,
   onRead,
 }: ChatTaskButtonsProps): ReactElement {
   return (
     <>
-      {card.jump !== null && (
+      {withJump && card.jump !== null && (
         <button
           type="button"
           className="chat-task__button"
@@ -80,7 +83,11 @@ export function ChatTaskRow({ card, now, variant, ...actions }: ChatTaskRowProps
         {task.title}
       </span>
       {variant === 'bar' && <span className="chat-task__age">{ageText(task.since, now)}</span>}
-      <ChatTaskButtons card={card} {...actions} />
+      <ChatTaskButtons
+        card={card}
+        withJump={variant === 'bar' || (!card.canOpen && !card.canDismiss)}
+        {...actions}
+      />
     </div>
   );
 }

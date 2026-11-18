@@ -673,6 +673,7 @@ export function App(): ReactElement {
     }
     return (
       <ChatView
+        key={session.id}
         session={session}
         projectName={projectNameOf(session)}
         backgroundByToolUseId={backgroundByToolUseId}
