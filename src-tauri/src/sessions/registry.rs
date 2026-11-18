@@ -5490,4 +5490,23 @@ mod tests {
         state.set_status(&mut outbox, SessionStatus::Running);
         assert_eq!(state.paused_since, None);
     }
+
+    #[test]
+    fn a_restored_paused_session_starts_its_pause_at_load_time() {
+        let mut current = state();
+        let mut outbox = Outbox::default();
+        current.set_status(&mut outbox, SessionStatus::Running);
+        let before = now_ms();
+        // Aktiv beendet: kommt pausiert zurück, Pausenbeginn = Ladezeitpunkt, `idle_since` leer.
+        let restored = SessionState::restored(&row_of_state(&current));
+        assert_eq!(restored.status, SessionStatus::Paused);
+        assert!(restored.paused_since.is_some_and(|since| since >= before));
+        assert_eq!(restored.idle_since, None);
+        // Nicht pausiert zurück: kein Pausenbeginn.
+        current.set_status(&mut outbox, SessionStatus::Completed);
+        assert_eq!(
+            SessionState::restored(&row_of_state(&current)).paused_since,
+            None
+        );
+    }
 }
