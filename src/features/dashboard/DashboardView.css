@@ -107,6 +107,11 @@
     gap: var(--space-md);
   }
 
+  &__error {
+    margin: 0 0 var(--space-md);
+    color: var(--color-status-error);
+  }
+
   &__empty {
     padding: var(--space-3xl) 0;
     color: var(--color-fg-muted);

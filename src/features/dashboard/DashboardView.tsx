@@ -21,6 +21,7 @@ import type { DashboardView as Dashboard } from '@/lib/bindings/DashboardView';
 import type { ImplementationView } from '@/lib/bindings/ImplementationView';
 import type { ProjectSummary } from '@/lib/bindings/ProjectSummary';
 import type { SessionSummary } from '@/lib/bindings/SessionSummary';
+import { useActionError } from '@/lib/useActionError';
 import { useDashboardStore } from '@/stores/dashboard';
 import './DashboardView.css';
 
@@ -49,6 +50,10 @@ export function DashboardView({
   const [groupBy, setGroupBy] = useState<GroupBy>('project');
   const [isBlockingOnly, setIsBlockingOnly] = useState<boolean>(false);
   const [openId, setOpenId] = useState<string | null>(null);
+  // Der Fehler gehört der zuletzt geöffneten Karte und überlebt ihr Popup: Nach „Übernehmen mit Änderungen“ oder
+  // „Abbrechen?“ verschwindet die Karte schon, bevor ein Teilfehler da ist.
+  const [errorId, setErrorId] = useState<string | null>(null);
+  const { error, run, report } = useActionError(errorId);
   const now: number = useNow(true);
 
   // Die Karte kommt aus der ungefilterten Liste: Der Filter schließt kein offenes Popup.
@@ -67,6 +72,7 @@ export function DashboardView({
         type="button"
         className={`dashboard-card dashboard-card--${kindTone(task.kind)}`}
         onClick={(): void => {
+          setErrorId(task.id);
           setOpenId(task.id);
         }}
       >
@@ -167,6 +173,11 @@ export function DashboardView({
               Nur, was einen Agenten anhält
             </label>
           </div>
+          {openTask === undefined && error !== null && (
+            <p className="dashboard__error" role="alert">
+              {error}
+            </p>
+          )}
           {renderList()}
         </div>
         <DashboardFlows
@@ -179,6 +190,9 @@ export function DashboardView({
       {openTask !== undefined && (
         <TaskPopup
           key={openTask.id}
+          error={error}
+          run={run}
+          report={report}
           task={openTask}
           now={now}
           sessions={sessions}

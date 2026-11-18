@@ -25,12 +25,12 @@ import type { DashboardTask } from '@/lib/bindings/DashboardTask';
 import type { ImplementationView } from '@/lib/bindings/ImplementationView';
 import type { ProjectSummary } from '@/lib/bindings/ProjectSummary';
 import type { SessionSummary } from '@/lib/bindings/SessionSummary';
-import { useActionError } from '@/lib/useActionError';
+import type { ActionError } from '@/lib/useActionError';
 import './TaskPopup.css';
 
 const TITLE_ID = 'task-popup-title';
 
-interface TaskPopupProps {
+interface TaskPopupProps extends ActionError {
   task: DashboardTask;
   now: number;
   sessions: readonly SessionSummary[];
@@ -83,9 +83,10 @@ export function TaskPopup({
   onOpenSession,
   onOpenImplementation,
   onClose,
+  error,
+  run,
 }: TaskPopupProps): ReactElement {
   const isLocked: boolean = useProjectLocked(task.projectId);
-  const { error, run } = useActionError(task.id);
   // Eine Sache der Session öffnet die Session, eine der Station oder Umsetzung die Umsetzung.
   const { sessionId, implementationId } = task;
   const opensSession: boolean =
