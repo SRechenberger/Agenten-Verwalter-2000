@@ -77,7 +77,10 @@ const ALL_OPEN: Record<CardSectionKey, boolean> = {
 
 /** Stationen nach einer Übernahme. Ein Delta (`implementation_edit`) zählt neue und entfernte Stationen
  *  zum heutigen Stand; ein Vorschlag ganzer Phasen ersetzt die nicht begonnenen. */
-function stationsAfterProposal(implementation: ImplementationView, pending: PendingChange): number {
+export function stationsAfterProposal(
+  implementation: ImplementationView,
+  pending: PendingChange,
+): number {
   if (pending.edit !== undefined) {
     const lanes: number = pending.edit.lanes.reduce(
       (sum: number, lane: PhaseInput) => sum + lane.stations.length,

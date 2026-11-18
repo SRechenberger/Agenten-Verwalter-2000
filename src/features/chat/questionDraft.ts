@@ -2,6 +2,7 @@ import type { ChatEntry } from '@/lib/bindings/ChatEntry';
 import type { Question } from '@/lib/bindings/Question';
 import type { QuestionAnswer } from '@/lib/bindings/QuestionAnswer';
 import type { QuestionOption } from '@/lib/bindings/QuestionOption';
+import type { ToolRequest } from '@/lib/bindings/ToolRequest';
 
 export type QuestionEntry = Extract<ChatEntry, { kind: 'question' }>;
 
@@ -242,6 +243,16 @@ export function draftAnswer(draft: QuestionDraft): QuestionAnswer {
   };
 }
 
+/** Eine leere Nachricht geht nie an eine Session (B13): „Erlauben“ bleibt gesperrt, „Ablehnen“ nicht. Der Knopf und
+ *  die Ziffer 1 fragen beide hier. */
+export function isAllowBlocked(request: ToolRequest | null): boolean {
+  return (
+    request !== null &&
+    (request.kind === 'sendMessage' || request.kind === 'openSession') &&
+    request.message.trim() === ''
+  );
+}
+
 /** Wählt eine Option. Eine Rechte-Abfrage ist mit dem ersten Klick beantwortet; eine Rückfrage sendet der Klick
  *  nur, wenn sie keinen Knopf braucht (`needsSubmit`) und danach jede Frage eine Antwort hat. */
 export function pickOption(
@@ -259,6 +270,9 @@ export function pickOption(
   }
   if (entry.questionKind !== 'askUser') {
     if (optionIndex === ALLOW_INDEX) {
+      if (isAllowBlocked(entry.toolRequest)) {
+        return null;
+      }
       return { kind: 'answer', answer: { kind: 'allow' } };
     }
     return { kind: 'answer', answer: { kind: 'deny', message: DENY_MESSAGE } };

@@ -5,7 +5,12 @@ import { ModelMenu } from '@/components/ModelMenu';
 import { StatusIcon } from '@/components/StatusIcon';
 import { Switch } from '@/components/Switch';
 import { AgentTypeProposalBlock } from '@/features/agenttypes/AgentTypeProposalBlock';
-import type { QuestionEntry, ToolDraft, ToolEdit } from '@/features/chat/questionDraft';
+import {
+  isAllowBlocked,
+  type QuestionEntry,
+  type ToolDraft,
+  type ToolEdit,
+} from '@/features/chat/questionDraft';
 import { SelectButton } from '@/features/settings/SelectButton';
 import { useProjectLocked } from '@/features/remote/useProjectAccess';
 import type { Effort } from '@/lib/bindings/Effort';
@@ -22,6 +27,7 @@ import './QuestionBlock.css';
 import './SessionToolBlock.css';
 
 const QUESTION_INDEX = 0;
+const ALLOW_LABEL = 'Erlauben';
 const CHAIN_BRAKE_TEXT = '6 selbst freigegebene Aufrufe in Folge';
 /** Die Antworttexte des Core (`tool_answer_label`), als Knopf gelesen. */
 const ANSWER_OF_OPTION: Readonly<Record<string, string>> = {
@@ -91,6 +97,8 @@ function SessionToolCallBlock({
   const isLocked: boolean = isAnswered || isSending;
   const options: readonly QuestionOption[] = entry.questions[QUESTION_INDEX]?.options ?? [];
   const edit: ToolEdit | null = isAnswered ? null : draft.edit;
+  // Eine leere Nachricht geht nie an eine Session (B13): „Erlauben“ bleibt gesperrt, „Ablehnen“ nicht.
+  const isMessageEmpty: boolean = isAllowBlocked(request);
 
   // Der Fokus wandert nur nach dem Klick, der ihn verlangt — nicht bei jedem Neuaufbau des Verlaufs.
   useEffect(() => {
@@ -181,7 +189,12 @@ function SessionToolCallBlock({
             className={`question-block__option${
               isSelected(option.label) ? ' question-block__option--selected' : ''
             }`}
-            disabled={isLocked}
+            disabled={isLocked || (isMessageEmpty && option.label === ALLOW_LABEL)}
+            title={
+              isMessageEmpty && option.label === ALLOW_LABEL
+                ? 'Leere Nachricht: Text fehlt'
+                : undefined
+            }
             onClick={(): void => {
               onPick(optionIndex);
             }}
