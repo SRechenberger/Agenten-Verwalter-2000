@@ -35,20 +35,20 @@ Vom Architekten (D1 bis D18, hier die Teile des Kerns):
 
 `WaitsForYou` einer Station ist überladen (durch dich, Antwort ohne Meldung, Pause ohne Zeitgeber, gemeldet ohne Rückgaben übrig). Die Karten lesen deshalb die rohen Zustände der Session und der Station (`dashboard::station_card_of`), nicht `StationState` allein; `StationState` und `urgency` bleiben, wie [ADR 070](070-master-session.md) sie baut.
 
-| Art | Bedingung | `since` | verschwindet, wenn |
-|---|---|---|---|
-| `question`, `permission`, `sessionTool` | offene Anfrage einer Session, auch einer Station (`SessionState.pending`, Eintrag `entries[seq]`) | Zeitpunkt ihres Chat-Eintrags, sonst letzte Aktivität | beantwortet (Popup, Chat, Pause) |
-| `asks`, `requests`, `done` | Session ohne Station, `Completed`, kein wartendes Skript, kein wartender Subagent, `answer_at` und `answer_kind` gesetzt | `answer_at` | du schreibst oder „Gelesen“ |
-| `answer` | wie oben, `answer_kind` leer; Titel ist der Auszug | `answer_at` | wie oben |
-| `error` (Session) | Status `Error` | letzte Aktivität (`Error` schreibt sie) | der Fehler endet, „Gelesen“ |
-| `error` (Station) | Station im Fehler, kein Neustart („Bei Fehler“) ansteht | letzte Aktivität der Session | der Fehler endet |
-| `paused` (Session) | Status `Paused`, kein scharfer Zeitgeber „Automatisch fortsetzen“ | Beginn der Ruhe (`idle_since`, nach App-Neustart letzte Aktivität) | sie läuft weiter, „Gelesen“ |
-| `paused` (Station) | Station wartet auf dich, mit oder ohne Meldung, Session pausiert ohne scharfen Zeitgeber | wie bei der Session | sie läuft weiter |
-| `planChange`, `cancelRequest` | `pendingChange`, `pendingCancel` einer Umsetzung | Zeitpunkt des Vorschlags oder der Anfrage | übernommen, bestätigt oder verworfen |
-| `byYou` | Station „durch dich“ an der Reihe | letzte Aktivität der Umsetzung (Näherung: die jüngste Annahme eines Vorgängers) | erledigt |
-| `returnsExhausted` | gemeldete Station, keine Rückgabe übrig | Zeitpunkt der Meldung | angenommen oder zurückgegeben |
-| `masterMissing` | Umsetzung nicht fertig, nicht abgebrochen, ohne Master | letzte Aktivität der Umsetzung | neuer Master |
-| `ready` | bereite Station, die nicht automatisch startet | letzte Aktivität der Umsetzung | gestartet |
+| Art                                     | Bedingung                                                                                                                | `since`                                                                         | verschwindet, wenn                   |
+| --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------- | ------------------------------------ |
+| `question`, `permission`, `sessionTool` | offene Anfrage einer Session, auch einer Station (`SessionState.pending`, Eintrag `entries[seq]`)                        | Zeitpunkt ihres Chat-Eintrags, sonst letzte Aktivität                           | beantwortet (Popup, Chat, Pause)     |
+| `asks`, `requests`, `done`              | Session ohne Station, `Completed`, kein wartendes Skript, kein wartender Subagent, `answer_at` und `answer_kind` gesetzt | `answer_at`                                                                     | du schreibst oder „Gelesen“          |
+| `answer`                                | wie oben, `answer_kind` leer; Titel ist der Auszug                                                                       | `answer_at`                                                                     | wie oben                             |
+| `error` (Session)                       | Status `Error`                                                                                                           | letzte Aktivität (`Error` schreibt sie)                                         | der Fehler endet, „Gelesen“          |
+| `error` (Station)                       | Station im Fehler, kein Neustart („Bei Fehler“) ansteht                                                                  | letzte Aktivität der Session                                                    | der Fehler endet                     |
+| `paused` (Session)                      | Status `Paused`, kein scharfer Zeitgeber „Automatisch fortsetzen“                                                        | Beginn der Ruhe (`idle_since`, nach App-Neustart letzte Aktivität)              | sie läuft weiter, „Gelesen“          |
+| `paused` (Station)                      | Station wartet auf dich, mit oder ohne Meldung, Session pausiert ohne scharfen Zeitgeber                                 | wie bei der Session                                                             | sie läuft weiter                     |
+| `planChange`, `cancelRequest`           | `pendingChange`, `pendingCancel` einer Umsetzung                                                                         | Zeitpunkt des Vorschlags oder der Anfrage                                       | übernommen, bestätigt oder verworfen |
+| `byYou`                                 | Station „durch dich“ an der Reihe                                                                                        | letzte Aktivität der Umsetzung (Näherung: die jüngste Annahme eines Vorgängers) | erledigt                             |
+| `returnsExhausted`                      | gemeldete Station, keine Rückgabe übrig                                                                                  | Zeitpunkt der Meldung                                                           | angenommen oder zurückgegeben        |
+| `masterMissing`                         | Umsetzung nicht fertig, nicht abgebrochen, ohne Master                                                                   | letzte Aktivität der Umsetzung                                                  | neuer Master                         |
+| `ready`                                 | bereite Station, die nicht automatisch startet                                                                           | letzte Aktivität der Umsetzung                                                  | gestartet                            |
 
 - Karten kommen nur aus eigenen, nicht archivierten Vorhaben; Vorhaben eines Hosts liegen nie in der Registry.
 - Eine Session-Karte ist sichtbar, solange `card_dismissed_at` fehlt oder vor `since` liegt.
@@ -103,44 +103,44 @@ Wortlaut und Eingabe wie die App (`answer-probe --texts`, 12 Beispiele: je vier 
 
 **Ergebnis: 36 von 36 richtig**, Kosten zusammen 0,0119 $. Auffällig nur: Lauf 10-done-3 erfindet im Einzeiler „Git-Commits ungeprüft (kein Repo)“, was nicht in der Antwort steht; die Art stimmt. Der Einzeiler ist Beiwerk, das die Karte zeigt, und wird nicht als Entscheidung gelesen.
 
-| Lauf | Soll | Ist | Einzeiler | Kosten ($) |
-|---|---|---|---|---|
-| 01-asks-1 | asks | asks | Soll ich die Zeilen in 500er-Transaktionen bündeln und die Ländertabelle cachen, oder den Import auf eine Staging-Tabelle umbauen? | 0.0003 |
-| 01-asks-2 | asks | asks | Soll ich die Transaktionen bündeln und die Ländertabelle cachen, oder den Import auf eine Staging-Tabelle umbauen? | 0.0013 |
-| 01-asks-3 | asks | asks | Soll ich nur Transaktionen bündeln und die Ländertabelle cachen (3,2 s statt 41 s) oder den Import auf eine Staging-Tabelle umbauen? | 0.0001 |
-| 02-asks-1 | asks | asks | Soll ich zusätzlich den Migrationsguide für die umbenannten Config-Keys aktualisieren? | 0.0003 |
-| 02-asks-2 | asks | asks | Soll ich auch den Migrationsleitfaden für die umbenannten Config-Keys aktualisieren? | 0.0005 |
-| 02-asks-3 | asks | asks | Soll ich auch den Migrationsguide für die umbenannten Config-Keys aktualisieren? | 0.0001 |
-| 03-asks-1 | asks | asks | Soll die Suche in der Projektliste zusätzlich mit Tastenkürzeln (Strg+F zum Öffnen, Esc zum Schließen) ausgestattet werden? | 0.0002 |
-| 03-asks-2 | asks | asks | Soll die Suche in der Projektliste noch Tastenkürzel (Strg+F zum Öffnen, Esc zum Schließen) bekommen? | 0.0001 |
-| 03-asks-3 | asks | asks | Soll ich die Tastenkürzel Strg+F und Esc für die Suche in der Projektliste noch ergänzen? | 0.0001 |
-| 04-asks-1 | asks | asks | Retry-Strategie: ganzer Upload neu mit Backoff (a) oder Fortsetzen ab letztem Chunk (b), wofür Staging noch keinen Offset liefert? | 0.0003 |
-| 04-asks-2 | asks | asks | Ganzer Upload neu mit Backoff, oder ab letztem Chunk fortsetzen? Staging liefert den Offset noch nicht. | 0.0002 |
-| 04-asks-3 | asks | asks | Vollständiger Neuversuch mit Backoff oder Resume ab letztem Chunk? Staging-Server liefert den Offset noch nicht. | 0.0006 |
-| 05-requests-1 | requests | requests | Starte pnpm dev, öffne http://localhost:5173 und sag, ob die Startseite ohne Fehler in der Konsole lädt. | 0.0005 |
-| 05-requests-2 | requests | requests | Dev-Server mit pnpm dev starten, http://localhost:5173 im Browser öffnen und melden, ob die Startseite ohne Konsolenfehler lädt. | 0.0002 |
-| 05-requests-3 | requests | requests | Bitte `pnpm dev` starten, http://localhost:5173 öffnen und melden, ob die Startseite ohne Konsolenfehler lädt. | 0.0003 |
-| 06-requests-1 | requests | requests | Bitte service-account.json in den Ordner secrets/ des Repos legen, damit die Integrationstests gegen den echten Endpoint laufen können | 0.0005 |
-| 06-requests-2 | requests | requests | Bitte service-account.json in den Ordner secrets/ des Repositories legen, damit die Integrationstests gegen den echten Endpoint laufen können. | 0.0003 |
-| 06-requests-3 | requests | requests | Bitte service-account.json in den Ordner secrets/ des Repositories legen, damit die Integrationstests laufen können. | 0.0002 |
-| 07-requests-1 | requests | requests | Im Dashboard des Zahlungsanbieters Live-Schlüssel erzeugen und als PAYMENT_KEY in .env.production eintragen. | 0.0005 |
-| 07-requests-2 | requests | requests | Im Dashboard des Zahlungsanbieters Live-Schlüssel erzeugen und als PAYMENT_KEY in .env.production eintragen | 0.0003 |
-| 07-requests-3 | requests | requests | Live-Schlüssel im Zahlungsanbieter-Dashboard erzeugen und als PAYMENT_KEY in .env.production eintragen | 0.0001 |
-| 08-requests-1 | requests | requests | Bitte App mit leerer Settings-Datei starten, prüfen, ob sie startet, und ob die Warnung im Log erscheint. | 0.0005 |
-| 08-requests-2 | requests | requests | Bitte App mit leerer Settings-Datei starten, prüfen ob sie startet und die Warnung im Log erscheint | 0.0002 |
-| 08-requests-3 | requests | requests | Bitte App mit leerer Settings-Datei starten, prüfen ob sie startet und die Warnung im Log erscheint | 0.0001 |
-| 09-done-1 | done | done | Vier ungenutzte Pakete (lodash, moment, classnames, uuid) entfernt; Build und 212 Tests grün, Bundle 74 KB kleiner. | 0.0003 |
-| 09-done-2 | done | done | Vier ungenutzte Pakete (lodash, moment, classnames, uuid) entfernt; Build und 212 Tests grün, Bundle 74 KB kleiner. | 0.0006 |
-| 09-done-3 | done | done | Vier ungenutzte Pakete (lodash, moment, classnames, uuid) entfernt; Build und 212 Tests grün, Bundle 74 KB kleiner. | 0.0001 |
-| 10-done-1 | done | done | Auth-Modul: Session-Token laufen nach 12 statt 24 Stunden ab, Reset-Mail neu mit Request-IP, verifyToken gibt null statt zu werfen. | 0.0003 |
-| 10-done-2 | done | done | Auth seit letzter Woche: Sessions 12 h statt 24 h, neues Reset-Mail-Template mit IP, verifyToken gibt null zurück. | 0.0007 |
-| 10-done-3 | done | done | Auth-Modul: Session 12h statt 24h, Reset-Mail neu mit IP, verifyToken gibt null; Git-Commits ungeprüft (kein Repo) | 0.0004 |
-| 11-done-1 | done | done | Alle 42 Tests sind grün (Dauer 8,3 s). | 0.0005 |
-| 11-done-2 | done | done | Alle 42 Tests sind grün (Dauer 8,3 s). | 0.0001 |
-| 11-done-3 | done | done | Alle 42 Tests laufen grün, Dauer 8,3 s. | 0.0001 |
-| 12-done-1 | done | done | Umbenennung fmtDate zu formatDate abgeschlossen: 23 Stellen in 9 Dateien, Type-Check und Lint laufen durch. | 0.0005 |
-| 12-done-2 | done | done | Helper fmtDate in 9 Dateien zu formatDate umbenannt (23 Stellen), Typcheck und Lint bestehen; Changelog unberührt. | 0.0002 |
-| 12-done-3 | done | done | Helper fmtDate in 9 Dateien (23 Stellen) zu formatDate umbenannt; Typecheck und Lint laufen durch, Changelog unverändert. | 0.0001 |
+| Lauf          | Soll     | Ist      | Einzeiler                                                                                                                                      | Kosten ($) |
+| ------------- | -------- | -------- | ---------------------------------------------------------------------------------------------------------------------------------------------- | ---------- |
+| 01-asks-1     | asks     | asks     | Soll ich die Zeilen in 500er-Transaktionen bündeln und die Ländertabelle cachen, oder den Import auf eine Staging-Tabelle umbauen?             | 0.0003     |
+| 01-asks-2     | asks     | asks     | Soll ich die Transaktionen bündeln und die Ländertabelle cachen, oder den Import auf eine Staging-Tabelle umbauen?                             | 0.0013     |
+| 01-asks-3     | asks     | asks     | Soll ich nur Transaktionen bündeln und die Ländertabelle cachen (3,2 s statt 41 s) oder den Import auf eine Staging-Tabelle umbauen?           | 0.0001     |
+| 02-asks-1     | asks     | asks     | Soll ich zusätzlich den Migrationsguide für die umbenannten Config-Keys aktualisieren?                                                         | 0.0003     |
+| 02-asks-2     | asks     | asks     | Soll ich auch den Migrationsleitfaden für die umbenannten Config-Keys aktualisieren?                                                           | 0.0005     |
+| 02-asks-3     | asks     | asks     | Soll ich auch den Migrationsguide für die umbenannten Config-Keys aktualisieren?                                                               | 0.0001     |
+| 03-asks-1     | asks     | asks     | Soll die Suche in der Projektliste zusätzlich mit Tastenkürzeln (Strg+F zum Öffnen, Esc zum Schließen) ausgestattet werden?                    | 0.0002     |
+| 03-asks-2     | asks     | asks     | Soll die Suche in der Projektliste noch Tastenkürzel (Strg+F zum Öffnen, Esc zum Schließen) bekommen?                                          | 0.0001     |
+| 03-asks-3     | asks     | asks     | Soll ich die Tastenkürzel Strg+F und Esc für die Suche in der Projektliste noch ergänzen?                                                      | 0.0001     |
+| 04-asks-1     | asks     | asks     | Retry-Strategie: ganzer Upload neu mit Backoff (a) oder Fortsetzen ab letztem Chunk (b), wofür Staging noch keinen Offset liefert?             | 0.0003     |
+| 04-asks-2     | asks     | asks     | Ganzer Upload neu mit Backoff, oder ab letztem Chunk fortsetzen? Staging liefert den Offset noch nicht.                                        | 0.0002     |
+| 04-asks-3     | asks     | asks     | Vollständiger Neuversuch mit Backoff oder Resume ab letztem Chunk? Staging-Server liefert den Offset noch nicht.                               | 0.0006     |
+| 05-requests-1 | requests | requests | Starte pnpm dev, öffne http://localhost:5173 und sag, ob die Startseite ohne Fehler in der Konsole lädt.                                       | 0.0005     |
+| 05-requests-2 | requests | requests | Dev-Server mit pnpm dev starten, http://localhost:5173 im Browser öffnen und melden, ob die Startseite ohne Konsolenfehler lädt.               | 0.0002     |
+| 05-requests-3 | requests | requests | Bitte `pnpm dev` starten, http://localhost:5173 öffnen und melden, ob die Startseite ohne Konsolenfehler lädt.                                 | 0.0003     |
+| 06-requests-1 | requests | requests | Bitte service-account.json in den Ordner secrets/ des Repos legen, damit die Integrationstests gegen den echten Endpoint laufen können         | 0.0005     |
+| 06-requests-2 | requests | requests | Bitte service-account.json in den Ordner secrets/ des Repositories legen, damit die Integrationstests gegen den echten Endpoint laufen können. | 0.0003     |
+| 06-requests-3 | requests | requests | Bitte service-account.json in den Ordner secrets/ des Repositories legen, damit die Integrationstests laufen können.                           | 0.0002     |
+| 07-requests-1 | requests | requests | Im Dashboard des Zahlungsanbieters Live-Schlüssel erzeugen und als PAYMENT_KEY in .env.production eintragen.                                   | 0.0005     |
+| 07-requests-2 | requests | requests | Im Dashboard des Zahlungsanbieters Live-Schlüssel erzeugen und als PAYMENT_KEY in .env.production eintragen                                    | 0.0003     |
+| 07-requests-3 | requests | requests | Live-Schlüssel im Zahlungsanbieter-Dashboard erzeugen und als PAYMENT_KEY in .env.production eintragen                                         | 0.0001     |
+| 08-requests-1 | requests | requests | Bitte App mit leerer Settings-Datei starten, prüfen, ob sie startet, und ob die Warnung im Log erscheint.                                      | 0.0005     |
+| 08-requests-2 | requests | requests | Bitte App mit leerer Settings-Datei starten, prüfen ob sie startet und die Warnung im Log erscheint                                            | 0.0002     |
+| 08-requests-3 | requests | requests | Bitte App mit leerer Settings-Datei starten, prüfen ob sie startet und die Warnung im Log erscheint                                            | 0.0001     |
+| 09-done-1     | done     | done     | Vier ungenutzte Pakete (lodash, moment, classnames, uuid) entfernt; Build und 212 Tests grün, Bundle 74 KB kleiner.                            | 0.0003     |
+| 09-done-2     | done     | done     | Vier ungenutzte Pakete (lodash, moment, classnames, uuid) entfernt; Build und 212 Tests grün, Bundle 74 KB kleiner.                            | 0.0006     |
+| 09-done-3     | done     | done     | Vier ungenutzte Pakete (lodash, moment, classnames, uuid) entfernt; Build und 212 Tests grün, Bundle 74 KB kleiner.                            | 0.0001     |
+| 10-done-1     | done     | done     | Auth-Modul: Session-Token laufen nach 12 statt 24 Stunden ab, Reset-Mail neu mit Request-IP, verifyToken gibt null statt zu werfen.            | 0.0003     |
+| 10-done-2     | done     | done     | Auth seit letzter Woche: Sessions 12 h statt 24 h, neues Reset-Mail-Template mit IP, verifyToken gibt null zurück.                             | 0.0007     |
+| 10-done-3     | done     | done     | Auth-Modul: Session 12h statt 24h, Reset-Mail neu mit IP, verifyToken gibt null; Git-Commits ungeprüft (kein Repo)                             | 0.0004     |
+| 11-done-1     | done     | done     | Alle 42 Tests sind grün (Dauer 8,3 s).                                                                                                         | 0.0005     |
+| 11-done-2     | done     | done     | Alle 42 Tests sind grün (Dauer 8,3 s).                                                                                                         | 0.0001     |
+| 11-done-3     | done     | done     | Alle 42 Tests laufen grün, Dauer 8,3 s.                                                                                                        | 0.0001     |
+| 12-done-1     | done     | done     | Umbenennung fmtDate zu formatDate abgeschlossen: 23 Stellen in 9 Dateien, Type-Check und Lint laufen durch.                                    | 0.0005     |
+| 12-done-2     | done     | done     | Helper fmtDate in 9 Dateien zu formatDate umbenannt (23 Stellen), Typcheck und Lint bestehen; Changelog unberührt.                             | 0.0002     |
+| 12-done-3     | done     | done     | Helper fmtDate in 9 Dateien (23 Stellen) zu formatDate umbenannt; Typecheck und Lint laufen durch, Changelog unverändert.                      | 0.0001     |
 
 ## Oberfläche
 
@@ -156,23 +156,23 @@ Gebaut in `src/features/dashboard/` (Phase 102.3). Die Oberfläche zeigt, was de
 
 **Popups je Art.** Ein Klick auf eine Karte öffnet ein `Dialog` mit den Bausteinen, die Chat und Umsetzung schon haben; jedes Popup hat links „Session öffnen“ bzw. „Umsetzung öffnen“.
 
-| Art | Inhalt |
-|---|---|
-| `question`, `permission` | `QuestionBlock`; Antwort über `answerQuestion` |
-| `sessionTool` | `SessionToolBlock`; „Erlauben“ und „Absenden“ gesperrt bei leerem Text; ein Vorschlag für einen Agententyp zeigt nur eine Zeile (ihn beantwortet der Chat) |
-| `planChange` | `PlanChangeCard` mit der Umsetzung aus der Liste; Übernehmen, Übernehmen mit Änderungen und Verwerfen wie in der Umsetzung |
-| `cancelRequest` | `CancelRequestCard` |
-| `byYou` | Auftrag der Station, Ergebnis nach Wahl, „Erledigt“; „✓ vom Master freigegeben“ bei `released` |
-| `returnsExhausted` | `StationReportSection` (Annehmen oder Zurückgeben) |
-| `masterMissing` | `MasterWarning` und `MasterPicker` |
-| `error` | Fehlertext, „Agent neu starten“; bei einer Session ohne Station „Gelesen“ |
-| `paused` | Grund, „Fortsetzen“; bei einer Session ohne Station „Gelesen“ |
-| `ready` | „▶ Jetzt starten“ |
+| Art                                  | Inhalt                                                                                                                                                                                                                          |
+| ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `question`, `permission`             | `QuestionBlock`; Antwort über `answerQuestion`                                                                                                                                                                                  |
+| `sessionTool`                        | `SessionToolBlock`; „Erlauben“ und „Absenden“ gesperrt bei leerem Text; ein Vorschlag für einen Agententyp zeigt nur eine Zeile (ihn beantwortet der Chat)                                                                      |
+| `planChange`                         | `PlanChangeCard` mit der Umsetzung aus der Liste; Übernehmen, Übernehmen mit Änderungen und Verwerfen wie in der Umsetzung                                                                                                      |
+| `cancelRequest`                      | `CancelRequestCard`                                                                                                                                                                                                             |
+| `byYou`                              | Auftrag der Station, Ergebnis nach Wahl, „Erledigt“; „✓ vom Master freigegeben“ bei `released`                                                                                                                                  |
+| `returnsExhausted`                   | `StationReportSection` (Annehmen oder Zurückgeben)                                                                                                                                                                              |
+| `masterMissing`                      | `MasterWarning` und `MasterPicker`                                                                                                                                                                                              |
+| `error`                              | Fehlertext, „Agent neu starten“; bei einer Session ohne Station „Gelesen“                                                                                                                                                       |
+| `paused`                             | Grund, „Fortsetzen“; bei einer Session ohne Station „Gelesen“                                                                                                                                                                   |
+| `ready`                              | „▶ Jetzt starten“                                                                                                                                                                                                               |
 | `asks`, `requests`, `done`, `answer` | Hinweis „✦ eingeordnet als …“ oder „nicht eingeordnet“, letzte Antwort und die Nachricht davor aus `chat_history`, Antwortfeld mit „Senden“ (gesperrt bei leerem Text oder nur Leerzeichen) und „Gelesen“ (`dashboard_dismiss`) |
 
 Esc schließt nur das Popup (`Dialog` verbraucht die Taste in der Capture-Phase) und pausiert keine Session. Knöpfe, die schreiben, beachten die Sperren der Fernsteuerung. Liefert der Kern die Karte nicht mehr, weil die Sache anderswo erledigt wurde, schließt sich das Popup; der Filter schließt es nicht.
 
-**Aufforderungen im Chat (Phase 128.1).** Der Chat zeigt die Karten seiner Session aus derselben Quelle (`useDashboardStore.view`, gefiltert nach `sessionId`, Reihenfolge des Kerns) und rechnet nichts nach: **A** eine Leiste in `chat-view__top` unter der TL;DR (höchstens drei Zeilen, darunter „+ n weitere“, das das Dashboard öffnet), **B** Rahmen und Kopfzeile an der letzten Antwort bei `asks`, `requests`, `answer`, `done`, **C** eine Zeile im Eingabefeld für die erste Karte. Knöpfe: „Zur Stelle“ (Eintrag der Anfrage oder letzte Antwort), „Öffnen“ (`TaskPopup`) und „Gelesen“ (`dismissCard`, nur bei Session-Karten ohne Station). Alles verschwindet mit der Karte, gleich wo sie erledigt wird. Die reine Logik steht in `src/features/chat/chatTasks.ts` mit Selbsttest. Kein neuer Befehl, keine neue Bindung.
+**Aufforderungen im Chat (Phase 128.1).** Der Chat zeigt die Karten seiner Session aus derselben Quelle (`useDashboardStore.view`, gefiltert nach `sessionId`, Reihenfolge des Kerns) und rechnet nichts nach: **A** eine Leiste in `chat-view__top` unter der TL;DR (höchstens drei Zeilen, darunter „+ n weitere“, das das Dashboard öffnet), **B** Rahmen und Kopfzeile an der letzten Antwort bei `asks`, `requests`, `answer`, `done`, **C** eine Zeile im Eingabefeld für die erste Karte, mit „Gelesen“ oder „Öffnen“; „Zur Stelle“ zeigt C nur bei einer offenen Anfrage, weil V128 dafür keinen anderen Knopf nennt. Knöpfe in A: „Zur Stelle“ (Eintrag der Anfrage oder letzte Antwort), „Öffnen“ (`TaskPopup`) und „Gelesen“ (`dismissCard`, nur bei Session-Karten ohne Station). Alles verschwindet mit der Karte, gleich wo sie erledigt wird. Die reine Logik steht in `src/features/chat/chatTasks.ts` mit Selbsttest. Kein neuer Befehl, keine neue Bindung.
 
 **Herausgelöst statt kopiert.** Entwürfe und Senden der Antworten auf Rückfragen, Rechte-Abfragen und Kästen (samt Ziffern und Enter) stehen in `useQuestionAnswering` und `useQuestionKeys` (`src/features/chat/`), die `ChatTimeline` und das Popup gemeinsam nutzen. „Übernehmen mit Änderungen“ und die Antwort auf „Abbrechen?“ stehen in `implementationActions.ts` und dienen der Kartei und dem Popup. `StationReportSection` bringt ihre Klassen aus `StationCard.css` selbst mit. Der Kasten sperrt „Erlauben“ bei leerer Nachricht (B13).
 

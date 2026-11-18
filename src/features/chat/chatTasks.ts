@@ -31,7 +31,13 @@ export interface ChatTasks {
   /** B: die Karte, deren Art die letzte Antwort einrahmt; `null` ohne Antwort-Karte. */
   frame: ChatCard | null;
   /** C: die erste Karte der Session für den Hinweis am Eingabefeld. */
-  hint: ChatCard | null;
+  hint: ChatHint | null;
+}
+
+/** C zeigt „Zur Stelle“ nur bei einer offenen Anfrage: V128 nennt für sie keinen anderen Knopf. */
+export interface ChatHint {
+  card: ChatCard;
+  withJump: boolean;
 }
 
 const REQUEST_KINDS: readonly DashboardTaskKind[] = ['question', 'permission', 'sessionTool'];
@@ -54,6 +60,10 @@ export function chatCard(task: DashboardTask): ChatCard {
   };
 }
 
+function hintWithJump(card: ChatCard): boolean {
+  return card.jump !== null && !card.canDismiss;
+}
+
 /** Leer vor dem ersten Laden (`view === null`) und für eine Session ohne Karte. */
 export function chatTasks(view: DashboardView | null, sessionId: string): ChatTasks {
   const cards: ChatCard[] =
@@ -65,6 +75,6 @@ export function chatTasks(view: DashboardView | null, sessionId: string): ChatTa
     rows: cards.slice(0, MAX_BAR_ROWS),
     more: Math.max(0, cards.length - MAX_BAR_ROWS),
     frame: cards.find((card: ChatCard) => ANSWER_KINDS.includes(card.task.kind)) ?? null,
-    hint: cards[0] ?? null,
+    hint: cards[0] === undefined ? null : { card: cards[0], withJump: hintWithJump(cards[0]) },
   };
 }

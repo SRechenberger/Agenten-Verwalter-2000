@@ -238,7 +238,13 @@ export function ChatView({
           onSessionCreated={onSessionCreated}
           taskHint={
             tasks.hint === null ? null : (
-              <ChatTaskRow card={tasks.hint} now={now} variant="hint" {...actions} />
+              <ChatTaskRow
+                card={tasks.hint.card}
+                now={now}
+                variant="hint"
+                withJump={tasks.hint.withJump}
+                {...actions}
+              />
             )
           }
         />

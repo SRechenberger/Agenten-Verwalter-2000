@@ -12,7 +12,7 @@ export interface ChatTaskActions {
 
 interface ChatTaskButtonsProps extends ChatTaskActions {
   card: ChatCard;
-  /** `false` im Hinweis (C): „Zur Stelle“ gehört dort nur zur Karte, die sonst keinen Knopf hätte. */
+  /** `false`: „Zur Stelle“ ausblenden. */
   withJump?: boolean;
 }
 
@@ -68,10 +68,18 @@ interface ChatTaskRowProps extends ChatTaskActions {
   now: number;
   /** `bar`: Zeile der Leiste oben, mit Alter; `hint`: Zeile im Eingabefeld. */
   variant: 'bar' | 'hint';
+  /** `false` im Hinweis (C) bei Karten, die dort nicht zur Stelle springen (`ChatHint.withJump`). */
+  withJump?: boolean;
 }
 
 /** Eine Zeile für A (Leiste) und C (Hinweis): Art, Titel, Alter und die Knöpfe. */
-export function ChatTaskRow({ card, now, variant, ...actions }: ChatTaskRowProps): ReactElement {
+export function ChatTaskRow({
+  card,
+  now,
+  variant,
+  withJump = true,
+  ...actions
+}: ChatTaskRowProps): ReactElement {
   const { task } = card;
   return (
     <div
@@ -83,11 +91,7 @@ export function ChatTaskRow({ card, now, variant, ...actions }: ChatTaskRowProps
         {task.title}
       </span>
       {variant === 'bar' && <span className="chat-task__age">{ageText(task.since, now)}</span>}
-      <ChatTaskButtons
-        card={card}
-        withJump={variant === 'bar' || (!card.canOpen && !card.canDismiss)}
-        {...actions}
-      />
+      <ChatTaskButtons card={card} withJump={withJump} {...actions} />
     </div>
   );
 }

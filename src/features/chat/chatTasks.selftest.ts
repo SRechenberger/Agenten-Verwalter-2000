@@ -166,8 +166,33 @@ const CASES: { name: string; actual: () => unknown; expected: unknown }[] = [
   },
   {
     name: 'hint_is_the_first_card',
-    actual: () => chatTasks(view(task('q', 'question'), task('a', 'asks')), 's1').hint?.task.id,
+    actual: () =>
+      chatTasks(view(task('q', 'question'), task('a', 'asks')), 's1').hint?.card.task.id,
     expected: 'q',
+  },
+  {
+    name: 'hint_of_answer_kind_has_only_read',
+    actual: (): string => {
+      const { hint } = chatTasks(view(task('a', 'asks')), 's1');
+      return `${String(hint?.withJump)}${String(hint?.card.canOpen)}${String(hint?.card.canDismiss)}`;
+    },
+    expected: 'falsefalsetrue',
+  },
+  {
+    name: 'hint_of_open_kind_has_only_open',
+    actual: (): string => {
+      const { hint } = chatTasks(view(task('a', 'paused', { stationId: 'st' })), 's1');
+      return `${String(hint?.withJump)}${String(hint?.card.canOpen)}${String(hint?.card.canDismiss)}`;
+    },
+    expected: 'falsetruefalse',
+  },
+  {
+    name: 'hint_of_open_request_has_only_jump',
+    actual: (): string => {
+      const { hint } = chatTasks(view(task('q', 'question')), 's1');
+      return `${String(hint?.withJump)}${String(hint?.card.canOpen)}${String(hint?.card.canDismiss)}`;
+    },
+    expected: 'truefalsefalse',
   },
   {
     name: 'card_gone_clears_all_three',
