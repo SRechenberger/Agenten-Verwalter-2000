@@ -30,6 +30,10 @@ use verwalter_lib::{
     context::model::{
         ContextBreakdown, ContextCategory, ContextChangedEvent, ContextFile, SessionContext,
     },
+    dashboard::model::{
+        DashboardFlow, DashboardFlowState, DashboardSession, DashboardSessionState, DashboardTask,
+        DashboardTaskKind, DashboardView,
+    },
     environment::model::{
         BrokenLink, EnvironmentStatus, LinkCheck, MirrorDiff, MirrorKind, MirrorRun, MirrorState,
     },
@@ -86,6 +90,13 @@ fn main() -> Result<(), ts_rs::ExportError> {
         Config::new().with_out_dir(concat!(env!("CARGO_MANIFEST_DIR"), "/../src/lib/bindings"));
     AppInfo::export_all(&cfg)?;
     CommandError::export_all(&cfg)?;
+    DashboardView::export_all(&cfg)?;
+    DashboardTask::export_all(&cfg)?;
+    DashboardTaskKind::export_all(&cfg)?;
+    DashboardFlow::export_all(&cfg)?;
+    DashboardFlowState::export_all(&cfg)?;
+    DashboardSession::export_all(&cfg)?;
+    DashboardSessionState::export_all(&cfg)?;
     ModelId::export_all(&cfg)?;
     Effort::export_all(&cfg)?;
     Mode::export_all(&cfg)?;

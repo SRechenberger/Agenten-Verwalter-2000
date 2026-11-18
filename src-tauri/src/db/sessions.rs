@@ -52,6 +52,16 @@ pub struct SessionRow {
     pub inquiry_of: Option<String>,
     /// Systemprompt der Station, festgehalten beim Start der Station (ADR 060); `None` ohne.
     pub agent_prompt: Option<String>,
+    /// Zeitpunkt des Zugendes, zu dem Auszug und Einordnung gehören (Dashboard, ADR 071).
+    pub answer_at: Option<f64>,
+    /// Anfang der letzten Antwort, eine Zeile.
+    pub answer_excerpt: Option<String>,
+    /// `asks`, `requests` oder `done`; `None` = nicht eingeordnet.
+    pub answer_kind: Option<String>,
+    /// Einzeiler des Modells zur Antwort.
+    pub answer_line: Option<String>,
+    /// Zeitpunkt von „Gelesen“.
+    pub card_dismissed_at: Option<f64>,
 }
 
 /// Die Zeile, wie sie in der Datenbank steht; die Enum-Texte werden erst danach umgewandelt,
@@ -84,6 +94,11 @@ struct StoredRow {
     name_auto: bool,
     inquiry_of: Option<String>,
     agent_prompt: Option<String>,
+    answer_at: Option<f64>,
+    answer_excerpt: Option<String>,
+    answer_kind: Option<String>,
+    answer_line: Option<String>,
+    card_dismissed_at: Option<f64>,
 }
 
 impl StoredRow {
@@ -116,6 +131,11 @@ impl StoredRow {
             name_auto: row.get(24)?,
             inquiry_of: row.get(25)?,
             agent_prompt: row.get(26)?,
+            answer_at: row.get(27)?,
+            answer_excerpt: row.get(28)?,
+            answer_kind: row.get(29)?,
+            answer_line: row.get(30)?,
+            card_dismissed_at: row.get(31)?,
         })
     }
 
@@ -147,6 +167,11 @@ impl StoredRow {
             name_auto: self.name_auto,
             inquiry_of: self.inquiry_of,
             agent_prompt: self.agent_prompt,
+            answer_at: self.answer_at,
+            answer_excerpt: self.answer_excerpt,
+            answer_kind: self.answer_kind,
+            answer_line: self.answer_line,
+            card_dismissed_at: self.card_dismissed_at,
             prompt_cache: self
                 .prompt_cache
                 .as_deref()
@@ -165,9 +190,10 @@ pub fn upsert(connection: &Connection, row: &SessionRow) -> Result<(), CommandEr
         "INSERT INTO sessions (id, name, status, model, effort, mode, created_at, running_ms, \
              context_used, context_window, has_agent_history, workspace_dir, scratchpad_dir, \
              project_id, number, last_activity_at, seen_at, handoff_line, chrome, codex_model, \
-             prompt_cache, name_auto, inquiry_of, agent_prompt) \
+             prompt_cache, name_auto, inquiry_of, agent_prompt, answer_at, answer_excerpt, \
+             answer_kind, answer_line, card_dismissed_at) \
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, \
-             ?19, ?20, ?21, ?22, ?23, ?24) \
+             ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29) \
          ON CONFLICT(id) DO UPDATE SET \
              name = excluded.name, \
              status = excluded.status, \
@@ -186,7 +212,12 @@ pub fn upsert(connection: &Connection, row: &SessionRow) -> Result<(), CommandEr
              codex_model = excluded.codex_model, \
              prompt_cache = excluded.prompt_cache, \
              name_auto = excluded.name_auto, \
-             agent_prompt = excluded.agent_prompt",
+             agent_prompt = excluded.agent_prompt, \
+             answer_at = excluded.answer_at, \
+             answer_excerpt = excluded.answer_excerpt, \
+             answer_kind = excluded.answer_kind, \
+             answer_line = excluded.answer_line, \
+             card_dismissed_at = excluded.card_dismissed_at",
         params![
             row.id,
             row.name,
@@ -214,6 +245,11 @@ pub fn upsert(connection: &Connection, row: &SessionRow) -> Result<(), CommandEr
             row.name_auto,
             row.inquiry_of,
             row.agent_prompt,
+            row.answer_at,
+            row.answer_excerpt,
+            row.answer_kind,
+            row.answer_line,
+            row.card_dismissed_at,
         ],
     )?;
     Ok(())
@@ -226,7 +262,8 @@ pub fn load_active(connection: &Connection) -> Result<Vec<SessionRow>, CommandEr
         "SELECT id, name, status, model, effort, mode, created_at, running_ms, \
              context_used, context_window, has_agent_history, workspace_dir, scratchpad_dir, \
              COALESCE(project_id, id), number, tldr, tldr_at, tldr_seq, last_activity_at, seen_at, \
-             handoff_line, chrome, codex_model, prompt_cache, name_auto, inquiry_of, agent_prompt \
+             handoff_line, chrome, codex_model, prompt_cache, name_auto, inquiry_of, agent_prompt, \
+             answer_at, answer_excerpt, answer_kind, answer_line, card_dismissed_at \
          FROM sessions WHERE archived_at IS NULL ORDER BY created_at DESC",
     )?;
     let stored: Vec<StoredRow> = statement
@@ -244,7 +281,8 @@ pub fn load_for_project(
         "SELECT id, name, status, model, effort, mode, created_at, running_ms, \
              context_used, context_window, has_agent_history, workspace_dir, scratchpad_dir, \
              project_id, number, tldr, tldr_at, tldr_seq, last_activity_at, seen_at, handoff_line, \
-             chrome, codex_model, prompt_cache, name_auto, inquiry_of, agent_prompt \
+             chrome, codex_model, prompt_cache, name_auto, inquiry_of, agent_prompt, answer_at, \
+             answer_excerpt, answer_kind, answer_line, card_dismissed_at \
          FROM sessions WHERE project_id = ?1 ORDER BY number",
     )?;
     let stored: Vec<StoredRow> = statement
