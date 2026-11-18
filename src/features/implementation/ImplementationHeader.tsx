@@ -8,7 +8,8 @@ import {
   VIEW_LABEL,
 } from '@/features/implementation/implementationTexts';
 import { MasterPicker } from '@/features/implementation/MasterPicker';
-import { implementationIcon, stateLabel } from '@/features/implementation/stationState';
+import { implementationIcon } from '@/features/implementation/stationLive';
+import { stateLabel } from '@/features/implementation/stationState';
 import { RemoteGiveBack, RemoteHostBadge } from '@/features/remote/RemoteHeaderTools';
 import type { ImplementationView } from '@/lib/bindings/ImplementationView';
 import type { SessionSummary } from '@/lib/bindings/SessionSummary';

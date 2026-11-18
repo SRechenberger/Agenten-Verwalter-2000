@@ -4,7 +4,8 @@ import { RenameField } from '@/app/SidebarItem';
 import { Popover } from '@/components/Popover';
 import { StatusIcon } from '@/components/StatusIcon';
 import { progressShort } from '@/features/implementation/implementationTexts';
-import { implementationIcon, stateLabel } from '@/features/implementation/stationState';
+import { implementationIcon } from '@/features/implementation/stationLive';
+import { stateLabel } from '@/features/implementation/stationState';
 import type { ImplementationView } from '@/lib/bindings/ImplementationView';
 import './SidebarImplementation.css';
 

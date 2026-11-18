@@ -1,8 +1,7 @@
 import type { DisplayStatus } from '@/features/sessions/sessionStatus';
 import { START_FAILED_LABEL } from '@/features/implementation/implementationTexts';
-import { liveText, shownState } from '@/features/implementation/stationLive';
+import { ICON, liveText, shownState } from '@/features/implementation/stationLive';
 import type { StationState } from '@/lib/bindings/StationState';
-import type { ImplementationView } from '@/lib/bindings/ImplementationView';
 import type { StationView } from '@/lib/bindings/StationView';
 
 const LABEL: Record<StationState, string> = {
@@ -18,22 +17,6 @@ const LABEL: Record<StationState, string> = {
   reported: 'gemeldet',
   done: 'fertig',
   error: 'Fehler',
-};
-
-/** Symbol der Sessions, damit Umsetzung und Session-Zeilen gleich aussehen. */
-const ICON: Record<StationState, DisplayStatus> = {
-  pending: 'new',
-  ready: 'new',
-  countdown: 'handoff',
-  starting: 'starting',
-  running: 'running',
-  waitsForScript: 'script',
-  waitsForQuota: 'paused',
-  asking: 'waiting',
-  waitsForYou: 'waiting',
-  reported: 'running',
-  done: 'completed',
-  error: 'error',
 };
 
 /** Farbfamilie eines Zustands für Punkt, Linie und Kartenrand. */
@@ -108,26 +91,4 @@ export function stateLabel(state: StationState): string {
 
 export function stateIcon(state: StationState): DisplayStatus {
   return ICON[state];
-}
-
-/** Symbol einer Station mit der Farbe, die vom Symbol abweicht: ein Haken in der Farbe der Session bei einer
- *  fertigen Station; eine pausierte Station zeigt das Pausenzeichen statt „wartet auf dich“. */
-export function stationIcon(station: StationView): { status: DisplayStatus; tint?: DisplayStatus } {
-  const { state, isChecked } = shownState(station);
-  if (isChecked) {
-    return { status: 'completed', tint: ICON[state] };
-  }
-  return { status: state === 'waitsForYou' && station.pause !== null ? 'paused' : ICON[state] };
-}
-
-/** Eckiges Symbol der Umsetzung: Ist sie fertig, die Dringlichkeit aber nicht `done`, ein Haken in der Farbe
- *  der Dringlichkeit. */
-export function implementationIcon(implementation: ImplementationView): {
-  status: DisplayStatus;
-  tint?: DisplayStatus;
-} {
-  if (implementation.finishedAt !== null && implementation.urgency !== 'done') {
-    return { status: 'completed', tint: ICON[implementation.urgency] };
-  }
-  return { status: ICON[implementation.urgency] };
 }

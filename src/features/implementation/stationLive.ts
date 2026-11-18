@@ -1,6 +1,8 @@
 // Was eine Station von ihrer Session zeigt, wenn sie fertig oder gemeldet ist: Text, Symbol, Grund einer
 // Pause. Reine Regeln; die Datei importiert nur Typen, damit `src/app/sidebarPlacement.selftest.ts` sie
 // unter Node prüfen kann (`node` löst den Alias `@/` nicht auf).
+import type { DisplayStatus } from '../sessions/sessionStatus.ts';
+import type { ImplementationView } from '../../lib/bindings/ImplementationView.ts';
 import type { StationState } from '../../lib/bindings/StationState.ts';
 import type { StationView } from '../../lib/bindings/StationView.ts';
 
@@ -54,4 +56,44 @@ export function pauseChip(station: Pick<StationView, 'pause'>): string | null {
     return null;
   }
   return pause.resetsAt === null ? 'Kontingent' : `Kontingent bis ${clockText(pause.resetsAt)}`;
+}
+
+/** Symbol der Sessions, damit Umsetzung und Session-Zeilen gleich aussehen. */
+export const ICON: Record<StationState, DisplayStatus> = {
+  pending: 'new',
+  ready: 'new',
+  countdown: 'handoff',
+  starting: 'starting',
+  running: 'running',
+  waitsForScript: 'script',
+  waitsForQuota: 'paused',
+  asking: 'waiting',
+  waitsForYou: 'waiting',
+  reported: 'running',
+  done: 'completed',
+  error: 'error',
+};
+
+/** Symbol einer Station mit der Farbe, die vom Symbol abweicht: ein Haken in der Farbe der Session bei einer
+ *  fertigen Station; eine pausierte Station zeigt das Pausenzeichen statt „wartet auf dich“. */
+export function stationIcon(station: LiveFacts): { status: DisplayStatus; tint?: DisplayStatus } {
+  const { state, isChecked } = shownState(station);
+  if (isChecked) {
+    return { status: 'completed', tint: ICON[state] };
+  }
+  return { status: state === 'waitsForYou' && station.pause !== null ? 'paused' : ICON[state] };
+}
+
+/** Eckiges Symbol der Umsetzung: Ist sie fertig, die Dringlichkeit aber nicht `done`, ein Haken in der Farbe
+ *  der Dringlichkeit. */
+export function implementationIcon(
+  implementation: Pick<ImplementationView, 'finishedAt' | 'urgency'>,
+): {
+  status: DisplayStatus;
+  tint?: DisplayStatus;
+} {
+  if (implementation.finishedAt !== null && implementation.urgency !== 'done') {
+    return { status: 'completed', tint: ICON[implementation.urgency] };
+  }
+  return { status: ICON[implementation.urgency] };
 }

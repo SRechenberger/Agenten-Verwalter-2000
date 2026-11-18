@@ -10,9 +10,11 @@ import {
 } from './sidebarPlacement.ts';
 import {
   clockText,
+  implementationIcon,
   liveText,
   pauseChip,
   shownState,
+  stationIcon,
 } from '../features/implementation/stationLive.ts';
 import type { StationState } from '../lib/bindings/StationState.ts';
 import type { StationView } from '../lib/bindings/StationView.ts';
@@ -193,6 +195,32 @@ check(
     { state: 'error', isChecked: false },
     { state: 'running', isChecked: false },
   ],
+);
+check(
+  'Symbol der Station: fertig mit Session = Haken in ihrer Farbe, pausiert = Pausenzeichen, sonst das Symbol des Zustands',
+  [
+    stationIcon(station('done', 'error')),
+    stationIcon(station('done', null)),
+    stationIcon({ ...station('waitsForYou', null), pause: otherPause }),
+    stationIcon(station('waitsForYou', null)),
+    stationIcon(station('reported', 'running')),
+  ],
+  [
+    { status: 'completed', tint: 'error' },
+    { status: 'completed' },
+    { status: 'paused' },
+    { status: 'waiting' },
+    { status: 'running' },
+  ],
+);
+check(
+  'Eckiges Symbol der Umsetzung: fertig mit Dringlichkeit = Haken in deren Farbe, sonst das Symbol der Dringlichkeit',
+  [
+    implementationIcon({ finishedAt: 5, urgency: 'error' }),
+    implementationIcon({ finishedAt: 5, urgency: 'done' }),
+    implementationIcon({ finishedAt: null, urgency: 'error' }),
+  ],
+  [{ status: 'completed', tint: 'error' }, { status: 'completed' }, { status: 'error' }],
 );
 check(
   'Grund einer Pause: Kontingent mit Uhrzeit, ohne Zeit nur Kontingent, sonst kein Chip',

@@ -7,13 +7,8 @@ import {
   stationLabel,
   stationMeta,
 } from '@/features/implementation/implementationTexts';
-import { liveText, pauseChip } from '@/features/implementation/stationLive';
-import {
-  stationIcon,
-  stateLabel,
-  stationTone,
-  type StationTone,
-} from '@/features/implementation/stationState';
+import { liveText, pauseChip, stationIcon } from '@/features/implementation/stationLive';
+import { stateLabel, stationTone, type StationTone } from '@/features/implementation/stationState';
 import { messageWaitPosition, messageWaitShort } from '@/features/queue/queueTexts';
 import { WAITING_JUMP_HINT } from '@/features/waiting/waitingTexts';
 import type { StationState } from '@/lib/bindings/StationState';

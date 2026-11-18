@@ -6525,8 +6525,34 @@ fn a_resting_or_sessionless_station_has_no_live() {
     assert_eq!((unreported.live, unreported.pause), (None, None));
 }
 
+/// Der echte Weg `ImplementationView` → `flow_facts` → Karte: Die Station trägt den Fehler der Session
+/// nach der Annahme bis zur Karte des Dashboards (ADR 071).
 #[test]
-fn stations_done_and_successors_ignore_live() {
+fn a_done_station_with_a_failed_session_reaches_the_dashboard_as_an_error_card() {
+    use crate::dashboard::model::{DashboardTaskKind, ProjectFacts, Snapshot};
+    let mut row = station_row("s", 0, "Umsetzung");
+    row.plan_id = "a".to_owned();
+    let session = SessionLive {
+        last_activity_at: 20.0,
+        ..session_live(SessionStatus::Error)
+    };
+    let view = live_view(row, Some(10.0), Some(session));
+    let snapshot = Snapshot {
+        projects: vec![ProjectFacts {
+            id: "project".to_owned(),
+            name: "Vorhaben".to_owned(),
+            group_name: None,
+        }],
+        sessions: Vec::new(),
+        flows: vec![crate::dashboard::flow_facts(&view)],
+    };
+    let dashboard = crate::dashboard::build(&snapshot, 100.0);
+    let kinds: Vec<DashboardTaskKind> = dashboard.tasks.iter().map(|task| task.kind).collect();
+    assert!(kinds.contains(&DashboardTaskKind::Error), "{kinds:?}");
+}
+
+#[test]
+fn stations_done_ignores_live() {
     let mut row = station_row("s", 0, "Umsetzung");
     row.plan_id = "a".to_owned();
     let session = SessionLive {
