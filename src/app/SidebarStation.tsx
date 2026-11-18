@@ -7,8 +7,9 @@ import {
   stationLabel,
   stationMeta,
 } from '@/features/implementation/implementationTexts';
+import { pauseChip } from '@/features/implementation/stationLive';
 import {
-  stateIcon,
+  stationIcon,
   stateLabel,
   stationTone,
   type StationTone,
@@ -59,6 +60,7 @@ export function SidebarStation({
     messageWait === null
       ? stationMeta(station, now) || stateLabel(station.state)
       : messageWaitShort(messageWait);
+  const chip: string | null = pauseChip(station);
   const opening: string =
     station.sessionId === null ? 'öffnet die Karte in der Umsetzung' : 'öffnet den Chat';
   return (
@@ -73,7 +75,7 @@ export function SidebarStation({
         onClick={onSelect}
       >
         <span className="sidebar-station__status">
-          <StatusIcon status={stateIcon(station.state)} size={10} />
+          <StatusIcon {...stationIcon(station)} size={10} />
         </span>
         <span className="sidebar-station__name">{label}</span>
         <span className="sidebar-station__phase">{phase.key}</span>
@@ -82,6 +84,7 @@ export function SidebarStation({
         >
           {meta}
         </span>
+        {chip !== null && <span className="sidebar-station__chip">{chip}</span>}
         {isUnread && (
           <span
             className="sidebar-station__unread"

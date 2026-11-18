@@ -1,4 +1,5 @@
 import type { StationRef } from '@/features/implementation/implementationOrder';
+import { clockText, liveText } from '@/features/implementation/stationLive';
 import { stationLabel as stateNameOf } from '@/features/implementation/stationState';
 import type { BriefChangeKind } from '@/lib/bindings/BriefChangeKind';
 import type { Effort } from '@/lib/bindings/Effort';
@@ -47,11 +48,6 @@ export const AUTO_RESUME_LABEL = 'Automatisch fortsetzen';
 export const AUTO_RESUME_GLYPH = '↻';
 export const AUTO_RESUME_TITLE =
   'Setzt jede Station nach leerem Kontingent 30 Sekunden nach dem Zurücksetzen selbst fort. Schaltet alle Stationen, die noch nicht fertig sind; ↻ in der Zeile oder die Kartei schalten nur eine (die letzte Aktion gewinnt).';
-
-/** „17:04“ in Ortszeit. */
-export function clockText(at: number): string {
-  return new Date(at).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
-}
 
 function stations(count: number, one: string, many: string): string {
   return `${String(count)} ${count === 1 ? one : many}`;
@@ -347,6 +343,10 @@ export function stationMeta(station: StationView, now: number): string {
   if (station.startError !== null) {
     return START_FAILED_LABEL;
   }
+  const live: string | null = liveText(station);
+  if (live !== null) {
+    return live;
+  }
   switch (station.state) {
     case 'done':
       return durationText(station.runningMs);
@@ -476,15 +476,14 @@ export function resumesAtChip(at: number): string {
   return `ab ${clockText(at)}`;
 }
 
-/** Chip hinter „wartet auf dich“, wenn die Session am Kontingent pausiert. */
-export function quotaChip(resetsAt: number | null): string {
-  return resetsAt === null ? 'Rücksetzzeit unbekannt' : 'Kontingent';
-}
-
 /** Zustand rechts in der Zeile: „läuft · 12 min“, „bereit · Warteschlange 1“, „startet in 7 s“. */
 export function rowStateText(station: StationView, now: number): string {
   if (station.startError !== null) {
     return START_FAILED_LABEL;
+  }
+  const live: string | null = liveText(station);
+  if (live !== null) {
+    return live;
   }
   switch (station.state) {
     case 'done':

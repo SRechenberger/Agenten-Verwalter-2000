@@ -1,12 +1,12 @@
 import {
-  BELOW_IMPLEMENTATION_STATES,
+  isBelowImplementation,
   placeImplementations,
   shownSessions,
   type Placement,
 } from '@/app/sidebarPlacement';
 import {
-  liveStations,
-  NEEDS_USER_STATES,
+  flatStations,
+  needsUser,
   type StationRef,
 } from '@/features/implementation/implementationOrder';
 import { mostUrgent, URGENCY, visibleSessions } from '@/features/projects/projectStatus';
@@ -221,8 +221,8 @@ function waitingChildren(
 ): SidebarRow[] {
   const children: SidebarRow[] = [];
   for (const implementation of implementations) {
-    for (const entry of liveStations(implementation)) {
-      if (NEEDS_USER_STATES.includes(entry.station.state)) {
+    for (const entry of flatStations(implementation)) {
+      if (needsUser(entry.station)) {
         children.push(stationRow(implementation.id, entry, false, false, dropGroup));
       }
     }
@@ -246,8 +246,8 @@ function implementationRows(
       dropGroup,
     },
   ];
-  for (const entry of liveStations(implementation)) {
-    if (BELOW_IMPLEMENTATION_STATES.includes(entry.station.state)) {
+  for (const entry of flatStations(implementation)) {
+    if (isBelowImplementation(entry.station)) {
       rows.push(stationRow(implementation.id, entry, true, underMaster, dropGroup));
     }
   }

@@ -10,6 +10,18 @@ export const BELOW_IMPLEMENTATION_STATES: readonly StationState[] = [
   'error',
 ];
 
+/** Steht die Station unter ihrer Umsetzung? Auch eine fertige oder gemeldete, deren Session fragt, wartet
+ *  oder im Fehler ist. */
+export function isBelowImplementation(station: {
+  state: StationState;
+  live: StationState | null;
+}): boolean {
+  return (
+    BELOW_IMPLEMENTATION_STATES.includes(station.state) ||
+    (station.live !== null && BELOW_IMPLEMENTATION_STATES.includes(station.live))
+  );
+}
+
 /** Was die Platzierung von einer Umsetzung wissen muss. */
 export interface Hosted {
   id: string;

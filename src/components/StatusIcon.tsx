@@ -7,12 +7,19 @@ interface StatusIconProps {
   size: 10 | 12 | 14;
   /** `circle` für Sessions und Stationen, `square` für Umsetzungen: gleiche Formbedeutung, gleiche Farben. */
   shape?: 'circle' | 'square';
+  /** Farbe eines anderen Zustands, etwa der Haken einer fertigen Station in der Farbe ihrer Session. */
+  tint?: DisplayStatus;
 }
 
-export function StatusIcon({ status, size, shape = 'circle' }: StatusIconProps): ReactElement {
+export function StatusIcon({
+  status,
+  size,
+  shape = 'circle',
+  tint,
+}: StatusIconProps): ReactElement {
   return (
     <svg
-      className={`status-icon status-icon--${status}`}
+      className={`status-icon status-icon--${status}${tint === undefined ? '' : ` status-icon--tint-${tint}`}`}
       width={size}
       height={size}
       viewBox="0 0 12 12"

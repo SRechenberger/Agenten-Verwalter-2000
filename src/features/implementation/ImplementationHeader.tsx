@@ -8,7 +8,7 @@ import {
   VIEW_LABEL,
 } from '@/features/implementation/implementationTexts';
 import { MasterPicker } from '@/features/implementation/MasterPicker';
-import { stateIcon, stateLabel } from '@/features/implementation/stationState';
+import { implementationIcon, stateLabel } from '@/features/implementation/stationState';
 import { RemoteGiveBack, RemoteHostBadge } from '@/features/remote/RemoteHeaderTools';
 import type { ImplementationView } from '@/lib/bindings/ImplementationView';
 import type { SessionSummary } from '@/lib/bindings/SessionSummary';
@@ -92,9 +92,9 @@ export function ImplementationHeader({
         </svg>
         <h1 className="session-header__name">{implementationTitle(implementation)}</h1>
         <span
-          className={`session-header__status session-header__status--${stateIcon(implementation.urgency)}`}
+          className={`session-header__status session-header__status--${implementationIcon(implementation).status}`}
         >
-          <StatusIcon status={stateIcon(implementation.urgency)} size={10} shape="square" />
+          <StatusIcon {...implementationIcon(implementation)} size={10} shape="square" />
           <span>{stateLabel(implementation.urgency)}</span>
         </span>
         {activeLanes >= 2 && (

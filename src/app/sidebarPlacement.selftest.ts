@@ -3,10 +3,19 @@
 // Fehlschlag (ein Fehler am Ende). Node streicht die Typen; die geprüften Dateien importieren nur Typen.
 import {
   BELOW_IMPLEMENTATION_STATES,
+  isBelowImplementation,
   placeImplementations,
   shownSessions,
   type Hosted,
 } from './sidebarPlacement.ts';
+import {
+  clockText,
+  liveText,
+  pauseChip,
+  shownState,
+} from '../features/implementation/stationLive.ts';
+import type { StationState } from '../lib/bindings/StationState.ts';
+import type { StationView } from '../lib/bindings/StationView.ts';
 import {
   masterMissingText,
   masterName,
@@ -103,6 +112,97 @@ check(
   'unter der Umsetzung stehen nur Stationen, die den Benutzer brauchen',
   BELOW_IMPLEMENTATION_STATES,
   ['asking', 'waitsForYou', 'error'],
+);
+
+type Facts = Pick<StationView, 'state' | 'live' | 'pause'>;
+function station(state: StationState, live: StationState | null, quota?: number | null): Facts {
+  return {
+    state,
+    live,
+    pause: quota === undefined ? null : { reason: 'quota', resetsAt: quota },
+  };
+}
+const otherPause: Facts['pause'] = { reason: 'other', resetsAt: null };
+
+check(
+  'eine fertige oder gemeldete Station steht unter der Umsetzung, wenn ihre Session fragt, wartet oder scheitert',
+  [
+    isBelowImplementation(station('done', 'asking')),
+    isBelowImplementation(station('done', 'error')),
+    isBelowImplementation(station('reported', 'waitsForYou')),
+    isBelowImplementation(station('done', null)),
+    isBelowImplementation(station('done', 'running')),
+    isBelowImplementation(station('reported', 'waitsForQuota')),
+    isBelowImplementation(station('running', null)),
+    isBelowImplementation(station('asking', null)),
+  ],
+  [true, true, true, false, false, false, false, true],
+);
+check(
+  'Text einer fertigen Station: läuft wieder, fragt dich, pausiert, Fehler',
+  [
+    liveText(station('done', 'running')),
+    liveText(station('done', 'starting')),
+    liveText(station('done', 'waitsForScript')),
+    liveText(station('done', 'asking')),
+    liveText(station('done', 'waitsForYou')),
+    liveText(station('done', 'waitsForQuota')),
+    liveText(station('done', 'error')),
+    liveText(station('done', null)),
+  ],
+  [
+    'fertig · läuft wieder',
+    'fertig · läuft wieder',
+    'fertig · läuft wieder',
+    'fertig · fragt dich',
+    'fertig · pausiert',
+    'fertig · pausiert',
+    'fertig · Fehler',
+    null,
+  ],
+);
+check(
+  'Text einer gemeldeten Station: pausiert und Fehler; sonst bleibt „gemeldet“',
+  [
+    liveText(station('reported', 'waitsForYou')),
+    liveText(station('reported', 'error')),
+    liveText(station('reported', 'running')),
+    liveText(station('reported', null)),
+  ],
+  ['gemeldet · pausiert', 'gemeldet · Fehler', null, null],
+);
+check(
+  'eine pausierte Station, die auf dich wartet, sagt es und nennt „wartet auf dich“',
+  [
+    liveText({ ...station('waitsForYou', null), pause: otherPause }),
+    liveText(station('waitsForYou', null)),
+  ],
+  ['pausiert · wartet auf dich', null],
+);
+check(
+  'Symbol: fertig mit Session behält den Haken in ihrer Farbe, gemeldet zeigt das Symbol der Session',
+  [
+    shownState(station('done', 'running')),
+    shownState(station('done', null)),
+    shownState(station('reported', 'error')),
+    shownState(station('running', null)),
+  ],
+  [
+    { state: 'running', isChecked: true },
+    { state: 'done', isChecked: false },
+    { state: 'error', isChecked: false },
+    { state: 'running', isChecked: false },
+  ],
+);
+check(
+  'Grund einer Pause: Kontingent mit Uhrzeit, ohne Zeit nur Kontingent, sonst kein Chip',
+  [
+    pauseChip(station('done', null, 1_700_000_000_000)),
+    pauseChip(station('done', null, null)),
+    pauseChip({ pause: otherPause }),
+    pauseChip({ pause: null }),
+  ],
+  [`Kontingent bis ${clockText(1_700_000_000_000)}`, 'Kontingent', null, null],
 );
 
 check(

@@ -1,6 +1,8 @@
 import type { DisplayStatus } from '@/features/sessions/sessionStatus';
 import { START_FAILED_LABEL } from '@/features/implementation/implementationTexts';
+import { liveText, shownState } from '@/features/implementation/stationLive';
 import type { StationState } from '@/lib/bindings/StationState';
+import type { ImplementationView } from '@/lib/bindings/ImplementationView';
 import type { StationView } from '@/lib/bindings/StationView';
 
 const LABEL: Record<StationState, string> = {
@@ -76,16 +78,28 @@ export function stateTone(state: StationState): StationTone {
 
 /** Ton einer Station: Ein Startfehler färbt sie wie einen Fehler, obwohl ihr Zustand „bereit“ bleibt (ADR 060). */
 export function stationTone(station: StationView): StationTone {
-  return station.startError === null ? TONE[station.state] : 'error';
+  return station.startError === null ? TONE[shownState(station).state] : 'error';
+}
+
+/** Punkt einer Station: Farbe und ob der Haken der fertigen Station bleibt, solange ihre Session läuft. */
+export function stationDot(station: StationView): { tone: StationTone; isChecked: boolean } {
+  const { state, isChecked } = shownState(station);
+  return { tone: station.startError === null ? TONE[state] : 'error', isChecked };
 }
 
 /** Name des Zustands für Screenreader; ein Startfehler geht vor „bereit“. */
 export function stationLabel(station: StationView): string {
-  return station.startError === null ? LABEL[station.state] : START_FAILED_LABEL;
+  return station.startError === null
+    ? (liveText(station) ?? LABEL[station.state])
+    : START_FAILED_LABEL;
 }
 
-export function urgencyRank(state: StationState): number {
-  return URGENCY_RANK[state];
+/** Rang einer Station für die Fokus-Automatik: der dringendere von `state` und `live`. */
+export function stationUrgencyRank(station: StationView): number {
+  return Math.min(
+    URGENCY_RANK[station.state],
+    station.live === null ? Infinity : URGENCY_RANK[station.live],
+  );
 }
 
 export function stateLabel(state: StationState): string {
@@ -94,4 +108,26 @@ export function stateLabel(state: StationState): string {
 
 export function stateIcon(state: StationState): DisplayStatus {
   return ICON[state];
+}
+
+/** Symbol einer Station mit der Farbe, die vom Symbol abweicht: ein Haken in der Farbe der Session bei einer
+ *  fertigen Station; eine pausierte Station zeigt das Pausenzeichen statt „wartet auf dich“. */
+export function stationIcon(station: StationView): { status: DisplayStatus; tint?: DisplayStatus } {
+  const { state, isChecked } = shownState(station);
+  if (isChecked) {
+    return { status: 'completed', tint: ICON[state] };
+  }
+  return { status: state === 'waitsForYou' && station.pause !== null ? 'paused' : ICON[state] };
+}
+
+/** Eckiges Symbol der Umsetzung: Ist sie fertig, die Dringlichkeit aber nicht `done`, ein Haken in der Farbe
+ *  der Dringlichkeit. */
+export function implementationIcon(implementation: ImplementationView): {
+  status: DisplayStatus;
+  tint?: DisplayStatus;
+} {
+  if (implementation.finishedAt !== null && implementation.urgency !== 'done') {
+    return { status: 'completed', tint: ICON[implementation.urgency] };
+  }
+  return { status: ICON[implementation.urgency] };
 }

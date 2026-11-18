@@ -24,7 +24,6 @@ import {
   NO_PHASES,
   PHASE_MARK_LABEL,
   PHASE_MARK_TITLE,
-  quotaChip,
   resumesAtChip,
   ROW_OPEN_CHAT_TITLE,
   ROW_OPEN_LABEL,
@@ -53,6 +52,7 @@ import {
 } from '@/features/implementation/stationAgent';
 import { RELEASED_CHIP, RELEASED_TITLE, returnsChip } from '@/features/implementation/masterTexts';
 import { StationDot } from '@/features/implementation/StationDot';
+import { pauseChip } from '@/features/implementation/stationLive';
 import { messageWaitPosition, messageWaitText } from '@/features/queue/queueTexts';
 import { useOperatingMode } from '@/features/remote/useOperatingMode';
 import type { ChangeView } from '@/lib/bindings/ChangeView';
@@ -286,14 +286,17 @@ export function Timeline({
         </span>
       );
     }
-    if (station.state === 'waitsForYou') {
-      return (
-        <span className="timeline__chip timeline__chip--static timeline__chip--state timeline__chip--warn">
-          {quotaChip(reason.resetsAt)}
-        </span>
-      );
-    }
     return null;
+  }
+
+  /** „Kontingent bis 14:00“ hinter einer pausierten Station, auch einer fertigen oder gemeldeten. */
+  function renderPauseChip(station: StationView): ReactElement | null {
+    const chip: string | null = pauseChip(station);
+    return chip === null ? null : (
+      <span className="timeline__chip timeline__chip--static timeline__chip--state timeline__chip--warn">
+        {chip}
+      </span>
+    );
   }
 
   /** „zurückgegeben 1/3“ und „✓ freigegeben“ vor dem Zustand (ADR 070). */
@@ -380,6 +383,7 @@ export function Timeline({
           {rowText(station)}
           {renderMasterChips(station)}
           {renderQuotaChip(station)}
+          {renderPauseChip(station)}
           {renderAction(station)}
           {renderResume(station)}
         </span>
