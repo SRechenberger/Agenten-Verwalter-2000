@@ -187,7 +187,8 @@ impl SessionRegistry {
 
     /// Alle Wartenden: bereite Stationen markierter Umsetzungen, Stationen vor dem Neustart nach „Bei
     /// Fehler“, die älteste Nachricht jeder ruhenden Session (auch einer geöffneten, die noch nie lief)
-    /// und fällige Fortsetzungen. In der Reihenfolge des Sammelns; ordnen tut das Tor.
+    /// und fällige Fortsetzungen; dazu die pausierte Station ohne scharfen Zeitgeber, in deren Posteingang
+    /// eine Nachricht ihres Masters seit Beginn der Pause liegt (`takes_oldest`). In der Reihenfolge des Sammelns; ordnen tut das Tor.
     pub(super) fn waiters(&self, now: f64) -> Vec<Waiter> {
         let priorities: HashMap<String, ProjectPriority> = self
             .lock_projects()

@@ -5432,10 +5432,14 @@ mod tests {
     }
 
     fn master_writes(registry: &SessionRegistry, created_at: f64) {
+        writes_from(registry, "m", created_at);
+    }
+
+    fn writes_from(registry: &SessionRegistry, sender_id: &str, created_at: f64) {
         let master = SessionRef {
-            id: "m".to_owned(),
+            id: sender_id.to_owned(),
             number: 1,
-            title: "Master".to_owned(),
+            title: "Absender".to_owned(),
         };
         registry
             .database
@@ -5508,5 +5512,12 @@ mod tests {
             SessionState::restored(&row_of_state(&current)).paused_since,
             None
         );
+    }
+
+    #[test]
+    fn a_message_of_another_session_since_the_pause_does_not_resume_the_station() {
+        let registry = registry_with_master(Some(100.0));
+        writes_from(&registry, "x", 150.0);
+        assert!(!passes_message_of(&registry));
     }
 }

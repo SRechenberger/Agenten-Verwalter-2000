@@ -689,7 +689,8 @@ impl SessionRegistry {
         )
     }
 
-    /// Die älteste wartende Nachricht, falls die Session ruht oder als geöffnete Session noch nie lief.
+    /// Die älteste wartende Nachricht, falls die Session ruht, als geöffnete Session noch nie lief oder
+    /// als pausierte Station eine Nachricht ihres Masters seit Beginn der Pause hat (`takes_oldest`).
     /// Nur mit einem Platz vom Tor (der Durchgang hält ihn). Nie unter einer Sperre aufrufen. `false`,
     /// wenn der Start scheiterte.
     pub(super) fn deliver_oldest(&self, app: &AppHandle, session: &Arc<Session>) -> bool {
