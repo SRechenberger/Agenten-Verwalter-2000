@@ -176,6 +176,8 @@ Esc schließt nur das Popup (`Dialog` verbraucht die Taste in der Capture-Phase)
 
 **Rechts.** Die Abläufe tragen ein eckiges `StatusIcon` in der Farbe des Zustands (`waitsForMaster` in `--color-status-reported`), den Namen, den Zustand als Text, einen Balken `stationsDone`/`stationsTotal` und „N offen“ aus `open`; ein Klick öffnet die Umsetzung. Darunter stehen „Sessions ohne Ablauf“ mit Punkt, Name und Zustand; ein Klick öffnet die Session.
 
+**Die Master-Auswahl hängt am `body` und liegt über jedem Dialog.** So ist sie im Kopf der Umsetzung und im Popup „Master ausgefallen“ ganz sichtbar (Befund 1 der Abnahme 102.A): Das `Popover` der `MasterPicker` ist `detached` und trägt die Klasse `master-picker__menu` mit `z-index` über `--z-modal`.
+
 **Ctrl J bleibt eigene Liste** (`waitingQueue.ts`): Das Dashboard ersetzt sie nicht.
 
 ## Was das in früheren ADRs überholt

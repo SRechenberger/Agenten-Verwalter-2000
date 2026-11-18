@@ -89,6 +89,11 @@
   }
 }
 
+/* Die losgelöste Auswahl hängt am `body` und muss über dem Dialog (`--z-modal`) liegen. */
+.popover.master-picker__menu {
+  z-index: calc(var(--z-modal) + 1);
+}
+
 .master-warning {
   display: flex;
   flex-shrink: 0;
