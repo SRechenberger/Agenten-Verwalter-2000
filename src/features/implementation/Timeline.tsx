@@ -291,7 +291,8 @@ export function Timeline({
 
   /** „Kontingent bis 14:00“ hinter einer pausierten Station, auch einer fertigen oder gemeldeten. */
   function renderPauseChip(station: StationView): ReactElement | null {
-    const chip: string | null = pauseChip(station);
+    // Bei scharfem Zeitgeber steht die Zeit schon im Chip „ab …“.
+    const chip: string | null = station.state === 'waitsForQuota' ? null : pauseChip(station);
     return chip === null ? null : (
       <span className="timeline__chip timeline__chip--static timeline__chip--state timeline__chip--warn">
         {chip}
@@ -350,7 +351,9 @@ export function Timeline({
   function renderRow(ref: StationRef): ReactElement {
     const { station, phase } = ref;
     const isFocused: boolean = station.id === focusedId;
-    const tone: string = station.startError === null ? station.state : 'failed';
+    // Hat die Zeile `live`, steht der Text neutral; die Farbe der Session trägt der Punkt.
+    const tone: string =
+      station.startError !== null ? 'failed' : station.live === null ? station.state : 'live';
     return (
       <div
         key={station.id}
