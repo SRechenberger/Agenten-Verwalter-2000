@@ -101,7 +101,11 @@ function stationOf(props: PopupProps, implementation: ImplementationView): Stati
 function MarkDoneAction(props: PopupProps): ReactElement | null {
   const implementation = implementationOf(props);
   const ref = implementation === undefined ? undefined : stationOf(props, implementation);
-  if (implementation === undefined || ref === undefined || !canMarkDone(ref.station)) {
+  if (
+    implementation === undefined ||
+    ref === undefined ||
+    !canMarkDone(ref.station, implementation.cancelledAt !== null)
+  ) {
     return null;
   }
   return (

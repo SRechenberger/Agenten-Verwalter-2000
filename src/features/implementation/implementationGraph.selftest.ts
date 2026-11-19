@@ -11,6 +11,8 @@ import {
   type PlanNode,
 } from './implementationGraph.ts';
 import { canMarkDone, isMarkDoneResultValid } from './markDone.ts';
+
+type MarkableStation = Parameters<typeof canMarkDone>[0];
 import type { PauseReason } from '../../lib/bindings/PauseReason.ts';
 import { quotaPauses, quotaWaiting, type QuotaPause } from './quotaWaiting.ts';
 
@@ -19,9 +21,7 @@ function node(planId: string, ...after: string[]): PlanNode {
 }
 
 /** Eine Station des Agenten im Fehler; `over` ändert, was der Fall braucht. */
-function markable(
-  over: Partial<Parameters<typeof canMarkDone>[0]> = {},
-): Parameters<typeof canMarkDone>[0] {
+function markable(over: Partial<MarkableStation> = {}): MarkableStation {
   return {
     byUser: false,
     completedAt: null,
@@ -216,31 +216,34 @@ const CASES: { name: string; actual: () => unknown; expected: unknown }[] = [
   },
   {
     name: 'mark_done_is_offered_for_an_error_without_pending_restart',
-    actual: () => canMarkDone(markable()),
+    actual: () => canMarkDone(markable(), false),
     expected: true,
   },
   {
     name: 'mark_done_is_refused_while_a_restart_is_pending',
-    actual: () => canMarkDone(markable({ restarting: true })),
+    actual: () => canMarkDone(markable({ restarting: true }), false),
     expected: false,
   },
   {
     name: 'mark_done_is_offered_for_a_start_error',
-    actual: () => canMarkDone(markable({ state: 'ready', startError: 'Agent fehlt' })),
+    actual: () => canMarkDone(markable({ state: 'ready', startError: 'Agent fehlt' }), false),
     expected: true,
   },
   {
     name: 'mark_done_is_offered_for_a_paused_station_without_timer_with_or_without_report',
     actual: () =>
-      canMarkDone(markable({ state: 'waitsForYou', pause: OTHER_PAUSE })) &&
-      canMarkDone(markable({ state: 'reported', live: 'waitsForYou', pause: OTHER_PAUSE })),
+      canMarkDone(markable({ state: 'waitsForYou', pause: OTHER_PAUSE }), false) &&
+      canMarkDone(markable({ state: 'reported', live: 'waitsForYou', pause: OTHER_PAUSE }), false),
     expected: true,
   },
   {
     name: 'mark_done_is_refused_with_an_armed_timer',
     actual: () =>
-      canMarkDone(markable({ state: 'waitsForQuota', pause: OTHER_PAUSE })) ||
-      canMarkDone(markable({ state: 'reported', live: 'waitsForQuota', pause: OTHER_PAUSE })),
+      canMarkDone(markable({ state: 'waitsForQuota', pause: OTHER_PAUSE }), false) ||
+      canMarkDone(
+        markable({ state: 'reported', live: 'waitsForQuota', pause: OTHER_PAUSE }),
+        false,
+      ),
     expected: false,
   },
   {
@@ -250,7 +253,12 @@ const CASES: { name: string; actual: () => unknown; expected: unknown }[] = [
         markable({ state: 'running' }),
         markable({ state: 'done', completedAt: 5, startError: 'alt' }),
         markable({ byUser: true, startError: 'x' }),
-      ].some(canMarkDone),
+      ].some((station: MarkableStation) => canMarkDone(station, false)),
+    expected: false,
+  },
+  {
+    name: 'mark_done_is_refused_in_a_cancelled_implementation',
+    actual: () => canMarkDone(markable(), true),
     expected: false,
   },
   {

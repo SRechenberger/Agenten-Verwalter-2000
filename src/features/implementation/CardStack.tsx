@@ -206,6 +206,7 @@ export function CardStack({
       <StationCard
         key={focusedStation.station.id}
         implementationId={implementation.id}
+        isImplementationCancelled={implementation.cancelledAt !== null}
         stationRef={focusedStation}
         refs={refs}
         isImplementationAutomatic={implementation.autoStart}

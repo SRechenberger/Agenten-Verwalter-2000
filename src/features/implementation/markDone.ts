@@ -12,11 +12,16 @@ type MarkableStation = Pick<
   'byUser' | 'completedAt' | 'state' | 'live' | 'pause' | 'restarting' | 'startError'
 >;
 
-/** Eine Station des Agenten im Fehler ohne anstehenden Neustart, mit Startfehler oder mit pausierter
- *  Session ohne scharfen Zeitgeber „Automatisch fortsetzen“ (er zeigt `waitsForQuota`, bei einer
- *  gemeldeten Station in `live`). */
-export function canMarkDone(station: MarkableStation): boolean {
-  if (station.byUser || station.completedAt !== null || station.state === 'done') {
+/** Eine Station des Agenten in einer nicht abgebrochenen Umsetzung im Fehler ohne anstehenden Neustart,
+ *  mit Startfehler oder mit pausierter Session ohne scharfen Zeitgeber „Automatisch fortsetzen“ (er zeigt
+ *  `waitsForQuota`, bei einer gemeldeten Station in `live`). */
+export function canMarkDone(station: MarkableStation, isImplementationCancelled: boolean): boolean {
+  if (
+    isImplementationCancelled ||
+    station.byUser ||
+    station.completedAt !== null ||
+    station.state === 'done'
+  ) {
     return false;
   }
   const isTimerArmed: boolean =

@@ -44,6 +44,8 @@ export type CardSectionKey = 'flow' | 'brief' | 'agent' | 'automation';
 
 interface StationCardProps {
   implementationId: string;
+  /** Eine abgebrochene Umsetzung lässt nichts mehr von Hand fertig markieren. */
+  isImplementationCancelled: boolean;
   stationRef: StationRef;
   /** Alle Stationen in der Reihenfolge der Zeitleiste: Chips und Zyklen. */
   refs: readonly StationRef[];
@@ -80,6 +82,7 @@ interface StationCardProps {
  *  Automatik. Fragen werden im Chat beantwortet, nicht hier. */
 export function StationCard({
   implementationId,
+  isImplementationCancelled,
   stationRef,
   refs,
   isImplementationAutomatic,
@@ -225,7 +228,7 @@ export function StationCard({
             {EDIT_TYPE_LABEL}
           </button>
         )}
-        {canMarkDone(station) && (
+        {canMarkDone(station, isImplementationCancelled) && (
           <MarkDoneButton
             implementationId={implementationId}
             stationId={station.id}
