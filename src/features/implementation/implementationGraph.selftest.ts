@@ -12,9 +12,10 @@ import {
 } from './implementationGraph.ts';
 import { canMarkDone, isMarkDoneResultValid } from './markDone.ts';
 
-type MarkableStation = Parameters<typeof canMarkDone>[0];
 import type { PauseReason } from '../../lib/bindings/PauseReason.ts';
 import { quotaPauses, quotaWaiting, type QuotaPause } from './quotaWaiting.ts';
+
+type MarkableStation = Parameters<typeof canMarkDone>[0];
 
 function node(planId: string, ...after: string[]): PlanNode {
   return { planId, after };
