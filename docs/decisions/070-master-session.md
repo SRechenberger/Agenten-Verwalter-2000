@@ -126,3 +126,7 @@ Ein Master lebt über lange Umsetzungen, sein Kontext wächst, bis jede Nachrich
 - **Hinweis:** `Notice::Compacted` hat `by_verwalter` (ältere Hinweise lesen sich als `false`). Der Chat zeigt „Verlauf zusammengefasst · automatisch durch den Verwalter“; die Kommandozeile meldet den Auslöser trotzdem als `manual`, deshalb ersetzt der Zusatz den Text „von Hand“. Der Knopf „Compact“ bleibt der Weg des Benutzers.
 - **Kosten:** Ein Compact ist ein voller Modellaufruf über den ganzen Kontext und baut den Prompt-Cache neu auf; dafür kostet jede folgende Nachricht des Masters weniger.
 - **Prüfung:** Tests unter `sessions::registry::tests::` (Regel mit Gegenfällen, Tor, kein Eingang, Zugende ohne Antwort, Einstellung, alter Hinweis, billige Prüfungen zuerst, Neuprüfung unter der Sperre, gescheiterter Compact-Zug, pausierter Compact-Zug, kein Pausenwunsch nach gescheitertem Zug).
+
+### Nachtrag: Befehls-Stationen ([ADR 073](073-befehls-stationen.md))
+
+Eine Befehls-Station meldet nicht: Ihr Erfolg ist eine Annahme ohne Meldung und ohne Wecken. Ein Fehler weckt den Master mit dem Weck-Text „Fehler“ (`WakeEvent::Failed`), „Abbrechen“ mit „gestoppt“; der Zug ist der Lauf, seine Marke der Beginn des Laufs.
