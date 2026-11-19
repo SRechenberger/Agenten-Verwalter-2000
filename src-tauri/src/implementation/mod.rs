@@ -319,6 +319,18 @@ pub fn report_station(
     Ok(())
 }
 
+/// Die Fix-Runde einer Annahme; von Hand als fertig markiert gibt es keine, auch nicht bei einer Meldung
+/// mit `fix_needed`.
+fn plan_finish(
+    view: &ImplementationView,
+    station_id: &str,
+    fix_needed: bool,
+    by_hand: bool,
+    types: &[AgentType],
+) -> Result<(Vec<StationRow>, Option<String>), String> {
+    plan_completion_with_types(view, station_id, fix_needed && !by_hand, types)
+}
+
 const MARK_DONE_REFUSED: &str =
     "Als fertig markieren geht nur bei einer Station im Fehler oder in einer Pause ohne Zeitgeber.";
 
@@ -480,7 +492,7 @@ fn finish_station(
     let registry = app.state::<SessionRegistry>();
     let view = registry.implementation_view(implementation_id)?;
     let types = registry.agent_types()?;
-    let (followups, hint) = plan_completion_with_types(&view, station_id, fix_needed, &types)
+    let (followups, hint) = plan_finish(&view, station_id, fix_needed, by_hand, &types)
         .map_err(CommandError::Implementation)?;
     let rows = registry.station_rows(implementation_id)?;
     let changes = handoff_changes(&rows, station_id, &followups, handoff, now_ms())

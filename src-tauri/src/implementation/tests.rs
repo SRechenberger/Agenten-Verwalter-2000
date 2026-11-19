@@ -6753,8 +6753,13 @@ fn marking_done_never_starts_a_fix_round_even_with_fix_needed() {
     };
     let view = marking_view(row, Some(paused_session(false)));
     assert!(may_mark(&view));
-    let (followups, hint) = plan_completion(&view, "s", false).expect("gültig");
-    assert!((followups.is_empty()) && hint.is_none());
+    let (followups, hint) = plan_finish(&view, "s", true, true, &[]).expect("gültig");
+    assert!(followups.is_empty() && hint.is_none());
+    let (acceptance, _) = plan_finish(&view, "s", true, false, &[]).expect("gültig");
+    assert!(
+        !acceptance.is_empty(),
+        "eine Annahme mit Befund plant die Fix-Runde"
+    );
 }
 
 #[test]
