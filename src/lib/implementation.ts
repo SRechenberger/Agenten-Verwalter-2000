@@ -111,6 +111,17 @@ export async function completeStationByUser(
   await invoke('implementation_complete_station', { id, stationId, result });
 }
 
+/** Markiert eine Station im Fehler oder in einer Pause ohne Zeitgeber von Hand als fertig (ADR 048); wirkt
+ *  wie eine Annahme ohne Fix-Runde.
+ *  @throws {import('@/lib/bindings/CommandError').CommandError} `implementation` (Zustand nicht erlaubt, Ergebnis leer oder zu lang), `database` */
+export async function markStationDone(
+  implementationId: string,
+  stationId: string,
+  result: string,
+): Promise<void> {
+  await invoke('implementation_mark_station_done', { implementationId, stationId, result });
+}
+
 /** Bestimmt eine andere Session des Vorhabens zum Master der Umsetzung; der neue Master bekommt die
  *  Umsetzung und die offenen Meldungen (ADR 070).
  *  @throws {import('@/lib/bindings/CommandError').CommandError} `implementation` (keine Session des Vorhabens, eine Station), `database` */

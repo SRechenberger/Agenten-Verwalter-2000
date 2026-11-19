@@ -1,0 +1,66 @@
+.mark-done {
+  width: 460px;
+
+  &__header {
+    padding: 14px 18px var(--space-xs);
+  }
+
+  &__title {
+    margin: 0;
+    font-size: 15px;
+    font-weight: 600;
+  }
+
+  &__body {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-md);
+    padding: var(--space-md) 18px var(--space-sm);
+  }
+
+  &__text,
+  &__error {
+    margin: 0;
+    font-size: var(--font-size-md);
+    color: var(--color-fg-secondary);
+  }
+
+  &__error {
+    font-size: var(--font-size-xs);
+    color: var(--color-status-error);
+  }
+
+  &__label {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+    font-size: var(--font-size-xs);
+    color: var(--color-fg-secondary);
+  }
+
+  &__input {
+    padding: 6px 8px;
+    font: inherit;
+    font-size: var(--font-size-md);
+    color: var(--color-fg-primary);
+    background: var(--color-bg-base);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+  }
+
+  &__footer {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: var(--space-md);
+    margin-top: var(--space-sm);
+    padding: var(--space-lg) 18px 14px;
+    border-top: 1px solid var(--color-border-subtle);
+  }
+
+  /* Steht auf `settings-view__button`: gleiche Gewichtung, also zwei Klassen. */
+  &__confirm.settings-view__button {
+    color: var(--color-accent-text);
+    border-color: color-mix(in srgb, var(--color-accent) 45%, var(--color-border));
+  }
+}

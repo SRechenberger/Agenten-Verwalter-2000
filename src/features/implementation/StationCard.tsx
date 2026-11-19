@@ -26,6 +26,8 @@ import { StationAgentSection } from '@/features/implementation/StationAgentSecti
 import { StationAutomationSection } from '@/features/implementation/StationAutomationSection';
 import { StationBriefSection } from '@/features/implementation/StationBriefSection';
 import { RELEASED_MARK, RELEASED_TITLE } from '@/features/implementation/masterTexts';
+import { MarkDoneButton } from '@/features/implementation/MarkDoneButton';
+import { canMarkDone } from '@/features/implementation/markDone';
 import { StationReportSection } from '@/features/implementation/StationReportSection';
 import { StationFlowSection } from '@/features/implementation/StationFlowSection';
 import { typeNamed, typeOfStation } from '@/features/implementation/stationAgent';
@@ -222,6 +224,15 @@ export function StationCard({
           >
             {EDIT_TYPE_LABEL}
           </button>
+        )}
+        {canMarkDone(station) && (
+          <MarkDoneButton
+            implementationId={implementationId}
+            stationId={station.id}
+            label={`Lane ${phase.key} · ${station.stage}`}
+            className="station-card__button station-card__button--primary"
+            isLocked={isLocked}
+          />
         )}
         {changesCount !== null && station.sessionId !== null && (
           <button

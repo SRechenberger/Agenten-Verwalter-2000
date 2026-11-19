@@ -10,12 +10,31 @@ import {
   patchEdit,
   type PlanNode,
 } from './implementationGraph.ts';
+import { canMarkDone, isMarkDoneResultValid } from './markDone.ts';
 import type { PauseReason } from '../../lib/bindings/PauseReason.ts';
 import { quotaPauses, quotaWaiting, type QuotaPause } from './quotaWaiting.ts';
 
 function node(planId: string, ...after: string[]): PlanNode {
   return { planId, after };
 }
+
+/** Eine Station des Agenten im Fehler; `over` ändert, was der Fall braucht. */
+function markable(
+  over: Partial<Parameters<typeof canMarkDone>[0]> = {},
+): Parameters<typeof canMarkDone>[0] {
+  return {
+    byUser: false,
+    completedAt: null,
+    state: 'error',
+    live: null,
+    pause: null,
+    restarting: false,
+    startError: null,
+    ...over,
+  };
+}
+
+const OTHER_PAUSE = { reason: 'other', resetsAt: null } as const;
 
 const NOW = 1_700_000_000_000;
 const HOUR = 3_600_000;
@@ -194,6 +213,55 @@ const CASES: { name: string; actual: () => unknown; expected: unknown }[] = [
     name: 'quota_pauses_are_taken_from_the_station_sessions_and_mark_finished_ones',
     actual: pausesOfImplementation,
     expected: `[{"isDone":false,"resetsAt":${String(NOW + HOUR)},"autoResume":true},{"isDone":true,"resetsAt":${String(NOW + HOUR)},"autoResume":true},{"isDone":false,"resetsAt":null,"autoResume":false}]`,
+  },
+  {
+    name: 'mark_done_is_offered_for_an_error_without_pending_restart',
+    actual: () => canMarkDone(markable()),
+    expected: true,
+  },
+  {
+    name: 'mark_done_is_refused_while_a_restart_is_pending',
+    actual: () => canMarkDone(markable({ restarting: true })),
+    expected: false,
+  },
+  {
+    name: 'mark_done_is_offered_for_a_start_error',
+    actual: () => canMarkDone(markable({ state: 'ready', startError: 'Agent fehlt' })),
+    expected: true,
+  },
+  {
+    name: 'mark_done_is_offered_for_a_paused_station_without_timer_with_or_without_report',
+    actual: () =>
+      canMarkDone(markable({ state: 'waitsForYou', pause: OTHER_PAUSE })) &&
+      canMarkDone(markable({ state: 'reported', live: 'waitsForYou', pause: OTHER_PAUSE })),
+    expected: true,
+  },
+  {
+    name: 'mark_done_is_refused_with_an_armed_timer',
+    actual: () =>
+      canMarkDone(markable({ state: 'waitsForQuota', pause: OTHER_PAUSE })) ||
+      canMarkDone(markable({ state: 'reported', live: 'waitsForQuota', pause: OTHER_PAUSE })),
+    expected: false,
+  },
+  {
+    name: 'mark_done_is_refused_for_running_done_or_by_you',
+    actual: () =>
+      [
+        markable({ state: 'running' }),
+        markable({ state: 'done', completedAt: 5 }),
+        markable({ byUser: true, startError: 'x' }),
+      ].some(canMarkDone),
+    expected: false,
+  },
+  {
+    name: 'mark_done_result_is_blocked_while_empty_or_only_spaces',
+    actual: () =>
+      [
+        isMarkDoneResultValid(''),
+        isMarkDoneResultValid('  \t '),
+        isMarkDoneResultValid(' ok '),
+      ].join(),
+    expected: 'false,false,true',
   },
   {
     name: 'one_reset_time_ahead_is_not_reset_yet',
