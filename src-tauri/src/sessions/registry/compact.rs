@@ -6,13 +6,15 @@ use std::thread;
 use tauri::{AppHandle, Manager};
 
 use super::{
-    Outbox, Session, SessionRegistry, SessionState, SessionStatus, TurnOrigin, schedule_pass,
-    start_turn, update,
+    ChatEntry, Outbox, Session, SessionRegistry, SessionState, SessionStatus, TurnOrigin,
+    schedule_pass, start_turn, update,
 };
 use crate::db::implementations::{
     self as implementation_rows, ImplementationRow, StoredImplementation,
 };
 use crate::db::session_inbox;
+use crate::error::CommandError;
+use crate::notices::model::Notice;
 use crate::settings;
 use crate::settings::model::OperatingMode;
 
@@ -47,10 +49,7 @@ pub(super) fn wanted(facts: &Facts) -> bool {
         && facts
             .limit
             .is_some_and(|limit: u32| facts.context_used > limit)
-        && matches!(
-            facts.mode,
-            OperatingMode::Claude | OperatingMode::ClaudeCodeLocal
-        )
+        && on_claude_command_line(facts.mode)
 }
 
 /// Master mindestens einer Umsetzung ohne Ende (weder fertig noch abgebrochen; ein Abbruch setzt auch
@@ -66,6 +65,16 @@ pub(super) fn leads_open_implementation<'a>(
     })
 }
 
+/// Die billigen Bedingungen vor allem anderen: Master, Grenze und Betriebsart. Ohne Netz, ohne
+/// Datenbank je Session; erst wenn die Regel greifen kann, kommt `prepare_turn` (LM Studio, Vorhaben).
+pub(super) fn may_apply(master: bool, limit: Option<u32>, mode: OperatingMode) -> bool {
+    master && limit.is_some() && on_claude_command_line(mode)
+}
+
+fn on_claude_command_line(mode: OperatingMode) -> bool {
+    matches!(mode, OperatingMode::Claude | OperatingMode::ClaudeCodeLocal)
+}
+
 impl SessionState {
     /// Der Zustand eines Compact-Zugs: Er läuft, aber es ist keine Eingabe. Kein Eintrag, kein
     /// `note_input`; `seen_at`, `auto_chain` und die Antwort des Dashboards bleiben.
@@ -73,6 +82,58 @@ impl SessionState {
         self.compact_turn = true;
         self.set_status(outbox, SessionStatus::Running);
     }
+
+    /// Der Zug läuft: `start_turn` ruft das für jede Herkunft; der Compact-Zug fasst nichts anderes an.
+    pub(super) fn enter_running(&mut self, outbox: &mut Outbox, is_compact: bool) {
+        if is_compact {
+            self.begin_compact_turn(outbox);
+        } else {
+            self.compact_turn = false;
+            self.set_status(outbox, SessionStatus::Running);
+        }
+    }
+
+    /// Ein Compact-Zug, der nicht abgeschlossen endet (Fehler, Kontingent, Abbruch): Die Session ruht
+    /// wie vorher, ohne Ungelesen und ohne Karte (ein Master im Fehler gilt als ausgefallen, ADR 070).
+    /// Der Chat nennt den Grund.
+    pub(super) fn end_failed_compact(&mut self, outbox: &mut Outbox, reason: &str) {
+        let (last_activity_at, seen_at) = (self.last_activity_at, self.seen_at);
+        self.push_entry(outbox, |seq: u32| ChatEntry::Notice {
+            seq,
+            notice: Notice::Info {
+                text: format!("Zusammenfassen gescheitert: {reason}"),
+            },
+            at: None,
+        });
+        self.set_status(outbox, SessionStatus::Completed);
+        self.last_activity_at = last_activity_at;
+        self.seen_at = seen_at;
+        outbox.turn_completed = true;
+    }
+}
+
+/// Die Prüfung unter der Session-Sperre (Session vor Datenbank). `true`: Der Zug darf beginnen.
+pub(super) fn decide_under_lock(
+    session: &Session,
+    state: &SessionState,
+    master: bool,
+    limit: Option<u32>,
+    mode: OperatingMode,
+) -> Result<bool, CommandError> {
+    let inbox_empty = session
+        .database
+        .with(|connection| session_inbox::oldest(connection, &session.id))?
+        .is_none();
+    Ok(wanted(&Facts {
+        completed: true,
+        after_compact: false,
+        master_of_open_implementation: master,
+        rests: state.rests(),
+        inbox_empty,
+        context_used: state.context_used,
+        limit,
+        mode,
+    }))
 }
 
 impl SessionRegistry {
@@ -85,58 +146,67 @@ impl SessionRegistry {
             })
     }
 
+    /// Alles vor dem Senden, ohne `AppHandle`: erst die billigen Bedingungen, dann `prepare`, dann das
+    /// Tor der globalen Warteschlange. `Some`: Der Platz gehört der Session; der Aufrufer gibt ihn
+    /// zurück (`release_session_slot`).
+    pub(super) fn admit_compact<T>(
+        &self,
+        session_id: &str,
+        master: bool,
+        limit: Option<u32>,
+        mode: OperatingMode,
+        prepare: impl FnOnce() -> T,
+    ) -> Option<T> {
+        if !may_apply(master, limit, mode) {
+            return None;
+        }
+        let prepared = prepare();
+        self.claim_session_slot(session_id).then_some(prepared)
+    }
+
     /// Im eigenen Thread geprüft und geschickt, durch das Tor; ohne Platz entfällt der Zug diesmal.
     fn send_compact(&self, app: &AppHandle, session: &Arc<Session>) {
-        let limit = match settings::load(&self.database) {
-            Ok(loaded) => loaded.master_compact_tokens,
+        let loaded = match settings::load(&self.database) {
+            Ok(loaded) => loaded,
             Err(error) => {
                 session.log_line(format!("Compact: Einstellungen nicht gelesen: {error}"));
                 return;
             }
         };
+        let limit = loaded.master_compact_tokens;
         // Vor der Session-Sperre: Datenbank und LM Studio gehören nicht darunter.
         let master = self.is_master_of_open_implementation(&session.id);
-        let input = self.prepare_turn(session, COMPACT_TEXT);
-        let Ok((mode, _)) = &input.backend else {
+        let Some(input) =
+            self.admit_compact(&session.id, master, limit, loaded.operating_mode, || {
+                self.prepare_turn(session, COMPACT_TEXT)
+            })
+        else {
             return;
         };
-        let mode = *mode;
-        if !master || limit.is_none() || !self.claim_session_slot(&session.id) {
-            return;
-        }
-        let sent = update(
-            app,
-            session,
-            |state: &mut SessionState, outbox: &mut Outbox| {
-                // Unter der Sperre noch einmal; Session vor Datenbank.
-                let inbox_empty = session
-                    .database
-                    .with(|connection| session_inbox::oldest(connection, &session.id))?
-                    .is_none();
-                let facts = Facts {
-                    completed: true,
-                    after_compact: false,
-                    master_of_open_implementation: master,
-                    rests: state.rests(),
-                    inbox_empty,
-                    context_used: state.context_used,
-                    limit,
-                    mode,
-                };
-                if wanted(&facts) {
-                    start_turn(
-                        app,
-                        session,
-                        state,
-                        outbox,
-                        input,
-                        COMPACT_TEXT,
-                        TurnOrigin::Compact,
-                    )?;
-                }
-                Ok(())
-            },
-        );
+        let sent = match &input.backend {
+            Ok((mode, _)) => {
+                let mode = *mode;
+                update(
+                    app,
+                    session,
+                    |state: &mut SessionState, outbox: &mut Outbox| {
+                        if decide_under_lock(session, state, master, limit, mode)? {
+                            start_turn(
+                                app,
+                                session,
+                                state,
+                                outbox,
+                                input,
+                                COMPACT_TEXT,
+                                TurnOrigin::Compact,
+                            )?;
+                        }
+                        Ok(())
+                    },
+                )
+            }
+            Err(_) => Ok(()),
+        };
         self.release_session_slot(&session.id);
         if let Err(error) = sent {
             session.log_line(format!("Compact nicht gesendet: {error}"));

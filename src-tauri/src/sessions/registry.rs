@@ -3864,6 +3864,17 @@ impl SessionState {
             self.end_sourcing();
             return;
         }
+        if was_compact {
+            let reason = match &end {
+                TurnEnd::Completed => None,
+                TurnEnd::Aborted => Some("abgebrochen".to_owned()),
+                TurnEnd::Failed(text) | TurnEnd::QuotaExhausted { text, .. } => Some(text.clone()),
+            };
+            if let Some(reason) = reason {
+                self.end_failed_compact(outbox, &reason);
+                return;
+            }
+        }
         // Vor `note_unsourced`, das die Einträge der Antwort abgibt.
         let excerpt: Option<String> = self.turn_excerpt();
         let classify_input = crate::dashboard::classify::collect(&self.entries, &self.turn_texts);
@@ -4648,7 +4659,6 @@ fn start_turn(
         }
         TurnOrigin::Compact => (false, user_message(text)),
     };
-    state.compact_turn = is_compact;
     state.last_overlap_key = input
         .overlap
         .as_ref()
@@ -4659,11 +4669,7 @@ fn start_turn(
         PlanTurn::Start => state.plan_guard = Some(PlanGuard::new(text)),
         PlanTurn::Reminder => {}
     }
-    if state.compact_turn {
-        state.begin_compact_turn(outbox);
-    } else {
-        state.set_status(outbox, SessionStatus::Running);
-    }
+    state.enter_running(outbox, is_compact);
     outbox.write(state, line)?;
     Ok(titled)
 }
@@ -5345,13 +5351,81 @@ mod tests {
         }
     }
 
+    fn registry_with_one_slot() -> SessionRegistry {
+        use crate::settings::model::SettingsChange;
+        let database =
+            crate::db::Database::open(Path::new(":memory:")).expect("Datenbank im Speicher");
+        settings::update(&database, SettingsChange::MaxAgents { value: Some(1) }).expect("Platz");
+        let registry = SessionRegistry::new(Arc::new(database), Arc::new(RemoteControl::default()));
+        registry.add_session_for_test("m", "p", SessionStatus::Completed);
+        registry
+    }
+
     #[test]
     fn no_compact_without_a_free_slot() {
-        // `send_compact` schickt nur mit `Some(true)` vom Tor; sonst entfällt der Zug.
-        let mut gate = Countdowns::default();
-        let busy = vec!["anderer".to_owned()];
-        assert_eq!(gate.claim_session(0, Some(1), &busy, "master"), Some(false));
-        assert_eq!(gate.claim_session(0, Some(2), &busy, "master"), Some(true));
+        let registry = registry_with_one_slot();
+        let claim = |registry: &SessionRegistry| {
+            registry.admit_compact("m", true, Some(1), OperatingMode::Claude, || ())
+        };
+        // Ein anderer Agent arbeitet und belegt den einzigen Platz: kein Zug.
+        registry.add_session_for_test("anderer", "p", SessionStatus::Running);
+        assert!(claim(&registry).is_none());
+        // Der Platz wird frei: der Zug darf, und der Aufrufer gibt den Platz zurück.
+        registry.get("anderer").expect("Session").lock().status = SessionStatus::Completed;
+        assert!(claim(&registry).is_some());
+        registry.release_session_slot("m");
+    }
+
+    #[test]
+    fn no_compact_work_before_the_cheap_checks_pass() {
+        let registry = registry_with_one_slot();
+        let prepared = std::cell::Cell::new(0);
+        let admit = |master, limit, mode| {
+            registry.admit_compact("m", master, limit, mode, || {
+                prepared.set(prepared.get() + 1)
+            })
+        };
+        // Kein Master, Grenze „Aus“, Autark und Codex: `prepare_turn` (LM Studio, Datenbank) läuft nie.
+        assert!(admit(false, Some(1), OperatingMode::Claude).is_none());
+        assert!(admit(true, None, OperatingMode::Claude).is_none());
+        assert!(admit(true, Some(1), OperatingMode::Standalone).is_none());
+        assert!(admit(true, Some(1), OperatingMode::Codex).is_none());
+        assert_eq!(prepared.get(), 0);
+        assert!(admit(true, Some(1), OperatingMode::ClaudeCodeLocal).is_some());
+        assert_eq!(prepared.get(), 1);
+        registry.release_session_slot("m");
+    }
+
+    #[test]
+    fn the_compact_check_under_the_lock_asks_again() {
+        let registry = registry_with_one_slot();
+        let session = registry.get("m").expect("Session");
+        let decide = |registry: &SessionRegistry| {
+            let session = registry.get("m").expect("Session");
+            let state = session.lock();
+            compact::decide_under_lock(&session, &state, true, Some(1), OperatingMode::Claude)
+                .expect("Prüfung")
+        };
+        session.lock().context_used = 10;
+        assert!(decide(&registry));
+        // Zwischen Vorprüfung und Sperre hat die Session wieder angefangen zu arbeiten.
+        session.lock().status = SessionStatus::Running;
+        assert!(!decide(&registry), "läuft: kein Zug");
+        session.lock().status = SessionStatus::Completed;
+        // Oder es kam eine Nachricht.
+        let sender = SessionRef {
+            id: "x".to_owned(),
+            number: 1,
+            title: "Absender".to_owned(),
+        };
+        registry
+            .database
+            .with(|connection| {
+                connection.execute_batch("PRAGMA foreign_keys = OFF")?;
+                crate::db::session_inbox::insert(connection, "m", &sender, "los", 0, 1.0)
+            })
+            .expect("einreihen");
+        assert!(!decide(&registry), "Nachricht wartet: kein Zug");
     }
 
     #[test]
@@ -5367,7 +5441,8 @@ mod tests {
         state.card_dismissed_at = Some(2.0);
         state.status = SessionStatus::Completed;
         let mut outbox = Outbox::default();
-        state.begin_compact_turn(&mut outbox);
+        // Der Weg von `start_turn(.., TurnOrigin::Compact)` in den Zustand.
+        state.enter_running(&mut outbox, true);
         assert_eq!(state.status, SessionStatus::Running);
         assert!(state.entries.is_empty(), "kein Benutzereintrag");
         assert_eq!(state.seen_at, 5.0);
@@ -5404,6 +5479,45 @@ mod tests {
         assert_eq!(state.last_activity_at, 5.0, "nicht ungelesen");
         assert_eq!(state.seen_at, 5.0);
         assert!(outbox.station_asks.is_none());
+    }
+
+    #[test]
+    fn a_failed_compact_turn_leaves_the_session_as_before() {
+        let ends = [
+            TurnEnd::Failed("kaputt".to_owned()),
+            TurnEnd::QuotaExhausted {
+                text: "Kontingent".to_owned(),
+                resets_at: None,
+            },
+            TurnEnd::Aborted,
+        ];
+        for end in ends {
+            let mut state = state();
+            state.seen_at = 5.0;
+            state.last_activity_at = 5.0;
+            state.answer_at = Some(4.0);
+            state.status = SessionStatus::Completed;
+            let mut outbox = Outbox::default();
+            state.enter_running(&mut outbox, true);
+            let mut outbox = Outbox::default();
+            state.end_turn(&mut outbox, end, None, Vec::new(), None);
+            assert_eq!(state.status, SessionStatus::Completed, "ruht wie vorher");
+            assert!(state.rests());
+            assert_eq!(state.last_activity_at, 5.0, "nicht ungelesen");
+            assert_eq!(state.seen_at, 5.0);
+            assert_eq!(state.answer_at, Some(4.0));
+            assert!(outbox.classify.is_none() && !outbox.compact);
+            assert!(outbox.turn_completed);
+            assert!(!state.compact_turn);
+            assert!(
+                matches!(
+                    state.entries.last(),
+                    Some(ChatEntry::Notice { notice: Notice::Info { text }, .. })
+                        if text.starts_with("Zusammenfassen gescheitert: ")
+                ),
+                "der Chat nennt den Grund"
+            );
+        }
     }
 
     #[test]
