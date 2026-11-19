@@ -65,14 +65,16 @@ use verwalter_lib::implementation::model::{
 use verwalter_lib::implementation::report::Extras;
 use verwalter_lib::implementation::slots::{self, Start};
 use verwalter_lib::implementation::{
-    Countdowns, STATION_BEGUN, SessionLive, amended_brief_changes, arms_on_new_pause, build_view,
-    changes, check_mark_done, checked_options, checked_settings, continues_after_quota,
-    handoff_changes, kept_phases, link, new_rows, now_ms, plan_completion,
-    plan_completion_with_types, report, schedule, start, wake,
+    Countdowns, Finish, STATION_BEGUN, SessionLive, amended_brief_changes, arms_on_new_pause,
+    build_view, changes, checked_options, checked_settings, continues_after_quota, handoff_changes,
+    kept_phases, link, new_rows, now_ms, plan_completion, plan_completion_with_types, report,
+    schedule, start, store_finish, wake,
 };
 use verwalter_lib::projects::model::ProjectPriority;
 use verwalter_lib::session_tools::reference;
+use verwalter_lib::remote::RemoteControl;
 use verwalter_lib::sessions::model::SessionStatus;
+use verwalter_lib::sessions::registry::SessionRegistry;
 
 const USAGE: &str = "Aufruf: implementation-probe --selftest | <Datenbank-Kopie> create <Session-ID> <JSON-Datei> | show <Umsetzungs-ID> | report <Umsetzungs-ID> | --wake-texts <Ordner> | complete <Umsetzungs-ID> <Station-ID> \"<Ergebnis>\" [--fix] [--report-only] | mark-done <Umsetzungs-ID> <Station-ID> \"<Ergebnis>\" | return <Umsetzungs-ID> <Station-ID> \"<Nachricht>\" | set-phases <Umsetzungs-ID> <JSON-Datei> [--apply] | set-station <Umsetzungs-ID> <Station-ID> <JSON-Datei>";
 
@@ -342,22 +344,12 @@ fn mark_by_hand(
 ) -> Result<String, String> {
     let database = Database::open(database_path).map_err(|error| error.to_string())?;
     let before = view_of(&database, implementation_id)?;
-    let result = check_mark_done(&before, station_id, result).map_err(|error| error.to_string())?;
-    let is_marked = database
-        .with(|connection| {
-            implementations::accept_station_with_followups(
-                connection,
-                station_id,
-                now_ms(),
-                &result,
-                &[],
-                false,
-            )
-        })
-        .map_err(|error| error.to_string())?;
-    if !is_marked {
-        return Err("Diese Station ist schon angenommen.".to_owned());
-    }
+    let finish = Finish::marking(&before, station_id, result).map_err(|error| error.to_string())?;
+    // Wie die App: `store_finish` über einer Registry auf der Datenbank (ohne Session, ohne Zeitgeber).
+    let database = Arc::new(database);
+    let registry = SessionRegistry::new(Arc::clone(&database), Arc::new(RemoteControl::default()));
+    store_finish(&registry, &before, station_id, &finish).map_err(|error| error.to_string())?;
+    let result = finish.result.clone();
     let after = view_of(&database, implementation_id)?;
     let startable: Vec<String> = after
         .phases
@@ -386,7 +378,8 @@ fn mark_by_hand(
     };
     let is_finished = after.stations_done == after.stations_total;
     let mut claimed = std::collections::HashSet::new();
-    let lines: Vec<String> = wake::events_after_marking(station_id, is_finished)
+    let lines: Vec<String> = finish
+        .wake_events(station_id, is_finished)
         .iter()
         .filter_map(|event| wake::decide(event, &facts, true, &mut claimed))
         .map(|text: String| format!("  {text}"))

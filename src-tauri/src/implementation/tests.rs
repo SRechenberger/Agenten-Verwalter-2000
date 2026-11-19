@@ -6886,9 +6886,10 @@ fn marking_an_error_station_without_report_completes_it_and_starts_the_successor
 
 #[test]
 fn marking_wakes_the_master_once_with_marked_done_and_finished_on_the_last_station() {
-    use wake::{WakeEvent, events_after_finish};
-    let kinds = |is_finished: bool, by_master: bool, by_hand: bool| -> Vec<&'static str> {
-        events_after_finish("s", is_finished, by_master, by_hand)
+    use wake::WakeEvent;
+    let kinds = |finish: &Finish, is_finished: bool| -> Vec<&'static str> {
+        finish
+            .wake_events("s", is_finished)
             .iter()
             .map(|event: &WakeEvent| match event {
                 WakeEvent::MarkedDone { .. } => "marked",
@@ -6897,13 +6898,22 @@ fn marking_wakes_the_master_once_with_marked_done_and_finished_on_the_last_stati
             })
             .collect()
     };
-    assert_eq!(kinds(false, false, true), ["marked"]);
-    assert_eq!(kinds(true, false, true), ["marked", "finished"]);
+    let view = marking_view(station_row("s", 0, "Umsetzung"), Some(error_session(false)));
+    let marking = Finish::marking(&view, "s", "ok").expect("gültig");
+    assert_eq!(kinds(&marking, false), ["marked"]);
+    assert_eq!(kinds(&marking, true), ["marked", "finished"]);
+    let acceptance = Finish {
+        result: "ok".to_owned(),
+        fix_needed: false,
+        handoff: Handoff::default(),
+        decider: Decider::User,
+        by_hand: false,
+    };
     assert!(
-        kinds(false, false, false).is_empty(),
+        kinds(&acceptance, false).is_empty(),
         "eine Annahme weckt nicht"
     );
-    assert_eq!(kinds(true, false, false), ["finished"]);
+    assert_eq!(kinds(&acceptance, true), ["finished"]);
 }
 
 #[test]

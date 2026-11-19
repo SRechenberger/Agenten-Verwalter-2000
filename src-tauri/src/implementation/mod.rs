@@ -356,8 +356,8 @@ pub fn may_be_marked_done(view: &ImplementationView, station: &StationView) -> b
 
 /// Die Angaben eines Abschlusses: `by_hand` ist „Als fertig markieren“ (braucht keine Meldung, keine
 /// Fix-Runde, weckt mit „Von Hand fertig“).
-struct Finish {
-    result: String,
+pub struct Finish {
+    pub result: String,
     fix_needed: bool,
     handoff: Handoff,
     decider: Decider,
@@ -367,7 +367,7 @@ struct Finish {
 impl Finish {
     /// Prüft „Als fertig markieren“ und gibt den Abschluss mit dem getrimmten Ergebnis zurück. Außer bei
     /// einer unbekannten Station lehnt jeder Fall ohne die Regel mit dem Satz des Vertrags ab.
-    fn marking(
+    pub fn marking(
         view: &ImplementationView,
         station_id: &str,
         result: &str,
@@ -387,15 +387,17 @@ impl Finish {
             by_hand: true,
         })
     }
-}
 
-/// Prüft „Als fertig markieren“ und gibt das getrimmte Ergebnis zurück (für die Probe).
-pub fn check_mark_done(
-    view: &ImplementationView,
-    station_id: &str,
-    result: &str,
-) -> Result<String, CommandError> {
-    Finish::marking(view, station_id, result).map(|finish: Finish| finish.result)
+    /// Die Weck-Ereignisse dieses Abschlusses (ADR 070): die Wahl hängt nur an `by_hand` und dem Entscheider,
+    /// kein Aufrufer reicht sie als Wert durch.
+    pub fn wake_events(&self, station_id: &str, is_finished: bool) -> Vec<wake::WakeEvent> {
+        wake::events_after_finish(
+            station_id,
+            is_finished,
+            self.decider == Decider::Master,
+            self.by_hand,
+        )
+    }
 }
 
 /// Der Benutzer markiert eine Station im Fehler oder in einer Pause ohne Zeitgeber von Hand als fertig:
@@ -496,12 +498,12 @@ fn needs_report(by_hand: bool, station_by_user: bool) -> bool {
 }
 
 /// Eine Änderung des Auftrags eines Nachfolgers: (Station, Plan-Kennung, Änderung).
-type HandoffChange = (String, String, BriefChange);
+pub type HandoffChange = (String, String, BriefChange);
 
 /// Der Teil des Abschlusses ohne `AppHandle`: Prüfen, Übergabe planen, Station annehmen und die
 /// Nachfolger anhängen (eine Transaktion). Gibt die Fix-Runde, den Hinweis und die Änderungen der Aufträge
 /// zurück.
-fn store_finish(
+pub fn store_finish(
     registry: &SessionRegistry,
     view: &ImplementationView,
     station_id: &str,
@@ -553,15 +555,7 @@ fn finish_station(
         }
     }
     let mut outcome = after_completion(app, &registry, implementation_id)?;
-    wake_master_after_acceptance(
-        app,
-        &view,
-        station_id,
-        &finish.result,
-        &outcome,
-        finish.decider == Decider::Master,
-        finish.by_hand,
-    );
+    wake_master_after_acceptance(app, &view, station_id, finish, &outcome);
     outcome.hint = hint;
     outcome.handoff_unused = finish.handoff.note.is_some() && handed.is_empty();
     outcome.handed = handed;
@@ -899,12 +893,10 @@ fn wake_master_after_acceptance(
     app: &AppHandle,
     view: &ImplementationView,
     station_id: &str,
-    result: &str,
+    finish: &Finish,
     outcome: &CompleteOutcome,
-    is_by_master: bool,
-    by_hand: bool,
 ) {
-    let events = wake::events_after_finish(station_id, outcome.is_finished, is_by_master, by_hand);
+    let events = finish.wake_events(station_id, outcome.is_finished);
     let Some((phase, station)) = find_station(view, station_id) else {
         return;
     };
@@ -915,7 +907,7 @@ fn wake_master_after_acceptance(
         implementation: view.name.clone(),
         lane: phase.key.clone(),
         stage: station.stage.clone(),
-        text: result.to_owned(),
+        text: finish.result.clone(),
         note: String::new(),
     };
     spawn_wake(app, &view.id, events, facts);
