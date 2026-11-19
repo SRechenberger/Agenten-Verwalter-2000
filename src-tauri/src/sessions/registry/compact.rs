@@ -105,6 +105,7 @@ impl SessionState {
             },
             at: None,
         });
+        self.pause_requested = false;
         self.set_status(outbox, SessionStatus::Completed);
         self.last_activity_at = last_activity_at;
         self.seen_at = seen_at;

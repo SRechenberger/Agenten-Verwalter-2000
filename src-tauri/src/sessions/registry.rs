@@ -3871,7 +3871,12 @@ impl SessionState {
                 TurnEnd::Failed(text) | TurnEnd::QuotaExhausted { text, .. } => Some(text.clone()),
             };
             if let Some(reason) = reason {
-                self.end_failed_compact(outbox, &reason);
+                // Der Benutzer wollte pausieren: der gewöhnliche Pausenweg, er setzt den Merker zurück.
+                if self.pause_requested {
+                    self.pause_after_interrupt(outbox);
+                } else {
+                    self.end_failed_compact(outbox, &reason);
+                }
                 return;
             }
         }
@@ -5518,6 +5523,42 @@ mod tests {
                 "der Chat nennt den Grund"
             );
         }
+    }
+
+    #[test]
+    fn a_paused_compact_turn_ends_paused() {
+        let mut state = state();
+        state.status = SessionStatus::Completed;
+        let mut outbox = Outbox::default();
+        state.enter_running(&mut outbox, true);
+        state.pause_requested = true;
+        let mut outbox = Outbox::default();
+        state.end_turn(&mut outbox, TurnEnd::Aborted, None, Vec::new(), None);
+        assert_eq!(state.status, SessionStatus::Paused);
+        assert!(!state.pause_requested);
+        let mut outbox = Outbox::default();
+        state.enter_running(&mut outbox, false);
+        say(&mut state, &mut outbox, "Antwort");
+        let mut outbox = Outbox::default();
+        state.end_turn(&mut outbox, TurnEnd::Completed, None, Vec::new(), None);
+        assert_eq!(state.status, SessionStatus::Completed);
+        assert!(outbox.turn_completed);
+        assert!(state.answer_at.is_some(), "mit Antwort");
+    }
+
+    #[test]
+    fn a_failed_compact_turn_leaves_no_pause_request() {
+        let mut state = state();
+        state.status = SessionStatus::Completed;
+        let mut outbox = Outbox::default();
+        state.enter_running(&mut outbox, true);
+        let mut outbox = Outbox::default();
+        state.end_turn(&mut outbox, TurnEnd::Aborted, None, Vec::new(), None);
+        assert_eq!(state.status, SessionStatus::Completed);
+        assert!(!state.pause_requested);
+        state.pause_requested = true;
+        state.end_failed_compact(&mut outbox, "x");
+        assert!(!state.pause_requested);
     }
 
     #[test]
