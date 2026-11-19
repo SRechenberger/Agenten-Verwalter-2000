@@ -3,10 +3,13 @@
 //! (ADR 060). Jeder Aufruf wirkt im Vorhaben der aufrufenden Session. Die Beschreibung von
 //! `implementation_create` ist die einzige Quelle der Feldnamen (ADR 061, Werkzeuge); im Code heißen
 //! Lanes weiter Phasen.
+use std::collections::BTreeMap;
+
 use serde::Deserialize;
 use serde_json::{Value, json};
 use tauri::{Emitter, Manager};
 
+use super::command;
 use super::master::{self, Decider};
 use super::model::{
     Handoff, ImplementationChangedEvent, ImplementationView, MAX_BRIEF_CHARS,
@@ -161,6 +164,8 @@ impl ToolSet for ImplementationTools {
                                     "effort": { "type": "string" },
                                     "prompt": { "type": "string", "description": "Leer: kein Zusatztext" },
                                     "skill": { "type": "string" },
+                                    "command": { "type": "array", "items": { "type": "string" }, "description": "Nur einer nicht gestarteten Befehls-Station: neue Schritte" },
+                                    "cwd": { "type": "string", "description": "Nur einer nicht gestarteten Befehls-Station: neuer Ordner; leer: Ordner des Vorhabens" },
                                 },
                                 "required": ["id"],
                                 "additionalProperties": false,
@@ -206,6 +211,7 @@ impl ToolSet for ImplementationTools {
                         "result": { "type": "string", "minLength": 1, "maxLength": MAX_RESULT_CHARS },
                         "note": { "type": "string", "minLength": 1, "maxLength": MAX_NOTE_CHARS, "description": "Bericht an den Master: was getan ist, was offen ist, worauf er achten soll" },
                         "fix_needed": { "type": "boolean" },
+                        "vars": { "type": "object", "maxProperties": 20, "additionalProperties": { "type": "string", "minLength": 1, "maxLength": 500 }, "description": "Werte für die Befehls-Stationen unter deinen direkten Nachfolgern, z. B. {\"pr\": \"88\"}: Name a bis z, 0 bis 9, _ (höchstens 32 Zeichen), Wert eine Zeile; eine neue Meldung ersetzt sie" },
                         "handoff": {
                             "type": "object",
                             "properties": {
@@ -393,7 +399,9 @@ fn phases_schema_with_wave() -> Value {
                             "model": { "type": "string", "enum": ["fable", "opusplan", "opus", "sonnet", "haiku"], "description": "Modell dieser Station, abweichend vom Typ" },
                             "effort": { "type": "string", "enum": ["low", "medium", "high", "xhigh", "max"], "description": "Denkaufwand dieser Station, abweichend vom Typ" },
                             "prompt": { "type": "string", "maxLength": MAX_PROMPT_CHARS, "description": "Zusatztext zum Systemprompt dieser Station; steht hinter dem Text des Typs" },
-                            "by": { "type": "string", "enum": ["agent", "you"], "description": "\"you\": der Benutzer erledigt die Station selbst" },
+                            "by": { "type": "string", "enum": ["agent", "you", "command"], "description": "\"you\": der Benutzer erledigt die Station selbst; \"command\": der Verwalter führt `command` aus, ohne Modell und ohne Shell" },
+                            "command": { "type": "array", "minItems": 1, "maxItems": 5, "items": { "type": "string", "minLength": 1, "maxLength": 1000 }, "description": "Nur bei by \"command\" und dort Pflicht: 1 bis 5 Schritte, je Wörter getrennt durch Leerraum, \"…\" hält Leerraum zusammen. Das erste Wort ist das Programm (ein Name aus der Freigabeliste, z. B. gh oder glab); keine Shell: | > && $ * sind gewöhnliche Zeichen. {{name}} setzt den Wert ein, den ein direkter Vorgänger mit `vars` seiner Meldung hinterlassen hat; {{env:NAME}} eine Variable der Umgebung des Verwalters" },
+                            "cwd": { "type": "string", "description": "Nur bei by \"command\": absoluter Ordner (Ordner des Vorhabens, ein Repository oder <repo>-wt-*); ohne Angabe der Ordner des Vorhabens" },
                             "skill": { "type": "string", "minLength": 1, "maxLength": 40, "description": "Skill ohne \"/\", mit dem die Session beginnt; abweichend vom ersten Skill des Typs" },
                             "brief": { "type": "string", "maxLength": 1000, "description": "Auftrag an die Session" },
                             "id": { "type": "string", "minLength": 1, "maxLength": MAX_PLAN_ID_CHARS, "description": "Kennung der Station, im Plan eindeutig; ohne Angabe <Lane-Schlüssel>-<Nummer>" },
@@ -552,6 +560,9 @@ struct CompleteArguments {
     fix_needed: bool,
     #[serde(default)]
     handoff: Option<HandoffArguments>,
+    // ADR 073: Werte für die Befehls-Stationen der Nachfolger.
+    #[serde(default)]
+    vars: BTreeMap<String, String>,
 }
 
 #[derive(Deserialize)]
@@ -610,6 +621,12 @@ fn complete_station(call: &ToolCall, registry: &SessionRegistry) -> Result<ToolR
     check_length("result", arguments.result.trim(), 1, MAX_RESULT_CHARS)?;
     check_length("note", arguments.note.trim(), 1, MAX_NOTE_CHARS)?;
     let handoff = checked_handoff(arguments.handoff)?;
+    let vars: BTreeMap<String, String> = arguments
+        .vars
+        .into_iter()
+        .map(|(name, value): (String, String)| (name, value.trim().to_owned()))
+        .collect();
+    command::check_vars(&vars)?;
     let Some((implementation_id, station_id)) = registry
         .station_of_session(call.session_id)
         .map_err(|error| error.to_string())?
@@ -623,7 +640,7 @@ fn complete_station(call: &ToolCall, registry: &SessionRegistry) -> Result<ToolR
         handoff_note: handoff.note,
         handoff_replace: handoff.replace,
     };
-    super::report_station(call.app, &implementation_id, &station_id, &report)
+    super::report_station(call.app, &implementation_id, &station_id, &report, &vars)
         .map_err(|error| error.to_string())?;
     Ok(ToolResult::Ok {
         text: REPORTED_ANSWER.to_owned(),

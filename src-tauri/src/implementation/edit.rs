@@ -9,14 +9,14 @@ use tauri::{AppHandle, Manager};
 use super::changes::describe;
 use super::model::{
     ChangeSummary, ImplementationView, PendingChange, PhaseMark, PhaseView, PlanEdit, StationInput,
-    StationPatch, StationState, StationView, check_agent, stations_in, validate_in,
+    StationKind, StationPatch, StationState, StationView, check_agent, stations_in, validate_in,
     validate_station,
 };
 use super::{
     announce, now_ms, phase_rows, replans_after_plan_change, schedule, start, station_row,
 };
 use crate::agent_types::model::AgentType;
-use crate::db::implementations::{ChangeRow, PhaseRow, StationRow};
+use crate::db::implementations::{ChangeRow, CommandRow, PhaseRow, StationRow};
 use crate::error::CommandError;
 use crate::sessions::registry::SessionRegistry;
 
@@ -148,7 +148,7 @@ pub fn edited_plan(
 }
 
 fn is_begun(row: &StationRow) -> bool {
-    row.session_id.is_some() || row.completed_at.is_some()
+    row.session_id.is_some() || row.started_at.is_some() || row.completed_at.is_some()
 }
 
 /// Index der Station mit dieser Plan-Kennung, solange sie weder eine Session hat noch fertig ist.
@@ -223,6 +223,18 @@ fn patch_row(
         prompt: patch.prompt.clone(),
         after: patch.after.clone(),
         priority: patch.priority,
+        // Eine Befehls-Station behält ihre Art: so gelten ihre Regeln auch für die Änderung.
+        by: (row.kind == StationKind::Command).then(|| "command".to_owned()),
+        command: row
+            .command
+            .as_ref()
+            .map(|run: &CommandRow| patch.command.clone().unwrap_or_else(|| run.steps.clone()))
+            .or_else(|| patch.command.clone()),
+        cwd: patch.cwd.clone().or_else(|| {
+            row.command
+                .as_ref()
+                .and_then(|run: &CommandRow| run.cwd.clone())
+        }),
         ..StationInput::default()
     };
     checked_station(field, &input, types)?;
@@ -250,6 +262,17 @@ fn patch_row(
     if input.after.is_some() {
         row.after = input.after_ids();
     }
+    if let Some(run) = row.command.as_mut() {
+        if let Some(steps) = &patch.command {
+            run.steps = steps
+                .iter()
+                .map(|step: &String| step.trim().to_owned())
+                .collect();
+        }
+        if let Some(cwd) = &patch.cwd {
+            run.cwd = Some(cwd.trim().to_owned()).filter(|cwd: &String| !cwd.is_empty());
+        }
+    }
     if let Some(priority) = input.priority {
         row.priority = priority;
     }
@@ -263,6 +286,9 @@ fn plan_of(
 ) -> Result<EditedPlan, CommandError> {
     let rows = registry.station_rows(&view.id)?;
     let types = registry.agent_types()?;
+    registry
+        .check_commands(&view.project_id, &edit.new_stations(), &edit.change)
+        .map_err(CommandError::Implementation)?;
     edited_plan(&view.id, &view.phases, &rows, edit, &types).map_err(CommandError::Implementation)
 }
 

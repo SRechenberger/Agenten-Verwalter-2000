@@ -156,6 +156,17 @@ pub async fn implementation_start_station(
     start::start_now(&app, &id, &station_id)
 }
 
+/// „Abbrechen“ einer laufenden Befehls-Station (ADR 073): beendet den laufenden Schritt, die Station endet
+/// im Fehler „abgebrochen“.
+#[tauri::command]
+pub async fn implementation_stop_command(
+    app: AppHandle,
+    id: String,
+    station_id: String,
+) -> Result<(), CommandError> {
+    implementation::command_run::stop_command(&app, &id, &station_id)
+}
+
 /// „Einstellungen“ einer Station ohne Session (ADR 060): ersetzt Typ, Modell, Denkaufwand,
 /// Zusatztext und Skill auf einmal; die Prüfung liegt im Core.
 #[tauri::command]

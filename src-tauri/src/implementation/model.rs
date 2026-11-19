@@ -2,6 +2,7 @@
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
+use super::command;
 use crate::agent_types::model::{AgentType, AgentValueSource};
 use crate::agent_types::name_key;
 use crate::agent_types::validate::MAX_NAME_CHARS as MAX_AGENT_CHARS;
@@ -38,6 +39,17 @@ pub const MAX_RETURNS: u32 = 3;
 pub struct InquiryCreated {
     pub session: SessionSummary,
     pub attachment: Attachment,
+}
+
+/// Art der Station (ADR 073): ein Agent, der Benutzer („durch dich“) oder ein Befehl des Verwalters.
+/// Die Quelle ist `implementation_stations.kind`.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub enum StationKind {
+    #[default]
+    Agent,
+    User,
+    Command,
 }
 
 /// Zustand einer Station, abgeleitet aus ihrer Session; nie gespeichert.
@@ -130,6 +142,8 @@ pub struct StationView {
     pub position: u32,
     pub stage: String,
     pub model: Option<ModelId>,
+    // ADR 073: die Art der Station; `by_user` folgt aus ihr (`kind == User`).
+    pub kind: StationKind,
     pub by_user: bool,
     pub skill: Option<String>,
     pub brief: String,
@@ -198,6 +212,14 @@ pub struct StationView {
     pub live: Option<StationState>,
     // Warum die Session pausiert ist; `None`, solange sie nicht pausiert.
     pub pause: Option<StationPause>,
+    // Ab hier ADR 073, Befehls-Station: die Schritte der Vorlage, ihr Ordner, die Schritte mit eingesetzten
+    // Werten (`{{env:…}}` bleibt stehen; `None`, solange ein Wert fehlt), die letzten Zeilen der Ausgabe und
+    // der laufende Schritt (1-basiert). Alle `None` bei einer anderen Art.
+    pub command: Option<Vec<String>>,
+    pub cwd: Option<String>,
+    pub resolved: Option<Vec<String>>,
+    pub output: Option<String>,
+    pub step: Option<u32>,
 }
 
 // Grund der Pause einer Session an der Station.
@@ -453,6 +475,13 @@ pub struct StationPatch {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub skill: Option<String>,
+    // ADR 073: nur bei einer nicht gestarteten Befehls-Station.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub command: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub cwd: Option<String>,
 }
 
 /// Die Übergabenotiz einer Fertigmeldung (ADR 061, Werkzeuge): `note` ergänzt den Auftrag jedes
@@ -561,7 +590,7 @@ pub struct StationInput {
     #[ts(optional, type = "'fable' | 'opusplan' | 'opus' | 'sonnet' | 'haiku'")]
     pub model: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional, type = "'agent' | 'you'")]
+    #[ts(optional, type = "'agent' | 'you' | 'command'")]
     pub by: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
@@ -603,6 +632,13 @@ pub struct StationInput {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub predecessors_may: Option<PredecessorsMay>,
+    // Ab hier ADR 073: Schritte und Ordner einer Befehls-Station (`by: "command"`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub command: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub cwd: Option<String>,
 }
 
 /// Die Einstellungen einer Station von der Karte (ADR 060): `implementation_set_station_agent`
@@ -624,6 +660,7 @@ pub struct StationSettings {
 
 const BY_AGENT: &str = "agent";
 const BY_USER: &str = "you";
+const BY_COMMAND: &str = "command";
 
 impl StationInput {
     /// Nur nach `validate` aufrufen: dann ist ein gesetzter Name bekannt.
@@ -658,6 +695,14 @@ impl StationInput {
 
     pub fn is_by_user(&self) -> bool {
         self.by.as_deref() == Some(BY_USER)
+    }
+
+    pub fn kind(&self) -> StationKind {
+        match self.by.as_deref() {
+            Some(BY_USER) => StationKind::User,
+            Some(BY_COMMAND) => StationKind::Command,
+            _ => StationKind::Agent,
+        }
     }
 
     /// Die Plan-Kennung, getrimmt; ohne Angabe `<Phasenschlüssel>-<Nummer>` (1-basiert).
@@ -751,11 +796,13 @@ pub fn validate_station(field: &str, station: &StationInput) -> Result<(), Strin
     if let Some(by) = &station.by
         && by != BY_AGENT
         && by != BY_USER
+        && by != BY_COMMAND
     {
         return Err(format!(
-            "{field}.by: „{BY_AGENT}“ oder „{BY_USER}“, nicht „{by}“"
+            "{field}.by: „{BY_AGENT}“, „{BY_USER}“ oder „{BY_COMMAND}“, nicht „{by}“"
         ));
     }
+    check_command_fields(field, station)?;
     if let Some(skill) = &station.skill {
         check_length(
             &format!("{field}.skill"),
@@ -782,6 +829,55 @@ pub fn validate_station(field: &str, station: &StationInput) -> Result<(), Strin
     }
     if let Some(id) = &station.id {
         check_length(&format!("{field}.id"), id.trim(), 1, MAX_PLAN_ID_CHARS)?;
+    }
+    Ok(())
+}
+
+/// Die Felder einer Station nach ihrer Art (ADR 073): `command` genau bei `by: "command"`, `cwd` nur
+/// dort, und die Felder einer Agenten-Station sind dort verboten.
+fn check_command_fields(field: &str, station: &StationInput) -> Result<(), String> {
+    if station.kind() != StationKind::Command {
+        for (name, is_set) in [
+            ("command", station.command.is_some()),
+            ("cwd", station.cwd.is_some()),
+        ] {
+            if is_set {
+                return Err(format!("{field}.{name}: nur bei by: \"{BY_COMMAND}\""));
+            }
+        }
+        return Ok(());
+    }
+    for (name, is_set) in [
+        ("agent", station.agent.is_some()),
+        ("model", station.model.is_some()),
+        ("effort", station.effort.is_some()),
+        ("prompt", station.prompt.is_some()),
+        ("skill", station.skill.is_some()),
+    ] {
+        if is_set {
+            return Err(format!(
+                "{field}.{name}: bei einer Befehls-Station nicht erlaubt"
+            ));
+        }
+    }
+    let Some(command) = &station.command else {
+        return Err(format!(
+            "{field}.command: bei by: \"{BY_COMMAND}\" Pflicht (1 bis 5 Schritte)"
+        ));
+    };
+    command::check_command(field, command, station.cwd.as_deref())
+}
+
+/// Prüft die Freigabeliste für jede Befehls-Station unter `stations` (Feldname, Station).
+pub fn check_programs(
+    stations: &[(String, &StationInput)],
+    allowed: &[String],
+) -> Result<(), String> {
+    for (field, station) in stations {
+        if let Some(command) = &station.command {
+            command::check_programs(command, allowed)
+                .map_err(|error: String| format!("{field}.command: {error}"))?;
+        }
     }
     Ok(())
 }

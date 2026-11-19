@@ -17,7 +17,7 @@ use crate::implementation::model::ImplementationView;
 use crate::implementation::slots::{
     self, AgentQueue, Claimed, QueueEntry, QueueKind, Start, Waiter, apply_queue, station_waiters,
 };
-use crate::implementation::{IS_CANCELLED, START_DELAY, announce, start};
+use crate::implementation::{IS_CANCELLED, START_DELAY, announce, command_run, start};
 use crate::projects::model::ProjectPriority;
 use crate::sessions::auto_resume::RESUME_TEXT;
 use crate::settings;
@@ -76,6 +76,13 @@ impl SessionRegistry {
             }
         };
         let current: AgentQueue = self.lock_countdowns().queue().clone();
+        // Befehls-Stationen brauchen keinen Platz (ADR 073): Sie starten gleich, ohne das Tor.
+        let armed: HashSet<String> = self.lock_countdowns().armed();
+        for view in self.implementation_views().unwrap_or_default() {
+            if armed.contains(&view.id) {
+                command_run::start_due(app, &view);
+            }
+        }
         for (waiter, token) in &claimed {
             start_waiter(app, waiter, *token);
         }

@@ -6,7 +6,7 @@ use std::cmp::Reverse;
 use std::collections::{HashMap, HashSet};
 
 use super::is_done;
-use super::model::{PhaseView, StationState, StationView};
+use super::model::{PhaseView, StationKind, StationState, StationView};
 
 /// Regel R1: Kanten eines Plans ohne `after`. Stationen einer Phase in Reihe; die erste Station
 /// jeder Phase einer Gruppe hängt an der letzten Station jeder Phase der Gruppe davor.
@@ -175,7 +175,7 @@ pub fn due_for_countdown(phases: &[PhaseView]) -> Vec<(&PhaseView, &StationView)
         .filter(|(_, station): &(&PhaseView, &StationView)| {
             station.state == StationState::Ready
                 && station.starts_automatically
-                && !station.by_user
+                && station.kind == StationKind::Agent
                 && may_start(phases, &station.id)
         })
         .collect();

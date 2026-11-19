@@ -8,7 +8,7 @@ use tauri::{AppHandle, Manager};
 
 use super::model::{
     ChangeSummary, ImplementationView, OnError, PendingChange, PhaseInput, PhaseMark, PhaseView,
-    PredecessorsMay, StationState, StationView, check_agents, validate,
+    PredecessorsMay, StationState, StationView, check_agents, stations_in, validate,
 };
 use super::{announce, kept_phases, link, now_ms, phase_rows, replans_after_plan_change, start};
 use crate::db::implementations::{ChangeRow, PhaseRow, StationRow};
@@ -21,10 +21,11 @@ const APPLIED: &str = "Übernommen.";
 
 /// Eine Phase hat begonnen, sobald eine ihrer Stationen eine Session hat oder angenommen ist.
 pub fn is_begun(phase: &PhaseView) -> bool {
-    phase
-        .stations
-        .iter()
-        .any(|station: &StationView| station.session_id.is_some() || station.completed_at.is_some())
+    phase.stations.iter().any(|station: &StationView| {
+        station.session_id.is_some()
+            || station.started_at.is_some()
+            || station.completed_at.is_some()
+    })
 }
 
 /// Die erste Station, deren Session gerade arbeitet, auf das Kontingent wartet (ihr Zeitgeber lässt sie
@@ -161,6 +162,7 @@ pub fn propose(app: &AppHandle, session_id: &str, inputs: &[PhaseInput]) -> Resu
     let view = registry
         .require_implementation_of_session(session_id)
         .map_err(|error: CommandError| error.to_string())?;
+    registry.check_commands(&view.project_id, &stations_in("phases", inputs), &[])?;
     if view.finished_at.is_some() {
         return Err(IS_FINISHED.to_owned());
     }

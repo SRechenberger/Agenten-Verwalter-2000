@@ -8,8 +8,10 @@ use crate::agents::event::{Effort, ModelId};
 use crate::db::{enum_from_text, enum_to_text};
 use crate::error::CommandError;
 use crate::implementation::edit::EditedPlan;
+use std::collections::BTreeMap;
+
 use crate::implementation::model::{
-    BriefChange, OnError, PhaseMark, PredecessorsMay, StationOptions, StationSettings,
+    BriefChange, OnError, PhaseMark, PredecessorsMay, StationKind, StationOptions, StationSettings,
 };
 use crate::implementation::schedule;
 
@@ -56,7 +58,8 @@ pub struct StationRow {
     pub position: u32,
     pub stage: String,
     pub model: Option<ModelId>,
-    pub by_user: bool,
+    /// Art der Station (ADR 073); die Quelle, nicht mehr die Spalte `by_user`.
+    pub kind: StationKind,
     pub skill: Option<String>,
     pub brief: String,
     pub session_id: Option<String>,
@@ -99,6 +102,24 @@ pub struct StationRow {
     pub returns: u32,
     /// Der Master hat die Station „durch dich“ freigegeben.
     pub released_at: Option<f64>,
+    /// Werte, die die Station mit ihrer Meldung hinterlässt (ADR 073); in der Datenbank als JSON-Objekt.
+    pub vars: BTreeMap<String, String>,
+    /// Schritte und Lauf einer Befehls-Station; `None` bei einer anderen Art.
+    pub command: Option<CommandRow>,
+}
+
+/// Was eine Befehls-Station speichert (ADR 073).
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct CommandRow {
+    /// Die Schritte der Vorlage; in der Datenbank als JSON-Liste.
+    pub steps: Vec<String>,
+    pub cwd: Option<String>,
+    /// Der laufende Schritt, 1-basiert; `None`, solange keiner läuft.
+    pub step: Option<u32>,
+    /// Die letzten Zeilen der Ausgabe.
+    pub output: Option<String>,
+    /// Grund des Fehlers (`command::step_failed`, `REASON_*`).
+    pub error: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -128,11 +149,12 @@ const IMPLEMENTATION_COLUMNS: &str = "id, project_id, name, source, created_by_s
      cancelled_at, pending_cancel, master_session_id";
 const PHASE_COLUMNS: &str = "id, implementation_id, position, key, title, description, wave, mark";
 /// Die Reihenfolge muss mit `StoredStation::read` übereinstimmen.
-const STATION_COLUMNS: &str = "s.id, s.phase_id, s.position, s.stage, s.model, s.by_user, \
+const STATION_COLUMNS: &str = "s.id, s.phase_id, s.position, s.stage, s.model, s.kind, \
      s.skill, s.brief, s.session_id, s.started_at, s.completed_at, s.result, s.agent, \
      s.agent_used, s.effort, s.prompt, s.start_error, s.edited, s.plan_id, s.after_ids, s.priority, \
      s.auto_start, s.on_error, s.predecessors_may, s.brief_changes, s.restarts, s.auto_resume, \
-     s.reported_at, s.report, s.returns, s.released_at";
+     s.reported_at, s.report, s.returns, s.released_at, s.command, s.cwd, s.vars, s.step, s.output, \
+     s.command_error";
 
 /// Legt die Umsetzung mit ihren Phasen und Stationen in einem Zug an.
 pub fn insert(
@@ -194,20 +216,21 @@ fn insert_phases(
     }
     for station in stations {
         connection.execute(
-            "INSERT INTO implementation_stations (id, phase_id, position, stage, model, by_user, \
+            "INSERT INTO implementation_stations (id, phase_id, position, stage, model, kind, \
                  skill, brief, session_id, started_at, completed_at, result, agent, agent_used, \
                  effort, prompt, start_error, edited, plan_id, after_ids, priority, auto_start, \
                  on_error, predecessors_may, brief_changes, restarts, auto_resume, reported_at, \
-                 report, returns, released_at) \
+                 report, returns, released_at, command, cwd, vars, step, output, command_error) \
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, \
-                 ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31)",
+                 ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32, ?33, ?34, ?35, \
+                 ?36, ?37)",
             params![
                 station.id,
                 station.phase_id,
                 station.position,
                 station.stage,
                 station.model.as_ref().map(enum_to_text).transpose()?,
-                station.by_user,
+                enum_to_text(&station.kind)?,
                 station.skill,
                 station.brief,
                 station.session_id,
@@ -233,10 +256,25 @@ fn insert_phases(
                 station.report,
                 station.returns,
                 station.released_at,
+                station.command.as_ref().map(|command: &CommandRow| after_json(&command.steps)).transpose()?,
+                station.command.as_ref().and_then(|command: &CommandRow| command.cwd.clone()),
+                vars_json(&station.vars)?,
+                station.command.as_ref().and_then(|command: &CommandRow| command.step),
+                station.command.as_ref().and_then(|command: &CommandRow| command.output.clone()),
+                station.command.as_ref().and_then(|command: &CommandRow| command.error.clone()),
             ],
         )?;
     }
     Ok(())
+}
+
+fn vars_json(vars: &BTreeMap<String, String>) -> Result<Option<String>, CommandError> {
+    if vars.is_empty() {
+        return Ok(None);
+    }
+    serde_json::to_string(vars)
+        .map(Some)
+        .map_err(|error| CommandError::Database(error.to_string()))
 }
 
 fn after_json(after: &[String]) -> Result<String, CommandError> {
@@ -432,6 +470,13 @@ struct StoredStation {
     on_error: String,
     predecessors_may: String,
     brief_changes: String,
+    kind: String,
+    command: Option<String>,
+    cwd: Option<String>,
+    vars: Option<String>,
+    step: Option<u32>,
+    output: Option<String>,
+    command_error: Option<String>,
 }
 
 impl StoredStation {
@@ -443,7 +488,7 @@ impl StoredStation {
                 position: row.get(2)?,
                 stage: row.get(3)?,
                 model: None,
-                by_user: row.get(5)?,
+                kind: StationKind::Agent,
                 skill: row.get(6)?,
                 brief: row.get(7)?,
                 session_id: row.get(8)?,
@@ -469,7 +514,16 @@ impl StoredStation {
                 report: row.get(28)?,
                 returns: row.get(29)?,
                 released_at: row.get(30)?,
+                vars: BTreeMap::new(),
+                command: None,
             },
+            kind: row.get(5)?,
+            command: row.get(31)?,
+            cwd: row.get(32)?,
+            vars: row.get(33)?,
+            step: row.get(34)?,
+            output: row.get(35)?,
+            command_error: row.get(36)?,
             model: row.get(4)?,
             effort: row.get(14)?,
             after: row.get(19)?,
@@ -489,6 +543,23 @@ impl StoredStation {
             predecessors_may: enum_from_text(&self.predecessors_may)?,
             brief_changes: serde_json::from_str(&self.brief_changes)
                 .map_err(|error| CommandError::Database(error.to_string()))?,
+            kind: enum_from_text(&self.kind)?,
+            vars: match &self.vars {
+                Some(json) => serde_json::from_str(json)
+                    .map_err(|error| CommandError::Database(error.to_string()))?,
+                None => BTreeMap::new(),
+            },
+            command: match &self.command {
+                Some(json) => Some(CommandRow {
+                    steps: serde_json::from_str(json)
+                        .map_err(|error| CommandError::Database(error.to_string()))?,
+                    cwd: self.cwd,
+                    step: self.step,
+                    output: self.output,
+                    error: self.command_error,
+                }),
+                None => None,
+            },
             ..self.row
         })
     }
@@ -695,7 +766,7 @@ pub fn accept_station_with_followups(
 ) -> Result<bool, CommandError> {
     let transaction = connection.transaction()?;
     let changed = transaction.execute(
-        "UPDATE implementation_stations SET completed_at = ?2, result = ?3 \
+        "UPDATE implementation_stations SET completed_at = ?2, result = ?3, step = NULL \
          WHERE id = ?1 AND completed_at IS NULL AND (?4 = 0 OR report IS NOT NULL)",
         params![station_id, completed_at, result, needs_report],
     )?;
@@ -720,7 +791,7 @@ pub fn accept_station_with_followups(
         for (offset, followup) in (1..).zip(followups) {
             transaction.execute(
                 "INSERT INTO implementation_stations (id, phase_id, position, stage, model, \
-                     by_user, skill, brief, agent, agent_used, effort, prompt, start_error, edited, \
+                     kind, skill, brief, agent, agent_used, effort, prompt, start_error, edited, \
                      plan_id, after_ids, priority, auto_start, on_error, predecessors_may, \
                      auto_resume) \
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, \
@@ -731,7 +802,7 @@ pub fn accept_station_with_followups(
                     position + offset,
                     followup.stage,
                     followup.model.as_ref().map(enum_to_text).transpose()?,
-                    followup.by_user,
+                    enum_to_text(&followup.kind)?,
                     followup.skill,
                     followup.brief,
                     followup.agent,
@@ -797,7 +868,7 @@ pub fn release_station(
 ) -> Result<bool, CommandError> {
     let changed = connection.execute(
         "UPDATE implementation_stations SET released_at = ?2 \
-         WHERE id = ?1 AND completed_at IS NULL AND by_user = 1",
+         WHERE id = ?1 AND completed_at IS NULL AND kind = 'user'",
         params![station_id, at],
     )?;
     Ok(changed == 1)
@@ -854,6 +925,116 @@ fn hand_over_successors(
         )?;
     }
     Ok(())
+}
+
+/// Legt die Meldung wie `set_report` ab und die Werte dazu (ADR 073); eine neue Meldung ersetzt beide.
+pub fn set_report_with_vars(
+    connection: &Connection,
+    station_id: &str,
+    reported_at: f64,
+    report: &str,
+    vars: &BTreeMap<String, String>,
+) -> Result<bool, CommandError> {
+    let changed = connection.execute(
+        "UPDATE implementation_stations SET reported_at = ?2, report = ?3, vars = ?4 \
+         WHERE id = ?1 AND completed_at IS NULL",
+        params![station_id, reported_at, report, vars_json(vars)?],
+    )?;
+    Ok(changed == 1)
+}
+
+/// Beginnt den Lauf einer Befehls-Station (ADR 073): Schritt 1, leere Ausgabe, kein Fehler. Nur, wenn sie
+/// nicht fertig ist und kein Schritt läuft; so startet sie nie zweimal. `false`: nichts ist geschrieben.
+pub fn begin_command_run(
+    connection: &Connection,
+    station_id: &str,
+    started_at: f64,
+) -> Result<bool, CommandError> {
+    let changed = connection.execute(
+        "UPDATE implementation_stations \
+         SET started_at = ?2, step = 1, output = NULL, command_error = NULL, start_error = NULL \
+         WHERE id = ?1 AND kind = 'command' AND completed_at IS NULL AND step IS NULL",
+        params![station_id, started_at],
+    )?;
+    Ok(changed == 1)
+}
+
+/// Schreibt den laufenden Schritt und die Ausgabe, solange die Station läuft.
+pub fn set_command_progress(
+    connection: &Connection,
+    station_id: &str,
+    step: u32,
+    output: &str,
+) -> Result<(), CommandError> {
+    connection.execute(
+        "UPDATE implementation_stations SET step = ?2, output = ?3 \
+         WHERE id = ?1 AND step IS NOT NULL AND completed_at IS NULL",
+        params![station_id, step, output],
+    )?;
+    Ok(())
+}
+
+/// Der Lauf endet mit einem Fehler: kein Schritt läuft mehr, der Grund steht da. `false`: Die Station
+/// läuft nicht (mehr).
+pub fn fail_command_run(
+    connection: &Connection,
+    station_id: &str,
+    reason: &str,
+    output: &str,
+) -> Result<bool, CommandError> {
+    let changed = connection.execute(
+        "UPDATE implementation_stations \
+         SET step = NULL, output = COALESCE(NULLIF(?3, ''), output), command_error = ?2 \
+         WHERE id = ?1 AND step IS NOT NULL AND completed_at IS NULL",
+        params![station_id, reason, output],
+    )?;
+    Ok(changed == 1)
+}
+
+/// „Bei Fehler“ (ADR 073): Zählt einen Neustart und beginnt die Schritte von vorn, nur wenn noch `seen`
+/// gezählt sind und die Station läuft.
+pub fn restart_command_run(
+    connection: &Connection,
+    station_id: &str,
+    seen: u32,
+    started_at: f64,
+) -> Result<bool, CommandError> {
+    let changed = connection.execute(
+        "UPDATE implementation_stations \
+         SET restarts = restarts + 1, started_at = ?3, step = 1, output = NULL, command_error = NULL \
+         WHERE id = ?1 AND restarts = ?2 AND step IS NOT NULL AND completed_at IS NULL",
+        params![station_id, seen, started_at],
+    )?;
+    Ok(changed == 1)
+}
+
+/// Beim Start der App (ADR 073, Regel 4): Eine Befehls-Station, die lief, ist danach im Fehler
+/// „unterbrochen“ und startet nicht von selbst. Gibt die Zahl der Stationen zurück.
+pub fn interrupt_command_runs(
+    connection: &Connection,
+    reason: &str,
+) -> Result<usize, CommandError> {
+    Ok(connection.execute(
+        "UPDATE implementation_stations SET step = NULL, command_error = ?1 \
+         WHERE kind = 'command' AND step IS NOT NULL AND completed_at IS NULL",
+        params![reason],
+    )?)
+}
+
+/// Schreibt `command` und `cwd` einer nicht gestarteten Befehls-Station samt Marke `edited`.
+pub fn set_command(
+    connection: &Connection,
+    station_id: &str,
+    steps: &[String],
+    cwd: Option<&str>,
+) -> Result<bool, CommandError> {
+    let changed = connection.execute(
+        "UPDATE implementation_stations SET command = ?2, cwd = ?3, edited = 1 \
+         WHERE id = ?1 AND kind = 'command' AND session_id IS NULL AND completed_at IS NULL \
+             AND step IS NULL AND started_at IS NULL",
+        params![station_id, after_json(steps)?, cwd],
+    )?;
+    Ok(changed == 1)
 }
 
 /// Migration 25 (ADR 061): gibt jeder bestehenden Station die Plan-Kennung
@@ -932,7 +1113,7 @@ pub fn set_station_auto_resume(
 ) -> Result<bool, CommandError> {
     let changed = connection.execute(
         "UPDATE implementation_stations SET auto_resume = ?2, edited = 1 \
-         WHERE id = ?1 AND completed_at IS NULL AND by_user = 0",
+         WHERE id = ?1 AND completed_at IS NULL AND kind = 'agent'",
         params![station_id, value],
     )?;
     Ok(changed == 1)
@@ -1098,7 +1279,7 @@ pub fn apply_plan_edit(
     for station_id in &edited.removed {
         let removed = transaction.execute(
             "DELETE FROM implementation_stations \
-             WHERE id = ?1 AND session_id IS NULL AND completed_at IS NULL",
+             WHERE id = ?1 AND session_id IS NULL AND started_at IS NULL AND completed_at IS NULL",
             params![station_id],
         )?;
         if removed != 1 {
@@ -1109,8 +1290,8 @@ pub fn apply_plan_edit(
         let changed = transaction.execute(
             "UPDATE implementation_stations SET stage = ?2, model = ?3, skill = ?4, brief = ?5, \
                  agent = ?6, effort = ?7, prompt = ?8, after_ids = ?9, priority = ?10, \
-                 brief_changes = ?11 \
-             WHERE id = ?1 AND session_id IS NULL AND completed_at IS NULL",
+                 brief_changes = ?11, command = ?12, cwd = ?13 \
+             WHERE id = ?1 AND session_id IS NULL AND started_at IS NULL AND completed_at IS NULL",
             params![
                 station.id,
                 station.stage,
@@ -1123,6 +1304,15 @@ pub fn apply_plan_edit(
                 after_json(&station.after)?,
                 station.priority,
                 changes_json(&station.brief_changes)?,
+                station
+                    .command
+                    .as_ref()
+                    .map(|command: &CommandRow| after_json(&command.steps))
+                    .transpose()?,
+                station
+                    .command
+                    .as_ref()
+                    .and_then(|command: &CommandRow| command.cwd.clone()),
             ],
         )?;
         if changed != 1 {

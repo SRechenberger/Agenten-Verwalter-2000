@@ -26,11 +26,13 @@ use crate::db::session_inbox::Reference;
 use crate::error::CommandError;
 use crate::file_links;
 use crate::implementation::changes as implementation_changes;
+use crate::implementation::command;
 use crate::implementation::edit::EditedPlan;
 use crate::implementation::master::{self, MasterRef};
 use crate::implementation::model::{
     BriefChange, ImplementationView, InquiryCreated, PendingCancel, PendingChange, PhaseInput,
-    PhaseView, StationOptions, StationSettings, StoredReport, check_agents,
+    PhaseView, StationInput, StationOptions, StationPatch, StationSettings, StoredReport,
+    check_agents, stations_in,
 };
 use crate::implementation::report::{self, Extras};
 use crate::implementation::wake::{self, WakeEvent, WakeFacts};
@@ -167,6 +169,8 @@ impl SessionRegistry {
     ) -> Result<ImplementationView, CommandError> {
         let project_id = self.get(session_id)?.project_id.clone();
         let default_auto_resume = settings::load(&self.database)?.default_auto_resume;
+        self.check_commands(&project_id, &stations_in("phases", phases), &[])
+            .map_err(CommandError::Implementation)?;
         let (row, phase_rows, station_rows) = new_rows(
             &project_id,
             session_id,
@@ -417,6 +421,112 @@ impl SessionRegistry {
                 needs_report,
             )
         })
+    }
+
+    /// Wie `store_report`, mit den Werten für die Nachfolger (ADR 073); eine neue Meldung ersetzt beide.
+    pub fn store_report_with_vars(
+        &self,
+        station_id: &str,
+        report: &StoredReport,
+        vars: &std::collections::BTreeMap<String, String>,
+    ) -> Result<bool, CommandError> {
+        let json = serde_json::to_string(report)
+            .map_err(|error| CommandError::Database(error.to_string()))?;
+        self.database.with(|connection| {
+            implementation_rows::set_report_with_vars(connection, station_id, now_ms(), &json, vars)
+        })
+    }
+
+    /// Freigabeliste und Bereich von `cwd` für neue und geänderte Befehls-Stationen (ADR 073).
+    pub fn check_commands(
+        &self,
+        project_id: &str,
+        stations: &[(String, &StationInput)],
+        patches: &[StationPatch],
+    ) -> Result<(), String> {
+        let (folder, repositories) = self.command_roots(project_id);
+        command::check_inputs(
+            stations,
+            patches,
+            &self.command_programs(),
+            folder.as_deref(),
+            &repositories,
+        )
+    }
+
+    /// Die Freigabeliste der Befehls-Stationen (ADR 073); eine unlesbare Einstellung gilt als Standard.
+    pub fn command_programs(&self) -> Vec<String> {
+        settings::load(&self.database).map_or_else(
+            |_| settings::default_command_programs(),
+            |loaded: settings::model::Settings| loaded.command_programs,
+        )
+    }
+
+    /// Ordner des Vorhabens und seine Repositories, soweit der Verwalter sie kennt (ADR 073, `cwd`).
+    pub fn command_roots(&self, project_id: &str) -> (Option<PathBuf>, Vec<PathBuf>) {
+        let folder = self
+            .project_members(project_id)
+            .first()
+            .map(|session: &Arc<Session>| session.workspace.clone());
+        (folder, self.repository_dirs_of_project(project_id))
+    }
+
+    /// Beginnt den Lauf einer Befehls-Station; `false`: Sie läuft schon oder ist fertig.
+    pub fn begin_command(&self, station_id: &str) -> Result<bool, CommandError> {
+        self.database.with(|connection| {
+            implementation_rows::begin_command_run(connection, station_id, now_ms())
+        })
+    }
+
+    pub fn store_command_progress(
+        &self,
+        station_id: &str,
+        step: u32,
+        output: &str,
+    ) -> Result<(), CommandError> {
+        self.database.with(|connection| {
+            implementation_rows::set_command_progress(connection, station_id, step, output)
+        })
+    }
+
+    /// Der Lauf endet mit einem Fehler; `false`: Die Station lief nicht (mehr).
+    pub fn fail_command(
+        &self,
+        station_id: &str,
+        reason: &str,
+        output: &str,
+    ) -> Result<bool, CommandError> {
+        self.database.with(|connection| {
+            implementation_rows::fail_command_run(connection, station_id, reason, output)
+        })
+    }
+
+    /// „Bei Fehler“: zählt einen Neustart und beginnt die Schritte von vorn.
+    pub fn restart_command(&self, station_id: &str, seen: u32) -> Result<bool, CommandError> {
+        self.database.with(|connection| {
+            implementation_rows::restart_command_run(connection, station_id, seen, now_ms())
+        })
+    }
+
+    /// Beim Start der App: Eine Befehls-Station, die lief, ist „unterbrochen“ (ADR 073).
+    pub fn interrupt_commands(&self) -> Result<usize, CommandError> {
+        self.database.with(|connection| {
+            implementation_rows::interrupt_command_runs(
+                connection,
+                crate::implementation::command::REASON_INTERRUPTED,
+            )
+        })
+    }
+
+    /// Schreibt `command` und `cwd` einer nicht gestarteten Befehls-Station; `false`: Sie hat begonnen.
+    pub fn store_command(
+        &self,
+        station_id: &str,
+        steps: &[String],
+        cwd: Option<&str>,
+    ) -> Result<bool, CommandError> {
+        self.database
+            .with(|connection| implementation_rows::set_command(connection, station_id, steps, cwd))
     }
 
     /// Legt die Meldung der Station ab (ADR 070) und ersetzt eine frühere; `false`, wenn sie schon

@@ -91,6 +91,9 @@ pub struct Settings {
     // „Master zusammenfassen ab … Tokens“ (ADR 070): eine ruhende Master-Session über dieser Grenze
     // bekommt `/compact`; `None` = aus. Gilt für die ganze App.
     pub master_compact_tokens: Option<u32>,
+    // Freigabeliste der Befehls-Stationen (ADR 073): nur diese Programme führt der Verwalter aus, als
+    // bloße Namen ohne Pfad; Standard `gh` und `glab`.
+    pub command_programs: Vec<String>,
     pub terminal_placement: TerminalPlacement,
     /// Gezogene Höhe des Terminal-Docks in Pixeln.
     pub terminal_height: u32,
@@ -166,6 +169,10 @@ pub enum SettingsChange {
     // `None` = unbegrenzt (ADR 068).
     MaxAgents {
         value: Option<u32>,
+    },
+    /// Die Freigabeliste der Befehls-Stationen (ADR 073), ersetzt die ganze Liste.
+    CommandPrograms {
+        value: Vec<String>,
     },
     TerminalPlacement {
         value: TerminalPlacement,

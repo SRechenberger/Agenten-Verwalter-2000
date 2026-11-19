@@ -66,7 +66,8 @@ use verwalter_lib::implementation::report::Extras;
 use verwalter_lib::implementation::slots::{self, Start};
 use verwalter_lib::implementation::{
     Countdowns, Finish, STATION_BEGUN, SessionLive, amended_brief_changes, arms_on_new_pause,
-    build_view, changes, checked_options, checked_settings, continues_after_quota, handoff_changes,
+    build_view, changes, checked_options, checked_settings, command, continues_after_quota,
+    handoff_changes,
     kept_phases, link, new_rows, now_ms, plan_completion, plan_completion_with_types, report,
     schedule, start, store_finish, wake,
 };
@@ -1274,6 +1275,7 @@ fn selftest(path: &Path) -> Result<bool, String> {
     all &= plan_edits(&database)?;
     all &= handoffs(&database)?;
     all &= wakes(&database)?;
+    all &= command_station(&database)?;
     Ok(all)
 }
 
@@ -2256,6 +2258,89 @@ fn wakes(database: &Database) -> Result<bool, String> {
                 .is_some_and(|text: String| text.contains("unterbrochen") && text.contains("st"))
             && second.is_none()
             && wake::event_on_start(&restored, true, true).is_none(),
+    );
+    Ok(all)
+}
+
+/// Befehls-Station (ADR 073): Eine Station mit `git --version` wird fertig, und ihr Nachfolger startet;
+/// ein Programm außerhalb der Liste lehnt schon der Start ab. Läuft über dieselben Bausteine wie die App
+/// (`command::prepare`, `command::run`, die Annahme ohne Meldung), nur ohne Fenster und ohne Registry.
+fn command_station(database: &Database) -> Result<bool, String> {
+    let mut all = true;
+    let id = create_in(
+        database,
+        &phases_of(
+            serde_json::json!([{ "key": "1", "title": "Befehl", "stations": [
+                { "stage": "Merge", "id": "merge", "by": "command", "command": ["git --version"] },
+                { "stage": "Danach", "id": "next", "after": ["merge"] },
+            ]}]),
+        )?,
+    )?;
+    let view = plan_view(database, &id)?;
+    all &= check(
+        "Befehls-Station: Art Befehl, bereit (▶), kein Countdown, Nachfolger wartet",
+        station(&view, "merge").is_some_and(|station: &StationView| {
+            station.kind == verwalter_lib::implementation::model::StationKind::Command
+                && station.state == StationState::Ready
+                && station.resolved.as_deref() == Some(&["git --version".to_owned()][..])
+        }) && station(&view, "next")
+            .is_some_and(|station: &StationView| station.state == StationState::Pending)
+            && due(&view).is_empty(),
+    );
+    let rows = rows_of(database, &id)?;
+    let row = rows
+        .iter()
+        .find(|row: &&StationRow| row.plan_id == "merge")
+        .ok_or("Station merge fehlt")?;
+    let folder = env::temp_dir();
+    let env_lookup = |name: &str| env::var(name).ok();
+    let refused = command::prepare(row, &rows, &["glab".to_owned()], &folder, &env_lookup);
+    all &= check(
+        "Befehls-Station: ein Programm außerhalb der Liste lehnt der Start ab",
+        refused.as_ref().err().map(String::as_str)
+            == Some("Programm „git“ ist für Befehls-Stationen nicht freigegeben."),
+    );
+    let (steps, cwd) = command::prepare(row, &rows, &["git".to_owned()], &folder, &env_lookup)?;
+    let began = database
+        .with(|connection| implementations::begin_command_run(connection, &row.id, now_ms()))
+        .map_err(|error| error.to_string())?;
+    let ended = command::run(
+        &steps,
+        &cwd,
+        command::TIME_LIMIT,
+        &std::sync::atomic::AtomicBool::new(false),
+        &mut |_step: usize, _tail: &[String]| {},
+    );
+    let command::Ended::Success { result } = ended else {
+        return Err(format!("git --version endete nicht mit Erfolg: {ended:?}"));
+    };
+    all &= check(
+        "Befehls-Station: Schritt läuft, Ende mit der letzten Ausgabezeile",
+        began && result.starts_with("git version"),
+    );
+    let (followups, _) = plan_completion(&view, &row.id, false)?;
+    let accepted = database
+        .with(|connection| {
+            implementations::accept_station_with_followups(
+                connection,
+                &row.id,
+                now_ms(),
+                &result,
+                &followups,
+                false,
+            )
+        })
+        .map_err(|error| error.to_string())?;
+    let after = plan_view(database, &id)?;
+    all &= check(
+        "Befehls-Station: wird fertig ohne Meldung, und ihr Nachfolger startet",
+        accepted
+            && station(&after, "merge").is_some_and(|station: &StationView| {
+                station.state == StationState::Done
+                    && station.report.is_none()
+                    && station.step.is_none()
+            })
+            && due(&after) == ["next"],
     );
     Ok(all)
 }
