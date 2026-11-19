@@ -88,6 +88,9 @@ pub struct Settings {
     // „Gleichzeitige Agenten max.“ (ADR 068): so viele Agenten startet der Verwalter höchstens von
     // selbst; `None` = unbegrenzt, sonst mindestens 1.
     pub max_agents: Option<u32>,
+    // „Master zusammenfassen ab … Tokens“ (ADR 070): eine ruhende Master-Session über dieser Grenze
+    // bekommt `/compact`; `None` = aus. Gilt für die ganze App.
+    pub master_compact_tokens: Option<u32>,
     pub terminal_placement: TerminalPlacement,
     /// Gezogene Höhe des Terminal-Docks in Pixeln.
     pub terminal_height: u32,
@@ -155,6 +158,10 @@ pub enum SettingsChange {
     /// `None` schaltet die Einordnung aus (ADR 071).
     AnswerModel {
         value: Option<ModelId>,
+    },
+    // `None` = aus; sonst 50 000 bis 2 000 000 (ADR 070).
+    MasterCompactTokens {
+        value: Option<u32>,
     },
     // `None` = unbegrenzt (ADR 068).
     MaxAgents {

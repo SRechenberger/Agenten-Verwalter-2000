@@ -120,6 +120,12 @@ const ENTRY_DATA = {
     label: 'Standardmodell',
     info: 'Mit diesem Modell startet die erste Session eines neuen Vorhabens; weitere Sessions im Vorhaben übernehmen den Stand der letzten. In der Session jederzeit über die Eingabeleiste änderbar.',
   },
+  masterCompactTokens: {
+    category: 'agent',
+    section: 'Agent',
+    label: 'Master zusammenfassen ab … Tokens',
+    info: 'Eine ruhende Master-Session einer unfertigen Umsetzung, deren Kontext über dieser Grenze liegt, bekommt vom Verwalter /compact als eigenen Zug. Der Zug ist keine Eingabe: Dashboard und Ungelesen bleiben, im Chat steht nur „Verlauf zusammengefasst“. Erlaubt 50 000 bis 2 000 000, leer = Aus, Standard 150 000. Nur über die Claude-Kommandozeile (Claude, Claude Code + LM Studio); Autark fasst selbst zusammen. Gilt für die ganze App.',
+  },
   defaultMode: {
     category: 'agent',
     section: 'Agent',

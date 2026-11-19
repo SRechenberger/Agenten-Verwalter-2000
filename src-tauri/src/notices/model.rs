@@ -29,6 +29,9 @@ pub enum Notice {
         post_tokens: Option<u32>,
         /// Text der Kurzfassung; kommt erst nach der Trennlinie.
         summary: Option<String>,
+        /// Der Verwalter hat `/compact` selbst geschickt (ADR 070); ältere Hinweise lesen sich als `false`.
+        #[serde(default)]
+        by_verwalter: bool,
     },
     /// Der User hat das Modell gewechselt, obwohl ein Prompt-Cache bestand.
     ModelSwitched {
