@@ -248,7 +248,7 @@ const CASES: { name: string; actual: () => unknown; expected: unknown }[] = [
     actual: () =>
       [
         markable({ state: 'running' }),
-        markable({ state: 'done', completedAt: 5 }),
+        markable({ state: 'done', completedAt: 5, startError: 'alt' }),
         markable({ byUser: true, startError: 'x' }),
       ].some(canMarkDone),
     expected: false,
