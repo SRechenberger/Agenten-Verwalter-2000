@@ -230,9 +230,10 @@ fn patch_row(
             .as_ref()
             .map(|run: &CommandRow| patch.command.clone().unwrap_or_else(|| run.steps.clone()))
             .or_else(|| patch.command.clone()),
-        // Leer setzt auf den Ordner des Vorhabens zurück; ohne Angabe bleibt das alte `cwd`.
+        // Leer setzt eine Befehls-Station auf den Ordner des Vorhabens zurück; an anderen Stationen
+        // bleibt es ein `cwd` und wird abgelehnt. Ohne Angabe bleibt das alte `cwd`.
         cwd: match patch.cwd.as_deref().map(str::trim) {
-            Some("") => None,
+            Some("") if row.kind == StationKind::Command => None,
             Some(cwd) => Some(cwd.to_owned()),
             None => row
                 .command

@@ -7333,6 +7333,26 @@ fn an_empty_cwd_in_an_edit_resets_to_the_project_folder_and_a_filled_one_must_be
 }
 
 #[test]
+fn an_empty_cwd_on_an_agent_station_is_refused_like_any_cwd() {
+    let database = database_with(&[node("agent", &[])]);
+    let view = view_from(&database);
+    let rows = stored_stations(&database);
+    let refused = |cwd: &str| {
+        let edit = PlanEdit {
+            change: vec![model::StationPatch {
+                id: "agent".to_owned(),
+                cwd: Some(cwd.to_owned()),
+                ..model::StationPatch::default()
+            }],
+            ..PlanEdit::default()
+        };
+        edit::edited_plan("implementation", &view.phases, &rows, &edit, &[]).expect_err("abgelehnt")
+    };
+    assert!(refused("").contains("nur bei by: \"command\""));
+    assert!(refused("/tmp").contains("nur bei by: \"command\""));
+}
+
+#[test]
 fn creating_and_changing_refuse_a_program_outside_the_list_and_a_cwd_outside_the_limits() {
     let registry = crate::sessions::registry::SessionRegistry::new(
         std::sync::Arc::new(database_with(&[])),
