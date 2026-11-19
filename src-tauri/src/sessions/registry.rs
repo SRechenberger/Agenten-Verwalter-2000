@@ -4,6 +4,7 @@
 //! Oberfläche und Zeilen an den Prozess gehen erst nach dem Freigeben der Sperre hinaus. Ein
 //! Schreiben in die Pipe unter der Sperre könnte sich mit dem Lese-Thread verklemmen — der
 //! Agent blockiert auf einer vollen Ausgabe-Pipe, der Lese-Thread wartet auf die Sperre.
+use std::borrow::Cow;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -49,6 +50,7 @@ use crate::context::model::{ContextBreakdown, ContextChangedEvent, SessionContex
 use crate::db::implementations as implementation_rows;
 use crate::db::project_groups as group_rows;
 use crate::db::projects::{self as project_rows, ProjectRow};
+use crate::db::session_inbox::Reference;
 use crate::db::sessions::{self as session_rows, SessionRow};
 use crate::db::{
     Database, background as background_rows, chat_entries, repositories as repository_rows,
@@ -464,10 +466,37 @@ enum TurnOrigin<'a> {
         /// „Plane Vorhaben“ (ADR 062): Der Agent bekommt `plan_prompt` mit dem Text, der Chat zeigt
         /// nur den Text.
         planning: PlanTurn,
+        /// Betreff der ersten Nachricht einer Station (ADR 072): `/<skill>` bleibt die erste Zeile, der
+        /// Rest geht über eine Referenz an den Agenten, der Chat zeigt den ganzen Text.
+        station_subject: Option<(&'a str, &'a SessionRef)>,
     },
     Session {
         sender: &'a SessionRef,
+        /// Mit Betreff geht der Text über eine Referenz an den Agenten (ADR 072), wenn er sie lesen kann.
+        reference: Option<Reference<'a>>,
     },
+}
+
+/// Nur die Betriebsart Claude hat `verwalter_read_message`; sonst geht der ganze Text (ADR 072). Die
+/// einzige Stelle, die das für Nachrichten, Rückgaben und erste Nachrichten entscheidet.
+fn readable<T>(by_reference: Option<T>, mode: OperatingMode) -> Option<T> {
+    by_reference.filter(|_| mode == OperatingMode::Claude)
+}
+
+/// Der Text der ersten Nachricht einer Station an den Agenten: mit Betreff und Betriebsart Claude über
+/// eine Referenz, sonst der Text selbst.
+fn station_agent_text<'t>(
+    session: &Session,
+    text: &'t str,
+    station: Option<(&str, &SessionRef)>,
+    mode: OperatingMode,
+) -> Result<Cow<'t, str>, CommandError> {
+    Ok(match readable(station, mode) {
+        Some((subject, sender)) => Cow::Owned(session_tools::station_message(
+            session, sender, text, subject,
+        )?),
+        None => Cow::Borrowed(text),
+    })
 }
 
 /// Wie ein Zug zum Wächter steht (ADR 062).
@@ -1291,6 +1320,31 @@ impl SessionRegistry {
             comments,
             device,
             PlanTurn::No,
+            None,
+        )
+    }
+
+    /// Wie `send` ohne Anhänge, aber mit Betreff: In der Betriebsart Claude geht nur `/<skill>` und die
+    /// Referenz an den Agenten, der Chat zeigt den ganzen Text (ADR 072). Für die erste Nachricht einer
+    /// Station und die Rückgabe an eine Station, die neu starten muss.
+    pub fn send_by_reference(
+        &self,
+        app: &AppHandle,
+        session_id: &str,
+        sender: &SessionRef,
+        text: &str,
+        subject: &str,
+    ) -> Result<(), CommandError> {
+        refuse_empty_message(text, &[], &[])?;
+        self.send_turn(
+            app,
+            session_id,
+            text,
+            &[],
+            &[],
+            None,
+            PlanTurn::No,
+            Some((subject, sender)),
         )
     }
 
@@ -1311,7 +1365,16 @@ impl SessionRegistry {
         if settings::load(&self.database)?.operating_mode != OperatingMode::Claude {
             return Err(CommandError::Implementation(PLAN_NEEDS_CLAUDE.to_owned()));
         }
-        self.send_turn(app, session_id, task, &[], &[], device, PlanTurn::Start)
+        self.send_turn(
+            app,
+            session_id,
+            task,
+            &[],
+            &[],
+            device,
+            PlanTurn::Start,
+            None,
+        )
     }
 
     /// Ob der laufende Zug der Session ein Planungszug ist (ADR 062).
@@ -1350,6 +1413,7 @@ impl SessionRegistry {
                         report_update: None,
                         device: None,
                         planning: PlanTurn::Reminder,
+                        station_subject: None,
                     },
                 )?;
                 Ok(())
@@ -1423,6 +1487,7 @@ impl SessionRegistry {
         comments: &[ReviewComment],
         device: Option<&str>,
         planning: PlanTurn,
+        station_subject: Option<(&str, &SessionRef)>,
     ) -> Result<(), CommandError> {
         let session = self.get(session_id)?;
         review::validate(comments)?;
@@ -1490,6 +1555,7 @@ impl SessionRegistry {
                         report_update: report_update.as_ref(),
                         device,
                         planning,
+                        station_subject,
                     },
                 )?;
                 Ok(())
@@ -3114,13 +3180,20 @@ impl SessionState {
 
     /// Ohne die Folgen für `seen_at` und `auto_chain`: Das Ziel bleibt ungelesen, die Kettenbremse
     /// zählt weiter.
-    fn push_session_message(&mut self, outbox: &mut Outbox, text: &str, sender: &SessionRef) {
+    fn push_session_message(
+        &mut self,
+        outbox: &mut Outbox,
+        text: &str,
+        sender: &SessionRef,
+        subject: Option<&str>,
+    ) {
         let sent_at = now_ms();
         self.push_entry(outbox, |seq: u32| ChatEntry::SessionMessage {
             seq,
             text: text.to_owned(),
             sent_at,
             sender: sender.clone(),
+            subject: subject.map(str::to_owned),
         });
         self.note_input(outbox);
     }
@@ -4465,6 +4538,7 @@ fn start_turn(
             report_update,
             device,
             planning,
+            station_subject,
         } => {
             // Unter der Session-Sperre zulässig: verschiebt nur lokale Dateien, schreibt nicht in die Pipe.
             let sent_attachments =
@@ -4499,15 +4573,13 @@ fn start_turn(
             }
             let mut agent_attachments = sent_attachments.clone();
             agent_attachments.extend(extra_attachments);
-            let planned: String;
-            let for_agent: &str = if planning == PlanTurn::Start {
-                planned = plan_prompt(sent_text);
-                &planned
+            let for_agent: Cow<str> = if planning == PlanTurn::Start {
+                Cow::Owned(plan_prompt(sent_text))
             } else {
-                sent_text
+                station_agent_text(session, sent_text, station_subject, operating_mode)?
             };
             let agent_text = with_overlap_hint(
-                review::agent_text(for_agent, &comments, folders),
+                review::agent_text(&for_agent, &comments, folders),
                 state,
                 input.overlap.as_ref(),
             );
@@ -4527,15 +4599,21 @@ fn start_turn(
             }
             (titled, line)
         }
-        TurnOrigin::Session { sender } => {
+        TurnOrigin::Session { sender, reference } => {
+            // Ohne die Werkzeuge der Betriebsart Claude geht der ganze Text wie bisher.
+            let readable = readable(reference, operating_mode);
             let agent_text = with_overlap_hint(
-                session_tools::session_message_text(sender, sent_text),
+                session_tools::agent_message(session, sender, sent_text, readable)?,
                 state,
                 input.overlap.as_ref(),
             );
             let line = user_message(&agent_text);
             let titled = state.begin_turn(outbox, session, text, &agent_text);
-            state.push_session_message(outbox, sent_text, sender);
+            // Bei „Gemeldet“ steht der Betreff schon im Text.
+            let subject: Option<&str> = reference
+                .filter(|found: &Reference<'_>| found.note.is_none())
+                .map(|found: Reference<'_>| found.subject);
+            state.push_session_message(outbox, sent_text, sender, subject);
             (titled, line)
         }
     };
@@ -4947,6 +5025,8 @@ fn answer_line(
 mod tests {
     use super::*;
     use crate::agents::event::tests::old_payloads;
+    use crate::db::session_inbox;
+    use crate::implementation::wake;
 
     fn entries_without_time() -> Vec<ChatEntry> {
         old_payloads()
@@ -5519,5 +5599,646 @@ mod tests {
         let registry = registry_with_master(Some(100.0));
         writes_from(&registry, "x", 150.0);
         assert!(!passes_message_of(&registry));
+    }
+    // Nachrichten über Referenzen (ADR 072).
+
+    fn sender() -> SessionRef {
+        SessionRef {
+            id: "m".to_owned(),
+            number: 3,
+            title: "Master".to_owned(),
+        }
+    }
+
+    /// Eine Session mit eigener Datenbank im Speicher samt Zeile in `sessions` (Fremdschlüssel).
+    fn recipient(id: &str) -> Session {
+        let database =
+            Arc::new(crate::db::Database::open(Path::new(":memory:")).expect("Datenbank"));
+        database
+            .with(|connection| {
+                connection.execute(
+                    "INSERT INTO projects (id, name, created_at) VALUES ('p', 'V', 1.0)",
+                    [],
+                )?;
+                for session in [id, "other"] {
+                    connection.execute(
+                        "INSERT INTO sessions (id, project_id, name, status, model, effort, mode, \
+                             created_at, running_ms, context_used, context_window, has_agent_history) \
+                         VALUES (?1, 'p', 'S', 'completed', 'opus', 'high', 'auto', 1.0, 0, 0, 0, 0)",
+                        [session],
+                    )?;
+                }
+                Ok(())
+            })
+            .expect("schreibbar");
+        Session {
+            id: id.to_owned(),
+            project_id: "p".to_owned(),
+            number: 1,
+            workspace: PathBuf::new(),
+            repositories: RwLock::new(Vec::new()),
+            database,
+            state: Mutex::new(state()),
+            deleted: AtomicBool::new(false),
+        }
+    }
+
+    fn read(session: &Session, as_session: &str, reference: &str) -> Result<Value, String> {
+        session
+            .database
+            .with(|connection| {
+                Ok(session_tools::read_reference(
+                    connection, as_session, reference,
+                ))
+            })
+            .expect("lesbar")
+    }
+
+    const THREE_LINES: &str = "[Nachricht von Session 3 „Master“, ID m]\nBetreff: Prüfe den Plan\nInhalt: msg-1 — lies ihn mit verwalter_read_message, bevor du handelst.";
+
+    #[test]
+    fn a_message_to_a_claude_session_goes_by_reference() {
+        let session = recipient("s");
+        let reference = Reference {
+            subject: "Prüfe den Plan",
+            note: None,
+        };
+        let by_claude = readable(Some(reference), OperatingMode::Claude);
+        let text = session_tools::agent_message(&session, &sender(), "Der lange Inhalt", by_claude)
+            .expect("zugestellt");
+        assert_eq!(text, THREE_LINES);
+        assert!(!text.contains("Der lange Inhalt"));
+        let read = read(&session, "s", "msg-1").expect("Empfänger liest");
+        assert_eq!(read["text"], "Der lange Inhalt");
+        assert_eq!(read["subject"], "Prüfe den Plan");
+        assert_eq!(read["from"]["id"], "m");
+        assert_eq!(read["from"]["number"], 3);
+        assert_eq!(read["reference"], "msg-1");
+    }
+
+    #[test]
+    fn a_message_to_another_operating_mode_keeps_the_full_text() {
+        let reference = Reference {
+            subject: "Prüfe den Plan",
+            note: None,
+        };
+        for mode in [
+            OperatingMode::ClaudeCodeLocal,
+            OperatingMode::Standalone,
+            OperatingMode::Codex,
+        ] {
+            assert_eq!(readable(Some(reference), mode), None, "{mode:?}");
+        }
+        let session = recipient("s");
+        let text = session_tools::agent_message(&session, &sender(), "Der lange Inhalt", None)
+            .expect("zugestellt");
+        assert_eq!(
+            text,
+            "[Nachricht von Session 3 „Master“, ID m]\n\nDer lange Inhalt"
+        );
+        assert_eq!(
+            read(&session, "s", "msg-1"),
+            Err("Unbekannte Referenz.".to_owned()),
+            "ohne Referenz entsteht keine Zeile"
+        );
+    }
+
+    #[test]
+    fn the_first_message_of_a_station_keeps_the_skill_line_first() {
+        let session = recipient("s");
+        let text = session_tools::station_message(
+            &session,
+            &wake::sender(),
+            "/role-rust-developer\nStation: Phase 1\nAuftrag: Brief",
+            "Auftrag: Lane 1 · Umsetzung in „U“",
+        )
+        .expect("gebaut");
+        let lines: Vec<&str> = text.lines().collect();
+        assert_eq!(lines[0], "/role-rust-developer");
+        assert_eq!(
+            lines[1],
+            "[Nachricht von Session 0 „Verwalter“, ID verwalter]"
+        );
+        assert_eq!(lines[2], "Betreff: Auftrag: Lane 1 · Umsetzung in „U“");
+        assert!(lines[3].starts_with("Inhalt: msg-1 — lies ihn mit verwalter_read_message"));
+        assert_eq!(lines.len(), 4);
+        let read = read(&session, "s", "msg-1").expect("liest");
+        assert_eq!(read["text"], "Station: Phase 1\nAuftrag: Brief");
+        // Ohne Skill: nur die drei Zeilen.
+        let plain = session_tools::station_message(
+            &session,
+            &wake::sender(),
+            "Station: Phase 2",
+            "Auftrag: x",
+        )
+        .expect("ok");
+        assert!(plain.starts_with("[Nachricht von Session 0"), "{plain}");
+        assert_eq!(plain.lines().count(), 3);
+    }
+
+    #[test]
+    fn the_first_message_of_a_station_keeps_the_full_text_in_another_operating_mode() {
+        let session = recipient("s");
+        let sender = wake::sender();
+        let text = "/role-rust-developer\nStation: Phase 1";
+        for mode in [
+            OperatingMode::ClaudeCodeLocal,
+            OperatingMode::Standalone,
+            OperatingMode::Codex,
+        ] {
+            let sent = station_agent_text(&session, text, Some(("Auftrag", &sender)), mode)
+                .expect("gebaut");
+            assert_eq!(sent, text, "{mode:?}");
+        }
+        assert_eq!(
+            read(&session, "s", "msg-1"),
+            Err("Unbekannte Referenz.".to_owned()),
+            "ohne Referenz entsteht keine Zeile"
+        );
+        let by_claude = station_agent_text(
+            &session,
+            text,
+            Some(("Auftrag", &sender)),
+            OperatingMode::Claude,
+        )
+        .expect("gebaut");
+        assert!(by_claude.starts_with("/role-rust-developer\n[Nachricht von Session 0"));
+    }
+
+    #[test]
+    fn a_return_with_a_subject_becomes_a_reference_and_without_one_stays_direct() {
+        assert_eq!(
+            implementation::return_reference(Some("Randfall fehlt")),
+            Some(Reference {
+                subject: "Randfall fehlt",
+                note: None
+            })
+        );
+        assert_eq!(implementation::return_reference(None), None);
+        let master =
+            implementation::return_sender(Some(crate::implementation::master::MasterRef {
+                id: "m".to_owned(),
+                number: 3,
+                title: "Master".to_owned(),
+            }));
+        assert_eq!((master.id.as_str(), master.number), ("m", 3));
+        assert_eq!(implementation::return_sender(None).id, "verwalter");
+    }
+
+    #[test]
+    fn a_queued_message_keeps_its_subject_until_delivery() {
+        let session = recipient("s");
+        session
+            .database
+            .with(|connection| {
+                session_inbox::insert_referenced(
+                    connection,
+                    "s",
+                    &sender(),
+                    "Der lange Inhalt",
+                    0,
+                    10.0,
+                    Some(Reference {
+                        subject: "Prüfe den Plan",
+                        note: None,
+                    }),
+                )?;
+                session_inbox::insert(connection, "s", &sender(), "direkt", 0, 11.0)
+            })
+            .expect("einreihen");
+        let row = session
+            .database
+            .with(|connection| session_inbox::oldest(connection, "s"))
+            .expect("lesen")
+            .expect("wartet");
+        assert_eq!(row.subject.as_deref(), Some("Prüfe den Plan"));
+        assert_eq!(row.note, None);
+        let reference = row.subject.as_deref().map(|subject: &str| Reference {
+            subject,
+            note: row.note.as_deref(),
+        });
+        let text = session_tools::agent_message(&session, &row.sender, &row.text, reference)
+            .expect("zugestellt");
+        assert_eq!(
+            text, THREE_LINES,
+            "dieselbe Form wie beim direkten Zustellen"
+        );
+        // Eine Nachricht ohne Betreff bleibt direkt.
+        let next = session
+            .database
+            .with(|connection| {
+                session_inbox::delete(connection, row.id)?;
+                session_inbox::oldest(connection, "s")
+            })
+            .expect("lesen")
+            .expect("wartet");
+        assert_eq!(next.subject, None);
+    }
+
+    #[test]
+    fn open_session_sends_its_first_message_by_reference() {
+        // Die erste Nachricht samt TL;DR des Vorhabens ist der Inhalt; der Agent bekommt nur die Zeilen.
+        let session = recipient("s");
+        let with_tldr = "Kurzfassung des Vorhabens: …\n\nErste Nachricht";
+        let text = session_tools::agent_message(
+            &session,
+            &sender(),
+            with_tldr,
+            Some(Reference {
+                subject: "Prüfe den Plan",
+                note: None,
+            }),
+        )
+        .expect("zugestellt");
+        assert_eq!(text, THREE_LINES);
+        assert_eq!(
+            read(&session, "s", "msg-1").expect("liest")["text"],
+            with_tldr
+        );
+    }
+
+    #[test]
+    fn a_return_of_the_master_goes_by_reference() {
+        let session = recipient("s");
+        let returned =
+            "Dein Master gibt deine Meldung zurück: Teste auch den Randfall. Arbeite weiter.";
+        let text = session_tools::agent_message(
+            &session,
+            &sender(),
+            returned,
+            Some(Reference {
+                subject: "Randfall fehlt",
+                note: None,
+            }),
+        )
+        .expect("zugestellt");
+        assert!(
+            text.starts_with("[Nachricht von Session 3 „Master“, ID m]\nBetreff: Randfall fehlt\n")
+        );
+        assert!(!text.contains("Randfall."));
+        assert_eq!(
+            read(&session, "s", "msg-1").expect("liest")["text"],
+            returned
+        );
+    }
+
+    fn facts() -> wake::WakeFacts {
+        wake::WakeFacts {
+            implementation: "U".to_owned(),
+            lane: "147.1".to_owned(),
+            stage: "Umsetzung".to_owned(),
+            text: "Fertig und grün".to_owned(),
+            note: "Alles getan.\nZweite Zeile der Notiz.".to_owned(),
+        }
+    }
+
+    fn event_reported(fix_needed: bool) -> wake::WakeEvent {
+        wake::WakeEvent::Reported {
+            station_id: "st".to_owned(),
+            returns: 0,
+            turn: 1,
+            fix_needed,
+        }
+    }
+
+    #[test]
+    fn the_reported_wake_text_references_only_the_note() {
+        for fix_needed in [false, true] {
+            let session = recipient("s");
+            let facts = facts();
+            let event = event_reported(fix_needed);
+            let full = wake::decide(&event, &facts, true, &mut Default::default()).expect("Text");
+            let (subject, note) = wake::note_reference(&event, &facts).expect("Referenz");
+            assert_eq!(subject, "Fertig und grün");
+            let text = session_tools::agent_message(
+                &session,
+                &wake::sender(),
+                &full,
+                Some(Reference {
+                    subject: &subject,
+                    note: Some(note),
+                }),
+            )
+            .expect("zugestellt");
+            assert!(
+                text.contains("Notiz: msg-1 (lies sie mit verwalter_read_message)"),
+                "{text}"
+            );
+            assert!(!text.contains("Alles getan"), "{text}");
+            assert!(!text.contains("Notiz: „"), "{text}");
+            // Der übrige Text bleibt, bis auf die Notiz Wort für Wort.
+            let rest = full.replace(&wake::note_fragment(note), "");
+            for part in rest.split("  ").flat_map(|chunk: &str| chunk.split(" · ")) {
+                assert!(
+                    text.contains(part.trim()) || part.trim().is_empty(),
+                    "{part}"
+                );
+            }
+            assert!(text.contains("Betreff: „Fertig und grün“"), "{text}");
+            let read = read(&session, "s", "msg-1").expect("liest");
+            assert_eq!(read["text"], "Alles getan.\nZweite Zeile der Notiz.");
+            assert_eq!(read["subject"], "Fertig und grün");
+            assert_eq!(read["from"]["id"], "verwalter");
+        }
+    }
+
+    #[test]
+    fn fixed_texts_stay_direct() {
+        let facts = facts();
+        let events = [
+            wake::WakeEvent::Finished {
+                station_id: "st".to_owned(),
+            },
+            wake::WakeEvent::Unreported {
+                station_id: "st".to_owned(),
+                returns: 0,
+                turn: 1,
+            },
+            wake::WakeEvent::Failed {
+                station_id: "st".to_owned(),
+                returns: 0,
+                turn: 1,
+                stopped: false,
+            },
+            wake::WakeEvent::Failed {
+                station_id: "st".to_owned(),
+                returns: 0,
+                turn: 1,
+                stopped: true,
+            },
+            wake::WakeEvent::Interrupted {
+                station_id: "st".to_owned(),
+                returns: 0,
+                session: "Session #2, ID x".to_owned(),
+            },
+            wake::WakeEvent::Asking {
+                station_id: "st".to_owned(),
+                request_id: "r".to_owned(),
+            },
+        ];
+        for event in &events {
+            assert!(
+                wake::note_reference(event, &facts).is_none(),
+                "{event:?} bleibt direkt"
+            );
+        }
+        // Nur „Gemeldet“ mit einer Notiz; ohne Notiz bleibt auch das direkt.
+        let mut empty = facts.clone();
+        empty.note = "  ".to_owned();
+        assert!(wake::note_reference(&event_reported(false), &empty).is_none());
+        // Ohne Betreff geht keine Referenz hinaus: der neue Master, „Mach weiter.“ und der Neustart
+        // sind feste Texte des Verwalters ohne `subject`.
+        assert_eq!(
+            session_tools::agent_message(&recipient("s"), &wake::sender(), "Mach weiter.", None)
+                .expect("ok"),
+            "[Nachricht von Session 0 „Verwalter“, ID verwalter]\n\nMach weiter."
+        );
+    }
+
+    #[test]
+    fn only_the_recipient_reads_a_reference() {
+        let session = recipient("s");
+        session_tools::agent_message(
+            &session,
+            &sender(),
+            "Geheim",
+            Some(Reference {
+                subject: "B",
+                note: None,
+            }),
+        )
+        .expect("zugestellt");
+        assert_eq!(
+            read(&session, "s", "msg-1").expect("Empfänger")["text"],
+            "Geheim"
+        );
+        assert_eq!(
+            read(&session, "other", "msg-1"),
+            Err("Unbekannte Referenz.".to_owned())
+        );
+    }
+
+    #[test]
+    fn an_unknown_or_deleted_reference_is_refused() {
+        let session = recipient("s");
+        session_tools::agent_message(
+            &session,
+            &sender(),
+            "Inhalt",
+            Some(Reference {
+                subject: "B",
+                note: None,
+            }),
+        )
+        .expect("zugestellt");
+        for wrong in [
+            "msg-99",
+            "msg-",
+            "msg-x",
+            "msg--1",
+            "1",
+            "",
+            "MSG-1",
+            "msg-1 oder 2",
+        ] {
+            assert_eq!(
+                read(&session, "s", wrong),
+                Err("Unbekannte Referenz.".to_owned()),
+                "{wrong:?}"
+            );
+        }
+        session
+            .database
+            .with(|connection| {
+                connection.execute("DELETE FROM sessions WHERE id = 's'", [])?;
+                Ok(())
+            })
+            .expect("löschen");
+        assert_eq!(
+            read(&session, "s", "msg-1"),
+            Err("Unbekannte Referenz.".to_owned())
+        );
+    }
+
+    #[test]
+    fn messages_are_deleted_with_the_recipient_session() {
+        let session = recipient("s");
+        for id in ["s", "other"] {
+            let target = Session {
+                id: id.to_owned(),
+                ..recipient_like(&session)
+            };
+            session_tools::agent_message(
+                &target,
+                &sender(),
+                "Inhalt",
+                Some(Reference {
+                    subject: "B",
+                    note: None,
+                }),
+            )
+            .expect("zugestellt");
+        }
+        let count = |session: &Session| -> i64 {
+            session
+                .database
+                .with(|connection| {
+                    Ok(connection.query_row(
+                        "SELECT COUNT(*) FROM session_messages",
+                        [],
+                        |row| row.get(0),
+                    )?)
+                })
+                .expect("zählen")
+        };
+        assert_eq!(count(&session), 2);
+        session
+            .database
+            .with(|connection| {
+                connection.execute("DELETE FROM sessions WHERE id = 's'", [])?;
+                Ok(())
+            })
+            .expect("löschen");
+        assert_eq!(
+            count(&session),
+            1,
+            "nur die Zeile des anderen Empfängers bleibt"
+        );
+    }
+
+    /// Dieselbe Datenbank, anderer Empfänger.
+    fn recipient_like(session: &Session) -> Session {
+        Session {
+            id: String::new(),
+            project_id: "p".to_owned(),
+            number: 1,
+            workspace: PathBuf::new(),
+            repositories: RwLock::new(Vec::new()),
+            database: Arc::clone(&session.database),
+            state: Mutex::new(state()),
+            deleted: AtomicBool::new(false),
+        }
+    }
+
+    #[test]
+    fn subject_is_required_single_line_and_at_most_120_characters() {
+        use crate::mcp_access::tools::ToolSet;
+        use crate::session_tools::tools::{
+            MAX_SUBJECT_CHARS, OPEN_SESSION, SEND_MESSAGE, SessionTools, check_subject,
+        };
+        assert_eq!(
+            check_subject("  Plan prüfen  "),
+            Ok("Plan prüfen".to_owned())
+        );
+        assert_eq!(check_subject(""), Err("Der Betreff ist leer.".to_owned()));
+        assert_eq!(
+            check_subject("  \t"),
+            Err("Der Betreff ist leer.".to_owned())
+        );
+        assert_eq!(
+            check_subject("Zwei\nZeilen"),
+            Err("Der Betreff darf nur eine Zeile haben.".to_owned())
+        );
+        assert_eq!(
+            check_subject(&"ä".repeat(MAX_SUBJECT_CHARS)),
+            Ok("ä".repeat(MAX_SUBJECT_CHARS))
+        );
+        assert_eq!(
+            check_subject(&"ä".repeat(MAX_SUBJECT_CHARS + 1)),
+            Err("Der Betreff ist zu lang: höchstens 120 Zeichen.".to_owned())
+        );
+        // Pflicht im Schema beider Werkzeuge.
+        for spec in SessionTools.tools() {
+            if spec.name == SEND_MESSAGE || spec.name == OPEN_SESSION {
+                let required = spec.input_schema["required"].to_string();
+                assert!(
+                    required.contains("\"subject\""),
+                    "{}: {required}",
+                    spec.name
+                );
+                assert_eq!(spec.input_schema["properties"]["subject"]["maxLength"], 120);
+            }
+        }
+        // Das Werkzeug des Masters nennt ihn für `return`.
+        let review = crate::implementation::tools::ImplementationTools
+            .tools()
+            .into_iter()
+            .find(|spec| spec.name == "implementation_review_station")
+            .expect("Werkzeug");
+        assert_eq!(
+            review.input_schema["properties"]["subject"]["maxLength"],
+            120
+        );
+    }
+
+    #[test]
+    fn read_message_is_allowed_in_side_questions() {
+        use crate::session_tools::tools::{
+            GET_SESSIONS, GET_TLDR, OPEN_SESSION, READ_MESSAGE, SEND_MESSAGE, is_read_only,
+        };
+        assert!(is_read_only(READ_MESSAGE));
+        assert!(is_read_only(GET_SESSIONS));
+        for name in [SEND_MESSAGE, OPEN_SESSION, GET_TLDR] {
+            assert!(!is_read_only(name), "{name}");
+        }
+    }
+
+    #[test]
+    fn the_chat_keeps_the_full_text_and_shows_the_subject() {
+        let mut state = state();
+        let mut outbox = Outbox::default();
+        state.push_session_message(
+            &mut outbox,
+            "Der ganze lange Text",
+            &sender(),
+            Some("Betreff"),
+        );
+        state.push_session_message(&mut outbox, "Ohne", &sender(), None);
+        let ChatEntry::SessionMessage { text, subject, .. } = &state.entries[0] else {
+            panic!("keine Nachricht");
+        };
+        assert_eq!(text, "Der ganze lange Text");
+        assert_eq!(subject.as_deref(), Some("Betreff"));
+        let ChatEntry::SessionMessage { subject, .. } = &state.entries[1] else {
+            panic!("keine Nachricht");
+        };
+        assert_eq!(*subject, None);
+    }
+
+    #[test]
+    fn a_database_of_version_31_migrates_to_the_messages_table() {
+        let mut connection = rusqlite::Connection::open_in_memory().expect("Datenbank");
+        for script in crate::db::migrations::first(31) {
+            connection.execute_batch(script).expect("alte Migration");
+        }
+        connection
+            .execute_batch(
+                "PRAGMA user_version = 31; \
+                 INSERT INTO projects (id, name, created_at) VALUES ('p', 'V', 1.0); \
+                 INSERT INTO sessions (id, project_id, name, status, model, effort, mode, created_at, \
+                     running_ms, context_used, context_window, has_agent_history) \
+                 VALUES ('s', 'p', 'S', 'completed', 'opus', 'high', 'auto', 1.0, 0, 0, 0, 0); \
+                 INSERT INTO session_inbox (session_id, sender_id, sender_number, sender_title, text, \
+                     chain, created_at) VALUES ('s', 'm', 1, 'M', 'wartet', 0, 1.0);",
+            )
+            .expect("Bestand");
+        crate::db::migrations::run(&mut connection).expect("wandert");
+        let version: u32 = connection
+            .query_row("PRAGMA user_version", [], |row| row.get(0))
+            .expect("Version");
+        assert_eq!(version, 32);
+        let (text, subject): (String, Option<String>) = connection
+            .query_row("SELECT text, subject FROM session_inbox", [], |row| {
+                Ok((row.get(0)?, row.get(1)?))
+            })
+            .expect("Zeile bleibt");
+        assert_eq!((text.as_str(), subject), ("wartet", None));
+        connection
+            .execute(
+                "INSERT INTO session_messages (recipient_id, sender_id, sender_number, sender_title, \
+                     subject, text, created_at) VALUES ('s', 'm', 1, 'M', 'B', 'T', 1.0)",
+                [],
+            )
+            .expect("neue Tabelle");
     }
 }

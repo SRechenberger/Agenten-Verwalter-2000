@@ -62,4 +62,9 @@ chainLimited: boolean,
  * Name des Geräts, von dem ein Gast geantwortet hat (ADR 059); `None`: die eigene
  * Oberfläche oder niemand. Der Agent bekommt es nie zu sehen.
  */
-origin: string | null, at: number | null, } | { "kind": "sessionMessage", seq: number, text: string, sentAt: number, sender: SessionRef, } | { "kind": "error", seq: number, title: string, text: string, at: number | null, } | { "kind": "notice", seq: number, notice: Notice, at: number | null, };
+origin: string | null, at: number | null, } | { "kind": "sessionMessage", seq: number, text: string, sentAt: number, sender: SessionRef, 
+/**
+ * Der Betreff, mit dem die Nachricht beim Agenten ankam (ADR 072); Einträge von vorher
+ * haben ihn nicht.
+ */
+subject: string | null, } | { "kind": "error", seq: number, title: string, text: string, at: number | null, } | { "kind": "notice", seq: number, notice: Notice, at: number | null, };

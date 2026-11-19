@@ -181,12 +181,17 @@ pub enum ToolRequest {
     SendMessage {
         recipients: Vec<SessionRef>,
         message: String,
+        /// Einträge von vorher haben den Betreff nicht (ADR 072).
+        #[serde(default)]
+        subject: Option<String>,
     },
     GetTldr {
         target: SessionRef,
     },
     OpenSession {
         message: String,
+        #[serde(default)]
+        subject: Option<String>,
         model: ModelId,
         effort: Effort,
     },
@@ -327,6 +332,10 @@ pub enum ChatEntry {
         text: String,
         sent_at: f64,
         sender: SessionRef,
+        /// Der Betreff, mit dem die Nachricht beim Agenten ankam (ADR 072); Einträge von vorher
+        /// haben ihn nicht.
+        #[serde(default)]
+        subject: Option<String>,
     },
     Error {
         seq: u32,
@@ -755,5 +764,52 @@ pub(crate) mod tests {
         let payloads = old_payloads();
         assert_eq!(parse(payloads[0]).at(), Some(1000.0));
         assert_eq!(parse(payloads[7]).at(), Some(2000.0));
+    }
+
+    #[test]
+    fn an_old_session_message_entry_without_subject_reads() {
+        let old = parse(old_payloads()[7]);
+        let ChatEntry::SessionMessage { text, subject, .. } = old else {
+            panic!("keine Nachricht einer Session");
+        };
+        assert_eq!(text, "Von dort");
+        assert_eq!(subject, None);
+        // Auch die Anfragen im Kasten: ein Eintrag von vorher hat den Betreff nicht.
+        let request: ToolRequest =
+            serde_json::from_str(r#"{"kind":"sendMessage","recipients":[],"message":"Hallo"}"#)
+                .expect("alter Kasten liest");
+        assert!(matches!(
+            request,
+            ToolRequest::SendMessage { subject: None, .. }
+        ));
+        let request: ToolRequest = serde_json::from_str(
+            r#"{"kind":"openSession","message":"Hallo","model":"sonnet","effort":"medium"}"#,
+        )
+        .expect("alter Kasten liest");
+        assert!(matches!(
+            request,
+            ToolRequest::OpenSession { subject: None, .. }
+        ));
+    }
+
+    #[test]
+    fn the_subject_of_a_session_message_survives_json() {
+        let entry = ChatEntry::SessionMessage {
+            seq: 1,
+            text: "Inhalt".to_owned(),
+            sent_at: 5.0,
+            sender: SessionRef {
+                id: "s".to_owned(),
+                number: 2,
+                title: "Zwei".to_owned(),
+            },
+            subject: Some("Betreff".to_owned()),
+        };
+        let json = serde_json::to_string(&entry).expect("schreibt");
+        assert!(json.contains(r#""subject":"Betreff""#), "{json}");
+        let ChatEntry::SessionMessage { subject, .. } = parse(&json) else {
+            panic!("keine Nachricht einer Session");
+        };
+        assert_eq!(subject.as_deref(), Some("Betreff"));
     }
 }

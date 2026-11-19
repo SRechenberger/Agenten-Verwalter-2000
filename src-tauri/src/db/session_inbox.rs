@@ -12,6 +12,18 @@ pub struct InboxRow {
     pub chain: u32,
     /// Eingang in ms; die globale Warteschlange ordnet danach (ADR 068).
     pub created_at: f64,
+    /// Betreff einer Nachricht, die über eine Referenz zugestellt wird (ADR 072); `None`: direkt.
+    pub subject: Option<String>,
+    /// Bei „Gemeldet“ der Inhalt der Referenz; `None`: der ganze Text.
+    pub note: Option<String>,
+}
+
+/// Wie eine wartende Nachricht zugestellt wird, wenn der Empfänger `verwalter_read_message` hat.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Reference<'a> {
+    pub subject: &'a str,
+    /// Nur dieser Teil des Textes wird zur Referenz (die Notiz im Weck-Text „Gemeldet“).
+    pub note: Option<&'a str>,
 }
 
 pub fn insert(
@@ -22,10 +34,24 @@ pub fn insert(
     chain: u32,
     created_at: f64,
 ) -> Result<(), CommandError> {
+    insert_referenced(
+        connection, session_id, sender, text, chain, created_at, None,
+    )
+}
+
+pub fn insert_referenced(
+    connection: &Connection,
+    session_id: &str,
+    sender: &SessionRef,
+    text: &str,
+    chain: u32,
+    created_at: f64,
+    reference: Option<Reference<'_>>,
+) -> Result<(), CommandError> {
     connection.execute(
         "INSERT INTO session_inbox \
-         (session_id, sender_id, sender_number, sender_title, text, chain, created_at) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+         (session_id, sender_id, sender_number, sender_title, text, chain, created_at, subject, note) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
         params![
             session_id,
             sender.id,
@@ -33,7 +59,9 @@ pub fn insert(
             sender.title,
             text,
             chain,
-            created_at
+            created_at,
+            reference.map(|found: Reference<'_>| found.subject),
+            reference.and_then(|found: Reference<'_>| found.note),
         ],
     )?;
     Ok(())
@@ -43,7 +71,7 @@ pub fn insert(
 pub fn oldest(connection: &Connection, session_id: &str) -> Result<Option<InboxRow>, CommandError> {
     let row = connection
         .query_row(
-            "SELECT id, sender_id, sender_number, sender_title, text, chain, created_at \
+            "SELECT id, sender_id, sender_number, sender_title, text, chain, created_at, subject, note \
              FROM session_inbox \
              WHERE session_id = ?1 ORDER BY id LIMIT 1",
             params![session_id],
@@ -58,6 +86,8 @@ pub fn oldest(connection: &Connection, session_id: &str) -> Result<Option<InboxR
                     text: row.get(4)?,
                     chain: row.get(5)?,
                     created_at: row.get(6)?,
+                    subject: row.get(7)?,
+                    note: row.get(8)?,
                 })
             },
         )

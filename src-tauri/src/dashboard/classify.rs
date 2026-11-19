@@ -152,6 +152,7 @@ mod tests {
                 number: 7,
                 title: "Master".to_owned(),
             },
+            subject: None,
         }
     }
 

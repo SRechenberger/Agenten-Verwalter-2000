@@ -119,3 +119,7 @@ Kasten aller drei Arten mit Ändern, Ablehnen und Freitext, Kettenbremse beim si
 - **Echte Dienste** für LM Studio, Autark und Codex.
 - **Lange offener Kasten auf dem neuen Weg:** auf dem neuen Weg mindestens 92 s gesehen; die 3000 s stammen aus einer Probe vor dem Umzug gegen eine Attrappe, und was länger offen bleibt, ist ungemessen.
 - **`SessionToolPermission` im Modus `plan`:** Der Agent rief das Werkzeug dort nicht auf, der Zweig ist nur gelesen.
+
+### Nachtrag: Betreff und `verwalter_read_message` ([ADR 072](072-nachrichten-ueber-referenzen.md))
+
+`verwalter_send_message_to` und `verwalter_open_session` verlangen ein Feld `subject` (Pflicht, eine Zeile, 1 bis 120 Zeichen; jede Regel hat ihren eigenen Fehlersatz). Der Empfänger bekommt den Betreff und eine Referenz `msg-<id>`; den Inhalt liest er mit dem neuen, lesenden Werkzeug `verwalter_read_message { reference }`, auch in Nebenfragen. Das Werkzeug liefert nur Referenzen, deren Empfänger die aufrufende Session ist, sonst „Unbekannte Referenz.“. Der Kasten und der Chat zeigen den Betreff.

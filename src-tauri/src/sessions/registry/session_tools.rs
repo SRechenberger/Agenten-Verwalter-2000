@@ -20,19 +20,22 @@ use crate::agents::event::{
     ToolRequest,
 };
 use crate::db::projects as project_rows;
-use crate::db::session_inbox::{self, InboxRow};
+use crate::db::session_inbox::{self, InboxRow, Reference};
+use crate::db::session_messages;
 use crate::error::CommandError;
 use crate::implementation::master::{self, MasterRef};
 use crate::implementation::slots;
 use crate::mcp_access::tools::ToolCall;
 use crate::projects::model::ProjectSummary;
 use crate::session_tools::model::SelfRelease;
+use crate::session_tools::reference as message_text;
 use crate::session_tools::tools::ToolReply;
 use crate::sessions::model::SessionStatus;
 
 /// Kettenbremse: So viele selbst freigegebene Aufrufe in Folge, danach erscheint der Kasten (ADR 052).
 const CHAIN_LIMIT: u32 = 6;
 const NO_RECIPIENTS: &str = "Die Liste der Empfänger ist leer.";
+const UNKNOWN_REFERENCE: &str = "Unbekannte Referenz.";
 const EMPTY_MESSAGE: &str = "Die Nachricht ist leer.";
 const OWN_SESSION: &str = "Das ist die eigene Session.";
 const NO_ANSWER: &str = "Der Kasten wurde geschlossen, ohne dass der Nutzer entschieden hat.";
@@ -124,6 +127,7 @@ impl SessionRegistry {
         app: &AppHandle,
         call: &ToolCall,
         session_ids: &[String],
+        subject: &str,
         message: &str,
     ) -> ToolReply {
         let caller = self.get(call.session_id).map_err(text_of)?;
@@ -158,6 +162,7 @@ impl SessionRegistry {
             ToolRequest::SendMessage {
                 recipients: recipients.clone(),
                 message: message.to_owned(),
+                subject: Some(subject.to_owned()),
             },
             Release::Chained(release.messages),
         )?;
@@ -175,7 +180,12 @@ impl SessionRegistry {
             .iter()
             .zip(&recipients)
             .map(|(target, recipient): (&Arc<Session>, &SessionRef)| {
-                let (status, reason) = self.deliver(app, target, &sender, text, chain);
+                let reference = Reference {
+                    subject,
+                    note: None,
+                };
+                let (status, reason) =
+                    self.deliver(app, target, &sender, text, chain, Some(reference));
                 let mut report =
                     json!({ "id": recipient.id, "title": recipient.title, "status": status });
                 if let Some(reason) = reason {
@@ -189,6 +199,16 @@ impl SessionRegistry {
             result["sentText"] = json!(sent_text);
         }
         Ok(result)
+    }
+
+    /// `verwalter_read_message`: nur der Empfänger liest; fremde, gelöschte und falsche Referenzen
+    /// sind „Unbekannte Referenz“.
+    pub fn tool_read_message(&self, caller_id: &str, reference: &str) -> ToolReply {
+        let caller = self.get(caller_id).map_err(text_of)?;
+        caller
+            .database
+            .with(|connection| Ok(read_reference(connection, &caller.id, reference)))
+            .map_err(text_of)?
     }
 
     pub fn tool_get_tldr(&self, app: &AppHandle, call: &ToolCall, session_id: &str) -> ToolReply {
@@ -227,6 +247,7 @@ impl SessionRegistry {
         &self,
         app: &AppHandle,
         call: &ToolCall,
+        subject: &str,
         message: &str,
         model: Option<ModelId>,
     ) -> ToolReply {
@@ -260,6 +281,7 @@ impl SessionRegistry {
             call,
             ToolRequest::OpenSession {
                 message: message.to_owned(),
+                subject: Some(subject.to_owned()),
                 model,
                 effort: caller_effort,
             },
@@ -296,21 +318,26 @@ impl SessionRegistry {
         let sender = session_ref(&caller);
         // Durch das Tor (ADR 068): Ist kein Platz frei, wartet die erste Nachricht im Posteingang der
         // neuen Session, und ein Durchgang startet sie, sobald sie dran ist.
+        let reference = Reference {
+            subject,
+            note: None,
+        };
         let started = if self.claim_session_slot(&session.id) {
-            let started = self.start_first_turn(app, &session, &sender, &message);
+            let started = self.start_first_turn(app, &session, &sender, &message, reference);
             self.release_session_slot(&session.id);
             started
         } else {
             session
                 .database
                 .with(|connection| {
-                    session_inbox::insert(
+                    session_inbox::insert_referenced(
                         connection,
                         &session.id,
                         &sender,
                         &message,
                         chain,
                         now_ms(),
+                        Some(reference),
                     )
                 })
                 .map(|()| schedule_pass(app))
@@ -595,6 +622,7 @@ impl SessionRegistry {
         sender: &SessionRef,
         text: &str,
         chain: u32,
+        reference: Option<Reference<'_>>,
     ) -> (&'static str, Option<String>) {
         // Vor `update`: Die Abfrage bei LM Studio gehört nicht unter die Sperre.
         let input = self.prepare_turn(target, text);
@@ -627,13 +655,14 @@ impl SessionRegistry {
                     }
                     Route::Queue { nudge } => {
                         target.database.with(|connection| {
-                            session_inbox::insert(
+                            session_inbox::insert_referenced(
                                 connection,
                                 &target.id,
                                 sender,
                                 text,
                                 chain,
                                 now_ms(),
+                                reference,
                             )
                         })?;
                         needs_nudge = nudge;
@@ -648,7 +677,7 @@ impl SessionRegistry {
                     outbox,
                     input,
                     text,
-                    TurnOrigin::Session { sender },
+                    TurnOrigin::Session { sender, reference },
                 )?;
                 state.auto_chain = max(state.auto_chain, chain);
                 Ok(("delivered", None))
@@ -669,6 +698,7 @@ impl SessionRegistry {
         session: &Arc<Session>,
         sender: &SessionRef,
         message: &str,
+        reference: Reference<'_>,
     ) -> Result<(), CommandError> {
         let input = self.prepare_turn(session, message);
         update(
@@ -682,7 +712,10 @@ impl SessionRegistry {
                     outbox,
                     input,
                     message,
-                    TurnOrigin::Session { sender },
+                    TurnOrigin::Session {
+                        sender,
+                        reference: Some(reference),
+                    },
                 )
                 .map(|_titled: bool| ())
             },
@@ -730,6 +763,10 @@ impl SessionRegistry {
                     &row.text,
                     TurnOrigin::Session {
                         sender: &row.sender,
+                        reference: row.subject.as_deref().map(|subject: &str| Reference {
+                            subject,
+                            note: row.note.as_deref(),
+                        }),
                     },
                 )?;
                 state.auto_chain = max(state.auto_chain, row.chain);
@@ -816,12 +853,72 @@ pub(crate) fn tool_answer_label(
     }
 }
 
-/// Die Nachricht, wie sie an den Agenten geht; die erste Zeile setzt allein der Core.
-pub(super) fn session_message_text(sender: &SessionRef, text: &str) -> String {
-    format!(
-        "[Nachricht von Session {} „{}“, ID {}]\n\n{text}",
-        sender.number, sender.title, sender.id
-    )
+/// Der Inhalt hinter `reference` für `session_id`; jede andere Referenz ist „Unbekannte Referenz“.
+pub(super) fn read_reference(
+    connection: &rusqlite::Connection,
+    session_id: &str,
+    reference: &str,
+) -> ToolReply {
+    let id: i64 = reference
+        .trim()
+        .strip_prefix("msg-")
+        .filter(|digits: &&str| digits.bytes().all(|byte: u8| byte.is_ascii_digit()))
+        .and_then(|digits: &str| digits.parse().ok())
+        .ok_or_else(|| UNKNOWN_REFERENCE.to_owned())?;
+    let row = session_messages::get(connection, session_id, id)
+        .map_err(text_of)?
+        .ok_or_else(|| UNKNOWN_REFERENCE.to_owned())?;
+    Ok(json!({
+        "reference": format!("msg-{id}"),
+        "from": { "id": row.sender.id, "number": row.sender.number, "title": row.sender.title },
+        "subject": row.subject,
+        "text": row.text,
+        "sentAt": row.created_at,
+    }))
+}
+
+/// Der Text, der an den Agenten geht: mit einer Referenz die drei Zeilen des Vertrags und der Inhalt als
+/// Zeile in `session_messages`, sonst der ganze Text wie bisher. Die einzige Stelle, die eine Referenz
+/// schreibt. Unter der Session-Sperre erlaubt (erst die Session, dann die Datenbank).
+pub(super) fn agent_message(
+    session: &Session,
+    sender: &SessionRef,
+    text: &str,
+    reference: Option<Reference<'_>>,
+) -> Result<String, CommandError> {
+    let Some(reference) = reference else {
+        return Ok(message_text::direct(sender, text));
+    };
+    let content: &str = reference.note.unwrap_or(text);
+    let id = store_message(session, sender, reference.subject, content)?;
+    Ok(match reference.note {
+        None => message_text::by_reference(sender, reference.subject, id),
+        Some(note) => message_text::by_note(sender, text, note, id),
+    })
+}
+
+/// Die erste Nachricht einer Station: `/<skill>` bleibt allein vorn, der Rest wird der Inhalt (ADR 072).
+/// Absender ist der Verwalter.
+pub(super) fn station_message(
+    session: &Session,
+    sender: &SessionRef,
+    text: &str,
+    subject: &str,
+) -> Result<String, CommandError> {
+    let (command, content) = message_text::split_command(text);
+    let id = store_message(session, sender, subject, content)?;
+    Ok(message_text::station(command, sender, subject, id))
+}
+
+fn store_message(
+    session: &Session,
+    sender: &SessionRef,
+    subject: &str,
+    content: &str,
+) -> Result<i64, CommandError> {
+    session.database.with(|connection| {
+        session_messages::insert(connection, &session.id, sender, subject, content, now_ms())
+    })
 }
 
 /// Was `deliver` über den Weg einer Nachricht wissen muss.
@@ -901,24 +998,37 @@ fn describe(session: &SessionRef) -> String {
     format!("Session {} „{}“", session.number, session.title)
 }
 
+fn subject_line(subject: Option<&str>) -> String {
+    subject.map_or_else(String::new, |subject: &str| {
+        format!("Betreff: {subject}\n\n")
+    })
+}
+
 /// Der Text für Transkript und TL;DR; der Kasten zeigt die Felder aus `ToolRequest`.
 fn tool_question(request: &ToolRequest) -> Question {
     let question = match request {
         ToolRequest::SendMessage {
             recipients,
             message,
+            subject,
         } => {
             let names: Vec<String> = recipients.iter().map(describe).collect();
             format!(
-                "Claude möchte eine Nachricht an {} senden:\n\n{message}",
-                names.join(", ")
+                "Claude möchte eine Nachricht an {} senden:\n\n{}{message}",
+                names.join(", "),
+                subject_line(subject.as_deref())
             )
         }
         ToolRequest::GetTldr { target } => {
             format!("Claude möchte das TL;DR von {} lesen.", describe(target))
         }
-        ToolRequest::OpenSession { message, .. } => {
-            format!("Claude möchte eine neue Session öffnen:\n\n{message}")
+        ToolRequest::OpenSession {
+            message, subject, ..
+        } => {
+            format!(
+                "Claude möchte eine neue Session öffnen:\n\n{}{message}",
+                subject_line(subject.as_deref())
+            )
         }
         ToolRequest::AgentType {
             base: None,

@@ -936,6 +936,7 @@ mod tests {
                 number: 4,
                 title: "Review".to_owned(),
             },
+            subject: None,
         };
         let tool = |seq: u32| ChatEntry::Tool {
             seq,

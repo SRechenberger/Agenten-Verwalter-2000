@@ -23,6 +23,7 @@ use crate::agent_types::model::AgentType;
 use crate::error::CommandError;
 use crate::mcp_access::ProcessKind;
 use crate::mcp_access::tools::{ToolCall, ToolResult, ToolSet, ToolSpec};
+use crate::session_tools::tools::{MAX_SUBJECT_CHARS, check_subject};
 use crate::sessions::registry::SessionRegistry;
 
 /// Legt die Umsetzung an; `plan::plan_prompt` nennt es beim Namen.
@@ -247,6 +248,7 @@ impl ToolSet for ImplementationTools {
                     "properties": {
                         "station_id": { "type": "string", "minLength": 1, "description": "Kennung der Station (`id` im Lagebericht)" },
                         "answer": { "type": "string", "enum": ["accept", "return", "release"] },
+                        "subject": { "type": "string", "minLength": 1, "maxLength": MAX_SUBJECT_CHARS, "description": "Nur bei `return`, Pflicht: Betreff in einer Zeile, worum es geht" },
                         "message": { "type": "string", "minLength": 1, "maxLength": MAX_RETURN_CHARS, "description": "Nur bei `return`, Pflicht: was die Station ändern oder nachholen soll" },
                     },
                     "required": ["station_id", "answer"],
@@ -637,6 +639,8 @@ struct ReviewArguments {
     answer: String,
     #[serde(default)]
     message: Option<String>,
+    #[serde(default)]
+    subject: Option<String>,
 }
 
 /// Das Werkzeug des Masters (ADR 070, D6): Der Aufrufer muss der Master der Umsetzung sein, in der die
@@ -664,10 +668,12 @@ fn review_station(call: &ToolCall, registry: &SessionRegistry) -> Result<ToolRes
             .map_err(|error| error.to_string())?
             .text(),
         "return" => {
+            let subject = check_subject(arguments.subject.as_deref().unwrap_or_default())?;
             let returns = return_station(
                 call.app,
                 &view.id,
                 station_id,
+                Some(&subject),
                 arguments.message.as_deref().unwrap_or_default(),
                 Decider::Master,
             )
