@@ -10,7 +10,11 @@ export type Notice = { "kind": "compacted", trigger: string | null, preTokens: n
 /**
  * Text der Kurzfassung; kommt erst nach der Trennlinie.
  */
-summary: string | null, } | { "kind": "modelSwitched", from: ModelId, to: ModelId, 
+summary: string | null, 
+/**
+ * Der Verwalter hat `/compact` selbst geschickt (ADR 070); ältere Hinweise lesen sich als `false`.
+ */
+byVerwalter: boolean, } | { "kind": "modelSwitched", from: ModelId, to: ModelId, 
 /**
  * Token, die die nächste Nachricht neu schreibt.
  */

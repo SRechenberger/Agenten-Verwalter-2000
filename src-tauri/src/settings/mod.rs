@@ -35,12 +35,17 @@ const KEY_DEFAULT_AUTO_RESUME: &str = "default_auto_resume";
 const KEY_ANSWER_MODEL: &str = "answer_model";
 /// Leer = unbegrenzt; fehlt der Schlüssel, gilt der Standard (ADR 068).
 const KEY_MAX_AGENTS: &str = "max_agents";
+/// Leer = aus; fehlt der Schlüssel, gilt der Standard (ADR 070).
+const KEY_MASTER_COMPACT_TOKENS: &str = "master_compact_tokens";
 const KEY_TERMINAL_PLACEMENT: &str = "terminal_placement";
 const KEY_TERMINAL_HEIGHT: &str = "terminal_height";
 const KEY_TERMINAL_WIDTH: &str = "terminal_width";
 const KEY_REMOTE_ENABLED: &str = "remote_enabled";
 const KEY_REMOTE_PORT: &str = "remote_port";
 const KEY_REMOTE_HOST_ID: &str = "remote_host_id";
+
+/// Erlaubte Grenzen von „Master zusammenfassen ab … Tokens“.
+pub const MASTER_COMPACT_RANGE: std::ops::RangeInclusive<u32> = 50_000..=2_000_000;
 
 /// Grenzen für die gemerkte Größe des Terminal-Docks in Pixeln.
 const TERMINAL_SIZE_RANGE: std::ops::RangeInclusive<u32> = 100..=10000;
@@ -79,6 +84,7 @@ pub const DEFAULT_SETTINGS: Settings = Settings {
     default_auto_resume: false,
     answer_model: Some(ModelId::Haiku),
     max_agents: Some(4),
+    master_compact_tokens: Some(150_000),
     terminal_placement: TerminalPlacement::Bottom,
     terminal_height: 260,
     terminal_width: 460,
@@ -136,6 +142,11 @@ pub fn load(database: &Database) -> Result<Settings, CommandError> {
             .map_or(DEFAULT_SETTINGS.max_agents, |text: &String| {
                 stored_max_agents(text)
             }),
+        master_compact_tokens: stored
+            .get(KEY_MASTER_COMPACT_TOKENS)
+            .map_or(DEFAULT_SETTINGS.master_compact_tokens, |text: &String| {
+                stored_master_compact_tokens(text)
+            }),
         terminal_placement: stored_or(
             &stored,
             KEY_TERMINAL_PLACEMENT,
@@ -176,6 +187,15 @@ pub fn update(database: &Database, change: SettingsChange) -> Result<Settings, C
     if let SettingsChange::MaxAgents { value: Some(0) } = &change {
         return Err(CommandError::Internal(
             "Gleichzeitige Agenten: mindestens 1 oder leer".to_owned(),
+        ));
+    }
+    if let SettingsChange::MasterCompactTokens {
+        value: Some(tokens),
+    } = &change
+        && !MASTER_COMPACT_RANGE.contains(tokens)
+    {
+        return Err(CommandError::Internal(
+            "Master zusammenfassen: 50 000 bis 2 000 000 Tokens oder leer".to_owned(),
         ));
     }
     if let SettingsChange::PanelWidth {
@@ -235,6 +255,12 @@ pub fn update(database: &Database, change: SettingsChange) -> Result<Settings, C
                     .map(|limit: u32| limit.to_string())
                     .unwrap_or_default();
                 setting_rows::write(&transaction, KEY_MAX_AGENTS, &text)?;
+            }
+            SettingsChange::MasterCompactTokens { value } => {
+                let text = value
+                    .map(|tokens: u32| tokens.to_string())
+                    .unwrap_or_default();
+                setting_rows::write(&transaction, KEY_MASTER_COMPACT_TOKENS, &text)?;
             }
             SettingsChange::DefaultAutoResume { value } => {
                 setting_rows::write(&transaction, KEY_DEFAULT_AUTO_RESUME, &value.to_string())?;
@@ -363,6 +389,19 @@ fn stored_max_agents(text: &str) -> Option<u32> {
         .ok()
         .filter(|limit: &u32| *limit >= 1)
         .or(DEFAULT_SETTINGS.max_agents)
+}
+
+/// Gespeicherter Wert von „Master zusammenfassen ab“: leer = aus, ein unlesbarer oder unzulässiger Wert
+/// = der Standard.
+fn stored_master_compact_tokens(text: &str) -> Option<u32> {
+    let text = text.trim();
+    if text.is_empty() {
+        return None;
+    }
+    text.parse::<u32>()
+        .ok()
+        .filter(|tokens: &u32| MASTER_COMPACT_RANGE.contains(tokens))
+        .or(DEFAULT_SETTINGS.master_compact_tokens)
 }
 
 fn stored_or<T: DeserializeOwned>(stored: &HashMap<String, String>, key: &str, default: T) -> T {

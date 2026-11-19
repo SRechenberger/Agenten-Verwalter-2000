@@ -95,6 +95,7 @@ use crate::worktrees::{self, SessionRepository, TicketRoot, WorktreeCheck};
 mod artifacts;
 mod classify;
 mod commit_scan;
+mod compact;
 mod dashboard;
 mod implementation;
 mod mcp;
@@ -317,6 +318,8 @@ struct SessionState {
     cache_message_id: Option<String>,
     /// `seq` des Hinweises „Verlauf zusammengefasst“, bis die Kurzfassung eintrifft; nur im Speicher.
     compact_seq: Option<u32>,
+    /// Der laufende Zug ist `/compact` des Verwalters (ADR 070); nur im Speicher.
+    compact_turn: bool,
     /// Modell, auf das Claude ausgewichen ist, bis der User wählt oder der Agent neu startet;
     /// nur im Speicher.
     fallback_model: Option<String>,
@@ -470,6 +473,8 @@ enum TurnOrigin<'a> {
         /// Rest geht über eine Referenz an den Agenten, der Chat zeigt den ganzen Text.
         station_subject: Option<(&'a str, &'a SessionRef)>,
     },
+    /// `/compact` durch den Verwalter (ADR 070): keine Eingabe, kein Eintrag, keine Antwort.
+    Compact,
     Session {
         sender: &'a SessionRef,
         /// Mit Betreff geht der Text über eine Referenz an den Agenten (ADR 072), wenn er sie lesen kann.
@@ -566,6 +571,9 @@ struct Outbox {
     /// Ein Zug endete abgeschlossen: nach dem Freigeben der Sperre fragt ein Thread das Modell der
     /// Einordnung, falls die Einstellung es verlangt (ADR 071).
     classify: Option<classify::Job>,
+    /// Ein Zug endete abgeschlossen: nach dem Freigeben der Sperre prüft ein Thread, ob die Session
+    /// `/compact` bekommt (ADR 070).
+    compact: bool,
 }
 
 impl SessionRegistry {
@@ -2566,6 +2574,7 @@ impl SessionState {
             prompt_cache: None,
             cache_message_id: None,
             compact_seq: None,
+            compact_turn: false,
             fallback_model: None,
             last_total_cost: 0.0,
             context_breakdown: None,
@@ -2818,6 +2827,7 @@ impl SessionState {
         pre_tokens: Option<u32>,
         post_tokens: Option<u32>,
     ) {
+        let by_verwalter = self.compact_turn;
         self.compact_seq = Some(self.push_entry(outbox, |seq: u32| ChatEntry::Notice {
             seq,
             notice: Notice::Compacted {
@@ -2825,6 +2835,7 @@ impl SessionState {
                 pre_tokens,
                 post_tokens,
                 summary: None,
+                by_verwalter,
             },
             at: None,
         }));
@@ -2846,6 +2857,7 @@ impl SessionState {
                     trigger,
                     pre_tokens,
                     post_tokens,
+                    by_verwalter,
                     ..
                 },
             ..
@@ -2858,6 +2870,7 @@ impl SessionState {
             pre_tokens: *pre_tokens,
             post_tokens: *post_tokens,
             summary: Some(text),
+            by_verwalter: *by_verwalter,
         };
         self.replace_entry(
             outbox,
@@ -3846,6 +3859,7 @@ impl SessionState {
             outbox.summary_dirty = true;
         }
         self.todos_seq = None;
+        let was_compact = std::mem::take(&mut self.compact_turn);
         if self.cancel_requested {
             self.end_sourcing();
             return;
@@ -3876,9 +3890,19 @@ impl SessionState {
                 });
                 self.set_status(outbox, SessionStatus::Error);
             }
+            // Der Zug des Verwalters ist keine Antwort: nichts einordnen, nichts ungelesen machen,
+            // keine Prüfung des Wächters, kein weiterer Compact (ADR 070).
+            TurnEnd::Completed if was_compact => {
+                let (last_activity_at, seen_at) = (self.last_activity_at, self.seen_at);
+                self.set_status(outbox, SessionStatus::Completed);
+                self.last_activity_at = last_activity_at;
+                self.seen_at = seen_at;
+                outbox.turn_completed = true;
+            }
             TurnEnd::Completed => {
                 self.set_status(outbox, SessionStatus::Completed);
                 self.note_answer(outbox, excerpt);
+                outbox.compact = true;
                 outbox.classify = classify_input.map(|input| classify::Job {
                     has_station: self.station_of.is_some(),
                     has_open_request: !self.pending.is_empty(),
@@ -4300,6 +4324,9 @@ fn update<R>(
     if outbox.plan_reminder {
         schedule_plan_reminder(app, session);
     }
+    if outbox.compact {
+        compact::schedule(app, session);
+    }
     if let Some(job) = outbox.classify.take() {
         classify::schedule(app, session, job);
     }
@@ -4528,7 +4555,10 @@ fn start_turn(
     let plan_turn: PlanTurn = match origin {
         TurnOrigin::User { planning, .. } => planning,
         TurnOrigin::Session { .. } => PlanTurn::No,
+        // Ein Wächter bleibt, wie er ist.
+        TurnOrigin::Compact => PlanTurn::Reminder,
     };
+    let is_compact = matches!(origin, TurnOrigin::Compact);
     let (titled, line) = match origin {
         TurnOrigin::User {
             attachment_ids,
@@ -4616,7 +4646,9 @@ fn start_turn(
             state.push_session_message(outbox, sent_text, sender, subject);
             (titled, line)
         }
+        TurnOrigin::Compact => (false, user_message(text)),
     };
+    state.compact_turn = is_compact;
     state.last_overlap_key = input
         .overlap
         .as_ref()
@@ -4627,7 +4659,11 @@ fn start_turn(
         PlanTurn::Start => state.plan_guard = Some(PlanGuard::new(text)),
         PlanTurn::Reminder => {}
     }
-    state.set_status(outbox, SessionStatus::Running);
+    if state.compact_turn {
+        state.begin_compact_turn(outbox);
+    } else {
+        state.set_status(outbox, SessionStatus::Running);
+    }
     outbox.write(state, line)?;
     Ok(titled)
 }
@@ -5176,6 +5212,259 @@ mod tests {
         assert_eq!(state.answer_line, None);
         assert!(outbox.summary_dirty, "wird mit der Session gespeichert");
         assert_eq!(row_of_state(&state).answer_at, state.answer_at);
+    }
+
+    // ----- Compact der ruhenden Master-Session (ADR 070) -----
+
+    fn compact_facts() -> compact::Facts {
+        compact::Facts {
+            completed: true,
+            after_compact: false,
+            master_of_open_implementation: true,
+            rests: true,
+            inbox_empty: true,
+            context_used: 150_001,
+            limit: Some(150_000),
+            mode: OperatingMode::Claude,
+        }
+    }
+
+    #[test]
+    fn a_resting_master_over_the_limit_is_compacted_once() {
+        assert!(compact::wanted(&compact_facts()));
+        assert!(compact::wanted(&compact::Facts {
+            mode: OperatingMode::ClaudeCodeLocal,
+            ..compact_facts()
+        }));
+        // Ein Zugende gibt genau einen Anstoß; der Compact-Zug selbst gibt keinen.
+        let mut state = state();
+        let mut outbox = Outbox::default();
+        state.end_turn(&mut outbox, TurnEnd::Completed, None, Vec::new(), None);
+        assert!(outbox.compact);
+        let mut outbox = Outbox::default();
+        state.begin_compact_turn(&mut outbox);
+        state.end_turn(&mut outbox, TurnEnd::Completed, None, Vec::new(), None);
+        assert!(!outbox.compact);
+        assert!(!compact::wanted(&compact::Facts {
+            after_compact: true,
+            ..compact_facts()
+        }));
+    }
+
+    #[test]
+    fn no_compact_below_the_limit_or_when_off() {
+        for used in [0, 149_999, 150_000] {
+            assert!(!compact::wanted(&compact::Facts {
+                context_used: used,
+                ..compact_facts()
+            }));
+        }
+        assert!(!compact::wanted(&compact::Facts {
+            limit: None,
+            context_used: u32::MAX,
+            ..compact_facts()
+        }));
+        assert!(!compact::wanted(&compact::Facts {
+            completed: false,
+            ..compact_facts()
+        }));
+    }
+
+    fn implementation_row(master: Option<&str>) -> crate::db::implementations::ImplementationRow {
+        crate::db::implementations::ImplementationRow {
+            id: "i".to_owned(),
+            project_id: "p".to_owned(),
+            name: "U".to_owned(),
+            source: String::new(),
+            created_by_session_id: None,
+            master_session_id: master.map(str::to_owned),
+            created_at: 0.0,
+            finished_at: None,
+            auto_start: true,
+            stop_after_current: false,
+            pending_change: None,
+            auto_resume: false,
+            cancelled_at: None,
+            pending_cancel: None,
+        }
+    }
+
+    #[test]
+    fn no_compact_for_a_non_master_or_a_finished_or_cancelled_implementation() {
+        let open = implementation_row(Some("m"));
+        let finished = crate::db::implementations::ImplementationRow {
+            finished_at: Some(1.0),
+            ..implementation_row(Some("m"))
+        };
+        let cancelled = crate::db::implementations::ImplementationRow {
+            finished_at: Some(1.0),
+            cancelled_at: Some(1.0),
+            ..implementation_row(Some("m"))
+        };
+        let foreign = implementation_row(Some("anderer"));
+        let nobody = implementation_row(None);
+        assert!(compact::leads_open_implementation([&open], "m"));
+        assert!(compact::leads_open_implementation([&finished, &open], "m"));
+        assert!(!compact::leads_open_implementation(
+            [&foreign, &nobody],
+            "m"
+        ));
+        assert!(!compact::leads_open_implementation([&finished], "m"));
+        assert!(!compact::leads_open_implementation([&cancelled], "m"));
+        assert!(!compact::wanted(&compact::Facts {
+            master_of_open_implementation: false,
+            ..compact_facts()
+        }));
+    }
+
+    #[test]
+    fn no_compact_with_a_waiting_message_or_an_open_request() {
+        assert!(!compact::wanted(&compact::Facts {
+            inbox_empty: false,
+            ..compact_facts()
+        }));
+        // `rests` ist falsch bei offener Rückfrage, laufendem Subagent oder Skript.
+        let mut state = state();
+        state.status = SessionStatus::Completed;
+        assert!(state.rests());
+        state.status = SessionStatus::Waiting;
+        assert!(!state.rests());
+        assert!(!compact::wanted(&compact::Facts {
+            rests: false,
+            ..compact_facts()
+        }));
+    }
+
+    #[test]
+    fn no_compact_outside_the_claude_command_line() {
+        for mode in [OperatingMode::Standalone, OperatingMode::Codex] {
+            assert!(!compact::wanted(&compact::Facts {
+                mode,
+                ..compact_facts()
+            }));
+        }
+    }
+
+    #[test]
+    fn no_compact_without_a_free_slot() {
+        // `send_compact` schickt nur mit `Some(true)` vom Tor; sonst entfällt der Zug.
+        let mut gate = Countdowns::default();
+        let busy = vec!["anderer".to_owned()];
+        assert_eq!(gate.claim_session(0, Some(1), &busy, "master"), Some(false));
+        assert_eq!(gate.claim_session(0, Some(2), &busy, "master"), Some(true));
+    }
+
+    #[test]
+    fn a_compact_turn_is_no_input() {
+        let mut state = state();
+        state.seen_at = 5.0;
+        state.last_activity_at = 5.0;
+        state.auto_chain = 3;
+        state.answer_at = Some(4.0);
+        state.answer_excerpt = Some("Auszug".to_owned());
+        state.answer_kind = Some("done".to_owned());
+        state.answer_line = Some("Fertig".to_owned());
+        state.card_dismissed_at = Some(2.0);
+        state.status = SessionStatus::Completed;
+        let mut outbox = Outbox::default();
+        state.begin_compact_turn(&mut outbox);
+        assert_eq!(state.status, SessionStatus::Running);
+        assert!(state.entries.is_empty(), "kein Benutzereintrag");
+        assert_eq!(state.seen_at, 5.0);
+        assert_eq!(state.auto_chain, 3);
+        assert_eq!(state.answer_at, Some(4.0));
+        assert_eq!(state.answer_excerpt.as_deref(), Some("Auszug"));
+        assert_eq!(state.answer_kind.as_deref(), Some("done"));
+        assert_eq!(state.answer_line.as_deref(), Some("Fertig"));
+        assert_eq!(state.card_dismissed_at, Some(2.0));
+        assert!(state.compact_turn);
+    }
+
+    #[test]
+    fn the_end_of_a_compact_turn_sets_no_answer_and_starts_no_compact() {
+        let mut state = state();
+        state.seen_at = 5.0;
+        state.last_activity_at = 5.0;
+        state.answer_at = Some(4.0);
+        state.answer_excerpt = Some("Auszug".to_owned());
+        state.answer_kind = Some("done".to_owned());
+        state.status = SessionStatus::Completed;
+        let mut outbox = Outbox::default();
+        state.begin_compact_turn(&mut outbox);
+        say(&mut state, &mut outbox, "Zusammengefasst");
+        let mut outbox = Outbox::default();
+        state.end_turn(&mut outbox, TurnEnd::Completed, None, Vec::new(), None);
+        assert_eq!(state.status, SessionStatus::Completed);
+        assert_eq!(state.answer_at, Some(4.0));
+        assert_eq!(state.answer_excerpt.as_deref(), Some("Auszug"));
+        assert_eq!(state.answer_kind.as_deref(), Some("done"));
+        assert!(outbox.classify.is_none(), "keine Einordnung");
+        assert!(!outbox.compact, "kein weiterer Compact");
+        assert!(!state.compact_turn);
+        assert_eq!(state.last_activity_at, 5.0, "nicht ungelesen");
+        assert_eq!(state.seen_at, 5.0);
+        assert!(outbox.station_asks.is_none());
+    }
+
+    #[test]
+    fn master_compact_tokens_defaults_to_150000_and_checks_the_range() {
+        use crate::settings::model::SettingsChange;
+        let database =
+            crate::db::Database::open(Path::new(":memory:")).expect("Datenbank im Speicher");
+        let tokens =
+            |db: &crate::db::Database| settings::load(db).expect("laden").master_compact_tokens;
+        assert_eq!(tokens(&database), Some(150_000));
+        for bad in [0, 49_999, 2_000_001] {
+            let refused = settings::update(
+                &database,
+                SettingsChange::MasterCompactTokens { value: Some(bad) },
+            );
+            assert!(refused.is_err(), "{bad}");
+        }
+        assert_eq!(
+            tokens(&database),
+            Some(150_000),
+            "eine Ablehnung ändert nichts"
+        );
+        for good in [50_000, 2_000_000] {
+            settings::update(
+                &database,
+                SettingsChange::MasterCompactTokens { value: Some(good) },
+            )
+            .expect("erlaubt");
+            assert_eq!(tokens(&database), Some(good));
+        }
+        settings::update(
+            &database,
+            SettingsChange::MasterCompactTokens { value: None },
+        )
+        .expect("aus");
+        assert_eq!(tokens(&database), None);
+        let json = serde_json::to_value(SettingsChange::MasterCompactTokens { value: None })
+            .expect("json");
+        assert_eq!(
+            json,
+            serde_json::json!({"kind": "masterCompactTokens", "value": null})
+        );
+    }
+
+    #[test]
+    fn an_old_compacted_notice_reads_without_origin() {
+        let old = serde_json::json!({
+            "kind": "compacted",
+            "trigger": "manual",
+            "preTokens": 64000,
+            "postTokens": 4000,
+            "summary": null
+        });
+        let notice: Notice = serde_json::from_value(old).expect("alter Hinweis");
+        assert!(matches!(
+            notice,
+            Notice::Compacted {
+                by_verwalter: false,
+                ..
+            }
+        ));
     }
 
     fn row_of_state(current: &SessionState) -> SessionRow {
