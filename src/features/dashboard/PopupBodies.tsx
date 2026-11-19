@@ -109,7 +109,7 @@ function MarkDoneAction(props: PopupProps): ReactElement | null {
       implementationId={implementation.id}
       stationId={ref.station.id}
       label={`Lane ${ref.phase.key} · ${ref.station.stage}`}
-      className="popup-button popup-button--primary"
+      className="popup-button"
       isLocked={props.isLocked}
     />
   );

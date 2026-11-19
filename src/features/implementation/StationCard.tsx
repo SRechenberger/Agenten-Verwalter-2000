@@ -230,7 +230,7 @@ export function StationCard({
             implementationId={implementationId}
             stationId={station.id}
             label={`Lane ${phase.key} · ${station.stage}`}
-            className="station-card__button station-card__button--primary"
+            className="station-card__button"
             isLocked={isLocked}
           />
         )}
