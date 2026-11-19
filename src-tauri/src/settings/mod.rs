@@ -382,7 +382,6 @@ pub fn remote_host_id(database: &Database) -> Result<String, CommandError> {
     })
 }
 
-/// Gespeicherter Wert von „Modell der Einordnung“: leer = aus, ein unlesbarer Wert = der Standard.
 /// Standard der Freigabeliste (ADR 073).
 pub fn default_command_programs() -> Vec<String> {
     crate::implementation::command::DEFAULT_PROGRAMS
@@ -410,6 +409,7 @@ fn checked_programs(value: &[String]) -> Result<Vec<String>, CommandError> {
     Ok(programs)
 }
 
+/// Gespeicherter Wert von „Modell der Einordnung“: leer = aus, ein unlesbarer Wert = der Standard.
 fn stored_answer_model(text: &str) -> Option<ModelId> {
     if text.trim().is_empty() {
         return None;

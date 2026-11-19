@@ -868,20 +868,6 @@ fn check_command_fields(field: &str, station: &StationInput) -> Result<(), Strin
     command::check_command(field, command, station.cwd.as_deref())
 }
 
-/// Prüft die Freigabeliste für jede Befehls-Station unter `stations` (Feldname, Station).
-pub fn check_programs(
-    stations: &[(String, &StationInput)],
-    allowed: &[String],
-) -> Result<(), String> {
-    for (field, station) in stations {
-        if let Some(command) = &station.command {
-            command::check_programs(command, allowed)
-                .map_err(|error: String| format!("{field}.command: {error}"))?;
-        }
-    }
-    Ok(())
-}
-
 /// Satz für einen Planer, der noch `max_parallel` übergibt (ADR 068): Statt es still zu übergehen,
 /// nennt der Verwalter die Einstellung, die jetzt gilt.
 pub const MAX_PARALLEL_GONE: &str = "`max_parallel` gibt es nicht mehr: Die Grenze gilt app-weit \

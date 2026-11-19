@@ -7296,25 +7296,131 @@ fn only_a_station_that_has_not_started_may_change_its_command() {
         )
         .is_err()
     );
-    // Die Zeile schützt sich selbst: Hat der Lauf begonnen, schreibt `set_command` nichts.
-    let database = database_with(&[command_node("run", &[], &["gh pr list"])]);
-    let write = || {
-        database
-            .with(|connection| {
-                implementation_rows::set_command(
-                    connection,
-                    "run",
-                    &["gh pr view 1".to_owned()],
-                    None,
-                )
-            })
-            .expect("schreibbar")
+}
+
+#[test]
+fn an_empty_cwd_in_an_edit_resets_to_the_project_folder_and_a_filled_one_must_be_absolute() {
+    let mut row = command_node("merge", &[], &["gh pr merge 1"]);
+    row.command.as_mut().expect("Befehl").cwd = Some("/tmp".to_owned());
+    let database = database_with(&[row]);
+    let view = view_from(&database);
+    let rows = stored_stations(&database);
+    let with_cwd = |cwd: Option<&str>| PlanEdit {
+        change: vec![model::StationPatch {
+            id: "merge".to_owned(),
+            cwd: cwd.map(str::to_owned),
+            ..model::StationPatch::default()
+        }],
+        ..PlanEdit::default()
     };
-    assert!(write());
-    database
-        .with(|connection| implementation_rows::begin_command_run(connection, "run", 7.0))
-        .expect("beginnt");
-    assert!(!write());
+    let cwd_after = |cwd: Option<&str>| {
+        edit::edited_plan("implementation", &view.phases, &rows, &with_cwd(cwd), &[]).map(
+            |edited: edit::EditedPlan| {
+                edited.updated[0]
+                    .command
+                    .as_ref()
+                    .expect("Befehl")
+                    .cwd
+                    .clone()
+            },
+        )
+    };
+    assert_eq!(cwd_after(Some("")), Ok(None));
+    assert_eq!(cwd_after(None), Ok(Some("/tmp".to_owned())));
+    assert_eq!(cwd_after(Some("/var")), Ok(Some("/var".to_owned())));
+    let error = cwd_after(Some("relativ")).expect_err("nicht absolut");
+    assert!(error.contains("cwd"), "{error}");
+}
+
+#[test]
+fn creating_and_changing_refuse_a_program_outside_the_list_and_a_cwd_outside_the_limits() {
+    let registry = crate::sessions::registry::SessionRegistry::new(
+        std::sync::Arc::new(database_with(&[])),
+        std::sync::Arc::new(crate::remote::RemoteControl::default()),
+    );
+    let station = |command: &str, cwd: Option<&str>| StationInput {
+        by: Some("command".to_owned()),
+        command: Some(vec![command.to_owned()]),
+        cwd: cwd.map(str::to_owned),
+        ..StationInput::default()
+    };
+    fn named(station: &StationInput) -> Vec<(String, &StationInput)> {
+        vec![("phases[0].stations[0]".to_owned(), station)]
+    }
+    let refused = station("curl http://x", None);
+    assert_eq!(
+        registry.check_commands("project", &named(&refused), &[]),
+        Err("phases[0].stations[0].command: Programm „curl“ ist für Befehls-Stationen nicht freigegeben."
+            .to_owned())
+    );
+    let elsewhere = station("gh pr list", Some("/nirgends"));
+    let error = registry
+        .check_commands("project", &named(&elsewhere), &[])
+        .expect_err("cwd außerhalb");
+    assert!(error.starts_with("phases[0].stations[0].cwd:"), "{error}");
+    assert!(
+        registry
+            .check_commands("project", &named(&station("gh pr list", Some(""))), &[])
+            .is_ok()
+    );
+    let patch = model::StationPatch {
+        id: "merge".to_owned(),
+        command: Some(vec!["rm -rf x".to_owned()]),
+        ..model::StationPatch::default()
+    };
+    let error = registry
+        .check_commands("project", &[], &[patch])
+        .expect_err("Programm außerhalb");
+    assert!(
+        error.starts_with("change[0].command: Programm „rm“"),
+        "{error}"
+    );
+}
+
+#[test]
+fn every_caller_refuses_a_program_outside_the_list() {
+    let registry = registry_with_station_session(
+        database_with(&[station_row("first", 0, "Umsetzung")]),
+        SessionStatus::Running,
+    );
+    let sentence = "Programm „curl“ ist für Befehls-Stationen nicht freigegeben.";
+    let phases = vec![PhaseInput {
+        key: "1".to_owned(),
+        title: "Phase".to_owned(),
+        description: None,
+        wave: None,
+        stations: vec![StationInput {
+            stage: "Merge".to_owned(),
+            by: Some("command".to_owned()),
+            command: Some(vec!["curl http://x".to_owned()]),
+            ..Default::default()
+        }],
+    }];
+    let refused = |error: String| assert!(error.contains(sentence), "{error}");
+    // implementation_create
+    refused(
+        match registry.create_implementation("session", "Name", "", &phases) {
+            Err(crate::error::CommandError::Implementation(error)) => error,
+            other => panic!("abgelehnt erwartet: {other:?}"),
+        },
+    );
+    // implementation_set_phases
+    refused(changes::checked_view(&registry, "session", &phases).expect_err("abgelehnt"));
+    // implementation_edit
+    let view = registry
+        .implementation_view("implementation")
+        .expect("Umsetzung");
+    let edit = PlanEdit {
+        add: vec![model::StationAddition {
+            lane: "1".to_owned(),
+            station: phases[0].stations[0].clone(),
+        }],
+        ..PlanEdit::default()
+    };
+    refused(match edit::plan_of(&registry, &view, &edit) {
+        Err(crate::error::CommandError::Implementation(error)) => error,
+        other => panic!("abgelehnt erwartet: {other:?}"),
+    });
 }
 
 #[test]

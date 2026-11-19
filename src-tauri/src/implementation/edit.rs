@@ -230,11 +230,15 @@ fn patch_row(
             .as_ref()
             .map(|run: &CommandRow| patch.command.clone().unwrap_or_else(|| run.steps.clone()))
             .or_else(|| patch.command.clone()),
-        cwd: patch.cwd.clone().or_else(|| {
-            row.command
+        // Leer setzt auf den Ordner des Vorhabens zurück; ohne Angabe bleibt das alte `cwd`.
+        cwd: match patch.cwd.as_deref().map(str::trim) {
+            Some("") => None,
+            Some(cwd) => Some(cwd.to_owned()),
+            None => row
+                .command
                 .as_ref()
-                .and_then(|run: &CommandRow| run.cwd.clone())
-        }),
+                .and_then(|run: &CommandRow| run.cwd.clone()),
+        },
         ..StationInput::default()
     };
     checked_station(field, &input, types)?;
@@ -279,7 +283,7 @@ fn patch_row(
     Ok(())
 }
 
-fn plan_of(
+pub(super) fn plan_of(
     registry: &SessionRegistry,
     view: &ImplementationView,
     edit: &PlanEdit,

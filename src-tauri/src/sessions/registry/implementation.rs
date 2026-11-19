@@ -518,17 +518,6 @@ impl SessionRegistry {
         })
     }
 
-    /// Schreibt `command` und `cwd` einer nicht gestarteten Befehls-Station; `false`: Sie hat begonnen.
-    pub fn store_command(
-        &self,
-        station_id: &str,
-        steps: &[String],
-        cwd: Option<&str>,
-    ) -> Result<bool, CommandError> {
-        self.database
-            .with(|connection| implementation_rows::set_command(connection, station_id, steps, cwd))
-    }
-
     /// Legt die Meldung der Station ab (ADR 070) und ersetzt eine frühere; `false`, wenn sie schon
     /// angenommen ist.
     pub fn store_report(

@@ -1021,22 +1021,6 @@ pub fn interrupt_command_runs(
     )?)
 }
 
-/// Schreibt `command` und `cwd` einer nicht gestarteten Befehls-Station samt Marke `edited`.
-pub fn set_command(
-    connection: &Connection,
-    station_id: &str,
-    steps: &[String],
-    cwd: Option<&str>,
-) -> Result<bool, CommandError> {
-    let changed = connection.execute(
-        "UPDATE implementation_stations SET command = ?2, cwd = ?3, edited = 1 \
-         WHERE id = ?1 AND kind = 'command' AND session_id IS NULL AND completed_at IS NULL \
-             AND step IS NULL AND started_at IS NULL",
-        params![station_id, after_json(steps)?, cwd],
-    )?;
-    Ok(changed == 1)
-}
-
 /// Migration 25 (ADR 061): gibt jeder bestehenden Station die Plan-Kennung
 /// `<Phasenschlüssel>-<Nummer>` und Kanten nach Regel R1 aus Position und Welle
 /// (`schedule::legacy_after`), damit bestehende Umsetzungen unverändert weiterlaufen.

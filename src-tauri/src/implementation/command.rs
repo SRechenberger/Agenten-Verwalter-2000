@@ -100,10 +100,6 @@ fn is_var_name(name: &str) -> bool {
         && chars.all(|c: char| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
 }
 
-pub fn is_valid_var_name(name: &str) -> bool {
-    is_var_name(name)
-}
-
 fn is_env_name(name: &str) -> bool {
     let mut chars = name.chars();
     chars
@@ -178,19 +174,6 @@ pub fn compile(command: &[String]) -> Result<Vec<Vec<Vec<Piece>>>, String> {
                 .map_err(|error: String| format!("Schritt {}: {error}", index + 1))
         })
         .collect()
-}
-
-/// Die Namen der Werte der Vorgänger, die die Schritte brauchen, in der Reihenfolge des Auftretens.
-pub fn needed_vars(compiled: &[Vec<Vec<Piece>>]) -> Vec<String> {
-    let mut names: Vec<String> = Vec::new();
-    for piece in compiled.iter().flatten().flatten() {
-        if let Piece::Var(name) = piece
-            && !names.contains(name)
-        {
-            names.push(name.clone());
-        }
-    }
-    names
 }
 
 /// Führt die Werte der direkten Vorgänger zusammen. Nennen zwei denselben Namen mit verschiedenen
@@ -768,10 +751,6 @@ mod tests {
     fn a_missing_value_names_the_placeholder() {
         let error = rendered("gh pr merge {{pr_number}}", &BTreeMap::new()).expect_err("fehlt");
         assert!(error.contains("pr_number"), "{error}");
-        let prepared = needed_vars(
-            &compile(&strings(&["gh pr merge {{pr_number}} {{pr_number}} {{b}}"])).expect("gültig"),
-        );
-        assert_eq!(prepared, ["pr_number", "b"]);
     }
 
     #[test]
@@ -879,6 +858,69 @@ mod tests {
         assert!(!allowed(&folder.join("..").join("anderes")), "`..` nie");
         assert!(!cwd_allowed("relativ", Some(&folder), &repositories));
         assert!(!cwd_allowed(&folder.to_string_lossy(), None, &[]));
+    }
+
+    #[test]
+    fn check_inputs_refuses_a_program_or_a_cwd_outside_the_limits() {
+        let base = std::env::temp_dir().join("befehl-inputs");
+        let repositories = vec![base.join("repo")];
+        let allowed = strings(&["gh"]);
+        let input = |command: &[&str], cwd: Option<&str>| StationInput {
+            by: Some("command".to_owned()),
+            command: Some(strings(command)),
+            cwd: cwd.map(str::to_owned),
+            ..StationInput::default()
+        };
+        let check = |stations: &[StationInput], patches: &[StationPatch]| {
+            let named: Vec<(String, &StationInput)> = stations
+                .iter()
+                .enumerate()
+                .map(|(index, station): (usize, &StationInput)| {
+                    (format!("phases[0].stations[{index}]"), station)
+                })
+                .collect();
+            check_inputs(
+                &named,
+                patches,
+                &allowed,
+                Some(&base.join("vorhaben")),
+                &repositories,
+            )
+        };
+        let outside = base.join("anderes").to_string_lossy().into_owned();
+        let inside = base.join("repo").join("src").to_string_lossy().into_owned();
+        assert_eq!(check(&[input(&["gh pr list"], Some(&inside))], &[]), Ok(()));
+        assert_eq!(
+            check(&[input(&["gh pr list", "curl x"], None)], &[]),
+            Err(format!(
+                "phases[0].stations[0].command: {}",
+                not_allowed("curl")
+            ))
+        );
+        assert_eq!(
+            check(&[input(&["gh pr list"], Some(&outside))], &[]),
+            Err(format!("phases[0].stations[0].{CWD_REFUSED}"))
+        );
+        assert_eq!(
+            check(&[input(&["gh pr list"], Some(""))], &[]),
+            Ok(()),
+            "leer: Ordner des Vorhabens"
+        );
+        let patch = |command: Option<&[&str]>, cwd: Option<&str>| StationPatch {
+            id: "merge".to_owned(),
+            command: command.map(strings),
+            cwd: cwd.map(str::to_owned),
+            ..StationPatch::default()
+        };
+        assert_eq!(check(&[], &[patch(Some(&["gh a"]), Some(""))]), Ok(()));
+        assert_eq!(
+            check(&[], &[patch(Some(&["rm -rf x"]), None)]),
+            Err(format!("change[0].command: {}", not_allowed("rm")))
+        );
+        assert_eq!(
+            check(&[], &[patch(None, Some(&outside))]),
+            Err(format!("change[0].{CWD_REFUSED}"))
+        );
     }
 
     #[test]
