@@ -32,6 +32,8 @@ pub fn sender() -> SessionRef {
 pub enum WakeEvent {
     /// Der Benutzer hat die letzte Station angenommen: Die Umsetzung ist abgeschlossen.
     Finished { station_id: String },
+    /// Der Benutzer hat eine Station im Fehler oder in einer Pause von Hand als fertig markiert.
+    MarkedDone { station_id: String },
     /// Die Station hat sich gemeldet und ihr Zug ist beendet; `fix_needed` heißt Befund (Review).
     Reported {
         station_id: String,
@@ -71,6 +73,7 @@ impl WakeEvent {
     fn station_id(&self) -> &str {
         match self {
             WakeEvent::Finished { station_id }
+            | WakeEvent::MarkedDone { station_id }
             | WakeEvent::Reported { station_id, .. }
             | WakeEvent::Unreported { station_id, .. }
             | WakeEvent::Failed { station_id, .. }
@@ -83,6 +86,7 @@ impl WakeEvent {
     fn key(&self) -> String {
         match self {
             WakeEvent::Finished { station_id } => format!("finished:{station_id}"),
+            WakeEvent::MarkedDone { station_id } => format!("marked_done:{station_id}"),
             WakeEvent::Reported {
                 station_id,
                 returns,
@@ -231,6 +235,30 @@ pub fn events_after_acceptance(
     }
 }
 
+/// Die Ereignisse eines Abschlusses: von Hand (`by_hand`) „Von Hand fertig“, sonst die der Annahme.
+pub fn events_after_finish(
+    station_id: &str,
+    is_finished: bool,
+    is_by_master: bool,
+    by_hand: bool,
+) -> Vec<WakeEvent> {
+    if by_hand {
+        events_after_marking(station_id, is_finished)
+    } else {
+        events_after_acceptance(station_id, is_finished, is_by_master)
+    }
+}
+
+/// Die Ereignisse von „Als fertig markieren“: „Von Hand fertig“, dazu „Fertig“, wenn es die letzte
+/// Station war.
+pub fn events_after_marking(station_id: &str, is_finished: bool) -> Vec<WakeEvent> {
+    let mut events = vec![WakeEvent::MarkedDone {
+        station_id: station_id.to_owned(),
+    }];
+    events.extend(events_after_acceptance(station_id, is_finished, false));
+    events
+}
+
 /// Die Nachricht an einen neuen Master (ADR 070, D11): die Umsetzung und ihre offenen Meldungen (Lane,
 /// Stufe, Betreff). Keine Ereignisse: Der Benutzer hat ihn bestimmt, nichts ist neu geschehen.
 pub fn new_master_message(
@@ -303,6 +331,11 @@ fn message(event: &WakeEvent, facts: &WakeFacts) -> String {
             "{SOURCE}: Die Umsetzung „{implementation}“, die du leitest, ist fertig; der Benutzer \
              hat die letzte Station angenommen. Letzte Station: Lane {lane} · {stage}. \
              Ergebnis: {text}"
+        ),
+        WakeEvent::MarkedDone { .. } => format!(
+            "{SOURCE}: In der Umsetzung „{implementation}“, die du leitest, hat der Benutzer \
+             Lane {lane} · {stage} (station_id: {id}) als fertig markiert. Ergebnis: „{text}“. \
+             Damit gilt sie als angenommen; es gibt nichts zu entscheiden."
         ),
         WakeEvent::Reported {
             fix_needed: false, ..
@@ -773,6 +806,46 @@ mod tests {
                 station_id: "s1".to_owned()
             }]
         );
+    }
+
+    #[test]
+    fn marking_done_wakes_the_master_once_with_the_text() {
+        let events = events_after_marking("s1", false);
+        assert_eq!(
+            events,
+            vec![WakeEvent::MarkedDone {
+                station_id: "s1".to_owned()
+            }]
+        );
+        let mut claimed = HashSet::new();
+        let text = decide(
+            &events[0],
+            &facts("vom Benutzer als fertig markiert"),
+            true,
+            &mut claimed,
+        )
+        .expect("Nachricht");
+        assert_eq!(
+            text,
+            "Meldung des Verwalters: In der Umsetzung „Constraint-Abläufe“, die du leitest, hat der Benutzer \
+             Lane 76.3 · Review (station_id: s1) als fertig markiert. Ergebnis: „vom Benutzer als fertig markiert“. \
+             Damit gilt sie als angenommen; es gibt nichts zu entscheiden."
+        );
+        assert!(
+            decide(&events[0], &facts("x"), true, &mut claimed).is_none(),
+            "einmal je Markieren"
+        );
+        assert_eq!(
+            events_after_marking("s1", true).len(),
+            2,
+            "die letzte Station meldet auch das Ende"
+        );
+    }
+
+    #[test]
+    fn marking_done_without_master_wakes_nobody() {
+        let event = events_after_marking("s1", false).remove(0);
+        assert!(decide(&event, &facts("ok"), false, &mut HashSet::new()).is_none());
     }
 
     #[test]

@@ -314,6 +314,7 @@ pub fn run() {
             commands::implementation::implementation_complete_station,
             commands::implementation::implementation_set_master,
             commands::implementation::implementation_accept_station,
+            commands::implementation::implementation_mark_station_done,
             commands::implementation::implementation_return_station,
             commands::terminal::terminal_list,
             commands::terminal::terminal_open,

@@ -27,6 +27,8 @@ import {
   RESULT_PLACEHOLDER,
   START_FAILED,
 } from '@/features/implementation/implementationTexts';
+import { canMarkDone } from '@/features/implementation/markDone';
+import { MarkDoneButton } from '@/features/implementation/MarkDoneButton';
 import { MasterWarning, MasterPicker } from '@/features/implementation/MasterPicker';
 import { masterOf, RELEASED_MARK, RELEASED_TITLE } from '@/features/implementation/masterTexts';
 import { PlanChangeCard } from '@/features/implementation/PlanChangeCard';
@@ -91,6 +93,29 @@ function implementationOf(props: PopupProps): ImplementationView | undefined {
 function stationOf(props: PopupProps, implementation: ImplementationView): StationRef | undefined {
   return flatStations(implementation).find(
     (ref: StationRef) => ref.station.id === props.task.stationId,
+  );
+}
+
+/** „Als fertig markieren …“ in den Popups `error` und `paused`, nur für eine Station in einem erlaubten
+ *  Zustand (dieselbe Regel wie die Kartei). */
+function MarkDoneAction(props: PopupProps): ReactElement | null {
+  const implementation = implementationOf(props);
+  const ref = implementation === undefined ? undefined : stationOf(props, implementation);
+  if (
+    implementation === undefined ||
+    ref === undefined ||
+    !canMarkDone(ref.station, implementation.cancelledAt !== null)
+  ) {
+    return null;
+  }
+  return (
+    <MarkDoneButton
+      implementationId={implementation.id}
+      stationId={ref.station.id}
+      label={`Lane ${ref.phase.key} · ${ref.station.stage}`}
+      className="popup-button"
+      isLocked={props.isLocked}
+    />
   );
 }
 
@@ -381,6 +406,7 @@ export function ErrorBody(props: PopupProps): ReactElement {
               Agent neu starten
             </button>
           )}
+          <MarkDoneAction {...props} />
         </>
       }
     >
@@ -410,6 +436,7 @@ export function PausedBody(props: PopupProps): ReactElement {
               Fortsetzen
             </button>
           )}
+          <MarkDoneAction {...props} />
         </>
       }
     >

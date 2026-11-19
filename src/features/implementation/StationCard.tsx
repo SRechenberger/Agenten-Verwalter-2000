@@ -26,6 +26,8 @@ import { StationAgentSection } from '@/features/implementation/StationAgentSecti
 import { StationAutomationSection } from '@/features/implementation/StationAutomationSection';
 import { StationBriefSection } from '@/features/implementation/StationBriefSection';
 import { RELEASED_MARK, RELEASED_TITLE } from '@/features/implementation/masterTexts';
+import { MarkDoneButton } from '@/features/implementation/MarkDoneButton';
+import { canMarkDone } from '@/features/implementation/markDone';
 import { StationReportSection } from '@/features/implementation/StationReportSection';
 import { StationFlowSection } from '@/features/implementation/StationFlowSection';
 import { typeNamed, typeOfStation } from '@/features/implementation/stationAgent';
@@ -42,6 +44,8 @@ export type CardSectionKey = 'flow' | 'brief' | 'agent' | 'automation';
 
 interface StationCardProps {
   implementationId: string;
+  /** Eine abgebrochene Umsetzung lässt nichts mehr von Hand fertig markieren. */
+  isImplementationCancelled: boolean;
   stationRef: StationRef;
   /** Alle Stationen in der Reihenfolge der Zeitleiste: Chips und Zyklen. */
   refs: readonly StationRef[];
@@ -78,6 +82,7 @@ interface StationCardProps {
  *  Automatik. Fragen werden im Chat beantwortet, nicht hier. */
 export function StationCard({
   implementationId,
+  isImplementationCancelled,
   stationRef,
   refs,
   isImplementationAutomatic,
@@ -222,6 +227,15 @@ export function StationCard({
           >
             {EDIT_TYPE_LABEL}
           </button>
+        )}
+        {canMarkDone(station, isImplementationCancelled) && (
+          <MarkDoneButton
+            implementationId={implementationId}
+            stationId={station.id}
+            label={`Lane ${phase.key} · ${station.stage}`}
+            className="station-card__button"
+            isLocked={isLocked}
+          />
         )}
         {changesCount !== null && station.sessionId !== null && (
           <button

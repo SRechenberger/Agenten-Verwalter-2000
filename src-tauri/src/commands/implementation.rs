@@ -327,6 +327,18 @@ pub async fn implementation_complete_station(
     Ok(())
 }
 
+/// Der Benutzer markiert eine Station im Fehler oder in einer Pause ohne Zeitgeber als fertig (ADR 048).
+#[tauri::command]
+pub async fn implementation_mark_station_done(
+    app: AppHandle,
+    implementation_id: String,
+    station_id: String,
+    result: String,
+) -> Result<(), CommandError> {
+    implementation::mark_station_done(&app, &implementation_id, &station_id, &result)?;
+    Ok(())
+}
+
 /// Der Benutzer bestimmt einen neuen Master (ADR 070, D11): eine Session des Vorhabens, keine Station.
 /// Der neue Master bekommt eine Nachricht mit der Umsetzung und den offenen Meldungen.
 #[tauri::command]

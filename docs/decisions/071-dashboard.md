@@ -182,6 +182,8 @@ Esc schließt nur das Popup (`Dialog` verbraucht die Taste in der Capture-Phase)
 
 **Ctrl J bleibt eigene Liste** (`waitingQueue.ts`): Das Dashboard ersetzt sie nicht.
 
+**Knopf „Als fertig markieren …“ in den Popups `error` und `paused`** (Taiga-Story 97, [ADR 048](048-umsetzung.md)): Steht die Karte für eine Station, deren Zustand das Markieren von Hand erlaubt (Fehler ohne anstehenden Neustart, Startfehler, Pause ohne scharfen Zeitgeber), trägt das Popup neben „Agent neu starten“ bzw. „Fortsetzen“ den Knopf `MarkDoneButton`; derselbe Knopf und derselbe Dialog (Feld „Ergebnis“, vorbelegt mit „vom Benutzer als fertig markiert“, gesperrt bei leerem oder nur aus Leerzeichen bestehendem Feld, Satz des Core bei Ablehnung) stehen in der Kartei der Station. Die Regel ist die eine Funktion `canMarkDone` (`markDone.ts`, mit „Umsetzung abgebrochen“); danach ist die Karte weg, weil die Station `done` zeigt.
+
 ## Was das in früheren ADRs überholt
 
 Nichts. [ADR 070](070-master-session.md) bleibt in Kraft: Das Dashboard liest `StationState`, `report`, `returnsLeft`, `released` und `masterMissing` der Ansicht, ändert sie aber nicht.

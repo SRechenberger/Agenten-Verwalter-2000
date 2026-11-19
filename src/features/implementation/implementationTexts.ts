@@ -863,3 +863,13 @@ export function proposalAppliedWithFailures(failures: readonly string[]): string
 export function stationNotFound(stage: string, lane: string): string {
   return `Station „${stage}“ in Lane ${lane} nicht gefunden`;
 }
+
+// „Als fertig markieren“ (ADR 048).
+export const MARK_DONE_BUTTON = 'Als fertig markieren …';
+export const MARK_DONE_TITLE =
+  'Die Station gilt als erledigt; die Nachfolger starten wie nach einer Annahme';
+export const MARK_DONE_CONFIRM = 'Als fertig markieren';
+export const MARK_DONE_HEADING = 'Station als fertig markieren?';
+export const MARK_DONE_CANCEL = 'Abbrechen';
+export const MARK_DONE_TEXT =
+  'gilt dann als erledigt. Die Nachfolger starten wie nach einer Annahme; eine Fix-Runde gibt es nicht. Die Session bleibt, wie sie ist.';

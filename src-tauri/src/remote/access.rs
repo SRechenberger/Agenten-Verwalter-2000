@@ -165,6 +165,7 @@ const TABLE: &[(Class, Option<IdKind>, &[&str])] = &[
             "implementation_discard_cancel",
             "implementation_edit_plan",
             "implementation_complete_station",
+            "implementation_mark_station_done",
             "implementation_set_master",
             "implementation_accept_station",
             "implementation_return_station",
@@ -335,6 +336,10 @@ pub fn ids_of(command: &str, payload: &Value) -> Vec<TargetId> {
     read("projectId", IdKind::Project);
     if let Some((_, Some(kind @ (IdKind::Implementation | IdKind::Terminal)))) = entry_of(command) {
         read("id", kind);
+        // „Als fertig markieren“ nennt die Umsetzung `implementationId` (ADR 048).
+        if kind == IdKind::Implementation {
+            read("implementationId", kind);
+        }
     }
     ids
 }

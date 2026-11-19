@@ -45,7 +45,7 @@ const SIDE_READABLE: [&str; 2] = [GET, AGENT_TYPES];
 const NO_REGISTRY: &str = "Der Verwalter startet noch";
 const NOT_A_STATION: &str = "Diese Session ist keine Station.";
 const SIDE_FORBIDDEN: &str = "Eine Nebenfrage darf die Umsetzung nur lesen.";
-const MAX_RESULT_CHARS: usize = 200;
+const MAX_RESULT_CHARS: usize = super::model::MAX_STATION_RESULT_CHARS;
 
 pub struct ImplementationTools;
 
