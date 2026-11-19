@@ -31,9 +31,10 @@ use master::Decider;
 use model::{
     BriefChange, BriefChangeKind, ChangeSummary, ChangeView, Handoff, ImplementationChangedEvent,
     ImplementationRemovedEvent, ImplementationView, MAX_BRIEF_CHARS, MAX_PROMPT_CHARS,
-    MAX_RETURN_CHARS, MAX_SKILL_CHARS, OnError, PendingCancel, PendingChange, PhaseInput,
-    PhaseView, PredecessorsMay, StationInput, StationOptions, StationPause, StationPauseReason,
-    StationReport, StationSettings, StationState, StationView, StoredReport, check_length,
+    MAX_RETURN_CHARS, MAX_SKILL_CHARS, MAX_STATION_RESULT_CHARS, OnError, PendingCancel,
+    PendingChange, PhaseInput, PhaseView, PredecessorsMay, StationInput, StationOptions,
+    StationPause, StationPauseReason, StationReport, StationSettings, StationState, StationView,
+    StoredReport, check_length,
 };
 
 pub const IMPLEMENTATION_CHANGED_EVENT: &str = "implementation://changed";
@@ -318,6 +319,74 @@ pub fn report_station(
     Ok(())
 }
 
+const MARK_DONE_REFUSED: &str =
+    "Als fertig markieren geht nur bei einer Station im Fehler oder in einer Pause ohne Zeitgeber.";
+
+/// Darf der Benutzer die Station von Hand als fertig markieren (ADR 048)? Eine Station des Agenten, nicht
+/// angenommen, im Fehler ohne anstehenden Neustart oder mit Startfehler, oder mit pausierter Session ohne
+/// scharfen Zeitgeber „Automatisch fortsetzen“ (der zeigt `WaitsForQuota`, bei einer gemeldeten Station
+/// in `live`). Die Oberfläche spiegelt die Regel in `markDone.ts`.
+pub fn may_be_marked_done(station: &StationView) -> bool {
+    if station.by_user || station.completed_at.is_some() || station.state == StationState::Done {
+        return false;
+    }
+    let is_timer_armed = station.state == StationState::WaitsForQuota
+        || station.live == Some(StationState::WaitsForQuota);
+    let is_failed = (station.state == StationState::Error && !station.restarting)
+        || station.start_error.is_some();
+    is_failed || (station.pause.is_some() && !is_timer_armed)
+}
+
+/// Prüft „Als fertig markieren“ und gibt das getrimmte Ergebnis zurück.
+pub fn check_mark_done(
+    view: &ImplementationView,
+    station_id: &str,
+    result: &str,
+) -> Result<String, CommandError> {
+    if view.cancelled_at.is_some() {
+        return Err(CommandError::Implementation(format!(
+            "{IS_CANCELLED} Es gibt nichts mehr zu entscheiden."
+        )));
+    }
+    let (_, station) = station_in(view, station_id)?;
+    if station.completed_at.is_some() {
+        return Err(CommandError::Implementation(
+            "Diese Station ist schon angenommen.".to_owned(),
+        ));
+    }
+    if !may_be_marked_done(station) {
+        return Err(CommandError::Implementation(MARK_DONE_REFUSED.to_owned()));
+    }
+    let result = result.trim();
+    check_length("result", result, 1, MAX_STATION_RESULT_CHARS)
+        .map_err(CommandError::Implementation)?;
+    Ok(result.to_owned())
+}
+
+/// Der Benutzer markiert eine Station im Fehler oder in einer Pause ohne Zeitgeber von Hand als fertig:
+/// wie eine Annahme ohne Meldung und ohne Fix-Runde, die Session bleibt, wie sie ist. Weckt den Master
+/// einmal mit „Von Hand fertig“.
+pub fn mark_station_done(
+    app: &AppHandle,
+    implementation_id: &str,
+    station_id: &str,
+    result: &str,
+) -> Result<CompleteOutcome, CommandError> {
+    let registry = app.state::<SessionRegistry>();
+    let view = registry.implementation_view(implementation_id)?;
+    let result = check_mark_done(&view, station_id, result)?;
+    finish_station(
+        app,
+        implementation_id,
+        station_id,
+        &result,
+        false,
+        &Handoff::default(),
+        Decider::User,
+        true,
+    )
+}
+
 /// Der Master oder der Benutzer nimmt die Meldung an (ADR 070, D3): nur wenn die Station gemeldet und ihr
 /// Zug beendet ist, und der Benutzer erst, wenn die Rückgaben des Masters verbraucht sind. Danach laufen die
 /// Schritte der früheren Fertigmeldung mit der gespeicherten Meldung (Fix-Runde, Übergabe, Weiterplanen).
@@ -383,6 +452,31 @@ pub fn complete_station_with_handoff(
     handoff: &Handoff,
     decider: Decider,
 ) -> Result<CompleteOutcome, CommandError> {
+    finish_station(
+        app,
+        implementation_id,
+        station_id,
+        result,
+        fix_needed,
+        handoff,
+        decider,
+        false,
+    )
+}
+
+/// Der gemeinsame Weg von Annahme, „Erledigt“ und „Als fertig markieren“ (`by_hand`): Letzteres braucht
+/// keine Meldung und weckt den Master mit „Von Hand fertig“.
+#[allow(clippy::too_many_arguments)]
+fn finish_station(
+    app: &AppHandle,
+    implementation_id: &str,
+    station_id: &str,
+    result: &str,
+    fix_needed: bool,
+    handoff: &Handoff,
+    decider: Decider,
+    by_hand: bool,
+) -> Result<CompleteOutcome, CommandError> {
     let registry = app.state::<SessionRegistry>();
     let view = registry.implementation_view(implementation_id)?;
     let types = registry.agent_types()?;
@@ -392,7 +486,7 @@ pub fn complete_station_with_handoff(
     let changes = handoff_changes(&rows, station_id, &followups, handoff, now_ms())
         .map_err(CommandError::Implementation)?;
     let station = find_station(&view, station_id).map(|(_, station)| station);
-    let needs_report = station.is_some_and(|station: &StationView| !station.by_user);
+    let needs_report = !by_hand && station.is_some_and(|station: &StationView| !station.by_user);
     if !registry.store_station_completion(station_id, result.trim(), &followups, needs_report)? {
         return Err(CommandError::Implementation(ALREADY_DECIDED.to_owned()));
     }
@@ -422,6 +516,7 @@ pub fn complete_station_with_handoff(
         result.trim(),
         &outcome,
         decider == Decider::Master,
+        by_hand,
     );
     outcome.hint = hint;
     outcome.handoff_unused = handoff.note.is_some() && handed.is_empty();
@@ -763,8 +858,13 @@ fn wake_master_after_acceptance(
     result: &str,
     outcome: &CompleteOutcome,
     is_by_master: bool,
+    by_hand: bool,
 ) {
-    let events = wake::events_after_acceptance(station_id, outcome.is_finished, is_by_master);
+    let events = if by_hand {
+        wake::events_after_marking(station_id, outcome.is_finished)
+    } else {
+        wake::events_after_acceptance(station_id, outcome.is_finished, is_by_master)
+    };
     let Some((phase, station)) = find_station(view, station_id) else {
         return;
     };

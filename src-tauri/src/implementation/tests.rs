@@ -6619,3 +6619,206 @@ fn urgency_is_the_maximum_over_state_and_live() {
     assert_eq!(live(SessionStatus::Error), StationState::Error);
     assert_eq!(live(SessionStatus::Paused), StationState::WaitsForYou);
 }
+
+// „Als fertig markieren“ (ADR 048): Bedingung, Wirkung und Wecken.
+
+/// Die Umsetzung mit einer Station der Agenten, deren Session so ist.
+fn marking_view(row: StationRow, session: Option<SessionLive>) -> ImplementationView {
+    live_view(row, None, session)
+}
+
+fn error_session(is_fresh: bool) -> SessionLive {
+    SessionLive {
+        is_fresh_error: is_fresh,
+        ..session_live(SessionStatus::Error)
+    }
+}
+
+fn paused_session(waits_for_quota: bool) -> SessionLive {
+    SessionLive {
+        waits_for_quota,
+        ..session_live(SessionStatus::Paused)
+    }
+}
+
+fn may_mark(view: &ImplementationView) -> bool {
+    check_mark_done(view, "s", "ok").is_ok()
+}
+
+#[test]
+fn marking_an_error_station_done_completes_it_without_report() {
+    let view = marking_view(station_row("s", 0, "Umsetzung"), Some(error_session(false)));
+    assert_eq!(view.phases[0].stations[0].state, StationState::Error);
+    assert_eq!(
+        check_mark_done(&view, "s", " erledigt ").as_deref().ok(),
+        Some("erledigt")
+    );
+    let database = database_with(&[station_row("s", 0, "Umsetzung")]);
+    let accepted = database
+        .with(|connection| {
+            implementation_rows::accept_station_with_followups(
+                connection,
+                "s",
+                2.0,
+                "erledigt",
+                &[],
+                false,
+            )
+        })
+        .expect("schreibbar");
+    assert!(accepted, "ohne Meldung angenommen");
+    assert_eq!(stored_stations(&database)[0].completed_at, Some(2.0));
+}
+
+#[test]
+fn marking_a_station_with_a_start_error_done_is_allowed() {
+    let row = StationRow {
+        start_error: Some("Agent fehlt".to_owned()),
+        ..station_row("s", 0, "Umsetzung")
+    };
+    assert!(may_mark(&marking_view(row, None)));
+}
+
+#[test]
+fn marking_is_refused_while_a_restart_is_pending() {
+    let row = StationRow {
+        on_error: OnError::RestartOnce,
+        ..station_row("s", 0, "Umsetzung")
+    };
+    let view = marking_view(row, Some(error_session(true)));
+    assert!(view.phases[0].stations[0].restarting);
+    let Err(CommandError::Implementation(refusal)) = check_mark_done(&view, "s", "ok") else {
+        panic!("abgelehnt");
+    };
+    assert_eq!(refusal, MARK_DONE_REFUSED);
+}
+
+#[test]
+fn marking_a_paused_station_without_timer_done_is_allowed_with_or_without_report() {
+    let plain = marking_view(
+        station_row("s", 0, "Umsetzung"),
+        Some(paused_session(false)),
+    );
+    assert!(may_mark(&plain));
+    let reported = marking_view(reported_row(0), Some(paused_session(false)));
+    assert_eq!(reported.phases[0].stations[0].state, StationState::Reported);
+    assert!(may_mark(&reported));
+}
+
+#[test]
+fn marking_is_refused_with_an_armed_timer() {
+    let plain = marking_view(station_row("s", 0, "Umsetzung"), Some(paused_session(true)));
+    assert_eq!(
+        plain.phases[0].stations[0].state,
+        StationState::WaitsForQuota
+    );
+    assert!(!may_mark(&plain));
+    let reported = marking_view(reported_row(0), Some(paused_session(true)));
+    assert!(
+        !may_mark(&reported),
+        "auch gemeldet zeigt der Zeitgeber `live`"
+    );
+}
+
+#[test]
+fn marking_is_refused_for_running_done_by_you_or_cancelled() {
+    let running = marking_view(
+        station_row("s", 0, "Umsetzung"),
+        Some(session_live(SessionStatus::Running)),
+    );
+    assert!(!may_mark(&running));
+    let by_user = StationRow {
+        by_user: true,
+        start_error: Some("x".to_owned()),
+        ..station_row("s", 0, "Umsetzung")
+    };
+    assert!(!may_mark(&marking_view(by_user, None)));
+    let done = live_view(
+        station_row("s", 0, "Umsetzung"),
+        Some(5.0),
+        Some(error_session(false)),
+    );
+    assert!(!may_mark(&done), "angenommen");
+    let mut cancelled = marking_view(station_row("s", 0, "Umsetzung"), Some(error_session(false)));
+    cancelled.cancelled_at = Some(3.0);
+    assert!(!may_mark(&cancelled));
+}
+
+#[test]
+fn marking_done_never_starts_a_fix_round_even_with_fix_needed() {
+    let row = StationRow {
+        report: Some(report_json(&stored_report("Befund", true))),
+        reported_at: Some(5.0),
+        ..station_row("s", 0, "Review")
+    };
+    let view = marking_view(row, Some(paused_session(false)));
+    assert!(may_mark(&view));
+    let (followups, hint) = plan_completion(&view, "s", false).expect("gültig");
+    assert!((followups.is_empty()) && hint.is_none());
+}
+
+#[test]
+fn marking_done_starts_successors_like_an_acceptance() {
+    let database = database_with(&[node("a", &[]), node("b", &["a"])]);
+    assert_eq!(due_ids(&graph(stored_stations(&database))), ["a"]);
+    database
+        .with(|connection| {
+            implementation_rows::accept_station_with_followups(
+                connection,
+                "a",
+                2.0,
+                "von Hand",
+                &[],
+                false,
+            )
+        })
+        .expect("schreibbar");
+    assert_eq!(due_ids(&graph(stored_stations(&database))), ["b"]);
+}
+
+#[test]
+fn a_marked_station_shows_done_without_live() {
+    let session = SessionLive {
+        last_activity_at: 4.0,
+        ..error_session(false)
+    };
+    let view = live_view(station_row("s", 0, "Umsetzung"), Some(5.0), Some(session));
+    let station = &view.phases[0].stations[0];
+    assert_eq!(
+        (station.state, station.live, station.pause),
+        (StationState::Done, None, None)
+    );
+}
+
+#[test]
+fn the_result_is_trimmed_and_between_1_and_200_characters() {
+    let view = marking_view(station_row("s", 0, "Umsetzung"), Some(error_session(false)));
+    assert_eq!(
+        check_mark_done(&view, "s", "  ok \n").expect("gültig"),
+        "ok"
+    );
+    assert!(
+        check_mark_done(&view, "s", " \t ").is_err(),
+        "nur Leerzeichen"
+    );
+    assert!(check_mark_done(&view, "s", &"a".repeat(200)).is_ok());
+    assert!(check_mark_done(&view, "s", &"a".repeat(201)).is_err());
+}
+
+#[test]
+fn the_mark_done_command_is_classified_with_the_implementation_id() {
+    use crate::remote::access::{Class, IdKind, class_of, ids_of};
+    assert_eq!(
+        class_of("implementation_mark_station_done"),
+        Some(Class::HostWrite)
+    );
+    let ids = ids_of(
+        "implementation_mark_station_done",
+        &json!({ "implementationId": "impl", "stationId": "s", "result": "ok" }),
+    );
+    assert!(
+        ids.iter()
+            .any(|target| target.kind == IdKind::Implementation && target.value == "impl"),
+        "{ids:?}"
+    );
+}

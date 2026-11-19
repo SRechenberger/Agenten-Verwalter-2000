@@ -66,15 +66,15 @@ use verwalter_lib::implementation::report::Extras;
 use verwalter_lib::implementation::slots::{self, Start};
 use verwalter_lib::implementation::{
     Countdowns, STATION_BEGUN, SessionLive, amended_brief_changes, arms_on_new_pause, build_view,
-    changes, checked_options, checked_settings, continues_after_quota, handoff_changes,
-    kept_phases, link, new_rows, now_ms, plan_completion, plan_completion_with_types, report,
-    schedule, start, wake,
+    changes, check_mark_done, checked_options, checked_settings, continues_after_quota,
+    handoff_changes, kept_phases, link, new_rows, now_ms, plan_completion,
+    plan_completion_with_types, report, schedule, start, wake,
 };
 use verwalter_lib::projects::model::ProjectPriority;
 use verwalter_lib::session_tools::reference;
 use verwalter_lib::sessions::model::SessionStatus;
 
-const USAGE: &str = "Aufruf: implementation-probe --selftest | <Datenbank-Kopie> create <Session-ID> <JSON-Datei> | show <Umsetzungs-ID> | report <Umsetzungs-ID> | --wake-texts <Ordner> | complete <Umsetzungs-ID> <Station-ID> \"<Ergebnis>\" [--fix] [--report-only] | return <Umsetzungs-ID> <Station-ID> \"<Nachricht>\" | set-phases <Umsetzungs-ID> <JSON-Datei> [--apply] | set-station <Umsetzungs-ID> <Station-ID> <JSON-Datei>";
+const USAGE: &str = "Aufruf: implementation-probe --selftest | <Datenbank-Kopie> create <Session-ID> <JSON-Datei> | show <Umsetzungs-ID> | report <Umsetzungs-ID> | --wake-texts <Ordner> | complete <Umsetzungs-ID> <Station-ID> \"<Ergebnis>\" [--fix] [--report-only] | mark-done <Umsetzungs-ID> <Station-ID> \"<Ergebnis>\" | return <Umsetzungs-ID> <Station-ID> \"<Nachricht>\" | set-phases <Umsetzungs-ID> <JSON-Datei> [--apply] | set-station <Umsetzungs-ID> <Station-ID> <JSON-Datei>";
 
 #[derive(Deserialize)]
 struct CreateInput {
@@ -141,6 +141,13 @@ fn main() -> ExitCode {
                 has_flag("--fix"),
                 !has_flag("--report-only"),
             )
+        }
+        (Some("mark-done"), Some(implementation_id), Some(station_id)) => {
+            let Some(result) = arguments.get(4) else {
+                eprintln!("{USAGE}");
+                return ExitCode::from(2);
+            };
+            mark_by_hand(&database_path, implementation_id, station_id, result)
         }
         (Some("return"), Some(implementation_id), Some(station_id)) => {
             let Some(message) = arguments.get(4) else {
@@ -323,6 +330,73 @@ fn complete(
         wake_lines(&reported, &after, station_id, &report, true),
     ));
     Ok(text)
+}
+
+/// „Als fertig markieren“ (ADR 048): dieselbe Prüfung, derselbe Schreiber und dieselbe Entscheidung zum
+/// Wecken wie die App; druckt, welche Stationen danach starten und welche Nachricht den Master weckt.
+fn mark_by_hand(
+    database_path: &Path,
+    implementation_id: &str,
+    station_id: &str,
+    result: &str,
+) -> Result<String, String> {
+    let database = Database::open(database_path).map_err(|error| error.to_string())?;
+    let before = view_of(&database, implementation_id)?;
+    let result = check_mark_done(&before, station_id, result).map_err(|error| error.to_string())?;
+    let is_marked = database
+        .with(|connection| {
+            implementations::accept_station_with_followups(
+                connection,
+                station_id,
+                now_ms(),
+                &result,
+                &[],
+                false,
+            )
+        })
+        .map_err(|error| error.to_string())?;
+    if !is_marked {
+        return Err("Diese Station ist schon angenommen.".to_owned());
+    }
+    let after = view_of(&database, implementation_id)?;
+    let startable: Vec<String> = after
+        .phases
+        .iter()
+        .flat_map(|phase| phase.stations.iter().map(move |station| (phase, station)))
+        .filter(|(_, station)| station.state == StationState::Ready)
+        .map(|(phase, station)| format!("  Phase {} · {}", phase.key, station.stage))
+        .collect();
+    let next = if startable.is_empty() {
+        "  (keine)".to_owned()
+    } else {
+        startable.join("\n")
+    };
+    let (phase, station) = before
+        .phases
+        .iter()
+        .flat_map(|phase| phase.stations.iter().map(move |station| (phase, station)))
+        .find(|(_, station)| station.id == station_id)
+        .ok_or("Station fehlt")?;
+    let facts = wake::WakeFacts {
+        implementation: before.name.clone(),
+        lane: phase.key.clone(),
+        stage: station.stage.clone(),
+        text: result.clone(),
+        note: String::new(),
+    };
+    let is_finished = after.stations_done == after.stations_total;
+    let mut claimed = std::collections::HashSet::new();
+    let lines: Vec<String> = wake::events_after_marking(station_id, is_finished)
+        .iter()
+        .filter_map(|event| wake::decide(event, &facts, true, &mut claimed))
+        .map(|text: String| format!("  {text}"))
+        .collect();
+    Ok(format!(
+        "VORHER\n{}\n\nNACHHER (von Hand fertig, Ergebnis „{result}“)\n{}\n\nDarf starten:\n{next}\n\nWeckt den Master:\n{}",
+        report::text(&before, now_ms(), false),
+        report::text(&after, now_ms(), false),
+        lines.join("\n"),
+    ))
 }
 
 fn plan_id_of(view: &ImplementationView, station_id: &str) -> String {
@@ -1844,6 +1918,16 @@ fn write_wake_texts(folder: &Path) -> Result<(), String> {
             wake::WakeFacts {
                 stage: "Merge".to_owned(),
                 text: "PR gemergt".to_owned(),
+                ..facts.clone()
+            },
+        ),
+        (
+            "marked-done",
+            wake::WakeEvent::MarkedDone {
+                station_id: station("s1"),
+            },
+            wake::WakeFacts {
+                text: "vom Benutzer als fertig markiert".to_owned(),
                 ..facts.clone()
             },
         ),

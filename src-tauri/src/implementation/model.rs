@@ -27,6 +27,8 @@ pub const MAX_CANCEL_REASON_CHARS: usize = 300;
 pub const MAX_NOTE_CHARS: usize = 1000;
 /// Nachricht einer Rückgabe (ADR 070), getrimmt.
 pub const MAX_RETURN_CHARS: usize = 4000;
+/// Das Ergebnis einer Station: bei der Meldung, bei „Erledigt“ und beim Markieren von Hand.
+pub const MAX_STATION_RESULT_CHARS: usize = 200;
 /// So oft darf der Master eine Meldung zurückgeben; danach entscheidet der Benutzer (ADR 070).
 pub const MAX_RETURNS: u32 = 3;
 
