@@ -334,12 +334,17 @@ fn plan_finish(
 const MARK_DONE_REFUSED: &str =
     "Als fertig markieren geht nur bei einer Station im Fehler oder in einer Pause ohne Zeitgeber.";
 
-/// Darf der Benutzer die Station von Hand als fertig markieren (ADR 048)? Eine Station des Agenten, nicht
-/// angenommen, im Fehler ohne anstehenden Neustart oder mit Startfehler, oder mit pausierter Session ohne
-/// scharfen Zeitgeber „Automatisch fortsetzen“ (der zeigt `WaitsForQuota`, bei einer gemeldeten Station
-/// in `live`). Die Oberfläche spiegelt die Regel in `markDone.ts`.
-pub fn may_be_marked_done(station: &StationView) -> bool {
-    if station.by_user || station.completed_at.is_some() || station.state == StationState::Done {
+/// Darf der Benutzer die Station von Hand als fertig markieren (ADR 048)? Die eine Regel des Vertrags:
+/// Umsetzung nicht abgebrochen; Station des Agenten, nicht angenommen; im Fehler ohne anstehenden Neustart
+/// oder mit Startfehler, oder mit pausierter Session ohne scharfen Zeitgeber „Automatisch fortsetzen“ (der
+/// zeigt `WaitsForQuota`, bei einer gemeldeten Station in `live`). Die Oberfläche spiegelt sie in
+/// `markDone.ts`.
+pub fn may_be_marked_done(view: &ImplementationView, station: &StationView) -> bool {
+    if view.cancelled_at.is_some()
+        || station.by_user
+        || station.completed_at.is_some()
+        || station.state == StationState::Done
+    {
         return false;
     }
     let is_timer_armed = station.state == StationState::WaitsForQuota
@@ -349,30 +354,48 @@ pub fn may_be_marked_done(station: &StationView) -> bool {
     is_failed || (station.pause.is_some() && !is_timer_armed)
 }
 
-/// Prüft „Als fertig markieren“ und gibt das getrimmte Ergebnis zurück.
+/// Die Angaben eines Abschlusses: `by_hand` ist „Als fertig markieren“ (braucht keine Meldung, keine
+/// Fix-Runde, weckt mit „Von Hand fertig“).
+struct Finish {
+    result: String,
+    fix_needed: bool,
+    handoff: Handoff,
+    decider: Decider,
+    by_hand: bool,
+}
+
+impl Finish {
+    /// Prüft „Als fertig markieren“ und gibt den Abschluss mit dem getrimmten Ergebnis zurück. Außer bei
+    /// einer unbekannten Station lehnt jeder Fall ohne die Regel mit dem Satz des Vertrags ab.
+    fn marking(
+        view: &ImplementationView,
+        station_id: &str,
+        result: &str,
+    ) -> Result<Self, CommandError> {
+        let (_, station) = station_in(view, station_id)?;
+        if !may_be_marked_done(view, station) {
+            return Err(CommandError::Implementation(MARK_DONE_REFUSED.to_owned()));
+        }
+        let result = result.trim();
+        check_length("result", result, 1, MAX_STATION_RESULT_CHARS)
+            .map_err(CommandError::Implementation)?;
+        Ok(Self {
+            result: result.to_owned(),
+            fix_needed: false,
+            handoff: Handoff::default(),
+            decider: Decider::User,
+            by_hand: true,
+        })
+    }
+}
+
+/// Prüft „Als fertig markieren“ und gibt das getrimmte Ergebnis zurück (für die Probe).
 pub fn check_mark_done(
     view: &ImplementationView,
     station_id: &str,
     result: &str,
 ) -> Result<String, CommandError> {
-    if view.cancelled_at.is_some() {
-        return Err(CommandError::Implementation(format!(
-            "{IS_CANCELLED} Es gibt nichts mehr zu entscheiden."
-        )));
-    }
-    let (_, station) = station_in(view, station_id)?;
-    if station.completed_at.is_some() {
-        return Err(CommandError::Implementation(
-            "Diese Station ist schon angenommen.".to_owned(),
-        ));
-    }
-    if !may_be_marked_done(station) {
-        return Err(CommandError::Implementation(MARK_DONE_REFUSED.to_owned()));
-    }
-    let result = result.trim();
-    check_length("result", result, 1, MAX_STATION_RESULT_CHARS)
-        .map_err(CommandError::Implementation)?;
-    Ok(result.to_owned())
+    Finish::marking(view, station_id, result).map(|finish: Finish| finish.result)
 }
 
 /// Der Benutzer markiert eine Station im Fehler oder in einer Pause ohne Zeitgeber von Hand als fertig:
@@ -384,19 +407,11 @@ pub fn mark_station_done(
     station_id: &str,
     result: &str,
 ) -> Result<CompleteOutcome, CommandError> {
-    let registry = app.state::<SessionRegistry>();
-    let view = registry.implementation_view(implementation_id)?;
-    let result = check_mark_done(&view, station_id, result)?;
-    finish_station(
-        app,
-        implementation_id,
-        station_id,
-        &result,
-        false,
-        &Handoff::default(),
-        Decider::User,
-        true,
-    )
+    let view = app
+        .state::<SessionRegistry>()
+        .implementation_view(implementation_id)?;
+    let finish = Finish::marking(&view, station_id, result)?;
+    finish_station(app, implementation_id, station_id, &finish)
 }
 
 /// Der Master oder der Benutzer nimmt die Meldung an (ADR 070, D3): nur wenn die Station gemeldet und ihr
@@ -464,44 +479,61 @@ pub fn complete_station_with_handoff(
     handoff: &Handoff,
     decider: Decider,
 ) -> Result<CompleteOutcome, CommandError> {
-    finish_station(
-        app,
-        implementation_id,
-        station_id,
-        result,
+    let finish = Finish {
+        result: result.to_owned(),
         fix_needed,
-        handoff,
+        handoff: handoff.clone(),
         decider,
-        false,
-    )
+        by_hand: false,
+    };
+    finish_station(app, implementation_id, station_id, &finish)
 }
 
-/// Der gemeinsame Weg von Annahme, „Erledigt“ und „Als fertig markieren“ (`by_hand`): Letzteres braucht
-/// keine Meldung und weckt den Master mit „Von Hand fertig“.
-#[allow(clippy::too_many_arguments)]
+/// Braucht der Abschluss die gespeicherte Meldung? Eine Station des Agenten schon, „Erledigt“ einer
+/// Station des Benutzers und „Als fertig markieren“ (`by_hand`) nicht.
+fn needs_report(by_hand: bool, station_by_user: bool) -> bool {
+    !by_hand && !station_by_user
+}
+
+/// Eine Änderung des Auftrags eines Nachfolgers: (Station, Plan-Kennung, Änderung).
+type HandoffChange = (String, String, BriefChange);
+
+/// Der Teil des Abschlusses ohne `AppHandle`: Prüfen, Übergabe planen, Station annehmen und die
+/// Nachfolger anhängen (eine Transaktion). Gibt die Fix-Runde, den Hinweis und die Änderungen der Aufträge
+/// zurück.
+fn store_finish(
+    registry: &SessionRegistry,
+    view: &ImplementationView,
+    station_id: &str,
+    finish: &Finish,
+) -> Result<(Option<String>, Vec<HandoffChange>), CommandError> {
+    let types = registry.agent_types()?;
+    let (followups, hint) =
+        plan_finish(view, station_id, finish.fix_needed, finish.by_hand, &types)
+            .map_err(CommandError::Implementation)?;
+    let rows = registry.station_rows(&view.id)?;
+    let changes = handoff_changes(&rows, station_id, &followups, &finish.handoff, now_ms())
+        .map_err(CommandError::Implementation)?;
+    let station_by_user = find_station(view, station_id)
+        .is_some_and(|(_, station): (_, &StationView)| station.by_user);
+    let needs_report = needs_report(finish.by_hand, station_by_user);
+    if !registry.store_station_completion(station_id, &finish.result, &followups, needs_report)? {
+        return Err(CommandError::Implementation(ALREADY_DECIDED.to_owned()));
+    }
+    Ok((hint, changes))
+}
+
+/// Der gemeinsame Weg von Annahme, „Erledigt“ und „Als fertig markieren“ (`Finish::by_hand`).
 fn finish_station(
     app: &AppHandle,
     implementation_id: &str,
     station_id: &str,
-    result: &str,
-    fix_needed: bool,
-    handoff: &Handoff,
-    decider: Decider,
-    by_hand: bool,
+    finish: &Finish,
 ) -> Result<CompleteOutcome, CommandError> {
     let registry = app.state::<SessionRegistry>();
     let view = registry.implementation_view(implementation_id)?;
-    let types = registry.agent_types()?;
-    let (followups, hint) = plan_finish(&view, station_id, fix_needed, by_hand, &types)
-        .map_err(CommandError::Implementation)?;
-    let rows = registry.station_rows(implementation_id)?;
-    let changes = handoff_changes(&rows, station_id, &followups, handoff, now_ms())
-        .map_err(CommandError::Implementation)?;
+    let (hint, changes) = store_finish(&registry, &view, station_id, finish)?;
     let station = find_station(&view, station_id).map(|(_, station)| station);
-    let needs_report = !by_hand && station.is_some_and(|station: &StationView| !station.by_user);
-    if !registry.store_station_completion(station_id, result.trim(), &followups, needs_report)? {
-        return Err(CommandError::Implementation(ALREADY_DECIDED.to_owned()));
-    }
     // Eine angenommene Station setzt nicht fort (ADR 064): ihr Zeitgeber endet mit der Annahme.
     if let Some(station) = station
         && let Err(error) = switch_timer(app, station, false)
@@ -525,13 +557,13 @@ fn finish_station(
         app,
         &view,
         station_id,
-        result.trim(),
+        &finish.result,
         &outcome,
-        decider == Decider::Master,
-        by_hand,
+        finish.decider == Decider::Master,
+        finish.by_hand,
     );
     outcome.hint = hint;
-    outcome.handoff_unused = handoff.note.is_some() && handed.is_empty();
+    outcome.handoff_unused = finish.handoff.note.is_some() && handed.is_empty();
     outcome.handed = handed;
     Ok(outcome)
 }
@@ -872,11 +904,7 @@ fn wake_master_after_acceptance(
     is_by_master: bool,
     by_hand: bool,
 ) {
-    let events = if by_hand {
-        wake::events_after_marking(station_id, outcome.is_finished)
-    } else {
-        wake::events_after_acceptance(station_id, outcome.is_finished, is_by_master)
-    };
+    let events = wake::events_after_finish(station_id, outcome.is_finished, is_by_master, by_hand);
     let Some((phase, station)) = find_station(view, station_id) else {
         return;
     };

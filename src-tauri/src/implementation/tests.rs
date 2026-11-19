@@ -6642,7 +6642,15 @@ fn paused_session(waits_for_quota: bool) -> SessionLive {
 }
 
 fn may_mark(view: &ImplementationView) -> bool {
-    check_mark_done(view, "s", "ok").is_ok()
+    Finish::marking(view, "s", "ok").is_ok()
+}
+
+/// Der Satz, mit dem `Finish::marking` ablehnt (ohne Satz: nicht abgelehnt).
+fn marking_refusal(view: &ImplementationView) -> Option<String> {
+    match Finish::marking(view, "s", "ok") {
+        Err(CommandError::Implementation(refusal)) => Some(refusal),
+        _ => None,
+    }
 }
 
 #[test]
@@ -6650,8 +6658,10 @@ fn marking_an_error_station_done_completes_it_without_report() {
     let view = marking_view(station_row("s", 0, "Umsetzung"), Some(error_session(false)));
     assert_eq!(view.phases[0].stations[0].state, StationState::Error);
     assert_eq!(
-        check_mark_done(&view, "s", " erledigt ").as_deref().ok(),
-        Some("erledigt")
+        Finish::marking(&view, "s", " erledigt ")
+            .ok()
+            .map(|finish: Finish| finish.result),
+        Some("erledigt".to_owned())
     );
     let database = database_with(&[station_row("s", 0, "Umsetzung")]);
     let accepted = database
@@ -6687,10 +6697,7 @@ fn marking_is_refused_while_a_restart_is_pending() {
     };
     let view = marking_view(row, Some(error_session(true)));
     assert!(view.phases[0].stations[0].restarting);
-    let Err(CommandError::Implementation(refusal)) = check_mark_done(&view, "s", "ok") else {
-        panic!("abgelehnt");
-    };
-    assert_eq!(refusal, MARK_DONE_REFUSED);
+    assert_eq!(marking_refusal(&view).as_deref(), Some(MARK_DONE_REFUSED));
 }
 
 #[test]
@@ -6726,22 +6733,35 @@ fn marking_is_refused_for_running_done_by_you_or_cancelled() {
         station_row("s", 0, "Umsetzung"),
         Some(session_live(SessionStatus::Running)),
     );
-    assert!(!may_mark(&running));
+    assert_eq!(
+        marking_refusal(&running).as_deref(),
+        Some(MARK_DONE_REFUSED)
+    );
     let by_user = StationRow {
         by_user: true,
         start_error: Some("x".to_owned()),
         ..station_row("s", 0, "Umsetzung")
     };
-    assert!(!may_mark(&marking_view(by_user, None)));
-    let done = live_view(
-        station_row("s", 0, "Umsetzung"),
-        Some(5.0),
-        Some(error_session(false)),
+    assert_eq!(
+        marking_refusal(&marking_view(by_user, None)).as_deref(),
+        Some(MARK_DONE_REFUSED)
     );
-    assert!(!may_mark(&done), "angenommen");
+    let failed_but_done = StationRow {
+        start_error: Some("alt".to_owned()),
+        ..station_row("s", 0, "Umsetzung")
+    };
+    let done = live_view(failed_but_done, Some(5.0), None);
+    assert_eq!(
+        marking_refusal(&done).as_deref(),
+        Some(MARK_DONE_REFUSED),
+        "angenommen"
+    );
     let mut cancelled = marking_view(station_row("s", 0, "Umsetzung"), Some(error_session(false)));
     cancelled.cancelled_at = Some(3.0);
-    assert!(!may_mark(&cancelled));
+    assert_eq!(
+        marking_refusal(&cancelled).as_deref(),
+        Some(MARK_DONE_REFUSED)
+    );
 }
 
 #[test]
@@ -6799,15 +6819,91 @@ fn a_marked_station_shows_done_without_live() {
 fn the_result_is_trimmed_and_between_1_and_200_characters() {
     let view = marking_view(station_row("s", 0, "Umsetzung"), Some(error_session(false)));
     assert_eq!(
-        check_mark_done(&view, "s", "  ok \n").expect("gültig"),
+        Finish::marking(&view, "s", "  ok \n")
+            .expect("gültig")
+            .result,
         "ok"
     );
     assert!(
-        check_mark_done(&view, "s", " \t ").is_err(),
+        Finish::marking(&view, "s", " \t ").is_err(),
         "nur Leerzeichen"
     );
-    assert!(check_mark_done(&view, "s", &"a".repeat(200)).is_ok());
-    assert!(check_mark_done(&view, "s", &"a".repeat(201)).is_err());
+    assert!(Finish::marking(&view, "s", &"a".repeat(200)).is_ok());
+    assert!(Finish::marking(&view, "s", &"a".repeat(201)).is_err());
+}
+
+#[test]
+fn marking_builds_a_hand_finish_without_fix_round_decided_by_the_user() {
+    let view = marking_view(station_row("s", 0, "Umsetzung"), Some(error_session(false)));
+    let finish = Finish::marking(&view, "s", "ok").expect("gültig");
+    assert!(finish.by_hand && !finish.fix_needed);
+    assert_eq!(finish.decider, Decider::User);
+    assert_eq!(finish.handoff, Handoff::default());
+}
+
+#[test]
+fn only_a_hand_finish_or_a_station_of_the_user_needs_no_report() {
+    assert!(
+        needs_report(false, false),
+        "Annahme einer Station des Agenten"
+    );
+    assert!(!needs_report(true, false), "von Hand");
+    assert!(!needs_report(false, true), "Erledigt durch dich");
+}
+
+#[test]
+fn marking_an_error_station_without_report_completes_it_and_starts_the_successor() {
+    let with_session = StationRow {
+        session_id: Some("session".to_owned()),
+        ..node("a", &[])
+    };
+    let registry = registry_with_station_session(
+        database_with(&[with_session, node("b", &["a"])]),
+        SessionStatus::Error,
+    );
+    let view = registry
+        .implementation_view("implementation")
+        .expect("Ansicht");
+    let station = &view.phases[0].stations[0];
+    assert_eq!(station.state, StationState::Error);
+    assert!(may_be_marked_done(&view, station));
+    let finish = Finish::marking(&view, "a", " von Hand ").expect("erlaubt");
+    let (hint, changes) = store_finish(&registry, &view, "a", &finish).expect("angenommen");
+    assert!(hint.is_none() && changes.is_empty(), "keine Fix-Runde");
+    let rows = registry.station_rows("implementation").expect("Zeilen");
+    assert_eq!(rows.len(), 2, "keine Fix-Runde angehängt");
+    assert_eq!(rows[0].result.as_deref(), Some("von Hand"));
+    assert!(rows[0].completed_at.is_some());
+    assert_eq!(due_ids(&graph(rows)), ["b"]);
+    assert!(
+        matches!(
+            store_finish(&registry, &view, "a", &finish),
+            Err(CommandError::Implementation(ref message)) if message == ALREADY_DECIDED
+        ),
+        "kein zweites Mal"
+    );
+}
+
+#[test]
+fn marking_wakes_the_master_once_with_marked_done_and_finished_on_the_last_station() {
+    use wake::{WakeEvent, events_after_finish};
+    let kinds = |is_finished: bool, by_master: bool, by_hand: bool| -> Vec<&'static str> {
+        events_after_finish("s", is_finished, by_master, by_hand)
+            .iter()
+            .map(|event: &WakeEvent| match event {
+                WakeEvent::MarkedDone { .. } => "marked",
+                WakeEvent::Finished { .. } => "finished",
+                _ => "other",
+            })
+            .collect()
+    };
+    assert_eq!(kinds(false, false, true), ["marked"]);
+    assert_eq!(kinds(true, false, true), ["marked", "finished"]);
+    assert!(
+        kinds(false, false, false).is_empty(),
+        "eine Annahme weckt nicht"
+    );
+    assert_eq!(kinds(true, false, false), ["finished"]);
 }
 
 #[test]

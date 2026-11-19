@@ -235,6 +235,20 @@ pub fn events_after_acceptance(
     }
 }
 
+/// Die Ereignisse eines Abschlusses: von Hand (`by_hand`) „Von Hand fertig“, sonst die der Annahme.
+pub fn events_after_finish(
+    station_id: &str,
+    is_finished: bool,
+    is_by_master: bool,
+    by_hand: bool,
+) -> Vec<WakeEvent> {
+    if by_hand {
+        events_after_marking(station_id, is_finished)
+    } else {
+        events_after_acceptance(station_id, is_finished, is_by_master)
+    }
+}
+
 /// Die Ereignisse von „Als fertig markieren“: „Von Hand fertig“, dazu „Fertig“, wenn es die letzte
 /// Station war.
 pub fn events_after_marking(station_id: &str, is_finished: bool) -> Vec<WakeEvent> {
