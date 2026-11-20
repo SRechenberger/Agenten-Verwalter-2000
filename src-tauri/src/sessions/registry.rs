@@ -961,6 +961,20 @@ impl SessionRegistry {
         Ok(())
     }
 
+    /// Die Station dieser Session ist angenommen (ADR 074): Ruht die Session, endet ihr Agent wie beim
+    /// Leerlauf-Reaper (`SessionState::release_agent`).
+    pub fn release_agent(&self, app: &AppHandle, session_id: &str) -> Result<(), CommandError> {
+        let session = self.get(session_id)?;
+        update(
+            app,
+            &session,
+            |state: &mut SessionState, outbox: &mut Outbox| {
+                state.release_agent(outbox);
+                Ok(())
+            },
+        )
+    }
+
     /// `false` auch, wenn die Session verschwunden ist.
     pub(crate) fn auto_resume_is_current(&self, session_id: &str, armed: ArmedResume) -> bool {
         self.get(session_id)
@@ -3053,6 +3067,15 @@ impl SessionState {
 
     fn has_running_background(&self) -> bool {
         self.background.iter().any(BackgroundItem::is_running)
+    }
+
+    /// Gibt den Agenten einer ruhenden Session frei, auf dem Weg des Leerlauf-Reapers
+    /// (`retire_idle_process`); die nächste Nachricht startet ihn mit `--resume` neu. Läuft noch
+    /// etwas im Hintergrund, behält die Session ihn.
+    fn release_agent(&mut self, outbox: &mut Outbox) {
+        if self.process.is_some() && self.is_resting() {
+            retire_idle_process(self, outbox);
+        }
     }
 
     /// Weder der Agent noch etwas im Hintergrund arbeitet: ein Neustart des Prozesses unterbricht nichts.
@@ -7274,6 +7297,60 @@ mod tests {
             }
             assert!(all_gone, "ein Prozess lebt noch");
             assert!(waited < Duration::from_secs(1), "gewartet: {waited:?}");
+        }
+
+        /// V72: Die Annahme einer ruhenden Station gibt ihren Agenten frei.
+        #[test]
+        fn release_agent_retires_a_resting_station_like_the_reaper() {
+            let (agent, child) = agent("sleep 300 & echo $!; exec sleep 300");
+            let leader = agent.pid();
+            let mut state = state();
+            let mut outbox = Outbox::default();
+            state.process = Some(Arc::clone(&agent));
+            state.status = SessionStatus::Completed;
+            state.release_agent(&mut outbox);
+            let released = state.process.is_none() && outbox.retire;
+            if let Some(retired) = outbox.process.take().filter(|_| released) {
+                retire_process_after(retired, GRACE);
+                after_grace();
+            }
+            let leader_gone = released && gone(leader);
+            // Ein roter Lauf räumt seine eigenen Prozesse ab, bevor er scheitert.
+            agent.kill();
+            let _ = gone(leader);
+            clean_up(child);
+            clean_up(leader);
+            assert!(
+                released,
+                "die Session gibt den Prozess nicht an `retire_process`"
+            );
+            assert!(leader_gone, "der Agent lebt noch");
+        }
+
+        /// V72, Gegenfall: Mit laufender Hintergrundarbeit behält die Station ihren Agenten.
+        #[test]
+        fn release_agent_keeps_the_agent_while_background_work_runs() {
+            let (agent, child) = agent("sleep 300 & echo $!; exec sleep 300");
+            let leader = agent.pid();
+            let mut state = state();
+            let mut outbox = Outbox::default();
+            state.process = Some(Arc::clone(&agent));
+            state.status = SessionStatus::Completed;
+            state.start_background(
+                &mut outbox,
+                "b1".to_owned(),
+                "t1".to_owned(),
+                BackgroundKind::Process,
+                "Dev-Server".to_owned(),
+                None,
+            );
+            state.release_agent(&mut outbox);
+            let kept = state.process.is_some() && !outbox.retire;
+            agent.kill();
+            let _ = gone(leader);
+            clean_up(child);
+            clean_up(leader);
+            assert!(kept, "der Agent wurde trotz Hintergrundarbeit beendet");
         }
     }
 }

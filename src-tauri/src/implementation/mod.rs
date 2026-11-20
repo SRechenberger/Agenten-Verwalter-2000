@@ -547,6 +547,13 @@ fn finish_station(
     {
         eprintln!("Zeitgeber der fertigen Station {station_id} nicht ausgeschaltet: {error}");
     }
+    // Die Annahme gibt den Agenten frei, statt ihn bis zum Leerlauf-Reaper zu halten (ADR 074).
+    if !finish.by_hand
+        && let Some(session_id) = station.and_then(|station| station.session_id.as_deref())
+        && let Err(error) = registry.release_agent(app, session_id)
+    {
+        eprintln!("Agent der angenommenen Station {station_id} nicht beendet: {error}");
+    }
     let mut handed: Vec<(String, BriefChangeKind)> = Vec::new();
     for (target_id, plan_id, change) in changes {
         let kind = change.kind;
