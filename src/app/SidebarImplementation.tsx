@@ -4,12 +4,15 @@ import { RenameField } from '@/app/SidebarItem';
 import { Popover } from '@/components/Popover';
 import { StatusIcon } from '@/components/StatusIcon';
 import { progressShort } from '@/features/implementation/implementationTexts';
-import { stateIcon, stateLabel } from '@/features/implementation/stationState';
+import { implementationIcon } from '@/features/implementation/stationLive';
+import { stateLabel } from '@/features/implementation/stationState';
 import type { ImplementationView } from '@/lib/bindings/ImplementationView';
 import './SidebarImplementation.css';
 
 interface SidebarImplementationProps {
   implementation: ImplementationView;
+  /** `true`: die Zeile steht unter der Master-Session, die die Umsetzung leitet (ADR 070). */
+  underMaster: boolean;
   isActive: boolean;
   isRenaming: boolean;
   onSelect: () => void;
@@ -21,6 +24,7 @@ interface SidebarImplementationProps {
 /** Eine Umsetzung im aufgeklappten Baum eines Vorhabens, vor seinen Sessions (ADR 048). */
 export function SidebarImplementation({
   implementation,
+  underMaster,
   isActive,
   isRenaming,
   onSelect,
@@ -43,7 +47,9 @@ export function SidebarImplementation({
     );
   }
   return (
-    <div className="sidebar-implementation">
+    <div
+      className={`sidebar-implementation${underMaster ? ' sidebar-implementation--nested' : ''}`}
+    >
       <button
         type="button"
         className={`sidebar-implementation__button${isActive ? ' sidebar-implementation__button--active' : ''}`}
@@ -57,7 +63,7 @@ export function SidebarImplementation({
         }}
       >
         <span className="sidebar-implementation__status">
-          <StatusIcon status={stateIcon(implementation.urgency)} size={10} />
+          <StatusIcon {...implementationIcon(implementation)} size={10} shape="square" />
         </span>
         <span
           className={`sidebar-implementation__name${implementation.unread ? ' sidebar-implementation__name--unread' : ''}`}

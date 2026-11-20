@@ -1,3 +1,7 @@
+import { isStartFailure, stageText } from '@/features/implementation/commandStation';
+import type { StationRef } from '@/features/implementation/implementationOrder';
+import { clockText, liveText } from '@/features/implementation/stationLive';
+import { stationLabel as stateNameOf } from '@/features/implementation/stationState';
 import type { BriefChangeKind } from '@/lib/bindings/BriefChangeKind';
 import type { Effort } from '@/lib/bindings/Effort';
 import type { ImplementationView } from '@/lib/bindings/ImplementationView';
@@ -8,12 +12,14 @@ import type { PredecessorsMay } from '@/lib/bindings/PredecessorsMay';
 import type { StationPatch } from '@/lib/bindings/StationPatch';
 import type { StationView } from '@/lib/bindings/StationView';
 import { effortLabel, modelName } from '@/lib/labels';
+import type { QuotaWaiting } from '@/features/implementation/quotaWaiting';
 import type { ValueSource } from '@/features/implementation/stationAgent';
 import type { ImplementationViewKind } from '@/stores/sessions';
 
 export const VIEW_LABEL: Record<ImplementationViewKind, string> = {
   flow: 'Ablauf',
   changes: 'Changes',
+  artifacts: 'Artefakte',
 };
 
 export const REPORT_LABEL = 'Lagebericht';
@@ -39,22 +45,46 @@ export function progressShort(implementation: ImplementationView): string {
 export const AUTO_START_LABEL = 'Automatisch starten';
 export const AUTO_START_TITLE =
   'Startet jede Station, deren Vorgänger fertig sind, nach 10 Sekunden Countdown von selbst. Einzelne Stationen können abweichen.';
-export const MAX_PARALLEL_LABEL = 'Parallel max.';
-export const MAX_PARALLEL_TITLE =
-  'Höchstens so viele Stationen laufen gleichzeitig. Weitere bereite Stationen starten selbst, sobald ein Platz frei wird – nur bei Stationen, die automatisch starten. Ein Klick auf ▶ ignoriert die Grenze.';
-export const MAX_PARALLEL_LESS = 'weniger';
-export const MAX_PARALLEL_MORE = 'mehr';
-/** Anzeige ohne Grenze. */
-export const MAX_PARALLEL_UNLIMITED = '∞';
-export const MAX_PARALLEL_UNLIMITED_TITLE = 'unbegrenzt';
+export const AUTO_RESUME_LABEL = 'Automatisch fortsetzen';
+export const AUTO_RESUME_GLYPH = '↻';
+export const AUTO_RESUME_TITLE =
+  'Setzt jede Station nach leerem Kontingent 30 Sekunden nach dem Zurücksetzen selbst fort. Schaltet alle Stationen, die noch nicht fertig sind; ↻ in der Zeile oder die Kartei schalten nur eine (die letzte Aktion gewinnt).';
 
-/** „Warteschlange: 2“ in der Leiste. */
-export function queueText(count: number): string {
-  return `Warteschlange: ${String(count)}`;
+function stations(count: number, one: string, many: string): string {
+  return `${String(count)} ${count === 1 ? one : many}`;
 }
 
-export const QUEUE_TITLE =
-  'Bereite Stationen, die auf einen freien Platz warten; sie rücken selbst nach';
+/** Warnleiste: „Kontingent aufgebraucht.“ mit den Zahlen dahinter, nach der Rücksetzzeit „Kontingent
+ *  zurückgesetzt.“ mit denen, die noch warten (Entwurf 2026-11-15). */
+export function quotaBarText(waiting: QuotaWaiting): { headline: string; detail: string } {
+  if (waiting.isReset) {
+    const rest: number = waiting.waiting - waiting.resuming;
+    const parts: string[] = [];
+    if (waiting.resuming > 0) {
+      parts.push(`${stations(waiting.resuming, 'Station setzt', 'Stationen setzen')} gleich fort`);
+    }
+    if (rest > 0) {
+      parts.push(`${stations(rest, 'wartet', 'warten')} noch auf dich`);
+    }
+    return { headline: 'Kontingent zurückgesetzt.', detail: `${parts.join(' · ')}.` };
+  }
+  const parts: string[] = [stations(waiting.waiting, 'Station wartet', 'Stationen warten')];
+  if (waiting.resuming > 0) {
+    parts.push(
+      `${stations(waiting.resuming, 'setzt', 'setzen')} ${waiting.resumesAt === null ? 'gleich' : `um ${clockText(waiting.resumesAt)} automatisch`} fort`,
+    );
+  }
+  if (waiting.waitsForYou > 0) {
+    parts.push(`${stations(waiting.waitsForYou, 'wartet', 'warten')} auf dich (Schalter aus)`);
+  }
+  if (waiting.unknownReset > 0) {
+    parts.push(
+      `${String(waiting.unknownReset)} ohne bekannte Rücksetzzeit (${waiting.unknownReset === 1 ? 'setzt' : 'setzen'} nicht fort)`,
+    );
+  }
+  return { headline: 'Kontingent aufgebraucht.', detail: `${parts.join(' · ')}.` };
+}
+
 export const NEW_LANE_LABEL = '+ Lane';
 export const NEW_LANE_TITLE = 'Neue Lane mit Stationen und Kanten anlegen';
 export const STOP_AFTER_LABEL = 'Anhalten nach dieser Session';
@@ -63,8 +93,14 @@ export const BACK_TO_CURRENT_LABEL = 'Zur aktuellen';
 export const BACK_TO_CURRENT_TITLE = 'Springt zurück zur Station, die gerade läuft oder fragt';
 export const OPEN_CHAT_LABEL = 'Chat öffnen';
 export const OPEN_CHAT_TITLE = 'Öffnet die Session dieser Station; Fragen beantwortest du dort';
+export const COMMAND_FAILED_LEAD = 'Fehler.';
+export const PURPOSE_COMMAND = 'Befehl des Verwalters';
+export const PURPOSE_COMMAND_TEXT =
+  '– führt die Schritte nacheinander aus, ohne Agent und ohne Modell.';
 export const START_NOW_LABEL = '▶ Jetzt starten';
 export const START_NOW_TITLE = 'Startet diese Station sofort als neue Session';
+export const RESTART_COMMAND_TITLE = 'Startet die Schritte von vorn';
+export const START_NOW_COMMAND_TITLE = 'Startet die Befehle dieser Station sofort';
 export const CANCEL_COUNTDOWN_LABEL = 'Abbrechen';
 export const CANCEL_COUNTDOWN_TITLE = 'Hält den Countdown an; die Station bleibt bereit';
 export const DONE_BY_USER_RESULT = 'vom Benutzer erledigt';
@@ -86,6 +122,46 @@ export const APPLY_CHANGE_LABEL = 'Übernehmen';
 export const APPLY_CHANGE_TITLE = 'Übernimmt den Vorschlag mit den Werten, wie sie hier stehen';
 export const DISCARD_CHANGE_LABEL = 'Verwerfen';
 export const DISCARD_CHANGE_TITLE = 'Lässt den Plan, wie er ist';
+export const CANCEL_LABEL = 'Abbrechen…';
+export const CANCEL_TITLE =
+  'Beendet die Umsetzung und stoppt laufende Stationen; die Sessions bleiben, eine neue lässt sich anlegen';
+export const DELETE_LABEL = 'Löschen…';
+export const DELETE_TITLE =
+  'Entfernt die Umsetzung samt Lanes, Stationen und Verlauf; Sessions und Worktrees bleiben';
+export const CONFIRM_CANCEL_LABEL = 'Abbrechen';
+export const CONFIRM_DELETE_LABEL = 'Löschen';
+export const CONFIRM_BACK_LABEL = 'Zurück';
+
+/** Rückfrage in der Leiste vor dem Abbrechen (ADR 066). */
+export function cancelQuestion(name: string): string {
+  return `Umsetzung „${name}“ abbrechen? Laufende Stationen werden gestoppt, die Sessions bleiben, danach lässt sich eine neue Umsetzung anlegen.`;
+}
+
+/** Rückfrage in der Leiste vor dem Löschen (ADR 066). */
+export function deleteQuestion(name: string): string {
+  return `Umsetzung „${name}“ endgültig löschen? Lanes, Stationen und Verlauf gehen verloren, Sessions und Worktrees bleiben.`;
+}
+
+/** „Abgebrochen am 09.11. 14:05“ statt der Schalter in der Leiste. */
+export function cancelledText(at: number): string {
+  return `Abgebrochen am ${stampText(at)}`;
+}
+
+/** Warum „Löschen…“ gesperrt ist, solange eine Station arbeitet (wie im Core, ADR 066). */
+export function deleteBlockedText(laneKey: string, stage: string): string {
+  return `Station „${stage}“ in Lane ${laneKey} läuft noch. Erst stoppen oder abwarten, dann löschen.`;
+}
+
+export const CANCEL_REQUEST_TITLE = 'Umsetzung abbrechen?';
+export const DELETE_REQUEST_TITLE = 'Umsetzung löschen?';
+export const CANCEL_REQUEST_REASON = 'Grund';
+export const CANCEL_REQUEST_HINT =
+  'Bis du bestätigst oder verwirfst, startet keine Station. Bestätigen stoppt laufende Stationen; Sessions und Worktrees bleiben.';
+export const CONFIRM_REQUEST_LABEL = 'Bestätigen';
+export const CONFIRM_REQUEST_TITLE = 'Führt die Anfrage aus';
+export const DISCARD_REQUEST_LABEL = 'Verwerfen';
+export const DISCARD_REQUEST_TITLE =
+  'Lässt die Umsetzung, wie sie ist, und plant die Stationen neu';
 export const SHOW_PENDING_LABEL = 'Vorschlag ansehen';
 export const SHOW_PENDING_TITLE = 'Holt die Karte „Plan ändern?“ nach vorn';
 export const CHANGE_MARKER_TITLE = 'Zeigt diese Plan-Änderung vorn in der Kartei';
@@ -217,6 +293,27 @@ export function durationText(milliseconds: number): string {
   return rest === 0 ? `${hours} h` : `${hours} h ${String(rest)} min`;
 }
 
+/** „Review #7“; solange die Station keine Session hat, nur die Stufe. */
+export function stationLabel(station: StationView): string {
+  const number: number | null = station.sessionNumber;
+  return number === null ? stageText(station) : `${stageText(station)} #${String(number)}`;
+}
+
+export const TRAIL_BACK_TITLE = 'Zurück zur Umsetzung';
+
+/** „Vorige aktive Station: Review #7 · läuft“ am ‹ bzw. › der Rückweg-Leiste; ohne Ziel „Keine vorige aktive Station“. */
+export function trailTargetTitle(
+  direction: 'previous' | 'next',
+  target: StationRef | undefined,
+): string {
+  const noun: string = direction === 'previous' ? 'vorige' : 'nächste';
+  if (target === undefined) {
+    return `Keine ${noun} aktive Station`;
+  }
+  const lead: string = direction === 'previous' ? 'Vorige' : 'Nächste';
+  return `${lead} aktive Station: ${stationLabel(target.station)} · ${stateNameOf(target.station)}`;
+}
+
 /** Zustand der Station als Satz für die große Karte („läuft seit 12 min“, „fertig · 24 min“). */
 export function stateText(station: StationView, now: number): string {
   if (station.startError !== null) {
@@ -228,10 +325,14 @@ export function stateText(station: StationView, now: number): string {
       return `läuft seit ${durationText(runningFor(station, now))}`;
     case 'waitsForScript':
       return 'wartet auf einen Hintergrund-Befehl, etwa den Testlauf';
+    case 'waitsForQuota':
+      return 'setzt automatisch fort';
     case 'asking':
       return 'fragt dich';
     case 'waitsForYou':
       return 'wartet auf dich';
+    case 'reported':
+      return 'gemeldet, der Master entscheidet';
     case 'done':
       return `fertig · ${durationText(station.runningMs)}`;
     case 'error':
@@ -246,8 +347,12 @@ export function stateText(station: StationView, now: number): string {
 
 /** Kurzfassung für die Zeitleiste: Dauer, „läuft“, „fragt“, „startet nicht“ — leer, solange nichts war. */
 export function stationMeta(station: StationView, now: number): string {
-  if (station.startError !== null) {
+  if (isStartFailure(station)) {
     return START_FAILED_LABEL;
+  }
+  const live: string | null = liveText(station);
+  if (live !== null) {
+    return live;
   }
   switch (station.state) {
     case 'done':
@@ -257,10 +362,14 @@ export function stationMeta(station: StationView, now: number): string {
       return `läuft ${durationText(runningFor(station, now))}`;
     case 'waitsForScript':
       return 'Skript läuft';
+    case 'waitsForQuota':
+      return 'setzt automatisch fort';
     case 'asking':
       return 'fragt';
     case 'waitsForYou':
       return 'wartet';
+    case 'reported':
+      return 'gemeldet';
     case 'error':
       return 'Fehler';
     case 'countdown':
@@ -313,7 +422,7 @@ export function shortEffort(effort: Effort): string {
 /** „Lane 2 · Review Core #6“; ohne Session ohne Nummer. */
 export function rowTitle(laneKey: string, station: StationView): string {
   const number: string = station.sessionNumber === null ? '' : ` #${String(station.sessionNumber)}`;
-  return `Lane ${laneKey} · ${station.stage}${number}`;
+  return `Lane ${laneKey} · ${stageText(station)}${number}`;
 }
 
 /** „Modell: Opus 5.5 (Typ) · Denkaufwand: hoch (Station)“, nach dem Start mit „– Werte der Session“. */
@@ -343,7 +452,7 @@ export const MANUAL_MARK_TITLE = 'Startet nie von selbst, auch mit „Automatisc
 export const AUTOMATIC_MARK = '▶ automatisch';
 export const AUTOMATIC_MARK_TITLE = 'Startet von selbst, obwohl „Automatisch starten“ aus ist';
 export const ROW_START_LABEL = '▶';
-export const ROW_START_TITLE = 'Jetzt starten (ignoriert die Grenze „Parallel max.“)';
+export const ROW_START_TITLE = 'Jetzt starten (ignoriert die Grenze „Gleichzeitige Agenten max.“)';
 export const ROW_OPEN_LABEL = 'Öffnen';
 export const ROW_OPEN_TITLE = 'Öffnet die Station in der Kartei';
 export const ROW_OPEN_CHAT_TITLE = 'Öffnet den Chat dieser Station; die Frage beantwortest du dort';
@@ -360,10 +469,28 @@ export function waitsOnLead(isBegun: boolean): string {
 
 export const NEXT_LEAD = 'danach →';
 
+/** Tooltip des ↻ in der Zeile. */
+export function rowResumeTitle(station: StationView): string {
+  if (station.state === 'done') {
+    return 'Fertig: nur Ansicht.';
+  }
+  const source: string = station.autoResume === null ? 'wie die Umsetzung' : 'nur diese Station';
+  return `${AUTO_RESUME_LABEL}: ${station.resumesAutomatically ? 'an' : 'aus'} (${source}). Ein Klick schaltet nur diese Station.`;
+}
+
+/** Chip hinter „setzt automatisch fort“: „ab 17:04“. */
+export function resumesAtChip(at: number): string {
+  return `ab ${clockText(at)}`;
+}
+
 /** Zustand rechts in der Zeile: „läuft · 12 min“, „bereit · Warteschlange 1“, „startet in 7 s“. */
 export function rowStateText(station: StationView, now: number): string {
-  if (station.startError !== null) {
+  if (isStartFailure(station)) {
     return START_FAILED_LABEL;
+  }
+  const live: string | null = liveText(station);
+  if (live !== null) {
+    return live;
   }
   switch (station.state) {
     case 'done':
@@ -373,10 +500,14 @@ export function rowStateText(station: StationView, now: number): string {
       return `läuft · ${durationText(runningFor(station, now))}`;
     case 'waitsForScript':
       return 'Skript läuft';
+    case 'waitsForQuota':
+      return 'setzt automatisch fort';
     case 'asking':
       return 'Frage offen';
     case 'waitsForYou':
       return 'wartet auf dich';
+    case 'reported':
+      return 'gemeldet';
     case 'error':
       return station.restarting ? 'Fehler · startet neu' : 'Fehler';
     case 'countdown':
@@ -535,6 +666,11 @@ export function autoStartHint(isAutomatic: boolean): string {
   return `Startet die Station nach ihren Vorgängern von selbst (Countdown) oder erst auf ▶. Jetzt: ${isAutomatic ? 'von selbst' : 'auf ▶'}.`;
 }
 
+/** „Läuft mit: an (von der Umsetzung).“ unter der Wahl „Automatisch fortsetzen“ der Kartei. */
+export function autoResumeHint(resumes: boolean, isOwn: boolean): string {
+  return `Läuft mit: ${resumes ? 'an' : 'aus'} (${isOwn ? 'nur diese Station' : 'von der Umsetzung'}). Setzt nach leerem Kontingent von selbst fort; änderbar, bis die Station fertig ist, auch während sie läuft.`;
+}
+
 export const ON_ERROR_LABEL = 'Bei Fehler';
 export const ON_ERROR_OPTIONS: readonly { id: OnError; label: string; short: string }[] = [
   { id: 'halt', label: 'anhalten', short: 'anhalten' },
@@ -545,12 +681,19 @@ export const ON_ERROR_HINT = 'Gilt bis die Station fertig ist; auch während sie
 export const BY_USER_AUTOMATION_HINT =
   'Eine Station durch dich startet nie von selbst: sie wartet auf dich, sobald ihre Vorgänger fertig sind.';
 
-/** Kopfzeile „Automatik“: „starten: wie Umsetzung · Fehler: anhalten“. */
-export function automationSummary(autoStart: boolean | null, onError: OnError): string {
-  const start: string = autoStart === null ? 'wie Umsetzung' : autoStart ? 'an' : 'aus';
+function inheritedText(value: boolean | null): string {
+  return value === null ? 'wie Umsetzung' : value ? 'an' : 'aus';
+}
+
+/** Kopfzeile „Automatik“: „starten: wie Umsetzung · fortsetzen: an · Fehler: anhalten“. */
+export function automationSummary(
+  autoStart: boolean | null,
+  autoResume: boolean | null,
+  onError: OnError,
+): string {
   const error: string =
     ON_ERROR_OPTIONS.find((option: { id: OnError }) => option.id === onError)?.short ?? onError;
-  return `starten: ${start} · Fehler: ${error}`;
+  return `starten: ${inheritedText(autoStart)} · fortsetzen: ${inheritedText(autoResume)} · Fehler: ${error}`;
 }
 
 export const AUTOMATION_SUMMARY_BY_USER = 'wartet auf dich';
@@ -561,7 +704,7 @@ export function lockInfo(phase: 'open' | 'started' | 'done'): string {
     case 'open':
       return 'Alles lässt sich ändern, bis die Station startet.';
     case 'started':
-      return 'Gestartet: Auftrag, Typ, Modell, Denkaufwand und System-Prompt sind festgeschrieben 🔒 (ein Modellwechsel in der Eingabeleiste der Session bleibt möglich). Offen bleibt „Bei Fehler“.';
+      return 'Gestartet: Auftrag, Typ, Modell, Denkaufwand und System-Prompt sind festgeschrieben 🔒 (ein Modellwechsel in der Eingabeleiste der Session bleibt möglich). Offen bleiben „Automatisch fortsetzen“ und „Bei Fehler“.';
     case 'done':
       return 'Fertig: nur noch Ansicht, mit den Werten, mit denen die Station lief.';
   }
@@ -688,6 +831,12 @@ export function patchSetsText(patch: StationPatch): string {
   if (patch.skill !== undefined) {
     parts.push(`${SKILL_LABEL} → ${patch.skill}`);
   }
+  if (patch.command !== undefined) {
+    parts.push('Befehl');
+  }
+  if (patch.cwd !== undefined) {
+    parts.push('Ordner');
+  }
   return `Ändert: ${parts.length === 0 ? 'nichts' : parts.join(' · ')}`;
 }
 /** Was eine neue Station im Plan tut: ohne Vorgänger startet sie sofort, auch neben der Station davor. */
@@ -700,7 +849,6 @@ export const PROPOSAL_EMPTY_BRIEF = '(leer)';
 export const PROPOSAL_HINT =
   'Du kannst den Vorschlag übernehmen, wie er ist, oder Typ, Modell, Denkaufwand und Auftrag vorher ändern. Alles Weitere (System-Prompt, Automatik) steht nach dem Übernehmen in der Kartei.';
 export const CHANGED_LABEL = 'Geändert';
-export const MAX_PARALLEL_CHANGE_LABEL = 'Parallel max.';
 
 /** Obergrenze des Auftrags im Core (`MAX_BRIEF_CHARS`). */
 export const MAX_BRIEF_CHARS = 1000;
@@ -711,6 +859,8 @@ export const BRIEF_EDIT_DROPS_CHANGES =
 
 export const START_FAILED = 'Start fehlgeschlagen';
 export const APPLY_FAILED = 'Übernehmen fehlgeschlagen';
+/** Bestätigen mit Löschen: abgebrochen ist schon, gelöscht noch nicht (ADR 066). */
+export const CANCELLED_NOT_DELETED = 'Abgebrochen, Löschen noch nicht möglich';
 export const NOT_SAVED = 'Nicht gespeichert';
 export const BRIEF_NOT_SAVED = 'Auftrag nicht gespeichert';
 export const NOT_REMOVED = 'Nicht entfernt';
@@ -726,3 +876,16 @@ export function proposalAppliedWithFailures(failures: readonly string[]): string
 export function stationNotFound(stage: string, lane: string): string {
   return `Station „${stage}“ in Lane ${lane} nicht gefunden`;
 }
+
+// „Als fertig markieren“ (ADR 048).
+export const MARK_DONE_BUTTON = 'Als fertig markieren …';
+export const MARK_DONE_TITLE =
+  'Die Station gilt als erledigt; die Nachfolger starten wie nach einer Annahme';
+export const MARK_DONE_CONFIRM = 'Als fertig markieren';
+export const MARK_DONE_HEADING = 'Station als fertig markieren?';
+export const MARK_DONE_CANCEL = 'Abbrechen';
+export const MARK_DONE_TEXT =
+  'gilt dann als erledigt. Die Nachfolger starten wie nach einer Annahme; eine Fix-Runde gibt es nicht. Die Session bleibt, wie sie ist.';
+/** Eine Befehls-Station hat keine Session (ADR 073). */
+export const MARK_DONE_TEXT_COMMAND =
+  'gilt dann als erledigt. Die Nachfolger starten wie nach einer Annahme; eine Fix-Runde gibt es nicht.';

@@ -1,3 +1,8 @@
+import {
+  isCommandStation,
+  stepsSummary,
+  stepsTitle,
+} from '@/features/implementation/commandStation';
 import { Fragment, type ReactElement } from 'react';
 import {
   changeFocusId,
@@ -7,6 +12,8 @@ import {
   type StationRef,
 } from '@/features/implementation/implementationOrder';
 import {
+  AUTO_RESUME_GLYPH,
+  AUTO_RESUME_LABEL,
   AUTOMATIC_MARK,
   AUTOMATIC_MARK_TITLE,
   BY_USER_MARK,
@@ -22,12 +29,14 @@ import {
   NO_PHASES,
   PHASE_MARK_LABEL,
   PHASE_MARK_TITLE,
+  resumesAtChip,
   ROW_OPEN_CHAT_TITLE,
   ROW_OPEN_LABEL,
   ROW_OPEN_TITLE,
   ROW_START_LABEL,
   ROW_START_TITLE,
   ROW_TITLE,
+  rowResumeTitle,
   rowStateText,
   rowTitle,
   shortEffort,
@@ -46,13 +55,19 @@ import {
   latestSessionOf,
   type CardAgentFacts,
 } from '@/features/implementation/stationAgent';
+import { RELEASED_CHIP, RELEASED_TITLE, returnsChip } from '@/features/implementation/masterTexts';
 import { StationDot } from '@/features/implementation/StationDot';
+import { pauseChip } from '@/features/implementation/stationLive';
+import { messageWaitPosition, messageWaitText } from '@/features/queue/queueTexts';
 import { useOperatingMode } from '@/features/remote/useOperatingMode';
 import type { ChangeView } from '@/lib/bindings/ChangeView';
 import type { ImplementationView } from '@/lib/bindings/ImplementationView';
 import type { OperatingMode } from '@/lib/bindings/OperatingMode';
+import type { PauseReason } from '@/lib/bindings/PauseReason';
+import type { QueueEntry } from '@/lib/bindings/QueueEntry';
 import type { SessionSummary } from '@/lib/bindings/SessionSummary';
 import type { StationView } from '@/lib/bindings/StationView';
+import { useAgentQueueStore } from '@/stores/agentQueue';
 import './Timeline.css';
 
 interface TimelineProps {
@@ -68,6 +83,8 @@ interface TimelineProps {
   onOpenChat: (stationId: string) => void;
   onStart: (stationId: string) => void;
   onCancelCountdown: (stationId: string) => void;
+  /** ↻ der Zeile: schreibt den Wert nur dieser Station. */
+  onSetAutoResume: (stationId: string, enabled: boolean) => void;
 }
 
 /** Eine Stufe: die Stationen mit derselben errechneten Stufe, in Plan-Reihenfolge. */
@@ -75,6 +92,8 @@ interface StageGroup {
   level: number;
   refs: StationRef[];
 }
+
+const NO_ENTRIES: readonly QueueEntry[] = [];
 
 function stageGroups(refs: readonly StationRef[]): StageGroup[] {
   const groups: StageGroup[] = [];
@@ -101,14 +120,25 @@ export function Timeline({
   onOpenChat,
   onStart,
   onCancelCountdown,
+  onSetAutoResume,
 }: TimelineProps): ReactElement {
   const operatingMode: OperatingMode = useOperatingMode(implementation.projectId);
+  const queueEntries: readonly QueueEntry[] = useAgentQueueStore(
+    (state) => state.queue?.entries ?? NO_ENTRIES,
+  );
   const refs: StationRef[] = flatStations(implementation);
   const byPlanId = new Map<string, StationRef>(
     refs.map((ref: StationRef) => [ref.station.planId, ref]),
   );
   const byId = new Map<string, StationRef>(refs.map((ref: StationRef) => [ref.station.id, ref]));
   const ruleSession: SessionSummary | null = latestSessionOf(sessions, implementation.projectId);
+
+  /** „Nachricht wartet · Platz n“ vor dem Zustand, sonst der Zustand (ADR 068). */
+  function rowText(station: StationView): string {
+    const position: number | null =
+      station.sessionId === null ? null : messageWaitPosition(queueEntries, station.sessionId);
+    return position === null ? rowStateText(station, now) : messageWaitText(position);
+  }
 
   function sessionOf(station: StationView): SessionSummary | null {
     return station.sessionId === null
@@ -167,6 +197,13 @@ export function Timeline({
 
   /** „Opus · hoch“ hinter dem Titel, bei „durch dich“ die Marke; dazu die Abweichung von „Automatisch starten“. */
   function renderMeta(station: StationView): ReactElement {
+    if (isCommandStation(station) && station.command !== null) {
+      return (
+        <span className="timeline__meta timeline__meta--steps" title={stepsTitle(station.command)}>
+          {stepsSummary(station.command)}
+        </span>
+      );
+    }
     if (station.byUser) {
       return (
         <span className="timeline__meta" title={BY_USER_MARK_TITLE}>
@@ -248,15 +285,93 @@ export function Timeline({
     }
   }
 
+  /** „ab 17:04“ hinter „setzt automatisch fort“; „Kontingent“ hinter „wartet auf dich“ bei einer Kontingent-Pause. */
+  function renderQuotaChip(station: StationView): ReactElement | null {
+    const reason: PauseReason | null = sessionOf(station)?.pauseReason ?? null;
+    if (reason?.kind !== 'quota') {
+      return null;
+    }
+    if (station.state === 'waitsForQuota') {
+      return reason.resetsAt === null ? null : (
+        <span className="timeline__chip timeline__chip--static timeline__chip--state">
+          {resumesAtChip(reason.resetsAt)}
+        </span>
+      );
+    }
+    return null;
+  }
+
+  /** „Kontingent bis 14:00“ hinter einer pausierten Station, auch einer fertigen oder gemeldeten. */
+  function renderPauseChip(station: StationView): ReactElement | null {
+    // Bei scharfem Zeitgeber steht die Zeit schon im Chip „ab …“.
+    const chip: string | null = station.state === 'waitsForQuota' ? null : pauseChip(station);
+    return chip === null ? null : (
+      <span className="timeline__chip timeline__chip--static timeline__chip--state timeline__chip--warn">
+        {chip}
+      </span>
+    );
+  }
+
+  /** „zurückgegeben 1/3“ und „✓ freigegeben“ vor dem Zustand (ADR 070). */
+  function renderMasterChips(station: StationView): ReactElement | null {
+    if (station.returns === 0 && !station.released) {
+      return null;
+    }
+    return (
+      <>
+        {station.returns > 0 && (
+          <span className="timeline__chip timeline__chip--static timeline__chip--state">
+            {returnsChip(station.returns)}
+          </span>
+        )}
+        {station.released && (
+          <span
+            className="timeline__chip timeline__chip--static timeline__chip--state timeline__chip--ok"
+            title={RELEASED_TITLE}
+          >
+            {RELEASED_CHIP}
+          </span>
+        )}
+      </>
+    );
+  }
+
+  /** ↻ neben der Mini-Aktion, außerhalb des Titel-Knopfs; ein Punkt zeigt die Abweichung von der Umsetzung. */
+  function renderResume(station: StationView): ReactElement | null {
+    if (station.byUser) {
+      return null;
+    }
+    const differs: boolean =
+      station.autoResume !== null && station.autoResume !== implementation.autoResume;
+    return (
+      <button
+        type="button"
+        className={`timeline__resume${differs ? ' timeline__resume--differs' : ''}`}
+        aria-pressed={station.resumesAutomatically}
+        aria-label={AUTO_RESUME_LABEL}
+        title={rowResumeTitle(station)}
+        disabled={isLocked || station.state === 'done'}
+        onClick={(): void => {
+          onSetAutoResume(station.id, !station.resumesAutomatically);
+        }}
+      >
+        {AUTO_RESUME_GLYPH}
+      </button>
+    );
+  }
+
   function renderRow(ref: StationRef): ReactElement {
     const { station, phase } = ref;
     const isFocused: boolean = station.id === focusedId;
-    const tone: string = station.startError === null ? station.state : 'failed';
+    // Hat die Zeile `live`, steht der Text neutral; die Farbe der Session trägt der Punkt.
+    const tone: string =
+      station.startError !== null ? 'failed' : station.live === null ? station.state : 'live';
     return (
       <div
         key={station.id}
         role="listitem"
         className={`timeline__row${isFocused ? ' timeline__row--focused' : ''}`}
+        data-focus-id={station.id}
       >
         <StationDot station={station} />
         <button
@@ -280,8 +395,12 @@ export function Timeline({
           {renderMeta(station)}
         </button>
         <span className={`timeline__state timeline__state--${tone}`}>
-          {rowStateText(station, now)}
+          {rowText(station)}
+          {renderMasterChips(station)}
+          {renderQuotaChip(station)}
+          {renderPauseChip(station)}
           {renderAction(station)}
+          {renderResume(station)}
         </span>
         {renderSub(station)}
       </div>
@@ -296,6 +415,7 @@ export function Timeline({
         key={focusId}
         role="listitem"
         className={`timeline__row timeline__row--marker${isFocused ? ' timeline__row--focused' : ''}`}
+        data-focus-id={focusId}
       >
         <span className="timeline__marker-icon" aria-hidden="true">
           ⟳
@@ -325,7 +445,11 @@ export function Timeline({
   function renderGroup(group: StageGroup): ReactElement {
     const isParallel: boolean = group.refs.length > 1;
     return (
-      <section key={`stage-${String(group.level)}`} className="timeline__group">
+      <section
+        key={`stage-${String(group.level)}`}
+        className="timeline__group"
+        data-scroll-anchor={group.level}
+      >
         <h3 className="timeline__stage">{stageTitle(group.level, group.refs.length)}</h3>
         <div
           role="list"

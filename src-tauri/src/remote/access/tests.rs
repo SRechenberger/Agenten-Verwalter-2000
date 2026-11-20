@@ -467,3 +467,34 @@ fn routes_to_host_keeps_project_set_group_set_viewed_and_commands_without_ids_lo
         assert!(routes_to_host(command), "{command} bliebe lokal");
     }
 }
+
+#[test]
+fn implementation_stop_command_is_host_write_with_implementation() {
+    assert_eq!(
+        class_of("implementation_stop_command"),
+        Some(Class::HostWrite)
+    );
+    assert_eq!(
+        entry_of("implementation_stop_command").map(|(_, kind)| kind),
+        Some(Some(IdKind::Implementation))
+    );
+    let payload = json!({ "id": OWN_IMPLEMENTATION, "stationId": "station" });
+    assert_eq!(
+        ids_of("implementation_stop_command", &payload),
+        vec![TargetId {
+            kind: IdKind::Implementation,
+            value: OWN_IMPLEMENTATION.to_owned()
+        }]
+    );
+    assert!(routes_to_host("implementation_stop_command"));
+    // Ein Gast steuert sie nur in einem Vorhaben, das er hält.
+    assert_eq!(
+        check_call(
+            "implementation_stop_command",
+            payload,
+            Actor::Guest("a"),
+            &Control::default()
+        ),
+        Err(Denied::ForeignId(OWN_IMPLEMENTATION.to_owned()))
+    );
+}

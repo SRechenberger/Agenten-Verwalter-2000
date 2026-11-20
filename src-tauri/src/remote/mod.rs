@@ -88,8 +88,12 @@ pub fn host_name() -> String {
 }
 
 /// Schreibt eine Datei mit Geheimnissen über eine Zwischendatei; unter Linux und macOS nur für den
-/// Besitzer lesbar (0600).
+/// Besitzer lesbar (0600). Eine prozessweite Sperre hält Zwischendatei und `rename` zusammen: Alle
+/// Aufrufe teilen sich `<name>.tmp`, und ohne die Sperre scheitert bei zwei gleichzeitigen Aufrufen
+/// das zweite `rename` mit „nicht gefunden“.
 pub(crate) fn write_private(path: &Path, bytes: &[u8]) -> io::Result<()> {
+    static WRITING: Mutex<()> = Mutex::new(());
+    let _writing = WRITING.lock().unwrap_or_else(PoisonError::into_inner);
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
     }

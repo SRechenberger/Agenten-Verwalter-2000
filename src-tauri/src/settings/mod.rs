@@ -30,12 +30,24 @@ const KEY_DEFAULT_CODEX_MODEL: &str = "default_codex_model";
 const KEY_MASTER_DIR: &str = "master_dir";
 const KEY_MARK_UNSOURCED: &str = "mark_unsourced";
 const KEY_DEFAULT_SELF_RELEASE: &str = "default_self_release";
+const KEY_DEFAULT_AUTO_RESUME: &str = "default_auto_resume";
+/// Leer = aus; fehlt der Schlüssel, gilt Haiku (ADR 071).
+const KEY_ANSWER_MODEL: &str = "answer_model";
+/// Leer = unbegrenzt; fehlt der Schlüssel, gilt der Standard (ADR 068).
+const KEY_MAX_AGENTS: &str = "max_agents";
+/// Leer = aus; fehlt der Schlüssel, gilt der Standard (ADR 070).
+const KEY_MASTER_COMPACT_TOKENS: &str = "master_compact_tokens";
+/// JSON-Liste; fehlt der Schlüssel, gilt `DEFAULT_COMMAND_PROGRAMS` (ADR 073).
+const KEY_COMMAND_PROGRAMS: &str = "command_programs";
 const KEY_TERMINAL_PLACEMENT: &str = "terminal_placement";
 const KEY_TERMINAL_HEIGHT: &str = "terminal_height";
 const KEY_TERMINAL_WIDTH: &str = "terminal_width";
 const KEY_REMOTE_ENABLED: &str = "remote_enabled";
 const KEY_REMOTE_PORT: &str = "remote_port";
 const KEY_REMOTE_HOST_ID: &str = "remote_host_id";
+
+/// Erlaubte Grenzen von „Master zusammenfassen ab … Tokens“.
+pub const MASTER_COMPACT_RANGE: std::ops::RangeInclusive<u32> = 50_000..=2_000_000;
 
 /// Grenzen für die gemerkte Größe des Terminal-Docks in Pixeln.
 const TERMINAL_SIZE_RANGE: std::ops::RangeInclusive<u32> = 100..=10000;
@@ -71,6 +83,12 @@ pub const DEFAULT_SETTINGS: Settings = Settings {
     master_dir: None,
     mark_unsourced: true,
     default_self_release: SelfRelease::OFF,
+    default_auto_resume: false,
+    answer_model: Some(ModelId::Haiku),
+    max_agents: Some(4),
+    master_compact_tokens: Some(150_000),
+    // ponytail: eine `const` hält keine Zeichenketten; `load` setzt `DEFAULT_COMMAND_PROGRAMS` ein.
+    command_programs: Vec::new(),
     terminal_placement: TerminalPlacement::Bottom,
     terminal_height: 260,
     terminal_width: 460,
@@ -114,6 +132,29 @@ pub fn load(database: &Database) -> Result<Settings, CommandError> {
             .get(KEY_DEFAULT_SELF_RELEASE)
             .and_then(|text: &String| serde_json::from_str(text).ok())
             .unwrap_or(DEFAULT_SETTINGS.default_self_release),
+        default_auto_resume: stored
+            .get(KEY_DEFAULT_AUTO_RESUME)
+            .and_then(|text: &String| text.parse::<bool>().ok())
+            .unwrap_or(DEFAULT_SETTINGS.default_auto_resume),
+        answer_model: stored
+            .get(KEY_ANSWER_MODEL)
+            .map_or(DEFAULT_SETTINGS.answer_model, |text: &String| {
+                stored_answer_model(text)
+            }),
+        max_agents: stored
+            .get(KEY_MAX_AGENTS)
+            .map_or(DEFAULT_SETTINGS.max_agents, |text: &String| {
+                stored_max_agents(text)
+            }),
+        master_compact_tokens: stored
+            .get(KEY_MASTER_COMPACT_TOKENS)
+            .map_or(DEFAULT_SETTINGS.master_compact_tokens, |text: &String| {
+                stored_master_compact_tokens(text)
+            }),
+        command_programs: stored
+            .get(KEY_COMMAND_PROGRAMS)
+            .and_then(|text: &String| serde_json::from_str::<Vec<String>>(text).ok())
+            .unwrap_or_else(default_command_programs),
         terminal_placement: stored_or(
             &stored,
             KEY_TERMINAL_PLACEMENT,
@@ -149,6 +190,20 @@ pub fn update(database: &Database, change: SettingsChange) -> Result<Settings, C
     {
         return Err(CommandError::Internal(
             "Terminalgröße außerhalb 100–10000 px".to_owned(),
+        ));
+    }
+    if let SettingsChange::MaxAgents { value: Some(0) } = &change {
+        return Err(CommandError::Internal(
+            "Gleichzeitige Agenten: mindestens 1 oder leer".to_owned(),
+        ));
+    }
+    if let SettingsChange::MasterCompactTokens {
+        value: Some(tokens),
+    } = &change
+        && !MASTER_COMPACT_RANGE.contains(tokens)
+    {
+        return Err(CommandError::Internal(
+            "Master zusammenfassen: 50 000 bis 2 000 000 Tokens oder leer".to_owned(),
         ));
     }
     if let SettingsChange::PanelWidth {
@@ -202,6 +257,38 @@ pub fn update(database: &Database, change: SettingsChange) -> Result<Settings, C
                 let text = serde_json::to_string(&value)
                     .map_err(|error| CommandError::Internal(error.to_string()))?;
                 setting_rows::write(&transaction, KEY_DEFAULT_SELF_RELEASE, &text)?;
+            }
+            SettingsChange::MaxAgents { value } => {
+                let text = value
+                    .map(|limit: u32| limit.to_string())
+                    .unwrap_or_default();
+                setting_rows::write(&transaction, KEY_MAX_AGENTS, &text)?;
+            }
+            SettingsChange::MasterCompactTokens { value } => {
+                let text = value
+                    .map(|tokens: u32| tokens.to_string())
+                    .unwrap_or_default();
+                setting_rows::write(&transaction, KEY_MASTER_COMPACT_TOKENS, &text)?;
+            }
+            SettingsChange::CommandPrograms { value } => {
+                let programs = checked_programs(&value)?;
+                let text = serde_json::to_string(&programs)
+                    .map_err(|error| CommandError::Internal(error.to_string()))?;
+                setting_rows::write(&transaction, KEY_COMMAND_PROGRAMS, &text)?;
+            }
+            SettingsChange::DefaultAutoResume { value } => {
+                setting_rows::write(&transaction, KEY_DEFAULT_AUTO_RESUME, &value.to_string())?;
+            }
+            SettingsChange::AnswerModel { value } => {
+                // Leer = aus; `load` liest nur den leeren Text so.
+                let text = value
+                    .map(|model: ModelId| enum_to_text(&model))
+                    .transpose()?;
+                setting_rows::write(
+                    &transaction,
+                    KEY_ANSWER_MODEL,
+                    text.as_deref().unwrap_or(""),
+                )?;
             }
             SettingsChange::TerminalPlacement { value } => {
                 setting_rows::write(&transaction, KEY_TERMINAL_PLACEMENT, &enum_to_text(&value)?)?;
@@ -293,6 +380,69 @@ pub fn remote_host_id(database: &Database) -> Result<String, CommandError> {
         setting_rows::write(connection, KEY_REMOTE_HOST_ID, &id)?;
         Ok(id)
     })
+}
+
+/// Standard der Freigabeliste (ADR 073).
+pub fn default_command_programs() -> Vec<String> {
+    crate::implementation::command::DEFAULT_PROGRAMS
+        .iter()
+        .map(|name: &&str| (*name).to_owned())
+        .collect()
+}
+
+/// Getrimmt, ohne Doppel; jedes Programm ein bloßer Name ohne Pfad, Leerraum und Anführungszeichen.
+fn checked_programs(value: &[String]) -> Result<Vec<String>, CommandError> {
+    let mut programs: Vec<String> = Vec::new();
+    for name in value.iter().map(|name: &String| name.trim()) {
+        if name.is_empty()
+            || name.contains(['/', '\\', '"', '{', '}'])
+            || name.contains(char::is_whitespace)
+        {
+            return Err(CommandError::Internal(format!(
+                "„{name}“ ist kein Programmname: ein bloßer Name ohne Pfad."
+            )));
+        }
+        if !programs.iter().any(|known: &String| known == name) {
+            programs.push(name.to_owned());
+        }
+    }
+    Ok(programs)
+}
+
+/// Gespeicherter Wert von „Modell der Einordnung“: leer = aus, ein unlesbarer Wert = der Standard.
+fn stored_answer_model(text: &str) -> Option<ModelId> {
+    if text.trim().is_empty() {
+        return None;
+    }
+    enum_from_text(text.trim())
+        .ok()
+        .or(DEFAULT_SETTINGS.answer_model)
+}
+
+/// Gespeicherter Wert von „Gleichzeitige Agenten max.“: leer = unbegrenzt, ein unlesbarer Wert oder 0
+/// = der Standard.
+fn stored_max_agents(text: &str) -> Option<u32> {
+    let text = text.trim();
+    if text.is_empty() {
+        return None;
+    }
+    text.parse::<u32>()
+        .ok()
+        .filter(|limit: &u32| *limit >= 1)
+        .or(DEFAULT_SETTINGS.max_agents)
+}
+
+/// Gespeicherter Wert von „Master zusammenfassen ab“: leer = aus, ein unlesbarer oder unzulässiger Wert
+/// = der Standard.
+fn stored_master_compact_tokens(text: &str) -> Option<u32> {
+    let text = text.trim();
+    if text.is_empty() {
+        return None;
+    }
+    text.parse::<u32>()
+        .ok()
+        .filter(|tokens: &u32| MASTER_COMPACT_RANGE.contains(tokens))
+        .or(DEFAULT_SETTINGS.master_compact_tokens)
 }
 
 fn stored_or<T: DeserializeOwned>(stored: &HashMap<String, String>, key: &str, default: T) -> T {

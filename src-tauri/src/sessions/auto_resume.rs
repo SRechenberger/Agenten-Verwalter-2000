@@ -1,12 +1,13 @@
 //! Automatisch fortsetzen: schickt nach dem Zurücksetzen des Kontingents den Fortsetz-Text an die
-//! pausierte Session (ADR 051). Nur im Speicher: ein Neustart der App verliert Schalter und Zeitgeber.
+//! pausierte Session (ADR 051). Zeitgeber und Schalter der Session nur im Speicher: ein Neustart der
+//! App verliert sie; der Wert je Umsetzung und Station steht in der Datenbank (ADR 064).
 
 use std::thread;
 use std::time::Duration;
 
 use tauri::{AppHandle, Manager};
 
-use crate::sessions::registry::{SessionRegistry, now_ms};
+use crate::sessions::registry::{SessionRegistry, now_ms, schedule_pass};
 
 pub const RESUME_TEXT: &str =
     "Das Kontingent ist zurückgesetzt. Mach bitte dort weiter, wo du aufgehört hast.";
@@ -27,6 +28,13 @@ pub(crate) struct ArmedResume {
 pub enum WaitEnd {
     Due,
     Cancelled,
+}
+
+/// Ab wann das Fortsetzen fällig ist: Rücksetzzeit samt Aufschlag. Ab dann belegt die Session keinen
+/// Platz mehr; ein fälliges Fortsetzen sammelt der Durchgang der globalen Warteschlange ein und startet
+/// es nach `rank` (ADR 068).
+pub fn due_at(resets_at: f64) -> f64 {
+    resets_at + RESUME_MARGIN_MS
 }
 
 /// Wartet auf die Wanduhr, nicht auf eine Gesamtdauer: nach einem Ruhezustand des Rechners ist das
@@ -69,14 +77,14 @@ pub(crate) fn spawn(app: &AppHandle, session_id: &str, armed: ArmedResume) {
     }
 }
 
-/// Läuft im Thread des Zeitgebers, ohne gehaltene Sperre. Prüfen (unter der Sperre der Session, in
-/// `auto_resume_is_current`) und Senden sind getrennt: eine Nachricht des Users genau dazwischen ist
-/// akzeptiert, der Agent bekommt den Text dann zusätzlich. Die Prüfung muss vor `send` liegen, weil
-/// `send` eine beendete Session neu startet und dabei die Begründung löscht.
+/// Läuft im Thread des Zeitgebers, ohne gehaltene Sperre. Danach belegt er keinen Platz selbst, sondern
+/// löst nur einen Durchgang der globalen Warteschlange aus: Der sammelt das fällige Fortsetzen (Zeit
+/// allein, kein `update` feuert dann) und startet es nach `rank`, also nicht vor einem höher gereihten
+/// Wartenden (ADR 068; `resume_claimed` im Durchgang prüft Zustand und Abbruch).
 fn run(app: &AppHandle, session_id: &str, armed: ArmedResume) {
     let registry = app.state::<SessionRegistry>();
     let end: WaitEnd = wait_until(
-        armed.resets_at + RESUME_MARGIN_MS,
+        due_at(armed.resets_at),
         now_ms,
         || registry.auto_resume_is_current(session_id, armed),
         thread::sleep,
@@ -84,7 +92,6 @@ fn run(app: &AppHandle, session_id: &str, armed: ArmedResume) {
     if end == WaitEnd::Cancelled {
         return;
     }
-    if let Err(error) = registry.send(app, session_id, RESUME_TEXT, &[], &[], None) {
-        registry.fail_auto_resume(app, session_id, error.to_string());
-    }
+    // Kein eigener Platz: Der Durchgang sammelt das fällige Fortsetzen und startet es nach `rank`.
+    schedule_pass(app);
 }

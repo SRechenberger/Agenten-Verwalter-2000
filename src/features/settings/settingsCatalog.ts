@@ -118,19 +118,43 @@ const ENTRY_DATA = {
     category: 'agent',
     section: 'Agent',
     label: 'Standardmodell',
-    info: 'Mit diesem Modell startet die erste Session eines neuen Vorhabens; weitere Sessions im Vorhaben übernehmen den Stand der letzten. In der Session jederzeit über die Eingabeleiste änderbar.',
+    info: 'Mit diesem Modell startet jede neue Session, auch in einem bestehenden Vorhaben; nennt eine Session oder ihre Station ausdrücklich ein Modell, gilt dieses. In der Session jederzeit über die Eingabeleiste änderbar.',
+  },
+  masterCompactTokens: {
+    category: 'agent',
+    section: 'Agent',
+    label: 'Master zusammenfassen ab … Tokens',
+    info: 'Eine ruhende Master-Session einer unfertigen Umsetzung, deren Kontext über dieser Grenze liegt, bekommt vom Verwalter /compact als eigenen Zug. Der Zug ist keine Eingabe: Dashboard und Ungelesen bleiben, im Chat steht nur „Verlauf zusammengefasst“. Erlaubt 50 000 bis 2 000 000, leer = Aus, Standard 150 000. Nur über die Claude-Kommandozeile (Claude, Claude Code + LM Studio); Autark fasst selbst zusammen. Gilt für die ganze App.',
+  },
+  commandPrograms: {
+    category: 'agent',
+    section: 'Agent',
+    label: 'Programme für Befehls-Stationen',
+    info: 'Nur diese Programme darf eine Befehls-Station starten; andere lehnt der Verwalter beim Anlegen ab. Der Platzhalter {{env:NAME}} liest eine Umgebungsvariable des Verwalters und erscheint nie im Protokoll. Standard: gh und glab. Gilt für die ganze App.',
   },
   defaultMode: {
     category: 'agent',
     section: 'Agent',
     label: 'Standard-Modus',
-    info: 'Wie selbstständig Claude arbeitet und wie gründlich es nachdenkt. Gilt für neue Vorhaben; in der Session mit Umschalt + Tab bzw. über die Eingabeleiste wechselbar.',
+    info: 'Wie selbstständig Claude arbeitet und wie gründlich es nachdenkt. Der Denkaufwand gilt für jede neue Session, der Modus für neue Vorhaben (weitere Sessions erben ihn); in der Session mit Umschalt + Tab bzw. über die Eingabeleiste wechselbar.',
   },
   markUnsourced: {
     category: 'agent',
     section: 'Agent',
     label: 'Angaben ohne Fundstelle',
     info: 'Unterstreicht Pfade, Datei:Zeile und Zahlen ab zwei Ziffern, die in keiner Werkzeug-Ausgabe derselben Antwort vorkommen.',
+  },
+  defaultAutoResume: {
+    category: 'agent',
+    section: 'Agent',
+    label: 'Automatisch fortsetzen',
+    info: 'Wenn das Kontingent aufgebraucht ist, setzt eine Station 30 Sekunden nach dem Zurücksetzen von selbst fort. Der Wert gilt für neue Umsetzungen; bestehende behalten ihren. Sessions außerhalb einer Umsetzung beginnen jede Pause weiter mit „aus“.',
+  },
+  maxAgents: {
+    category: 'agent',
+    section: 'Agent',
+    label: 'Gleichzeitige Agenten max.',
+    info: 'Was der Verwalter von selbst startet (Stationen, zugestellte Nachrichten, Fortsetzen nach Kontingent), wartet, wenn so viele Agenten laufen, und rückt in der Reihenfolge der Warteschlange nach: Priorität des Vorhabens, Vorrang der Station, Wartezeit; eine Nachricht an den Master einer Umsetzung rückt vor die Wartenden ihres eigenen Vorhabens. Eigene Nachrichten starten sofort und zählen mit. Leer = unbegrenzt, Standard 4. Eine höhere Zahl lässt sofort nachrücken, eine niedrigere beendet nichts. Gilt für die ganze App.',
   },
   agentTypes: {
     category: 'agent',
@@ -168,6 +192,12 @@ const ENTRY_DATA = {
     section: 'Selbstfreigabe',
     label: 'Modell des TL;DR',
     info: 'Mit diesem Modell entsteht das TL;DR, das ein Agent über das Session-Werkzeug abruft.',
+  },
+  answerModel: {
+    category: 'agent',
+    section: 'Dashboard',
+    label: 'Modell der Einordnung',
+    info: 'Am Ende eines Zugs ordnet dieses Modell die Textantwort einer Session ohne Station ein: fragt, bittet oder fertig, mit einem Einzeiler für die Karte im Dashboard. Ein Aufruf kostet unter 0,01 $ mit Haiku. „Aus“ lässt die Karte bei „Antwort liegt vor“, ebenso ein gescheiterter Aufruf. In LM Studio, Autark und Codex antwortet das lokale Modell. Gilt für die ganze App.',
   },
   userSkills: {
     category: 'skills',

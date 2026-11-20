@@ -29,7 +29,7 @@ pub enum Incoming {
     Other,
 }
 
-/// Die Felder ab `scratchpad_path` gehören zu `init` bzw. den `task_*`-Subtypen. Sie werden
+/// Die Felder ab `scratchpad_path` gehören zu `init` (dazu `slash_commands`) bzw. den `task_*`-Subtypen. Sie werden
 /// nachsichtig gelesen: hat eines in einem anderen Subtyp einen anderen Typ, bleibt es leer, statt
 /// die ganze Zeile unlesbar zu machen — an `init` hängt, ob die Session je `--resume` bekommt.
 #[derive(Debug, Deserialize)]
@@ -38,6 +38,8 @@ pub struct SystemLine {
     pub model: Option<String>,
     #[serde(default, deserialize_with = "lenient")]
     pub scratchpad_path: Option<String>,
+    #[serde(default, deserialize_with = "lenient")]
+    pub slash_commands: Option<Vec<String>>,
     #[serde(default, deserialize_with = "lenient")]
     pub task_id: Option<String>,
     #[serde(default, deserialize_with = "lenient")]

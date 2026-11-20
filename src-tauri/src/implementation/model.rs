@@ -2,6 +2,7 @@
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
+use super::command;
 use crate::agent_types::model::{AgentType, AgentValueSource};
 use crate::agent_types::name_key;
 use crate::agent_types::validate::MAX_NAME_CHARS as MAX_AGENT_CHARS;
@@ -21,6 +22,16 @@ pub const MAX_BRIEF_CHARS: usize = 1000;
 pub const MAX_PROMPT_CHARS: usize = 4000;
 /// Plan-Kennung einer Station (ADR 061), getrimmt.
 pub const MAX_PLAN_ID_CHARS: usize = 40;
+/// Grund einer Anfrage zum Abbrechen (ADR 066), getrimmt.
+pub const MAX_CANCEL_REASON_CHARS: usize = 300;
+/// Notiz einer Meldung an den Master (ADR 070), getrimmt.
+pub const MAX_NOTE_CHARS: usize = 1000;
+/// Nachricht einer Rückgabe (ADR 070), getrimmt.
+pub const MAX_RETURN_CHARS: usize = 4000;
+/// Das Ergebnis einer Station: bei der Meldung, bei „Erledigt“ und beim Markieren von Hand.
+pub const MAX_STATION_RESULT_CHARS: usize = 200;
+/// So oft darf der Master eine Meldung zurückgeben; danach entscheidet der Benutzer (ADR 070).
+pub const MAX_RETURNS: u32 = 3;
 
 /// Eine neue Rückfrage: die Session und der Lagebericht, der als ungesendeter Anhang an ihr hängt.
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
@@ -28,6 +39,17 @@ pub const MAX_PLAN_ID_CHARS: usize = 40;
 pub struct InquiryCreated {
     pub session: SessionSummary,
     pub attachment: Attachment,
+}
+
+/// Art der Station (ADR 073): ein Agent, der Benutzer („durch dich“) oder ein Befehl des Verwalters.
+/// Die Quelle ist `implementation_stations.kind`.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub enum StationKind {
+    #[default]
+    Agent,
+    User,
+    Command,
 }
 
 /// Zustand einer Station, abgeleitet aus ihrer Session; nie gespeichert.
@@ -42,8 +64,13 @@ pub enum StationState {
     /// Antwort abgegeben, ein Hintergrund-Befehl (etwa der Testlauf) läuft noch; der Agent setzt
     /// fort, sobald er endet. Der Benutzer muss nichts tun.
     WaitsForScript,
+    // Pausiert am aufgebrauchten Kontingent, der Zeitgeber von „Automatisch fortsetzen“ ist scharf
+    // (ADR 064); der Benutzer muss nichts tun.
+    WaitsForQuota,
     Asking,
     WaitsForYou,
+    // Gemeldet (ADR 070): Der Master entscheidet; die Station wartet nicht auf den Benutzer.
+    Reported,
     Done,
     Error,
 }
@@ -56,7 +83,11 @@ impl StationState {
             StationState::WaitsForYou => 6,
             StationState::Error => 5,
             StationState::Countdown => 4,
-            StationState::Running | StationState::WaitsForScript | StationState::Starting => 3,
+            StationState::Running
+            | StationState::WaitsForScript
+            | StationState::WaitsForQuota
+            | StationState::Reported
+            | StationState::Starting => 3,
             StationState::Ready => 2,
             StationState::Pending => 1,
             StationState::Done => 0,
@@ -71,6 +102,39 @@ pub enum PhaseMark {
     Moved,
 }
 
+// Die Meldung einer Station an ihren Master (ADR 070), solange er nicht entschieden hat.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct StationReport {
+    pub result: String,
+    pub note: String,
+    pub fix_needed: bool,
+    #[ts(type = "number")]
+    pub reported_at: f64,
+}
+
+/// Die Meldung, wie sie als JSON in `implementation_stations.report` steht: dazu die Übergabenotiz, die
+/// erst die Annahme an die Nachfolger weitergibt.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StoredReport {
+    pub result: String,
+    pub note: String,
+    pub fix_needed: bool,
+    #[serde(default)]
+    pub handoff_note: Option<String>,
+    #[serde(default)]
+    pub handoff_replace: Vec<(String, String)>,
+}
+
+impl StoredReport {
+    pub fn handoff(&self) -> Handoff {
+        Handoff {
+            note: self.handoff_note.clone(),
+            replace: self.handoff_replace.clone(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct StationView {
@@ -78,6 +142,8 @@ pub struct StationView {
     pub position: u32,
     pub stage: String,
     pub model: Option<ModelId>,
+    // ADR 073: die Art der Station; `by_user` folgt aus ihr (`kind == User`).
+    pub kind: StationKind,
     pub by_user: bool,
     pub skill: Option<String>,
     pub brief: String,
@@ -130,21 +196,65 @@ pub struct StationView {
     pub predecessors_may: PredecessorsMay,
     pub brief_changes: Vec<BriefChange>,
     pub restarting: bool,
+    // ADR 064: „Automatisch fortsetzen“ der Station (`None` = wie die Umsetzung) und der wirksame Wert.
+    pub auto_resume: Option<bool>,
+    pub resumes_automatically: bool,
+    // Ab hier ADR 070: die Meldung an den Master (`None` nach einer Rückgabe und vor der ersten), die
+    // Rückgaben bisher und die übrigen (3 − `returns`, nie negativ) und ob der Master die Station
+    // „durch dich“ freigegeben hat.
+    pub report: Option<StationReport>,
+    pub returns: u32,
+    pub returns_left: u32,
+    pub released: bool,
+    // Zustand der Session einer fertigen oder gemeldeten Station, solange sie nicht ruht; `state`
+    // bleibt, was der Ablauf braucht. `None`: ruht, hat keine Session oder die Station ist weder
+    // fertig noch gemeldet.
+    pub live: Option<StationState>,
+    // Warum die Session pausiert ist; `None`, solange sie nicht pausiert.
+    pub pause: Option<StationPause>,
+    // Ab hier ADR 073, Befehls-Station: die Schritte der Vorlage, ihr Ordner, die Schritte mit eingesetzten
+    // Werten (`{{env:…}}` bleibt stehen; `None`, solange ein Wert fehlt), die letzten Zeilen der Ausgabe und
+    // der laufende Schritt (1-basiert). Alle `None` bei einer anderen Art.
+    pub command: Option<Vec<String>>,
+    pub cwd: Option<String>,
+    pub resolved: Option<Vec<String>>,
+    pub output: Option<String>,
+    pub step: Option<u32>,
+}
+
+// Grund der Pause einer Session an der Station.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct StationPause {
+    pub reason: StationPauseReason,
+    /// Rücksetzzeit des Kontingents, ms seit der Epoche; nur bei `Quota` und bekannter Zeit.
+    #[ts(type = "number | null")]
+    pub resets_at: Option<f64>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub enum StationPauseReason {
+    Quota,
+    // Vom Benutzer pausiert oder nach dem Neustart der App (ADR 051: dann ist der Grund gelöscht).
+    Other,
 }
 
 impl StationView {
-    /// Zählt gegen `max_parallel` (ADR 061); eine Station, die nach einem Fehler neu startet, behält
-    /// ihren Platz.
+    /// Belegt einen Platz der globalen Warteschlange (ADR 068, Regel a): Countdown, Start, ein Agent
+    /// mit Zug, das Warten auf ein Skript und eine Station, die auf das Kontingent wartet (ADR 064).
+    /// Eine Rückfrage und ein Fehler (auch vor dem Neustart nach „Bei Fehler“) belegen keinen.
+    /// Gezählt wird nach `slots::holds_slot` und im Tor; außerhalb der Tests ruft `is_active` niemand
+    /// mehr auf, beide Fassungen müssen deshalb von Hand gleich bleiben.
     pub fn is_active(&self) -> bool {
-        self.restarting
-            || matches!(
-                self.state,
-                StationState::Countdown
-                    | StationState::Starting
-                    | StationState::Running
-                    | StationState::WaitsForScript
-                    | StationState::Asking
-            )
+        matches!(
+            self.state,
+            StationState::Countdown
+                | StationState::Starting
+                | StationState::Running
+                | StationState::WaitsForScript
+                | StationState::WaitsForQuota
+        )
     }
 
     /// Der Auftrag samt Änderungen durch Vorgänger, wie die erste Nachricht ihn sendet.
@@ -252,10 +362,6 @@ pub struct ChangeSummary {
     // `added` und `removed` nennen dort neue Lanes und Plan-Kennungen.
     #[serde(default)]
     pub changed: Vec<String>,
-    // Neue Grenze aus dem Delta, 0 = unbegrenzt; fehlt, wenn das Delta sie nicht ändert.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub max_parallel: Option<u32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
@@ -291,8 +397,7 @@ pub struct PendingChange {
 // Eine Plan-Änderung als Delta (ADR 061, Werkzeuge): `implementation_edit` schlägt sie vor, der Befehl
 // `implementation_edit_plan` wendet sie für den Benutzer direkt an. Reihenfolge: entfernen (die
 // Nachfolger erben die Vorgänger), ändern, Stationen an bestehende Lanes hängen, neue Lanes hinter die
-// bestehenden, dann `max_parallel` (0 = unbegrenzt). Eine Station ohne `after` ist eine Startstation;
-// Position und Welle gelten hier nicht.
+// bestehenden. Eine Station ohne `after` ist eine Startstation; Position und Welle gelten hier nicht.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct PlanEdit {
@@ -304,9 +409,6 @@ pub struct PlanEdit {
     pub change: Vec<StationPatch>,
     #[serde(default)]
     pub remove: Vec<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub max_parallel: Option<u32>,
 }
 
 impl PlanEdit {
@@ -315,7 +417,6 @@ impl PlanEdit {
             && self.add.is_empty()
             && self.change.is_empty()
             && self.remove.is_empty()
-            && self.max_parallel.is_none()
     }
 
     /// Alle Stationen, die das Delta neu anlegt, mit dem Feld, unter dem sie stehen.
@@ -374,6 +475,13 @@ pub struct StationPatch {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub skill: Option<String>,
+    // ADR 073: nur bei einer nicht gestarteten Befehls-Station.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub command: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub cwd: Option<String>,
 }
 
 /// Die Übergabenotiz einer Fertigmeldung (ADR 061, Werkzeuge): `note` ergänzt den Auftrag jedes
@@ -411,10 +519,39 @@ pub struct ImplementationView {
     #[ts(type = "number")]
     pub last_activity_at: f64,
     pub unread: bool,
-    // ADR 061: Grenze gleichzeitig aktiver Stationen (`None` = unbegrenzt) und Zahl der Stationen in
-    // der Warteschlange.
-    pub max_parallel: Option<u32>,
+    // Zahl der Stationen dieser Umsetzung in der globalen Warteschlange (ADR 068).
     pub queued: u32,
+    // ADR 064: „Automatisch fortsetzen“ nach aufgebrauchtem Kontingent.
+    pub auto_resume: bool,
+    // ADR 066: abgebrochen (dann ist auch `finishedAt` gesetzt) und die offene Anfrage eines Agenten;
+    // solange sie liegt, startet keine Station.
+    #[ts(type = "number | null")]
+    pub cancelled_at: Option<f64>,
+    pub pending_cancel: Option<PendingCancel>,
+    // ADR 070: die Session, die die Meldungen entscheidet, und ob sie ausfällt (gelöscht, Fehler; eine
+    // Kontingent-Pause ist kein Ausfall) oder fehlt.
+    pub master_session_id: Option<String>,
+    pub master_missing: bool,
+}
+
+// Anfrage eines Agenten (`implementation_cancel`), die Umsetzung abzubrechen und bei `delete` danach zu
+// löschen (ADR 066); wirkt erst, wenn der Benutzer sie bestätigt.
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct PendingCancel {
+    pub session_id: String,
+    pub session_number: u32,
+    #[ts(type = "number")]
+    pub at: f64,
+    pub reason: String,
+    pub delete: bool,
+}
+
+// Gesendet als `implementation://removed`, nachdem die Umsetzung gelöscht ist (ADR 066).
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ImplementationRemovedEvent {
+    pub id: String,
 }
 
 /// Gesendet als `implementation://changed`.
@@ -453,7 +590,7 @@ pub struct StationInput {
     #[ts(optional, type = "'fable' | 'opusplan' | 'opus' | 'sonnet' | 'haiku'")]
     pub model: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional, type = "'agent' | 'you'")]
+    #[ts(optional, type = "'agent' | 'you' | 'command'")]
     pub by: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
@@ -495,6 +632,13 @@ pub struct StationInput {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub predecessors_may: Option<PredecessorsMay>,
+    // Ab hier ADR 073: Schritte und Ordner einer Befehls-Station (`by: "command"`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub command: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub cwd: Option<String>,
 }
 
 /// Die Einstellungen einer Station von der Karte (ADR 060): `implementation_set_station_agent`
@@ -516,6 +660,7 @@ pub struct StationSettings {
 
 const BY_AGENT: &str = "agent";
 const BY_USER: &str = "you";
+const BY_COMMAND: &str = "command";
 
 impl StationInput {
     /// Nur nach `validate` aufrufen: dann ist ein gesetzter Name bekannt.
@@ -550,6 +695,14 @@ impl StationInput {
 
     pub fn is_by_user(&self) -> bool {
         self.by.as_deref() == Some(BY_USER)
+    }
+
+    pub fn kind(&self) -> StationKind {
+        match self.by.as_deref() {
+            Some(BY_USER) => StationKind::User,
+            Some(BY_COMMAND) => StationKind::Command,
+            _ => StationKind::Agent,
+        }
     }
 
     /// Die Plan-Kennung, getrimmt; ohne Angabe `<Phasenschlüssel>-<Nummer>` (1-basiert).
@@ -643,11 +796,13 @@ pub fn validate_station(field: &str, station: &StationInput) -> Result<(), Strin
     if let Some(by) = &station.by
         && by != BY_AGENT
         && by != BY_USER
+        && by != BY_COMMAND
     {
         return Err(format!(
-            "{field}.by: „{BY_AGENT}“ oder „{BY_USER}“, nicht „{by}“"
+            "{field}.by: „{BY_AGENT}“, „{BY_USER}“ oder „{BY_COMMAND}“, nicht „{by}“"
         ));
     }
+    check_command_fields(field, station)?;
     if let Some(skill) = &station.skill {
         check_length(
             &format!("{field}.skill"),
@@ -678,12 +833,52 @@ pub fn validate_station(field: &str, station: &StationInput) -> Result<(), Strin
     Ok(())
 }
 
-/// `max_parallel` einer Umsetzung (ADR 061): mindestens 1, `None` = unbegrenzt.
-pub fn check_max_parallel(max_parallel: Option<u32>) -> Result<(), String> {
-    if max_parallel == Some(0) {
-        return Err("max_parallel: mindestens 1".to_owned());
+/// Die Felder einer Station nach ihrer Art (ADR 073): `command` genau bei `by: "command"`, `cwd` nur
+/// dort, und die Felder einer Agenten-Station sind dort verboten.
+fn check_command_fields(field: &str, station: &StationInput) -> Result<(), String> {
+    if station.kind() != StationKind::Command {
+        for (name, is_set) in [
+            ("command", station.command.is_some()),
+            ("cwd", station.cwd.is_some()),
+        ] {
+            if is_set {
+                return Err(format!("{field}.{name}: nur bei by: \"{BY_COMMAND}\""));
+            }
+        }
+        return Ok(());
     }
-    Ok(())
+    for (name, is_set) in [
+        ("agent", station.agent.is_some()),
+        ("model", station.model.is_some()),
+        ("effort", station.effort.is_some()),
+        ("prompt", station.prompt.is_some()),
+        ("skill", station.skill.is_some()),
+    ] {
+        if is_set {
+            return Err(format!(
+                "{field}.{name}: bei einer Befehls-Station nicht erlaubt"
+            ));
+        }
+    }
+    let Some(command) = &station.command else {
+        return Err(format!(
+            "{field}.command: bei by: \"{BY_COMMAND}\" Pflicht (1 bis 5 Schritte)"
+        ));
+    };
+    command::check_command(field, command, station.cwd.as_deref())
+}
+
+/// Satz für einen Planer, der noch `max_parallel` übergibt (ADR 068): Statt es still zu übergehen,
+/// nennt der Verwalter die Einstellung, die jetzt gilt.
+pub const MAX_PARALLEL_GONE: &str = "`max_parallel` gibt es nicht mehr: Die Grenze gilt app-weit \
+     (Einstellung „Gleichzeitige Agenten max.“).";
+
+/// Lehnt ein übergebenes `max_parallel` mit `MAX_PARALLEL_GONE` ab.
+pub fn refuse_max_parallel(value: Option<&serde_json::Value>) -> Result<(), String> {
+    match value {
+        Some(_) => Err(MAX_PARALLEL_GONE.to_owned()),
+        None => Ok(()),
+    }
 }
 
 /// Prüft das Feld `agent` jeder Station gegen die Typen (ADR 060); wie die Auflösung getrimmt und

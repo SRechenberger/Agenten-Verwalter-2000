@@ -1,0 +1,285 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Entwurf: Dashboard-Zettel (#181, #182, #183, #194)</title>
+<style>
+:root{color-scheme:dark;--bg:#1f1f1f;--side:#181818;--surf:#252526;--hover:#2e2e30;--sel:#37373d;--bds:#2b2b2b;--bd:#3c3c3c;--fg:#d4d4d4;--fg2:#b0b0b0;--fgm:#8f8f8f;--acc:#e0825c;--onacc:#1d130e;--run:#5b9dff;--wait:#f2b33d;--waitsub:rgba(242,179,61,.14);--err:#f47067;--ok:#4cc38a;--pause:#8f8f8f;--scrim:rgba(0,0,0,.55);--shadow:0 10px 30px rgb(0 0 0/.45);--font:'Segoe UI Variable Text','Segoe UI',system-ui,sans-serif;--mono:'Cascadia Code',Consolas,ui-monospace,monospace}
+:root[data-theme=light]{color-scheme:light;--bg:#fff;--side:#f3f3f3;--surf:#f7f7f7;--hover:#ececec;--sel:#e6e8f0;--bds:#ebebeb;--bd:#d4d4d4;--fg:#3c3c3c;--fg2:#5f5f5f;--fgm:#85858a;--acc:#c4572f;--onacc:#fff;--run:#2563eb;--wait:#a86a00;--waitsub:rgba(168,106,0,.12);--err:#d23b33;--ok:#16803c;--pause:#85858a;--scrim:rgba(0,0,0,.3);--shadow:0 10px 30px rgb(0 0 0/.14)}
+*{box-sizing:border-box}
+body{margin:0;background:var(--side);color:var(--fg);font:13px/1.45 var(--font)}
+main{max-width:1180px;margin:0 auto;padding:16px}
+h1{font-size:15px;margin:0 0 4px}h2{font-size:14px;margin:28px 0 4px}h2 small{color:var(--fgm);font-weight:400}
+.lead,.cap{color:var(--fg2);margin:0 0 10px}.cap{font-size:12px;color:var(--fgm);margin:4px 0 0}
+button{font:inherit;color:inherit}
+#sim{display:flex;gap:10px;align-items:center;margin:0 0 8px;padding:8px 10px;border:1px dashed var(--bd);border-radius:6px;color:var(--fgm);font-size:12px}
+#sim button{border:1px solid var(--bd);background:transparent;border-radius:6px;padding:3px 10px;cursor:pointer}
+#sim button[aria-pressed=true]{background:var(--sel);color:var(--fg)}
+.row{display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:start}
+.row3{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;align-items:start}
+.lbl{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--fgm);margin:0 0 4px}
+.lbl b{color:var(--acc)}
+/* Popup (nachgebaut aus TaskPopup/PopupBodies) */
+.dlg{background:var(--surf);border:1px solid var(--bd);border-radius:10px;box-shadow:var(--shadow);overflow:hidden}
+.dh{display:flex;align-items:flex-start;gap:10px;padding:10px 14px;border-bottom:1px solid var(--bds);border-left:3px solid var(--k)}
+.kind{font-weight:600;color:var(--k);font-size:12px}.meta{color:var(--fgm);font-size:12px}
+.x{margin-left:auto;color:var(--fgm);font-size:16px;line-height:1}
+.db{padding:12px 14px;display:flex;flex-direction:column;gap:10px}
+.df{display:flex;gap:8px;justify-content:flex-end;padding:10px 14px;border-top:1px solid var(--bds)}
+.btn{border:1px solid var(--bd);border-radius:6px;background:transparent;padding:4px 12px}
+.btn.pri{background:var(--acc);border-color:var(--acc);color:var(--onacc)}.btn.ghost{color:var(--fg2);margin-right:auto}
+.btn[disabled]{opacity:.45}
+.note{font-size:12px;color:var(--fgm)}
+.msg{background:var(--bg);border:1px solid var(--bds);border-radius:8px;padding:8px 10px}
+.raw{white-space:pre-wrap;overflow-wrap:anywhere}
+textarea{width:100%;background:var(--bg);border:1px solid var(--bd);border-radius:6px;padding:6px 8px;resize:none;color:var(--fg);font:inherit}
+.chip{display:inline-block;font-size:11px;border:1px solid var(--bd);border-radius:99px;padding:0 8px;color:var(--fgm)}
+/* Markdown wie src/components/Markdown.css */
+.markdown{line-height:1.65;overflow-wrap:anywhere}
+.markdown>*+*{margin-top:8px}.markdown p,.markdown ul,.markdown ol,.markdown pre,.markdown table{margin:0}
+.markdown ul,.markdown ol{padding-left:22px}.markdown li+li{margin-top:2px}
+.markdown h3{font-size:13px;margin:12px 0 0}
+.markdown :not(pre)>code{padding:0 4px;border-radius:4px;background:var(--hover);font:12px var(--mono)}
+.markdown pre{background:var(--bg);border:1px solid var(--bds);border-radius:6px;padding:8px 10px;font:12px var(--mono);overflow-x:auto}
+.tscroll{max-width:100%;overflow-x:auto}
+.markdown table{border-collapse:collapse}
+.markdown th,.markdown td{padding:3px 8px;border:1px solid var(--bds);text-align:left;overflow-wrap:break-word}
+.markdown th{font-weight:600;background:var(--hover)}
+.wide td,.wide th{white-space:nowrap}
+/* Karten / Liste */
+.win{background:var(--bg);border:1px solid var(--bd);border-radius:10px;padding:12px 14px}
+.tbar{display:flex;align-items:center;gap:14px;margin-bottom:10px}.tbar h3{margin:0;font-size:13px}.cnt{color:var(--fgm);font-weight:400}
+.chk{display:inline-flex;gap:6px;align-items:center;color:var(--fg2);font-size:12px}
+.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(205px,1fr));gap:8px}
+.card{border:1px solid var(--bd);border-left:3px solid var(--k);border-radius:8px;background:var(--surf);padding:8px 10px;display:flex;flex-direction:column;gap:4px;min-height:92px}
+.card .top{display:flex;gap:6px;font-size:11px}.card .kind{font-size:11px}.since{margin-left:auto;color:var(--fgm)}
+.card .t{font-size:12.5px}.card .src{margin-top:auto;font-size:11px;color:var(--fgm)}
+.card.gone{border-style:dashed;opacity:.5}
+.tag{font-size:10.5px;color:var(--fgm);border:1px solid var(--bd);border-radius:99px;padding:0 6px}
+.pos{position:absolute;left:-9px;top:-9px;width:18px;height:18px;border-radius:50%;background:var(--acc);color:var(--onacc);font-size:11px;font-weight:700;text-align:center;line-height:18px}
+.card{position:relative}
+.arrow{align-self:center;text-align:center;color:var(--fgm);font-size:22px}
+/* Leiste */
+.side{background:var(--side);border:1px solid var(--bd);border-radius:10px;display:flex;flex-direction:column;height:430px;overflow:hidden;padding:0}
+.brand{display:flex;align-items:center;gap:8px;font-weight:600;padding:10px 12px 8px}
+.acts{padding:0 8px 6px}
+.new{display:flex;align-items:center;gap:6px;border:1px solid var(--bd);border-radius:6px;padding:0 8px;height:30px;color:var(--fg)}
+.new kbd{margin-left:auto;font:10px var(--mono);color:var(--fgm)}
+.dash{display:flex;align-items:center;gap:8px;height:30px;padding:0 8px;border-radius:6px;color:var(--fg2)}
+.dash.on{background:var(--sel);color:var(--fg)}
+.dash.mt{margin-top:4px}
+.cntb{margin-left:auto;min-width:18px;padding:0 5px;border-radius:99px;background:var(--wait);color:var(--bg);font-size:11px;font-weight:600;text-align:center}
+.list{flex:1;overflow:hidden;padding:2px 8px;position:relative}
+.sticky{position:sticky;top:0;background:var(--side);border-bottom:1px solid var(--bds);padding:4px 0 6px;margin:0 -8px 4px;padding-left:8px;padding-right:8px;z-index:1}
+.grp{font-size:11px;color:var(--fgm);text-transform:uppercase;letter-spacing:.04em;padding:8px 6px 2px}
+.proj{padding:3px 6px;display:flex;gap:6px;align-items:center}
+.sess{padding:2px 6px 2px 20px;color:var(--fg2);display:flex;gap:7px;align-items:center;font-size:12.5px}
+.dot{width:7px;height:7px;border-radius:50%;background:var(--pause);flex:none}
+.foot{border-top:1px solid var(--bds);padding:8px}
+.qchip{display:flex;align-items:center;gap:6px;margin-bottom:6px}
+.qchip i{font-style:normal;padding:1px 10px;border:1px solid var(--wait);border-radius:99px;background:var(--waitsub);color:var(--wait);font-size:12px}
+.fi{display:flex;align-items:center;gap:8px;height:30px;padding:0 8px;color:var(--fg2)}
+.qd{display:inline-flex;align-items:center;gap:6px}
+.sv{opacity:.7}
+.pick{outline:2px solid var(--acc);outline-offset:2px;border-radius:6px}
+.why{color:var(--fg2);font-size:12px;margin:6px 0 0}
+section.doc{margin-top:24px;color:var(--fg2);max-width:900px}
+@media (max-width:1000px){.row,.row3{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<main>
+<h1>Entwurf: Dashboard-Zettel (Taiga #181, #182, #183, Story #194)</h1>
+<p class="lead">Mockup vor der Umsetzung, Stand 2026-11-20. Alle Namen und Zahlen sind Beispieldaten. Farben und Abstände sind aus den Dateien der Oberfläche übernommen. Der Schalter wirkt auf alle Bilder; Sprungmarke <code>#theme=light|dark</code>.</p>
+<div id="sim"><span>Farbschema</span><button data-v="dark">Dunkel</button><button data-v="light">Hell</button></div>
+
+<!-- ===================== #182 ===================== -->
+<h2>1 · #182 Markdown im Popup <small>Popup einer Antwort-Karte, vorher und nachher</small></h2>
+<div class="row">
+  <div>
+    <p class="lbl">Vorher (heute: Rohtext, <code>pre-wrap</code>)</p>
+    <div class="dlg" style="--k:var(--pause)">
+      <div class="dh"><div><div class="kind">Antwort liegt vor</div><div class="meta">Vault-Pflege · #1 Destillieren · seit 12 min</div></div><span class="x">✕</span></div>
+      <div class="db">
+        <div class="msg raw">Ich habe drei Dinge geändert:
+
+- **Filter** in `dashboardTexts.ts`
+- Test `filter_blocking_keeps_core_order`
+
+```ts
+const open = tasks.filter(isOpen);
+```
+
+| Datei | Zeilen | Zweck |
+|---|---|---|
+| src/features/dashboard/DashboardView.tsx | 61-66 | Popup bleibt offen |
+| mod.rs | 162 | Kennung |</div>
+        <textarea rows="2" placeholder="Antwort an #1 Destillieren …"></textarea>
+      </div>
+      <div class="df"><button class="btn ghost">Session öffnen</button><button class="btn">Gelesen</button><button class="btn pri" disabled>Senden</button></div>
+    </div>
+  </div>
+  <div>
+    <p class="lbl">Nachher (<b>Markdown</b> wie im Chat)</p>
+    <div class="dlg" style="--k:var(--pause)">
+      <div class="dh"><div><div class="kind">Antwort liegt vor</div><div class="meta">Vault-Pflege · #1 Destillieren · seit 12 min</div></div><span class="x">✕</span></div>
+      <div class="db">
+        <div class="msg markdown">
+          <p>Ich habe drei Dinge geändert:</p>
+          <ul><li><strong>Filter</strong> in <code>dashboardTexts.ts</code></li><li>Test <code>filter_blocking_keeps_core_order</code></li></ul>
+          <pre>const open = tasks.filter(isOpen);</pre>
+          <div class="tscroll"><table><thead><tr><th>Datei</th><th>Zeilen</th><th>Zweck</th></tr></thead><tbody>
+            <tr><td>src/features/dashboard/DashboardView.tsx</td><td>61-66</td><td>Popup bleibt offen</td></tr>
+            <tr><td>mod.rs</td><td>162</td><td>Kennung</td></tr></tbody></table></div>
+        </div>
+        <textarea rows="2" placeholder="Antwort an #1 Destillieren …"></textarea>
+      </div>
+      <div class="df"><button class="btn ghost">Session öffnen</button><button class="btn">Gelesen</button><button class="btn pri" disabled>Senden</button></div>
+    </div>
+  </div>
+</div>
+<p class="cap">Nachricht davor und letzte Antwort laufen beide durch <code>Markdown</code>. Der Rahmen setzt kein <code>pre-wrap</code> und kein <code>overflow-wrap:anywhere</code> mehr um das Markdown.</p>
+
+<p class="lbl" style="margin-top:14px">Tabellen im Popup: breit (scrollt waagerecht) und schmal (bricht um)</p>
+<div class="row">
+  <div class="dlg" style="--k:var(--pause)">
+    <div class="dh"><div><div class="kind">Antwort liegt vor</div><div class="meta">Breite Tabelle</div></div><span class="x">✕</span></div>
+    <div class="db"><div class="msg markdown"><p>Messwerte je Lauf:</p>
+      <div class="tscroll"><table class="wide"><thead><tr><th>Lauf</th><th>Start</th><th>Ende</th><th>Dauer</th><th>Station</th><th>Modell</th><th>Token ein</th><th>Token aus</th><th>Ergebnis</th><th>Bemerkung</th></tr></thead><tbody>
+      <tr><td>1</td><td>09:12:03</td><td>09:15:41</td><td>3 min 38 s</td><td>109.3 Review</td><td>opus</td><td>412 000</td><td>18 300</td><td>ohne Befund</td><td>zweiter Lauf nach Fix-Runde</td></tr>
+      <tr><td>2</td><td>09:20:10</td><td>09:31:55</td><td>11 min 45 s</td><td>109.4 Umsetzung</td><td>sonnet</td><td>880 100</td><td>61 000</td><td>Befund</td><td>Test rot, siehe Brief</td></tr></tbody></table></div>
+      <p class="note">↔ die Tabelle scrollt, das Popup bleibt so breit wie es ist.</p></div></div>
+  </div>
+  <div class="dlg" style="--k:var(--pause)">
+    <div class="dh"><div><div class="kind">Antwort liegt vor</div><div class="meta">Schmale Spalten</div></div><span class="x">✕</span></div>
+    <div class="db"><div class="msg markdown"><p>Schalter:</p>
+      <div class="tscroll"><table><thead><tr><th>Wert</th><th>Sinn</th></tr></thead><tbody>
+      <tr><td>an</td><td>Das Modell ordnet Antworten ein, die ohne Anfrage enden.</td></tr>
+      <tr><td>aus</td><td>Die Antwort erscheint als „Antwort liegt vor“, ohne Einzeiler.</td></tr></tbody></table></div></div></div>
+  </div>
+</div>
+
+<!-- ===================== #183 ===================== -->
+<h2>2 · #183 „Gelesen“ und Filter für pausierte Stationen</h2>
+<div class="row">
+  <div>
+    <p class="lbl">Popup „Unterbrochen – Kontingent aufgebraucht“ einer Station mit Session</p>
+    <div class="dlg" style="--k:var(--acc)">
+      <div class="dh"><div><div class="kind">Unterbrochen</div><div class="meta">Globale Warteschlange (#103) · Station 103.2 · Kern · seit 25 min</div></div><span class="x">✕</span></div>
+      <div class="db">
+        <div>Kontingent aufgebraucht. Die Station ruht, bis das Kontingent wieder frei ist, oder du setzt sie fort.</div>
+        <div class="note">Mit „Gelesen“ verschwindet die Karte aus der Liste. Sie kommt zurück, wenn die Station danach erneut pausiert, einen Fehler meldet oder neu aktiv wird. Zustand und Zahl des Ablaufs ändern sich nicht.</div>
+      </div>
+      <div class="df"><button class="btn ghost">Station öffnen</button><button class="btn pri" style="outline:2px solid var(--acc);outline-offset:2px">Gelesen</button><button class="btn">Fortsetzen</button></div>
+    </div>
+    <p class="cap">Neu: „Gelesen“ auch für „Unterbrochen“ und „Fehler“ einer Station mit Session. Ein Startfehler ohne Session bleibt ohne „Gelesen“.</p>
+  </div>
+  <div>
+    <p class="lbl">Liste mit „Nur, was einen Agenten anhält“ an</p>
+    <div class="win">
+      <div class="tbar"><h3>Aufgaben <span class="cnt">3</span></h3><span class="chk">☐ Gruppiert</span><span class="chk">☑ Nur, was einen Agenten anhält</span></div>
+      <div class="cards" style="grid-template-columns:1fr 1fr">
+        <div class="card" style="--k:var(--wait)"><span class="pos">1</span><span class="top"><span class="kind">Rückfrage</span><span class="since">4 min</span></span><span class="t">Soll „Parallel max.“ je Umsetzung entfallen?</span><span class="src">Globale Warteschlange · #3 Architekt</span></div>
+        <div class="card" style="--k:var(--acc)"><span class="pos">2</span><span class="top"><span class="kind">Unterbrochen</span><span class="tag">neu im Filter</span><span class="since">25 min</span></span><span class="t">Kontingent aufgebraucht</span><span class="src">Globale Warteschlange · Station 103.2</span></div>
+        <div class="card" style="--k:var(--acc)"><span class="pos">3</span><span class="top"><span class="kind">Unterbrochen</span><span class="tag">neu im Filter</span><span class="since">9 min</span></span><span class="t">Pausiert, Meldung liegt vor</span><span class="src">Agententypen per MCP · Station 109.3</span></div>
+      </div>
+    </div>
+    <p class="cap">Die Rückfrage (hält einen Agenten an) steht zuerst. Die pausierten Karten stehen dahinter, an ihrem Platz der normalen Reihenfolge (Stufe, dann am längsten wartend). Der Filter hat dafür eine eigene Bedingung; <code>blocking</code> und die Reihenfolge bleiben.</p>
+  </div>
+</div>
+
+<!-- ===================== #181 ===================== -->
+<h2>3 · #181 Popup bleibt offen, wenn die Art wechselt</h2>
+<div class="row">
+  <div>
+    <p class="lbl">Zustand A · Einordnung läuft noch</p>
+    <div class="dlg" style="--k:var(--pause)">
+      <div class="dh"><div><div class="kind">Antwort liegt vor</div><div class="meta">agda-mcp-server · #4 Beweis-Entwicklung · seit 15 min</div></div><span class="x">✕</span></div>
+      <div class="db"><div class="msg markdown"><p>Das Lemma <code>length-map</code> steht bis auf ein Loch. Induktion über <code>n</code> oder über die Liste?</p></div>
+        <textarea rows="2">Über die Liste, bitte.</textarea></div>
+      <div class="df"><button class="btn ghost">Session öffnen</button><button class="btn">Gelesen</button><button class="btn pri">Senden</button></div>
+    </div>
+  </div>
+  <div>
+    <p class="lbl">Zustand B · die Einordnung kommt: Karte wird „Fragt“</p>
+    <div class="dlg" style="--k:var(--wait)">
+      <div class="dh"><div><div class="kind">Fragt</div><div class="meta">agda-mcp-server · #4 Beweis-Entwicklung · seit 15 min</div></div><span class="x">✕</span></div>
+      <div class="db"><div class="note">✦ Eingeordnet als „fragt“ aus der letzten Antwort: Induktion über n oder über die Liste?</div>
+        <div class="msg markdown"><p>Das Lemma <code>length-map</code> steht bis auf ein Loch. Induktion über <code>n</code> oder über die Liste?</p></div>
+        <textarea rows="2">Über die Liste, bitte.</textarea></div>
+      <div class="df"><button class="btn ghost">Session öffnen</button><button class="btn">Gelesen</button><button class="btn pri">Senden</button></div>
+    </div>
+  </div>
+</div>
+<p class="cap">Das Popup bleibt offen, Kopf und Farbe zeigen die neue Art, die getippte Antwort bleibt stehen. Heute schließt es sich, weil die Kennung <code>answer:&lt;Session&gt;</code> mit der Art verschwindet; künftig <code>session:&lt;Session&gt;</code>. Es schließt sich nur noch, wenn die Karte ganz wegfällt.</p>
+
+<!-- ===================== #194 ===================== -->
+<h2>4 · #194 Dashboard-Knopf <small>vier Stellen, jeweils mit der Zahl der Karten</small></h2>
+<div class="row3">
+  <div>
+    <p class="lbl">Heute (zum Vergleich)</p>
+    <div class="side" data-v="now"></div>
+    <p class="why">Direkt unter „Neues Vorhaben“.</p>
+  </div>
+  <div>
+    <p class="lbl"><b>A</b> · ganz oben</p>
+    <div class="side" data-v="A"></div>
+    <p class="why">Über „Neues Vorhaben“, unter der Marke. Immer sichtbar, erste Stelle der Leiste.</p>
+  </div>
+  <div>
+    <p class="lbl"><b>B</b> · fester Kopf der Liste</p>
+    <div class="side" data-v="B"></div>
+    <p class="why">Steht über den Vorhaben und scrollt nicht mit; dazwischen die Liste.</p>
+  </div>
+  <div>
+    <p class="lbl"><b>C</b> · im Fuß</p>
+    <div class="side" data-v="C"></div>
+    <p class="why">Neben der Marke der Warteschlange, über Archiv und Einstellungen.</p>
+  </div>
+</div>
+<div class="row3" style="margin-top:16px">
+  <div>
+    <p class="lbl"><b>D</b> · in der Marke, rechts</p>
+    <div class="side" data-v="D"></div>
+    <p class="why"><b>Vorschlag:</b> Zahl und Quadrate rechts in der Kopfzeile der Marke: eine Zeile gespart, immer sichtbar, ohne Platz in der Liste und ohne den Knopf „Neues Vorhaben“ zu verschieben.</p>
+  </div>
+</div>
+
+<section class="doc">
+  <h2>Was der Entwurf zeigt</h2>
+  <ul>
+    <li><b>#182:</b> Markdown wie im Chat, breite Tabellen scrollen waagerecht, schmale brechen in der Zelle um.</li>
+    <li><b>#183:</b> „Gelesen“ für Stationen mit Session; der Filter zeigt pausierte Karten an ihrem Platz dahinter. Kein „Alle gelesen“ (bleibt bei #187).</li>
+    <li><b>#181:</b> Die Kennung der Session-Karte verliert die Art, das Popup bleibt offen.</li>
+    <li><b>#194:</b> Varianten A bis D; die Wahl trifft der Nutzer.</li>
+  </ul>
+</section>
+</main>
+
+<script>
+const root=document.documentElement;
+const hash=new URLSearchParams(location.hash.slice(1));
+function setTheme(t){root.dataset.theme=t;document.querySelectorAll('#sim button').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.v===t)))}
+setTheme(hash.get('theme')||'dark');
+document.querySelectorAll('#sim button').forEach(b=>b.onclick=()=>setTheme(b.dataset.v));
+
+const grid='<svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><rect x="1.5" y="1.5" width="4.5" height="4.5" rx="1"/><rect x="8" y="1.5" width="4.5" height="4.5" rx="1"/><rect x="1.5" y="8" width="4.5" height="4.5" rx="1"/><rect x="8" y="8" width="4.5" height="4.5" rx="1"/></svg>';
+const brandIcon='<svg width="16" height="16" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="1.5" y="1.5" width="7" height="7" rx="2"/><rect x="5.5" y="5.5" width="7" height="7" rx="2"/></svg>';
+const dashBtn=(cls='')=>`<div class="dash on ${cls} pick">${grid}<span>Dashboard</span><span class="cntb">7</span></div>`;
+const newBtn='<div class="new"><span>＋</span><span>Neues Vorhaben</span><kbd>Ctrl N</kbd></div>';
+const tree=(n)=>{const all=[['Verwalter',[['Dashboard-Ticket','#1 Architekt','var(--run)'],['Globale Warteschlange','#3 Architekt','var(--wait)'],['Agententypen per MCP','#1 Architekt','var(--pause)'],['Upstream-Features','#2 Architekt','var(--err)']]],['Sonstiges',[['agda-mcp-server','#4 Beweis','var(--pause)'],['LM-Studio','#2 Entwicklung','var(--pause)'],['Vault-Pflege','#1 Destillieren','var(--pause)']]]];
+ return all.map(([g,ps])=>`<div class="grp">${g}</div>`+ps.map(([p,s,c])=>`<div class="proj">${p}</div><div class="sess"><span class="dot" style="background:${c}"></span>${s}</div>`).join('')).join('')};
+const queue='<div class="qchip"><i>Warteschlange 2</i></div>';
+const foot=(inner='')=>`<div class="foot">${inner}<div class="fi">⌸ Archiv</div><div class="fi">⚙ Einstellungen</div></div>`;
+const V={
+ now:()=>`<div class="brand">${brandIcon}Agenten Verwalter 2000</div><div class="acts">${newBtn}${dashBtn('mt').replace(' pick','')}</div><div class="list">${tree()}</div>${foot(queue)}`,
+ A:()=>`<div class="brand">${brandIcon}Agenten Verwalter 2000</div><div class="acts">${dashBtn()}<div style="height:4px"></div>${newBtn}</div><div class="list">${tree()}</div>${foot(queue)}`,
+ B:()=>`<div class="brand">${brandIcon}Agenten Verwalter 2000</div><div class="acts">${newBtn}</div><div class="list"><div class="sticky">${dashBtn()}</div>${tree()}</div>${foot(queue)}`,
+ C:()=>`<div class="brand">${brandIcon}Agenten Verwalter 2000</div><div class="acts">${newBtn}</div><div class="list">${tree()}</div>${foot(`<div class="qd" style="width:100%;margin-bottom:6px"><div class="qchip" style="margin:0"><i>Warteschlange 2</i></div><span class="cntb pick" style="margin-left:auto;display:inline-flex;gap:5px;align-items:center;padding:1px 8px">${grid}7</span></div>`)}`,
+ D:()=>`<div class="brand pick" style="margin:6px 8px;padding:2px 6px">${brandIcon}<span>Agenten Verwalter 2000</span><span class="cntb" style="display:inline-flex;gap:5px;align-items:center;padding:1px 8px">${grid}7</span></div><div class="acts">${newBtn}</div><div class="list">${tree()}</div>${foot(queue)}`,
+};
+document.querySelectorAll('.side').forEach(el=>{el.innerHTML=V[el.dataset.v]()});
+</script>
+</body>
+</html>

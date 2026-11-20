@@ -227,7 +227,10 @@ fn registry_with_two_implementations() -> SessionRegistry {
                         auto_start: true,
                         stop_after_current: false,
                         pending_change: None,
-                        max_parallel: None,
+                        auto_resume: false,
+                        cancelled_at: None,
+                        pending_cancel: None,
+                        master_session_id: None,
                     },
                     &[PhaseRow {
                         id: format!("phase-{key}"),
@@ -245,7 +248,7 @@ fn registry_with_two_implementations() -> SessionRegistry {
                         position: 0,
                         stage: "Umsetzung".to_owned(),
                         model: None,
-                        by_user: false,
+                        kind: Default::default(),
                         skill: None,
                         brief: String::new(),
                         session_id: None,
@@ -266,6 +269,13 @@ fn registry_with_two_implementations() -> SessionRegistry {
                         predecessors_may: Default::default(),
                         brief_changes: Vec::new(),
                         restarts: 0,
+                        auto_resume: None,
+                        reported_at: None,
+                        report: None,
+                        returns: 0,
+                        released_at: None,
+                        vars: Default::default(),
+                        command: None,
                     }],
                 )?;
             }
@@ -354,4 +364,63 @@ fn a_project_summary_without_access_counts_as_own() {
     }))
     .expect("lesbar");
     assert_eq!(summary.access, ProjectAccess::Own);
+}
+
+/// Taiga 33: Alle Aufrufe teilen sich die Zwischendatei; gleichzeitiges Schreiben derselben Datei
+/// gelingt für alle, die Datei trägt den ganzen Inhalt eines Aufrufs, und nichts bleibt liegen.
+#[test]
+fn concurrent_private_writes_of_one_file_all_succeed() {
+    const THREADS: usize = 8;
+    const ROUNDS: usize = 50;
+    let dir = std::env::temp_dir().join(format!("verwalter-write-private-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("Ordner");
+    let path = dir.join("shared.json");
+    let results: Vec<Vec<std::io::Result<()>>> = std::thread::scope(|scope| {
+        let handles: Vec<_> = (0..THREADS)
+            .map(|thread| {
+                let path = &path;
+                scope.spawn(move || {
+                    let content = format!("{thread}:{}", "x".repeat(4096));
+                    (0..ROUNDS)
+                        .map(|_| super::write_private(path, content.as_bytes()))
+                        .collect()
+                })
+            })
+            .collect();
+        handles
+            .into_iter()
+            .map(|handle| handle.join().expect("Thread"))
+            .collect()
+    });
+    for result in results.iter().flatten() {
+        assert!(
+            result.is_ok(),
+            "ein gleichzeitiger Aufruf scheiterte: {result:?}"
+        );
+    }
+    let content = std::fs::read_to_string(&path).expect("lesbar");
+    assert!(
+        (0..THREADS).any(|thread| content == format!("{thread}:{}", "x".repeat(4096))),
+        "die Datei trägt keinen vollständigen Inhalt eines Aufrufs"
+    );
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = std::fs::metadata(&path)
+            .expect("Rechte")
+            .permissions()
+            .mode();
+        assert_eq!(mode & 0o777, 0o600);
+    }
+    let names: Vec<_> = std::fs::read_dir(&dir)
+        .expect("Ordner")
+        .map(|entry| entry.expect("Eintrag").file_name())
+        .collect();
+    assert_eq!(
+        names,
+        vec![std::ffi::OsString::from("shared.json")],
+        "Zwischendatei blieb liegen"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
 }

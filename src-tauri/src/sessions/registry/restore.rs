@@ -15,11 +15,11 @@ use crate::db::{
     implementations as implementation_rows, session_repositories, session_ticket_worktrees,
 };
 use crate::error::CommandError;
-use crate::sessions::model::SessionSummary;
+use crate::sessions::model::{SessionStatus, SessionSummary};
 
 impl SessionRegistry {
     /// Holt ein archiviertes Vorhaben mit allen Sessions zurück, ohne Verlauf und ohne Agenten — der
-    /// Agent startet erst mit der nächsten Nachricht. Die Sessions werden gebaut, bevor die Datenbank
+    /// Agent startet erst mit der nächsten Nachricht; abgebrochene Sessions sind danach wieder offen. Die Sessions werden gebaut, bevor die Datenbank
     /// sich ändert: scheitert der Aufbau, bleibt das Vorhaben archiviert, statt nach dem nächsten
     /// Start unerwartet aufzutauchen. Unbekannt oder nicht archiviert → Fehler.
     pub fn restore_project(
@@ -51,7 +51,17 @@ impl SessionRegistry {
             })?;
         let mut sessions: Vec<Arc<Session>> = Vec::with_capacity(loaded.len());
         let mut interrupted: Vec<SessionRow> = Vec::new();
-        for stored in loaded {
+        for mut stored in loaded {
+            // Das Archivieren bricht jede Session ab; zurückgeholt ist sie wieder schreibbar und
+            // setzt mit der nächsten Nachricht ihren alten Verlauf fort.
+            if stored.row.status == SessionStatus::Cancelled {
+                stored.row.status = if stored.row.has_agent_history {
+                    SessionStatus::Completed
+                } else {
+                    SessionStatus::New
+                };
+                interrupted.push(stored.row.clone());
+            }
             let (session, paused_row) = build_session(app, &self.database, stored)?;
             sessions.push(session);
             interrupted.extend(paused_row);

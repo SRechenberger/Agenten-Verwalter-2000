@@ -7,7 +7,9 @@ import { SidebarGroup } from '@/app/SidebarGroup';
 import { SidebarImplementation } from '@/app/SidebarImplementation';
 import { SidebarItem } from '@/app/SidebarItem';
 import { SidebarProject } from '@/app/SidebarProject';
+import { SidebarStation } from '@/app/SidebarStation';
 import { useSidebarDrag } from '@/app/useSidebarDrag';
+import { useOpenStation } from '@/features/implementation/useOpenStation';
 import {
   projectActivity,
   sessionsByActivity,
@@ -15,10 +17,14 @@ import {
 } from '@/features/projects/projectStatus';
 import { isLocked, isRemote, LOCKED_TITLE } from '@/features/remote/projectAccess';
 import { displayStatus } from '@/features/sessions/sessionStatus';
+import { QueueChip } from '@/features/queue/QueueChip';
+import { badgeCount } from '@/features/dashboard/dashboardTexts';
+import { messageWaitPosition } from '@/features/queue/queueTexts';
 import { UsageSection } from '@/features/usage/UsageSection';
 import type { ImplementationView } from '@/lib/bindings/ImplementationView';
 import type { ProjectGroup } from '@/lib/bindings/ProjectGroup';
 import type { ProjectSummary } from '@/lib/bindings/ProjectSummary';
+import type { QueueEntry } from '@/lib/bindings/QueueEntry';
 import type { SessionSummary } from '@/lib/bindings/SessionSummary';
 import { renameImplementation } from '@/lib/implementation';
 import {
@@ -34,9 +40,11 @@ import { deleteSession, renameSession } from '@/lib/sessions';
 import { useActionError } from '@/lib/useActionError';
 import { needsAttention } from '@/features/environment/environmentTexts';
 import { useAppUpdateStore } from '@/stores/appUpdate';
+import { useDashboardStore } from '@/stores/dashboard';
 import { useEnvironmentStore } from '@/stores/environment';
 import { useSessionsStore } from '@/stores/sessions';
 import type { RenameKind, RenameTarget } from '@/stores/sessions';
+import { useAgentQueueStore } from '@/stores/agentQueue';
 import { useSettingsStore } from '@/stores/settings';
 import './Sidebar.css';
 
@@ -46,6 +54,7 @@ const ESTIMATED_HEIGHT: Record<SidebarRow['kind'], number> = {
   group: 32,
   project: 44,
   implementation: 26,
+  station: 26,
   session: 26,
   more: 30,
 };
@@ -54,6 +63,7 @@ const LAST_SESSION_EXTRA = 4;
 const NEW_GROUP_NAME = 'Neue Gruppe';
 /** So lange darf die Zeile eines Umbenennens fehlen, bevor es endet. */
 const RENAME_ROW_WAIT_MS = 1000;
+const NO_ENTRIES: readonly QueueEntry[] = [];
 
 interface RankedProject extends SidebarProjectEntry {
   /** Jüngste Aktivität im Vorhaben — bestimmt die Reihenfolge der Vorhaben. */
@@ -74,6 +84,8 @@ interface SidebarProps {
   activeImplementationId: string | null;
   showProjectOverview: boolean;
   isSettingsOpen: boolean;
+  /** Die Hauptfläche zeigt das Dashboard. */
+  isDashboardOpen: boolean;
   /** Satz zum Lade- oder Abo-Fehler der Listen; `null` ohne Fehler. */
   loadError: string | null;
   onSelectSession: (sessionId: string) => void;
@@ -82,6 +94,7 @@ interface SidebarProps {
   /** Legt eine Rückfrage zur Umsetzung an und öffnet sie. */
   onNew: () => void;
   onOpenSettings: () => void;
+  onOpenDashboard: () => void;
   onOpenArchive: () => void;
   onArchived: (projectId: string) => void;
   /** Rückgabe des Core nach Übernehmen oder Zurückgeben — schneller als dessen Ereignis. */
@@ -100,12 +113,14 @@ export function Sidebar({
   activeImplementationId,
   showProjectOverview,
   isSettingsOpen,
+  isDashboardOpen,
   loadError,
   onSelectSession,
   onSelectProject,
   onSelectImplementation,
   onNew,
   onOpenSettings,
+  onOpenDashboard,
   onOpenArchive,
   onArchived,
   onProjectChanged,
@@ -115,6 +130,13 @@ export function Sidebar({
   const expanded: Record<string, boolean> = useSessionsStore((state) => state.expanded);
   const startRenameRaw = useSessionsStore((state) => state.startRename);
   const stopRename = useSessionsStore((state) => state.stopRename);
+  // Alle offenen Karten, nicht die gefilterten der Ansicht; bei 0 keine Zahl.
+  const cardCount: number | null = useDashboardStore((state) =>
+    badgeCount(state.view?.tasks ?? []),
+  );
+  // Ohne Schriftzug trägt das Label den Namen des Knopfes.
+  const dashboardLabel: string =
+    cardCount === null ? 'Dashboard' : `Dashboard – ${String(cardCount)} Aufgaben warten auf dich`;
   const showAllSessions: Record<string, boolean> = useSessionsStore(
     (state) => state.showAllSessions,
   );
@@ -129,6 +151,10 @@ export function Sidebar({
   const needsEnvironmentAttention: boolean = useEnvironmentStore((state) =>
     needsAttention(state.status),
   );
+  const queueEntries: readonly QueueEntry[] = useAgentQueueStore(
+    (state) => state.queue?.entries ?? NO_ENTRIES,
+  );
+  const openStation = useOpenStation();
   const { error: actionError, run, report: reportError } = useActionError('sidebar');
 
   // Solange ein Gast das Vorhaben steuert oder der Host fehlt, lehnt der Core Umbenennen, Archivieren und
@@ -230,6 +256,33 @@ export function Sidebar({
     showProjectOverview,
     isDragging,
   ]);
+
+  // Zeigt die Hauptfläche eine Station ohne eigene Zeile (fertig o. ä.), trägt ihre Umsetzung die Markierung.
+  const stationSessionIds: ReadonlySet<string> = useMemo(
+    () =>
+      new Set<string>(
+        rows.flatMap((row: SidebarRow): string[] =>
+          row.kind === 'station' && row.entry.station.sessionId !== null
+            ? [row.entry.station.sessionId]
+            : [],
+        ),
+      ),
+    [rows],
+  );
+  const activeSession: SessionSummary | undefined =
+    activeSessionId === null
+      ? undefined
+      : sessions.find((session: SessionSummary) => session.id === activeSessionId);
+
+  // Ein Vorhaben, das nur aufgeklappt ist, weil es die offene Session, Übersicht oder Umsetzung
+  // enthält, bleibt aufgeklappt, wenn der Benutzer woandershin wechselt — zu klappt nur sein Klick.
+  useEffect(() => {
+    for (const row of rows) {
+      if (row.kind === 'project' && row.isExpanded && expanded[row.project.id] === undefined) {
+        setExpanded(row.project.id, true);
+      }
+    }
+  }, [rows, expanded, setExpanded]);
 
   // Die Warnung gilt dem React Compiler, den das Projekt nicht nutzt; die Bibliothek schreibt ADR 002 vor.
   // eslint-disable-next-line react-hooks/incompatible-library
@@ -432,6 +485,8 @@ export function Sidebar({
         return renderProject(row);
       case 'implementation':
         return renderImplementation(row);
+      case 'station':
+        return renderStation(row);
       case 'session':
         return renderSession(row);
       case 'more':
@@ -535,7 +590,13 @@ export function Sidebar({
       <div className={`sidebar__session${row.isLast ? ' sidebar__session--last' : ''}`}>
         <SidebarImplementation
           implementation={implementation}
-          isActive={implementation.id === activeImplementationId}
+          underMaster={row.underMaster}
+          isActive={
+            implementation.id === activeImplementationId ||
+            (activeSession?.stationOf === implementation.id &&
+              activeSessionId !== null &&
+              !stationSessionIds.has(activeSessionId))
+          }
           isRenaming={
             renaming !== null &&
             renaming.kind === 'implementation' &&
@@ -556,6 +617,28 @@ export function Sidebar({
     );
   }
 
+  function renderStation(row: Extract<SidebarRow, { kind: 'station' }>): ReactElement {
+    const { entry } = row;
+    const sessionId: string | null = entry.station.sessionId;
+    return (
+      <div className={`sidebar__session${row.isLast ? ' sidebar__session--last' : ''}`}>
+        <SidebarStation
+          entry={entry}
+          isNested={row.isNested}
+          underMaster={row.underMaster}
+          isActive={sessionId !== null && sessionId === activeSessionId}
+          isUnread={
+            sessionId !== null &&
+            (sessions.find((session: SessionSummary) => session.id === sessionId)?.unread ?? false)
+          }
+          onSelect={(): void => {
+            openStation(row.implementationId, entry.station);
+          }}
+        />
+      </div>
+    );
+  }
+
   function renderSession(row: Extract<SidebarRow, { kind: 'session' }>): ReactElement {
     const { session } = row;
     return (
@@ -563,6 +646,8 @@ export function Sidebar({
         <SidebarItem
           session={session}
           status={displayStatus(session, sessions)}
+          isMaster={row.isMaster}
+          messageWait={messageWaitPosition(queueEntries, session.id)}
           isActive={session.id === activeSessionId}
           isRenaming={
             renaming !== null && renaming.kind === 'session' && renaming.id === session.id
@@ -684,6 +769,39 @@ export function Sidebar({
         </div>
       )}
       <div className="sidebar__footer">
+        <div className="sidebar__footer-row">
+          <QueueChip projects={projects} />
+          <button
+            type="button"
+            className={`sidebar__dashboard${isDashboardOpen ? ' sidebar__dashboard--active' : ''}`}
+            aria-current={isDashboardOpen ? 'page' : undefined}
+            aria-label={dashboardLabel}
+            title={dashboardLabel}
+            onClick={onOpenDashboard}
+          >
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 14 14"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <rect x="1.5" y="1.5" width="4.5" height="4.5" rx="1" />
+              <rect x="8" y="1.5" width="4.5" height="4.5" rx="1" />
+              <rect x="1.5" y="8" width="4.5" height="4.5" rx="1" />
+              <rect x="8" y="8" width="4.5" height="4.5" rx="1" />
+            </svg>
+            {cardCount !== null && (
+              <span className="sidebar__dashboard-count" aria-hidden="true">
+                {cardCount}
+              </span>
+            )}
+          </button>
+        </div>
         <UsageSection hasOwn={hasUsage} />
         <button type="button" className="sidebar__archive" onClick={onOpenArchive}>
           <svg
@@ -770,7 +888,10 @@ function estimateHeight(row: SidebarRow | undefined): number {
   if (row === undefined) {
     return ESTIMATED_HEIGHT.session;
   }
-  if ((row.kind === 'session' || row.kind === 'implementation') && row.isLast) {
+  if (
+    (row.kind === 'session' || row.kind === 'implementation' || row.kind === 'station') &&
+    row.isLast
+  ) {
     return ESTIMATED_HEIGHT.session + LAST_SESSION_EXTRA;
   }
   return ESTIMATED_HEIGHT[row.kind];

@@ -103,19 +103,25 @@ interface ComposerProps {
   session: SessionSummary;
   /** Nimmt eine aus der Eingabeleiste angelegte Session in die Liste und wählt sie aus. */
   onSessionCreated: (created: SessionSummary) => void;
+  /** Hinweis auf die erste Aufforderung der Session (#128), über den Hinweisen des Feldes; `null` ohne. */
+  taskHint?: ReactElement | null;
 }
 
 /** Die Eingabeleiste; solange das Vorhaben gesperrt ist (ein Gast steuert, der Host fehlt), steht an ihrer
  *  Stelle die Sperrzeile. Der Entwurf liegt im Store und überlebt den Wechsel. */
-export function Composer({ session, onSessionCreated }: ComposerProps): ReactElement {
+export function Composer({
+  session,
+  onSessionCreated,
+  taskHint = null,
+}: ComposerProps): ReactElement {
   const lock = useProjectLock(session.projectId);
   if (lock !== null) {
     return <LockedComposer session={session} lock={lock} />;
   }
-  return <ComposerForm session={session} onSessionCreated={onSessionCreated} />;
+  return <ComposerForm session={session} onSessionCreated={onSessionCreated} taskHint={taskHint} />;
 }
 
-function ComposerForm({ session, onSessionCreated }: ComposerProps): ReactElement {
+function ComposerForm({ session, onSessionCreated, taskHint = null }: ComposerProps): ReactElement {
   const [openMenu, setOpenMenu] = useState<OpenMenu>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isSending, setIsSending] = useState<boolean>(false);
@@ -398,6 +404,7 @@ function ComposerForm({ session, onSessionCreated }: ComposerProps): ReactElemen
     <div className="composer">
       <SideWindow session={session} />
       <div className={boxClass}>
+        {taskHint}
         <CacheColdHint session={session} onSessionCreated={onSessionCreated} />
         <ReviewCommentList sessionId={session.id} />
         {pending.length > 0 && (

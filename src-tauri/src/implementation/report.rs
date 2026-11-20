@@ -57,18 +57,29 @@ pub fn text_with(
         view.stations_done,
         view.stations_total
     ));
-    lines.push(match view.max_parallel {
-        Some(limit) => format!(
-            "Parallel: höchstens {limit} · Warteschlange: {}",
-            view.queued
-        ),
-        None => "Parallel: unbegrenzt".to_owned(),
-    });
+    // Die Grenze gilt app-weit (ADR 068); hier nur, wie viele Stationen dieser Umsetzung warten.
+    if view.queued > 0 {
+        lines.push(format!("Warteschlange (app-weit): {}", view.queued));
+    }
     let starts: Vec<&str> = stations(view)
         .filter(|(_, station): &(&PhaseView, &StationView)| station.after.is_empty())
         .map(|(_, station): (&PhaseView, &StationView)| station.plan_id.as_str())
         .collect();
     lines.push(format!("Startstationen: {}", list_or_none(&starts)));
+    if let Some(cancelled_at) = view.cancelled_at {
+        lines.push(format!("Abgebrochen: {}", stamp(cancelled_at)));
+    }
+    if let Some(pending) = &view.pending_cancel {
+        let action = if pending.delete {
+            "abbrechen und löschen"
+        } else {
+            "abbrechen"
+        };
+        lines.push(format!(
+            "Anfrage aus #{} wartet auf Bestätigen: {action} — {}",
+            pending.session_number, pending.reason
+        ));
+    }
     push_section(&mut lines, "Jetzt", now_lines(view), "nichts läuft");
     push_section(&mut lines, "Fertig", done_lines(view), "noch nichts");
     let open = open_summary(view);
@@ -227,8 +238,10 @@ fn state_label(state: StationState) -> &'static str {
         StationState::Countdown => "Countdown",
         StationState::Starting | StationState::Running => "läuft",
         StationState::WaitsForScript => "wartet auf einen Hintergrund-Befehl",
+        StationState::WaitsForQuota => "setzt automatisch fort",
         StationState::Asking => "fragt",
         StationState::WaitsForYou => "wartet auf dich",
+        StationState::Reported => "gemeldet, der Master entscheidet",
         StationState::Done => "fertig",
         StationState::Error => "Fehler",
     }
@@ -254,15 +267,17 @@ fn push_section(lines: &mut Vec<String>, title: &str, entries: Vec<String>, empt
     );
 }
 
-/// Stationen mit Session, die noch nicht fertig gemeldet sind.
+/// Stationen mit Session, die noch nicht angenommen sind.
 fn now_lines(view: &ImplementationView) -> Vec<String> {
     let mut entries: Vec<String> = Vec::new();
     for (phase, station) in stations(view) {
         let label = match station.state {
             StationState::Starting | StationState::Running => "läuft",
             StationState::WaitsForScript => "wartet auf einen Hintergrund-Befehl",
+            StationState::WaitsForQuota => "setzt automatisch fort",
             StationState::Asking => "fragt dich:",
             StationState::WaitsForYou => "wartet auf dich",
+            StationState::Reported => "gemeldet, der Master entscheidet",
             StationState::Error => "Fehler",
             _ => continue,
         };

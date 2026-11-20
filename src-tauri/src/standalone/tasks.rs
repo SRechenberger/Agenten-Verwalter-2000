@@ -8,7 +8,7 @@
 //! sein Ende erst, wenn sein Thread zurück ist.
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Stdio};
+use std::process::Child;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::Receiver;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
@@ -19,7 +19,7 @@ use serde_json::{Value, json};
 use uuid::Uuid;
 
 use super::output::Output;
-use crate::processes::{self, hide_console};
+use crate::processes;
 
 const PROCESS_ID_PREFIX: char = 'b';
 const SUBAGENT_ID_PREFIX: char = 'a';
@@ -29,6 +29,8 @@ const TASK_TYPE_SUBAGENT: &str = "local_agent";
 /// So viel vom letzten Text bzw. Fehler eines Subagenten steht in seiner `task_notification`.
 const SUMMARY_CHARS: usize = 200;
 const OUTPUT_EXTENSION: &str = "output";
+/// Abstand, in dem der Überwacher nach dem Ende des Prozesses fragt.
+const EXIT_POLL_INTERVAL: Duration = Duration::from_millis(50);
 /// So lange wartet der Überwacher nach Prozessende auf den Rest der Ausgabe — ein Enkelprozess, der
 /// die Pipe offen hält, soll das Ende nicht aufhalten.
 const READER_GRACE: Duration = Duration::from_secs(1);
@@ -53,13 +55,13 @@ impl TaskStatus {
 /// Wie eine Aufgabe beendet wird.
 enum TaskControl {
     Process {
-        pid: u32,
+        /// `None`, sobald der Überwacher den Prozess eingesammelt hat: Dann kann die Nummer seiner
+        /// Gruppe einem fremden Prozess gehören (ADR 074).
+        pid: Option<u32>,
         output_file: PathBuf,
     },
     /// Der Subagent prüft den Schalter vor jeder Modellanfrage und jedem Werkzeug.
-    Subagent {
-        cancel: Arc<AtomicBool>,
-    },
+    Subagent { cancel: Arc<AtomicBool> },
 }
 
 struct Task {
@@ -70,12 +72,12 @@ struct Task {
 }
 
 impl Task {
-    /// Markiert die Aufgabe als gestoppt; bei einem Prozess ist das Ergebnis die PID, deren Baum
-    /// noch beendet werden muss — außerhalb der Sperre, `taskkill` dauert.
+    /// Markiert die Aufgabe als gestoppt; bei einem Prozess, der noch nicht eingesammelt ist, ist das
+    /// Ergebnis die PID, deren Baum noch unter derselben Sperre beendet werden muss.
     fn mark_stopped(&mut self) -> Option<u32> {
         self.is_stopped = true;
         match &self.control {
-            TaskControl::Process { pid, .. } => Some(*pid),
+            TaskControl::Process { pid, .. } => *pid,
             TaskControl::Subagent { cancel } => {
                 cancel.store(true, Ordering::SeqCst);
                 None
@@ -194,7 +196,10 @@ impl Tasks {
             task_id.clone(),
             Task {
                 description: description.clone(),
-                control: TaskControl::Process { pid, output_file },
+                control: TaskControl::Process {
+                    pid: Some(pid),
+                    output_file,
+                },
                 is_stopped: false,
             },
         );
@@ -205,11 +210,7 @@ impl Tasks {
         let spawned = thread::Builder::new()
             .name("agent-task".to_owned())
             .spawn(move || {
-                let exit_code = child
-                    .wait()
-                    .ok()
-                    .and_then(|status| status.code())
-                    .unwrap_or(-1);
+                let exit_code = tasks.reap(&watched_id, &mut child);
                 wait_for_readers(&readers);
                 tasks.finish(&watched_id, exit_code);
             });
@@ -221,17 +222,41 @@ impl Tasks {
         Ok(())
     }
 
+    /// Fragt in kurzen Abständen nach dem Ende des Prozesses und sammelt ihn unter der Sperre von
+    /// `running` ein, wo auch `stop` signalisiert: So trifft `kill_process_tree` nie eine Gruppe,
+    /// deren Anführer schon eingesammelt ist. Liefert den Exit-Code, `-1` ohne.
+    fn reap(&self, task_id: &str, child: &mut Child) -> i32 {
+        loop {
+            {
+                let mut running = self.lock_running();
+                let status = match child.try_wait() {
+                    Ok(None) => None,
+                    Ok(Some(status)) => Some(status.code().unwrap_or(-1)),
+                    Err(_) => Some(-1),
+                };
+                if let Some(exit_code) = status {
+                    if let Some(Task {
+                        control: TaskControl::Process { pid, .. },
+                        ..
+                    }) = running.get_mut(task_id)
+                    {
+                        *pid = None;
+                    }
+                    return exit_code;
+                }
+            }
+            thread::sleep(EXIT_POLL_INTERVAL);
+        }
+    }
+
     /// Beendet den Prozessbaum bzw. setzt den Abbruch des Subagenten; das Ende meldet der
-    /// Überwacher bzw. der Subagent selbst.
+    /// Überwacher bzw. der Subagent selbst. Signalisiert unter der Sperre (`reap`).
     pub fn stop(&self, task_id: &str) -> Result<(), String> {
-        let pid = {
-            let mut running = self.lock_running();
-            let Some(task) = running.get_mut(task_id) else {
-                return Err(format!("Aufgabe unbekannt: {task_id}"));
-            };
-            task.mark_stopped()
+        let mut running = self.lock_running();
+        let Some(task) = running.get_mut(task_id) else {
+            return Err(format!("Aufgabe unbekannt: {task_id}"));
         };
-        if let Some(pid) = pid {
+        if let Some(pid) = task.mark_stopped() {
             kill_process_tree(pid);
         }
         Ok(())
@@ -239,12 +264,8 @@ impl Tasks {
 
     /// Beim Ende des Agenten: alle laufenden Aufgaben mitnehmen.
     pub fn stop_all(&self) {
-        let pids: Vec<u32> = self
-            .lock_running()
-            .values_mut()
-            .filter_map(Task::mark_stopped)
-            .collect();
-        for pid in pids {
+        let mut running = self.lock_running();
+        for pid in running.values_mut().filter_map(Task::mark_stopped) {
             kill_process_tree(pid);
         }
     }
@@ -296,8 +317,22 @@ fn new_task_id(prefix: char) -> String {
     format!("{prefix}{hex}")
 }
 
-/// `taskkill /T` nimmt die Kindprozesse mit — `bash -c` startet seine Befehle als eigene Prozesse.
+/// Beendet den Prozess `pid` samt Kindern — `bash -c` startet seine Befehle als eigene Prozesse.
+/// Unter Unix SIGKILL an seine Gruppe (er startete mit `processes::own_group`); der Aufrufer sorgt
+/// dafür, dass er noch nicht eingesammelt ist (ADR 074). Unter Windows nimmt `taskkill /T` die
+/// Kindprozesse mit.
+#[cfg(unix)]
 pub fn kill_process_tree(pid: u32) {
+    let _ = processes::signal_group(pid, processes::GroupSignal::Kill);
+}
+
+/// Siehe die Fassung für Unix.
+#[cfg(not(unix))]
+pub fn kill_process_tree(pid: u32) {
+    use std::process::Stdio;
+
+    use crate::processes::hide_console;
+
     let mut taskkill = processes::command("taskkill");
     taskkill
         .args(["/PID", &pid.to_string(), "/T", "/F"])

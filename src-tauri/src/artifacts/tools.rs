@@ -4,6 +4,7 @@ use serde_json::{Value, json};
 use tauri::{Emitter, Manager};
 
 use super::model::{Artifact, ArtifactShowEvent};
+use crate::mcp_access::ProcessKind;
 use crate::mcp_access::tools::{ToolCall, ToolResult, ToolSet, ToolSpec};
 use crate::sessions::registry::SessionRegistry;
 
@@ -11,6 +12,7 @@ const SHOW_EVENT: &str = "artifacts://show";
 const LIST: &str = "artifact_list";
 const SHOW: &str = "artifact_show";
 const NO_REGISTRY: &str = "Der Verwalter startet noch";
+const SIDE_FORBIDDEN: &str = "Eine Nebenfrage darf Artefakte nur auflisten.";
 
 pub struct ArtifactTools;
 
@@ -51,6 +53,11 @@ impl ToolSet for ArtifactTools {
     }
 
     fn call(&self, call: &ToolCall) -> ToolResult {
+        // Vor der Registry: eine Nebenfrage darf nur lesen, `artifact_show` wechselt den Reiter der
+        // Oberfläche. Ihr Prozess hat dieselben Argumente wie der Hauptprozess (ADR 044).
+        if call.kind == ProcessKind::Side && !side_may_call(call.name) {
+            return ToolResult::Err(SIDE_FORBIDDEN.to_owned());
+        }
         let Some(registry) = call.app.try_state::<SessionRegistry>() else {
             return ToolResult::Err(NO_REGISTRY.to_owned());
         };
@@ -64,6 +71,11 @@ impl ToolSet for ArtifactTools {
             other => ToolResult::Err(format!("Unbekanntes Werkzeug: {other}")),
         }
     }
+}
+
+/// Was eine Nebenfrage benutzen darf: nur lesen.
+pub(crate) fn side_may_call(name: &str) -> bool {
+    name == LIST
 }
 
 fn artifacts_of(
@@ -150,5 +162,17 @@ fn show(call: &ToolCall, registry: &SessionRegistry, items: &[Artifact]) -> Tool
     ToolResult::Ok {
         text: format!("„{}“ im Reiter Artefakte ausgewählt.", item.title),
         structured: None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_side_question_may_list_artifacts_but_not_show_one() {
+        assert!(side_may_call(LIST));
+        assert!(!side_may_call(SHOW));
+        assert!(!side_may_call("artifact_unknown"));
     }
 }

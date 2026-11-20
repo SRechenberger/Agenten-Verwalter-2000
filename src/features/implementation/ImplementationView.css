@@ -25,6 +25,17 @@
     overflow-y: auto;
   }
 
+  /* Der Scrollbalken der Zeitleiste und der Kartei liegt in WebKitGTK über jedem Dialog, auch über `--z-modal`;
+     unter einem offenen Dialog rollt nichts, also verschwindet er. */
+  body:has(.dialog) & {
+    overflow-y: hidden;
+  }
+
+  body:has(.dialog) &__timeline,
+  body:has(.dialog) &__cards {
+    overflow-y: hidden;
+  }
+
   /* Schmal: die Kartei steht unter der Zeitleiste, die ganze Fläche rollt als eine. */
   @container main (max-width: 900px) {
     grid-template-columns: minmax(0, 1fr);

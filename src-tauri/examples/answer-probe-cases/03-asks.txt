@@ -1,0 +1,3 @@
+Bau die Suche in der Projektliste ein.
+=====
+Fertig. Soll ich noch die Tastenkürzel (Strg+F, Esc) ergänzen?

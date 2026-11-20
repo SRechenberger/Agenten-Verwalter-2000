@@ -4,6 +4,7 @@ import { formatRuntime } from '@/app/SessionHeader';
 import { StatusIcon } from '@/components/StatusIcon';
 import { formatCount } from '@/features/changes/changesScope';
 import { useNow } from '@/features/background/useNow';
+import { ProjectPrioritySegment } from '@/features/projects/ProjectPrioritySegment';
 import { mostUrgent } from '@/features/projects/projectStatus';
 import { RemoteGiveBack, RemoteHostBadge } from '@/features/remote/RemoteHeaderTools';
 import { headerStatus, headerStatusLabel } from '@/features/sessions/sessionStatus';
@@ -33,6 +34,8 @@ interface ProjectHeaderProps {
   isTerminalOpen: boolean;
   onToggleTerminal: () => void;
   onShowView: (view: ProjectView) => void;
+  /** Rückgabe des Core nach dem Setzen der Priorität. */
+  onProjectChanged: (summary: ProjectSummary) => void;
 }
 
 export function ProjectHeader({
@@ -45,6 +48,7 @@ export function ProjectHeader({
   isTerminalOpen,
   onToggleTerminal,
   onShowView,
+  onProjectChanged,
 }: ProjectHeaderProps): ReactElement {
   const [now, setNow] = useState<number>(() => Date.now());
   const urgent: SessionSummary | null = mostUrgent(sessions);
@@ -123,6 +127,7 @@ export function ProjectHeader({
         ))}
       </div>
       <div className="session-header__tools">
+        <ProjectPrioritySegment project={project} onProjectChanged={onProjectChanged} />
         <RemoteHostBadge projectId={project.id} />
         <span className="session-header__mono" title="Laufzeit aller Sessions des Vorhabens">
           {sessionCountLabel} · {formatRuntime(totalRuntimeMs)}

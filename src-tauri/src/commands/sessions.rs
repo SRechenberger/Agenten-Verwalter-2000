@@ -154,15 +154,15 @@ pub async fn session_set_model(
     registry.set_model(&app, &session_id, model)
 }
 
-/// Schaltet „Automatisch fortsetzen“ einer Session, die auf das Kontingent wartet (ADR 051).
+/// Schaltet „Automatisch fortsetzen“ einer Session, die auf das Kontingent wartet (ADR 051); ist sie
+/// eine Station, gilt der Wert danach für die Station (ADR 064).
 #[tauri::command]
 pub async fn session_set_auto_resume(
     app: tauri::AppHandle,
-    registry: tauri::State<'_, SessionRegistry>,
     session_id: String,
     enabled: bool,
 ) -> Result<(), CommandError> {
-    registry.set_auto_resume(&app, &session_id, enabled)
+    crate::implementation::set_session_auto_resume(&app, &session_id, enabled)
 }
 
 #[tauri::command]

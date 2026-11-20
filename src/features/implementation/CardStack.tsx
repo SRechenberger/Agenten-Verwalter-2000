@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import type { ReactElement } from 'react';
+import { CancelRequestCard } from '@/features/implementation/CancelRequestCard';
 import {
   changeIdOf,
   flatStations,
@@ -16,8 +17,10 @@ import {
   SHOW_PENDING_TITLE,
   stationMeta,
 } from '@/features/implementation/implementationTexts';
+import { masterOf } from '@/features/implementation/masterTexts';
 import { PlanChangeCard, type ProposalOverride } from '@/features/implementation/PlanChangeCard';
 import { latestSessionOf } from '@/features/implementation/stationAgent';
+import { stageText } from '@/features/implementation/commandStation';
 import { StationCard, type CardSectionKey } from '@/features/implementation/StationCard';
 import { StationDot } from '@/features/implementation/StationDot';
 import { useOperatingMode } from '@/features/remote/useOperatingMode';
@@ -25,6 +28,7 @@ import { useProjectLocked } from '@/features/remote/useProjectAccess';
 import type { ChangeView } from '@/lib/bindings/ChangeView';
 import type { ImplementationView } from '@/lib/bindings/ImplementationView';
 import type { OperatingMode } from '@/lib/bindings/OperatingMode';
+import type { PendingCancel } from '@/lib/bindings/PendingCancel';
 import type { PendingChange } from '@/lib/bindings/PendingChange';
 import type { PhaseInput } from '@/lib/bindings/PhaseInput';
 import type { PhaseView } from '@/lib/bindings/PhaseView';
@@ -54,6 +58,8 @@ interface CardStackProps {
   onApplyChange: (accept: boolean) => void;
   /** „Übernehmen“ mit geänderten Werten des Vorschlags (`PlanChangeCard`). */
   onApplyEdited: (overrides: readonly ProposalOverride[]) => void;
+  /** „Bestätigen“ (`true`) oder „Verwerfen“ der Anfrage „Umsetzung abbrechen?“ (ADR 066). */
+  onApplyCancel: (accept: boolean) => void;
   run: ActionError['run'];
 }
 
@@ -72,7 +78,10 @@ const ALL_OPEN: Record<CardSectionKey, boolean> = {
 
 /** Stationen nach einer Übernahme. Ein Delta (`implementation_edit`) zählt neue und entfernte Stationen
  *  zum heutigen Stand; ein Vorschlag ganzer Phasen ersetzt die nicht begonnenen. */
-function stationsAfterProposal(implementation: ImplementationView, pending: PendingChange): number {
+export function stationsAfterProposal(
+  implementation: ImplementationView,
+  pending: PendingChange,
+): number {
   if (pending.edit !== undefined) {
     const lanes: number = pending.edit.lanes.reduce(
       (sum: number, lane: PhaseInput) => sum + lane.stations.length,
@@ -110,6 +119,7 @@ export function CardStack({
   onCompleteByUser,
   onApplyChange,
   onApplyEdited,
+  onApplyCancel,
   run,
 }: CardStackProps): ReactElement | null {
   const [openSections, setOpenSections] = useState<Record<CardSectionKey, boolean>>(ALL_OPEN);
@@ -141,7 +151,7 @@ export function CardStack({
       >
         <StationDot station={ref.station} />
         <span className="card-stack__small-title">
-          Lane {ref.phase.key} · {ref.station.stage}
+          Lane {ref.phase.key} · {stageText(ref.station)}
           {ref.station.agentType !== null && (
             <span className="card-stack__small-agent" title={AGENT_TYPE_NAME_TITLE}>
               {ref.station.agentType}
@@ -197,9 +207,11 @@ export function CardStack({
       <StationCard
         key={focusedStation.station.id}
         implementationId={implementation.id}
+        isImplementationCancelled={implementation.cancelledAt !== null}
         stationRef={focusedStation}
         refs={refs}
         isImplementationAutomatic={implementation.autoStart}
+        isImplementationResuming={implementation.autoResume}
         now={now}
         operatingMode={operatingMode}
         session={
@@ -223,18 +235,26 @@ export function CardStack({
         onStart={onStart}
         onCancelCountdown={onCancelCountdown}
         onCompleteByUser={onCompleteByUser}
+        master={implementation.masterMissing ? null : masterOf(implementation, sessions)}
         isLocked={isLocked}
       />
     );
   }
 
+  const request: PendingCancel | null = implementation.pendingCancel;
+  // Die Anfrage eines Agenten steht über der Kartei, egal welche Karte im Fokus ist.
+  const requestCard: ReactElement | null =
+    request === null ? null : (
+      <CancelRequestCard request={request} isLocked={isLocked} onApply={onApplyCancel} />
+    );
   const current: ReactElement | null = renderCurrent();
   if (current === null) {
-    return null;
+    return requestCard === null ? null : <div className="card-stack">{requestCard}</div>;
   }
   const canShowPending: boolean = pending !== null && focusedId !== PENDING_FOCUS;
   return (
     <div className="card-stack" aria-live="polite">
+      {requestCard}
       <div className="card-stack__bar">
         <span className="card-stack__label">Kartei</span>
         {canShowPending && (

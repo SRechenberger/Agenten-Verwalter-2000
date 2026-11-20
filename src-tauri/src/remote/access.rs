@@ -92,6 +92,8 @@ const TABLE: &[(Class, Option<IdKind>, &[&str])] = &[
             "background_stop",
             "chat_send",
             "chat_answer",
+            "dashboard_dismiss",
+            "agent_type_proposal_answer",
             "git_commit",
             "git_push",
             "git_pull",
@@ -134,6 +136,7 @@ const TABLE: &[(Class, Option<IdKind>, &[&str])] = &[
         &[
             "project_rename",
             "project_set_self_release",
+            "project_set_priority",
             "retro_run",
             "session_create_in_project",
             "terminal_open",
@@ -148,15 +151,25 @@ const TABLE: &[(Class, Option<IdKind>, &[&str])] = &[
             "implementation_rename",
             "implementation_set_auto_start",
             "implementation_set_stop_after_current",
-            "implementation_set_max_parallel",
+            "implementation_set_auto_resume",
+            "implementation_set_station_auto_resume",
             "implementation_start_station",
+            "implementation_stop_command",
             "implementation_set_station_agent",
             "implementation_set_station_options",
             "implementation_remove_brief_change",
             "implementation_cancel_countdown",
             "implementation_apply_change",
+            "implementation_cancel",
+            "implementation_delete",
+            "implementation_apply_cancel",
+            "implementation_discard_cancel",
             "implementation_edit_plan",
             "implementation_complete_station",
+            "implementation_mark_station_done",
+            "implementation_set_master",
+            "implementation_accept_station",
+            "implementation_return_station",
         ],
     ),
     (
@@ -213,6 +226,7 @@ const TABLE: &[(Class, Option<IdKind>, &[&str])] = &[
         Class::LocalOnly,
         None,
         &[
+            "agent_queue",
             "app_info",
             "account_load",
             "account_login",
@@ -221,6 +235,7 @@ const TABLE: &[(Class, Option<IdKind>, &[&str])] = &[
             "cli_update_load",
             "cli_update_run",
             "codex_account_load",
+            "dashboard_get",
             "codex_account_login",
             "environment_status",
             "environment_mirror",
@@ -317,9 +332,15 @@ pub fn ids_of(command: &str, payload: &Value) -> Vec<TargetId> {
         }
     };
     read("sessionId", IdKind::Session);
+    // Der Master einer Umsetzung (ADR 070): Ein Gast setzt keine Session, die er nicht sieht.
+    read("masterSessionId", IdKind::Session);
     read("projectId", IdKind::Project);
     if let Some((_, Some(kind @ (IdKind::Implementation | IdKind::Terminal)))) = entry_of(command) {
         read("id", kind);
+        // „Als fertig markieren“ nennt die Umsetzung `implementationId` (ADR 048).
+        if kind == IdKind::Implementation {
+            read("implementationId", kind);
+        }
     }
     ids
 }

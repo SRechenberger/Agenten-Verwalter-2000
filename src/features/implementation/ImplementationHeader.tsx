@@ -7,9 +7,13 @@ import {
   lanesActiveText,
   VIEW_LABEL,
 } from '@/features/implementation/implementationTexts';
-import { stateIcon, stateLabel } from '@/features/implementation/stationState';
+import { MasterPicker } from '@/features/implementation/MasterPicker';
+import { implementationIcon } from '@/features/implementation/stationLive';
+import { stateLabel } from '@/features/implementation/stationState';
 import { RemoteGiveBack, RemoteHostBadge } from '@/features/remote/RemoteHeaderTools';
 import type { ImplementationView } from '@/lib/bindings/ImplementationView';
+import type { SessionSummary } from '@/lib/bindings/SessionSummary';
+import type { ActionError } from '@/lib/useActionError';
 import { IMPLEMENTATION_VIEWS, type ImplementationViewKind } from '@/stores/sessions';
 import '@/app/SessionHeader.css';
 import './ImplementationBar.css';
@@ -22,29 +26,44 @@ interface ImplementationHeaderProps {
   hasChanges: boolean;
   /** Dateien unter „Alle“; `null`, solange die Changes nicht gelesen sind. */
   changesCount: number | null;
+  /** Artefakte aus Sessions der Umsetzung; „Artefakte“ erscheint erst ab dem ersten. */
+  artifactCount: number;
   onShowView: (view: ImplementationViewKind) => void;
   onOpenProject: () => void;
   /** Laufende Terminals des Vorhabens. */
   terminalCount: number;
   isTerminalOpen: boolean;
   onToggleTerminal: () => void;
+  /** Alle Sessions; „Master“ wählt unter denen des Vorhabens. */
+  sessions: readonly SessionSummary[];
+  /** Gesperrt, solange ein anderes Gerät das Vorhaben steuert oder der Host fehlt. */
+  isLocked: boolean;
+  run: ActionError['run'];
 }
 
-/** Kopfzeile „<Vorhaben> › Umsetzung <Name>“ mit den Reitern „Ablauf · Changes“ und dem Fortschritt. */
+/** Kopfzeile „<Vorhaben> › Umsetzung <Name>“ mit den Reitern „Ablauf · Changes · Artefakte“ und dem
+ *  Fortschritt. */
 export function ImplementationHeader({
   implementation,
   projectName,
   activeView,
   hasChanges,
   changesCount,
+  artifactCount,
   onShowView,
   onOpenProject,
   terminalCount,
   isTerminalOpen,
   onToggleTerminal,
+  sessions,
+  isLocked,
+  run,
 }: ImplementationHeaderProps): ReactElement {
   const views: readonly ImplementationViewKind[] = IMPLEMENTATION_VIEWS.filter(
-    (view: ImplementationViewKind) => view === 'flow' || hasChanges,
+    (view: ImplementationViewKind) =>
+      view === 'flow' ||
+      (view === 'changes' && hasChanges) ||
+      (view === 'artifacts' && artifactCount > 0),
   );
   const activeLanes: number = activeLaneCount(implementation);
   return (
@@ -74,9 +93,9 @@ export function ImplementationHeader({
         </svg>
         <h1 className="session-header__name">{implementationTitle(implementation)}</h1>
         <span
-          className={`session-header__status session-header__status--${stateIcon(implementation.urgency)}`}
+          className={`session-header__status session-header__status--${implementationIcon(implementation).tint ?? implementationIcon(implementation).status}`}
         >
-          <StatusIcon status={stateIcon(implementation.urgency)} size={10} />
+          <StatusIcon {...implementationIcon(implementation)} size={10} shape="square" />
           <span>{stateLabel(implementation.urgency)}</span>
         </span>
         {activeLanes >= 2 && (
@@ -99,10 +118,19 @@ export function ImplementationHeader({
             {view === 'changes' && changesCount !== null && changesCount > 0 && (
               <span className="session-header__tab-count">{formatCount(changesCount)}</span>
             )}
+            {view === 'artifacts' && (
+              <span className="session-header__tab-count">{formatCount(artifactCount)}</span>
+            )}
           </button>
         ))}
       </div>
       <div className="session-header__tools">
+        <MasterPicker
+          implementation={implementation}
+          sessions={sessions}
+          isLocked={isLocked}
+          run={run}
+        />
         <RemoteHostBadge projectId={implementation.projectId} />
         <button
           type="button"

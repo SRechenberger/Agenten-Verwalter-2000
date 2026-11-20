@@ -24,6 +24,10 @@
     pointer-events: none;
   }
 
+  &--hidden {
+    visibility: hidden;
+  }
+
   /* Liegt über dem Verlauf: deckend, sonst scheint der Text dahinter durch. */
   &__box {
     display: block;

@@ -1,5 +1,7 @@
 //! Tabelle `tool_details`: Eingabe und Ausgabe je Werkzeug-Aufruf des Hauptagenten (ADR 042).
 //! Getrennt von `chat_entries`, damit das Laden des Verlaufs die Texte nie mitlädt.
+use std::collections::HashMap;
+
 use rusqlite::{Connection, OptionalExtension, params};
 
 use crate::agents::event::ToolDetail;
@@ -69,4 +71,45 @@ pub fn load(
         )
         .optional()?;
     Ok(detail)
+}
+
+/// Je Aufruf Eingabe und nur Länge und Kopf der Ausgabe; für die Werkzeug-Retro (ADR 067).
+pub struct ToolSummary {
+    pub input: String,
+    /// Zeichen der gespeicherten Ausgabe.
+    pub output_chars: usize,
+    pub output_truncated: bool,
+    /// Die ersten 400 Zeichen der Ausgabe.
+    pub output_head: String,
+}
+
+/// Alle Aufrufe einer Session, Schlüssel ist `tool_use_id`. Lädt nie die ganze Ausgabe (bis
+/// `MAX_TOOL_OUTPUT_BYTES` je Aufruf), nur `length` und `substr` davon.
+pub fn load_summaries(
+    connection: &Connection,
+    session_id: &str,
+) -> Result<HashMap<String, ToolSummary>, CommandError> {
+    let mut statement = connection.prepare(
+        "SELECT tool_use_id, input, length(output), output_truncated, substr(output, 1, 400) \
+         FROM tool_details WHERE session_id = ?1",
+    )?;
+    let rows = statement.query_map(params![session_id], |row| {
+        let tool_use_id: String = row.get(0)?;
+        let output_chars: i64 = row.get(2)?;
+        Ok((
+            tool_use_id,
+            ToolSummary {
+                input: row.get(1)?,
+                output_chars: usize::try_from(output_chars).unwrap_or(0),
+                output_truncated: row.get(3)?,
+                output_head: row.get(4)?,
+            },
+        ))
+    })?;
+    let mut summaries: HashMap<String, ToolSummary> = HashMap::new();
+    for row in rows {
+        let (tool_use_id, summary) = row?;
+        summaries.insert(tool_use_id, summary);
+    }
+    Ok(summaries)
 }

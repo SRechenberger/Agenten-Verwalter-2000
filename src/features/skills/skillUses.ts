@@ -3,10 +3,14 @@ import type { SkillUse } from '@/lib/bindings/SkillUse';
 
 /** Zählschlüssel eines Skills — dieselbe Bildung wie `db/skill_uses.rs` im Core. */
 export function skillUseKey(skill: SkillInfo): string {
-  if (skill.origin.kind === 'user') {
-    return `user:${skill.name}`;
+  switch (skill.origin.kind) {
+    case 'user':
+      return `user:${skill.name}`;
+    case 'builtin':
+      return `builtin:${skill.name}`;
+    case 'repository':
+      return `repository:${skill.origin.name}:${skill.name}`;
   }
-  return `repository:${skill.origin.name}:${skill.name}`;
 }
 
 export function usesByKey(uses: readonly SkillUse[]): ReadonlyMap<string, number> {

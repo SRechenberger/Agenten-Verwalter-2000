@@ -1,0 +1,60 @@
+.queue-chip {
+  position: relative;
+  margin-bottom: var(--space-md);
+
+  &__button {
+    padding: 1px 10px;
+    border: 1px solid var(--color-status-waiting);
+    border-radius: var(--radius-full);
+    background: var(--color-status-waiting-subtle);
+    color: var(--color-status-waiting);
+    font: inherit;
+    font-size: var(--font-size-sm);
+    cursor: pointer;
+
+    &[aria-expanded='true'] {
+      background: var(--color-status-waiting);
+      color: var(--color-bg-base);
+    }
+
+    &:focus-visible {
+      outline: 2px solid var(--color-accent);
+      outline-offset: 1px;
+    }
+  }
+
+  &__table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: var(--font-size-sm);
+
+    & th {
+      padding: 3px 6px;
+      border-bottom: 1px solid var(--color-border-subtle);
+      color: var(--color-fg-muted);
+      font-weight: 400;
+      text-align: left;
+    }
+
+    & td {
+      padding: 4px 6px;
+      border-bottom: 1px solid var(--color-border-subtle);
+      color: var(--color-fg-primary);
+    }
+
+    & .queue-chip__rank {
+      color: var(--color-accent-text);
+      font-weight: 600;
+    }
+
+    & .queue-chip__since {
+      white-space: nowrap;
+    }
+  }
+
+  &__note {
+    margin: var(--space-md) 6px var(--space-xs);
+    color: var(--color-fg-muted);
+    font-size: var(--font-size-xs);
+  }
+}

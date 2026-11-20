@@ -31,6 +31,9 @@ import { useKnownRepositories } from '@/features/repositories/useKnownRepositori
 import { ColorSchemeSegment } from '@/features/settings/ColorSchemeSegment';
 import { TerminalPlacementSegment } from '@/features/settings/TerminalPlacementSegment';
 import { LocalModelMenu } from '@/features/settings/LocalModelMenu';
+import { CommandProgramsRow } from '@/features/settings/CommandProgramsRow';
+import { MasterCompactRow } from '@/features/settings/MasterCompactRow';
+import { MaxAgentsRow } from '@/features/settings/MaxAgentsRow';
 import { OperatingModeSegment } from '@/features/settings/OperatingModeSegment';
 import { SelectButton } from '@/features/settings/SelectButton';
 import { SelfReleaseRow } from '@/features/settings/SelfReleaseSettings';
@@ -75,6 +78,7 @@ import {
   modeOption,
   modelName,
 } from '@/lib/labels';
+import type { ModelOption } from '@/lib/labels';
 import { useRemoteStore } from '@/stores/remote';
 import { useSettingsStore } from '@/stores/settings';
 import { useSettingsNavStore } from '@/stores/settingsNav';
@@ -82,7 +86,14 @@ import './SettingsView.css';
 
 const NO_CODEX_MODELS: readonly CodexModel[] = [];
 
-type OpenMenu = 'model' | 'mode' | 'localModel' | 'selfReleaseModel' | null;
+/** „Aus“ im Menü der Einordnung; gespeichert wird `null`. */
+const OFF = 'off';
+const ANSWER_MODEL_OPTIONS: readonly ModelOption<ModelId | typeof OFF>[] = [
+  ...MODEL_OPTIONS,
+  { id: OFF, name: 'Aus', hint: 'Keine Einordnung; die Karte bleibt „Antwort liegt vor“' },
+];
+
+type OpenMenu = 'model' | 'mode' | 'localModel' | 'selfReleaseModel' | 'answerModel' | null;
 
 interface SettingsViewProps {
   /** Alle Sessions; ein Update des Verwalters unterbricht die laufenden. */
@@ -370,8 +381,8 @@ export function SettingsView({
                   onChange={saveDefaultCodexModel}
                   onClose={closeMenu}
                   placement="below"
-                  title="Modell für neue Vorhaben"
-                  note="Gilt ab dem nächsten neuen Vorhaben."
+                  title="Modell für neue Sessions"
+                  note="Gilt ab der nächsten neuen Session."
                   emptyText={codexEmptyText}
                 />
               ) : (
@@ -381,10 +392,38 @@ export function SettingsView({
                   onChange={saveDefaultModel}
                   onClose={closeMenu}
                   placement="below"
-                  title="Modell für neue Vorhaben"
-                  note="Gilt ab dem nächsten neuen Vorhaben."
+                  title="Modell für neue Sessions"
+                  note="Gilt ab der nächsten neuen Session."
                 />
               )}
+            </SelectButton>
+          </SettingRow>
+        );
+      case 'answerModel':
+        return (
+          <SettingRow id={id}>
+            <SelectButton
+              label="Modell der Einordnung"
+              value={current.answerModel === null ? 'Aus' : modelName(current.answerModel)}
+              isOpen={openMenu === 'answerModel'}
+              onToggle={(): void => {
+                toggleMenu('answerModel');
+              }}
+            >
+              <ModelMenu
+                options={ANSWER_MODEL_OPTIONS}
+                value={current.answerModel ?? OFF}
+                onChange={(model: ModelId | typeof OFF): void => {
+                  closeMenu();
+                  save({ kind: 'answerModel', value: model === OFF ? null : model }).catch(
+                    () => undefined,
+                  );
+                }}
+                onClose={closeMenu}
+                placement="below"
+                title="Modell der Einordnung"
+                note="Gilt ab dem nächsten Zugende."
+              />
             </SelectButton>
           </SettingRow>
         );
@@ -428,6 +467,24 @@ export function SettingsView({
             />
           </SettingRow>
         );
+      case 'defaultAutoResume':
+        return (
+          <SettingRow id={id}>
+            <Switch
+              checked={current.defaultAutoResume}
+              label="Automatisch fortsetzen"
+              onChange={(checked: boolean): void => {
+                save({ kind: 'defaultAutoResume', value: checked }).catch(() => undefined);
+              }}
+            />
+          </SettingRow>
+        );
+      case 'masterCompactTokens':
+        return <MasterCompactRow value={current.masterCompactTokens} save={save} />;
+      case 'commandPrograms':
+        return <CommandProgramsRow value={current.commandPrograms} save={save} />;
+      case 'maxAgents':
+        return <MaxAgentsRow value={current.maxAgents} save={save} />;
       case 'agentTypes':
         return <AgentTypesRow operatingMode={current.operatingMode} />;
       case 'cliVersion':

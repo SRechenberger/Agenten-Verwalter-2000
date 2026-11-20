@@ -4,9 +4,11 @@
 //! Oberfläche und Zeilen an den Prozess gehen erst nach dem Freigeben der Sperre hinaus. Ein
 //! Schreiben in die Pipe unter der Sperre könnte sich mit dem Lese-Thread verklemmen — der
 //! Agent blockiert auf einer vollen Ausgabe-Pipe, der Lese-Thread wartet auf die Sperre.
+use std::borrow::Cow;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError, RwLock};
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -48,6 +50,7 @@ use crate::context::model::{ContextBreakdown, ContextChangedEvent, SessionContex
 use crate::db::implementations as implementation_rows;
 use crate::db::project_groups as group_rows;
 use crate::db::projects::{self as project_rows, ProjectRow};
+use crate::db::session_inbox::Reference;
 use crate::db::sessions::{self as session_rows, SessionRow};
 use crate::db::{
     Database, background as background_rows, chat_entries, repositories as repository_rows,
@@ -57,14 +60,14 @@ use crate::db::{
 use crate::error::CommandError;
 use crate::filesystem::workspace::{home_dir, new_session_workspace, stored_session_workspace};
 use crate::git::model::GitBusySession;
-use crate::implementation::Countdowns;
 use crate::implementation::plan::{
     self, GuardStep, PLAN_REMINDER_TEXT, PlanGuard, advance_guard, plan_prompt,
 };
+use crate::implementation::{Countdowns, slots};
 use crate::mcp::model::{McpAction, McpActionError, McpAuthWait, McpChangedEvent, McpServer};
 use crate::mcp_access::{McpAccess, ProcessKind};
 use crate::notices::model::{Denial, Notice};
-use crate::projects::model::{ProjectCreated, ProjectGroup, ProjectSummary};
+use crate::projects::model::{ProjectCreated, ProjectGroup, ProjectPriority, ProjectSummary};
 use crate::prompt_cache::model::PromptCache;
 use crate::prompt_cache::{TTL_1H_MS, TTL_5M_MS};
 use crate::remote::RemoteControl;
@@ -90,19 +93,27 @@ use crate::usage::{UsageService, reset_text};
 use crate::worktrees::{self, SessionRepository, TicketRoot, WorktreeCheck};
 
 mod artifacts;
+mod classify;
 mod commit_scan;
+mod compact;
+mod dashboard;
 mod implementation;
 mod mcp;
 mod overlaps;
+mod queue;
 mod remote;
 mod restore;
 mod retro;
 mod session_tools;
+// Rein; die Tests der Agententypen prüfen daran, dass `chat_answer` keinen Vorschlag beantwortet.
+#[cfg(test)]
+pub(crate) use session_tools::tool_answer_label;
 mod side;
 mod terminal;
 mod tldr;
 
 use self::implementation::ReportUpdate;
+pub use self::queue::{AGENT_QUEUE_CHANGED_EVENT, schedule_pass};
 
 const SESSION_CHANGED_EVENT: &str = "session://changed";
 const PROJECT_CHANGED_EVENT: &str = "project://changed";
@@ -121,6 +132,7 @@ const MAX_LOG_LINES: usize = 300;
 const MAX_LOG_LINE_CHARS: usize = 500;
 const MAX_HISTORY_PAGE: u32 = 500;
 const RESUME_MESSAGE: &str = "Mach weiter.";
+const EMPTY_MESSAGE: &str = "Leere Nachricht: Text, Anhang oder Kommentar fehlt.";
 const PLAN_NEEDS_TASK: &str = "„Plane Vorhaben“ braucht einen Auftrag.";
 const PLAN_NEEDS_CLAUDE: &str = "„Plane Vorhaben“ gibt es nur in der Betriebsart „Claude“: Nur dort \
      hat die Session die Werkzeuge des Verwalters.";
@@ -158,6 +170,8 @@ struct ProjectState {
     name_auto: bool,
     self_release: SelfRelease,
     group_id: Option<String>,
+    /// Stufe in der globalen Warteschlange (ADR 068).
+    priority: ProjectPriority,
     created_at: f64,
     tldr: Option<ProjectTldr>,
     tldr_at: Option<f64>,
@@ -177,6 +191,7 @@ impl ProjectState {
             name_auto: false,
             self_release: SelfRelease::OFF,
             group_id: None,
+            priority: ProjectPriority::Normal,
             created_at,
             tldr: None,
             tldr_at: None,
@@ -191,6 +206,7 @@ impl ProjectState {
     fn restored(row: &ProjectRow) -> Self {
         let mut state = ProjectState::new(row.name.clone(), row.created_at);
         state.name_auto = row.name_auto;
+        state.priority = row.priority;
         state.self_release = row.self_release;
         state.group_id = row.group_id.clone();
         state.tldr = row
@@ -217,6 +233,9 @@ pub struct Session {
     repositories: RwLock<Vec<SessionRepository>>,
     database: Arc<Database>,
     state: Mutex<SessionState>,
+    /// Gesetzt von `delete_session`: danach schreibt `persist` nichts mehr. Sonst legt ein spätes
+    /// `update` (etwa das `Exited` des Agenten) die gelöschte Zeile per Upsert neu an.
+    deleted: AtomicBool,
 }
 
 struct PendingRequest {
@@ -272,6 +291,14 @@ struct SessionState {
     /// Der Status `Error` kam in diesem Lauf der App; nur im Speicher. „Bei Fehler“ einer Station startet
     /// nur dann neu, nach einem App-Neustart nicht (ADR 061).
     fresh_error: bool,
+    /// Ein Subagent oder Skript, auf den der Agent nach seiner Antwort wartete, ist fertig; der Agent
+    /// macht gleich von selbst weiter (`wake_if_idle`). Bis zum nächsten Status oder Prozessende hält
+    /// die Session so ihren Platz (ADR 068). Nur im Speicher.
+    continues_by_itself: bool,
+    /// Die Session einer Station pausierte neu am Kontingent, der Haken hat über das Scharfschalten noch
+    /// nicht entschieden (`slots::awaits_arming`): Bis dahin hält sie ihren Platz (ADR 068, Regel d). Nur
+    /// im Speicher; jeder Statuswechsel und der Haken (`arming_decided`) löschen ihn.
+    awaits_arming: bool,
     /// `tool_use`-IDs der Session-Werkzeuge, die `gate` schon gesehen hat. Nur im Speicher.
     seen_tool_uses: HashSet<String>,
     /// Marke von „Automatisch fortsetzen“: jedes Umlegen erhöht sie, der Zeitgeber vergleicht sie. Nur
@@ -291,6 +318,11 @@ struct SessionState {
     cache_message_id: Option<String>,
     /// `seq` des Hinweises „Verlauf zusammengefasst“, bis die Kurzfassung eintrifft; nur im Speicher.
     compact_seq: Option<u32>,
+    /// Der laufende Zug ist `/compact` des Verwalters (ADR 070); nur im Speicher.
+    compact_turn: bool,
+    /// Die laufende Eingabe des Benutzers ist nur `/compact` (Knopf oder getippt): keine Antwort;
+    /// nur im Speicher.
+    compact_by_hand: bool,
     /// Modell, auf das Claude ausgewichen ist, bis der User wählt oder der Agent neu startet;
     /// nur im Speicher.
     fallback_model: Option<String>,
@@ -309,6 +341,9 @@ struct SessionState {
     mcp_auth: Option<McpAuthWait>,
     /// Seit wann die Session ruht (`completed`/`paused`) — Grundlage für `reap_idle`.
     idle_since: Option<f64>,
+    /// Seit wann die Session pausiert ist. Anders als `idle_since` löschen weder der Reaper noch ein
+    /// Neustart es: Grundlage dafür, welche Nachricht des Masters die Pause überhaupt aufheben darf.
+    paused_since: Option<f64>,
     /// Eine wiederhergestellte Session lädt ihren Verlauf erst beim ersten Zugriff (`Session::lock_loaded`).
     entries_loaded: bool,
     /// Die Session war beim Beenden aktiv: beim Laden des Verlaufs werden offene Rückfragen und
@@ -370,6 +405,19 @@ struct SessionState {
     /// Speicher. Jeder neue Zug setzt ihn neu, die Antwort auf eine Rückfrage und eine Erinnerung des
     /// Wächters lassen ihn stehen.
     plan_guard: Option<PlanGuard>,
+    /// Das Zugende der letzten abgegebenen Antwort einer Session ohne Station, ihr Auszug und die
+    /// Einordnung des Modells (Dashboard, ADR 071); gespeichert. `answer_kind` und `answer_line`
+    /// setzt erst die Einordnung, jedes neue Zugende löscht sie.
+    answer_at: Option<f64>,
+    answer_excerpt: Option<String>,
+    answer_kind: Option<String>,
+    answer_line: Option<String>,
+    /// Zeitpunkt von „Gelesen“ im Dashboard; gespeichert.
+    card_dismissed_at: Option<f64>,
+    /// Eine Einordnung läuft (ADR 071); nur im Speicher. Ein weiteres Zugende währenddessen wartet
+    /// in `classify_next`, nur das jüngste.
+    classify_running: bool,
+    classify_next: Option<(classify::Job, ModelId)>,
 }
 
 /// Eine Session, wie `SessionRegistry::restore` sie aus der Datenbank liest.
@@ -392,6 +440,13 @@ pub struct NewSession<'a> {
     pub mode: Mode,
     /// Gruppe, in der das Vorhaben startet; `None` = ohne Gruppe.
     pub group_id: Option<String>,
+}
+
+impl NewSession<'_> {
+    /// Der Auftrag eines neuen Vorhabens ist die erste Nachricht: leer wie bei `send` nur mit Anhang.
+    fn refuse_empty_task(&self) -> Result<(), CommandError> {
+        refuse_empty_message(self.task, self.attachment_ids, &[])
+    }
 }
 
 /// Was `start_turn` vor der Session-Sperre braucht (`prepare_turn`).
@@ -417,10 +472,39 @@ enum TurnOrigin<'a> {
         /// „Plane Vorhaben“ (ADR 062): Der Agent bekommt `plan_prompt` mit dem Text, der Chat zeigt
         /// nur den Text.
         planning: PlanTurn,
+        /// Betreff der ersten Nachricht einer Station (ADR 072): `/<skill>` bleibt die erste Zeile, der
+        /// Rest geht über eine Referenz an den Agenten, der Chat zeigt den ganzen Text.
+        station_subject: Option<(&'a str, &'a SessionRef)>,
     },
+    /// `/compact` durch den Verwalter (ADR 070): keine Eingabe, kein Eintrag, keine Antwort.
+    Compact,
     Session {
         sender: &'a SessionRef,
+        /// Mit Betreff geht der Text über eine Referenz an den Agenten (ADR 072), wenn er sie lesen kann.
+        reference: Option<Reference<'a>>,
     },
+}
+
+/// Nur die Betriebsart Claude hat `verwalter_read_message`; sonst geht der ganze Text (ADR 072). Die
+/// einzige Stelle, die das für Nachrichten, Rückgaben und erste Nachrichten entscheidet.
+fn readable<T>(by_reference: Option<T>, mode: OperatingMode) -> Option<T> {
+    by_reference.filter(|_| mode == OperatingMode::Claude)
+}
+
+/// Der Text der ersten Nachricht einer Station an den Agenten: mit Betreff und Betriebsart Claude über
+/// eine Referenz, sonst der Text selbst.
+fn station_agent_text<'t>(
+    session: &Session,
+    text: &'t str,
+    station: Option<(&str, &SessionRef)>,
+    mode: OperatingMode,
+) -> Result<Cow<'t, str>, CommandError> {
+    Ok(match readable(station, mode) {
+        Some((subject, sender)) => Cow::Owned(session_tools::station_message(
+            session, sender, text, subject,
+        )?),
+        None => Cow::Borrowed(text),
+    })
 }
 
 /// Wie ein Zug zum Wächter steht (ADR 062).
@@ -466,18 +550,47 @@ struct Outbox {
     open_urls: Vec<String>,
     /// Jüngster Kontingent-Stand aus einer Antwort des Claude-Abos.
     rate_limit: Option<RateLimitInfo>,
-    /// Die Antwort endete als abgeschlossen; nach dem Freigeben der Sperre prüft die Warteschlange
-    /// der Session-Nachrichten, ob sie zustellt (ADR 052).
+    /// Die Antwort endete als abgeschlossen; nach dem Freigeben der Sperre läuft ein Durchgang der
+    /// globalen Warteschlange, der auch die Session-Nachrichten zustellt (ADR 052, 068).
     turn_completed: bool,
+    /// Die Session belegt nach `update` einen Platz oder gibt ihn frei (ADR 068, `holds_slot` vorher und
+    /// nachher): nach dem Freigeben der Sperre läuft ein Durchgang.
+    slots_changed: bool,
     /// Die Session einer Station ist nicht mehr aktiv (fertig, pausiert, Fehler, Abbruch): nach dem
     /// Freigeben der Sperre plant die Umsetzung ihre Warteschlange neu (ADR 061).
     station_idle: Option<String>,
+    /// Der Zeitgeber von „Automatisch fortsetzen“ einer Station ging ohne neuen Status aus (Schalter
+    /// aus, Senden gescheitert): nach dem Freigeben der Sperre plant die Umsetzung ihre Warteschlange
+    /// neu (ADR 064). Nicht `station_idle`: dessen Haken schaltete wieder scharf.
+    station_disarmed: Option<String>,
     /// Die Session einer Station hat eine Rückfrage gestellt (Umsetzung, Kennung der Rückfrage): nach
     /// dem Freigeben der Sperre weckt die Umsetzung ihren Ersteller (ADR 061).
     station_asks: Option<(String, String)>,
     /// Der Wächter erinnert an `implementation_create`; nach dem Freigeben der Sperre geht die
     /// Erinnerung hinaus (ADR 062).
     plan_reminder: bool,
+    /// Befehlsliste aus `system/init`; gespeichert nach dem Freigeben der Sperre.
+    slash_commands: Option<Vec<String>>,
+    /// Ein Zug endete abgeschlossen: nach dem Freigeben der Sperre fragt ein Thread das Modell der
+    /// Einordnung, falls die Einstellung es verlangt (ADR 071).
+    classify: Option<classify::Job>,
+    /// Ein Zug endete abgeschlossen: nach dem Freigeben der Sperre prüft ein Thread, ob die Session
+    /// `/compact` bekommt (ADR 070).
+    compact: bool,
+}
+
+/// Modell, Codex-Modell und Denkaufwand einer neuen Session (Taiga 47): die Einstellungen. Ein
+/// ausdrücklich genanntes Modell gewinnt, der Denkaufwand kommt auch dann aus den Einstellungen. Das
+/// Codex-Modell `None` heißt „Standard von Codex“. Der Modus bleibt der der Vorgängerin.
+pub(crate) fn new_session_defaults(
+    settings: &settings::model::Settings,
+    model: Option<ModelId>,
+) -> (ModelId, Option<String>, Effort) {
+    (
+        model.unwrap_or(settings.default_model),
+        settings.default_codex_model.clone(),
+        settings.default_effort,
+    )
 }
 
 impl SessionRegistry {
@@ -571,6 +684,8 @@ impl SessionRegistry {
         app: &AppHandle,
         request: NewSession<'_>,
     ) -> Result<ProjectCreated, CommandError> {
+        // Vor allem anderen: ein leerer Auftrag und eine unbekannte Gruppe lassen nichts zurück.
+        request.refuse_empty_task()?;
         let NewSession {
             task,
             attachment_ids,
@@ -581,7 +696,6 @@ impl SessionRegistry {
             mode,
             group_id,
         } = request;
-        // Vor allem anderen: eine unbekannte Gruppe lässt nichts zurück.
         if let Some(group_id) = &group_id {
             self.database
                 .with(|connection| group_rows::require(connection, group_id))?;
@@ -636,6 +750,7 @@ impl SessionRegistry {
             repositories: RwLock::new(repositories),
             database: Arc::clone(&self.database),
             state: Mutex::new(state),
+            deleted: AtomicBool::new(false),
         });
         // Reihenfolge der Verweise: Vorhaben ← Session ← `session_repositories`.
         let row = row_of(&session, &session.lock());
@@ -649,6 +764,7 @@ impl SessionRegistry {
             name_auto: true,
             self_release: default_self_release,
             group_id,
+            priority: project.priority,
         };
         let saved = self.database.with(|connection| {
             project_rows::insert(connection, &project_row)?;
@@ -712,7 +828,8 @@ impl SessionRegistry {
     }
 
     /// Wie `create_in_project`, legt aber immer eine neue Session an — auch wenn eine im Status
-    /// „Neu“ wartet (Stationen einer Umsetzung, ADR 048).
+    /// „Neu“ wartet (Stationen einer Umsetzung, ADR 048). Modell, Codex-Modell und Denkaufwand
+    /// kommen aus den Einstellungen (Taiga 47), der Modus von der Session mit der höchsten Nummer.
     pub fn create_fresh_in_project(
         &self,
         project_id: &str,
@@ -724,15 +841,9 @@ impl SessionRegistry {
         else {
             return Err(project_not_found(project_id));
         };
-        let (model, codex_model, effort, mode) = {
-            let state = latest.lock();
-            (
-                state.model,
-                state.codex_model.clone(),
-                state.effort,
-                state.mode,
-            )
-        };
+        let mode = latest.lock().mode;
+        let (model, codex_model, effort) =
+            new_session_defaults(&settings::load(&self.database)?, None);
         let session = self.insert_new_session(project_id, |number: u32| {
             let mut state = SessionState::new(format!("Session {number}"), model, effort, mode);
             state.codex_model = codex_model;
@@ -772,6 +883,7 @@ impl SessionRegistry {
             repositories: RwLock::new(repositories.clone()),
             database: Arc::clone(&self.database),
             state: Mutex::new(state),
+            deleted: AtomicBool::new(false),
         });
         let row = row_of(&session, &session.lock());
         let saved = self.database.with(|connection| {
@@ -805,7 +917,7 @@ impl SessionRegistry {
 
     /// Unbekanntes Vorhaben → Fehler.
     pub fn project_summary(&self, project_id: &str) -> Result<ProjectSummary, CommandError> {
-        let (name, created_at, self_release, group_id) = {
+        let (name, created_at, self_release, group_id, priority) = {
             let projects = self.lock_projects();
             let project = projects
                 .get(project_id)
@@ -815,6 +927,7 @@ impl SessionRegistry {
                 project.created_at,
                 project.self_release,
                 project.group_id.clone(),
+                project.priority,
             )
         };
         Ok(ProjectSummary {
@@ -825,6 +938,7 @@ impl SessionRegistry {
             self_release,
             group_id,
             access: self.remote.with(|control| control.access(project_id)),
+            priority,
         })
     }
 
@@ -845,6 +959,20 @@ impl SessionRegistry {
             auto_resume::spawn(app, session_id, armed);
         }
         Ok(())
+    }
+
+    /// Die Station dieser Session ist angenommen (ADR 074): Ruht die Session, endet ihr Agent wie beim
+    /// Leerlauf-Reaper (`SessionState::release_agent`).
+    pub fn release_agent(&self, app: &AppHandle, session_id: &str) -> Result<(), CommandError> {
+        let session = self.get(session_id)?;
+        update(
+            app,
+            &session,
+            |state: &mut SessionState, outbox: &mut Outbox| {
+                state.release_agent(outbox);
+                Ok(())
+            },
+        )
     }
 
     /// `false` auch, wenn die Session verschwunden ist.
@@ -1025,6 +1153,31 @@ impl SessionRegistry {
         Ok(())
     }
 
+    /// Stufe des Vorhabens in der globalen Warteschlange (ADR 068); unbekanntes oder archiviertes
+    /// Vorhaben → Fehler, ohne dass sich etwas ändert. Die neue Rangfolge gilt ab dem nächsten
+    /// Durchgang; einer läuft gleich, damit die Liste der Wartenden sie zeigt.
+    pub fn set_project_priority(
+        &self,
+        app: &AppHandle,
+        project_id: &str,
+        priority: ProjectPriority,
+    ) -> Result<ProjectSummary, CommandError> {
+        {
+            // Über das Schreiben gehalten wie in `set_project_group`.
+            let mut projects = self.lock_projects();
+            let project = projects
+                .get_mut(project_id)
+                .ok_or_else(|| project_not_found(project_id))?;
+            self.database
+                .with(|connection| project_rows::set_priority(connection, project_id, priority))?;
+            project.priority = priority;
+        }
+        let summary = self.project_summary(project_id)?;
+        let _ = app.emit(PROJECT_CHANGED_EVENT, &summary);
+        schedule_pass(app);
+        Ok(summary)
+    }
+
     /// Immer die volle Liste: die Oberfläche ersetzt ihre Gruppen, statt Änderungen einzuarbeiten.
     fn emit_project_groups(&self, app: &AppHandle) -> Result<(), CommandError> {
         let _ = app.emit(PROJECT_GROUP_CHANGED_EVENT, self.list_project_groups()?);
@@ -1192,6 +1345,7 @@ impl SessionRegistry {
         comments: &[ReviewComment],
         device: Option<&str>,
     ) -> Result<(), CommandError> {
+        refuse_empty_message(text, attachment_ids, comments)?;
         self.send_turn(
             app,
             session_id,
@@ -1200,6 +1354,31 @@ impl SessionRegistry {
             comments,
             device,
             PlanTurn::No,
+            None,
+        )
+    }
+
+    /// Wie `send` ohne Anhänge, aber mit Betreff: In der Betriebsart Claude geht nur `/<skill>` und die
+    /// Referenz an den Agenten, der Chat zeigt den ganzen Text (ADR 072). Für die erste Nachricht einer
+    /// Station und die Rückgabe an eine Station, die neu starten muss.
+    pub fn send_by_reference(
+        &self,
+        app: &AppHandle,
+        session_id: &str,
+        sender: &SessionRef,
+        text: &str,
+        subject: &str,
+    ) -> Result<(), CommandError> {
+        refuse_empty_message(text, &[], &[])?;
+        self.send_turn(
+            app,
+            session_id,
+            text,
+            &[],
+            &[],
+            None,
+            PlanTurn::No,
+            Some((subject, sender)),
         )
     }
 
@@ -1220,7 +1399,16 @@ impl SessionRegistry {
         if settings::load(&self.database)?.operating_mode != OperatingMode::Claude {
             return Err(CommandError::Implementation(PLAN_NEEDS_CLAUDE.to_owned()));
         }
-        self.send_turn(app, session_id, task, &[], &[], device, PlanTurn::Start)
+        self.send_turn(
+            app,
+            session_id,
+            task,
+            &[],
+            &[],
+            device,
+            PlanTurn::Start,
+            None,
+        )
     }
 
     /// Ob der laufende Zug der Session ein Planungszug ist (ADR 062).
@@ -1259,6 +1447,7 @@ impl SessionRegistry {
                         report_update: None,
                         device: None,
                         planning: PlanTurn::Reminder,
+                        station_subject: None,
                     },
                 )?;
                 Ok(())
@@ -1305,6 +1494,7 @@ impl SessionRegistry {
                                 task: task.clone(),
                                 settled,
                             },
+                            at: None,
                         },
                     );
                     Ok(task)
@@ -1331,6 +1521,7 @@ impl SessionRegistry {
         comments: &[ReviewComment],
         device: Option<&str>,
         planning: PlanTurn,
+        station_subject: Option<(&str, &SessionRef)>,
     ) -> Result<(), CommandError> {
         let session = self.get(session_id)?;
         review::validate(comments)?;
@@ -1398,6 +1589,7 @@ impl SessionRegistry {
                         report_update: report_update.as_ref(),
                         device,
                         planning,
+                        station_subject,
                     },
                 )?;
                 Ok(())
@@ -1534,17 +1726,27 @@ impl SessionRegistry {
     pub fn delete_session(&self, app: &AppHandle, session_id: &str) -> Result<bool, CommandError> {
         let session = self.get(session_id)?;
         self.cancel(app, session_id)?;
+        // Unter der Session-Sperre markiert: ein laufendes `persist` ist danach durch, ein
+        // späteres schreibt nichts mehr — der Agent beendet sich erst nach dem Löschen.
+        session.deleted.store(true, Ordering::SeqCst);
+        drop(session.state.lock().unwrap_or_else(PoisonError::into_inner));
         // Bis zum Entfernen gehalten: ein gleichzeitiges `create_in_project` wartet darauf.
         let mut projects = self.lock_projects();
-        let is_last = !self.lock_sessions().values().any(|other: &Arc<Session>| {
-            other.project_id == session.project_id && other.id != session.id
-        });
-        self.database.with(|connection| {
-            session_rows::delete(connection, &session.id)?;
+        // Atomar, und „letzte“ nach der Datenbank, nicht nach der Map im Speicher.
+        let is_last = self.database.with(|connection| {
+            let transaction = connection.transaction()?;
+            session_rows::delete(&transaction, &session.id)?;
+            let remaining: i64 = transaction.query_row(
+                "SELECT COUNT(*) FROM sessions WHERE project_id = ?1",
+                [&session.project_id],
+                |row| row.get(0),
+            )?;
+            let is_last = remaining == 0;
             if is_last {
-                project_rows::delete(connection, &session.project_id)?;
+                project_rows::delete(&transaction, &session.project_id)?;
             }
-            Ok(())
+            transaction.commit()?;
+            Ok(is_last)
         })?;
         self.lock_sessions().remove(&session.id);
         let mut was_shared = false;
@@ -1679,6 +1881,7 @@ impl SessionRegistry {
                             to: model,
                             recache_tokens: tokens,
                         },
+                        at: None,
                     });
                 }
                 state.context_window = model.initial_context_window();
@@ -2308,6 +2511,7 @@ fn build_session(
         repositories: RwLock::new(repositories),
         database: Arc::clone(database),
         state: Mutex::new(state),
+        deleted: AtomicBool::new(false),
     });
     Ok((session, paused_row))
 }
@@ -2383,6 +2587,8 @@ impl SessionState {
             auto_chain: 0,
             pause_reason: None,
             fresh_error: false,
+            continues_by_itself: false,
+            awaits_arming: false,
             seen_tool_uses: HashSet::new(),
             auto_resume_token: 0,
             seen_at: now,
@@ -2394,6 +2600,8 @@ impl SessionState {
             prompt_cache: None,
             cache_message_id: None,
             compact_seq: None,
+            compact_turn: false,
+            compact_by_hand: false,
             fallback_model: None,
             last_total_cost: 0.0,
             context_breakdown: None,
@@ -2403,6 +2611,7 @@ impl SessionState {
             mcp_error: None,
             mcp_auth: None,
             idle_since: None,
+            paused_since: None,
             entries_loaded: true,
             needs_settling: false,
             entries: Vec::new(),
@@ -2436,6 +2645,13 @@ impl SessionState {
             agent_prompt: None,
             last_report: None,
             plan_guard: None,
+            answer_at: None,
+            answer_excerpt: None,
+            answer_kind: None,
+            answer_line: None,
+            card_dismissed_at: None,
+            classify_running: false,
+            classify_next: None,
         }
     }
 
@@ -2468,7 +2684,14 @@ impl SessionState {
         state.scratchpad_dir = row.scratchpad_dir.clone();
         state.inquiry_of = row.inquiry_of.clone();
         state.agent_prompt = row.agent_prompt.clone();
+        state.answer_at = row.answer_at;
+        state.answer_excerpt = row.answer_excerpt.clone();
+        state.answer_kind = row.answer_kind.clone();
+        state.answer_line = row.answer_line.clone();
+        state.card_dismissed_at = row.card_dismissed_at;
         state.idle_since = None;
+        // Vorher eingereihte Nachrichten zählen nicht: die Pause beginnt mit dem Laden.
+        state.paused_since = (state.status == SessionStatus::Paused).then(now_ms);
         state.entries_loaded = false;
         state.needs_settling = was_active;
         // Ein gespeichertes TL;DR, das sich nicht mehr lesen lässt, gilt als nicht vorhanden.
@@ -2631,6 +2854,14 @@ impl SessionState {
         pre_tokens: Option<u32>,
         post_tokens: Option<u32>,
     ) {
+        let by_verwalter = self.compact_turn;
+        // Die Kommandozeile schickt danach keine `assistant`-Zeile: der neue Kontext kommt von hier.
+        if let Some(tokens) = post_tokens
+            && self.context_used != tokens
+        {
+            self.context_used = tokens;
+            outbox.summary_dirty = true;
+        }
         self.compact_seq = Some(self.push_entry(outbox, |seq: u32| ChatEntry::Notice {
             seq,
             notice: Notice::Compacted {
@@ -2638,7 +2869,9 @@ impl SessionState {
                 pre_tokens,
                 post_tokens,
                 summary: None,
+                by_verwalter,
             },
+            at: None,
         }));
         let Some(cache) = self.prompt_cache.as_mut() else {
             return;
@@ -2658,6 +2891,7 @@ impl SessionState {
                     trigger,
                     pre_tokens,
                     post_tokens,
+                    by_verwalter,
                     ..
                 },
             ..
@@ -2670,8 +2904,16 @@ impl SessionState {
             pre_tokens: *pre_tokens,
             post_tokens: *post_tokens,
             summary: Some(text),
+            by_verwalter: *by_verwalter,
         };
-        self.replace_entry(outbox, ChatEntry::Notice { seq, notice });
+        self.replace_entry(
+            outbox,
+            ChatEntry::Notice {
+                seq,
+                notice,
+                at: None,
+            },
+        );
     }
 
     /// Hält ein Ausweichen auf ein anderes Modell fest. Bei `retry` und `sticky` antwortet Claude
@@ -2701,6 +2943,7 @@ impl SessionState {
                 direction,
                 text,
             },
+            at: None,
         });
         if self.fallback_model != next_fallback {
             self.fallback_model = next_fallback;
@@ -2727,6 +2970,7 @@ impl SessionState {
                 from: previous,
                 to: mode,
             },
+            at: None,
         });
     }
 
@@ -2767,6 +3011,51 @@ impl SessionState {
         })
     }
 
+    /// Belegt einen Platz der globalen Warteschlange (ADR 068, Regel a; `slots::holds_slot`), zur Zeit
+    /// `now`: Ein Durchgang zählt und sammelt mit derselben Uhr.
+    pub(crate) fn holds_slot_at(&self, now: f64) -> bool {
+        slots::holds_slot(
+            self.status,
+            self.awaits_background() || self.continues_by_itself,
+            self.station_of.is_some() && (self.waits_for_resume() || self.awaits_arming),
+            self.resume_is_due(now),
+        )
+    }
+
+    /// Abgegeben, ein Subagent oder ein Skript läuft noch, nach dem der Agent von selbst weitermacht.
+    fn awaits_background(&self) -> bool {
+        self.is_awaiting_subagent() || self.awaited_script().is_some()
+    }
+
+    /// Pausiert am Kontingent mit scharfem Zeitgeber und bekannter Rücksetzzeit (ADR 051).
+    fn waits_for_resume(&self) -> bool {
+        self.status == SessionStatus::Paused
+            && matches!(
+                self.pause_reason,
+                Some(PauseReason::Quota {
+                    resets_at: Some(_),
+                    auto_resume: true,
+                })
+            )
+    }
+
+    /// Ab wann das Fortsetzen fällig ist, solange die Session mit scharfem Zeitgeber pausiert.
+    fn resume_due_at(&self) -> Option<f64> {
+        match self.pause_reason {
+            Some(PauseReason::Quota {
+                resets_at: Some(resets_at),
+                auto_resume: true,
+            }) if self.status == SessionStatus::Paused => Some(auto_resume::due_at(resets_at)),
+            _ => None,
+        }
+    }
+
+    /// Das Fortsetzen ist fällig und wartet auf einen Platz (ADR 068).
+    fn resume_is_due(&self, now: f64) -> bool {
+        self.resume_due_at()
+            .is_some_and(|due_at: f64| now >= due_at)
+    }
+
     /// Abgeschlossen, ohne offene Rückfrage, ohne laufenden Subagent oder Skript: Eine neue Eingabe
     /// unterbricht nichts und beantwortet nichts.
     fn rests(&self) -> bool {
@@ -2778,6 +3067,15 @@ impl SessionState {
 
     fn has_running_background(&self) -> bool {
         self.background.iter().any(BackgroundItem::is_running)
+    }
+
+    /// Gibt den Agenten einer ruhenden Session frei, auf dem Weg des Leerlauf-Reapers
+    /// (`retire_idle_process`); die nächste Nachricht startet ihn mit `--resume` neu. Läuft noch
+    /// etwas im Hintergrund, behält die Session ihn.
+    fn release_agent(&mut self, outbox: &mut Outbox) {
+        if self.process.is_some() && self.is_resting() {
+            retire_idle_process(self, outbox);
+        }
     }
 
     /// Weder der Agent noch etwas im Hintergrund arbeitet: ein Neustart des Prozesses unterbricht nichts.
@@ -2859,9 +3157,12 @@ impl SessionState {
     }
 
     fn set_status(&mut self, outbox: &mut Outbox, status: SessionStatus) {
+        // Auch ohne Wechsel: Ein Zugende nach dem Hintergrund-Eintrag beendet das Weitermachen.
+        self.continues_by_itself = false;
         if self.status == status {
             return;
         }
+        self.awaits_arming = false;
         let now = now_ms();
         if self.status == SessionStatus::Running
             && let Some(since) = self.running_since.take()
@@ -2873,6 +3174,7 @@ impl SessionState {
         }
         self.idle_since =
             matches!(status, SessionStatus::Completed | SessionStatus::Paused).then_some(now);
+        self.paused_since = (status == SessionStatus::Paused).then_some(now);
         self.status = status;
         if status != SessionStatus::Paused {
             self.pause_reason = None;
@@ -2896,10 +3198,12 @@ impl SessionState {
         }
     }
 
-    /// Hängt einen Eintrag an; `build` bekommt seine `seq`.
+    /// Hängt einen Eintrag an; `build` bekommt seine `seq`. Hier bekommt er seinen Zeitpunkt: Wer
+    /// einen Eintrag baut, schreibt `at: None`.
     fn push_entry(&mut self, outbox: &mut Outbox, build: impl FnOnce(u32) -> ChatEntry) -> u32 {
         let seq = u32::try_from(self.entries.len()).unwrap_or(u32::MAX);
-        let entry = build(seq);
+        let mut entry = build(seq);
+        entry.stamp(now_ms());
         self.entries.push(entry.clone());
         outbox.entries.push(entry);
         seq
@@ -2930,23 +3234,65 @@ impl SessionState {
         self.seen_at = self.last_activity_at;
     }
 
+    /// Die Eingabe eines Zugs: `push_user`, aber `/compact` ist keine Frage, die Antwort des
+    /// Dashboards bleibt, wie sie war. `true`, wenn die Eingabe nur `/compact` ist.
+    fn push_user_turn(
+        &mut self,
+        outbox: &mut Outbox,
+        text: &str,
+        attachments: Vec<Attachment>,
+        skill: Option<SkillRef>,
+        comments: Vec<ReviewComment>,
+        device: Option<&str>,
+    ) -> bool {
+        let by_hand = text.trim() == compact::COMPACT_TEXT;
+        let kept = (
+            self.answer_at,
+            self.answer_excerpt.clone(),
+            self.answer_kind.clone(),
+            self.answer_line.clone(),
+        );
+        self.push_user(outbox, text, attachments, skill, comments, device);
+        if by_hand {
+            (
+                self.answer_at,
+                self.answer_excerpt,
+                self.answer_kind,
+                self.answer_line,
+            ) = kept;
+        }
+        by_hand
+    }
+
     /// Ohne die Folgen für `seen_at` und `auto_chain`: Das Ziel bleibt ungelesen, die Kettenbremse
     /// zählt weiter.
-    fn push_session_message(&mut self, outbox: &mut Outbox, text: &str, sender: &SessionRef) {
+    fn push_session_message(
+        &mut self,
+        outbox: &mut Outbox,
+        text: &str,
+        sender: &SessionRef,
+        subject: Option<&str>,
+    ) {
         let sent_at = now_ms();
         self.push_entry(outbox, |seq: u32| ChatEntry::SessionMessage {
             seq,
             text: text.to_owned(),
             sent_at,
             sender: sender.clone(),
+            subject: subject.map(str::to_owned),
         });
         self.note_input(outbox);
     }
 
-    /// Eine neue Eingabe ist da: Die Einstiegszeilen der letzten Antwort gelten nicht mehr.
+    /// Eine neue Eingabe ist da: Die Einstiegszeilen und die Antwort des Dashboards (Auszug und
+    /// Einordnung) der letzten Antwort gelten nicht mehr, auch nicht nach Archivieren und Zurückholen.
     fn note_input(&mut self, outbox: &mut Outbox) {
         self.touch_activity(outbox);
         self.handoff_lines.clear();
+        self.answer_at = None;
+        self.answer_excerpt = None;
+        self.answer_kind = None;
+        self.answer_line = None;
     }
 
     /// Eine Rückfrage ist beantwortet; ist sie die letzte, arbeitet der Agent weiter.
@@ -2977,10 +3323,12 @@ impl SessionState {
         titled
     }
 
-    fn replace_entry(&mut self, outbox: &mut Outbox, entry: ChatEntry) {
+    /// Ersetzt einen Eintrag und behält dabei seinen Zeitpunkt.
+    fn replace_entry(&mut self, outbox: &mut Outbox, mut entry: ChatEntry) {
         let Some(slot) = self.entries.get_mut(entry.seq() as usize) else {
             return;
         };
+        entry.keep_time_of(slot);
         *slot = entry.clone();
         outbox.entries.push(entry);
     }
@@ -3045,9 +3393,20 @@ impl SessionState {
 
     fn update_todos(&mut self, outbox: &mut Outbox, items: Vec<TodoItem>) {
         match self.todos_seq {
-            Some(seq) => self.replace_entry(outbox, ChatEntry::Todos { seq, items }),
+            Some(seq) => self.replace_entry(
+                outbox,
+                ChatEntry::Todos {
+                    seq,
+                    items,
+                    at: None,
+                },
+            ),
             None => {
-                let seq = self.push_entry(outbox, |seq: u32| ChatEntry::Todos { seq, items });
+                let seq = self.push_entry(outbox, |seq: u32| ChatEntry::Todos {
+                    seq,
+                    items,
+                    at: None,
+                });
                 self.todos_seq = Some(seq);
             }
         }
@@ -3083,7 +3442,10 @@ impl SessionState {
 
     fn apply_event(&mut self, outbox: &mut Outbox, event: AgentEvent) {
         match event {
-            AgentEvent::Ready { .. } => {
+            AgentEvent::Ready { slash_commands, .. } => {
+                if slash_commands.is_some() {
+                    outbox.slash_commands = slash_commands;
+                }
                 if !self.has_agent_history {
                     self.has_agent_history = true;
                     outbox.summary_dirty = true;
@@ -3103,6 +3465,7 @@ impl SessionState {
                     seq,
                     text,
                     unsourced: Vec::new(),
+                    at: None,
                 });
                 self.turn_texts.push(seq);
             }
@@ -3112,6 +3475,7 @@ impl SessionState {
                     seq,
                     text,
                     seconds,
+                    at: None,
                 });
             }
             AgentEvent::ToolStarted {
@@ -3144,6 +3508,7 @@ impl SessionState {
                     tool,
                     target,
                     state: ToolState::Running,
+                    at: None,
                 });
                 self.tool_seqs.insert(tool_use_id, seq);
                 if is_write {
@@ -3217,6 +3582,7 @@ impl SessionState {
                 self.push_entry(outbox, |seq: u32| ChatEntry::Notice {
                     seq,
                     notice: Notice::Info { text },
+                    at: None,
                 });
             }
             AgentEvent::PermissionMode(raw) => self.note_permission_mode(outbox, &raw),
@@ -3379,6 +3745,7 @@ impl SessionState {
                 path: path.clone(),
                 file,
                 artifact_kind,
+                at: None,
             });
         }
     }
@@ -3472,6 +3839,7 @@ impl SessionState {
         else {
             return;
         };
+        let awaited = self.awaits_background();
         let item = &mut self.background[index];
         item.state = match end {
             TaskEnd::Completed => BackgroundState::Completed,
@@ -3497,6 +3865,8 @@ impl SessionState {
             }
             BackgroundKind::Command => {}
         }
+        // Sonst gäbe der Durchgang den Platz frei, bevor der Agent aufwacht (ADR 068).
+        self.continues_by_itself |= awaited && !self.awaits_background() && self.process.is_some();
         self.touch_background(outbox, index);
     }
 
@@ -3527,6 +3897,7 @@ impl SessionState {
             tool_request,
             chain_limited,
             origin: None,
+            at: None,
         });
         self.pending.push((
             request_id,
@@ -3561,10 +3932,31 @@ impl SessionState {
             outbox.summary_dirty = true;
         }
         self.todos_seq = None;
+        let was_compact = std::mem::take(&mut self.compact_turn);
+        let by_hand = std::mem::take(&mut self.compact_by_hand);
         if self.cancel_requested {
             self.end_sourcing();
             return;
         }
+        if was_compact {
+            let reason = match &end {
+                TurnEnd::Completed => None,
+                TurnEnd::Aborted => Some("abgebrochen".to_owned()),
+                TurnEnd::Failed(text) | TurnEnd::QuotaExhausted { text, .. } => Some(text.clone()),
+            };
+            if let Some(reason) = reason {
+                // Der Benutzer wollte pausieren: der gewöhnliche Pausenweg, er setzt den Merker zurück.
+                if self.pause_requested {
+                    self.pause_after_interrupt(outbox);
+                } else {
+                    self.end_failed_compact(outbox, &reason);
+                }
+                return;
+            }
+        }
+        // Vor `note_unsourced`, das die Einträge der Antwort abgibt.
+        let excerpt: Option<String> = self.turn_excerpt();
+        let classify_input = crate::dashboard::classify::collect(&self.entries, &self.turn_texts);
         let unsourced: Vec<u32> = self.note_unsourced(outbox);
         self.note_turn_summary(outbox, denials, total_cost_usd, unsourced);
         // Aufschlüsselung und MCP-Liste sind Beiwerk: ein Fehler beim Einreihen darf das Ende der Antwort nicht stören.
@@ -3584,15 +3976,63 @@ impl SessionState {
                     seq,
                     title: "Fehler vom Agenten".to_owned(),
                     text,
+                    at: None,
                 });
                 self.set_status(outbox, SessionStatus::Error);
             }
+            // Der Zug des Verwalters ist keine Antwort: nichts einordnen, nichts ungelesen machen,
+            // keine Prüfung des Wächters, kein weiterer Compact (ADR 070).
+            TurnEnd::Completed if was_compact => {
+                let (last_activity_at, seen_at) = (self.last_activity_at, self.seen_at);
+                self.set_status(outbox, SessionStatus::Completed);
+                self.last_activity_at = last_activity_at;
+                self.seen_at = seen_at;
+                outbox.turn_completed = true;
+            }
             TurnEnd::Completed => {
                 self.set_status(outbox, SessionStatus::Completed);
+                if !by_hand {
+                    self.note_answer(outbox, excerpt);
+                }
+                outbox.compact = true;
+                // Ein `/compact` von Hand ist keine Antwort: kein Modellaufruf, und ein wartender
+                // Auftrag des vorigen Zugs (`classify_next`) bleibt, wie er ist.
+                outbox.classify = classify_input
+                    .filter(|_| !by_hand)
+                    .map(|input| classify::Job {
+                        has_station: self.station_of.is_some(),
+                        has_open_request: !self.pending.is_empty(),
+                        answer_at: self.last_activity_at,
+                        input,
+                    });
                 outbox.turn_completed = true;
                 self.check_plan(outbox);
             }
         }
+    }
+
+    /// Auszug der letzten Antwort dieses Zugs für das Dashboard; liest nur die Einträge des Zugs.
+    fn turn_excerpt(&self) -> Option<String> {
+        let text: &str = self.turn_texts.iter().rev().find_map(|seq: &u32| {
+            match self.entries.get(*seq as usize) {
+                Some(ChatEntry::Text { text, .. }) => Some(text.as_str()),
+                _ => None,
+            }
+        })?;
+        crate::dashboard::excerpt(text)
+    }
+
+    /// Ein abgegebener Zug einer Session ohne Station: Zeitpunkt und Auszug für das Dashboard. Pause,
+    /// Kontingent, Fehler und Abbruch kommen hier nie an. Eine Einordnung des vorigen Zugs gilt nicht mehr.
+    fn note_answer(&mut self, outbox: &mut Outbox, excerpt: Option<String>) {
+        if self.station_of.is_some() {
+            return;
+        }
+        self.answer_at = Some(self.last_activity_at);
+        self.answer_excerpt = excerpt;
+        self.answer_kind = None;
+        self.answer_line = None;
+        outbox.summary_dirty = true;
     }
 
     /// Der Wächter am Ende eines abgeschlossenen Zugs (ADR 062). Arbeitet noch ein Subagent oder ein
@@ -3610,6 +4050,7 @@ impl SessionState {
                         task: guard.task,
                         settled: false,
                     },
+                    at: None,
                 });
             }
             _ => {}
@@ -3646,6 +4087,7 @@ impl SessionState {
                 seq,
                 text: text.clone(),
                 unsourced,
+                at: None,
             };
             self.replace_entry(outbox, entry);
             marked.push(seq);
@@ -3685,6 +4127,7 @@ impl SessionState {
                 cost_usd,
                 unsourced,
             },
+            at: None,
         });
     }
 
@@ -3705,12 +4148,16 @@ impl SessionState {
         self.push_entry(outbox, |seq: u32| ChatEntry::Notice {
             seq,
             notice: Notice::QuotaExhausted { text, resets_at },
+            at: None,
         });
         self.pause_after_interrupt(outbox);
         self.pause_reason = Some(PauseReason::Quota {
             resets_at,
             auto_resume: false,
         });
+        // Nur mit Haken: Ohne Statuswechsel (schon pausiert) entscheidet keiner und gäbe den Platz frei.
+        self.awaits_arming = outbox.station_idle.is_some()
+            && slots::awaits_arming(self.station_of.is_some(), resets_at, now_ms());
         // Wie beim Fehler: der Agent hat abgegeben, die Sidebar soll es zeigen.
         self.touch_activity(outbox);
     }
@@ -3744,9 +4191,13 @@ impl SessionState {
         if enabled && *auto_resume {
             return Ok(None);
         }
+        let was_armed = *auto_resume;
         *auto_resume = enabled;
         self.auto_resume_token += 1;
         outbox.summary_dirty = true;
+        if was_armed {
+            outbox.station_disarmed.clone_from(&self.station_of);
+        }
         Ok(enabled.then_some(ArmedResume {
             token: self.auto_resume_token,
             resets_at,
@@ -3766,6 +4217,9 @@ impl SessionState {
     fn auto_resume_failed(&mut self, outbox: &mut Outbox, message: String) {
         self.auto_resume_token += 1;
         if let Some(PauseReason::Quota { auto_resume, .. }) = &mut self.pause_reason {
+            if *auto_resume {
+                outbox.station_disarmed.clone_from(&self.station_of);
+            }
             *auto_resume = false;
             outbox.summary_dirty = true;
         }
@@ -3773,11 +4227,13 @@ impl SessionState {
             seq,
             title: "Automatisches Fortsetzen fehlgeschlagen".to_owned(),
             text: message,
+            at: None,
         });
     }
 
     fn process_exited(&mut self, outbox: &mut Outbox, exit_code: Option<i32>) {
         self.process = None;
+        self.continues_by_itself = false;
         self.forget_mcp(outbox);
         // Vor der frühen Rückkehr: auch nach einem Fehler vom Agenten stünden laufende Einträge
         // sonst bis zum nächsten App-Start auf „läuft“.
@@ -3796,6 +4252,7 @@ impl SessionState {
             seq,
             title: "Agent beendet".to_owned(),
             text: format!("Claude wurde unerwartet beendet (Exit-Code {code})."),
+            at: None,
         });
         self.set_status(outbox, SessionStatus::Error);
     }
@@ -3903,26 +4360,52 @@ fn update<R>(
     let mut outbox = Outbox::default();
     let result = {
         let mut state = session.lock_loaded()?;
+        let held_slot = state.holds_slot_at(now_ms());
         let result = change(&mut state, &mut outbox);
+        // Vorher und nachher, nicht je Statuswechsel: Auch ein endender Subagent oder ein
+        // ausgeschalteter Zeitgeber gibt einen Platz frei (ADR 068).
+        outbox.slots_changed |= held_slot != state.holds_slot_at(now_ms());
+        // Zugende ohne Statuswechsel: Ein wartendes Skript oder ein Subagent einer abgegebenen Station
+        // endet mit dem Prozess, der Status bleibt `Completed`. Auch das weckt den Master (ADR 070).
+        if outbox.station_idle.is_none()
+            && crate::implementation::master::turn_just_ended(
+                held_slot,
+                state.station_of.is_some(),
+                state.status,
+                state.awaits_background() || state.continues_by_itself,
+            )
+        {
+            outbox.station_idle.clone_from(&state.station_of);
+        }
         // Auch bei einem Fehler: die Closure kann den Zustand schon verändert haben.
         persist(session, &mut state, &outbox);
-        if outbox.summary_dirty {
-            outbox.summary = Some(summarize(session, &state));
-        }
+        outbox.summary = changed_summary(session, &state, &outbox);
         result
     };
     outbox.emit(app, session);
+    if let Some(names) = outbox.slash_commands.take()
+        && let Err(error) = skills::builtin::remember_claude_commands(&session.database, &names)
+    {
+        session.log_line(format!("Befehlsliste nicht gespeichert: {error}"));
+    }
     // Git gehört nicht unter die Session-Sperre.
     let windows = std::mem::take(&mut outbox.commit_windows);
     if !windows.is_empty() {
         commit_scan::schedule(Arc::clone(session), windows);
     }
-    // Die Session-Sperre ist hier frei: Der Thread der Warteschlange nimmt seine Sperren selbst.
-    if outbox.turn_completed {
-        session_tools::schedule_inbox_delivery(app, session);
+    // Die Session-Sperre ist hier frei: Der Durchgang nimmt seine Sperren selbst. Die Haken einer
+    // Station lassen ihn selbst laufen.
+    if (outbox.turn_completed || outbox.slots_changed)
+        && outbox.station_idle.is_none()
+        && outbox.station_disarmed.is_none()
+    {
+        schedule_pass(app);
     }
     if let Some(implementation_id) = outbox.station_idle.take() {
-        implementation::schedule_station_session_end(app, implementation_id);
+        implementation::schedule_station_session_end(app, implementation_id, session.id.clone());
+    }
+    if let Some(implementation_id) = outbox.station_disarmed.take() {
+        implementation::schedule_station_disarmed(app, implementation_id);
     }
     if let Some((implementation_id, request_id)) = outbox.station_asks.take() {
         implementation::schedule_station_question(
@@ -3935,9 +4418,26 @@ fn update<R>(
     if outbox.plan_reminder {
         schedule_plan_reminder(app, session);
     }
+    if outbox.compact {
+        compact::schedule(app, session);
+    }
+    if let Some(job) = outbox.classify.take() {
+        classify::schedule(app, session, job);
+    }
     let value = result?;
     outbox.deliver(session)?;
     Ok(value)
+}
+
+/// Die Zusammenfassung für `session://changed`. Eine gelöschte Session sendet keine: das Frontend
+/// nähme die unbekannte ID wieder auf und zeigte eine Geisterzeile bis zum Neuladen (Taiga 35).
+fn changed_summary(
+    session: &Session,
+    state: &SessionState,
+    outbox: &Outbox,
+) -> Option<SessionSummary> {
+    (outbox.summary_dirty && !session.deleted.load(Ordering::SeqCst))
+        .then(|| summarize(session, state))
 }
 
 /// Die Erinnerung des Wächters geht in einem eigenen Thread hinaus, wie die Warteschlange der
@@ -3955,6 +4455,19 @@ fn schedule_plan_reminder(app: &AppHandle, session: &Arc<Session>) {
     if let Err(error) = spawned {
         session.log_line(format!("Erinnerung des Wächters nicht gestartet: {error}"));
     }
+}
+
+/// Text, der leer ist oder nur aus Leerzeichen besteht, beginnt keinen Zug — es sei denn, ein Anhang
+/// oder ein Kommentar kommt mit.
+fn refuse_empty_message(
+    text: &str,
+    attachment_ids: &[String],
+    comments: &[ReviewComment],
+) -> Result<(), CommandError> {
+    if text.trim().is_empty() && attachment_ids.is_empty() && comments.is_empty() {
+        return Err(CommandError::Implementation(EMPTY_MESSAGE.to_owned()));
+    }
+    Ok(())
 }
 
 /// Ohne Anhänge bleibt die Nachricht ein String wie vor den Anhängen.
@@ -3998,6 +4511,11 @@ fn row_of(session: &Session, state: &SessionState) -> SessionRow {
         tldr_seq: None,
         inquiry_of: state.inquiry_of.clone(),
         agent_prompt: state.agent_prompt.clone(),
+        answer_at: state.answer_at,
+        answer_excerpt: state.answer_excerpt.clone(),
+        answer_kind: state.answer_kind.clone(),
+        answer_line: state.answer_line.clone(),
+        card_dismissed_at: state.card_dismissed_at,
     }
 }
 
@@ -4005,6 +4523,9 @@ fn row_of(session: &Session, state: &SessionState) -> SessionRow {
 /// damit zwei Änderungen derselben Session nicht in vertauschter Reihenfolge ankommen.
 /// Ein Fehler landet im Protokoll der Session; die Session läuft weiter.
 fn persist(session: &Session, state: &mut SessionState, outbox: &Outbox) {
+    if session.deleted.load(Ordering::SeqCst) {
+        return;
+    }
     let saved = session.database.with(|connection| {
         // Erst die Session, dann ihre Einträge: die Einträge verweisen auf die Zeile.
         if outbox.summary_dirty {
@@ -4139,7 +4660,11 @@ fn start_turn(
     let plan_turn: PlanTurn = match origin {
         TurnOrigin::User { planning, .. } => planning,
         TurnOrigin::Session { .. } => PlanTurn::No,
+        // Ein Wächter bleibt, wie er ist.
+        TurnOrigin::Compact => PlanTurn::Reminder,
     };
+    let is_compact = matches!(origin, TurnOrigin::Compact);
+    let mut by_hand = false;
     let (titled, line) = match origin {
         TurnOrigin::User {
             attachment_ids,
@@ -4149,6 +4674,7 @@ fn start_turn(
             report_update,
             device,
             planning,
+            station_subject,
         } => {
             // Unter der Session-Sperre zulässig: verschiebt nur lokale Dateien, schreibt nicht in die Pipe.
             let sent_attachments =
@@ -4183,21 +4709,20 @@ fn start_turn(
             }
             let mut agent_attachments = sent_attachments.clone();
             agent_attachments.extend(extra_attachments);
-            let planned: String;
-            let for_agent: &str = if planning == PlanTurn::Start {
-                planned = plan_prompt(sent_text);
-                &planned
+            let for_agent: Cow<str> = if planning == PlanTurn::Start {
+                Cow::Owned(plan_prompt(sent_text))
             } else {
-                sent_text
+                station_agent_text(session, sent_text, station_subject, operating_mode)?
             };
             let agent_text = with_overlap_hint(
-                review::agent_text(for_agent, &comments, folders),
+                review::agent_text(&for_agent, &comments, folders),
                 state,
                 input.overlap.as_ref(),
             );
             let line = message_line(&agent_text, &agent_attachments)?;
             let titled = state.begin_turn(outbox, session, text, &agent_text);
-            state.push_user(outbox, sent_text, sent_attachments, skill, comments, device);
+            by_hand =
+                state.push_user_turn(outbox, sent_text, sent_attachments, skill, comments, device);
             if let Some(found) = report_update {
                 state.last_report = Some(found.stripped.clone());
                 state.push_entry(outbox, |seq: u32| ChatEntry::Notice {
@@ -4206,21 +4731,29 @@ fn start_turn(
                         at: found.at,
                         summary: found.summary.clone(),
                     },
+                    at: None,
                 });
             }
             (titled, line)
         }
-        TurnOrigin::Session { sender } => {
+        TurnOrigin::Session { sender, reference } => {
+            // Ohne die Werkzeuge der Betriebsart Claude geht der ganze Text wie bisher.
+            let readable = readable(reference, operating_mode);
             let agent_text = with_overlap_hint(
-                session_tools::session_message_text(sender, sent_text),
+                session_tools::agent_message(session, sender, sent_text, readable)?,
                 state,
                 input.overlap.as_ref(),
             );
             let line = user_message(&agent_text);
             let titled = state.begin_turn(outbox, session, text, &agent_text);
-            state.push_session_message(outbox, sent_text, sender);
+            // Bei „Gemeldet“ steht der Betreff schon im Text.
+            let subject: Option<&str> = reference
+                .filter(|found: &Reference<'_>| found.note.is_none())
+                .map(|found: Reference<'_>| found.subject);
+            state.push_session_message(outbox, sent_text, sender, subject);
             (titled, line)
         }
+        TurnOrigin::Compact => (false, user_message(text)),
     };
     state.last_overlap_key = input
         .overlap
@@ -4232,7 +4765,8 @@ fn start_turn(
         PlanTurn::Start => state.plan_guard = Some(PlanGuard::new(text)),
         PlanTurn::Reminder => {}
     }
-    state.set_status(outbox, SessionStatus::Running);
+    // Der Merker gehört zum Zug: Scheitert das Schreiben, setzt der nächste Zug ihn zurück.
+    state.enter_running(outbox, is_compact, by_hand);
     outbox.write(state, line)?;
     Ok(titled)
 }
@@ -4253,10 +4787,10 @@ fn with_overlap_hint(
 }
 
 /// Startet den Agenten neu und ersetzt einen noch laufenden Prozess. Kennt das zu startende Programm
-/// die Session schon (`has_agent_history` und ein Transkript von ihm), setzt der Start sie mit ihrem
-/// Verlauf fort (`--resume`), sonst legt er sie unter der Session-ID an (`--session-id`). Die
-/// Claude-Kommandozeile und der eigene Agent führen getrennte Transkripte (ADR 017): nach einem
-/// Wechsel der Betriebsart beginnt der Verlauf neu, und der Chat sagt das.
+/// die Session schon (`resumes`), setzt der Start sie mit ihrem Verlauf fort (`--resume`), sonst
+/// legt er sie unter der Session-ID an (`--session-id`). Die Claude-Kommandozeile und der eigene
+/// Agent führen getrennte Transkripte (ADR 017): nach einem Wechsel der Betriebsart beginnt der
+/// Verlauf neu, und der Chat sagt das.
 ///
 /// Vorher prüft `worktrees::ensure` die Arbeitsordner: fehlende App-Worktrees entstehen neu, ein
 /// Repository ohne Haupt-Checkout bleibt draußen und bekommt einen Fehler-Eintrag im Chat. Ordner
@@ -4274,11 +4808,12 @@ fn start_process(
     } else {
         None
     };
-    let (exe, leading_args, has_transcript) = if codex_exe.is_some() {
+    let (exe, leading_args, is_claude, transcript) = if codex_exe.is_some() {
         (
             codex::program()?,
             codex::leading_args(),
-            codex::has_thread(&session.id),
+            false,
+            Some(codex::has_thread(&session.id)),
         )
     } else if is_standalone(backend) {
         let has_transcript = crate::standalone::transcript_path(&session.id)
@@ -4286,20 +4821,26 @@ fn start_process(
         (
             standalone::program()?,
             standalone::leading_args(),
-            has_transcript,
+            false,
+            Some(has_transcript),
         )
     } else {
         let exe = find_claude().ok_or(CommandError::ClaudeNotFound)?;
-        (exe, Vec::new(), locate::has_transcript(&session.id))
+        let transcript = locate::transcript_in_project(&session.id, &session.workspace);
+        (exe, Vec::new(), true, transcript)
     };
-    let resume = state.has_agent_history && has_transcript;
-    if state.has_agent_history && !resume {
+    let StartChoice {
+        resume,
+        history_lost,
+    } = start_choice(is_claude, state.has_agent_history, transcript);
+    if history_lost {
         state.push_entry(outbox, |seq: u32| ChatEntry::Error {
             seq,
             title: "Verlauf nicht übernommen".to_owned(),
             text: "Diese Session lief bisher in einer anderen Betriebsart. Der Agent kennt den 
                    bisherigen Verlauf nicht — schreib ihm kurz, worum es geht."
                 .to_owned(),
+            at: None,
         });
     }
     let repositories = session.repositories();
@@ -4316,6 +4857,7 @@ fn start_process(
                     text: format!(
                         "{name}: {reason} Der Agent arbeitet ohne dieses Repository weiter."
                     ),
+                    at: None,
                 });
             }
         }
@@ -4389,6 +4931,33 @@ fn start_process(
     Ok(())
 }
 
+/// Wie ein Start die Session übernimmt (`start_choice`).
+#[derive(Debug, PartialEq, Eq)]
+struct StartChoice {
+    /// `--resume` statt `--session-id`.
+    resume: bool,
+    /// Die Session hat Verlauf, der Agent übernimmt ihn nicht: Hinweis „Verlauf nicht übernommen“.
+    history_lost: bool,
+}
+
+/// Ob der Start die Session fortsetzt (`--resume`) statt sie anzulegen (`--session-id`), ADR 074.
+/// `transcript`: ob das Programm ein Transkript der Session findet, `None`, wenn das nicht lesbar
+/// ist (dann gilt `has_agent_history`). Im Claude-Betrieb (`is_claude`) entscheidet allein das
+/// Transkript im Ordner des Arbeitsverzeichnisses, denn dort lehnt die Kommandozeile `--session-id`
+/// ab, auch wenn `system/init` nie ankam. Codex und der eigene Agent setzen nur fort, was sie selbst
+/// begonnen haben (`has_agent_history` und Transkript).
+fn start_choice(is_claude: bool, has_agent_history: bool, transcript: Option<bool>) -> StartChoice {
+    let resume = match transcript {
+        None => has_agent_history,
+        Some(found) if is_claude => found,
+        Some(found) => has_agent_history && found,
+    };
+    StartChoice {
+        resume,
+        history_lost: has_agent_history && !resume,
+    }
+}
+
 /// Legt den Scratchpad-Ordner der Session an und merkt ihn sich; ein Ordner, den eine ältere
 /// Version aus `system/init` übernommen hat, wird dabei ersetzt. Scheitert das Anlegen, startet
 /// der Agent ohne Vorgabe.
@@ -4436,6 +5005,7 @@ fn retire_idle_process(state: &mut SessionState, outbox: &mut Outbox) {
     state.generation += 1;
     outbox.retire(state);
     state.process = None;
+    state.continues_by_itself = false;
     state.forget_mcp(outbox);
     state.interrupt_background(outbox);
     // Ein losgelöstes Skript kann noch einen Kasten offen haben; danach darf nichts mehr zugestellt werden.
@@ -4444,14 +5014,20 @@ fn retire_idle_process(state: &mut SessionState, outbox: &mut Outbox) {
 }
 
 /// Ohne Standardeingabe beendet sich ein ruhender Agent selbst; der Abschuss nach der Frist
-/// fängt einen ab, der hängt.
+/// fängt einen ab, der hängt. Er trifft die ganze Prozessgruppe, auch wenn der Agent sich selbst
+/// beendet hat: Seine Kinder (MCP-Server, Shells, Builds) können noch leben (ADR 074).
 fn retire_process(process: Arc<ClaudeProcess>) {
+    retire_process_after(process, KILL_GRACE);
+}
+
+/// `retire_process` mit wählbarer Frist, für die Tests.
+fn retire_process_after(process: Arc<ClaudeProcess>, grace: Duration) {
     process.close_stdin();
     let killer = Arc::clone(&process);
     let spawned = thread::Builder::new()
         .name("claude-retire".to_owned())
         .spawn(move || {
-            thread::sleep(KILL_GRACE);
+            thread::sleep(grace);
             killer.kill();
         });
     if spawned.is_err() {
@@ -4529,6 +5105,10 @@ fn answer_oldest_with_text(
     text: &str,
     device: Option<&str>,
 ) -> Result<(), CommandError> {
+    // Ein Vorschlag eines Agententyps kennt keine Ablehnung über `apply_answer` (ADR 063).
+    if session_tools::reject_proposal_with_text(state, outbox, 0, text, device) {
+        return Ok(());
+    }
     let Some((request_id, request)) = state.pending.first() else {
         return Ok(());
     };
@@ -4616,5 +5196,2329 @@ fn answer_line(
         QuestionAnswer::Edit { .. } => Err(CommandError::Internal(
             "Antwort passt nicht zur Rückfrage".to_owned(),
         )),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::agents::event::tests::old_payloads;
+    use crate::db::session_inbox;
+    use crate::implementation::wake;
+
+    fn entries_without_time() -> Vec<ChatEntry> {
+        old_payloads()
+            .into_iter()
+            .map(|json| serde_json::from_str(json).expect("alter Payload liest"))
+            .collect()
+    }
+
+    fn state() -> SessionState {
+        SessionState::new(
+            "Test".to_owned(),
+            ModelId::Sonnet,
+            Effort::Medium,
+            Mode::Manual,
+        )
+    }
+
+    #[test]
+    fn push_entry_stamps_every_kind() {
+        let mut state = state();
+        let mut outbox = Outbox::default();
+        let before = now_ms();
+        for entry in entries_without_time() {
+            // Die Reihenfolge der Payloads ist die der `seq`.
+            state.push_entry(&mut outbox, |_seq: u32| entry);
+        }
+        assert_eq!(state.entries.len(), 10);
+        for entry in state.entries.iter().chain(outbox.entries.iter()) {
+            let at = entry.at().expect("jede Art hat einen Zeitpunkt");
+            // Die Nachrichten bringen ihr `sent_at` aus dem alten Payload mit, die acht anderen den Stempel.
+            if !matches!(
+                entry,
+                ChatEntry::User { .. } | ChatEntry::SessionMessage { .. }
+            ) {
+                assert!(at >= before, "seq {}", entry.seq());
+            }
+        }
+    }
+
+    #[test]
+    fn push_entry_keeps_a_time_the_builder_set() {
+        let mut state = state();
+        let mut outbox = Outbox::default();
+        state.push_entry(&mut outbox, |seq: u32| ChatEntry::Error {
+            seq,
+            title: "t".to_owned(),
+            text: "x".to_owned(),
+            at: Some(5.0),
+        });
+        assert_eq!(state.entries[0].at(), Some(5.0));
+    }
+
+    #[test]
+    fn replace_entry_keeps_the_time_of_the_old_entry() {
+        let mut state = state();
+        let mut outbox = Outbox::default();
+        let seq = state.push_entry(&mut outbox, |seq: u32| ChatEntry::Todos {
+            seq,
+            items: Vec::new(),
+            at: Some(5.0),
+        });
+        state.todos_seq = Some(seq);
+        state.update_todos(&mut outbox, Vec::new());
+        assert_eq!(state.entries[seq as usize].at(), Some(5.0));
+        assert_eq!(outbox.entries.last().and_then(ChatEntry::at), Some(5.0));
+    }
+
+    #[test]
+    fn replace_entry_does_not_invent_a_time_for_an_old_entry() {
+        let mut state = state();
+        let mut outbox = Outbox::default();
+        state.entries.push(ChatEntry::Todos {
+            seq: 0,
+            items: Vec::new(),
+            at: None,
+        });
+        state.todos_seq = Some(0);
+        state.update_todos(&mut outbox, Vec::new());
+        assert_eq!(state.entries[0].at(), None);
+    }
+    #[test]
+    fn an_empty_message_without_attachments_or_comments_is_refused() {
+        for text in ["", "   ", "\n\t \n"] {
+            let refused = refuse_empty_message(text, &[], &[]);
+            assert!(
+                matches!(&refused, Err(CommandError::Implementation(message)) if message == EMPTY_MESSAGE),
+                "{text:?}: {refused:?}"
+            );
+        }
+        assert_eq!(
+            EMPTY_MESSAGE,
+            "Leere Nachricht: Text, Anhang oder Kommentar fehlt."
+        );
+        assert!(refuse_empty_message("Hallo", &[], &[]).is_ok());
+        assert!(refuse_empty_message("  Hallo  ", &[], &[]).is_ok());
+    }
+
+    #[test]
+    fn whitespace_only_text_with_an_attachment_or_comment_is_allowed() {
+        let attachment = vec!["anhang".to_owned()];
+        assert!(refuse_empty_message("", &attachment, &[]).is_ok());
+        assert!(refuse_empty_message("  ", &attachment, &[]).is_ok());
+        let comment = ReviewComment {
+            target: crate::review::model::CommentTarget::Diff,
+            repository_key: "0".to_owned(),
+            repository_name: "repo".to_owned(),
+            path: "a.rs".to_owned(),
+            kind: crate::changes::model::DiffLineKind::Added,
+            line: 1,
+            code: "x".to_owned(),
+            text: "Kommentar".to_owned(),
+        };
+        assert!(refuse_empty_message("", &[], std::slice::from_ref(&comment)).is_ok());
+        assert!(refuse_empty_message(" \n", &[], &[comment]).is_ok());
+    }
+
+    fn say(state: &mut SessionState, outbox: &mut Outbox, text: &str) {
+        let seq = state.push_entry(outbox, |seq: u32| ChatEntry::Text {
+            seq,
+            text: text.to_owned(),
+            unsourced: Vec::new(),
+            at: None,
+        });
+        state.turn_texts.push(seq);
+    }
+
+    #[test]
+    fn a_completed_turn_keeps_its_time_and_the_excerpt_of_the_last_text() {
+        let mut state = state();
+        state.answer_kind = Some("done".to_owned());
+        state.answer_line = Some("alt".to_owned());
+        let mut outbox = Outbox::default();
+        say(&mut state, &mut outbox, "Zwischenstand");
+        say(
+            &mut state,
+            &mut outbox,
+            "\n  Fertig und grün.  \nDetails folgen",
+        );
+        state.end_turn(&mut outbox, TurnEnd::Completed, None, Vec::new(), None);
+        assert_eq!(state.status, SessionStatus::Completed);
+        assert_eq!(state.answer_at, Some(state.last_activity_at));
+        assert_eq!(state.answer_excerpt.as_deref(), Some("Fertig und grün."));
+        assert_eq!(
+            state.answer_kind, None,
+            "die Einordnung des vorigen Zugs ist weg"
+        );
+        assert_eq!(state.answer_line, None);
+        assert!(outbox.summary_dirty, "wird mit der Session gespeichert");
+        assert_eq!(row_of_state(&state).answer_at, state.answer_at);
+    }
+
+    // ----- Compact der ruhenden Master-Session (ADR 070) -----
+
+    fn compact_facts() -> compact::Facts {
+        compact::Facts {
+            completed: true,
+            after_compact: false,
+            master_of_open_implementation: true,
+            rests: true,
+            inbox_empty: true,
+            context_used: 150_001,
+            limit: Some(150_000),
+            mode: OperatingMode::Claude,
+        }
+    }
+
+    #[test]
+    fn a_resting_master_over_the_limit_is_compacted_once() {
+        assert!(compact::wanted(&compact_facts()));
+        assert!(compact::wanted(&compact::Facts {
+            mode: OperatingMode::ClaudeCodeLocal,
+            ..compact_facts()
+        }));
+        // Ein Zugende gibt genau einen Anstoß; der Compact-Zug selbst gibt keinen.
+        let mut state = state();
+        let mut outbox = Outbox::default();
+        state.end_turn(&mut outbox, TurnEnd::Completed, None, Vec::new(), None);
+        assert!(outbox.compact);
+        let mut outbox = Outbox::default();
+        state.begin_compact_turn(&mut outbox);
+        state.end_turn(&mut outbox, TurnEnd::Completed, None, Vec::new(), None);
+        assert!(!outbox.compact);
+        assert!(!compact::wanted(&compact::Facts {
+            after_compact: true,
+            ..compact_facts()
+        }));
+    }
+
+    #[test]
+    fn no_compact_below_the_limit_or_when_off() {
+        for used in [0, 149_999, 150_000] {
+            assert!(!compact::wanted(&compact::Facts {
+                context_used: used,
+                ..compact_facts()
+            }));
+        }
+        assert!(!compact::wanted(&compact::Facts {
+            limit: None,
+            context_used: u32::MAX,
+            ..compact_facts()
+        }));
+        assert!(!compact::wanted(&compact::Facts {
+            completed: false,
+            ..compact_facts()
+        }));
+    }
+
+    fn implementation_row(master: Option<&str>) -> crate::db::implementations::ImplementationRow {
+        crate::db::implementations::ImplementationRow {
+            id: "i".to_owned(),
+            project_id: "p".to_owned(),
+            name: "U".to_owned(),
+            source: String::new(),
+            created_by_session_id: None,
+            master_session_id: master.map(str::to_owned),
+            created_at: 0.0,
+            finished_at: None,
+            auto_start: true,
+            stop_after_current: false,
+            pending_change: None,
+            auto_resume: false,
+            cancelled_at: None,
+            pending_cancel: None,
+        }
+    }
+
+    #[test]
+    fn no_compact_for_a_non_master_or_a_finished_or_cancelled_implementation() {
+        let open = implementation_row(Some("m"));
+        let finished = crate::db::implementations::ImplementationRow {
+            finished_at: Some(1.0),
+            ..implementation_row(Some("m"))
+        };
+        let cancelled = crate::db::implementations::ImplementationRow {
+            finished_at: Some(1.0),
+            cancelled_at: Some(1.0),
+            ..implementation_row(Some("m"))
+        };
+        let foreign = implementation_row(Some("anderer"));
+        let nobody = implementation_row(None);
+        assert!(compact::leads_open_implementation([&open], "m"));
+        assert!(compact::leads_open_implementation([&finished, &open], "m"));
+        assert!(!compact::leads_open_implementation(
+            [&foreign, &nobody],
+            "m"
+        ));
+        assert!(!compact::leads_open_implementation([&finished], "m"));
+        assert!(!compact::leads_open_implementation([&cancelled], "m"));
+        assert!(!compact::wanted(&compact::Facts {
+            master_of_open_implementation: false,
+            ..compact_facts()
+        }));
+    }
+
+    #[test]
+    fn no_compact_with_a_waiting_message_or_an_open_request() {
+        assert!(!compact::wanted(&compact::Facts {
+            inbox_empty: false,
+            ..compact_facts()
+        }));
+        // `rests` ist falsch bei offener Rückfrage, laufendem Subagent oder Skript.
+        let mut state = state();
+        state.status = SessionStatus::Completed;
+        assert!(state.rests());
+        state.status = SessionStatus::Waiting;
+        assert!(!state.rests());
+        assert!(!compact::wanted(&compact::Facts {
+            rests: false,
+            ..compact_facts()
+        }));
+    }
+
+    #[test]
+    fn no_compact_outside_the_claude_command_line() {
+        for mode in [OperatingMode::Standalone, OperatingMode::Codex] {
+            assert!(!compact::wanted(&compact::Facts {
+                mode,
+                ..compact_facts()
+            }));
+        }
+    }
+
+    fn registry_with_one_slot() -> SessionRegistry {
+        use crate::settings::model::SettingsChange;
+        let database =
+            crate::db::Database::open(Path::new(":memory:")).expect("Datenbank im Speicher");
+        settings::update(&database, SettingsChange::MaxAgents { value: Some(1) }).expect("Platz");
+        let registry = SessionRegistry::new(Arc::new(database), Arc::new(RemoteControl::default()));
+        registry.add_session_for_test("m", "p", SessionStatus::Completed);
+        registry
+    }
+
+    #[test]
+    fn no_compact_without_a_free_slot() {
+        let registry = registry_with_one_slot();
+        let claim = |registry: &SessionRegistry| {
+            registry.admit_compact("m", true, Some(1), OperatingMode::Claude, || ())
+        };
+        // Ein anderer Agent arbeitet und belegt den einzigen Platz: kein Zug.
+        registry.add_session_for_test("anderer", "p", SessionStatus::Running);
+        assert!(claim(&registry).is_none());
+        // Der Platz wird frei: der Zug darf, und der Aufrufer gibt den Platz zurück.
+        registry.get("anderer").expect("Session").lock().status = SessionStatus::Completed;
+        assert!(claim(&registry).is_some());
+        registry.release_session_slot("m");
+    }
+
+    #[test]
+    fn no_compact_work_before_the_cheap_checks_pass() {
+        let registry = registry_with_one_slot();
+        let prepared = std::cell::Cell::new(0);
+        let admit = |master, limit, mode| {
+            registry.admit_compact("m", master, limit, mode, || {
+                prepared.set(prepared.get() + 1)
+            })
+        };
+        // Kein Master, Grenze „Aus“, Autark und Codex: `prepare_turn` (LM Studio, Datenbank) läuft nie.
+        assert!(admit(false, Some(1), OperatingMode::Claude).is_none());
+        assert!(admit(true, None, OperatingMode::Claude).is_none());
+        assert!(admit(true, Some(1), OperatingMode::Standalone).is_none());
+        assert!(admit(true, Some(1), OperatingMode::Codex).is_none());
+        assert_eq!(prepared.get(), 0);
+        assert!(admit(true, Some(1), OperatingMode::ClaudeCodeLocal).is_some());
+        assert_eq!(prepared.get(), 1);
+        registry.release_session_slot("m");
+    }
+
+    #[test]
+    fn a_declined_compact_lets_the_waiting_message_through() {
+        let registry = registry_with_one_slot();
+        let claim = || registry.admit_compact("m", true, Some(1), OperatingMode::Claude, || ());
+        assert!(claim().is_some());
+        // Unter der Sperre abgelehnt (etwa weil eine Nachricht wartet): kein Zug, also ein Durchgang.
+        assert!(registry.give_back_slot("m", false, true));
+        assert!(claim().is_some(), "der Platz ist frei");
+        // Ein gestarteter Compact-Zug bewegt die Warteschlange mit seinem Ende.
+        assert!(!registry.give_back_slot("m", true, true));
+    }
+
+    #[test]
+    fn a_failed_compact_lets_the_queue_move_on() {
+        let registry = registry_with_one_slot();
+        assert!(
+            registry
+                .admit_compact("m", true, Some(1), OperatingMode::Claude, || ())
+                .is_some()
+        );
+        // Gestartet, aber das Senden scheiterte: kein Zug läuft, also ein Durchgang.
+        assert!(registry.give_back_slot("m", true, false));
+    }
+
+    #[test]
+    fn no_compact_path_below_the_limit() {
+        let registry = registry_with_one_slot();
+        let prepared = std::cell::Cell::new(0);
+        let admit = |context_used| {
+            registry.admit_compact_over_limit(
+                "m",
+                context_used,
+                true,
+                Some(100),
+                OperatingMode::Claude,
+                || prepared.set(prepared.get() + 1),
+            )
+        };
+        assert!(admit(100).is_none(), "genau auf der Grenze: nicht darüber");
+        assert_eq!(prepared.get(), 0, "kein prepare_turn");
+        // Kein Platz belegt: der einzige Platz ist frei.
+        assert!(admit(101).is_some());
+        assert_eq!(prepared.get(), 1);
+        registry.release_session_slot("m");
+    }
+
+    #[test]
+    fn the_compact_boundary_sets_the_new_context() {
+        let mut state = state();
+        state.context_used = 180_000;
+        let mut outbox = Outbox::default();
+        state.note_compaction(&mut outbox, None, Some(180_000), Some(12_000));
+        assert_eq!(state.context_used, 12_000);
+        assert!(outbox.summary_dirty, "wie jede Änderung gemeldet");
+    }
+
+    #[test]
+    fn a_compact_without_metadata_keeps_the_context() {
+        let mut state = state();
+        state.context_used = 180_000;
+        let mut outbox = Outbox::default();
+        state.note_compaction(&mut outbox, None, None, None);
+        assert_eq!(state.context_used, 180_000);
+    }
+
+    /// Wie `start_turn`: Eingabe, Zug beginnt, Merker gehört zum Zug.
+    fn turn(state: &mut SessionState, text: &str) {
+        let mut outbox = Outbox::default();
+        let by_hand = state.push_user_turn(&mut outbox, text, Vec::new(), None, Vec::new(), None);
+        state.enter_running(&mut outbox, false, by_hand);
+    }
+
+    fn end(state: &mut SessionState) {
+        let mut outbox = Outbox::default();
+        state.end_turn(&mut outbox, TurnEnd::Completed, None, Vec::new(), None);
+    }
+
+    #[test]
+    fn a_compact_turn_by_hand_gives_no_answer_card() {
+        let mut state = state();
+        state.answer_at = Some(4.0);
+        state.answer_excerpt = Some("Auszug".to_owned());
+        turn(&mut state, "/compact");
+        assert_eq!(state.answer_at, Some(4.0), "die bestehende Karte bleibt");
+        assert_eq!(state.answer_excerpt.as_deref(), Some("Auszug"));
+        end(&mut state);
+        assert_eq!(state.answer_at, Some(4.0));
+        assert_eq!(state.answer_excerpt.as_deref(), Some("Auszug"));
+        // Ohne bestehende Karte entsteht keine.
+        let mut fresh = self::state();
+        turn(&mut fresh, "/compact");
+        end(&mut fresh);
+        assert_eq!(fresh.answer_at, None);
+        // Eine gewöhnliche Eingabe setzt sie weiter.
+        turn(&mut fresh, "weiter");
+        end(&mut fresh);
+        assert!(fresh.answer_at.is_some());
+    }
+
+    #[test]
+    fn a_failed_write_of_compact_leaves_the_next_turn_its_answer_card() {
+        let mut state = state();
+        turn(&mut state, "/compact");
+        // Das Schreiben scheiterte: `end_turn` lief nie. Der nächste Zug, etwa eine Session-Nachricht,
+        // beginnt ohne `push_user` und setzt den Merker zurück.
+        let mut outbox = Outbox::default();
+        state.enter_running(&mut outbox, false, false);
+        end(&mut state);
+        assert!(state.answer_at.is_some());
+    }
+
+    #[test]
+    fn the_reply_compact_to_a_question_keeps_the_answer_card_of_the_turn() {
+        let mut state = state();
+        turn(&mut state, "frag mich");
+        // Die Antwort auf die Rückfrage geht über `push_user` im laufenden Zug, nicht über `start_turn`.
+        let mut outbox = Outbox::default();
+        state.push_user(&mut outbox, "/compact", Vec::new(), None, Vec::new(), None);
+        end(&mut state);
+        assert!(state.answer_at.is_some());
+    }
+
+    #[test]
+    fn the_compact_check_under_the_lock_asks_again() {
+        let registry = registry_with_one_slot();
+        let session = registry.get("m").expect("Session");
+        let decide = |registry: &SessionRegistry| {
+            let session = registry.get("m").expect("Session");
+            let state = session.lock();
+            compact::decide_under_lock(&session, &state, true, Some(1), OperatingMode::Claude)
+                .expect("Prüfung")
+        };
+        session.lock().context_used = 10;
+        assert!(decide(&registry));
+        // Zwischen Vorprüfung und Sperre hat die Session wieder angefangen zu arbeiten.
+        session.lock().status = SessionStatus::Running;
+        assert!(!decide(&registry), "läuft: kein Zug");
+        session.lock().status = SessionStatus::Completed;
+        // Oder es kam eine Nachricht.
+        let sender = SessionRef {
+            id: "x".to_owned(),
+            number: 1,
+            title: "Absender".to_owned(),
+        };
+        registry
+            .database
+            .with(|connection| {
+                connection.execute_batch("PRAGMA foreign_keys = OFF")?;
+                crate::db::session_inbox::insert(connection, "m", &sender, "los", 0, 1.0)
+            })
+            .expect("einreihen");
+        assert!(!decide(&registry), "Nachricht wartet: kein Zug");
+    }
+
+    #[test]
+    fn a_compact_turn_is_no_input() {
+        let mut state = state();
+        state.seen_at = 5.0;
+        state.last_activity_at = 5.0;
+        state.auto_chain = 3;
+        state.answer_at = Some(4.0);
+        state.answer_excerpt = Some("Auszug".to_owned());
+        state.answer_kind = Some("done".to_owned());
+        state.answer_line = Some("Fertig".to_owned());
+        state.card_dismissed_at = Some(2.0);
+        state.status = SessionStatus::Completed;
+        let mut outbox = Outbox::default();
+        // Der Weg von `start_turn(.., TurnOrigin::Compact)` in den Zustand.
+        state.enter_running(&mut outbox, true, false);
+        assert_eq!(state.status, SessionStatus::Running);
+        assert!(state.entries.is_empty(), "kein Benutzereintrag");
+        assert_eq!(state.seen_at, 5.0);
+        assert_eq!(state.auto_chain, 3);
+        assert_eq!(state.answer_at, Some(4.0));
+        assert_eq!(state.answer_excerpt.as_deref(), Some("Auszug"));
+        assert_eq!(state.answer_kind.as_deref(), Some("done"));
+        assert_eq!(state.answer_line.as_deref(), Some("Fertig"));
+        assert_eq!(state.card_dismissed_at, Some(2.0));
+        assert!(state.compact_turn);
+    }
+
+    #[test]
+    fn the_end_of_a_compact_turn_sets_no_answer_and_starts_no_compact() {
+        let mut state = state();
+        state.seen_at = 5.0;
+        state.last_activity_at = 5.0;
+        state.answer_at = Some(4.0);
+        state.answer_excerpt = Some("Auszug".to_owned());
+        state.answer_kind = Some("done".to_owned());
+        state.status = SessionStatus::Completed;
+        let mut outbox = Outbox::default();
+        state.begin_compact_turn(&mut outbox);
+        say(&mut state, &mut outbox, "Zusammengefasst");
+        let mut outbox = Outbox::default();
+        state.end_turn(&mut outbox, TurnEnd::Completed, None, Vec::new(), None);
+        assert_eq!(state.status, SessionStatus::Completed);
+        assert_eq!(state.answer_at, Some(4.0));
+        assert_eq!(state.answer_excerpt.as_deref(), Some("Auszug"));
+        assert_eq!(state.answer_kind.as_deref(), Some("done"));
+        assert!(outbox.classify.is_none(), "keine Einordnung");
+        assert!(!outbox.compact, "kein weiterer Compact");
+        assert!(!state.compact_turn);
+        assert_eq!(state.last_activity_at, 5.0, "nicht ungelesen");
+        assert_eq!(state.seen_at, 5.0);
+        assert!(outbox.station_asks.is_none());
+    }
+
+    #[test]
+    fn a_failed_compact_turn_leaves_the_session_as_before() {
+        let ends = [
+            TurnEnd::Failed("kaputt".to_owned()),
+            TurnEnd::QuotaExhausted {
+                text: "Kontingent".to_owned(),
+                resets_at: None,
+            },
+            TurnEnd::Aborted,
+        ];
+        for end in ends {
+            let mut state = state();
+            state.seen_at = 5.0;
+            state.last_activity_at = 5.0;
+            state.answer_at = Some(4.0);
+            state.status = SessionStatus::Completed;
+            let mut outbox = Outbox::default();
+            state.enter_running(&mut outbox, true, false);
+            let mut outbox = Outbox::default();
+            state.end_turn(&mut outbox, end, None, Vec::new(), None);
+            assert_eq!(state.status, SessionStatus::Completed, "ruht wie vorher");
+            assert!(state.rests());
+            assert_eq!(state.last_activity_at, 5.0, "nicht ungelesen");
+            assert_eq!(state.seen_at, 5.0);
+            assert_eq!(state.answer_at, Some(4.0));
+            assert!(outbox.classify.is_none() && !outbox.compact);
+            assert!(outbox.turn_completed);
+            assert!(!state.compact_turn);
+            assert!(
+                matches!(
+                    state.entries.last(),
+                    Some(ChatEntry::Notice { notice: Notice::Info { text }, .. })
+                        if text.starts_with("Zusammenfassen gescheitert: ")
+                ),
+                "der Chat nennt den Grund"
+            );
+        }
+    }
+
+    #[test]
+    fn a_paused_compact_turn_ends_paused() {
+        let mut state = state();
+        state.status = SessionStatus::Completed;
+        let mut outbox = Outbox::default();
+        state.enter_running(&mut outbox, true, false);
+        state.pause_requested = true;
+        let mut outbox = Outbox::default();
+        state.end_turn(&mut outbox, TurnEnd::Aborted, None, Vec::new(), None);
+        assert_eq!(state.status, SessionStatus::Paused);
+        assert!(!state.pause_requested);
+        let mut outbox = Outbox::default();
+        state.enter_running(&mut outbox, false, false);
+        say(&mut state, &mut outbox, "Antwort");
+        let mut outbox = Outbox::default();
+        state.end_turn(&mut outbox, TurnEnd::Completed, None, Vec::new(), None);
+        assert_eq!(state.status, SessionStatus::Completed);
+        assert!(outbox.turn_completed);
+        assert!(state.answer_at.is_some(), "mit Antwort");
+    }
+
+    #[test]
+    fn a_failed_compact_turn_leaves_no_pause_request() {
+        let mut state = state();
+        state.status = SessionStatus::Completed;
+        let mut outbox = Outbox::default();
+        state.enter_running(&mut outbox, true, false);
+        let mut outbox = Outbox::default();
+        state.end_turn(&mut outbox, TurnEnd::Aborted, None, Vec::new(), None);
+        assert_eq!(state.status, SessionStatus::Completed);
+        assert!(!state.pause_requested);
+        state.pause_requested = true;
+        state.end_failed_compact(&mut outbox, "x");
+        assert!(!state.pause_requested);
+    }
+
+    #[test]
+    fn master_compact_tokens_defaults_to_150000_and_checks_the_range() {
+        use crate::settings::model::SettingsChange;
+        let database =
+            crate::db::Database::open(Path::new(":memory:")).expect("Datenbank im Speicher");
+        let tokens =
+            |db: &crate::db::Database| settings::load(db).expect("laden").master_compact_tokens;
+        assert_eq!(tokens(&database), Some(150_000));
+        for bad in [0, 49_999, 2_000_001] {
+            let refused = settings::update(
+                &database,
+                SettingsChange::MasterCompactTokens { value: Some(bad) },
+            );
+            assert!(refused.is_err(), "{bad}");
+        }
+        assert_eq!(
+            tokens(&database),
+            Some(150_000),
+            "eine Ablehnung ändert nichts"
+        );
+        for good in [50_000, 2_000_000] {
+            settings::update(
+                &database,
+                SettingsChange::MasterCompactTokens { value: Some(good) },
+            )
+            .expect("erlaubt");
+            assert_eq!(tokens(&database), Some(good));
+        }
+        settings::update(
+            &database,
+            SettingsChange::MasterCompactTokens { value: None },
+        )
+        .expect("aus");
+        assert_eq!(tokens(&database), None);
+        let json = serde_json::to_value(SettingsChange::MasterCompactTokens { value: None })
+            .expect("json");
+        assert_eq!(
+            json,
+            serde_json::json!({"kind": "masterCompactTokens", "value": null})
+        );
+    }
+
+    #[test]
+    fn an_old_compacted_notice_reads_without_origin() {
+        let old = serde_json::json!({
+            "kind": "compacted",
+            "trigger": "manual",
+            "preTokens": 64000,
+            "postTokens": 4000,
+            "summary": null
+        });
+        let notice: Notice = serde_json::from_value(old).expect("alter Hinweis");
+        assert!(matches!(
+            notice,
+            Notice::Compacted {
+                by_verwalter: false,
+                ..
+            }
+        ));
+    }
+
+    fn row_of_state(current: &SessionState) -> SessionRow {
+        let session = Session {
+            id: "s".to_owned(),
+            project_id: "p".to_owned(),
+            number: 1,
+            workspace: PathBuf::new(),
+            repositories: RwLock::new(Vec::new()),
+            database: Arc::new(
+                crate::db::Database::open(Path::new(":memory:")).expect("Datenbank im Speicher"),
+            ),
+            state: Mutex::new(state()),
+            deleted: AtomicBool::new(false),
+        };
+        row_of(&session, current)
+    }
+
+    #[test]
+    fn a_new_input_clears_the_answer_of_the_last_turn() {
+        let mut state = state();
+        let mut outbox = Outbox::default();
+        say(&mut state, &mut outbox, "Fertig.");
+        state.end_turn(&mut outbox, TurnEnd::Completed, None, Vec::new(), None);
+        state.answer_kind = Some("done".to_owned());
+        state.answer_line = Some("Fertig".to_owned());
+        assert!(state.answer_at.is_some());
+        let mut outbox = Outbox::default();
+        state.push_user(&mut outbox, "weiter", Vec::new(), None, Vec::new(), None);
+        assert_eq!(state.answer_at, None);
+        assert_eq!(state.answer_excerpt, None);
+        assert_eq!(state.answer_kind, None);
+        assert_eq!(state.answer_line, None);
+        assert!(outbox.summary_dirty, "wird mit der Session gespeichert");
+        assert_eq!(row_of_state(&state).answer_at, None);
+    }
+
+    #[test]
+    fn a_new_project_without_task_attachment_is_refused_like_an_empty_message() {
+        let new = |task: &'static str, attachments: &'static [String]| NewSession {
+            task,
+            attachment_ids: attachments,
+            repository_ids: &[],
+            model: ModelId::Sonnet,
+            codex_model: None,
+            effort: Effort::Medium,
+            mode: Mode::Edit,
+            group_id: None,
+        };
+        let attachment = [String::from("a")];
+        for task in ["", "  \n\t"] {
+            let refused = new(task, &[]).refuse_empty_task();
+            assert!(
+                matches!(&refused, Err(CommandError::Implementation(message)) if message == EMPTY_MESSAGE),
+                "{refused:?}"
+            );
+        }
+        assert!(
+            new("  ", Box::leak(Box::new(attachment)))
+                .refuse_empty_task()
+                .is_ok()
+        );
+        assert!(new("Aufgabe", &[]).refuse_empty_task().is_ok());
+    }
+
+    #[test]
+    fn a_completed_turn_of_a_station_keeps_no_answer() {
+        let mut state = state();
+        state.station_of = Some("umsetzung".to_owned());
+        let mut outbox = Outbox::default();
+        say(&mut state, &mut outbox, "Antwort der Station");
+        state.end_turn(&mut outbox, TurnEnd::Completed, None, Vec::new(), None);
+        assert_eq!(state.answer_at, None);
+        assert_eq!(state.answer_excerpt, None);
+    }
+
+    #[test]
+    fn failed_and_aborted_turns_keep_no_answer() {
+        for end in [TurnEnd::Failed("kaputt".to_owned()), TurnEnd::Aborted] {
+            let mut state = state();
+            let mut outbox = Outbox::default();
+            say(&mut state, &mut outbox, "Teilantwort");
+            state.end_turn(&mut outbox, end, None, Vec::new(), None);
+            assert_eq!(state.answer_at, None);
+            assert_eq!(state.answer_excerpt, None);
+        }
+    }
+
+    /// Eine Session mit einer Frage des Nutzers und einer Antwort, bereit für `end_turn`.
+    fn answered() -> (SessionState, Outbox) {
+        let mut state = state();
+        let mut outbox = Outbox::default();
+        state.push_entry(&mut outbox, |seq: u32| ChatEntry::User {
+            seq,
+            text: "Prüfe das".to_owned(),
+            sent_at: 0.0,
+            attachments: Vec::new(),
+            skill: None,
+            comments: Vec::new(),
+            origin: None,
+        });
+        say(&mut state, &mut outbox, "Geprüft.");
+        (state, outbox)
+    }
+
+    #[test]
+    fn a_completed_turn_hands_its_input_and_time_to_the_classification() {
+        let (mut state, mut outbox) = answered();
+        state.end_turn(&mut outbox, TurnEnd::Completed, None, Vec::new(), None);
+        let job = outbox.classify.expect("Zugende ohne Station und Anfrage");
+        assert_eq!(Some(job.answer_at), state.answer_at);
+        assert_eq!(job.input.started_by, "Prüfe das");
+        assert_eq!(job.input.answer, "Geprüft.");
+        assert!(!job.has_station && !job.has_open_request);
+    }
+
+    #[test]
+    fn a_compact_turn_by_hand_plans_no_classification() {
+        let (mut state, mut outbox) = answered();
+        turn(&mut state, "/compact");
+        say(&mut state, &mut outbox, "Zusammengefasst.");
+        state.end_turn(&mut outbox, TurnEnd::Completed, None, Vec::new(), None);
+        // Ein wartender Auftrag des vorigen Zugs bleibt: Nur `classify::schedule` überschreibt ihn, und
+        // das läuft nur mit einem Auftrag in der Outbox.
+        assert!(outbox.classify.is_none(), "kein Auftrag nach /compact");
+        // Eine gewöhnliche Eingabe danach plant wieder ein.
+        let mut next = Outbox::default();
+        turn(&mut state, "weiter");
+        say(&mut state, &mut next, "Fertig.");
+        state.end_turn(&mut next, TurnEnd::Completed, None, Vec::new(), None);
+        assert!(next.classify.is_some());
+    }
+
+    #[test]
+    fn an_open_request_is_marked_in_the_classification_job() {
+        let (mut state, mut outbox) = answered();
+        state.ask(
+            &mut outbox,
+            "r".to_owned(),
+            QuestionKind::AskUser,
+            Vec::new(),
+            Value::Null,
+            None,
+        );
+        state.end_turn(&mut outbox, TurnEnd::Completed, None, Vec::new(), None);
+        assert!(outbox.classify.expect("Auftrag").has_open_request);
+    }
+
+    #[test]
+    fn a_turn_that_did_not_complete_starts_no_classification() {
+        let ends = [
+            TurnEnd::Failed("kaputt".to_owned()),
+            TurnEnd::QuotaExhausted {
+                text: "voll".to_owned(),
+                resets_at: None,
+            },
+            TurnEnd::Aborted,
+        ];
+        for end in ends {
+            let (mut state, mut outbox) = answered();
+            state.end_turn(&mut outbox, end, None, Vec::new(), None);
+            assert!(outbox.classify.is_none());
+        }
+        let (mut state, mut outbox) = answered();
+        state.pause_requested = true;
+        state.end_turn(&mut outbox, TurnEnd::Completed, None, Vec::new(), None);
+        assert!(outbox.classify.is_none(), "Pause");
+    }
+
+    /// Der Weg einer Nachricht an `state`: mit Platz, ohne wartende Nachricht, vom Master, bis ein
+    /// Test es ändert.
+    fn route_to(
+        state: &SessionState,
+        change: impl FnOnce(&mut session_tools::Delivery),
+    ) -> session_tools::Route {
+        let mut delivery = session_tools::Delivery {
+            status: state.status,
+            rests: state.rests(),
+            has_waiting: false,
+            claimed: true,
+            timer_armed: state.waits_for_resume(),
+            from_master: true,
+        };
+        change(&mut delivery);
+        session_tools::route_message(&delivery)
+    }
+
+    fn state_with(status: SessionStatus) -> SessionState {
+        let mut state = state();
+        state.status = status;
+        state
+    }
+
+    fn paused(auto_resume: bool) -> SessionState {
+        let mut state = state_with(SessionStatus::Paused);
+        state.pause_reason = Some(PauseReason::Quota {
+            resets_at: Some(1.0),
+            auto_resume,
+        });
+        state
+    }
+
+    #[test]
+    fn a_message_of_the_master_resumes_its_paused_station() {
+        assert_eq!(route_to(&paused(false), |_| {}), session_tools::Route::Now);
+        // Auch ohne Grund der Pause (zum Beispiel nach einem Neustart der App).
+        let mut restarted = state_with(SessionStatus::Paused);
+        restarted.pause_reason = None;
+        assert_eq!(route_to(&restarted, |_| {}), session_tools::Route::Now);
+    }
+
+    #[test]
+    fn a_message_of_another_session_to_a_paused_station_waits() {
+        assert_eq!(
+            route_to(&paused(false), |d| d.from_master = false),
+            session_tools::Route::Queue { nudge: false }
+        );
+    }
+
+    #[test]
+    fn a_paused_station_with_an_armed_timer_keeps_the_message_waiting() {
+        assert_eq!(
+            route_to(&paused(true), |_| {}),
+            session_tools::Route::Queue { nudge: false }
+        );
+    }
+
+    #[test]
+    fn a_message_to_a_resting_session_is_delivered_as_before() {
+        let resting = state_with(SessionStatus::Completed);
+        assert_eq!(
+            route_to(&resting, |d| d.from_master = false),
+            session_tools::Route::Now
+        );
+        assert_eq!(route_to(&resting, |_| {}), session_tools::Route::Now);
+    }
+
+    #[test]
+    fn a_message_to_a_running_session_waits_as_before() {
+        let running = state_with(SessionStatus::Running);
+        assert_eq!(
+            route_to(&running, |_| {}),
+            session_tools::Route::Queue { nudge: false }
+        );
+    }
+
+    #[test]
+    fn an_older_waiting_message_goes_first() {
+        assert_eq!(
+            route_to(&paused(false), |d| d.has_waiting = true),
+            session_tools::Route::Queue { nudge: true }
+        );
+        let resting = state_with(SessionStatus::Completed);
+        assert_eq!(
+            route_to(&resting, |d| d.has_waiting = true),
+            session_tools::Route::Queue { nudge: true }
+        );
+    }
+
+    #[test]
+    fn without_a_slot_the_message_waits() {
+        assert_eq!(
+            route_to(&paused(false), |d| d.claimed = false),
+            session_tools::Route::Queue { nudge: true }
+        );
+    }
+
+    /// `takes_oldest` für `state`, mit einer Nachricht des Masters im Posteingang, bis der Test es ändert.
+    fn takes(state: &SessionState, master_waits: bool) -> bool {
+        session_tools::takes_oldest(
+            state.status,
+            state.rests(),
+            false,
+            state.waits_for_resume(),
+            master_waits,
+        )
+    }
+
+    #[test]
+    fn the_pass_takes_a_waiting_master_message_for_a_paused_station_once_a_slot_is_free() {
+        assert!(takes(&paused(false), true));
+        assert!(!takes(&paused(false), false));
+    }
+
+    #[test]
+    fn the_pass_leaves_a_paused_station_with_an_armed_timer_and_a_running_session_alone() {
+        assert!(!takes(&paused(true), true));
+        assert!(!takes(&state_with(SessionStatus::Running), true));
+        assert!(takes(&state_with(SessionStatus::Completed), false));
+    }
+
+    #[test]
+    fn only_a_master_message_since_the_pause_counts_for_the_pass() {
+        use crate::db::{Database, session_inbox};
+        let database = Database::open(std::path::Path::new(":memory:")).expect("Datenbank");
+        let master = SessionRef {
+            id: "m".to_owned(),
+            number: 1,
+            title: "Master".to_owned(),
+        };
+        database
+            .with(|connection| {
+                // Nur die Posteingangs-Abfrage ist von Belang, keine Session-Zeile.
+                connection.execute_batch("PRAGMA foreign_keys = OFF")?;
+                session_inbox::insert(connection, "s", &master, "alt", 0, 100.0)
+            })
+            .expect("einreihen");
+        let counts = |sender: &str, since: f64| {
+            database
+                .with(|connection| session_inbox::has_from_since(connection, "s", sender, since))
+                .expect("lesen")
+        };
+        // Eingereiht vor der Pause (Pausenbeginn 200): zählt nicht, die Pause des Benutzers bleibt.
+        assert!(!counts("m", 200.0));
+        assert!(counts("m", 100.0));
+        assert!(!counts("x", 0.0));
+    }
+
+    /// Eine Registry mit pausierter Station `s` und ihrem Master `m` (echte Datenbank im Speicher);
+    /// `paused_since` ist der Pausenbeginn der Station.
+    fn registry_with_master(paused_since: Option<f64>) -> SessionRegistry {
+        use crate::db::{Database, implementations};
+        let database = Database::open(std::path::Path::new(":memory:")).expect("Datenbank");
+        database
+            .with(|connection| {
+                connection.execute_batch("PRAGMA foreign_keys = OFF")?;
+                let row = implementations::ImplementationRow {
+                    id: "i".to_owned(),
+                    project_id: "p".to_owned(),
+                    name: "Umsetzung".to_owned(),
+                    source: String::new(),
+                    created_by_session_id: None,
+                    master_session_id: Some("m".to_owned()),
+                    created_at: 1.0,
+                    finished_at: None,
+                    auto_start: false,
+                    stop_after_current: false,
+                    pending_change: None,
+                    auto_resume: false,
+                    cancelled_at: None,
+                    pending_cancel: None,
+                };
+                implementations::insert(connection, &row, &[], &[])
+            })
+            .expect("Umsetzung");
+        let registry = SessionRegistry::new(Arc::new(database), Arc::new(RemoteControl::default()));
+        registry.add_station_session_for_test("s", "p", "i", SessionStatus::Paused);
+        registry.add_session_for_test("m", "p", SessionStatus::Running);
+        registry.get("s").expect("Station").lock().paused_since = paused_since;
+        registry
+    }
+
+    fn master_writes(registry: &SessionRegistry, created_at: f64) {
+        writes_from(registry, "m", created_at);
+    }
+
+    fn writes_from(registry: &SessionRegistry, sender_id: &str, created_at: f64) {
+        let master = SessionRef {
+            id: sender_id.to_owned(),
+            number: 1,
+            title: "Absender".to_owned(),
+        };
+        registry
+            .database
+            .with(|connection| {
+                crate::db::session_inbox::insert(connection, "s", &master, "los", 0, created_at)
+            })
+            .expect("einreihen");
+    }
+
+    fn passes_message_of(registry: &SessionRegistry) -> bool {
+        registry
+            .waiters(1e12)
+            .iter()
+            .any(|waiter| waiter.entry.session_id.as_deref() == Some("s"))
+    }
+
+    #[test]
+    fn the_pass_takes_a_master_message_queued_after_the_pause() {
+        let registry = registry_with_master(Some(100.0));
+        master_writes(&registry, 150.0);
+        assert!(registry.master_message_waits(&registry.get("s").expect("Station")));
+        assert!(passes_message_of(&registry));
+    }
+
+    #[test]
+    fn a_master_message_queued_before_the_pause_leaves_the_users_pause_in_force() {
+        let registry = registry_with_master(Some(200.0));
+        master_writes(&registry, 150.0);
+        assert!(!passes_message_of(&registry));
+    }
+
+    #[test]
+    fn a_pause_without_a_start_takes_no_master_message() {
+        let registry = registry_with_master(None);
+        master_writes(&registry, 150.0);
+        assert!(!passes_message_of(&registry));
+    }
+
+    /// Eine Registry mit der Umsetzung `i` im Vorhaben `p` (Master `m`, Session im Vorhaben
+    /// `master_project`; `finished_at` und `cancelled_at` wie in der Datenbank, ein Abbruch setzt
+    /// beide) und einer zweiten ruhenden Session `x` in `p`; beide haben eine Nachricht im Posteingang
+    /// (echte Datenbank im Speicher).
+    fn registry_with_message_to_master(
+        master_project: &str,
+        finished_at: Option<f64>,
+        cancelled_at: Option<f64>,
+    ) -> SessionRegistry {
+        use crate::db::{Database, implementations, session_inbox};
+        let database = Database::open(std::path::Path::new(":memory:")).expect("Datenbank");
+        database
+            .with(|connection| {
+                connection.execute_batch("PRAGMA foreign_keys = OFF")?;
+                let row = implementations::ImplementationRow {
+                    id: "i".to_owned(),
+                    project_id: "p".to_owned(),
+                    name: "Umsetzung".to_owned(),
+                    source: String::new(),
+                    created_by_session_id: None,
+                    master_session_id: Some("m".to_owned()),
+                    created_at: 1.0,
+                    finished_at,
+                    auto_start: false,
+                    stop_after_current: false,
+                    pending_change: None,
+                    auto_resume: false,
+                    cancelled_at,
+                    pending_cancel: None,
+                };
+                implementations::insert(connection, &row, &[], &[])?;
+                let sender = SessionRef {
+                    id: "absender".to_owned(),
+                    number: 9,
+                    title: "Absender".to_owned(),
+                };
+                session_inbox::insert(connection, "m", &sender, "los", 0, 150.0)?;
+                session_inbox::insert(connection, "x", &sender, "los", 0, 160.0)
+            })
+            .expect("Umsetzung und Nachrichten");
+        let registry = SessionRegistry::new(Arc::new(database), Arc::new(RemoteControl::default()));
+        registry.add_project_for_test("p", "Vorhaben");
+        registry.add_project_for_test("q", "Anderes Vorhaben");
+        registry.add_session_for_test("m", master_project, SessionStatus::Completed);
+        registry.add_session_for_test("x", "p", SessionStatus::Completed);
+        registry
+    }
+
+    /// Ob der Wartende dieser Session eine Nachricht an einen Master ist; `None`, wenn sie nicht wartet.
+    fn master_message_of(registry: &SessionRegistry, session_id: &str) -> Option<bool> {
+        registry
+            .waiters(1e12)
+            .iter()
+            .find(|waiter| waiter.entry.session_id.as_deref() == Some(session_id))
+            .map(|waiter| waiter.master_message)
+    }
+
+    #[test]
+    fn a_message_to_the_master_of_an_open_implementation_in_its_project_counts_as_a_master_message()
+    {
+        let registry = registry_with_message_to_master("p", None, None);
+        assert_eq!(master_message_of(&registry, "m"), Some(true));
+        assert_eq!(
+            master_message_of(&registry, "x"),
+            Some(false),
+            "eine Session, die kein Master ist"
+        );
+    }
+
+    #[test]
+    fn a_message_to_the_master_of_a_cancelled_implementation_does_not_count() {
+        let registry = registry_with_message_to_master("p", Some(2.0), Some(2.0));
+        assert_eq!(master_message_of(&registry, "m"), Some(false));
+    }
+
+    #[test]
+    fn a_message_to_the_master_of_a_finished_implementation_does_not_count() {
+        // Fertig, nicht abgebrochen: Der frühere Master behält keinen Vorrang.
+        let registry = registry_with_message_to_master("p", Some(2.0), None);
+        assert_eq!(master_message_of(&registry, "m"), Some(false));
+    }
+
+    #[test]
+    fn a_message_to_a_master_outside_the_project_of_its_implementation_does_not_count() {
+        let registry = registry_with_message_to_master("q", None, None);
+        assert_eq!(master_message_of(&registry, "m"), Some(false));
+    }
+
+    #[test]
+    fn a_due_resume_is_collected_without_any_further_event_and_is_no_master_message() {
+        // V155: Der Zeitgeber löst nur einen Durchgang aus; der sammelt das fällige Fortsetzen selbst.
+        let registry = registry_with_message_to_master("p", None, None);
+        {
+            let master = registry.get("m").expect("Master");
+            let mut state = master.lock();
+            state.status = SessionStatus::Paused;
+            state.pause_reason = Some(PauseReason::Quota {
+                resets_at: Some(1.0),
+                auto_resume: true,
+            });
+        }
+        let waiters = registry.waiters(1e12);
+        let resume = waiters
+            .iter()
+            .find(|waiter| waiter.entry.session_id.as_deref() == Some("m"))
+            .expect("fälliges Fortsetzen gesammelt");
+        assert_eq!(resume.entry.kind, slots::QueueKind::Resume);
+        assert!(
+            !resume.master_message,
+            "ein Fortsetzen des Masters rückt nicht vor"
+        );
+        // Noch nicht fällig: kein Wartender.
+        assert!(
+            !registry
+                .waiters(0.0)
+                .iter()
+                .any(|waiter| waiter.entry.session_id.as_deref() == Some("m"))
+        );
+    }
+
+    #[test]
+    fn the_pause_start_is_set_on_pausing_and_survives_the_reaper() {
+        let mut state = state();
+        let mut outbox = Outbox::default();
+        state.set_status(&mut outbox, SessionStatus::Paused);
+        let since = state.paused_since.expect("Pausenbeginn beim Wechsel");
+        retire_idle_process(&mut state, &mut outbox);
+        assert_eq!(state.idle_since, None);
+        assert_eq!(
+            state.paused_since,
+            Some(since),
+            "der Reaper löscht ihn nicht"
+        );
+        state.set_status(&mut outbox, SessionStatus::Running);
+        assert_eq!(state.paused_since, None);
+    }
+
+    #[test]
+    fn a_restored_paused_session_starts_its_pause_at_load_time() {
+        let mut current = state();
+        let mut outbox = Outbox::default();
+        current.set_status(&mut outbox, SessionStatus::Running);
+        let before = now_ms();
+        // Aktiv beendet: kommt pausiert zurück, Pausenbeginn = Ladezeitpunkt, `idle_since` leer.
+        let restored = SessionState::restored(&row_of_state(&current));
+        assert_eq!(restored.status, SessionStatus::Paused);
+        assert!(restored.paused_since.is_some_and(|since| since >= before));
+        assert_eq!(restored.idle_since, None);
+        // Nicht pausiert zurück: kein Pausenbeginn.
+        current.set_status(&mut outbox, SessionStatus::Completed);
+        assert_eq!(
+            SessionState::restored(&row_of_state(&current)).paused_since,
+            None
+        );
+    }
+
+    #[test]
+    fn a_message_of_another_session_since_the_pause_does_not_resume_the_station() {
+        let registry = registry_with_master(Some(100.0));
+        writes_from(&registry, "x", 150.0);
+        assert!(!passes_message_of(&registry));
+    }
+    // Nachrichten über Referenzen (ADR 072).
+
+    fn sender() -> SessionRef {
+        SessionRef {
+            id: "m".to_owned(),
+            number: 3,
+            title: "Master".to_owned(),
+        }
+    }
+
+    /// Eine Session mit eigener Datenbank im Speicher samt Zeile in `sessions` (Fremdschlüssel).
+    fn recipient(id: &str) -> Session {
+        let database =
+            Arc::new(crate::db::Database::open(Path::new(":memory:")).expect("Datenbank"));
+        database
+            .with(|connection| {
+                connection.execute(
+                    "INSERT INTO projects (id, name, created_at) VALUES ('p', 'V', 1.0)",
+                    [],
+                )?;
+                for session in [id, "other"] {
+                    connection.execute(
+                        "INSERT INTO sessions (id, project_id, name, status, model, effort, mode, \
+                             created_at, running_ms, context_used, context_window, has_agent_history) \
+                         VALUES (?1, 'p', 'S', 'completed', 'opus', 'high', 'auto', 1.0, 0, 0, 0, 0)",
+                        [session],
+                    )?;
+                }
+                Ok(())
+            })
+            .expect("schreibbar");
+        Session {
+            id: id.to_owned(),
+            project_id: "p".to_owned(),
+            number: 1,
+            workspace: PathBuf::new(),
+            repositories: RwLock::new(Vec::new()),
+            database,
+            state: Mutex::new(state()),
+            deleted: AtomicBool::new(false),
+        }
+    }
+
+    fn read(session: &Session, as_session: &str, reference: &str) -> Result<Value, String> {
+        session
+            .database
+            .with(|connection| {
+                Ok(session_tools::read_reference(
+                    connection, as_session, reference,
+                ))
+            })
+            .expect("lesbar")
+    }
+
+    const THREE_LINES: &str = "[Nachricht von Session 3 „Master“, ID m]\nBetreff: Prüfe den Plan\nInhalt: msg-1 — lies ihn mit verwalter_read_message, bevor du handelst.";
+
+    #[test]
+    fn a_message_to_a_claude_session_goes_by_reference() {
+        let session = recipient("s");
+        let reference = Reference {
+            subject: "Prüfe den Plan",
+            note: None,
+        };
+        let by_claude = readable(Some(reference), OperatingMode::Claude);
+        let text = session_tools::agent_message(&session, &sender(), "Der lange Inhalt", by_claude)
+            .expect("zugestellt");
+        assert_eq!(text, THREE_LINES);
+        assert!(!text.contains("Der lange Inhalt"));
+        let read = read(&session, "s", "msg-1").expect("Empfänger liest");
+        assert_eq!(read["text"], "Der lange Inhalt");
+        assert_eq!(read["subject"], "Prüfe den Plan");
+        assert_eq!(read["from"]["id"], "m");
+        assert_eq!(read["from"]["number"], 3);
+        assert_eq!(read["reference"], "msg-1");
+    }
+
+    #[test]
+    fn a_message_to_another_operating_mode_keeps_the_full_text() {
+        let reference = Reference {
+            subject: "Prüfe den Plan",
+            note: None,
+        };
+        for mode in [
+            OperatingMode::ClaudeCodeLocal,
+            OperatingMode::Standalone,
+            OperatingMode::Codex,
+        ] {
+            assert_eq!(readable(Some(reference), mode), None, "{mode:?}");
+        }
+        let session = recipient("s");
+        let text = session_tools::agent_message(&session, &sender(), "Der lange Inhalt", None)
+            .expect("zugestellt");
+        assert_eq!(
+            text,
+            "[Nachricht von Session 3 „Master“, ID m]\n\nDer lange Inhalt"
+        );
+        assert_eq!(
+            read(&session, "s", "msg-1"),
+            Err("Unbekannte Referenz.".to_owned()),
+            "ohne Referenz entsteht keine Zeile"
+        );
+    }
+
+    #[test]
+    fn the_first_message_of_a_station_keeps_the_skill_line_first() {
+        let session = recipient("s");
+        let text = session_tools::station_message(
+            &session,
+            &wake::sender(),
+            "/role-rust-developer\nStation: Phase 1\nAuftrag: Brief",
+            "Auftrag: Lane 1 · Umsetzung in „U“",
+        )
+        .expect("gebaut");
+        let lines: Vec<&str> = text.lines().collect();
+        assert_eq!(lines[0], "/role-rust-developer");
+        assert_eq!(
+            lines[1],
+            "[Nachricht von Session 0 „Verwalter“, ID verwalter]"
+        );
+        assert_eq!(lines[2], "Betreff: Auftrag: Lane 1 · Umsetzung in „U“");
+        assert!(lines[3].starts_with("Inhalt: msg-1 — lies ihn mit verwalter_read_message"));
+        assert_eq!(lines.len(), 4);
+        let read = read(&session, "s", "msg-1").expect("liest");
+        assert_eq!(read["text"], "Station: Phase 1\nAuftrag: Brief");
+        // Ohne Skill: nur die drei Zeilen.
+        let plain = session_tools::station_message(
+            &session,
+            &wake::sender(),
+            "Station: Phase 2",
+            "Auftrag: x",
+        )
+        .expect("ok");
+        assert!(plain.starts_with("[Nachricht von Session 0"), "{plain}");
+        assert_eq!(plain.lines().count(), 3);
+    }
+
+    #[test]
+    fn the_first_message_of_a_station_keeps_the_full_text_in_another_operating_mode() {
+        let session = recipient("s");
+        let sender = wake::sender();
+        let text = "/role-rust-developer\nStation: Phase 1";
+        for mode in [
+            OperatingMode::ClaudeCodeLocal,
+            OperatingMode::Standalone,
+            OperatingMode::Codex,
+        ] {
+            let sent = station_agent_text(&session, text, Some(("Auftrag", &sender)), mode)
+                .expect("gebaut");
+            assert_eq!(sent, text, "{mode:?}");
+        }
+        assert_eq!(
+            read(&session, "s", "msg-1"),
+            Err("Unbekannte Referenz.".to_owned()),
+            "ohne Referenz entsteht keine Zeile"
+        );
+        let by_claude = station_agent_text(
+            &session,
+            text,
+            Some(("Auftrag", &sender)),
+            OperatingMode::Claude,
+        )
+        .expect("gebaut");
+        assert!(by_claude.starts_with("/role-rust-developer\n[Nachricht von Session 0"));
+    }
+
+    #[test]
+    fn a_return_with_a_subject_becomes_a_reference_and_without_one_stays_direct() {
+        assert_eq!(
+            implementation::return_reference(Some("Randfall fehlt")),
+            Some(Reference {
+                subject: "Randfall fehlt",
+                note: None
+            })
+        );
+        assert_eq!(implementation::return_reference(None), None);
+        let master =
+            implementation::return_sender(Some(crate::implementation::master::MasterRef {
+                id: "m".to_owned(),
+                number: 3,
+                title: "Master".to_owned(),
+            }));
+        assert_eq!((master.id.as_str(), master.number), ("m", 3));
+        assert_eq!(implementation::return_sender(None).id, "verwalter");
+    }
+
+    #[test]
+    fn a_queued_message_keeps_its_subject_until_delivery() {
+        let session = recipient("s");
+        session
+            .database
+            .with(|connection| {
+                session_inbox::insert_referenced(
+                    connection,
+                    "s",
+                    &sender(),
+                    "Der lange Inhalt",
+                    0,
+                    10.0,
+                    Some(Reference {
+                        subject: "Prüfe den Plan",
+                        note: None,
+                    }),
+                )?;
+                session_inbox::insert(connection, "s", &sender(), "direkt", 0, 11.0)
+            })
+            .expect("einreihen");
+        let row = session
+            .database
+            .with(|connection| session_inbox::oldest(connection, "s"))
+            .expect("lesen")
+            .expect("wartet");
+        assert_eq!(row.subject.as_deref(), Some("Prüfe den Plan"));
+        assert_eq!(row.note, None);
+        let reference = row.subject.as_deref().map(|subject: &str| Reference {
+            subject,
+            note: row.note.as_deref(),
+        });
+        let text = session_tools::agent_message(&session, &row.sender, &row.text, reference)
+            .expect("zugestellt");
+        assert_eq!(
+            text, THREE_LINES,
+            "dieselbe Form wie beim direkten Zustellen"
+        );
+        // Eine Nachricht ohne Betreff bleibt direkt.
+        let next = session
+            .database
+            .with(|connection| {
+                session_inbox::delete(connection, row.id)?;
+                session_inbox::oldest(connection, "s")
+            })
+            .expect("lesen")
+            .expect("wartet");
+        assert_eq!(next.subject, None);
+    }
+
+    #[test]
+    fn open_session_sends_its_first_message_by_reference() {
+        // Die erste Nachricht samt TL;DR des Vorhabens ist der Inhalt; der Agent bekommt nur die Zeilen.
+        let session = recipient("s");
+        let with_tldr = "Kurzfassung des Vorhabens: …\n\nErste Nachricht";
+        let text = session_tools::agent_message(
+            &session,
+            &sender(),
+            with_tldr,
+            Some(Reference {
+                subject: "Prüfe den Plan",
+                note: None,
+            }),
+        )
+        .expect("zugestellt");
+        assert_eq!(text, THREE_LINES);
+        assert_eq!(
+            read(&session, "s", "msg-1").expect("liest")["text"],
+            with_tldr
+        );
+    }
+
+    #[test]
+    fn a_return_of_the_master_goes_by_reference() {
+        let session = recipient("s");
+        let returned =
+            "Dein Master gibt deine Meldung zurück: Teste auch den Randfall. Arbeite weiter.";
+        let text = session_tools::agent_message(
+            &session,
+            &sender(),
+            returned,
+            Some(Reference {
+                subject: "Randfall fehlt",
+                note: None,
+            }),
+        )
+        .expect("zugestellt");
+        assert!(
+            text.starts_with("[Nachricht von Session 3 „Master“, ID m]\nBetreff: Randfall fehlt\n")
+        );
+        assert!(!text.contains("Randfall."));
+        assert_eq!(
+            read(&session, "s", "msg-1").expect("liest")["text"],
+            returned
+        );
+    }
+
+    fn facts() -> wake::WakeFacts {
+        wake::WakeFacts {
+            implementation: "U".to_owned(),
+            lane: "147.1".to_owned(),
+            stage: "Umsetzung".to_owned(),
+            text: "Fertig und grün".to_owned(),
+            note: "Alles getan.\nZweite Zeile der Notiz.".to_owned(),
+        }
+    }
+
+    fn event_reported(fix_needed: bool) -> wake::WakeEvent {
+        wake::WakeEvent::Reported {
+            station_id: "st".to_owned(),
+            returns: 0,
+            turn: 1,
+            fix_needed,
+        }
+    }
+
+    #[test]
+    fn the_reported_wake_text_references_only_the_note() {
+        for fix_needed in [false, true] {
+            let session = recipient("s");
+            let facts = facts();
+            let event = event_reported(fix_needed);
+            let full = wake::decide(&event, &facts, true, &mut Default::default()).expect("Text");
+            let (subject, note) = wake::note_reference(&event, &facts).expect("Referenz");
+            assert_eq!(subject, "Fertig und grün");
+            let text = session_tools::agent_message(
+                &session,
+                &wake::sender(),
+                &full,
+                Some(Reference {
+                    subject: &subject,
+                    note: Some(note),
+                }),
+            )
+            .expect("zugestellt");
+            assert!(
+                text.contains("Notiz: msg-1 (lies sie mit verwalter_read_message)"),
+                "{text}"
+            );
+            assert!(!text.contains("Alles getan"), "{text}");
+            assert!(!text.contains("Notiz: „"), "{text}");
+            // Der übrige Text bleibt, bis auf die Notiz Wort für Wort.
+            let rest = full.replace(&wake::note_fragment(note), "");
+            for part in rest.split("  ").flat_map(|chunk: &str| chunk.split(" · ")) {
+                assert!(
+                    text.contains(part.trim()) || part.trim().is_empty(),
+                    "{part}"
+                );
+            }
+            assert!(text.contains("Betreff: „Fertig und grün“"), "{text}");
+            let read = read(&session, "s", "msg-1").expect("liest");
+            assert_eq!(read["text"], "Alles getan.\nZweite Zeile der Notiz.");
+            assert_eq!(read["subject"], "Fertig und grün");
+            assert_eq!(read["from"]["id"], "verwalter");
+        }
+    }
+
+    #[test]
+    fn fixed_texts_stay_direct() {
+        let facts = facts();
+        let events = [
+            wake::WakeEvent::Finished {
+                station_id: "st".to_owned(),
+            },
+            wake::WakeEvent::Unreported {
+                station_id: "st".to_owned(),
+                returns: 0,
+                turn: 1,
+            },
+            wake::WakeEvent::Failed {
+                station_id: "st".to_owned(),
+                returns: 0,
+                turn: 1,
+                stopped: false,
+            },
+            wake::WakeEvent::Failed {
+                station_id: "st".to_owned(),
+                returns: 0,
+                turn: 1,
+                stopped: true,
+            },
+            wake::WakeEvent::Interrupted {
+                station_id: "st".to_owned(),
+                returns: 0,
+                session: "Session #2, ID x".to_owned(),
+            },
+            wake::WakeEvent::Asking {
+                station_id: "st".to_owned(),
+                request_id: "r".to_owned(),
+            },
+        ];
+        for event in &events {
+            assert!(
+                wake::note_reference(event, &facts).is_none(),
+                "{event:?} bleibt direkt"
+            );
+        }
+        // Nur „Gemeldet“ mit einer Notiz; ohne Notiz bleibt auch das direkt.
+        let mut empty = facts.clone();
+        empty.note = "  ".to_owned();
+        assert!(wake::note_reference(&event_reported(false), &empty).is_none());
+        // Ohne Betreff geht keine Referenz hinaus: der neue Master, „Mach weiter.“ und der Neustart
+        // sind feste Texte des Verwalters ohne `subject`.
+        assert_eq!(
+            session_tools::agent_message(&recipient("s"), &wake::sender(), "Mach weiter.", None)
+                .expect("ok"),
+            "[Nachricht von Session 0 „Verwalter“, ID verwalter]\n\nMach weiter."
+        );
+    }
+
+    #[test]
+    fn only_the_recipient_reads_a_reference() {
+        let session = recipient("s");
+        session_tools::agent_message(
+            &session,
+            &sender(),
+            "Geheim",
+            Some(Reference {
+                subject: "B",
+                note: None,
+            }),
+        )
+        .expect("zugestellt");
+        assert_eq!(
+            read(&session, "s", "msg-1").expect("Empfänger")["text"],
+            "Geheim"
+        );
+        assert_eq!(
+            read(&session, "other", "msg-1"),
+            Err("Unbekannte Referenz.".to_owned())
+        );
+    }
+
+    #[test]
+    fn an_unknown_or_deleted_reference_is_refused() {
+        let session = recipient("s");
+        session_tools::agent_message(
+            &session,
+            &sender(),
+            "Inhalt",
+            Some(Reference {
+                subject: "B",
+                note: None,
+            }),
+        )
+        .expect("zugestellt");
+        for wrong in [
+            "msg-99",
+            "msg-",
+            "msg-x",
+            "msg--1",
+            "1",
+            "",
+            "MSG-1",
+            "msg-1 oder 2",
+        ] {
+            assert_eq!(
+                read(&session, "s", wrong),
+                Err("Unbekannte Referenz.".to_owned()),
+                "{wrong:?}"
+            );
+        }
+        session
+            .database
+            .with(|connection| {
+                connection.execute("DELETE FROM sessions WHERE id = 's'", [])?;
+                Ok(())
+            })
+            .expect("löschen");
+        assert_eq!(
+            read(&session, "s", "msg-1"),
+            Err("Unbekannte Referenz.".to_owned())
+        );
+    }
+
+    #[test]
+    fn messages_are_deleted_with_the_recipient_session() {
+        let session = recipient("s");
+        for id in ["s", "other"] {
+            let target = Session {
+                id: id.to_owned(),
+                ..recipient_like(&session)
+            };
+            session_tools::agent_message(
+                &target,
+                &sender(),
+                "Inhalt",
+                Some(Reference {
+                    subject: "B",
+                    note: None,
+                }),
+            )
+            .expect("zugestellt");
+        }
+        let count = |session: &Session| -> i64 {
+            session
+                .database
+                .with(|connection| {
+                    Ok(connection.query_row(
+                        "SELECT COUNT(*) FROM session_messages",
+                        [],
+                        |row| row.get(0),
+                    )?)
+                })
+                .expect("zählen")
+        };
+        assert_eq!(count(&session), 2);
+        session
+            .database
+            .with(|connection| {
+                connection.execute("DELETE FROM sessions WHERE id = 's'", [])?;
+                Ok(())
+            })
+            .expect("löschen");
+        assert_eq!(
+            count(&session),
+            1,
+            "nur die Zeile des anderen Empfängers bleibt"
+        );
+    }
+
+    /// Dieselbe Datenbank, anderer Empfänger.
+    fn recipient_like(session: &Session) -> Session {
+        Session {
+            id: String::new(),
+            project_id: "p".to_owned(),
+            number: 1,
+            workspace: PathBuf::new(),
+            repositories: RwLock::new(Vec::new()),
+            database: Arc::clone(&session.database),
+            state: Mutex::new(state()),
+            deleted: AtomicBool::new(false),
+        }
+    }
+
+    #[test]
+    fn subject_is_required_single_line_and_at_most_120_characters() {
+        use crate::mcp_access::tools::ToolSet;
+        use crate::session_tools::tools::{
+            MAX_SUBJECT_CHARS, OPEN_SESSION, SEND_MESSAGE, SessionTools, check_subject,
+        };
+        assert_eq!(
+            check_subject("  Plan prüfen  "),
+            Ok("Plan prüfen".to_owned())
+        );
+        assert_eq!(check_subject(""), Err("Der Betreff ist leer.".to_owned()));
+        assert_eq!(
+            check_subject("  \t"),
+            Err("Der Betreff ist leer.".to_owned())
+        );
+        assert_eq!(
+            check_subject("Zwei\nZeilen"),
+            Err("Der Betreff darf nur eine Zeile haben.".to_owned())
+        );
+        assert_eq!(
+            check_subject(&"ä".repeat(MAX_SUBJECT_CHARS)),
+            Ok("ä".repeat(MAX_SUBJECT_CHARS))
+        );
+        assert_eq!(
+            check_subject(&"ä".repeat(MAX_SUBJECT_CHARS + 1)),
+            Err("Der Betreff ist zu lang: höchstens 120 Zeichen.".to_owned())
+        );
+        // Pflicht im Schema beider Werkzeuge.
+        for spec in SessionTools.tools() {
+            if spec.name == SEND_MESSAGE || spec.name == OPEN_SESSION {
+                let required = spec.input_schema["required"].to_string();
+                assert!(
+                    required.contains("\"subject\""),
+                    "{}: {required}",
+                    spec.name
+                );
+                assert_eq!(spec.input_schema["properties"]["subject"]["maxLength"], 120);
+            }
+        }
+        // Das Werkzeug des Masters nennt ihn für `return`.
+        let review = crate::implementation::tools::ImplementationTools
+            .tools()
+            .into_iter()
+            .find(|spec| spec.name == "implementation_review_station")
+            .expect("Werkzeug");
+        assert_eq!(
+            review.input_schema["properties"]["subject"]["maxLength"],
+            120
+        );
+    }
+
+    #[test]
+    fn read_message_is_allowed_in_side_questions() {
+        use crate::session_tools::tools::{
+            GET_SESSIONS, GET_TLDR, OPEN_SESSION, READ_MESSAGE, SEND_MESSAGE, is_read_only,
+        };
+        assert!(is_read_only(READ_MESSAGE));
+        assert!(is_read_only(GET_SESSIONS));
+        for name in [SEND_MESSAGE, OPEN_SESSION, GET_TLDR] {
+            assert!(!is_read_only(name), "{name}");
+        }
+    }
+
+    #[test]
+    fn the_chat_keeps_the_full_text_and_shows_the_subject() {
+        let mut state = state();
+        let mut outbox = Outbox::default();
+        state.push_session_message(
+            &mut outbox,
+            "Der ganze lange Text",
+            &sender(),
+            Some("Betreff"),
+        );
+        state.push_session_message(&mut outbox, "Ohne", &sender(), None);
+        let ChatEntry::SessionMessage { text, subject, .. } = &state.entries[0] else {
+            panic!("keine Nachricht");
+        };
+        assert_eq!(text, "Der ganze lange Text");
+        assert_eq!(subject.as_deref(), Some("Betreff"));
+        let ChatEntry::SessionMessage { subject, .. } = &state.entries[1] else {
+            panic!("keine Nachricht");
+        };
+        assert_eq!(*subject, None);
+    }
+
+    #[test]
+    fn a_database_of_version_31_migrates_to_the_messages_table() {
+        let mut connection = rusqlite::Connection::open_in_memory().expect("Datenbank");
+        for script in crate::db::migrations::first(31) {
+            connection.execute_batch(script).expect("alte Migration");
+        }
+        connection
+            .execute_batch(
+                "PRAGMA user_version = 31; \
+                 INSERT INTO projects (id, name, created_at) VALUES ('p', 'V', 1.0); \
+                 INSERT INTO sessions (id, project_id, name, status, model, effort, mode, created_at, \
+                     running_ms, context_used, context_window, has_agent_history) \
+                 VALUES ('s', 'p', 'S', 'completed', 'opus', 'high', 'auto', 1.0, 0, 0, 0, 0); \
+                 INSERT INTO session_inbox (session_id, sender_id, sender_number, sender_title, text, \
+                     chain, created_at) VALUES ('s', 'm', 1, 'M', 'wartet', 0, 1.0);",
+            )
+            .expect("Bestand");
+        crate::db::migrations::run(&mut connection).expect("wandert");
+        let version: u32 = connection
+            .query_row("PRAGMA user_version", [], |row| row.get(0))
+            .expect("Version");
+        assert_eq!(version, 33);
+        let (text, subject): (String, Option<String>) = connection
+            .query_row("SELECT text, subject FROM session_inbox", [], |row| {
+                Ok((row.get(0)?, row.get(1)?))
+            })
+            .expect("Zeile bleibt");
+        assert_eq!((text.as_str(), subject), ("wartet", None));
+        connection
+            .execute(
+                "INSERT INTO session_messages (recipient_id, sender_id, sender_number, sender_title, \
+                     subject, text, created_at) VALUES ('s', 'm', 1, 'M', 'B', 'T', 1.0)",
+                [],
+            )
+            .expect("neue Tabelle");
+    }
+
+    // Neue Sessions nehmen die Einstellungen (Taiga 47).
+
+    fn defaults_of(
+        model: ModelId,
+        effort: Effort,
+        codex: Option<&str>,
+    ) -> settings::model::Settings {
+        let mut settings = settings::load(
+            &crate::db::Database::open(Path::new(":memory:")).expect("Datenbank im Speicher"),
+        )
+        .expect("Standardwerte");
+        settings.default_model = model;
+        settings.default_effort = effort;
+        settings.default_codex_model = codex.map(str::to_owned);
+        settings
+    }
+
+    #[test]
+    fn rule_1_a_new_session_takes_model_and_effort_from_the_settings() {
+        let settings = defaults_of(ModelId::Opus, Effort::Xhigh, None);
+        let (model, _, effort) = new_session_defaults(&settings, None);
+        assert_eq!((model, effort), (ModelId::Opus, Effort::Xhigh));
+    }
+
+    #[test]
+    fn rule_2_an_explicit_model_wins() {
+        let settings = defaults_of(ModelId::Opus, Effort::Xhigh, None);
+        let (model, _, _) = new_session_defaults(&settings, Some(ModelId::Haiku));
+        assert_eq!(model, ModelId::Haiku);
+    }
+
+    #[test]
+    fn rule_3_the_effort_comes_from_the_settings_even_with_an_explicit_model() {
+        let settings = defaults_of(ModelId::Opus, Effort::Xhigh, None);
+        let (_, _, effort) = new_session_defaults(&settings, Some(ModelId::Sonnet));
+        assert_eq!(effort, Effort::Xhigh);
+    }
+
+    #[test]
+    fn rule_5_the_codex_model_comes_from_the_settings_and_none_stays_the_codex_default() {
+        let set = defaults_of(ModelId::Opus, Effort::High, Some("gpt-5-codex"));
+        assert_eq!(
+            new_session_defaults(&set, None).1.as_deref(),
+            Some("gpt-5-codex")
+        );
+        let unset = defaults_of(ModelId::Opus, Effort::High, None);
+        assert_eq!(new_session_defaults(&unset, None).1, None);
+    }
+
+    /// Ein Vorhaben `p` mit einer Session `#1` auf `haiku`, `low`, `manual`, `codex-alt`, in der
+    /// Datenbank und in der Registry; die Einstellungen stehen auf `opus`, `xhigh`, `gpt-neu`.
+    fn registry_with_old_session(status: SessionStatus) -> SessionRegistry {
+        use crate::settings::model::SettingsChange;
+        let database = crate::db::Database::open(Path::new(":memory:")).expect("Datenbank");
+        database
+            .with(|connection| {
+                connection.execute(
+                    "INSERT INTO projects (id, name, created_at) VALUES ('p', 'Vorhaben', 1.0)",
+                    [],
+                )?;
+                Ok(())
+            })
+            .expect("Vorhaben");
+        settings::update(
+            &database,
+            SettingsChange::DefaultModel {
+                value: ModelId::Opus,
+            },
+        )
+        .expect("Modell");
+        settings::update(
+            &database,
+            SettingsChange::DefaultMode {
+                mode: Mode::Auto,
+                effort: Effort::Xhigh,
+            },
+        )
+        .expect("Modus");
+        settings::update(
+            &database,
+            SettingsChange::DefaultCodexModel {
+                value: Some("gpt-neu".to_owned()),
+            },
+        )
+        .expect("Codex-Modell");
+        let registry = SessionRegistry::new(Arc::new(database), Arc::new(RemoteControl::default()));
+        registry.add_session_for_test("old", "p", status);
+        {
+            let old = registry.get("old").expect("Session");
+            let mut state = old.lock();
+            state.model = ModelId::Haiku;
+            state.effort = Effort::Low;
+            state.mode = Mode::Manual;
+            state.codex_model = Some("codex-alt".to_owned());
+        }
+        registry
+    }
+
+    #[test]
+    fn rules_1_4_and_5_a_fresh_session_takes_the_settings_and_inherits_only_the_mode() {
+        let registry = registry_with_old_session(SessionStatus::Completed);
+        let created = registry.create_fresh_in_project("p").expect("angelegt");
+        let state = registry.get(&created.id).expect("Session");
+        let state = state.lock();
+        assert_eq!(state.model, ModelId::Opus, "Regel 1: Modell");
+        assert_eq!(state.effort, Effort::Xhigh, "Regel 1: Denkaufwand");
+        assert_eq!(state.mode, Mode::Manual, "Regel 4: Modus geerbt");
+        assert_eq!(state.codex_model.as_deref(), Some("gpt-neu"), "Regel 5");
+    }
+
+    #[test]
+    fn rule_6_existing_sessions_stay_untouched() {
+        let registry = registry_with_old_session(SessionStatus::Completed);
+        registry.create_fresh_in_project("p").expect("angelegt");
+        let old = registry.get("old").expect("Session");
+        let old = old.lock();
+        assert_eq!(
+            (old.model, old.effort, old.mode),
+            (ModelId::Haiku, Effort::Low, Mode::Manual)
+        );
+        assert_eq!(old.codex_model.as_deref(), Some("codex-alt"));
+    }
+
+    #[test]
+    fn rule_6_a_waiting_empty_session_is_returned_unchanged() {
+        let registry = registry_with_old_session(SessionStatus::New);
+        let summary = registry.create_in_project("p").expect("zurück");
+        assert_eq!(summary.id, "old");
+        assert_eq!(
+            (summary.model, summary.effort),
+            (ModelId::Haiku, Effort::Low)
+        );
+        assert_eq!(registry.project_members("p").len(), 1, "keine neue Session");
+    }
+
+    #[test]
+    fn a_deleted_session_sends_no_changed_summary() {
+        let session = Session {
+            id: "s".to_owned(),
+            project_id: "p".to_owned(),
+            number: 1,
+            workspace: PathBuf::new(),
+            repositories: RwLock::new(Vec::new()),
+            database: Arc::new(
+                crate::db::Database::open(Path::new(":memory:")).expect("Datenbank im Speicher"),
+            ),
+            state: Mutex::new(state()),
+            deleted: AtomicBool::new(false),
+        };
+        let dirty = Outbox {
+            summary_dirty: true,
+            ..Outbox::default()
+        };
+        let state = session.lock();
+        assert!(changed_summary(&session, &state, &dirty).is_some());
+        assert!(changed_summary(&session, &state, &Outbox::default()).is_none());
+        session.deleted.store(true, Ordering::SeqCst);
+        assert!(
+            changed_summary(&session, &state, &dirty).is_none(),
+            "gelöscht: kein Ereignis, auch nicht über eine geänderte Zusammenfassung"
+        );
+    }
+
+    /// V98 (ADR 074): Im Claude-Betrieb entscheidet allein das Transkript im Ordner des
+    /// Arbeitsverzeichnisses; nicht lesbar heißt `has_agent_history`.
+    #[test]
+    fn start_choice_resumes_a_claude_session_exactly_when_its_folder_has_the_transcript() {
+        let resume = StartChoice {
+            resume: true,
+            history_lost: false,
+        };
+        let fresh = StartChoice {
+            resume: false,
+            history_lost: false,
+        };
+        let fresh_with_notice = StartChoice {
+            resume: false,
+            history_lost: true,
+        };
+        // Transkript da, `system/init` kam nie an: sonst „Session ID … is already in use“.
+        assert_eq!(start_choice(true, false, Some(true)), resume);
+        assert_eq!(start_choice(true, true, Some(true)), resume);
+        // Verlauf, aber kein Transkript in diesem Ordner (auch: nur in einem anderen Ordner).
+        assert_eq!(start_choice(true, true, Some(false)), fresh_with_notice);
+        assert_eq!(start_choice(true, false, Some(false)), fresh);
+        // `projects` nicht lesbar: `has_agent_history` wie bisher.
+        assert_eq!(start_choice(true, true, None), resume);
+        assert_eq!(start_choice(true, false, None), fresh);
+        // Codex und der eigene Agent bleiben bei Verlauf und Transkript.
+        assert_eq!(start_choice(false, false, Some(true)), fresh);
+        assert_eq!(start_choice(false, true, Some(true)), resume);
+        assert_eq!(start_choice(false, true, Some(false)), fresh_with_notice);
+    }
+
+    #[test]
+    fn project_folder_matches_the_cli_also_for_long_paths() {
+        assert_eq!(
+            locate::project_folder(Path::new(
+                "/home/srechenberger/.verwalter/workspaces/82166188"
+            )),
+            "-home-srechenberger--verwalter-workspaces-82166188"
+        );
+        // Je UTF-16-Einheit ein Zeichen: „Ä“ ein `-`, der Krebs (Ersatzpaar) zwei.
+        assert_eq!(
+            locate::project_folder(Path::new("/a/Ärger 🦀")),
+            "-a--rger---"
+        );
+        // Über 200 Zeichen: Kürzung und Hash, Wert aus den Funktionen der Kommandozeile 2.1.296.
+        let long = format!(
+            "/home/srechenberger/.verwalter/workspaces/{}/Vorhaben-Ärger 🦀/{}",
+            "x".repeat(120),
+            "y".repeat(60)
+        );
+        assert_eq!(
+            locate::project_folder(Path::new(&long)),
+            format!(
+                "-home-srechenberger--verwalter-workspaces-{}-Vorhaben--rger----{}-w95gpt",
+                "x".repeat(120),
+                "y".repeat(19)
+            )
+        );
+    }
+
+    #[test]
+    fn transcript_in_counts_only_the_folder_of_the_working_directory() {
+        let base = std::env::temp_dir().join(format!("verwalter-v98-{}", uuid::Uuid::new_v4()));
+        let cwd = std::env::temp_dir();
+        let id = "11111111-2222-3333-4444-555555555555";
+        // Ohne `projects`: nicht lesbar.
+        assert_eq!(locate::transcript_in(&base, id, &cwd), None);
+        let other = base.join("projects").join("-anderer-Ordner");
+        fs::create_dir_all(&other).expect("Ordner anlegbar");
+        fs::write(other.join(format!("{id}.jsonl")), "{}").expect("Transkript schreibbar");
+        assert_eq!(locate::transcript_in(&base, id, &cwd), Some(false));
+        // Wie `locate::real_dir`: unter Unix ohne symbolische Links, unter Windows unverändert.
+        let real_cwd = if cfg!(unix) {
+            fs::canonicalize(&cwd).unwrap_or(cwd.clone())
+        } else {
+            cwd.clone()
+        };
+        let own = base
+            .join("projects")
+            .join(locate::project_folder(&real_cwd));
+        fs::create_dir_all(&own).expect("Ordner anlegbar");
+        fs::write(own.join(format!("{id}.jsonl")), "{}").expect("Transkript schreibbar");
+        assert_eq!(locate::transcript_in(&base, id, &cwd), Some(true));
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    /// Prozessgruppen (ADR 074): nur eigene Wegwerf-Prozesse.
+    #[cfg(unix)]
+    mod groups {
+        use std::process::Stdio;
+        use std::sync::mpsc;
+
+        use super::*;
+        use crate::agents::claude::process::{self, ProcessOutput};
+        use crate::processes::tests::groups::{clean_up, gone};
+
+        /// Startet `script` als Agentenprozess; die erste Zeile seiner Ausgabe ist die PID seines
+        /// Kindes `sleep 300`, das stdout erbt und den Anführer damit uneingesammelt hält.
+        fn agent(script: &str) -> (Arc<ClaudeProcess>, u32) {
+            let mut command = crate::processes::command("sh");
+            command
+                .args(["-c", script])
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped());
+            let (sender, receiver) = mpsc::channel::<String>();
+            let sender = Mutex::new(sender);
+            let process = process::start(command, move |output: ProcessOutput| {
+                if let ProcessOutput::Line(line) = output {
+                    let _ = lock_sender(&sender).send(line);
+                }
+            })
+            .expect("Wegwerf-Agent startet");
+            let line = receiver
+                .recv_timeout(Duration::from_secs(5))
+                .expect("PID des Kindes kommt");
+            (
+                Arc::new(process),
+                line.trim().parse().expect("PID ist eine Zahl"),
+            )
+        }
+
+        fn lock_sender(
+            sender: &Mutex<mpsc::Sender<String>>,
+        ) -> MutexGuard<'_, mpsc::Sender<String>> {
+            sender.lock().unwrap_or_else(PoisonError::into_inner)
+        }
+
+        /// Die Frist im Test.
+        const GRACE: Duration = Duration::from_millis(100);
+
+        /// Wartet die Frist ab und gibt dem Abschuss Zeit; `process` bleibt gehalten.
+        fn after_grace() {
+            thread::sleep(GRACE + Duration::from_millis(200));
+        }
+
+        #[test]
+        fn retire_process_ends_the_group_of_an_agent_that_ignores_stdin() {
+            let (agent, child) = agent("sleep 300 & echo $!; exec sleep 300");
+            let leader = agent.pid();
+            retire_process_after(Arc::clone(&agent), GRACE);
+            after_grace();
+            let child_gone = gone(child);
+            let leader_gone = gone(leader);
+            if !child_gone {
+                clean_up(child);
+            }
+            if !leader_gone {
+                clean_up(leader);
+            }
+            assert!(child_gone, "das Kind lebt noch");
+            assert!(leader_gone, "der Agent lebt noch");
+        }
+
+        #[test]
+        fn retire_process_ends_the_group_even_if_the_agent_exits_by_itself() {
+            // Ohne stdin endet `read` und mit ihm der Agent in der Frist; sein Kind läuft weiter.
+            let (agent, child) = agent("sleep 300 & echo $!; read line");
+            retire_process_after(Arc::clone(&agent), GRACE);
+            after_grace();
+            let child_gone = gone(child);
+            if !child_gone {
+                clean_up(child);
+            }
+            assert!(child_gone, "das Kind lebt nach dem Ende des Agenten noch");
+        }
+
+        #[test]
+        fn stop_terminates_then_kills_agents_that_ignore_sigterm() {
+            let (polite, polite_child) = agent("sleep 300 & echo $!; exec sleep 300");
+            let (stubborn, stubborn_child) =
+                agent("trap '' TERM; sleep 300 & echo $!; while :; do sleep 1; done");
+            let started = std::time::Instant::now();
+            process::stop(&[&polite, &stubborn], Duration::from_millis(300));
+            let waited = started.elapsed();
+            let mut all_gone = true;
+            for pid in [polite_child, polite.pid(), stubborn_child, stubborn.pid()] {
+                if !gone(pid) {
+                    all_gone = false;
+                    clean_up(pid);
+                }
+            }
+            assert!(all_gone, "ein Prozess lebt noch");
+            assert!(waited < Duration::from_secs(1), "gewartet: {waited:?}");
+        }
+
+        /// App-Ende: Das Beenden über `stop` ist kein Absturz der Session; der Handler erfährt
+        /// nichts mehr, weder `Exited` noch die Zeilen, die der Agent beim SIGTERM noch schreibt.
+        #[test]
+        fn stop_reports_neither_exit_nor_lines_to_the_handler() {
+            let mut command = crate::processes::command("sh");
+            command
+                .args([
+                    "-c",
+                    "trap 'echo bye; echo bye >&2; exit 3' TERM; sleep 300 & echo $!; wait",
+                ])
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped());
+            let (sender, receiver) = mpsc::channel::<ProcessOutput>();
+            let sender = Mutex::new(sender);
+            let agent = process::start(command, move |output: ProcessOutput| {
+                let _ = sender
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .send(output);
+            })
+            .expect("Wegwerf-Agent startet");
+            let child: u32 = match receiver.recv_timeout(Duration::from_secs(5)) {
+                Ok(ProcessOutput::Line(line)) => line.trim().parse().expect("PID ist eine Zahl"),
+                other => panic!("erwartet die PID des Kindes, kam: {other:?}"),
+            };
+            process::stop(&[&agent], Duration::from_secs(2));
+            let after_stop = receiver.recv_timeout(Duration::from_secs(1));
+            let leader = agent.pid();
+            if !gone(child) {
+                clean_up(child);
+            }
+            if !gone(leader) {
+                clean_up(leader);
+            }
+            assert!(after_stop.is_err(), "nach `stop` kam noch: {after_stop:?}");
+        }
+
+        /// V72: Die Annahme einer ruhenden Station gibt ihren Agenten frei.
+        #[test]
+        fn release_agent_retires_a_resting_station_like_the_reaper() {
+            let (agent, child) = agent("sleep 300 & echo $!; exec sleep 300");
+            let leader = agent.pid();
+            let mut state = state();
+            let mut outbox = Outbox::default();
+            state.process = Some(Arc::clone(&agent));
+            state.status = SessionStatus::Completed;
+            state.release_agent(&mut outbox);
+            let released = state.process.is_none() && outbox.retire;
+            if let Some(retired) = outbox.process.take().filter(|_| released) {
+                retire_process_after(retired, GRACE);
+                after_grace();
+            }
+            let leader_gone = released && gone(leader);
+            // Ein roter Lauf räumt seine eigenen Prozesse ab, bevor er scheitert.
+            agent.kill();
+            for pid in [child, leader] {
+                if !gone(pid) {
+                    clean_up(pid);
+                }
+            }
+            assert!(
+                released,
+                "die Session gibt den Prozess nicht an `retire_process`"
+            );
+            assert!(leader_gone, "der Agent lebt noch");
+        }
+
+        /// V72, Gegenfall: Mit laufender Hintergrundarbeit behält die Station ihren Agenten.
+        #[test]
+        fn release_agent_keeps_the_agent_while_background_work_runs() {
+            let (agent, child) = agent("sleep 300 & echo $!; exec sleep 300");
+            let leader = agent.pid();
+            let mut state = state();
+            let mut outbox = Outbox::default();
+            state.process = Some(Arc::clone(&agent));
+            state.status = SessionStatus::Completed;
+            state.start_background(
+                &mut outbox,
+                "b1".to_owned(),
+                "t1".to_owned(),
+                BackgroundKind::Process,
+                "Dev-Server".to_owned(),
+                None,
+            );
+            state.release_agent(&mut outbox);
+            let kept = state.process.is_some() && !outbox.retire;
+            agent.kill();
+            for pid in [child, leader] {
+                if !gone(pid) {
+                    clean_up(pid);
+                }
+            }
+            assert!(kept, "der Agent wurde trotz Hintergrundarbeit beendet");
+        }
     }
 }

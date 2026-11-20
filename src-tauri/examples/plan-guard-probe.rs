@@ -38,8 +38,8 @@ use verwalter_lib::background::scratchpad;
 use verwalter_lib::db::Database;
 use verwalter_lib::db::agent_types as agent_type_rows;
 use verwalter_lib::implementation::model::{
-    MAX_NAME_CHARS, MAX_SOURCE_CHARS, PhaseInput, check_agents, check_length, check_max_parallel,
-    refuse_user_options, stations_in, validate,
+    MAX_NAME_CHARS, MAX_SOURCE_CHARS, PhaseInput, check_agents, check_length, refuse_user_options,
+    stations_in, validate,
 };
 use verwalter_lib::implementation::plan::{
     GuardStep, PLAN_REMINDER_TEXT, PlanGuard, advance_guard, is_plan_tool, plan_prompt,
@@ -707,8 +707,6 @@ fn create(arguments: &Value, state: &MockState) -> Result<String, String> {
         source: Option<String>,
         #[serde(default, alias = "lanes")]
         phases: Vec<PhaseInput>,
-        #[serde(default)]
-        max_parallel: Option<u32>,
     }
     let arguments: Arguments = serde_json::from_value(arguments.clone())
         .map_err(|error| format!("Eingabe nicht lesbar: {error}"))?;
@@ -717,15 +715,14 @@ fn create(arguments: &Value, state: &MockState) -> Result<String, String> {
     check_length("source", source.trim(), 0, MAX_SOURCE_CHARS)?;
     validate(&arguments.phases)?;
     refuse_user_options(&stations_in("phases", &arguments.phases))?;
-    check_max_parallel(arguments.max_parallel)?;
     new_rows(
         "probe-project",
         "probe-session",
         &arguments.name,
         &source,
         &arguments.phases,
-        arguments.max_parallel,
         now_ms(),
+        false,
     )?;
     check_agents(&arguments.phases, &state.types)?;
     let mut created = state

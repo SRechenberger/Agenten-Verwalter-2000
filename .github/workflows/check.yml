@@ -28,9 +28,7 @@ jobs:
       - run: pnpm build
       - run: pnpm rust:fmt
       - run: pnpm rust:clippy
-      - run: "cargo test --manifest-path src-tauri/Cargo.toml --lib remote::"
-      - run: "cargo test --manifest-path src-tauri/Cargo.toml --lib processes::"
-      - run: "cargo test --manifest-path src-tauri/Cargo.toml --lib -- implementation:: agent_types::"
+      - run: cargo test --manifest-path src-tauri/Cargo.toml --lib
       - name: Bindings sind aktuell
         shell: bash
         run: |

@@ -9,19 +9,18 @@ use tauri::{AppHandle, Manager};
 use super::changes::describe;
 use super::model::{
     ChangeSummary, ImplementationView, PendingChange, PhaseMark, PhaseView, PlanEdit, StationInput,
-    StationPatch, StationState, StationView, check_agent, stations_in, validate_in,
+    StationKind, StationPatch, StationState, StationView, check_agent, stations_in, validate_in,
     validate_station,
 };
 use super::{
     announce, now_ms, phase_rows, replans_after_plan_change, schedule, start, station_row,
 };
 use crate::agent_types::model::AgentType;
-use crate::db::implementations::{ChangeRow, PhaseRow, StationRow};
+use crate::db::implementations::{ChangeRow, CommandRow, PhaseRow, StationRow};
 use crate::error::CommandError;
 use crate::sessions::registry::SessionRegistry;
 
-const EMPTY_EDIT: &str =
-    "Die Änderung ist leer: nenne lanes, add, change, remove oder max_parallel.";
+const EMPTY_EDIT: &str = "Die Änderung ist leer: nenne lanes, add, change oder remove.";
 const IS_FINISHED: &str = "Die Umsetzung ist fertig; es gibt nichts mehr zu ändern.";
 pub const BEGUN_MEANWHILE: &str =
     "Eine Station hat inzwischen begonnen; die Änderung ist nicht übernommen.";
@@ -37,7 +36,6 @@ pub struct EditedPlan {
     pub updated: Vec<StationRow>,
     pub removed: Vec<String>,
     pub removed_phases: Vec<String>,
-    pub max_parallel: Option<Option<u32>>,
     pub summary: ChangeSummary,
 }
 
@@ -55,10 +53,7 @@ pub fn edited_plan(
         return Err(EMPTY_EDIT.to_owned());
     }
     let mut plan: Vec<StationRow> = rows.to_vec();
-    let mut summary = ChangeSummary {
-        max_parallel: edit.max_parallel,
-        ..ChangeSummary::default()
-    };
+    let mut summary = ChangeSummary::default();
     let mut touched: HashSet<String> = HashSet::new();
     let mut removed: Vec<String> = Vec::new();
     for (index, plan_id) in edit.remove.iter().enumerate() {
@@ -148,16 +143,12 @@ pub fn edited_plan(
         updated,
         removed,
         removed_phases,
-        // 0 hebt die Grenze auf.
-        max_parallel: edit
-            .max_parallel
-            .map(|limit: u32| (limit > 0).then_some(limit)),
         summary,
     })
 }
 
 fn is_begun(row: &StationRow) -> bool {
-    row.session_id.is_some() || row.completed_at.is_some()
+    row.session_id.is_some() || row.started_at.is_some() || row.completed_at.is_some()
 }
 
 /// Index der Station mit dieser Plan-Kennung, solange sie weder eine Session hat noch fertig ist.
@@ -232,6 +223,23 @@ fn patch_row(
         prompt: patch.prompt.clone(),
         after: patch.after.clone(),
         priority: patch.priority,
+        // Eine Befehls-Station behält ihre Art: so gelten ihre Regeln auch für die Änderung.
+        by: (row.kind == StationKind::Command).then(|| "command".to_owned()),
+        command: row
+            .command
+            .as_ref()
+            .map(|run: &CommandRow| patch.command.clone().unwrap_or_else(|| run.steps.clone()))
+            .or_else(|| patch.command.clone()),
+        // Leer setzt eine Befehls-Station auf den Ordner des Vorhabens zurück; an anderen Stationen
+        // bleibt es ein `cwd` und wird abgelehnt. Ohne Angabe bleibt das alte `cwd`.
+        cwd: match patch.cwd.as_deref().map(str::trim) {
+            Some("") if row.kind == StationKind::Command => None,
+            Some(cwd) => Some(cwd.to_owned()),
+            None => row
+                .command
+                .as_ref()
+                .and_then(|run: &CommandRow| run.cwd.clone()),
+        },
         ..StationInput::default()
     };
     checked_station(field, &input, types)?;
@@ -259,19 +267,33 @@ fn patch_row(
     if input.after.is_some() {
         row.after = input.after_ids();
     }
+    if let Some(run) = row.command.as_mut() {
+        if let Some(steps) = &patch.command {
+            run.steps = steps
+                .iter()
+                .map(|step: &String| step.trim().to_owned())
+                .collect();
+        }
+        if let Some(cwd) = &patch.cwd {
+            run.cwd = Some(cwd.trim().to_owned()).filter(|cwd: &String| !cwd.is_empty());
+        }
+    }
     if let Some(priority) = input.priority {
         row.priority = priority;
     }
     Ok(())
 }
 
-fn plan_of(
+pub(super) fn plan_of(
     registry: &SessionRegistry,
     view: &ImplementationView,
     edit: &PlanEdit,
 ) -> Result<EditedPlan, CommandError> {
     let rows = registry.station_rows(&view.id)?;
     let types = registry.agent_types()?;
+    registry
+        .check_commands(&view.project_id, &edit.new_stations(), &edit.change)
+        .map_err(CommandError::Implementation)?;
     edited_plan(&view.id, &view.phases, &rows, edit, &types).map_err(CommandError::Implementation)
 }
 
@@ -341,6 +363,9 @@ pub fn apply(
     announce(app, &fresh);
     if replans_after_plan_change(&fresh) {
         start::schedule_ready(app, &view.id)?;
+    } else {
+        // Beendete Countdowns geben ihre Plätze frei (ADR 068).
+        start::refill(app);
     }
     Ok(())
 }

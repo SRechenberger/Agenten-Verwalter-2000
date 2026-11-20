@@ -4,11 +4,12 @@ use rusqlite::{Connection, OptionalExtension, Row, params};
 use crate::agents::event::ModelId;
 use crate::db::{enum_from_text, enum_to_text, project_groups};
 use crate::error::CommandError;
+use crate::projects::model::ProjectPriority;
 use crate::session_tools::model::SelfRelease;
 
 const COLUMNS: &str = "id, name, created_at, tldr, tldr_at, tldr_sources, name_auto, \
      self_release_messages, self_release_tldr, self_release_open_session, self_release_tldr_model, \
-     group_id";
+     group_id, priority";
 
 #[derive(Debug, Clone)]
 pub struct ProjectRow {
@@ -24,13 +25,15 @@ pub struct ProjectRow {
     pub self_release: SelfRelease,
     /// Gruppe in der Leiste; archivierte Vorhaben behalten sie.
     pub group_id: Option<String>,
+    /// Stufe in der globalen Warteschlange (ADR 068); archivierte Vorhaben behalten sie.
+    pub priority: ProjectPriority,
 }
 
 pub fn insert(connection: &Connection, row: &ProjectRow) -> Result<(), CommandError> {
     connection.execute(
         "INSERT INTO projects (id, name, created_at, name_auto, self_release_messages, \
-         self_release_tldr, self_release_open_session, self_release_tldr_model, group_id) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+         self_release_tldr, self_release_open_session, self_release_tldr_model, group_id, \
+         priority) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
         params![
             row.id,
             row.name,
@@ -41,14 +44,16 @@ pub fn insert(connection: &Connection, row: &ProjectRow) -> Result<(), CommandEr
             row.self_release.open_session,
             enum_to_text(&row.self_release.tldr_model)?,
             row.group_id,
+            enum_to_text(&row.priority)?,
         ],
     )?;
     Ok(())
 }
 
-/// Ein unlesbares Modell gilt als Standard.
+/// Ein unlesbares Modell oder eine unlesbare Stufe gilt als Standard.
 fn read_row(row: &Row<'_>) -> rusqlite::Result<ProjectRow> {
     let tldr_model: String = row.get(10)?;
+    let priority: String = row.get(12)?;
     Ok(ProjectRow {
         id: row.get(0)?,
         name: row.get(1)?,
@@ -64,6 +69,7 @@ fn read_row(row: &Row<'_>) -> rusqlite::Result<ProjectRow> {
             tldr_model: enum_from_text::<ModelId>(&tldr_model).unwrap_or(ModelId::Haiku),
         },
         group_id: row.get(11)?,
+        priority: enum_from_text::<ProjectPriority>(&priority).unwrap_or_default(),
     })
 }
 
@@ -171,6 +177,24 @@ pub fn set_self_release(
             enum_to_text(&value.tldr_model)?,
         ],
     )?;
+    Ok(())
+}
+
+/// Ein unbekanntes Vorhaben ist ein Fehler, ohne dass sich etwas ändert.
+pub fn set_priority(
+    connection: &Connection,
+    id: &str,
+    priority: ProjectPriority,
+) -> Result<(), CommandError> {
+    let changed = connection.execute(
+        "UPDATE projects SET priority = ?2 WHERE id = ?1",
+        params![id, enum_to_text(&priority)?],
+    )?;
+    if changed == 0 {
+        return Err(CommandError::Internal(format!(
+            "Vorhaben nicht gefunden: {id}"
+        )));
+    }
     Ok(())
 }
 

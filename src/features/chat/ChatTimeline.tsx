@@ -4,7 +4,12 @@ import { useVirtualizer, type VirtualItem } from '@tanstack/react-virtual';
 import { FileLinkSessionContext } from '@/components/FileLinkSessionContext';
 import { ArtifactCard } from '@/features/artifacts/ArtifactCard';
 import { BackgroundLine } from '@/features/chat/BackgroundLine';
-import { buildBlocks, type ChatBlock } from '@/features/chat/buildBlocks';
+import { buildBlocks, type ChatBlock, type ToolEntry } from '@/features/chat/buildBlocks';
+import { entryTime, dayDividers } from '@/features/chat/entryTimeText';
+import { EntryTime } from '@/features/chat/EntryTime';
+import { ChatTaskFrameHead, type ChatTaskActions } from '@/features/chat/ChatTaskRow';
+import type { ChatCard, JumpTarget } from '@/features/chat/chatTasks';
+import { kindTone } from '@/features/dashboard/dashboardTexts';
 import { ErrorBlock } from '@/features/chat/ErrorBlock';
 import { HandoffAnswer } from '@/features/chat/HandoffAnswer';
 import { PinnedUserMessage } from '@/features/chat/PinnedUserMessage';
@@ -12,17 +17,16 @@ import { lastAnswerSeq } from '@/features/chat/handoff';
 import { QuestionBlock } from '@/features/chat/QuestionBlock';
 import { SessionMessage } from '@/features/chat/SessionMessage';
 import { SessionToolBlock } from '@/features/chat/SessionToolBlock';
+import {
+  isTextTarget,
+  useQuestionAnswering,
+  useQuestionKeys,
+  type QuestionAnswering,
+} from '@/features/chat/useQuestionAnswering';
 import { NoticeBlock } from '@/features/notices/NoticeBlock';
 import { SelectionMenu } from '@/features/side/SelectionMenu';
 import { selectedChatText } from '@/features/side/selectionText';
 import {
-  draftAnswer,
-  emptyDraft,
-  EMPTY_TOOL_DRAFT,
-  isComplete,
-  needsSubmit,
-  pickOption,
-  type PickResult,
   type QuestionDraft,
   type QuestionEntry,
   type ToolDraft,
@@ -43,13 +47,10 @@ import type { SelfRelease } from '@/lib/bindings/SelfRelease';
 import type { SessionSummary } from '@/lib/bindings/SessionSummary';
 import type { SessionStatus } from '@/lib/bindings/SessionStatus';
 import type { TodoItem } from '@/lib/bindings/TodoItem';
-import { answerQuestion } from '@/lib/chat';
-import { commandErrorText } from '@/lib/errors';
 import { useArtifactsStore } from '@/stores/artifacts';
-import { useSessionErrorsStore } from '@/stores/sessionErrors';
 import { lockNote } from '@/features/remote/projectAccess';
 import { useOperatingMode } from '@/features/remote/useOperatingMode';
-import { useProjectIsRemote, useProjectLock } from '@/features/remote/useProjectAccess';
+import { useProjectIsRemote } from '@/features/remote/useProjectAccess';
 import { useSessionsStore } from '@/stores/sessions';
 import './ChatTimeline.css';
 
@@ -69,8 +70,13 @@ function toolKey(toolUseId: string): string {
 }
 /** Solange der Agent arbeitet oder die Session leer ist, steht unter der Antwort kein „Weiter“-Knopf. */
 const HANDOFF_HIDDEN_STATUSES: readonly SessionStatus[] = ['starting', 'running', 'new'];
-const DIGIT_KEYS: readonly string[] = ['1', '2', '3', '4', '5', '6', '7', '8', '9'];
-const ENTER_KEY = 'Enter';
+
+/** „Zur Stelle“ aus der Leiste: `nonce` zählt hoch, damit derselbe Sprung zweimal wirkt. */
+export interface JumpRequest {
+  target: JumpTarget;
+  requestId: string | null;
+  nonce: number;
+}
 
 interface ChatTimelineProps {
   session: SessionSummary;
@@ -91,6 +97,10 @@ interface ChatTimelineProps {
   /** Höhe der Überlagerung oben (TL;DR) und unten (Eingabe); der Verlauf lässt so viel Platz frei. */
   topInset: number;
   bottomInset: number;
+  /** B (#128): die Karte, die die letzte Antwort einrahmt; `null` ohne. */
+  frame: ChatCard | null;
+  actions: ChatTaskActions;
+  jump: JumpRequest | null;
 }
 
 /** Das offene Rechtsklick-Menü: markierter Text und Mausposition in Fensterkoordinaten. */
@@ -118,27 +128,23 @@ export function ChatTimeline({
   sessions,
   topInset,
   bottomInset,
+  frame,
+  actions,
+  jump,
 }: ChatTimelineProps): ReactElement {
   const [containerHeight, setContainerHeight] = useState<number>(0);
+  // Höhe der angehefteten Nutzerzeile: Ein Sprung lässt sie frei, sonst deckt sie das Ziel zu.
+  const [pinnedHeight, setPinnedHeight] = useState<number>(0);
   // Auf-/Zugeklappt und halbe Antworten leben hier, nicht im Block: ein Block verlässt beim Scrollen das DOM.
   const [expandedKeys, setExpandedKeys] = useState<ReadonlySet<string>>(() => new Set<string>());
-  const [drafts, setDrafts] = useState<ReadonlyMap<string, QuestionDraft>>(
-    () => new Map<string, QuestionDraft>(),
-  );
-  const [toolDrafts, setToolDrafts] = useState<ReadonlyMap<string, ToolDraft>>(
-    () => new Map<string, ToolDraft>(),
-  );
-  const [sendingIds, setSendingIds] = useState<ReadonlySet<string>>(() => new Set<string>());
   const [selectionMenu, setSelectionMenu] = useState<SelectionMenuState | null>(null);
   const operatingMode: OperatingMode = useOperatingMode(session.projectId);
   const isClaude: boolean = operatingMode === 'claude';
-  const reportSessionError = useSessionErrorsStore((state) => state.report);
-  const clearSessionError = useSessionErrorsStore((state) => state.clear);
-  // Solange ein Gast steuert oder der Host fehlt, bleiben Rückfragen sichtbar, aber unbeantwortbar.
-  const lock = useProjectLock(session.projectId);
+  // Entwürfe und Senden der Antworten teilt der Chat mit dem Popup des Dashboards.
+  const answering: QuestionAnswering = useQuestionAnswering(session.id, session.projectId);
+  const { lock } = answering;
   // Ein Dateiverweis öffnete die Datei am Bildschirm des Hosts: Bei dessen Vorhaben bleibt der Pfad Text.
   const isRemote: boolean = useProjectIsRemote(session.projectId);
-  const isLocked: boolean = lock !== null;
   const scrollRef = useRef<HTMLDivElement>(null);
   const stickToBottomRef = useRef<boolean>(true);
   const layoutMarkRef = useRef<LayoutMark>({ firstSeq: null, scrollHeight: 0 });
@@ -146,6 +152,13 @@ export function ChatTimeline({
   const blocks: ChatBlock[] = useMemo(
     () => buildBlocks(entries, backgroundByToolUseId),
     [entries, backgroundByToolUseId],
+  );
+  // „Heute“ und „Gestern“ der Tagestrenner gelten für den Zeitpunkt des Öffnens: Ein Verlauf, der über
+  // Mitternacht offen bleibt, zeigt weiter „Heute“, bis er neu geöffnet wird.
+  const [now] = useState<number>(() => Date.now());
+  const dividers: (string | null)[] = useMemo(
+    () => dayDividers(blocks.map(blockTime), now, !hasMore),
+    [blocks, now, hasMore],
   );
   const isWorking: boolean = session.status === 'starting' || session.status === 'running';
   const count: number = blocks.length + (isWorking ? 1 : 0);
@@ -160,7 +173,7 @@ export function ChatTimeline({
     overscan: OVERSCAN,
     paddingStart: SURFACE_PADDING_TOP + topInset,
     paddingEnd: SURFACE_PADDING_BOTTOM + bottomInset,
-    scrollPaddingStart: topInset,
+    scrollPaddingStart: topInset + pinnedHeight,
   });
   const totalSize: number = virtualizer.getTotalSize();
   // Wenig Inhalt klebt unten: alle Blöcke rücken um den freien Platz nach unten.
@@ -179,6 +192,10 @@ export function ChatTimeline({
     [entries],
   );
   const answerSeq: number | null = useMemo(() => lastAnswerSeq(entries), [entries]);
+  const lastTextSeq: number | null = useMemo(
+    () => findLastSeq(entries, (entry: ChatEntry) => entry.kind === 'text'),
+    [entries],
+  );
   // „In neuem Vorhaben starten“ legte ein Vorhaben auf diesem Gerät an, nicht auf dem Host der Session.
   const showsHandoff: boolean =
     session.handoffLines.length > 0 &&
@@ -193,13 +210,15 @@ export function ChatTimeline({
   const lastUserBlock: ChatBlock | undefined = blocks[lastUserIndex];
   const lastUserStart: number | null = virtualizer.measurementsCache[lastUserIndex]?.start ?? null;
   // Sobald die Oberkante der letzten eigenen Nachricht unter die TL;DR rutscht, bleibt eine Kopie dort hängen.
-  const pinnedText: string | null =
+  const lastUserText: string | null =
     lastUserBlock?.kind === 'entry' &&
-    (lastUserBlock.entry.kind === 'user' || lastUserBlock.entry.kind === 'sessionMessage') &&
-    lastUserStart !== null &&
-    lastUserStart + bottomOffset < (virtualizer.scrollOffset ?? 0) + topInset
+    (lastUserBlock.entry.kind === 'user' || lastUserBlock.entry.kind === 'sessionMessage')
       ? lastUserBlock.entry.text
       : null;
+  const isPinned: boolean =
+    lastUserText !== null &&
+    lastUserStart !== null &&
+    lastUserStart + bottomOffset < (virtualizer.scrollOffset ?? 0) + topInset;
 
   useEffect(() => {
     const element: HTMLDivElement | null = scrollRef.current;
@@ -247,52 +266,7 @@ export function ChatTimeline({
     }
   }, [hasMore, loadingOlder, olderError, containerHeight, totalSize, onLoadOlder]);
 
-  const handleDigit = useEffectEvent((event: KeyboardEvent): void => {
-    if (event.defaultPrevented || event.ctrlKey || event.altKey || event.metaKey) {
-      return;
-    }
-    if (isTextTarget(event.target) || oldestOpenQuestion === null) {
-      return;
-    }
-    if (sendingIds.has(oldestOpenQuestion.requestId) || isLocked) {
-      return;
-    }
-    // Beim Ändern stehen „Erlauben“ und „Ablehnen“ nicht da; eine Ziffer darf den alten Text nicht senden.
-    if ((toolDrafts.get(oldestOpenQuestion.requestId)?.edit ?? null) !== null) {
-      return;
-    }
-    const draft: QuestionDraft = draftFor(oldestOpenQuestion);
-    if (event.key === ENTER_KEY) {
-      // Auf einem Knopf oder Link löst Enter dessen Klick aus, nicht das Senden.
-      if (
-        event.shiftKey ||
-        isControlTarget(event.target) ||
-        !needsSubmit(oldestOpenQuestion, draft) ||
-        !isComplete(oldestOpenQuestion, draft)
-      ) {
-        return;
-      }
-      event.preventDefault();
-      submit(oldestOpenQuestion, draftAnswer(draft));
-      return;
-    }
-    const optionIndex: number = DIGIT_KEYS.indexOf(event.key);
-    if (optionIndex === -1) {
-      return;
-    }
-    event.preventDefault();
-    pick(oldestOpenQuestion, draft.active, optionIndex);
-  });
-
-  useEffect(() => {
-    function handleKeyDown(event: KeyboardEvent): void {
-      handleDigit(event);
-    }
-    window.addEventListener('keydown', handleKeyDown);
-    return (): void => {
-      window.removeEventListener('keydown', handleKeyDown);
-    };
-  }, []);
+  useQuestionKeys(oldestOpenQuestion, answering);
 
   function handleScroll(): void {
     const element: HTMLDivElement | null = scrollRef.current;
@@ -339,6 +313,26 @@ export function ChatTimeline({
     focusFirstMark(scrollRef.current, seq, FOCUS_ATTEMPTS);
   }
 
+  const scrollToTask = useEffectEvent((request: JumpRequest): void => {
+    const seq: number | null =
+      request.target === 'answer'
+        ? lastTextSeq
+        : findLastSeq(
+            entries,
+            (entry: ChatEntry) =>
+              entry.kind === 'question' && entry.requestId === request.requestId,
+          );
+    if (seq !== null) {
+      jumpToEntry(seq);
+    }
+  });
+
+  useEffect(() => {
+    if (jump !== null) {
+      scrollToTask(jump);
+    }
+  }, [jump]);
+
   /** `null`, sobald ein Text der Antwort nicht im geladenen Verlauf steht (Nachladen holt ihn später). */
   function countUnsourced(seqs: readonly number[]): number | null {
     let total = 0;
@@ -364,56 +358,6 @@ export function ChatTimeline({
     });
   }
 
-  function draftFor(entry: QuestionEntry): QuestionDraft {
-    return drafts.get(entry.requestId) ?? emptyDraft(entry);
-  }
-
-  function submit(entry: QuestionEntry, answer: QuestionAnswer): void {
-    if (isLocked) {
-      return;
-    }
-    const requestId: string = entry.requestId;
-    setSendingIds((current: ReadonlySet<string>) => new Set<string>(current).add(requestId));
-    answerQuestion(session.id, requestId, answer)
-      .then(() => {
-        clearSessionError(session.id);
-      })
-      .catch((reason: unknown) => {
-        console.error('Rückfrage nicht beantwortbar', reason);
-        reportSessionError(session.id, `Antwort nicht gesendet: ${commandErrorText(reason)}`);
-      })
-      .finally(() => {
-        setSendingIds((current: ReadonlySet<string>) => {
-          const next = new Set<string>(current);
-          next.delete(requestId);
-          return next;
-        });
-      });
-  }
-
-  function pick(entry: QuestionEntry, questionIndex: number, optionIndex: number): void {
-    const result: PickResult | null = pickOption(
-      entry,
-      draftFor(entry),
-      questionIndex,
-      optionIndex,
-    );
-    if (result === null) {
-      return;
-    }
-    if (result.kind === 'answer') {
-      submit(entry, result.answer);
-      return;
-    }
-    storeDraft(entry, result.draft);
-  }
-
-  function storeDraft(entry: QuestionEntry, draft: QuestionDraft): void {
-    setDrafts((current: ReadonlyMap<string, QuestionDraft>) =>
-      new Map<string, QuestionDraft>(current).set(entry.requestId, draft),
-    );
-  }
-
   function renderEntry(key: string, entry: Exclude<ChatEntry, { kind: 'tool' }>): ReactElement {
     switch (entry.kind) {
       case 'user':
@@ -427,23 +371,34 @@ export function ChatTimeline({
             origin={entry.origin}
           />
         );
-      case 'text':
-        return showsHandoff && entry.seq === answerSeq ? (
-          <HandoffAnswer
-            text={entry.text}
-            unsourced={entry.unsourced}
-            sessionId={session.id}
-            lines={session.handoffLines}
-          />
+      case 'text': {
+        const text: ReactElement =
+          showsHandoff && entry.seq === answerSeq ? (
+            <HandoffAnswer
+              text={entry.text}
+              unsourced={entry.unsourced}
+              sessionId={session.id}
+              lines={session.handoffLines}
+            />
+          ) : (
+            <TextBlock text={entry.text} unsourced={entry.unsourced} />
+          );
+        return frame !== null && entry.seq === lastTextSeq ? (
+          <div className={`chat-task-frame chat-task-frame--${kindTone(frame.task.kind)}`}>
+            <ChatTaskFrameHead card={frame} {...actions} />
+            {text}
+          </div>
         ) : (
-          <TextBlock text={entry.text} unsourced={entry.unsourced} />
+          text
         );
+      }
       case 'sessionMessage':
         return (
           <SessionMessage
             sessionId={session.id}
             text={entry.text}
             sender={entry.sender}
+            subject={entry.subject}
             canJump={sessions.some((other: SessionSummary) => other.id === entry.sender.id)}
           />
         );
@@ -482,36 +437,36 @@ export function ChatTimeline({
           <SessionToolBlock
             entry={entry}
             request={entry.toolRequest}
+            sessionId={session.id}
+            sessionNumber={session.number}
             projectId={session.projectId}
             selfRelease={selfRelease}
-            draft={toolDrafts.get(entry.requestId) ?? EMPTY_TOOL_DRAFT}
-            isSending={sendingIds.has(entry.requestId) || isLocked}
+            draft={answering.toolDraftFor(entry.requestId)}
+            isSending={answering.isSending(entry.requestId)}
             onPick={(optionIndex: number): void => {
-              pick(entry, 0, optionIndex);
+              answering.pick(entry, 0, optionIndex);
             }}
             onSubmit={(answer: QuestionAnswer): void => {
-              submit(entry, answer);
+              answering.submit(entry, answer);
             }}
             onDraft={(next: ToolDraft): void => {
-              setToolDrafts((current: ReadonlyMap<string, ToolDraft>) =>
-                new Map<string, ToolDraft>(current).set(entry.requestId, next),
-              );
+              answering.storeToolDraft(entry.requestId, next);
             }}
           />
         ) : (
           <QuestionBlock
             entry={entry}
-            draft={draftFor(entry)}
+            draft={answering.draftFor(entry)}
             lockNote={lock === null ? null : lockNote(lock)}
-            isSending={sendingIds.has(entry.requestId) || isLocked}
+            isSending={answering.isSending(entry.requestId)}
             onPick={(questionIndex: number, optionIndex: number): void => {
-              pick(entry, questionIndex, optionIndex);
+              answering.pick(entry, questionIndex, optionIndex);
             }}
             onSubmit={(answer: QuestionAnswer): void => {
-              submit(entry, answer);
+              answering.submit(entry, answer);
             }}
             onDraft={(next: QuestionDraft): void => {
-              storeDraft(entry, next);
+              answering.storeDraft(entry, next);
             }}
           />
         );
@@ -547,6 +502,25 @@ export function ChatTimeline({
           />
         );
     }
+  }
+
+  /** Tagestrenner und Uhrzeit des Blocks; der Block „Arbeitet …“ bekommt nichts. */
+  function renderTime(block: ChatBlock | undefined, divider: string | null): ReactElement | null {
+    if (block === undefined) {
+      return null;
+    }
+    return (
+      <EntryTime
+        at={blockTime(block)}
+        divider={divider}
+        isMessage={
+          block.kind === 'entry' &&
+          (block.entry.kind === 'user' ||
+            block.entry.kind === 'sessionMessage' ||
+            block.entry.kind === 'text')
+        }
+      />
+    );
   }
 
   function renderBlock(block: ChatBlock | undefined): ReactElement {
@@ -605,6 +579,7 @@ export function ChatTimeline({
                 style={{ transform: `translateY(${String(item.start + bottomOffset)}px)` }}
               >
                 <div className="chat-timeline__block" data-seq={blockSeq(blocks[item.index])}>
+                  {renderTime(blocks[item.index], dividers[item.index] ?? null)}
                   {renderBlock(blocks[item.index])}
                 </div>
               </div>
@@ -612,8 +587,14 @@ export function ChatTimeline({
           </div>
         </FileLinkSessionContext.Provider>
       </div>
-      {pinnedText !== null && (
-        <PinnedUserMessage text={pinnedText} top={topInset} onJump={jumpToLastUserMessage} />
+      {lastUserText !== null && (
+        <PinnedUserMessage
+          text={lastUserText}
+          top={topInset}
+          visible={isPinned}
+          onHeight={setPinnedHeight}
+          onJump={jumpToLastUserMessage}
+        />
       )}
       {selectionMenu !== null && (
         <SelectionMenu
@@ -629,6 +610,20 @@ export function ChatTimeline({
       )}
     </>
   );
+}
+
+/** Zeitpunkt eines Blocks: sein Eintrag, bei einer Werkzeug-Gruppe der erste Aufruf. */
+function blockTime(block: ChatBlock): number | null {
+  switch (block.kind) {
+    case 'entry':
+      return entryTime(block.entry);
+    case 'tools': {
+      const first: ToolEntry | undefined = block.tools[0];
+      return first === undefined ? null : entryTime(first);
+    }
+    case 'background':
+      return entryTime(block.tool);
+  }
 }
 
 function blockSeq(block: ChatBlock | undefined): number | undefined {
@@ -662,19 +657,6 @@ function findLastUserBlockIndex(blocks: readonly ChatBlock[]): number {
     }
   }
   return -1;
-}
-
-function isTextTarget(target: EventTarget | null): boolean {
-  if (!(target instanceof HTMLElement)) {
-    return false;
-  }
-  return (
-    target.closest('input, textarea, [contenteditable]:not([contenteditable="false"])') !== null
-  );
-}
-
-function isControlTarget(target: EventTarget | null): boolean {
-  return target instanceof HTMLElement && target.closest('button, a, [role="button"]') !== null;
 }
 
 function isLinkTarget(target: EventTarget | null): boolean {

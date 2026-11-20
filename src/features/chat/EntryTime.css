@@ -1,0 +1,33 @@
+.day-divider {
+  margin: 0 0 var(--space-xl);
+  color: var(--color-fg-muted);
+  font-size: var(--font-size-2xs);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  user-select: none;
+}
+
+.entry-time {
+  color: var(--color-fg-muted);
+  font-size: var(--font-size-2xs);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  user-select: none;
+
+  /* Nachrichten: eigene Zeile über dem Eintrag, immer sichtbar (der Block wird eine Zeile höher). */
+  &--message {
+    display: block;
+    margin: 0 0 var(--space-xs);
+    line-height: 14px;
+  }
+
+  /* Alles andere: schwebt in der Lücke über dem Block und ändert keine Höhe; sichtbar macht sie der Block (ChatTimeline.css). */
+  &--hover {
+    position: absolute;
+    top: -11px;
+    left: var(--space-5xl);
+    line-height: 11px;
+    opacity: 0;
+    transition: opacity 120ms;
+  }
+}

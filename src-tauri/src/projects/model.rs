@@ -20,6 +20,22 @@ pub struct ProjectSummary {
     /// Wem das Vorhaben aus Sicht dieser Instanz gehört (ADR 059).
     #[serde(default)]
     pub access: ProjectAccess,
+    // Stufe in der globalen Warteschlange (ADR 068); ein älterer Host schickt sie nicht.
+    #[serde(default)]
+    pub priority: ProjectPriority,
+}
+
+// Priorität eines Vorhabens in der globalen Warteschlange (ADR 068): hoch rückt vor normal vor
+// niedrig nach. Die Reihenfolge der Varianten ist die Rangfolge.
+#[derive(
+    Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, TS,
+)]
+#[serde(rename_all = "lowercase")]
+pub enum ProjectPriority {
+    High,
+    #[default]
+    Normal,
+    Low,
 }
 
 /// Eine Gruppe von Vorhaben; die Liste kommt in Anlegereihenfolge.

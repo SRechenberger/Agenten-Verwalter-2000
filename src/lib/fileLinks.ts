@@ -50,6 +50,18 @@ export function filePathOf(text: string): string | null {
   return trimmed;
 }
 
+const WINDOWS_ABSOLUTE = /^[a-z]:[\\/]/i;
+
+/** `file:///`-Adresse für „Link-Adresse kopieren“ und die Statusleiste; `undefined` bei relativen
+ *  Pfaden (die brauchen den Core). Ohne eigene Adresse wäre es `http://tauri.localhost/#`. */
+export function fileHrefOf(path: string): string | undefined {
+  const withoutScheme: string = path.replace(/^file:\/\/\//i, '');
+  if (!WINDOWS_ABSOLUTE.test(withoutScheme)) {
+    return undefined;
+  }
+  return `${FILE_URL_PREFIX}${encodeURI(withoutScheme.replace(/\\/g, '/'))}`;
+}
+
 /** Öffnet die Datei mit dem Standardprogramm.
  *  @throws {import('@/lib/bindings/CommandError').CommandError} `sessionNotFound`, `fileNotFound`,
  *    `fileNotAllowed` (Dateityp oder außerhalb des Vorhabens), `io` (Öffnen gescheitert) */

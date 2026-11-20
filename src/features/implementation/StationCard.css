@@ -19,6 +19,10 @@
     border-left-color: var(--color-status-running);
   }
 
+  &--reported {
+    border-left-color: var(--color-status-reported);
+  }
+
   &--wait {
     border-color: var(--color-status-waiting);
     border-left-color: var(--color-status-waiting);
@@ -61,6 +65,17 @@
 
   &__state {
     color: var(--color-fg-secondary);
+  }
+
+  /* Grund der Pause hinter dem Zustand, wie der Chip der Zeitleiste. */
+  &__chip {
+    margin-left: var(--space-md);
+    padding: 0 var(--space-md);
+    border: 1px solid var(--color-status-waiting);
+    border-radius: var(--radius-full);
+    color: var(--color-status-waiting);
+    font-size: var(--font-size-2xs);
+    line-height: 1.5;
   }
 
   &__question {
@@ -204,6 +219,77 @@
   &__label {
     min-width: 96px;
     color: var(--color-fg-muted);
+  }
+
+  /* Bericht an den Master (ADR 070): Betreff, Marke, Notiz, Zeile mit den Rückgaben. */
+  &__report {
+    display: grid;
+    gap: var(--space-sm);
+    padding-top: var(--space-md);
+    border-top: 1px solid var(--color-border-subtle);
+  }
+
+  &__report-title {
+    margin: 0;
+    color: var(--color-fg-secondary);
+    font-size: var(--font-size-xs);
+    font-weight: 600;
+  }
+
+  &__report-subject {
+    margin: 0;
+    color: var(--color-fg-primary);
+    font-weight: 600;
+  }
+
+  &__report-note {
+    margin: 0;
+    padding: var(--space-md) var(--space-lg);
+    border: 1px solid var(--color-border-subtle);
+    border-radius: var(--radius-md);
+    background: var(--color-bg-base);
+    color: var(--color-fg-primary);
+    white-space: pre-wrap;
+  }
+
+  &__report-line {
+    margin: 0;
+    color: var(--color-fg-muted);
+    font-size: var(--font-size-xs);
+  }
+
+  &__report-hint {
+    margin: 0;
+    padding: var(--space-md) var(--space-lg);
+    border-left: 3px solid var(--color-status-reported);
+    border-radius: var(--radius-sm);
+    background: color-mix(in srgb, var(--color-status-reported) 12%, transparent);
+    font-size: var(--font-size-xs);
+
+    &--wait {
+      border-left-color: var(--color-status-waiting);
+      background: var(--color-status-waiting-subtle);
+    }
+  }
+
+  &__actions--end {
+    justify-content: flex-end;
+  }
+
+  /* Marke an der Kartei: „Befund“, „vom Master freigegeben“. */
+  &__mark {
+    justify-self: start;
+    padding: 0 var(--space-md);
+    border: 1px solid var(--color-status-waiting);
+    border-radius: var(--radius-full);
+    color: var(--color-status-waiting);
+    font-size: var(--font-size-2xs);
+    line-height: 1.5;
+
+    &--ok {
+      border-color: var(--color-status-completed);
+      color: var(--color-status-completed);
+    }
   }
 
   &__hint,
@@ -383,4 +469,61 @@
       border-color: var(--color-accent);
     }
   }
+}
+
+/* Abschnitt „Befehl“ einer Befehls-Station (ADR 073). */
+.station-card__command {
+  display: grid;
+  gap: var(--space-md);
+}
+
+.station-card__command-title {
+  margin: 0;
+  font-size: var(--font-size-xs);
+}
+
+.station-card__command-progress {
+  margin-left: var(--space-md);
+  color: var(--color-fg-muted);
+  font-weight: 400;
+}
+
+.station-card__steps {
+  display: grid;
+  gap: var(--space-xs);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.station-card__step,
+.station-card__output {
+  box-sizing: border-box;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-surface);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.station-card__step {
+  padding: var(--space-md) var(--space-lg);
+  color: var(--color-fg-secondary);
+
+  &--current {
+    border-color: var(--color-status-running);
+    color: var(--color-fg-primary);
+  }
+}
+
+.station-card__output {
+  max-height: 160px;
+  margin: 0;
+  background: var(--color-bg-sidebar);
+  border-color: transparent;
+  padding: var(--space-md) var(--space-lg);
+  overflow: auto;
+  color: var(--color-fg-secondary);
 }

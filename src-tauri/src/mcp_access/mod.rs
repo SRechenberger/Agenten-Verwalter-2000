@@ -22,6 +22,7 @@ use std::time::Duration;
 use serde_json::json;
 use tauri::AppHandle;
 
+use crate::agent_types::tools::AgentTypeTools;
 use crate::artifacts::tools::ArtifactTools;
 use crate::filesystem::workspace::data_dir;
 use crate::implementation::tools::ImplementationTools;
@@ -53,6 +54,7 @@ pub fn tool_sets() -> Vec<Box<dyn ToolSet>> {
         Box::new(ArtifactTools),
         Box::new(SessionTools),
         Box::new(ImplementationTools),
+        Box::new(AgentTypeTools),
     ]
 }
 
@@ -94,8 +96,9 @@ impl McpAccess {
     /// Im Claude-Betrieb (`session_tools`) verweist die Datei nur auf die Umgebung: Hauptprozess und
     /// Nebenfrage lesen dieselbe Datei und tragen verschiedene Schlüssel, ihre Argumente bleiben
     /// gleich (ADR 044), und kein Agent liest aus dem Ordner den Schlüssel einer anderen Session.
-    /// Sonst steht der eine Schlüssel in der Datei: Ob der eigene Agent `${…}` auflöst, ist ungeprüft,
-    /// und ohne Session-Werkzeuge unterscheidet nichts die Prozessart.
+    /// Sonst steht der Schlüssel in der Datei: Ob der eigene Agent `${…}` auflöst, ist ungeprüft.
+    /// Dort bekommt die Nebenfrage eine eigene Datei mit eigenem `Side`-Schlüssel, damit sie nie den
+    /// Schlüssel des Hauptprozesses trägt. Ordner und Dateien sind nur für den Benutzer lesbar.
     pub fn config_for(
         &self,
         session_id: &str,
@@ -104,11 +107,7 @@ impl McpAccess {
     ) -> Option<VerwalterMcp> {
         let key = self.key_for(Caller {
             session_id: session_id.to_owned(),
-            kind: if session_tools {
-                kind
-            } else {
-                ProcessKind::Main
-            },
+            kind,
             session_tools,
         });
         let authorization = if session_tools {
@@ -125,10 +124,15 @@ impl McpAccess {
                 },
             },
         });
-        let file = self.config_file(session_id);
-        let written = fs::create_dir_all(&self.config_dir)
+        let file = if session_tools || kind == ProcessKind::Main {
+            self.config_file(session_id)
+        } else {
+            self.side_config_file(session_id)
+        };
+        let written = self
+            .prepare_dir()
             .and_then(|()| serde_json::to_vec_pretty(&config).map_err(io::Error::other))
-            .and_then(|bytes: Vec<u8>| fs::write(&file, bytes));
+            .and_then(|bytes: Vec<u8>| crate::remote::write_private(&file, &bytes));
         match written {
             Ok(()) => Some(VerwalterMcp {
                 config: file,
@@ -141,11 +145,28 @@ impl McpAccess {
         }
     }
 
-    /// Entzieht der Session den Zugang: Schlüssel weg, Datei weg.
+    /// Entzieht der Session den Zugang: Schlüssel weg, Dateien weg.
     pub fn forget(&self, session_id: &str) {
         self.lock_keys()
             .retain(|_, owner: &mut Caller| owner.session_id != session_id);
         let _ = fs::remove_file(self.config_file(session_id));
+        let _ = fs::remove_file(self.side_config_file(session_id));
+    }
+
+    /// Legt den Ordner an; unter Linux und macOS nur für den Benutzer zugänglich (0700), auch wenn
+    /// ihn eine ältere Fassung offener angelegt hat.
+    fn prepare_dir(&self) -> io::Result<()> {
+        fs::create_dir_all(&self.config_dir)?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&self.config_dir, fs::Permissions::from_mode(0o700))?;
+        }
+        Ok(())
+    }
+
+    fn side_config_file(&self, session_id: &str) -> PathBuf {
+        self.config_dir.join(format!("{session_id}.side.json"))
     }
 
     fn config_file(&self, session_id: &str) -> PathBuf {
@@ -366,3 +387,6 @@ fn text_reply(status: u16, reason: &'static str, text: &str) -> Reply {
         session_id: None,
     }
 }
+
+#[cfg(test)]
+mod tests;

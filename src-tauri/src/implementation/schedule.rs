@@ -1,12 +1,12 @@
 //! Planung aus Kanten (ADR 061): Bereit ist eine Station, deren Vorgänger (`after`) alle fertig
 //! gemeldet sind; unter bereiten Stationen zuerst höherer Vorrang (`priority`), dann die
-//! Planreihenfolge. Dazu die Stufe (längste Kette), die Warteschlange hinter `max_parallel`, die
-//! Ableitung der Kanten aus Position und Welle (Regel R1) und die Prüfung eines Plans.
+//! Planreihenfolge. Dazu die Stufe (längste Kette), die Ableitung der Kanten aus Position und Welle
+//! (Regel R1) und die Prüfung eines Plans. Die Warteschlange ist global (`slots`, ADR 068).
 use std::cmp::Reverse;
 use std::collections::{HashMap, HashSet};
 
 use super::is_done;
-use super::model::{PhaseView, StationState, StationView};
+use super::model::{PhaseView, StationKind, StationState, StationView};
 
 /// Regel R1: Kanten eines Plans ohne `after`. Stationen einer Phase in Reihe; die erste Station
 /// jeder Phase einer Gruppe hängt an der letzten Station jeder Phase der Gruppe davor.
@@ -175,7 +175,7 @@ pub fn due_for_countdown(phases: &[PhaseView]) -> Vec<(&PhaseView, &StationView)
         .filter(|(_, station): &(&PhaseView, &StationView)| {
             station.state == StationState::Ready
                 && station.starts_automatically
-                && !station.by_user
+                && station.kind == StationKind::Agent
                 && may_start(phases, &station.id)
         })
         .collect();
@@ -184,26 +184,7 @@ pub fn due_for_countdown(phases: &[PhaseView]) -> Vec<(&PhaseView, &StationView)
     due
 }
 
-/// Die Warteschlange (ADR 061): nur mit Grenze die bereiten Stationen mit Automatik, die über die
-/// freien Plätze hinaus warten, in der Reihenfolge, in der sie nachrücken (`id`).
-pub fn queue(phases: &[PhaseView], max_parallel: Option<u32>) -> Vec<String> {
-    let Some(limit) = max_parallel else {
-        return Vec::new();
-    };
-    let active = all_stations(phases)
-        .filter(|station: &&StationView| station.is_active())
-        .count();
-    let free = usize::try_from(limit)
-        .unwrap_or(usize::MAX)
-        .saturating_sub(active);
-    due_for_countdown(phases)
-        .into_iter()
-        .skip(free)
-        .map(|(_, station): (&PhaseView, &StationView)| station.id.clone())
-        .collect()
-}
-
-/// Ist die Station an der Reihe: nicht fertig gemeldet, und alle Vorgänger sind fertig gemeldet. Ein
+/// Ist die Station an der Reihe: nicht angenommen, und alle Vorgänger sind angenommen. Ein
 /// Vorgänger, den es nicht gibt, ist nie fertig. Eine unbekannte Station ist nie an der Reihe. Ein
 /// Startfehler zählt hier nicht: Die Station bleibt bereit für ▶.
 pub fn is_due(phases: &[PhaseView], station_id: &str) -> bool {

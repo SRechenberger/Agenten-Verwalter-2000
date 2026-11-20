@@ -92,6 +92,20 @@
     white-space: nowrap;
   }
 
+  /* Modell und Denkaufwand kürzen sich vor dem Stationsnamen, damit er neben Zustand, Chips und ↻
+     lesbar bleibt. */
+  &__meta {
+    flex-shrink: 1000;
+    min-width: 3em;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  /* Der Schritte-Chip einer Befehls-Station hat eine Höchstbreite: Der Name „<Stufe> · Befehl“ bleibt ganz. */
+  &__meta--steps {
+    max-width: 16em;
+  }
+
   &__new {
     border-color: var(--color-accent);
     color: var(--color-accent-text);
@@ -114,9 +128,19 @@
       color: var(--color-status-running);
     }
 
+    &--reported {
+      color: var(--color-status-reported);
+    }
+
     &--ready,
     &--countdown {
       color: var(--color-status-handoff);
+    }
+
+    /* Neutral, nicht Bernstein: „wartet auf dich“ bleibt der einzige bernsteinfarbene Wartezustand. */
+    &--waitsForQuota,
+    &--live {
+      color: var(--color-fg-secondary);
     }
 
     &--asking,
@@ -156,6 +180,54 @@
     }
   }
 
+  /* ↻ „Automatisch fortsetzen“ der Station: klein wie die Mini-Aktion, ändert die Zeilenhöhe nicht. */
+  &__resume {
+    position: relative;
+    margin-left: var(--space-md);
+    padding: 0 5px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-full);
+    background: transparent;
+    color: var(--color-fg-muted);
+    font: inherit;
+    font-size: var(--font-size-2xs);
+    font-weight: 400;
+    line-height: 1.5;
+    cursor: pointer;
+
+    &[aria-pressed='true'] {
+      border-color: var(--color-accent);
+      background: var(--color-accent-subtle);
+      color: var(--color-accent-text);
+    }
+
+    /* Abweichung von der Umsetzung. */
+    &--differs::after {
+      content: '';
+      position: absolute;
+      top: -3px;
+      right: -3px;
+      width: 6px;
+      height: 6px;
+      border-radius: var(--radius-full);
+      background: var(--color-accent);
+    }
+
+    &:hover:not(:disabled) {
+      border-color: var(--color-accent);
+    }
+
+    &:focus-visible {
+      outline: 2px solid var(--color-accent);
+      outline-offset: 1px;
+    }
+
+    &:disabled {
+      cursor: not-allowed;
+      opacity: 0.45;
+    }
+  }
+
   &__sub {
     grid-column: 2 / 4;
     color: var(--color-fg-muted);
@@ -192,6 +264,18 @@
         border-color: var(--color-border);
         color: var(--color-fg-muted);
       }
+    }
+
+    /* Im Zustand rechts: Abstand zum Text statt zum nächsten Chip. */
+    &--state {
+      margin: 0 0 0 var(--space-md);
+      font-weight: 400;
+    }
+
+    &--warn,
+    &--warn:hover {
+      border-color: var(--color-status-waiting);
+      color: var(--color-status-waiting);
     }
   }
 

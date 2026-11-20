@@ -14,6 +14,7 @@ use std::time::{Duration, Instant};
 use serde_json::{Value, json};
 
 use crate::processes::{self, hide_console};
+use crate::standalone::tasks::kill_process_tree;
 
 /// Zeit, die `codex app-server` nach dem Schließen seiner Standardeingabe zum Beenden bekommt.
 const SHUTDOWN_GRACE: Duration = Duration::from_secs(3);
@@ -63,6 +64,7 @@ impl RpcClient {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
         hide_console(&mut command);
+        processes::own_group(&mut command);
         let mut child = command.spawn()?;
         let (Some(stdin), Some(stdout), Some(stderr)) =
             (child.stdin.take(), child.stdout.take(), child.stderr.take())
@@ -163,7 +165,13 @@ impl RpcClient {
                 Ok(Some(_)) | Err(_) => return,
             }
         }
-        let _ = lock(&self.child).kill();
+        // Unter derselben Sperre wie die Prüfung: Ein nicht eingesammeltes Codex gehört noch seiner
+        // Gruppe, und sie endet mit ihm (ADR 074).
+        let mut child = lock(&self.child);
+        if let Ok(None) = child.try_wait() {
+            kill_process_tree(child.id());
+            let _ = child.kill();
+        }
     }
 
     fn write(&self, message: &Value) -> io::Result<()> {

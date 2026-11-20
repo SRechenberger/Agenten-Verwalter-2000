@@ -1,18 +1,26 @@
-//! Ersteller wecken (ADR 061): Der Verwalter legt bei „Umsetzung fertig“, „Review mit Befund“ und
-//! „Station fragt“ eine Nachricht in die `session_inbox` der Session, die die Umsetzung angelegt
-//! hat. Hier steht die Entscheidung „Ereignis → Nachricht oder keine“ als reine Funktion samt
-//! Wortlaut; Zustellung und Anschluss an die Ereignisse stehen in `registry/implementation.rs`.
+//! Master wecken (ADR 070, überholt „Ersteller wecken“ aus ADR 061): Der Verwalter legt bei jedem Zugende einer
+//! Station, bei einer Rückfrage und beim Ende der Umsetzung eine Nachricht in die `session_inbox` des
+//! Masters. Hier steht die Entscheidung „Zugende → Ereignis“ und „Ereignis → Nachricht oder keine“ als
+//! reine Funktion samt Wortlaut; Zustellung und Anschluss an die Ereignisse stehen in
+//! `registry/implementation.rs`.
 use std::collections::HashSet;
 
 use crate::agents::event::SessionRef;
 
-/// Der Wortlaut ist an Haiku gemessen (ADR 061, „Ersteller wecken“); eine Änderung braucht eine neue
-/// Messung. Er nennt die Quelle, sagt, was geschah, und gibt keinen Auftrag.
+/// Der Wortlaut ist an Haiku gemessen (ADR 070); eine Änderung braucht eine neue Messung. Er nennt die
+/// Quelle, sagt, was geschah, und sagt nicht, dass er keine Anweisung sei.
 const SOURCE: &str = "Meldung des Verwalters";
+/// Der feste Anfang jeder Weck-Nachricht zu einer Station (alle außer „Umsetzung fertig“); das Löschen
+/// verfallener Zeilen (`db::session_inbox::delete_wakes_of_station`) erkennt sie daran. Die Nachrichten
+/// an einen neuen Master und zum Ende der Umsetzung beginnen anders.
+pub const STATION_WAKE_START: &str = "Meldung des Verwalters: In der Umsetzung „";
+/// Betreff und Schluss der Antwort kommen auf eine Zeile und diese Länge; die Notiz einer Meldung darf
+/// so lang sein wie ihr Feld (`MAX_NOTE_CHARS`).
 const MAX_TEXT_CHARS: usize = 200;
+const MAX_NOTE_CHARS: usize = super::model::MAX_NOTE_CHARS;
 
-/// Absender der Nachricht: der Verwalter, keine Session. Die erste Zeile im Chat des Erstellers
-/// setzt wie immer der Core.
+/// Absender der Nachricht: der Verwalter, keine Session. Die erste Zeile im Chat des Masters setzt wie
+/// immer der Core.
 pub fn sender() -> SessionRef {
     SessionRef {
         id: "verwalter".to_owned(),
@@ -21,13 +29,43 @@ pub fn sender() -> SessionRef {
     }
 }
 
-/// Was geschehen ist, mit der Station als Schlüssel für „genau einmal“.
+/// Was geschehen ist, mit der Station und den Zählern als Schlüssel für „genau einmal“: `returns` zählt
+/// die Rückgaben der Station, `turn` ihren Zug (die Zeit der letzten Aktivität der Session), damit eine
+/// Wiederholung nach einer Rückgabe und ein neuer Zug wieder wecken, ein zweiter Haken desselben Zugendes nicht.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum WakeEvent {
-    /// Die letzte Station ist fertig gemeldet: Die Umsetzung ist abgeschlossen.
+    /// Der Benutzer hat die letzte Station angenommen: Die Umsetzung ist abgeschlossen.
     Finished { station_id: String },
-    /// Ein Review meldet einen Befund (`fix_needed`).
-    Finding { station_id: String },
+    /// Der Benutzer hat eine Station im Fehler oder in einer Pause von Hand als fertig markiert.
+    MarkedDone { station_id: String },
+    /// Die Station hat sich gemeldet und ihr Zug ist beendet; `fix_needed` heißt Befund (Review).
+    Reported {
+        station_id: String,
+        returns: u32,
+        turn: u64,
+        fix_needed: bool,
+    },
+    /// Der Zug ist ohne Meldung beendet; die Antwort geht nur an den Master.
+    Unreported {
+        station_id: String,
+        returns: u32,
+        turn: u64,
+    },
+    /// Der Zug endet mit einem Fehler oder ist gestoppt (`stopped`), und kein Neustart steht an.
+    Failed {
+        station_id: String,
+        returns: u32,
+        turn: u64,
+        stopped: bool,
+    },
+    /// Die gemeldete Station ist beim App-Start unterbrochen (Neustart oder Pause) und setzt mit der nächsten
+    /// Nachricht fort; ohne Zugmarke, einmal je Lauf der App und Rückgabe.
+    Interrupted {
+        station_id: String,
+        returns: u32,
+        // „Session #N, ID <uuid>“ der Station, für `verwalter_send_message_to`.
+        session: String,
+    },
     /// Die Station stellt eine Rückfrage; `request_id` unterscheidet mehrere nacheinander.
     Asking {
         station_id: String,
@@ -36,12 +74,45 @@ pub enum WakeEvent {
 }
 
 impl WakeEvent {
-    /// Ein Ereignis, ein Schlüssel: Dieselbe Fertigmeldung oder dieselbe Rückfrage löst nichts
-    /// zweimal aus, auch nicht über einen zweiten Weg.
+    fn station_id(&self) -> &str {
+        match self {
+            WakeEvent::Finished { station_id }
+            | WakeEvent::MarkedDone { station_id }
+            | WakeEvent::Reported { station_id, .. }
+            | WakeEvent::Unreported { station_id, .. }
+            | WakeEvent::Failed { station_id, .. }
+            | WakeEvent::Interrupted { station_id, .. }
+            | WakeEvent::Asking { station_id, .. } => station_id,
+        }
+    }
+
+    /// Ein Ereignis, ein Schlüssel: Dasselbe Zugende weckt nichts zweimal, auch nicht über einen zweiten Weg.
     fn key(&self) -> String {
         match self {
             WakeEvent::Finished { station_id } => format!("finished:{station_id}"),
-            WakeEvent::Finding { station_id } => format!("finding:{station_id}"),
+            WakeEvent::MarkedDone { station_id } => format!("marked_done:{station_id}"),
+            WakeEvent::Reported {
+                station_id,
+                returns,
+                turn,
+                ..
+            } => format!("reported:{station_id}:{returns}:{turn}"),
+            WakeEvent::Unreported {
+                station_id,
+                returns,
+                turn,
+            } => format!("unreported:{station_id}:{returns}:{turn}"),
+            WakeEvent::Failed {
+                station_id,
+                returns,
+                turn,
+                ..
+            } => format!("failed:{station_id}:{returns}:{turn}"),
+            WakeEvent::Interrupted {
+                station_id,
+                returns,
+                ..
+            } => format!("interrupted:{station_id}:{returns}"),
             WakeEvent::Asking {
                 station_id,
                 request_id,
@@ -50,51 +121,202 @@ impl WakeEvent {
     }
 }
 
-/// Was die Nachricht über die Station nennt. `text` ist das Ergebnis der Station, bei einer
-/// Rückfrage ihre Frage.
+/// Was die Nachricht über die Station nennt. `text` ist der Betreff der Meldung, bei „ohne Meldung“ der
+/// Schluss der letzten Antwort, bei einer Rückfrage ihre Frage; `note` die Notiz der Meldung.
 #[derive(Debug, Clone)]
 pub struct WakeFacts {
     pub implementation: String,
     pub lane: String,
     pub stage: String,
     pub text: String,
+    pub note: String,
 }
 
-/// Die Nachricht für den Ersteller, wenn es eine geben soll. Keine, wenn der Ersteller fehlt
-/// (gelöscht, archiviert, nie gesetzt) oder dieses Ereignis schon gemeldet ist; `claimed` hält die
-/// Ereignisse, die schon eine Nachricht bekamen, und wird hier um dieses ergänzt. Der Ersteller
-/// fehlt vor dem Anspruch: Ohne ihn geht nichts verloren, was ein späterer Weg noch melden könnte.
+/// Die Nachricht für den Master, wenn es eine geben soll. Keine, wenn der Master fehlt (gelöscht,
+/// archiviert, nie gesetzt) oder dieses Ereignis schon gemeldet ist; `claimed` hält die Ereignisse, die schon
+/// eine Nachricht bekamen, und wird hier um dieses ergänzt. Der Master fehlt vor dem Anspruch: Ohne ihn
+/// geht nichts verloren, was ein späterer Weg noch melden könnte.
 pub fn decide(
     event: &WakeEvent,
     facts: &WakeFacts,
-    creator_exists: bool,
+    master_exists: bool,
     claimed: &mut HashSet<String>,
 ) -> Option<String> {
-    if !creator_exists || !claimed.insert(event.key()) {
+    if !master_exists || !claimed.insert(event.key()) {
         return None;
     }
     Some(message(event, facts))
 }
 
-/// Die Ereignisse einer Fertigmeldung, in der Reihenfolge der Nachrichten: erst der Befund, dann das
-/// Ende der Umsetzung. Beides zugleich gibt es, wenn die Fix-Runden erschöpft sind und keine Station
-/// mehr folgt.
-pub fn events_after_completion(
+/// Wie ein Zug einer Station endete, soweit es das Wecken braucht.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Outcome {
+    /// Die Station liegt gemeldet beim Master (`fix_needed`: Befund).
+    Reported { fix_needed: bool },
+    /// Die Session endete mit Fehler oder Abbruch (`stopped`), ohne Meldung.
+    Failed { stopped: bool },
+    /// Die Session gab ab, ohne sich zu melden.
+    Silent,
+}
+
+/// Die Fakten eines Haken am Zugende einer Station (`station_session_ended`).
+#[derive(Debug, Clone, Copy)]
+pub struct TurnEnd<'a> {
+    pub station_id: &'a str,
+    /// „Session #N, ID <uuid>“ der Station.
+    pub session: &'a str,
+    /// Der Zug ist wirklich beendet (`master::turn_ended`).
+    pub has_ended: bool,
+    /// „Bei Fehler“ startet die Station gleich neu.
+    pub is_restarting: bool,
+    /// Der Master oder der Benutzer hat die Station schon angenommen.
+    pub is_accepted: bool,
+    pub outcome: Outcome,
+    pub returns: u32,
+    pub turn: u64,
+}
+
+/// Das Ereignis, das ein Zugende weckt (ADR 070, D7), oder keines: nicht bei Pause, wartendem Skript oder
+/// Subagenten (kein beendeter Zug), nicht bei anstehendem Neustart nach „Bei Fehler“, nicht nach der Annahme.
+pub fn event_after_turn(turn: &TurnEnd) -> Option<WakeEvent> {
+    if !turn.has_ended || turn.is_restarting || turn.is_accepted {
+        return None;
+    }
+    let station_id = turn.station_id.to_owned();
+    let (returns, turn_marker) = (turn.returns, turn.turn);
+    Some(match turn.outcome {
+        Outcome::Reported { fix_needed } => WakeEvent::Reported {
+            station_id,
+            returns,
+            turn: turn_marker,
+            fix_needed,
+        },
+        Outcome::Failed { stopped } => WakeEvent::Failed {
+            station_id,
+            returns,
+            turn: turn_marker,
+            stopped,
+        },
+        Outcome::Silent => WakeEvent::Unreported {
+            station_id,
+            returns,
+            turn: turn_marker,
+        },
+    })
+}
+
+/// Das Ereignis des Weckdurchgangs beim App-Start für eine gemeldete Station (ADR 070): Ist der Zug
+/// beendet, wie am Zugende. Ist die Session pausiert (Neustart oder Pause, nicht zu unterscheiden) und kein
+/// Zeitgeber „Automatisch fortsetzen“ scharf, ist der Zug „unterbrochen“. Ein scharfer Zeitgeber setzt von
+/// selbst fort, und sein Zugende weckt. Angenommen: nichts.
+pub fn event_on_start(turn: &TurnEnd, is_paused: bool, is_timer_armed: bool) -> Option<WakeEvent> {
+    if turn.is_accepted {
+        return None;
+    }
+    if turn.has_ended {
+        return event_after_turn(turn);
+    }
+    (is_paused && !is_timer_armed).then(|| WakeEvent::Interrupted {
+        station_id: turn.station_id.to_owned(),
+        returns: turn.returns,
+        session: turn.session.to_owned(),
+    })
+}
+
+/// Die Ereignisse einer Annahme: „Fertig“ nur, wenn der Benutzer die letzte Station angenommen hat. Nahm
+/// der Master selbst an, steht das Ende in der Antwort des Werkzeugs.
+pub fn events_after_acceptance(
     station_id: &str,
-    fix_needed: bool,
     is_finished: bool,
+    is_by_master: bool,
 ) -> Vec<WakeEvent> {
-    let station_id = station_id.to_owned();
-    let mut events: Vec<WakeEvent> = Vec::new();
-    if fix_needed {
-        events.push(WakeEvent::Finding {
-            station_id: station_id.clone(),
-        });
+    if is_finished && !is_by_master {
+        vec![WakeEvent::Finished {
+            station_id: station_id.to_owned(),
+        }]
+    } else {
+        Vec::new()
     }
-    if is_finished {
-        events.push(WakeEvent::Finished { station_id });
+}
+
+/// Die Ereignisse eines Abschlusses: von Hand (`by_hand`) „Von Hand fertig“, sonst die der Annahme.
+pub fn events_after_finish(
+    station_id: &str,
+    is_finished: bool,
+    is_by_master: bool,
+    by_hand: bool,
+) -> Vec<WakeEvent> {
+    if by_hand {
+        events_after_marking(station_id, is_finished)
+    } else {
+        events_after_acceptance(station_id, is_finished, is_by_master)
     }
+}
+
+/// Die Ereignisse von „Als fertig markieren“: „Von Hand fertig“, dazu „Fertig“, wenn es die letzte
+/// Station war.
+pub fn events_after_marking(station_id: &str, is_finished: bool) -> Vec<WakeEvent> {
+    let mut events = vec![WakeEvent::MarkedDone {
+        station_id: station_id.to_owned(),
+    }];
+    events.extend(events_after_acceptance(station_id, is_finished, false));
     events
+}
+
+/// Die Nachricht an einen neuen Master (ADR 070, D11): die Umsetzung und ihre offenen Meldungen (Lane,
+/// Stufe, Betreff). Keine Ereignisse: Der Benutzer hat ihn bestimmt, nichts ist neu geschehen.
+pub fn new_master_message(
+    implementation: &str,
+    reports: &[(String, String, String, String)],
+) -> String {
+    let open = if reports.is_empty() {
+        "Zurzeit liegt keine Meldung vor.".to_owned()
+    } else {
+        let lines: Vec<String> = reports
+            .iter()
+            .map(
+                |(id, lane, stage, subject): &(String, String, String, String)| {
+                    format!(
+                        "Lane {lane} · {stage} (station_id: {id}): „{}“",
+                        shorten(subject)
+                    )
+                },
+            )
+            .collect();
+        format!(
+            "Offene Meldungen: {}. Du kannst sie mit dem Werkzeug implementation_review_station \
+             annehmen oder zurückgeben.",
+            lines.join("; ")
+        )
+    };
+    format!(
+        "{SOURCE}: Der Benutzer hat dich zum Master der Umsetzung „{implementation}“ bestimmt; \
+         du leitest sie ab jetzt. {open}"
+    )
+}
+
+/// Der Betreff der Zeile, die die Notiz trägt: das Ergebnis der Station in einer Zeile.
+pub fn subject_of(result: &str) -> String {
+    let subject = shorten_to(result, crate::session_tools::tools::MAX_SUBJECT_CHARS);
+    if subject.is_empty() {
+        "Meldung".to_owned()
+    } else {
+        subject
+    }
+}
+
+/// Was an der Nachricht eines Ereignisses über eine Referenz geht (ADR 072): nur bei „Gemeldet“ die
+/// Notiz, mit dem Ergebnis als Betreff. Alle anderen Weck-Texte bleiben direkt.
+pub fn note_reference<'a>(event: &WakeEvent, facts: &'a WakeFacts) -> Option<(String, &'a str)> {
+    let is_reported = matches!(event, WakeEvent::Reported { .. });
+    (is_reported && !facts.note.trim().is_empty())
+        .then(|| (subject_of(&facts.text), facts.note.as_str()))
+}
+
+/// Die Notiz, wie `message` sie in „Gemeldet“ schreibt; an dieser Stelle setzt die Zustellung die
+/// Referenz ein (ADR 072).
+pub fn note_fragment(note: &str) -> String {
+    format!("Notiz: „{}“", shorten_to(note, MAX_NOTE_CHARS))
 }
 
 fn message(event: &WakeEvent, facts: &WakeFacts) -> String {
@@ -105,31 +327,90 @@ fn message(event: &WakeEvent, facts: &WakeFacts) -> String {
         ..
     } = facts;
     let text = shorten(&facts.text);
+    let note = shorten_to(&facts.note, MAX_NOTE_CHARS);
+    // Die Kennung braucht der Master für `implementation_review_station { station_id }`.
+    let id = event.station_id();
     match event {
         WakeEvent::Finished { .. } => format!(
-            "{SOURCE}: Die Umsetzung „{implementation}“, die du angelegt hast, ist fertig. \
-             Letzte Station: Lane {lane} · {stage}. Ergebnis: {text}"
+            "{SOURCE}: Die Umsetzung „{implementation}“, die du leitest, ist fertig; der Benutzer \
+             hat die letzte Station angenommen. Letzte Station: Lane {lane} · {stage}. \
+             Ergebnis: {text}"
         ),
-        WakeEvent::Finding { .. } => format!(
-            "{SOURCE}: In der Umsetzung „{implementation}“, die du angelegt hast, meldet \
-             Lane {lane} · {stage} einen Befund. Ergebnis: {text}"
+        WakeEvent::MarkedDone { .. } => format!(
+            "{SOURCE}: In der Umsetzung „{implementation}“, die du leitest, hat der Benutzer \
+             Lane {lane} · {stage} (station_id: {id}) als fertig markiert. Ergebnis: „{text}“. \
+             Damit gilt sie als angenommen; es gibt nichts zu entscheiden."
+        ),
+        WakeEvent::Reported {
+            fix_needed: false, ..
+        } => format!(
+            "{SOURCE}: In der Umsetzung „{implementation}“, die du leitest, hat sich \
+             Lane {lane} · {stage} (station_id: {id}) gemeldet; ihr Zug ist beendet. Betreff: „{text}“ · Notiz: „{note}“. \
+             Du kannst die Meldung mit dem Werkzeug implementation_review_station annehmen oder \
+             zurückgeben."
+        ),
+        WakeEvent::Reported {
+            fix_needed: true, ..
+        } => format!(
+            "{SOURCE}: In der Umsetzung „{implementation}“, die du leitest, meldet \
+             Lane {lane} · {stage} (station_id: {id}) einen Befund und braucht eine Fix-Runde; ihr Zug ist beendet. \
+             Betreff: „{text}“ · Notiz: „{note}“. Du kannst die Meldung mit dem Werkzeug \
+             implementation_review_station annehmen oder zurückgeben."
+        ),
+        WakeEvent::Interrupted { session, .. } => format!(
+            "{SOURCE}: In der Umsetzung „{implementation}“, die du leitest, ist der Zug von \
+             Lane {lane} · {stage} (station_id: {id}, {session}) unterbrochen (Neustart der App oder Pause); \
+             die Station hatte sich gemeldet, Betreff: „{text}“. Sie setzt mit der nächsten Nachricht \
+             fort, und angenommen werden kann sie erst nach ihrem Zugende. Du kannst ihr mit \
+             verwalter_send_message_to schreiben (das zählt keine Rückgabe) oder sie mit dem Werkzeug \
+             implementation_review_station zurückgeben; der Benutzer kann sie auch fortsetzen."
+        ),
+        WakeEvent::Unreported { .. } => format!(
+            "{SOURCE}: In der Umsetzung „{implementation}“, die du leitest, hat \
+             Lane {lane} · {stage} (station_id: {id}) ihren Zug beendet, ohne sich zu melden. Schluss ihrer \
+             Antwort: „{text}“"
+        ),
+        WakeEvent::Failed { stopped: false, .. } => format!(
+            "{SOURCE}: In der Umsetzung „{implementation}“, die du leitest, endet der Zug von \
+             Lane {lane} · {stage} (station_id: {id}) mit einem Fehler."
+        ),
+        WakeEvent::Failed { stopped: true, .. } => format!(
+            "{SOURCE}: In der Umsetzung „{implementation}“, die du leitest, ist der Zug von \
+             Lane {lane} · {stage} (station_id: {id}) gestoppt worden."
         ),
         WakeEvent::Asking { .. } => format!(
-            "{SOURCE}: In der Umsetzung „{implementation}“, die du angelegt hast, fragt \
+            "{SOURCE}: In der Umsetzung „{implementation}“, die du leitest, fragt \
              Lane {lane} · {stage} den Benutzer und wartet auf die Antwort. Frage: {text}"
         ),
     }
 }
 
-/// Höchstens `MAX_TEXT_CHARS` Zeichen in einer Zeile (die Fertigmeldung nimmt nicht mehr; eine
-/// Frage ist frei).
+/// Höchstens `MAX_TEXT_CHARS` Zeichen in einer Zeile (der Betreff nimmt nicht mehr; eine Frage ist frei).
 fn shorten(text: &str) -> String {
+    shorten_to(text, MAX_TEXT_CHARS)
+}
+
+fn shorten_to(text: &str, max: usize) -> String {
     let one_line: String = text.split_whitespace().collect::<Vec<&str>>().join(" ");
-    if one_line.chars().count() <= MAX_TEXT_CHARS {
+    if one_line.chars().count() <= max {
         return one_line;
     }
-    let cut: String = one_line.chars().take(MAX_TEXT_CHARS - 1).collect();
+    let cut: String = one_line.chars().take(max - 1).collect();
     format!("{cut}…")
+}
+
+/// Der Schluss einer Antwort auf eine Zeile und `MAX_TEXT_CHARS` Zeichen, mit „…“ davor, wenn vorn etwas fehlt.
+pub fn end_of(text: &str) -> String {
+    let one_line: String = text.split_whitespace().collect::<Vec<&str>>().join(" ");
+    let count = one_line.chars().count();
+    if count <= MAX_TEXT_CHARS {
+        return one_line;
+    }
+    let tail: String = one_line
+        .chars()
+        .skip(count - (MAX_TEXT_CHARS - 1))
+        .collect();
+    format!("…{tail}")
 }
 
 #[cfg(test)]
@@ -142,6 +423,7 @@ mod tests {
             lane: "76.3".to_owned(),
             stage: "Review".to_owned(),
             text: text.to_owned(),
+            note: "Befund 1 steht in der Datei".to_owned(),
         }
     }
 
@@ -151,15 +433,120 @@ mod tests {
         }
     }
 
+    fn reported(returns: u32, turn: u64) -> WakeEvent {
+        WakeEvent::Reported {
+            station_id: "s1".to_owned(),
+            returns,
+            turn,
+            fix_needed: false,
+        }
+    }
+
+    fn turn_end(outcome: Outcome) -> TurnEnd<'static> {
+        TurnEnd {
+            station_id: "s1",
+            session: "Session #7, ID s-7",
+            has_ended: true,
+            is_restarting: false,
+            is_accepted: false,
+            outcome,
+            returns: 0,
+            turn: 7,
+        }
+    }
+
+    #[test]
+    fn the_events_for_the_master_name_the_station_id_the_review_tool_asks_for() {
+        let events = [
+            reported(0, 1),
+            WakeEvent::Reported {
+                station_id: "st-9".to_owned(),
+                returns: 0,
+                turn: 1,
+                fix_needed: true,
+            },
+            WakeEvent::Unreported {
+                station_id: "st-9".to_owned(),
+                returns: 0,
+                turn: 1,
+            },
+            WakeEvent::Failed {
+                station_id: "st-9".to_owned(),
+                returns: 0,
+                turn: 1,
+                stopped: false,
+            },
+            WakeEvent::Failed {
+                station_id: "st-9".to_owned(),
+                returns: 0,
+                turn: 1,
+                stopped: true,
+            },
+        ];
+        for event in &events {
+            let text = message(event, &facts("x"));
+            let id = event.station_id();
+            assert!(text.contains(&format!("station_id: {id}")), "{text}");
+        }
+    }
+
+    #[test]
+    fn only_the_wakes_about_a_station_start_with_the_fixed_station_start() {
+        let station_events = [
+            reported(0, 1),
+            WakeEvent::MarkedDone {
+                station_id: "s2".to_owned(),
+            },
+            WakeEvent::Unreported {
+                station_id: "s3".to_owned(),
+                returns: 0,
+                turn: 1,
+            },
+            WakeEvent::Interrupted {
+                station_id: "s4".to_owned(),
+                returns: 0,
+                session: "Session #2, ID x".to_owned(),
+            },
+            WakeEvent::Failed {
+                station_id: "s5".to_owned(),
+                returns: 0,
+                turn: 1,
+                stopped: true,
+            },
+        ];
+        for event in &station_events {
+            let text = message(event, &facts("x"));
+            assert!(text.starts_with(STATION_WAKE_START), "{text}");
+        }
+        assert!(!message(&finished(), &facts("x")).starts_with(STATION_WAKE_START));
+        let new_master = new_master_message("Umsetzung", &[]);
+        assert!(!new_master.starts_with(STATION_WAKE_START), "{new_master}");
+    }
+
     #[test]
     fn each_event_gives_a_message_with_source_implementation_lane_and_stage() {
         let events = [
             finished(),
-            WakeEvent::Finding {
+            reported(0, 1),
+            WakeEvent::Reported {
                 station_id: "s2".to_owned(),
+                returns: 0,
+                turn: 1,
+                fix_needed: true,
+            },
+            WakeEvent::Unreported {
+                station_id: "s3".to_owned(),
+                returns: 0,
+                turn: 1,
+            },
+            WakeEvent::Failed {
+                station_id: "s4".to_owned(),
+                returns: 0,
+                turn: 1,
+                stopped: false,
             },
             WakeEvent::Asking {
-                station_id: "s3".to_owned(),
+                station_id: "s5".to_owned(),
                 request_id: "r1".to_owned(),
             },
         ];
@@ -168,19 +555,40 @@ mod tests {
             let text = decide(event, &facts("3 Befunde"), true, &mut claimed)
                 .expect("jedes Ereignis meldet");
             assert!(text.starts_with("Meldung des Verwalters:"), "{text}");
-            for part in ["Constraint-Abläufe", "Lane 76.3", "Review", "3 Befunde"] {
+            for part in [
+                "Constraint-Abläufe",
+                "Lane 76.3",
+                "Review",
+                "die du leitest",
+            ] {
                 assert!(text.contains(part), "{part} fehlt in: {text}");
             }
         }
     }
 
     #[test]
-    fn the_three_events_read_differently() {
+    fn the_events_read_differently_and_a_report_carries_subject_and_note() {
         let mut claimed: HashSet<String> = HashSet::new();
+        let finding = WakeEvent::Reported {
+            station_id: "s1".to_owned(),
+            returns: 0,
+            turn: 2,
+            fix_needed: true,
+        };
         let texts: Vec<String> = [
             finished(),
-            WakeEvent::Finding {
+            reported(0, 1),
+            finding,
+            WakeEvent::Unreported {
                 station_id: "s1".to_owned(),
+                returns: 0,
+                turn: 1,
+            },
+            WakeEvent::Failed {
+                station_id: "s1".to_owned(),
+                returns: 0,
+                turn: 1,
+                stopped: true,
             },
             WakeEvent::Asking {
                 station_id: "s1".to_owned(),
@@ -188,12 +596,16 @@ mod tests {
             },
         ]
         .iter()
-        .filter_map(|event: &WakeEvent| decide(event, &facts("x"), true, &mut claimed))
+        .filter_map(|event: &WakeEvent| decide(event, &facts("PR 49 offen"), true, &mut claimed))
         .collect();
-        assert_eq!(texts.len(), 3);
+        assert_eq!(texts.len(), 6);
         assert!(texts[0].contains("ist fertig"));
-        assert!(texts[1].contains("einen Befund"));
-        assert!(texts[2].contains("fragt"));
+        assert!(texts[1].contains("hat sich") && texts[1].contains("gemeldet"));
+        assert!(texts[1].contains("PR 49 offen") && texts[1].contains("Befund 1 steht"));
+        assert!(texts[2].contains("einen Befund") && texts[2].contains("Fix-Runde"));
+        assert!(texts[3].contains("ohne sich zu melden"));
+        assert!(texts[4].contains("gestoppt"));
+        assert!(texts[5].contains("fragt"));
     }
 
     #[test]
@@ -226,13 +638,10 @@ mod tests {
     }
 
     #[test]
-    fn a_missing_creator_gets_no_message_and_claims_nothing() {
+    fn a_missing_master_gets_no_message_and_claims_nothing() {
         let mut claimed: HashSet<String> = HashSet::new();
         assert!(decide(&finished(), &facts("ok"), false, &mut claimed).is_none());
-        assert!(
-            claimed.is_empty(),
-            "ohne Ersteller bleibt das Ereignis offen"
-        );
+        assert!(claimed.is_empty(), "ohne Master bleibt das Ereignis offen");
         assert!(decide(&finished(), &facts("ok"), true, &mut claimed).is_some());
     }
 
@@ -254,36 +663,250 @@ mod tests {
     }
 
     #[test]
-    fn a_plain_completion_wakes_nobody() {
-        assert!(events_after_completion("s1", false, false).is_empty());
+    fn the_end_of_an_answer_keeps_its_last_200_characters() {
+        let long = format!("Anfang {} Schluss", "x".repeat(400));
+        let end = end_of(&long);
+        assert_eq!(end.chars().count(), MAX_TEXT_CHARS);
+        assert!(end.starts_with('…') && end.ends_with("Schluss"));
+        assert_eq!(end_of("kurz"), "kurz");
     }
 
     #[test]
-    fn a_finding_wakes_with_a_finding_and_the_last_station_with_the_end() {
-        let station = |id: &str| id.to_owned();
+    fn a_report_wakes_the_master_once_after_the_turn() {
+        // Eine Meldung mitten im Zug weckt nicht; das Zugende danach einmal.
+        let mid_turn = TurnEnd {
+            has_ended: false,
+            ..turn_end(Outcome::Reported { fix_needed: false })
+        };
+        assert_eq!(event_after_turn(&mid_turn), None);
+        let ended = turn_end(Outcome::Reported { fix_needed: false });
+        let event = event_after_turn(&ended).expect("weckt");
+        let mut claimed: HashSet<String> = HashSet::new();
+        assert!(decide(&event, &facts("ok"), true, &mut claimed).is_some());
+        assert!(
+            decide(&event, &facts("ok"), true, &mut claimed).is_none(),
+            "derselbe Zug weckt nur einmal"
+        );
+    }
+
+    #[test]
+    fn a_turn_without_report_wakes_the_master_with_the_end_of_the_answer() {
+        let event = event_after_turn(&turn_end(Outcome::Silent)).expect("weckt");
+        assert!(matches!(event, WakeEvent::Unreported { .. }));
+        let mut claimed: HashSet<String> = HashSet::new();
+        let text =
+            decide(&event, &facts("Fertig, bitte prüfen."), true, &mut claimed).expect("Nachricht");
+        assert!(text.contains("ohne sich zu melden") && text.contains("Fertig, bitte prüfen."));
+    }
+
+    #[test]
+    fn an_error_wakes_the_master() {
+        let event = event_after_turn(&turn_end(Outcome::Failed { stopped: false })).expect("weckt");
+        assert!(matches!(event, WakeEvent::Failed { stopped: false, .. }));
+        let stopped =
+            event_after_turn(&turn_end(Outcome::Failed { stopped: true })).expect("weckt");
+        assert!(matches!(stopped, WakeEvent::Failed { stopped: true, .. }));
+    }
+
+    #[test]
+    fn a_pause_wakes_nobody() {
+        for outcome in [
+            Outcome::Silent,
+            Outcome::Reported { fix_needed: true },
+            Outcome::Failed { stopped: false },
+        ] {
+            let paused = TurnEnd {
+                has_ended: false,
+                ..turn_end(outcome)
+            };
+            assert_eq!(event_after_turn(&paused), None, "{outcome:?}");
+        }
+    }
+
+    #[test]
+    fn the_start_pass_decides_reported_interrupted_nothing_for_each_turn() {
+        let reported = Outcome::Reported { fix_needed: false };
+        let ended = turn_end(reported);
+        let running = TurnEnd {
+            has_ended: false,
+            ..ended
+        };
+        // Zug beendet: Gemeldet wie am Zugende.
         assert_eq!(
-            events_after_completion("s1", true, false),
-            vec![WakeEvent::Finding {
-                station_id: station("s1")
-            }]
+            event_on_start(&ended, false, false),
+            event_after_turn(&ended)
+        );
+        assert!(matches!(
+            event_on_start(&ended, false, false),
+            Some(WakeEvent::Reported { .. })
+        ));
+        // Wiederhergestellt pausiert, ohne scharfen Zeitgeber: unterbrochen.
+        let interrupted = event_on_start(&running, true, false).expect("unterbrochen");
+        assert!(matches!(interrupted, WakeEvent::Interrupted { .. }));
+        // Scharfer Zeitgeber: nichts, sein Zugende weckt. Nicht pausiert und nicht beendet: nichts.
+        assert_eq!(event_on_start(&running, true, true), None);
+        assert_eq!(event_on_start(&running, false, false), None);
+        // Angenommen: nichts.
+        let accepted = TurnEnd {
+            is_accepted: true,
+            ..ended
+        };
+        assert_eq!(event_on_start(&accepted, false, false), None);
+        let paused_accepted = TurnEnd {
+            is_accepted: true,
+            ..running
+        };
+        assert_eq!(event_on_start(&paused_accepted, true, false), None);
+    }
+
+    #[test]
+    fn an_interrupted_station_wakes_once_per_return_and_the_text_offers_the_ways_without_an_order()
+    {
+        let event = |returns: u32| WakeEvent::Interrupted {
+            station_id: "st-3".to_owned(),
+            returns,
+            session: "Session #12, ID 7c1e".to_owned(),
+        };
+        let mut claimed = HashSet::new();
+        assert!(decide(&event(0), &facts("PR offen"), true, &mut claimed).is_some());
+        assert_eq!(
+            decide(&event(0), &facts("PR offen"), true, &mut claimed),
+            None
+        );
+        let text =
+            decide(&event(1), &facts("PR offen"), true, &mut claimed).expect("nach Rückgabe");
+        for part in [
+            "station_id: st-3, Session #12, ID 7c1e",
+            "PR offen",
+            "unterbrochen",
+            "nächsten Nachricht",
+            "Zugende",
+        ] {
+            assert!(text.contains(part), "{part}: {text}");
+        }
+        // Die Wege des Masters stehen als Möglichkeit da („Du kannst …“), nicht als Auftrag.
+        for part in [
+            "Du kannst ihr mit verwalter_send_message_to",
+            "implementation_review_station",
+            "keine Rückgabe",
+        ] {
+            assert!(text.contains(part), "{part}: {text}");
+        }
+        assert!(!text.contains("Bitte") && !text.contains("musst"), "{text}");
+    }
+
+    #[test]
+    fn a_restart_on_error_wakes_only_when_it_gives_up() {
+        let failing = Outcome::Failed { stopped: false };
+        let restarting = TurnEnd {
+            is_restarting: true,
+            ..turn_end(failing)
+        };
+        assert_eq!(event_after_turn(&restarting), None);
+        assert!(event_after_turn(&turn_end(failing)).is_some());
+    }
+
+    #[test]
+    fn an_accepted_station_wakes_nobody() {
+        let accepted = TurnEnd {
+            is_accepted: true,
+            ..turn_end(Outcome::Silent)
+        };
+        assert_eq!(event_after_turn(&accepted), None);
+    }
+
+    #[test]
+    fn a_report_after_a_return_wakes_again() {
+        let mut claimed: HashSet<String> = HashSet::new();
+        assert!(decide(&reported(0, 1), &facts("ok"), true, &mut claimed).is_some());
+        assert!(
+            decide(&reported(1, 1), &facts("ok"), true, &mut claimed).is_some(),
+            "nach einer Rückgabe zählt `returns` hoch"
+        );
+        assert!(
+            decide(&reported(1, 2), &facts("ok"), true, &mut claimed).is_some(),
+            "ein neuer Zug ist ein neues Ereignis"
+        );
+        assert!(decide(&reported(1, 2), &facts("ok"), true, &mut claimed).is_none());
+    }
+
+    #[test]
+    fn finished_wakes_only_after_the_last_acceptance_by_the_user() {
+        assert!(events_after_acceptance("s1", false, false).is_empty());
+        assert!(
+            events_after_acceptance("s1", true, true).is_empty(),
+            "nahm der Master an, steht das Ende in der Antwort des Werkzeugs"
         );
         assert_eq!(
-            events_after_completion("s1", false, true),
+            events_after_acceptance("s1", true, false),
             vec![WakeEvent::Finished {
-                station_id: station("s1")
+                station_id: "s1".to_owned()
             }]
         );
+    }
+
+    #[test]
+    fn marking_done_wakes_the_master_once_with_the_text() {
+        let events = events_after_marking("s1", false);
         assert_eq!(
-            events_after_completion("s1", true, true),
-            vec![
-                WakeEvent::Finding {
-                    station_id: station("s1")
-                },
-                WakeEvent::Finished {
-                    station_id: station("s1")
-                }
-            ]
+            events,
+            vec![WakeEvent::MarkedDone {
+                station_id: "s1".to_owned()
+            }]
         );
+        let mut claimed = HashSet::new();
+        let text = decide(
+            &events[0],
+            &facts("vom Benutzer als fertig markiert"),
+            true,
+            &mut claimed,
+        )
+        .expect("Nachricht");
+        assert_eq!(
+            text,
+            "Meldung des Verwalters: In der Umsetzung „Constraint-Abläufe“, die du leitest, hat der Benutzer \
+             Lane 76.3 · Review (station_id: s1) als fertig markiert. Ergebnis: „vom Benutzer als fertig markiert“. \
+             Damit gilt sie als angenommen; es gibt nichts zu entscheiden."
+        );
+        assert!(
+            decide(&events[0], &facts("x"), true, &mut claimed).is_none(),
+            "einmal je Markieren"
+        );
+        assert_eq!(
+            events_after_marking("s1", true).len(),
+            2,
+            "die letzte Station meldet auch das Ende"
+        );
+    }
+
+    #[test]
+    fn marking_done_without_master_wakes_nobody() {
+        let event = events_after_marking("s1", false).remove(0);
+        assert!(decide(&event, &facts("ok"), false, &mut HashSet::new()).is_none());
+    }
+
+    #[test]
+    fn a_new_master_hears_of_the_implementation_and_its_open_reports() {
+        let with = new_master_message(
+            "Master-Session",
+            &[(
+                "st-7".to_owned(),
+                "99.1".to_owned(),
+                "Umsetzung".to_owned(),
+                "PR offen".to_owned(),
+            )],
+        );
+        assert!(with.starts_with("Meldung des Verwalters:"), "{with}");
+        for part in [
+            "Master-Session",
+            "Lane 99.1 · Umsetzung",
+            "station_id: st-7",
+            "PR offen",
+        ] {
+            assert!(with.contains(part), "{part} fehlt in: {with}");
+        }
+        let without = new_master_message("Master-Session", &[]);
+        assert!(without.contains("keine Meldung"), "{without}");
     }
 
     #[test]

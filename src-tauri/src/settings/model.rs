@@ -58,8 +58,8 @@ pub enum OperatingMode {
     Codex,
 }
 
-/// Werte, die für die ganze App gelten. Modell, Modus und Denkaufwand gelten für die erste Session
-/// eines neuen Vorhabens.
+/// Werte, die für die ganze App gelten. Modell und Denkaufwand gelten für jede neue Session, der
+/// Modus für die erste Session eines neuen Vorhabens (weitere Sessions erben ihn).
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct Settings {
@@ -70,7 +70,7 @@ pub struct Settings {
     pub operating_mode: OperatingMode,
     /// Kennung des Modells in LM Studio, z. B. `google/gemma-4-12b-qat`; `None`, solange keins gewählt ist.
     pub local_model: Option<String>,
-    /// Modell für neue Vorhaben in der Betriebsart Codex; `None` = Standardmodell von Codex.
+    /// Modell für neue Sessions in der Betriebsart Codex; `None` = Standardmodell von Codex.
     pub default_codex_model: Option<String>,
     /// Ordner mit den Originalen von Skills, Befehlen, Ausgabestilen und `CLAUDE.md`, mit dem die
     /// Umgebung abgeglichen wird (ADR 038); `None`, solange keiner gewählt ist.
@@ -79,6 +79,21 @@ pub struct Settings {
     pub mark_unsourced: bool,
     /// Selbstfreigabe, die ein neues Vorhaben übernimmt; bestehende bleiben unverändert.
     pub default_self_release: SelfRelease,
+    // „Automatisch fortsetzen“, das eine neue Umsetzung übernimmt; bestehende bleiben unverändert
+    // (ADR 064).
+    pub default_auto_resume: bool,
+    // Modell der Einordnung von Textantworten am Zugende (Dashboard, ADR 071); `None` = aus. Gilt
+    // für die ganze App.
+    pub answer_model: Option<ModelId>,
+    // „Gleichzeitige Agenten max.“ (ADR 068): so viele Agenten startet der Verwalter höchstens von
+    // selbst; `None` = unbegrenzt, sonst mindestens 1.
+    pub max_agents: Option<u32>,
+    // „Master zusammenfassen ab … Tokens“ (ADR 070): eine ruhende Master-Session über dieser Grenze
+    // bekommt `/compact`; `None` = aus. Gilt für die ganze App.
+    pub master_compact_tokens: Option<u32>,
+    // Freigabeliste der Befehls-Stationen (ADR 073): nur diese Programme führt der Verwalter aus, als
+    // bloße Namen ohne Pfad; Standard `gh` und `glab`.
+    pub command_programs: Vec<String>,
     pub terminal_placement: TerminalPlacement,
     /// Gezogene Höhe des Terminal-Docks in Pixeln.
     pub terminal_height: u32,
@@ -139,6 +154,25 @@ pub enum SettingsChange {
     },
     DefaultSelfRelease {
         value: SelfRelease,
+    },
+    DefaultAutoResume {
+        value: bool,
+    },
+    /// `None` schaltet die Einordnung aus (ADR 071).
+    AnswerModel {
+        value: Option<ModelId>,
+    },
+    // `None` = aus; sonst 50 000 bis 2 000 000 (ADR 070).
+    MasterCompactTokens {
+        value: Option<u32>,
+    },
+    // `None` = unbegrenzt (ADR 068).
+    MaxAgents {
+        value: Option<u32>,
+    },
+    /// Die Freigabeliste der Befehls-Stationen (ADR 073), ersetzt die ganze Liste.
+    CommandPrograms {
+        value: Vec<String>,
     },
     TerminalPlacement {
         value: TerminalPlacement,

@@ -1,6 +1,15 @@
 .sidebar-implementation {
   position: relative;
 
+  /* Eine Ebene unter der Master-Session, wie die Stationen unter ihrer Umsetzung. */
+  &--nested {
+    margin-left: 14px;
+    margin-bottom: -1px;
+    padding-bottom: 1px;
+    padding-left: var(--space-sm);
+    border-left: 1px solid var(--color-border-subtle);
+  }
+
   &__button {
     display: flex;
     align-items: center;

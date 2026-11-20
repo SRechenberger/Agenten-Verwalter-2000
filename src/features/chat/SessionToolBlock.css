@@ -20,6 +20,12 @@
     overflow-wrap: anywhere;
   }
 
+  &__subject {
+    margin: 0;
+    font-weight: 600;
+    overflow-wrap: anywhere;
+  }
+
   &__message {
     margin: 0;
     padding: var(--space-md) var(--space-lg);

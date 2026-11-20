@@ -12,13 +12,19 @@ import { ArchiveDialog } from '@/features/archive/ArchiveDialog';
 import { BackgroundPanel } from '@/features/background/BackgroundPanel';
 import { countRunning, indexByToolUseId } from '@/features/background/backgroundItems';
 import { useSessionBackground } from '@/features/background/useSessionBackground';
+import { IMPLEMENTATION_ARTIFACTS_HEADING } from '@/features/artifacts/artifactTexts';
 import { ArtifactsView } from '@/features/artifacts/ArtifactsView';
 import { useProjectArtifacts } from '@/features/artifacts/useProjectArtifacts';
 import { ChatView } from '@/features/chat/ChatView';
+import { DashboardView } from '@/features/dashboard/DashboardView';
+import { useDashboard } from '@/features/dashboard/useDashboard';
 import { useGitStatus } from '@/features/git/useGitStatus';
+import { implementationArtifacts } from '@/features/implementation/implementationArtifacts';
 import { ImplementationView as ImplementationMain } from '@/features/implementation/ImplementationView';
+import { StationTrail } from '@/features/implementation/StationTrail';
 import { useInquiry } from '@/features/implementation/useInquiry';
 import { useImplementations } from '@/features/implementation/useImplementations';
+import { useAgentQueueSync } from '@/features/queue/useAgentQueueSync';
 import { countChangedFiles } from '@/features/changes/changesScope';
 import { ChangesView } from '@/features/changes/ChangesView';
 import { useSessionChanges } from '@/features/changes/useSessionChanges';
@@ -52,6 +58,8 @@ import { SettingsView } from '@/features/settings/SettingsView';
 import { useSettings } from '@/features/settings/useSettings';
 import { UsageAlertBar } from '@/features/usage/UsageAlertBar';
 import { useVoiceModel } from '@/features/voice/useVoiceModel';
+import { useWaitingJump } from '@/features/waiting/useWaitingJump';
+import { WaitingJumpNotice } from '@/features/waiting/WaitingJumpNotice';
 import { onArtifactShow } from '@/lib/artifacts';
 import type { ArtifactList } from '@/lib/bindings/ArtifactList';
 import type { ArtifactShowEvent } from '@/lib/bindings/ArtifactShowEvent';
@@ -70,6 +78,7 @@ import { setProjectGroupCollapsed } from '@/lib/projectGroups';
 import { usePanelWidth } from '@/lib/usePanelWidth';
 import { useArtifactsStore } from '@/stores/artifacts';
 import { useBackgroundStore } from '@/stores/background';
+import { useImplementationStore } from '@/stores/implementation';
 import {
   useSessionsStore,
   type ImplementationViewKind,
@@ -89,6 +98,10 @@ export function App(): ReactElement {
     reload: reloadImplementations,
     error: implementationsError,
   } = useImplementations();
+  // Die globale Warteschlange für Leiste, Marke „n warten“ und Zeilen (ADR 068).
+  useAgentQueueSync();
+  // Aufgaben, Abläufe und Sessions des Dashboards; das Löschen einer Session sendet kein Ereignis.
+  const reloadDashboard = useDashboard();
   // Fernsteuerung: Geräte und Hosts für Einstellungen, Leiste und Köpfe; die Rechte der Listen für gesperrte Bedienelemente.
   useRemoteSync();
   useProjectAccessSync(projects, sessions);
@@ -111,6 +124,7 @@ export function App(): ReactElement {
   const showProjectOverview: boolean = useSessionsStore((state) => state.showProjectOverview);
   const showNewSession: boolean = useSessionsStore((state) => state.showNewSession);
   const showSettings: boolean = useSessionsStore((state) => state.showSettings);
+  const showDashboard: boolean = useSessionsStore((state) => state.showDashboard);
   const activeView: SessionView = useSessionsStore((state) => state.activeView);
   const projectView: ProjectView = useSessionsStore((state) => state.projectView);
   const showView = useSessionsStore((state) => state.showView);
@@ -121,6 +135,7 @@ export function App(): ReactElement {
   const openNewSession = useSessionsStore((state) => state.openNewSession);
   const closeNewSession = useSessionsStore((state) => state.closeNewSession);
   const openSettings = useSessionsStore((state) => state.openSettings);
+  const openDashboard = useSessionsStore((state) => state.openDashboard);
   const [isArchiveOpen, setIsArchiveOpen] = useState<boolean>(false);
   const isBackgroundOpen: boolean = useBackgroundStore((state) => state.isOpen);
   const toggleBackground = useBackgroundStore((state) => state.toggle);
@@ -150,7 +165,12 @@ export function App(): ReactElement {
     onArtifactShow((event: ArtifactShowEvent) => {
       useArtifactsStore.getState().select(event.projectId, event.file);
       const state = useSessionsStore.getState();
-      if (state.showNewSession || state.showSettings || state.showImplementation) {
+      if (
+        state.showNewSession ||
+        state.showSettings ||
+        state.showDashboard ||
+        state.showImplementation
+      ) {
         return;
       }
       if (state.showProjectOverview) {
@@ -181,8 +201,9 @@ export function App(): ReactElement {
     };
   }, []);
   useSessionOverlaps();
-  // „Neues Vorhaben“ und die Einstellungen ersetzen den Inhalt; Session und Übersicht sind dann nicht sichtbar.
-  const isPageReplaced: boolean = showNewSession || showSettings;
+  // „Neues Vorhaben“, die Einstellungen und das Dashboard ersetzen den Inhalt; Session und Übersicht sind dann
+  // nicht sichtbar, und keine Session gilt als gelesen (ADR 019).
+  const isPageReplaced: boolean = showNewSession || showSettings || showDashboard;
   // Beendet der Host die Freigabe, verschwindet das Vorhaben aus den Listen; die offene Ansicht zeigt dann den
   // Hinweis, statt auf eine andere Session auszuweichen.
   const endedSelection: EndedShare | undefined = isPageReplaced
@@ -277,6 +298,16 @@ export function App(): ReactElement {
       holdSession(chosenSessionId);
     }
   }, [chosenSessionId, endedSelection, offeredProject, holdSession]);
+  const shownSessionId: string | null =
+    isMainReplaced || isOverview ? null : (currentSession?.id ?? null);
+  // Bei offener Umsetzung zählt die Station im Fokus als die gezeigte.
+  const shownStationId: string | null = useImplementationStore((state) =>
+    shownImplementation === undefined ? null : (state.focused[shownImplementation.id] ?? null),
+  );
+  const waitingNotice: string | null = useWaitingJump(sessions, implementations, {
+    sessionId: shownSessionId,
+    stationId: shownStationId,
+  });
 
   // Der gewählte Reiter bleibt beim Session-Wechsel stehen; ohne Repository gibt es keine Changes.
   const isChangesView: boolean = isOverview
@@ -291,6 +322,14 @@ export function App(): ReactElement {
     isMainReplaced ? null : (currentSession?.projectId ?? null),
   );
   const artifactCount: number = artifacts?.items.length ?? 0;
+  // Die Umsetzung zeigt nur, was Sessions ihrer Stationen und Rückfragen angelegt haben.
+  const implementationArtifactList: ArtifactList | null = useMemo(
+    () =>
+      artifacts === null || shownImplementation === undefined
+        ? null
+        : implementationArtifacts(artifacts, shownImplementation, sessions),
+    [artifacts, shownImplementation, sessions],
+  );
   // Ohne Artefakt fällt die Ansicht auf Chat bzw. Übersicht zurück.
   const isArtifactsView: boolean = isOverview
     ? !isImplementation && projectView === 'artifacts' && artifactCount > 0
@@ -461,6 +500,9 @@ export function App(): ReactElement {
 
   function handleSessionDeleted(session: SessionSummary, isProjectDeleted: boolean): void {
     removeSession(session.id);
+    reloadImplementations();
+    // Das Löschen sendet kein Ereignis: Die Karte „Master ausgefallen“ stünde sonst erst beim nächsten.
+    reloadDashboard();
     if (isProjectDeleted) {
       removeProject(session.projectId);
     }
@@ -493,6 +535,7 @@ export function App(): ReactElement {
           changesCount={changes === null ? null : countChangedFiles(changes)}
           artifactCount={artifactCount}
           onShowView={showProjectView}
+          onProjectChanged={upsertProject}
           terminalCount={runningTerminalCount}
           isTerminalOpen={isTerminalOpen}
           onToggleTerminal={handleToggleTerminal}
@@ -512,9 +555,21 @@ export function App(): ReactElement {
         <ImplementationMain
           implementation={implementation}
           projectName={project.name}
-          activeView={isChangesView ? 'changes' : 'flow'}
+          activeView={implementationView}
           hasChanges={hasProjectRepositories}
           changesCount={changes === null ? null : countChangedFiles(changes)}
+          artifactCount={implementationArtifactList?.items.length ?? 0}
+          artifacts={
+            implementationArtifactList === null ? null : (
+              <ArtifactsView
+                sessionId={latestSession.id}
+                projectId={project.id}
+                currentSessionId={null}
+                list={implementationArtifactList}
+                heading={IMPLEMENTATION_ARTIFACTS_HEADING}
+              />
+            )
+          }
           sessions={sessions}
           changes={
             <ChangesView
@@ -618,6 +673,7 @@ export function App(): ReactElement {
     }
     return (
       <ChatView
+        key={session.id}
         session={session}
         projectName={projectNameOf(session)}
         backgroundByToolUseId={backgroundByToolUseId}
@@ -628,6 +684,10 @@ export function App(): ReactElement {
             ?.selfRelease ?? null
         }
         sessions={sessions}
+        implementations={implementations}
+        projects={projects}
+        onOpenSession={selectSession}
+        onOpenImplementation={selectImplementation}
       />
     );
   }
@@ -640,6 +700,17 @@ export function App(): ReactElement {
           overview={settingsOverview}
           loadError={settingsError}
           onReload={reloadSettings}
+        />
+      );
+    }
+    if (showDashboard) {
+      return (
+        <DashboardView
+          sessions={sessions}
+          implementations={implementations}
+          projects={projects}
+          onOpenSession={selectSession}
+          onOpenImplementation={selectImplementation}
         />
       );
     }
@@ -670,6 +741,12 @@ export function App(): ReactElement {
       return renderOverview(overviewProject, currentSession);
     }
     if (currentSession !== undefined) {
+      const trailImplementation: ImplementationView | undefined =
+        currentSession.stationOf === null
+          ? undefined
+          : implementations.find(
+              (candidate: ImplementationView) => candidate.id === currentSession.stationOf,
+            );
       // Ein Schlüssel für die ganze Ansicht: Kopfzeile, Fehlerleiste und Inhalt wechseln beim Session-Wechsel als Einheit.
       return (
         <Fragment key={currentSession.id}>
@@ -693,6 +770,13 @@ export function App(): ReactElement {
             }}
           />
           <RemoteBanner projectId={currentSession.projectId} />
+          {trailImplementation !== undefined && (
+            <StationTrail
+              implementation={trailImplementation}
+              sessionId={currentSession.id}
+              onOpenImplementation={selectImplementation}
+            />
+          )}
           <SessionActionError sessionId={currentSession.id} />
           {isClaude && <UsageAlertBar />}
           <OverlapBar sessionId={currentSession.id} projectId={currentSession.projectId} />
@@ -712,17 +796,19 @@ export function App(): ReactElement {
         groups={groups}
         sessions={sessions}
         implementations={implementations}
-        activeSessionId={isMainReplaced || isOverview ? null : (currentSession?.id ?? null)}
+        activeSessionId={shownSessionId}
         activeProjectId={activeProjectId}
         activeImplementationId={isImplementation ? (shownImplementation?.id ?? null) : null}
         showProjectOverview={(isOverview && !isImplementation) || offeredProject !== undefined}
         isSettingsOpen={showSettings}
+        isDashboardOpen={showDashboard}
         loadError={projectsError ?? groupsError ?? sessionsError ?? implementationsError}
         onSelectSession={selectSession}
         onSelectProject={selectProject}
         onSelectImplementation={selectImplementation}
         onNew={openNewSession}
         onOpenSettings={openSettings}
+        onOpenDashboard={openDashboard}
         onOpenArchive={(): void => {
           setIsArchiveOpen(true);
         }}
@@ -736,6 +822,7 @@ export function App(): ReactElement {
           {renderMain()}
         </div>
         {isDockShown && terminalPlacement === 'bottom' && renderTerminalDock()}
+        <WaitingJumpNotice text={waitingNotice} />
       </main>
       {isDockShown && terminalPlacement === 'right' && renderTerminalDock()}
       {isBackgroundOpen && visibleSession !== null && (

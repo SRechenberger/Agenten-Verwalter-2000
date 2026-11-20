@@ -21,7 +21,7 @@ Leitsatz: **Chat first, Changes second.** Was dem Agent-Workflow nicht aktiv hil
 - **Artefakte:** HTML-Seiten, die der Agent im Ordner `.artefakte` ablegt, erscheinen als Karte im Chat und im Reiter „Artefakte“.
 - **Kontext, Kontingent, Konto:** Aufschlüsselung des Kontexts, Abo-Kontingent, Claude-Konto und -Version in der App sehen und wechseln, MCP-Server je Session verwalten.
 - **Vorhaben-Retro:** sammelt die Befunde aller Sessions eines Vorhabens und legt daraus eine Retro-Session an.
-- **Einstellungen:** Farbschema (Dunkel, Hell, System), Standardwerte für neue Vorhaben, Betriebsart, Sprache des Diktats.
+- **Einstellungen:** Farbschema (Dunkel, Hell, System), Standardwerte für neue Sessions, Betriebsart, Sprache des Diktats.
 - **Update des Verwalters:** Der Abschnitt „Agenten Verwalter“ in den Einstellungen zeigt die laufende Version und die neueren Releases von GitHub samt Release-Notes; ein Klick lädt die neue Datei, prüft ihre Prüfsumme und startet den Verwalter neu (die portable exe ersetzt sich selbst, der Installer wird gestartet). Ein Punkt am Knopf „Einstellungen“ weist auf ein Update hin.
 
 ### Betriebsarten
@@ -67,7 +67,7 @@ pnpm tauri build            # NSIS-Installer unter src-tauri/target/release/bund
 pnpm tauri build --no-bundle  # nur die lose exe
 ```
 
-Automatisierte Tests gibt es nur für die Fix-Runden-Auswahl der Umsetzung und die Agententypen (`src-tauri/src/implementation/tests.rs`, `src-tauri/src/agent_types/tests.rs`; `cargo test --manifest-path src-tauri/Cargo.toml --lib -- implementation:: agent_types::`, auch in CI) für das Steuerrecht der Fernsteuerung (`cargo test --manifest-path src-tauri/Cargo.toml --lib remote::`, auch in CI) und für die Umgebung der Kindprozesse im AppImage (`src-tauri/src/processes/tests.rs`; `cargo test --manifest-path src-tauri/Cargo.toml --lib processes::`, auch in CI); alle zusammen laufen mit `cargo test --manifest-path src-tauri/Cargo.toml`. Sonst wird über strenge Typen, Lint und Build abgesichert und im laufenden Betrieb getestet.
+Automatisierte Tests gibt es nur für die Fix-Runden-Auswahl der Umsetzung und die Agententypen (`src-tauri/src/implementation/tests.rs`, `src-tauri/src/agent_types/tests.rs`; `cargo test --manifest-path src-tauri/Cargo.toml --lib -- implementation:: agent_types::`) für das Steuerrecht der Fernsteuerung (`cargo test --manifest-path src-tauri/Cargo.toml --lib remote::`) und für die Umgebung der Kindprozesse im AppImage (`src-tauri/src/processes/tests.rs`; `cargo test --manifest-path src-tauri/Cargo.toml --lib processes::`); alle zusammen laufen mit `cargo test --manifest-path src-tauri/Cargo.toml --lib`, auch in CI; ob die Beispiele kompilieren, prüft `cargo check --manifest-path src-tauri/Cargo.toml --all-targets`. Sonst wird über strenge Typen, Lint und Build abgesichert und im laufenden Betrieb getestet.
 
 Fertige Installer liegen bei den [GitHub-Releases](https://github.com/SRechenberger/Agenten-Verwalter-2000/releases). Ein Release entsteht beim Merge eines Release-PRs nach `main`, nicht mehr durch einen Tag-Push; es hat die Dateien, die der PR als Kandidat gebaut hat (Windows-Installer, dazu `.dmg`, `.AppImage` und `.deb` als Zusatz).
 
