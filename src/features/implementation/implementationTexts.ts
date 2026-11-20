@@ -886,3 +886,6 @@ export const MARK_DONE_HEADING = 'Station als fertig markieren?';
 export const MARK_DONE_CANCEL = 'Abbrechen';
 export const MARK_DONE_TEXT =
   'gilt dann als erledigt. Die Nachfolger starten wie nach einer Annahme; eine Fix-Runde gibt es nicht. Die Session bleibt, wie sie ist.';
+/** Eine Befehls-Station hat keine Session (ADR 073). */
+export const MARK_DONE_TEXT_COMMAND =
+  'gilt dann als erledigt. Die Nachfolger starten wie nach einer Annahme; eine Fix-Runde gibt es nicht.';

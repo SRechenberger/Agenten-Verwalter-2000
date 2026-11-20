@@ -37,6 +37,41 @@ fn lock_running() -> std::sync::MutexGuard<'static, HashMap<String, Arc<AtomicBo
         .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
+/// Gesetzt, sobald die App endet: Ein Lauf, der danach endet, schreibt nichts mehr, die Station bleibt
+/// „läuft“ und steht nach dem Neustart auf „unterbrochen“.
+static SHUTTING_DOWN: AtomicBool = AtomicBool::new(false);
+
+/// Beendet jeden laufenden Schritt, wenn die App endet (neben den Terminals, ADR 073), und wartet bis zu
+/// `wait`, bis die Läufe ihre Prozesse beendet haben. Ohne Lauf kehrt sie sofort zurück.
+pub fn stop_all(wait: Duration) {
+    SHUTTING_DOWN.store(true, Ordering::SeqCst);
+    for stop in lock_running().values() {
+        stop.store(true, Ordering::SeqCst);
+    }
+    let deadline = Instant::now() + wait;
+    while !lock_running().is_empty() && Instant::now() < deadline {
+        thread::sleep(Duration::from_millis(20));
+    }
+}
+
+/// Trägt den Lauf ein, es sei denn, die App endet oder die Station läuft schon. Prüfen und Eintragen
+/// geschehen unter einer Sperre: `stop_all` setzt das Zeichen vor der Sperre, also sieht ein späterer
+/// Start es, und jeder frühere Lauf steht schon im Verzeichnis, wenn `stop_all` es liest.
+fn register_run(station_id: &str) -> Result<Arc<AtomicBool>, CommandError> {
+    let mut runs = lock_running();
+    if SHUTTING_DOWN.load(Ordering::SeqCst) {
+        return Err(CommandError::Implementation(
+            "Die App wird beendet.".to_owned(),
+        ));
+    }
+    if runs.contains_key(station_id) {
+        return Err(CommandError::Implementation(ALREADY_RUNNING.to_owned()));
+    }
+    let stop = Arc::new(AtomicBool::new(false));
+    runs.insert(station_id.to_owned(), Arc::clone(&stop));
+    Ok(stop)
+}
+
 /// Ob die Station dieser Umsetzung eine Befehls-Station ist.
 pub fn is_command_station(
     registry: &SessionRegistry,
@@ -148,11 +183,18 @@ pub(super) fn start_command(
             return Err(CommandError::Implementation(reason));
         }
     };
-    let stop = Arc::new(AtomicBool::new(false));
-    if !registry.begin_command(station_id)? {
-        return Err(CommandError::Implementation(ALREADY_RUNNING.to_owned()));
+    let stop = register_run(station_id)?;
+    match registry.begin_command(station_id) {
+        Ok(true) => {}
+        Ok(false) => {
+            lock_running().remove(station_id);
+            return Err(CommandError::Implementation(ALREADY_RUNNING.to_owned()));
+        }
+        Err(error) => {
+            lock_running().remove(station_id);
+            return Err(error);
+        }
     }
-    lock_running().insert(station_id.to_owned(), Arc::clone(&stop));
     let thread_app = app.clone();
     let thread_implementation = implementation_id.to_owned();
     let thread_station = station_id.to_owned();
@@ -272,6 +314,9 @@ fn drive(
             }
         },
     );
+    if SHUTTING_DOWN.load(Ordering::SeqCst) {
+        return;
+    }
     match ended {
         Ended::Success { result } => {
             finish_success(app, implementation_id, station_id, &result);
@@ -351,5 +396,97 @@ pub fn failure_event(
         returns,
         turn: started_at.unwrap_or_else(now_ms).to_bits(),
         stopped: reason == REASON_ABORTED,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Der Prozess des Tests selbst als langer Schritt (läuft unter jedem Betriebssystem): Nur mit
+    /// `--ignored` schläft er; `cargo test` ohne das Flag überspringt ihn.
+    #[test]
+    #[ignore = "langer Schritt für stop_all, wird nur als Kindprozess gestartet"]
+    fn a_long_step_for_the_test() {
+        thread::sleep(Duration::from_secs(120));
+    }
+
+    /// Die Tests setzen `SHUTTING_DOWN` im selben Prozess; sie laufen hintereinander unter dieser Sperre.
+    static SERIAL: Mutex<()> = Mutex::new(());
+
+    #[test]
+    fn no_run_is_registered_while_the_app_shuts_down() {
+        let _serial = SERIAL
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        SHUTTING_DOWN.store(true, Ordering::SeqCst);
+        let refused = register_run("register-refused-test");
+        SHUTTING_DOWN.store(false, Ordering::SeqCst);
+        assert!(refused.is_err());
+        assert!(!lock_running().contains_key("register-refused-test"));
+    }
+
+    #[test]
+    fn stop_all_finds_a_registered_run_and_stops_it() {
+        let _serial = SERIAL
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        SHUTTING_DOWN.store(false, Ordering::SeqCst);
+        let stop = register_run("register-found-test").expect("Eintrag");
+        assert!(register_run("register-found-test").is_err());
+        let remover = thread::spawn(|| {
+            thread::sleep(Duration::from_millis(100));
+            lock_running().remove("register-found-test");
+        });
+        stop_all(Duration::from_secs(10));
+        SHUTTING_DOWN.store(false, Ordering::SeqCst);
+        remover.join().expect("Thread");
+        assert!(stop.load(Ordering::SeqCst), "stop_all fand den Lauf nicht");
+    }
+
+    #[test]
+    fn stop_all_ends_a_running_step_before_the_app_ends() {
+        let _serial = SERIAL
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let step = vec![
+            std::env::current_exe()
+                .expect("Pfad der Test-Exe")
+                .to_string_lossy()
+                .into_owned(),
+            "--ignored".to_owned(),
+            "--exact".to_owned(),
+            "implementation::command_run::tests::a_long_step_for_the_test".to_owned(),
+        ];
+        let stop = Arc::new(AtomicBool::new(false));
+        lock_running().insert("stop-all-test".to_owned(), Arc::clone(&stop));
+        let worker_stop = Arc::clone(&stop);
+        let started = Instant::now();
+        let worker = thread::spawn(move || {
+            let ended = command::run(
+                &[step],
+                &std::env::temp_dir(),
+                TIME_LIMIT,
+                &worker_stop,
+                &mut |_: usize, _: &[String]| {},
+            );
+            lock_running().remove("stop-all-test");
+            ended
+        });
+        thread::sleep(Duration::from_millis(500));
+        stop_all(Duration::from_secs(10));
+        SHUTTING_DOWN.store(false, Ordering::SeqCst);
+        let emptied = lock_running().is_empty();
+        // Räumt den Kindprozess auch dann ab, wenn `stop_all` versagt hat.
+        stop.store(true, Ordering::SeqCst);
+        let ended = worker.join().expect("Thread");
+        assert!(emptied, "stop_all ließ den Lauf eingetragen");
+        assert_eq!(
+            ended,
+            Ended::Failed {
+                reason: REASON_ABORTED.to_owned()
+            }
+        );
+        assert!(started.elapsed() < Duration::from_secs(30));
     }
 }

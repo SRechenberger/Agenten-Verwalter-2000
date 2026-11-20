@@ -2,6 +2,8 @@
 // (`pnpm selftest`). Je Fall `PASS`/`FAIL`, Exit 1 bei einem Fehlschlag. Node streicht die Typen; die
 // geprüfte Datei importiert nur Typen.
 import {
+  INTERRUPTED_HINT,
+  isInterrupted,
   isStartFailure,
   programNameProblem,
   shortStep,
@@ -10,9 +12,53 @@ import {
   stepProgress,
   stepsSummary,
   stepsTitle,
+  valuesLine,
 } from './commandStation.ts';
 
+const TEMPLATE: string[] = [
+  'gh pr checks {{pr}} --watch',
+  'gh pr merge {{pr}} --match {{head}}',
+  'x {{env:TOKEN}}',
+];
+const RESOLVED: string[] = [
+  'gh pr checks 83 --watch',
+  'gh pr merge 83 --match 4f2c9e1',
+  'x {{env:TOKEN}}',
+];
+
 const cases: [string, boolean][] = [
+  [
+    'Zeile der Werte nennt Vorgänger und jeden Wert einmal',
+    valuesLine(TEMPLATE, RESOLVED, ['102.3 · PR']) ===
+      'Werte von 102.3 · PR: pr = 83, head = 4f2c9e1',
+  ],
+  [
+    'Zeile der Werte nennt nie {{env:…}} als Wert',
+    !(valuesLine(TEMPLATE, RESOLVED, ['A']) ?? '').includes('TOKEN') &&
+      valuesLine(['x {{env:TOKEN}}'], ['x {{env:TOKEN}}'], ['A']) === null,
+  ],
+  [
+    'Platzhalter sind nur Namen des Kerns, {{.x}} einer Go-Vorlage bleibt Text',
+    valuesLine(
+      ['gh pr view {{pr}} --template {{.state}}'],
+      ['gh pr view 83 --template {{.state}}'],
+      ['A'],
+    ) === 'Werte von A: pr = 83',
+  ],
+  [
+    'ohne Platzhalter keine Zeile der Werte',
+    valuesLine(['git --version'], ['git --version'], ['A']) === null,
+  ],
+  [
+    'unterbrochene Befehls-Station trägt den Hinweis',
+    isInterrupted({ kind: 'command', state: 'error', startError: 'unterbrochen' }) &&
+      INTERRUPTED_HINT.includes('Prüfe den Stand'),
+  ],
+  [
+    'anderer Fehler oder Agent ist nicht unterbrochen',
+    !isInterrupted({ kind: 'command', state: 'error', startError: 'Schritt 1: Exit 1' }) &&
+      !isInterrupted({ kind: 'agent', state: 'error', startError: 'unterbrochen' }),
+  ],
   [
     'Stufe einer Befehls-Station trägt „· Befehl“',
     stageText({ kind: 'command', stage: 'Merge' }) === 'Merge · Befehl',

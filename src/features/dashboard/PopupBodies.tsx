@@ -27,6 +27,7 @@ import {
   RESULT_PLACEHOLDER,
   START_FAILED,
 } from '@/features/implementation/implementationTexts';
+import { isCommandStation } from '@/features/implementation/commandStation';
 import { canMarkDone } from '@/features/implementation/markDone';
 import { MarkDoneButton } from '@/features/implementation/MarkDoneButton';
 import { MasterWarning, MasterPicker } from '@/features/implementation/MasterPicker';
@@ -114,6 +115,7 @@ function MarkDoneAction(props: PopupProps): ReactElement | null {
       stationId={ref.station.id}
       label={`Lane ${ref.phase.key} · ${ref.station.stage}`}
       className="popup-button"
+      isCommand={isCommandStation(ref.station)}
       isLocked={props.isLocked}
     />
   );

@@ -12,6 +12,7 @@ import {
   MARK_DONE_CONFIRM,
   MARK_DONE_HEADING,
   MARK_DONE_TEXT,
+  MARK_DONE_TEXT_COMMAND,
   MARK_DONE_TITLE,
   RESULT_LABEL,
 } from '@/features/implementation/implementationTexts';
@@ -28,6 +29,8 @@ interface MarkDoneButtonProps {
   label: string;
   /** Klasse des Knopfs; Kartei und Popups haben je ihre. */
   className: string;
+  /** Eine Befehls-Station hat keine Session: Der Text des Dialogs nennt sie nicht. */
+  isCommand: boolean;
   isLocked: boolean;
 }
 
@@ -38,6 +41,7 @@ export function MarkDoneButton({
   stationId,
   label,
   className,
+  isCommand,
   isLocked,
 }: MarkDoneButtonProps): ReactElement {
   const [isOpen, setIsOpen] = useState<boolean>(false);
@@ -87,7 +91,7 @@ export function MarkDoneButton({
           </div>
           <div className="mark-done__body">
             <p className="mark-done__text">
-              {label} {MARK_DONE_TEXT}
+              {label} {isCommand ? MARK_DONE_TEXT_COMMAND : MARK_DONE_TEXT}
             </p>
             <label className="mark-done__label">
               {RESULT_LABEL}
