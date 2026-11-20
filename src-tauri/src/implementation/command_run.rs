@@ -54,6 +54,17 @@ pub fn stop_all(wait: Duration) {
     }
 }
 
+/// Beim Ende der App startet kein neuer Schritt: Die Station bliebe sonst „läuft“ mit einem Prozess, den
+/// niemand mehr beendet.
+fn refuse_while_shutting_down() -> Result<(), CommandError> {
+    if SHUTTING_DOWN.load(Ordering::SeqCst) {
+        return Err(CommandError::Implementation(
+            "Die App wird beendet.".to_owned(),
+        ));
+    }
+    Ok(())
+}
+
 /// Ob die Station dieser Umsetzung eine Befehls-Station ist.
 pub fn is_command_station(
     registry: &SessionRegistry,
@@ -125,6 +136,7 @@ pub(super) fn start_command(
     station_id: &str,
     trigger: Trigger,
 ) -> Result<(), CommandError> {
+    refuse_while_shutting_down()?;
     let registry = app.state::<SessionRegistry>();
     let view = registry.implementation_view(implementation_id)?;
     if let Some(reason) = is_held(&view) {
@@ -384,6 +396,12 @@ mod tests {
     #[ignore = "langer Schritt für stop_all, wird nur als Kindprozess gestartet"]
     fn a_long_step_for_the_test() {
         thread::sleep(Duration::from_secs(120));
+    }
+
+    #[test]
+    fn no_step_starts_while_the_app_shuts_down() {
+        SHUTTING_DOWN.store(true, Ordering::SeqCst);
+        assert!(refuse_while_shutting_down().is_err());
     }
 
     #[test]
