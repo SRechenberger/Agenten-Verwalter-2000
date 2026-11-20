@@ -4787,10 +4787,10 @@ fn with_overlap_hint(
 }
 
 /// Startet den Agenten neu und ersetzt einen noch laufenden Prozess. Kennt das zu startende Programm
-/// die Session schon (`has_agent_history` und ein Transkript von ihm), setzt der Start sie mit ihrem
-/// Verlauf fort (`--resume`), sonst legt er sie unter der Session-ID an (`--session-id`). Die
-/// Claude-Kommandozeile und der eigene Agent führen getrennte Transkripte (ADR 017): nach einem
-/// Wechsel der Betriebsart beginnt der Verlauf neu, und der Chat sagt das.
+/// die Session schon (`resumes`), setzt der Start sie mit ihrem Verlauf fort (`--resume`), sonst
+/// legt er sie unter der Session-ID an (`--session-id`). Die Claude-Kommandozeile und der eigene
+/// Agent führen getrennte Transkripte (ADR 017): nach einem Wechsel der Betriebsart beginnt der
+/// Verlauf neu, und der Chat sagt das.
 ///
 /// Vorher prüft `worktrees::ensure` die Arbeitsordner: fehlende App-Worktrees entstehen neu, ein
 /// Repository ohne Haupt-Checkout bleibt draußen und bekommt einen Fehler-Eintrag im Chat. Ordner
@@ -4808,11 +4808,12 @@ fn start_process(
     } else {
         None
     };
-    let (exe, leading_args, has_transcript) = if codex_exe.is_some() {
+    let (exe, leading_args, is_claude, transcript) = if codex_exe.is_some() {
         (
             codex::program()?,
             codex::leading_args(),
-            codex::has_thread(&session.id),
+            false,
+            Some(codex::has_thread(&session.id)),
         )
     } else if is_standalone(backend) {
         let has_transcript = crate::standalone::transcript_path(&session.id)
@@ -4820,14 +4821,19 @@ fn start_process(
         (
             standalone::program()?,
             standalone::leading_args(),
-            has_transcript,
+            false,
+            Some(has_transcript),
         )
     } else {
         let exe = find_claude().ok_or(CommandError::ClaudeNotFound)?;
-        (exe, Vec::new(), locate::has_transcript(&session.id))
+        let transcript = locate::transcript_in_project(&session.id, &session.workspace);
+        (exe, Vec::new(), true, transcript)
     };
-    let resume = state.has_agent_history && has_transcript;
-    if state.has_agent_history && !resume {
+    let StartChoice {
+        resume,
+        history_lost,
+    } = start_choice(is_claude, state.has_agent_history, transcript);
+    if history_lost {
         state.push_entry(outbox, |seq: u32| ChatEntry::Error {
             seq,
             title: "Verlauf nicht übernommen".to_owned(),
@@ -4923,6 +4929,33 @@ fn start_process(
     }
     state.last_total_cost = 0.0;
     Ok(())
+}
+
+/// Wie ein Start die Session übernimmt (`start_choice`).
+#[derive(Debug, PartialEq, Eq)]
+struct StartChoice {
+    /// `--resume` statt `--session-id`.
+    resume: bool,
+    /// Die Session hat Verlauf, der Agent übernimmt ihn nicht: Hinweis „Verlauf nicht übernommen“.
+    history_lost: bool,
+}
+
+/// Ob der Start die Session fortsetzt (`--resume`) statt sie anzulegen (`--session-id`), ADR 074.
+/// `transcript`: ob das Programm ein Transkript der Session findet, `None`, wenn das nicht lesbar
+/// ist (dann gilt `has_agent_history`). Im Claude-Betrieb (`is_claude`) entscheidet allein das
+/// Transkript im Ordner des Arbeitsverzeichnisses, denn dort lehnt die Kommandozeile `--session-id`
+/// ab, auch wenn `system/init` nie ankam. Codex und der eigene Agent setzen nur fort, was sie selbst
+/// begonnen haben (`has_agent_history` und Transkript).
+fn start_choice(is_claude: bool, has_agent_history: bool, transcript: Option<bool>) -> StartChoice {
+    let resume = match transcript {
+        None => has_agent_history,
+        Some(found) if is_claude => found,
+        Some(found) => has_agent_history && found,
+    };
+    StartChoice {
+        resume,
+        history_lost: has_agent_history && !resume,
+    }
 }
 
 /// Legt den Scratchpad-Ordner der Session an und merkt ihn sich; ein Ordner, den eine ältere
@@ -7204,6 +7237,87 @@ mod tests {
             changed_summary(&session, &state, &dirty).is_none(),
             "gelöscht: kein Ereignis, auch nicht über eine geänderte Zusammenfassung"
         );
+    }
+
+    /// V98 (ADR 074): Im Claude-Betrieb entscheidet allein das Transkript im Ordner des
+    /// Arbeitsverzeichnisses; nicht lesbar heißt `has_agent_history`.
+    #[test]
+    fn start_choice_resumes_a_claude_session_exactly_when_its_folder_has_the_transcript() {
+        let resume = StartChoice {
+            resume: true,
+            history_lost: false,
+        };
+        let fresh = StartChoice {
+            resume: false,
+            history_lost: false,
+        };
+        let fresh_with_notice = StartChoice {
+            resume: false,
+            history_lost: true,
+        };
+        // Transkript da, `system/init` kam nie an: sonst „Session ID … is already in use“.
+        assert_eq!(start_choice(true, false, Some(true)), resume);
+        assert_eq!(start_choice(true, true, Some(true)), resume);
+        // Verlauf, aber kein Transkript in diesem Ordner (auch: nur in einem anderen Ordner).
+        assert_eq!(start_choice(true, true, Some(false)), fresh_with_notice);
+        assert_eq!(start_choice(true, false, Some(false)), fresh);
+        // `projects` nicht lesbar: `has_agent_history` wie bisher.
+        assert_eq!(start_choice(true, true, None), resume);
+        assert_eq!(start_choice(true, false, None), fresh);
+        // Codex und der eigene Agent bleiben bei Verlauf und Transkript.
+        assert_eq!(start_choice(false, false, Some(true)), fresh);
+        assert_eq!(start_choice(false, true, Some(true)), resume);
+        assert_eq!(start_choice(false, true, Some(false)), fresh_with_notice);
+    }
+
+    #[test]
+    fn project_folder_matches_the_cli_also_for_long_paths() {
+        assert_eq!(
+            locate::project_folder(Path::new(
+                "/home/srechenberger/.verwalter/workspaces/82166188"
+            )),
+            "-home-srechenberger--verwalter-workspaces-82166188"
+        );
+        // Je UTF-16-Einheit ein Zeichen: „Ä“ ein `-`, der Krebs (Ersatzpaar) zwei.
+        assert_eq!(
+            locate::project_folder(Path::new("/a/Ärger 🦀")),
+            "-a--rger---"
+        );
+        // Über 200 Zeichen: Kürzung und Hash, Wert aus den Funktionen der Kommandozeile 2.1.296.
+        let long = format!(
+            "/home/srechenberger/.verwalter/workspaces/{}/Vorhaben-Ärger 🦀/{}",
+            "x".repeat(120),
+            "y".repeat(60)
+        );
+        assert_eq!(
+            locate::project_folder(Path::new(&long)),
+            format!(
+                "-home-srechenberger--verwalter-workspaces-{}-Vorhaben--rger----{}-w95gpt",
+                "x".repeat(120),
+                "y".repeat(19)
+            )
+        );
+    }
+
+    #[test]
+    fn transcript_in_counts_only_the_folder_of_the_working_directory() {
+        let base = std::env::temp_dir().join(format!("verwalter-v98-{}", uuid::Uuid::new_v4()));
+        let cwd = std::env::temp_dir();
+        let id = "11111111-2222-3333-4444-555555555555";
+        // Ohne `projects`: nicht lesbar.
+        assert_eq!(locate::transcript_in(&base, id, &cwd), None);
+        let other = base.join("projects").join("-anderer-Ordner");
+        fs::create_dir_all(&other).expect("Ordner anlegbar");
+        fs::write(other.join(format!("{id}.jsonl")), "{}").expect("Transkript schreibbar");
+        assert_eq!(locate::transcript_in(&base, id, &cwd), Some(false));
+        let real_cwd = fs::canonicalize(&cwd).unwrap_or(cwd.clone());
+        let own = base
+            .join("projects")
+            .join(locate::project_folder(&real_cwd));
+        fs::create_dir_all(&own).expect("Ordner anlegbar");
+        fs::write(own.join(format!("{id}.jsonl")), "{}").expect("Transkript schreibbar");
+        assert_eq!(locate::transcript_in(&base, id, &cwd), Some(true));
+        let _ = fs::remove_dir_all(&base);
     }
 
     /// Prozessgruppen (ADR 074): nur eigene Wegwerf-Prozesse.
