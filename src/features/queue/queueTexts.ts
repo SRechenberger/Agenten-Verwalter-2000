@@ -69,7 +69,7 @@ export function waitingChipText(count: number): string {
 export const WAITING_CHIP_TITLE = 'Liste der Warteschlange';
 export const QUEUE_LIST_LABEL = 'Warteschlange';
 export const QUEUE_ORDER_NOTE =
-  'Reihenfolge: Stufe des Vorhabens, dann Priorität der Station, dann wer früher wartet.';
+  'Reihenfolge: Stufe des Vorhabens, dann Priorität der Station, dann wer früher wartet. Eine Nachricht an den Master einer Umsetzung steht vor den Wartenden ihres Vorhabens.';
 
 /** Spalte „Was“: „Station · Lane 1 · Umsetzung“. */
 export function entryWhat(entry: QueueEntry): string {

@@ -71,13 +71,18 @@ pub struct Waiter {
     /// Was der Anspruch belegt: die Station (Countdown, Neustart) oder die Session.
     pub key: String,
     pub start: Start,
+    /// Eine Nachricht an den Master einer nicht abgebrochenen Umsetzung desselben Vorhabens: `rank`
+    /// rückt sie vor die übrigen Wartenden dieses Vorhabens (ADR 068, D5).
+    pub master_message: bool,
 }
 
 /// Reihenfolge (Regel c): Stufe des Vorhabens (hoch vor normal vor niedrig), dann der Vorrang der
 /// Station (höher zuerst; Nachrichten und Fortsetzen 0), dann wer früher wartet. Stabil: Gleiche
 /// behalten die Reihenfolge, in der sie gesammelt wurden (nach dem App-Start die Planreihenfolge).
-/// Kein Altern. Setzt die Plätze 1-basiert.
-pub fn rank(waiters: &mut [Waiter]) {
+/// Kein Altern. Danach rückt jede Nachricht an einen Master (`master_message`) direkt vor den besten
+/// Wartenden, der in ihrem Vorhaben vor ihr liegt und keine solche Nachricht ist; mehrere behalten ihre
+/// Reihenfolge, und gegenüber anderen Vorhaben ändert sich nichts. Setzt die Plätze 1-basiert.
+pub fn rank(waiters: &mut Vec<Waiter>) {
     waiters.sort_by(|left: &Waiter, right: &Waiter| {
         left.entry
             .priority
@@ -90,11 +95,43 @@ pub fn rank(waiters: &mut [Waiter]) {
             )
             .then(left.entry.since_ms.total_cmp(&right.entry.since_ms))
     });
+    advance_master_messages(waiters);
     renumber(
         waiters
             .iter_mut()
             .map(|waiter: &mut Waiter| &mut waiter.entry),
     );
+}
+
+/// Rein: ordnet die schon nach Stufe, Vorrang und Wartezeit sortierten Wartenden um. Vor dem ersten
+/// Wartenden eines Vorhabens, der keine Master-Nachricht ist, stehen danach alle Master-Nachrichten
+/// dieses Vorhabens in ihrer bisherigen Reihenfolge; jeder andere Wartende behält seinen Platz.
+fn advance_master_messages(waiters: &mut Vec<Waiter>) {
+    if !waiters.iter().any(|waiter: &Waiter| waiter.master_message) {
+        return;
+    }
+    let mut slots: Vec<Option<Waiter>> = std::mem::take(waiters).into_iter().map(Some).collect();
+    let mut seen_projects: HashSet<String> = HashSet::new();
+    for index in 0..slots.len() {
+        let Some(current) = slots[index].as_ref() else {
+            continue;
+        };
+        if current.master_message {
+            waiters.extend(slots[index].take());
+            continue;
+        }
+        let project_id: String = current.entry.project_id.clone();
+        if seen_projects.insert(project_id.clone()) {
+            for later in &mut slots[index + 1..] {
+                if later.as_ref().is_some_and(|waiter: &Waiter| {
+                    waiter.master_message && waiter.entry.project_id == project_id
+                }) {
+                    waiters.extend(later.take());
+                }
+            }
+        }
+        waiters.extend(slots[index].take());
+    }
 }
 
 fn renumber<'a>(entries: impl Iterator<Item = &'a mut QueueEntry>) {
@@ -388,6 +425,7 @@ pub fn station_waiters(
         },
         key: station.id.clone(),
         start,
+        master_message: false,
     };
     for phase in &view.phases {
         for station in phase.stations.iter().filter(|station| station.restarting) {

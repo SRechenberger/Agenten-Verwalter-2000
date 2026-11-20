@@ -142,17 +142,6 @@ impl SessionRegistry {
         self.lock_countdowns().release_session(session_id);
     }
 
-    /// Der Zeitgeber von „Automatisch fortsetzen“ ist abgelaufen (ADR 051, 064): durch das Tor. Ist kein
-    /// Platz frei, wartet die Session als „Fortsetzen“, und ein Durchgang zeigt sie in der Liste.
-    pub(crate) fn resume_through_gate(&self, app: &AppHandle, session_id: &str) {
-        if !self.claim_session_slot(session_id) {
-            schedule_pass(app);
-            return;
-        }
-        self.resume_claimed(app, session_id);
-        self.release_session_slot(session_id);
-    }
-
     /// Schickt den Fortsetz-Text, solange die Session noch mit scharfem Zeitgeber pausiert. Die Prüfung
     /// liegt vor `send`, weil `send` die Begründung löscht.
     fn resume_claimed(&self, app: &AppHandle, session_id: &str) {
@@ -206,7 +195,12 @@ impl SessionRegistry {
             |project_id: &str| priorities.get(project_id).copied().unwrap_or_default();
         let armed: HashSet<String> = self.lock_countdowns().armed();
         let mut waiters: Vec<Waiter> = Vec::new();
+        // Master nicht abgebrochener Umsetzungen mit dem Vorhaben der Umsetzung (V189).
+        let mut masters: HashSet<(String, String)> = HashSet::new();
         for view in self.implementation_views().unwrap_or_default() {
+            if let (Some(master_id), None) = (&view.master_session_id, view.cancelled_at) {
+                masters.insert((master_id.clone(), view.project_id.clone()));
+            }
             waiters.extend(station_waiters(
                 &view,
                 armed.contains(&view.id),
@@ -260,6 +254,8 @@ impl SessionRegistry {
                         entry: entry(QueueKind::Message, row.created_at),
                         key: session.id.clone(),
                         start: Start::Session,
+                        master_message: masters
+                            .contains(&(session.id.clone(), session.project_id.clone())),
                     });
                 }
             } else if let Some(due_at) = resume_due_at {
@@ -267,6 +263,7 @@ impl SessionRegistry {
                     entry: entry(QueueKind::Resume, due_at),
                     key: session.id.clone(),
                     start: Start::Session,
+                    master_message: false,
                 });
             }
         }
