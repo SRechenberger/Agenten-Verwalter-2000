@@ -126,3 +126,14 @@ Ein Master lebt über lange Umsetzungen, sein Kontext wächst, bis jede Nachrich
 - **Hinweis:** `Notice::Compacted` hat `by_verwalter` (ältere Hinweise lesen sich als `false`). Der Chat zeigt „Verlauf zusammengefasst · automatisch durch den Verwalter“; die Kommandozeile meldet den Auslöser trotzdem als `manual`, deshalb ersetzt der Zusatz den Text „von Hand“. Der Knopf „Compact“ bleibt der Weg des Benutzers.
 - **Kosten:** Ein Compact ist ein voller Modellaufruf über den ganzen Kontext und baut den Prompt-Cache neu auf; dafür kostet jede folgende Nachricht des Masters weniger.
 - **Prüfung:** Tests unter `sessions::registry::tests::` (Regel mit Gegenfällen, Tor, kein Eingang, Zugende ohne Antwort, Einstellung, alter Hinweis, billige Prüfungen zuerst, Neuprüfung unter der Sperre, gescheiterter Compact-Zug, pausierter Compact-Zug, kein Pausenwunsch nach gescheitertem Zug).
+
+## Nachtrag: Befunde der Abnahme NC.A (Taiga #175)
+
+Der Probelauf zeigte: Eine Nachricht an einen laufenden Master blieb in 4 von 9 Läufen liegen, nach einem Compact zeigte die Session den alten Kontext, und „Compact“ von Hand hinterließ eine leere Karte „Antwort liegt vor“. Vier Regeln:
+
+1. **Wer den Platz zurückgibt, lässt Wartende nachrücken:** Der Compact-Weg gibt den Platz an einer Stelle zurück (`give_back_slot`). Startet er keinen Compact-Zug (abgelehnt, etwa weil eine Nachricht wartet, oder gescheitert), stößt er einen Durchgang der Warteschlange an; sonst blieb die Session für den Durchgang des Zugendes „belegt“ und wurde übersprungen.
+2. **Nur über der Grenze:** Der Weg beansprucht keinen Platz und ruft kein `prepare_turn` auf, solange `context_used` die Grenze nicht überschreitet (`admit_compact_over_limit`, `above_limit`): keine Abfrage je Session; gelesen werden nur die Einstellungen.
+3. **Kontext nach dem Compact:** Meldet `compact_boundary` `post_tokens`, ist das der neue `context_used`; ohne Angabe (Agent „Autark“) bleibt er bis zur nächsten Meldung.
+4. **`/compact` ist keine Antwort:** Ein Zug, dessen Eingabe nur `/compact` ist (Knopf oder getippt), setzt keine Antwort des Dashboards und lässt eine bestehende stehen (`compact_by_hand`, `enter_running` setzt ihn je Zug aus der Eingabe oder setzt ihn zurück; weder `start_turn` noch `push_user` setzen ihn).
+
+Prüfung: `a_declined_compact_lets_the_waiting_message_through`, `a_failed_compact_lets_the_queue_move_on`, `no_compact_path_below_the_limit`, `the_compact_boundary_sets_the_new_context`, `a_compact_without_metadata_keeps_the_context`, `a_compact_turn_by_hand_gives_no_answer_card`, `a_failed_write_of_compact_leaves_the_next_turn_its_answer_card`, `the_reply_compact_to_a_question_keeps_the_answer_card_of_the_turn`.

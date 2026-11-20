@@ -46,9 +46,7 @@ pub(super) fn wanted(facts: &Facts) -> bool {
         && facts.master_of_open_implementation
         && facts.rests
         && facts.inbox_empty
-        && facts
-            .limit
-            .is_some_and(|limit: u32| facts.context_used > limit)
+        && above_limit(facts.context_used, facts.limit)
         && on_claude_command_line(facts.mode)
 }
 
@@ -71,6 +69,11 @@ pub(super) fn may_apply(master: bool, limit: Option<u32>, mode: OperatingMode) -
     master && limit.is_some() && on_claude_command_line(mode)
 }
 
+/// Die Grenze ist überschritten. Billig: nur der Kontext der Session, keine Datenbank.
+pub(super) fn above_limit(context_used: u32, limit: Option<u32>) -> bool {
+    limit.is_some_and(|limit: u32| context_used > limit)
+}
+
 fn on_claude_command_line(mode: OperatingMode) -> bool {
     matches!(mode, OperatingMode::Claude | OperatingMode::ClaudeCodeLocal)
 }
@@ -84,7 +87,8 @@ impl SessionState {
     }
 
     /// Der Zug läuft: `start_turn` ruft das für jede Herkunft; der Compact-Zug fasst nichts anderes an.
-    pub(super) fn enter_running(&mut self, outbox: &mut Outbox, is_compact: bool) {
+    pub(super) fn enter_running(&mut self, outbox: &mut Outbox, is_compact: bool, by_hand: bool) {
+        self.compact_by_hand = by_hand;
         if is_compact {
             self.begin_compact_turn(outbox);
         } else {
@@ -165,6 +169,23 @@ impl SessionRegistry {
         self.claim_session_slot(session_id).then_some(prepared)
     }
 
+    /// Unter der Grenze verlässt der Weg sich hier, vor Platz und `prepare`: ohne Netz und ohne
+    /// Datenbank je Session.
+    pub(super) fn admit_compact_over_limit<T>(
+        &self,
+        session_id: &str,
+        context_used: u32,
+        master: bool,
+        limit: Option<u32>,
+        mode: OperatingMode,
+        prepare: impl FnOnce() -> T,
+    ) -> Option<T> {
+        if !above_limit(context_used, limit) {
+            return None;
+        }
+        self.admit_compact(session_id, master, limit, mode, prepare)
+    }
+
     /// Im eigenen Thread geprüft und geschickt, durch das Tor; ohne Platz entfällt der Zug diesmal.
     fn send_compact(&self, app: &AppHandle, session: &Arc<Session>) {
         let loaded = match settings::load(&self.database) {
@@ -176,14 +197,20 @@ impl SessionRegistry {
         };
         let limit = loaded.master_compact_tokens;
         // Vor der Session-Sperre: Datenbank und LM Studio gehören nicht darunter.
-        let master = self.is_master_of_open_implementation(&session.id);
-        let Some(input) =
-            self.admit_compact(&session.id, master, limit, loaded.operating_mode, || {
-                self.prepare_turn(session, COMPACT_TEXT)
-            })
-        else {
+        let context_used = session.lock().context_used;
+        let master =
+            above_limit(context_used, limit) && self.is_master_of_open_implementation(&session.id);
+        let Some(input) = self.admit_compact_over_limit(
+            &session.id,
+            context_used,
+            master,
+            limit,
+            loaded.operating_mode,
+            || self.prepare_turn(session, COMPACT_TEXT),
+        ) else {
             return;
         };
+        let mut started = false;
         let sent = match &input.backend {
             Ok((mode, _)) => {
                 let mode = *mode;
@@ -192,6 +219,7 @@ impl SessionRegistry {
                     session,
                     |state: &mut SessionState, outbox: &mut Outbox| {
                         if decide_under_lock(session, state, master, limit, mode)? {
+                            started = true;
                             start_turn(
                                 app,
                                 session,
@@ -208,12 +236,21 @@ impl SessionRegistry {
             }
             Err(_) => Ok(()),
         };
-        self.release_session_slot(&session.id);
-        if let Err(error) = sent {
+        if let Err(error) = &sent {
             session.log_line(format!("Compact nicht gesendet: {error}"));
-            // Wer den Platz zurückgab, lässt Wartende nachrücken.
+        }
+        if self.give_back_slot(&session.id, started, sent.is_ok()) {
             schedule_pass(app);
         }
+    }
+
+    /// Die eine Stelle, durch die der Compact-Weg den Platz zurückgibt. `true`: Es lief kein
+    /// Compact-Zug, dessen Ende die Warteschlange bewegt (abgelehnt, oder der Start scheiterte);
+    /// der Aufrufer stößt einen Durchgang an, sonst bliebe eine wartende Nachricht liegen, wenn
+    /// der Durchgang des Zugendes in der Lücke lief.
+    pub(super) fn give_back_slot(&self, session_id: &str, started: bool, sent_ok: bool) -> bool {
+        self.release_session_slot(session_id);
+        !(started && sent_ok)
     }
 }
 

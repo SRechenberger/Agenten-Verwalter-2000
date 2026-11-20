@@ -36,7 +36,7 @@ Haiku (`claude -p --model haiku`), Systemprompt der Session-Werkzeuge (`prompt.t
 | `reported-ref` („Gemeldet“ mit Notiz) | 6 von 6, als erstes Werkzeug | 0 |
 | `first-message-ref` (Station, `/<skill>` vorn) | 6 von 6 vor jeder Arbeit; vorher nur `ToolSearch` und das Laden der Rolle (`Read` des Skills, durch die Zeile `/<skill>` verlangt) | 0 |
 
-Beim dritten Text lädt das Modell zuerst die Rolle, die die erste Zeile verlangt, und liest dann die Referenz; danach beginnt erst die Arbeit (`Bash`/Suche). Streng als „erstes Werkzeug“ gelesen wären es 0 von 6; gemessen an „bevor er handelt“ sind es 6 von 6. Rohdaten: `raw-*.jsonl` und `calls-*.jsonl` im Scratchpad der Messung.
+Beim dritten Text lädt das Modell zuerst die Rolle, die die erste Zeile verlangt, und liest dann die Referenz; danach beginnt erst die Arbeit (`Bash`/Suche). Streng als „erstes Werkzeug“ gelesen wären es 0 von 6; gemessen an „bevor er handelt“ sind es 6 von 6. Entscheidung: Lädt ein Agent zuerst seine Rolle und liest dann die Referenz, gilt das als Lesen, bevor er handelt. Rohdaten: `raw-*.jsonl` und `calls-*.jsonl` im Scratchpad der Messung.
 
 ## Grenzen
 

@@ -320,6 +320,9 @@ struct SessionState {
     compact_seq: Option<u32>,
     /// Der laufende Zug ist `/compact` des Verwalters (ADR 070); nur im Speicher.
     compact_turn: bool,
+    /// Die laufende Eingabe des Benutzers ist nur `/compact` (Knopf oder getippt): keine Antwort;
+    /// nur im Speicher.
+    compact_by_hand: bool,
     /// Modell, auf das Claude ausgewichen ist, bis der User wählt oder der Agent neu startet;
     /// nur im Speicher.
     fallback_model: Option<String>,
@@ -2575,6 +2578,7 @@ impl SessionState {
             cache_message_id: None,
             compact_seq: None,
             compact_turn: false,
+            compact_by_hand: false,
             fallback_model: None,
             last_total_cost: 0.0,
             context_breakdown: None,
@@ -2828,6 +2832,13 @@ impl SessionState {
         post_tokens: Option<u32>,
     ) {
         let by_verwalter = self.compact_turn;
+        // Die Kommandozeile schickt danach keine `assistant`-Zeile: der neue Kontext kommt von hier.
+        if let Some(tokens) = post_tokens
+            && self.context_used != tokens
+        {
+            self.context_used = tokens;
+            outbox.summary_dirty = true;
+        }
         self.compact_seq = Some(self.push_entry(outbox, |seq: u32| ChatEntry::Notice {
             seq,
             notice: Notice::Compacted {
@@ -3189,6 +3200,36 @@ impl SessionState {
         self.auto_chain = 0;
         // Wer sendet, hat die Session gesehen.
         self.seen_at = self.last_activity_at;
+    }
+
+    /// Die Eingabe eines Zugs: `push_user`, aber `/compact` ist keine Frage, die Antwort des
+    /// Dashboards bleibt, wie sie war. `true`, wenn die Eingabe nur `/compact` ist.
+    fn push_user_turn(
+        &mut self,
+        outbox: &mut Outbox,
+        text: &str,
+        attachments: Vec<Attachment>,
+        skill: Option<SkillRef>,
+        comments: Vec<ReviewComment>,
+        device: Option<&str>,
+    ) -> bool {
+        let by_hand = text.trim() == compact::COMPACT_TEXT;
+        let kept = (
+            self.answer_at,
+            self.answer_excerpt.clone(),
+            self.answer_kind.clone(),
+            self.answer_line.clone(),
+        );
+        self.push_user(outbox, text, attachments, skill, comments, device);
+        if by_hand {
+            (
+                self.answer_at,
+                self.answer_excerpt,
+                self.answer_kind,
+                self.answer_line,
+            ) = kept;
+        }
+        by_hand
     }
 
     /// Ohne die Folgen für `seen_at` und `auto_chain`: Das Ziel bleibt ungelesen, die Kettenbremse
@@ -3860,6 +3901,7 @@ impl SessionState {
         }
         self.todos_seq = None;
         let was_compact = std::mem::take(&mut self.compact_turn);
+        let by_hand = std::mem::take(&mut self.compact_by_hand);
         if self.cancel_requested {
             self.end_sourcing();
             return;
@@ -3917,7 +3959,9 @@ impl SessionState {
             }
             TurnEnd::Completed => {
                 self.set_status(outbox, SessionStatus::Completed);
-                self.note_answer(outbox, excerpt);
+                if !by_hand {
+                    self.note_answer(outbox, excerpt);
+                }
                 outbox.compact = true;
                 outbox.classify = classify_input.map(|input| classify::Job {
                     has_station: self.station_of.is_some(),
@@ -4575,6 +4619,7 @@ fn start_turn(
         TurnOrigin::Compact => PlanTurn::Reminder,
     };
     let is_compact = matches!(origin, TurnOrigin::Compact);
+    let mut by_hand = false;
     let (titled, line) = match origin {
         TurnOrigin::User {
             attachment_ids,
@@ -4631,7 +4676,8 @@ fn start_turn(
             );
             let line = message_line(&agent_text, &agent_attachments)?;
             let titled = state.begin_turn(outbox, session, text, &agent_text);
-            state.push_user(outbox, sent_text, sent_attachments, skill, comments, device);
+            by_hand =
+                state.push_user_turn(outbox, sent_text, sent_attachments, skill, comments, device);
             if let Some(found) = report_update {
                 state.last_report = Some(found.stripped.clone());
                 state.push_entry(outbox, |seq: u32| ChatEntry::Notice {
@@ -4674,7 +4720,8 @@ fn start_turn(
         PlanTurn::Start => state.plan_guard = Some(PlanGuard::new(text)),
         PlanTurn::Reminder => {}
     }
-    state.enter_running(outbox, is_compact);
+    // Der Merker gehört zum Zug: Scheitert das Schreiben, setzt der nächste Zug ihn zurück.
+    state.enter_running(outbox, is_compact, by_hand);
     outbox.write(state, line)?;
     Ok(titled)
 }
@@ -5402,6 +5449,128 @@ mod tests {
     }
 
     #[test]
+    fn a_declined_compact_lets_the_waiting_message_through() {
+        let registry = registry_with_one_slot();
+        let claim = || registry.admit_compact("m", true, Some(1), OperatingMode::Claude, || ());
+        assert!(claim().is_some());
+        // Unter der Sperre abgelehnt (etwa weil eine Nachricht wartet): kein Zug, also ein Durchgang.
+        assert!(registry.give_back_slot("m", false, true));
+        assert!(claim().is_some(), "der Platz ist frei");
+        // Ein gestarteter Compact-Zug bewegt die Warteschlange mit seinem Ende.
+        assert!(!registry.give_back_slot("m", true, true));
+    }
+
+    #[test]
+    fn a_failed_compact_lets_the_queue_move_on() {
+        let registry = registry_with_one_slot();
+        assert!(
+            registry
+                .admit_compact("m", true, Some(1), OperatingMode::Claude, || ())
+                .is_some()
+        );
+        // Gestartet, aber das Senden scheiterte: kein Zug läuft, also ein Durchgang.
+        assert!(registry.give_back_slot("m", true, false));
+    }
+
+    #[test]
+    fn no_compact_path_below_the_limit() {
+        let registry = registry_with_one_slot();
+        let prepared = std::cell::Cell::new(0);
+        let admit = |context_used| {
+            registry.admit_compact_over_limit(
+                "m",
+                context_used,
+                true,
+                Some(100),
+                OperatingMode::Claude,
+                || prepared.set(prepared.get() + 1),
+            )
+        };
+        assert!(admit(100).is_none(), "genau auf der Grenze: nicht darüber");
+        assert_eq!(prepared.get(), 0, "kein prepare_turn");
+        // Kein Platz belegt: der einzige Platz ist frei.
+        assert!(admit(101).is_some());
+        assert_eq!(prepared.get(), 1);
+        registry.release_session_slot("m");
+    }
+
+    #[test]
+    fn the_compact_boundary_sets_the_new_context() {
+        let mut state = state();
+        state.context_used = 180_000;
+        let mut outbox = Outbox::default();
+        state.note_compaction(&mut outbox, None, Some(180_000), Some(12_000));
+        assert_eq!(state.context_used, 12_000);
+        assert!(outbox.summary_dirty, "wie jede Änderung gemeldet");
+    }
+
+    #[test]
+    fn a_compact_without_metadata_keeps_the_context() {
+        let mut state = state();
+        state.context_used = 180_000;
+        let mut outbox = Outbox::default();
+        state.note_compaction(&mut outbox, None, None, None);
+        assert_eq!(state.context_used, 180_000);
+    }
+
+    /// Wie `start_turn`: Eingabe, Zug beginnt, Merker gehört zum Zug.
+    fn turn(state: &mut SessionState, text: &str) {
+        let mut outbox = Outbox::default();
+        let by_hand = state.push_user_turn(&mut outbox, text, Vec::new(), None, Vec::new(), None);
+        state.enter_running(&mut outbox, false, by_hand);
+    }
+
+    fn end(state: &mut SessionState) {
+        let mut outbox = Outbox::default();
+        state.end_turn(&mut outbox, TurnEnd::Completed, None, Vec::new(), None);
+    }
+
+    #[test]
+    fn a_compact_turn_by_hand_gives_no_answer_card() {
+        let mut state = state();
+        state.answer_at = Some(4.0);
+        state.answer_excerpt = Some("Auszug".to_owned());
+        turn(&mut state, "/compact");
+        assert_eq!(state.answer_at, Some(4.0), "die bestehende Karte bleibt");
+        assert_eq!(state.answer_excerpt.as_deref(), Some("Auszug"));
+        end(&mut state);
+        assert_eq!(state.answer_at, Some(4.0));
+        assert_eq!(state.answer_excerpt.as_deref(), Some("Auszug"));
+        // Ohne bestehende Karte entsteht keine.
+        let mut fresh = self::state();
+        turn(&mut fresh, "/compact");
+        end(&mut fresh);
+        assert_eq!(fresh.answer_at, None);
+        // Eine gewöhnliche Eingabe setzt sie weiter.
+        turn(&mut fresh, "weiter");
+        end(&mut fresh);
+        assert!(fresh.answer_at.is_some());
+    }
+
+    #[test]
+    fn a_failed_write_of_compact_leaves_the_next_turn_its_answer_card() {
+        let mut state = state();
+        turn(&mut state, "/compact");
+        // Das Schreiben scheiterte: `end_turn` lief nie. Der nächste Zug, etwa eine Session-Nachricht,
+        // beginnt ohne `push_user` und setzt den Merker zurück.
+        let mut outbox = Outbox::default();
+        state.enter_running(&mut outbox, false, false);
+        end(&mut state);
+        assert!(state.answer_at.is_some());
+    }
+
+    #[test]
+    fn the_reply_compact_to_a_question_keeps_the_answer_card_of_the_turn() {
+        let mut state = state();
+        turn(&mut state, "frag mich");
+        // Die Antwort auf die Rückfrage geht über `push_user` im laufenden Zug, nicht über `start_turn`.
+        let mut outbox = Outbox::default();
+        state.push_user(&mut outbox, "/compact", Vec::new(), None, Vec::new(), None);
+        end(&mut state);
+        assert!(state.answer_at.is_some());
+    }
+
+    #[test]
     fn the_compact_check_under_the_lock_asks_again() {
         let registry = registry_with_one_slot();
         let session = registry.get("m").expect("Session");
@@ -5447,7 +5616,7 @@ mod tests {
         state.status = SessionStatus::Completed;
         let mut outbox = Outbox::default();
         // Der Weg von `start_turn(.., TurnOrigin::Compact)` in den Zustand.
-        state.enter_running(&mut outbox, true);
+        state.enter_running(&mut outbox, true, false);
         assert_eq!(state.status, SessionStatus::Running);
         assert!(state.entries.is_empty(), "kein Benutzereintrag");
         assert_eq!(state.seen_at, 5.0);
@@ -5503,7 +5672,7 @@ mod tests {
             state.answer_at = Some(4.0);
             state.status = SessionStatus::Completed;
             let mut outbox = Outbox::default();
-            state.enter_running(&mut outbox, true);
+            state.enter_running(&mut outbox, true, false);
             let mut outbox = Outbox::default();
             state.end_turn(&mut outbox, end, None, Vec::new(), None);
             assert_eq!(state.status, SessionStatus::Completed, "ruht wie vorher");
@@ -5530,14 +5699,14 @@ mod tests {
         let mut state = state();
         state.status = SessionStatus::Completed;
         let mut outbox = Outbox::default();
-        state.enter_running(&mut outbox, true);
+        state.enter_running(&mut outbox, true, false);
         state.pause_requested = true;
         let mut outbox = Outbox::default();
         state.end_turn(&mut outbox, TurnEnd::Aborted, None, Vec::new(), None);
         assert_eq!(state.status, SessionStatus::Paused);
         assert!(!state.pause_requested);
         let mut outbox = Outbox::default();
-        state.enter_running(&mut outbox, false);
+        state.enter_running(&mut outbox, false, false);
         say(&mut state, &mut outbox, "Antwort");
         let mut outbox = Outbox::default();
         state.end_turn(&mut outbox, TurnEnd::Completed, None, Vec::new(), None);
@@ -5551,7 +5720,7 @@ mod tests {
         let mut state = state();
         state.status = SessionStatus::Completed;
         let mut outbox = Outbox::default();
-        state.enter_running(&mut outbox, true);
+        state.enter_running(&mut outbox, true, false);
         let mut outbox = Outbox::default();
         state.end_turn(&mut outbox, TurnEnd::Aborted, None, Vec::new(), None);
         assert_eq!(state.status, SessionStatus::Completed);
