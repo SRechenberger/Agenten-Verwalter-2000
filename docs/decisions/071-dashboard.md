@@ -12,7 +12,7 @@ Vom Benutzer entschieden (B1 bis B14, Nachtrag in der Story vom 2026-11-17):
 
 - **B1/B2:** Alles, was auf dich wartet, wird eine **Karte**; der Kern erzeugt sie aus seinen Zuständen, nicht die Oberfläche. Eine Aufforderung per Werkzeug gibt es nicht.
 - **B3/B4:** Die Arten und die Reihenfolge stehen unten; blockierende Karten (ein Agent hängt an der Antwort) kommen zuerst, „Fertig“ zuletzt, innerhalb einer Stufe die am längsten wartende vorn.
-- **B5:** Eine Karte verschwindet, wenn der Zustand dahinter endet. Karten aus Textantworten, Fehlern und Pausen einer Session gehen außerdem mit „Gelesen“; die Session zu öffnen genügt nicht.
+- **B5:** Eine Karte verschwindet, wenn der Zustand dahinter endet. Karten aus Textantworten, Fehlern und Pausen einer Session, auch „Unterbrochen“ und „Fehler“ einer Station mit Session, gehen außerdem mit „Gelesen“; die Session zu öffnen genügt nicht.
 - **B6:** Ein Modell ordnet die letzte Antwort ein (`asks`, `requests`, `done` samt Einzeiler); ohne Einordnung bleibt die Karte `answer` (Phase 102.2, Abschnitt „Einordnung“).
 - **B7/B8:** Stationen bekommen keine eingeordneten Karten; eine Antwort ohne Meldung geht an den Master („wartet auf Master“). Ein Fehler einer Station bleibt eine Karte für dich.
 - **B9:** Rechts stehen die Abläufe und die aktiven Sessions ohne Station.
@@ -29,7 +29,7 @@ Vom Architekten (D1 bis D18, hier die Teile des Kerns):
 
 ## Vertrag in Kürze
 
-`DashboardView { tasks, flows, sessions }` (ts-rs, `src/lib/bindings/Dashboard*.ts`). Eine Karte trägt eine stabile Kennung `<Art>:<Session|Umsetzung>[:<Station|Anfrage>]`, ihre Art, `blocking` (genau bei `question`, `permission`, `sessionTool`), `since`, den Titel, Vorhaben und Gruppe, Session, Umsetzung und Station mit ihrem Namen, die Anfrage mit ihrem Chat-Eintrag und bei „durch dich“ die Marke `released`. Die Zeiten zählen in ms seit der Epoche wie `last_activity_at`.
+`DashboardView { tasks, flows, sessions }` (ts-rs, `src/lib/bindings/Dashboard*.ts`). Eine Karte trägt eine stabile Kennung: `session:<Session>` für die Zustandskarte einer Session (ohne Art, sie bleibt beim Wechsel von `answer` zu `asks` gleich), sonst `<Art>:<Umsetzung|Session>[:<Station|Anfrage>]`, ihre Art, `blocking` (genau bei `question`, `permission`, `sessionTool`), `since`, den Titel, Vorhaben und Gruppe, Session, Umsetzung und Station mit ihrem Namen, die Anfrage mit ihrem Chat-Eintrag und bei „durch dich“ die Marke `released`. Die Zeiten zählen in ms seit der Epoche wie `last_activity_at`.
 
 ## Die Karten-Regeln
 
@@ -41,9 +41,9 @@ Vom Architekten (D1 bis D18, hier die Teile des Kerns):
 | `asks`, `requests`, `done` | Session ohne Station, `Completed`, kein wartendes Skript, kein wartender Subagent, `answer_at` und `answer_kind` gesetzt | `answer_at` | du schreibst oder „Gelesen“ |
 | `answer` | wie oben, `answer_kind` leer; Titel ist der Auszug | `answer_at` | wie oben |
 | `error` (Session) | Status `Error` | letzte Aktivität (`Error` schreibt sie) | der Fehler endet, „Gelesen“ |
-| `error` (Station) | Station im Fehler (`state` oder, bei einer fertigen oder gemeldeten Station, `live`), kein Neustart („Bei Fehler“) ansteht | letzte Aktivität der Session | der Fehler endet |
+| `error` (Station) | Station im Fehler (`state` oder, bei einer fertigen oder gemeldeten Station, `live`), kein Neustart („Bei Fehler“) ansteht | letzte Aktivität der Session | der Fehler endet, „Gelesen“ (nur mit Session) |
 | `paused` (Session) | Status `Paused`, kein scharfer Zeitgeber „Automatisch fortsetzen“ | Beginn der Ruhe (`idle_since`, nach App-Neustart letzte Aktivität) | sie läuft weiter, „Gelesen“ |
-| `paused` (Station) | Station wartet auf dich (`state` oder, bei einer fertigen oder gemeldeten Station, `live = waitsForYou`), mit oder ohne Meldung, Session pausiert ohne scharfen Zeitgeber | wie bei der Session | sie läuft weiter |
+| `paused` (Station) | Station wartet auf dich (`state` oder, bei einer fertigen oder gemeldeten Station, `live = waitsForYou`), mit oder ohne Meldung, Session pausiert ohne scharfen Zeitgeber | wie bei der Session | sie läuft weiter, „Gelesen“ |
 | `planChange`, `cancelRequest` | `pendingChange`, `pendingCancel` einer Umsetzung | Zeitpunkt des Vorschlags oder der Anfrage | übernommen, bestätigt oder verworfen |
 | `byYou` | Station „durch dich“ an der Reihe | letzte Aktivität der Umsetzung (Näherung: die jüngste Annahme eines Vorgängers) | erledigt |
 | `returnsExhausted` | gemeldete Station, keine Rückgabe übrig | Zeitpunkt der Meldung | angenommen oder zurückgegeben |
@@ -51,7 +51,7 @@ Vom Architekten (D1 bis D18, hier die Teile des Kerns):
 | `ready` | bereite Station, die nicht automatisch startet | letzte Aktivität der Umsetzung | gestartet |
 
 - Karten kommen nur aus eigenen, nicht archivierten Vorhaben; Vorhaben eines Hosts liegen nie in der Registry.
-- Eine Session-Karte ist sichtbar, solange `card_dismissed_at` fehlt oder vor `since` liegt.
+- Eine Karte mit Session ist sichtbar, solange `card_dismissed_at` fehlt oder vor `since` liegt; das gilt auch für `error` und `paused` einer Station mit Session (ein Startfehler ohne Session hat kein „Gelesen“). „Gelesen“ nimmt eine Stations-Karte nur aus `tasks`: `open` und `state` des Ablaufs zählen sie weiter mit.
 - Eine beendete oder abgebrochene Umsetzung hat keine Karten außer den Anfragen ihrer Sessions.
 - Reihenfolge: blockierende; dann `asks`, `requests`, `answer`, `planChange`, `cancelRequest`, `byYou`, `returnsExhausted`, `masterMissing`, `error`, `paused`; dann `ready`; zuletzt `done`. Je Stufe `since` aufsteigend, bei Gleichstand die Kennung.
 
@@ -153,13 +153,13 @@ Wortlaut und Eingabe wie die App (`answer-probe --texts`, 14 Beispiele: je vier 
 
 Gebaut in `src/features/dashboard/` (Phase 102.3). Die Oberfläche zeigt, was der Kern liefert: welche Karte es gibt, ihre Reihenfolge, `blocking`, `open` und den Zustand eines Ablaufs rechnet sie nicht nach.
 
-**Startansicht (B10).** `showDashboard` im Store `sessions` steht beim Start an; `openDashboard()` setzt es, und jeder andere Öffner (`selectSession`, `selectProject`, `selectImplementation`, `openNewSession`, `openNewSessionWith`, `openSettings`) setzt es zurück. `App.tsx` zählt das Dashboard wie „Neues Vorhaben“ und die Einstellungen zu den Seiten, die den Inhalt ersetzen: Keine Session ist dann sichtbar, und `useViewedSession` meldet keine. Die App markiert deshalb beim Start keine Session mehr als gelesen (Nachtrag in [ADR 019](019-letzte-aktivitaet-und-ungelesen.md)). Oben in der Leiste steht der Eintrag „Dashboard“ mit der Zahl **aller** Karten (nicht der gefilterten), bei 0 ohne Zahl; er sitzt außerhalb der virtualisierten Liste und hat die Höhe der Einträge darunter.
+**Startansicht (B10).** `showDashboard` im Store `sessions` steht beim Start an; `openDashboard()` setzt es, und jeder andere Öffner (`selectSession`, `selectProject`, `selectImplementation`, `openNewSession`, `openNewSessionWith`, `openSettings`) setzt es zurück. `App.tsx` zählt das Dashboard wie „Neues Vorhaben“ und die Einstellungen zu den Seiten, die den Inhalt ersetzen: Keine Session ist dann sichtbar, und `useViewedSession` meldet keine. Die App markiert deshalb beim Start keine Session mehr als gelesen (Nachtrag in [ADR 019](019-letzte-aktivitaet-und-ungelesen.md)). Im Fuß der Leiste steht rechts neben dem Chip der Warteschlange der Knopf „Dashboard“ (Raster-Symbol, ohne Schriftzug; `aria-label` und `title` nennen ihn) mit der Zahl **aller** Karten (nicht der gefilterten) in einer Pille, bei 0 ohne Pille; er bleibt auch ohne Chip an seinem Platz.
 
 **Warum das „Chat first“ nicht verletzt.** Das Dashboard ist eine Ansicht wie die Einstellungen, keine dauerhafte Fläche neben dem Chat: Ein Klick auf eine Session, ein Vorhaben oder eine Umsetzung verlässt sie, und sie nimmt dem Chat keinen Platz. Die Karten führen zum Chat oder erledigen eine Sache dort, wo sie sonst im Chat stünde.
 
 **Daten.** `useDashboard()` (einmal in `App.tsx`, Muster der Warteschlange) lädt `dashboard_get` beim Start und nach `session://changed`, `implementation://changed`, `implementation://removed`, `project://changed` und `project-group://changed`, entprellt 500 ms, eine Abfrage zugleich. Das Löschen einer Session sendet kein Ereignis; `handleSessionDeleted` ruft das Neuladen selbst, damit die Karte „Master ausgefallen“ sofort steht (Befund 2 der Abnahme 99.A). Vor dem ersten Laden zeigt die Ansicht keine Meldung „Gerade wartet niemand auf dich“.
 
-**Was im Zustand der Oberfläche lebt.** Die Daten selbst (`useDashboardStore.view`) sind der letzte Stand des Kerns. Nur die Ansicht hält „Gruppiert“ (aus), die Wahl nach Vorhaben, Art oder Gruppe, den Filter „Nur, was einen Agenten anhält“ und das offene Popup; nichts davon wird gespeichert (Critical Rule 3: Persistentes gehört in SQLite). Die Gruppen folgen der Reihenfolge, in der die erste Karte einer Gruppe beim Kern steht; in der Gruppe bleibt die Reihenfolge des Kerns. „Ohne Gruppe“ steht für Vorhaben ohne Gruppe. Die reine Logik (Beschriftungen, Gruppenschlüssel, Filter, Zählung, Alter, Zustandstexte, letzte Antwort) steht in `dashboardTexts.ts` und hat ihren Selbsttest.
+**Was im Zustand der Oberfläche lebt.** Die Daten selbst (`useDashboardStore.view`) sind der letzte Stand des Kerns. Nur die Ansicht hält „Gruppiert“ (aus), die Wahl nach Vorhaben, Art oder Gruppe, den Filter „Nur, was einen Agenten anhält“ (`blocking` oder `paused`, Reihenfolge des Kerns) und das offene Popup; nichts davon wird gespeichert (Critical Rule 3: Persistentes gehört in SQLite). Die Gruppen folgen der Reihenfolge, in der die erste Karte einer Gruppe beim Kern steht; in der Gruppe bleibt die Reihenfolge des Kerns. „Ohne Gruppe“ steht für Vorhaben ohne Gruppe. Die reine Logik (Beschriftungen, Gruppenschlüssel, Filter, Zählung, Alter, Zustandstexte, letzte Antwort) steht in `dashboardTexts.ts` und hat ihren Selbsttest.
 
 **Popups je Art.** Ein Klick auf eine Karte öffnet ein `Dialog` mit den Bausteinen, die Chat und Umsetzung schon haben; jedes Popup hat links „Session öffnen“ bzw. „Umsetzung öffnen“.
 
@@ -172,12 +172,12 @@ Gebaut in `src/features/dashboard/` (Phase 102.3). Die Oberfläche zeigt, was de
 | `byYou` | Auftrag der Station, Ergebnis nach Wahl, „Erledigt“; „✓ vom Master freigegeben“ bei `released` |
 | `returnsExhausted` | `StationReportSection` (Annehmen oder Zurückgeben) |
 | `masterMissing` | `MasterWarning` und `MasterPicker` |
-| `error` | Fehlertext, „Agent neu starten“; bei einer Session ohne Station „Gelesen“ |
-| `paused` | Grund, „Fortsetzen“; bei einer Session ohne Station „Gelesen“ |
+| `error` | Fehlertext, „Agent neu starten“; „Gelesen“, wo die Karte eine Session hat (bei einer Station mit Hinweis, dass der Ablauf bleibt) |
+| `paused` | Grund, „Fortsetzen“; „Gelesen“ wie bei `error` |
 | `ready` | „▶ Jetzt starten“ |
-| `asks`, `requests`, `done`, `answer` | Hinweis „✦ eingeordnet als …“ oder „nicht eingeordnet“, letzte Antwort und die Nachricht davor aus `chat_history`, Antwortfeld mit „Senden“ (gesperrt bei leerem Text oder nur Leerzeichen) und „Gelesen“ (`dashboard_dismiss`) |
+| `asks`, `requests`, `done`, `answer` | Hinweis „✦ eingeordnet als …“ oder „nicht eingeordnet“, letzte Antwort und die Nachricht davor aus `chat_history` (als Markdown wie im Chat, Tabellen scrollen waagerecht, Dateilinks gehen mit der Session der Karte), Antwortfeld mit „Senden“ (gesperrt bei leerem Text oder nur Leerzeichen) und „Gelesen“ (`dashboard_dismiss`) |
 
-Esc schließt nur das Popup (`Dialog` verbraucht die Taste in der Capture-Phase) und pausiert keine Session. Knöpfe, die schreiben, beachten die Sperren der Fernsteuerung. Liefert der Kern die Karte nicht mehr, weil die Sache anderswo erledigt wurde, schließt sich das Popup; der Filter schließt es nicht.
+Esc schließt nur das Popup (`Dialog` verbraucht die Taste in der Capture-Phase) und pausiert keine Session. Knöpfe, die schreiben, beachten die Sperren der Fernsteuerung. Liefert der Kern die Karte nicht mehr, weil die Sache anderswo erledigt wurde, schließt sich das Popup; der Filter schließt es nicht. Wechselt nur die Art einer Session-Karte, bleibt ihre Kennung und das Popup offen.
 
 **Aufforderungen im Chat (Phase 128.1).** Der Chat zeigt die Karten seiner Session aus derselben Quelle (`useDashboardStore.view`, gefiltert nach `sessionId`, Reihenfolge des Kerns) und rechnet nichts nach: **A** eine Leiste in `chat-view__top` unter der TL;DR (höchstens drei Zeilen, darunter „+ n weitere“, das das Dashboard öffnet), **B** Rahmen und Kopfzeile an der letzten Antwort bei `asks`, `requests`, `answer`, `done`, **C** eine Zeile im Eingabefeld für die erste Karte. Der Hinweis am Eingabefeld zeigt ‚Gelesen‘ oder ‚Öffnen‘ nach den Regeln der Leiste; nur bei einer offenen Anfrage (Rückfrage, Rechte-Abfrage) zeigt er ‚Zur Stelle‘, weil V128 dafür keinen anderen Knopf nennt. Knöpfe in A: „Zur Stelle“ (Eintrag der Anfrage oder letzte Antwort), „Öffnen“ (`TaskPopup`) und „Gelesen“ (`dismissCard`, nur bei Session-Karten ohne Station). Alles verschwindet mit der Karte, gleich wo sie erledigt wird. Die reine Logik steht in `src/features/chat/chatTasks.ts` mit Selbsttest. Kein neuer Befehl, keine neue Bindung.
 

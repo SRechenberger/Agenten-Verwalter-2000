@@ -18,4 +18,12 @@
 
 ## Offen: Stelle des Dashboard-Knopfs
 
-Variante D (Vorschlag): Zahl und Quadrate rechts in der Kopfzeile der Marke. Sie spart eine Zeile, ist immer sichtbar und lässt „Neues Vorhaben“ an seinem Platz. **Es gilt:** noch keine, der Nutzer wählt.
+Variante D (Vorschlag): Zahl und Quadrate rechts in der Kopfzeile der Marke. Sie spart eine Zeile, ist immer sichtbar und lässt „Neues Vorhaben“ an seinem Platz.
+
+**Es gilt:** C (Wahl des Nutzers, 2026-11-20). Festlegungen des Architekten, die das Mockup nicht zeigt:
+- Der Eintrag „Dashboard“ unter „Neues Vorhaben“ entfällt; der Knopf steht im Fuß der Leiste, links der Chip der Warteschlange, rechts der Knopf.
+- Ohne Karten bleibt der Knopf stehen, nur mit dem Symbol, ohne Pille und Zahl.
+- Ist die Warteschlange leer, fehlt ihr Chip; der Knopf behält seinen Platz rechts.
+- Ohne Schriftzug tragen `aria-label` und `title` den Namen: „Dashboard“, mit Karten „Dashboard – N Aufgaben warten auf dich“. Ist das Dashboard offen, gilt `aria-current="page"` mit Hervorhebung.
+- Die Zahl bleibt die aller offenen Karten, nicht der gefilterten.
+- Die Karte „Fehler“ einer Station bekommt unter „Gelesen“ denselben Hinweis wie „Unterbrochen“.
