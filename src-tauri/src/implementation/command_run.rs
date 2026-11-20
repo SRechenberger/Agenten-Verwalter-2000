@@ -54,15 +54,22 @@ pub fn stop_all(wait: Duration) {
     }
 }
 
-/// Beim Ende der App startet kein neuer Schritt: Die Station bliebe sonst „läuft“ mit einem Prozess, den
-/// niemand mehr beendet.
-fn refuse_while_shutting_down() -> Result<(), CommandError> {
+/// Trägt den Lauf ein, es sei denn, die App endet oder die Station läuft schon. Prüfen und Eintragen
+/// geschehen unter einer Sperre: `stop_all` setzt das Zeichen vor der Sperre, also sieht ein späterer
+/// Start es, und jeder frühere Lauf steht schon im Verzeichnis, wenn `stop_all` es liest.
+fn register_run(station_id: &str) -> Result<Arc<AtomicBool>, CommandError> {
+    let mut runs = lock_running();
     if SHUTTING_DOWN.load(Ordering::SeqCst) {
         return Err(CommandError::Implementation(
             "Die App wird beendet.".to_owned(),
         ));
     }
-    Ok(())
+    if runs.contains_key(station_id) {
+        return Err(CommandError::Implementation(ALREADY_RUNNING.to_owned()));
+    }
+    let stop = Arc::new(AtomicBool::new(false));
+    runs.insert(station_id.to_owned(), Arc::clone(&stop));
+    Ok(stop)
 }
 
 /// Ob die Station dieser Umsetzung eine Befehls-Station ist.
@@ -136,7 +143,6 @@ pub(super) fn start_command(
     station_id: &str,
     trigger: Trigger,
 ) -> Result<(), CommandError> {
-    refuse_while_shutting_down()?;
     let registry = app.state::<SessionRegistry>();
     let view = registry.implementation_view(implementation_id)?;
     if let Some(reason) = is_held(&view) {
@@ -177,11 +183,18 @@ pub(super) fn start_command(
             return Err(CommandError::Implementation(reason));
         }
     };
-    let stop = Arc::new(AtomicBool::new(false));
-    if !registry.begin_command(station_id)? {
-        return Err(CommandError::Implementation(ALREADY_RUNNING.to_owned()));
+    let stop = register_run(station_id)?;
+    match registry.begin_command(station_id) {
+        Ok(true) => {}
+        Ok(false) => {
+            lock_running().remove(station_id);
+            return Err(CommandError::Implementation(ALREADY_RUNNING.to_owned()));
+        }
+        Err(error) => {
+            lock_running().remove(station_id);
+            return Err(error);
+        }
     }
-    lock_running().insert(station_id.to_owned(), Arc::clone(&stop));
     let thread_app = app.clone();
     let thread_implementation = implementation_id.to_owned();
     let thread_station = station_id.to_owned();
@@ -398,14 +411,44 @@ mod tests {
         thread::sleep(Duration::from_secs(120));
     }
 
+    /// Die Tests setzen `SHUTTING_DOWN` im selben Prozess; sie laufen hintereinander unter dieser Sperre.
+    static SERIAL: Mutex<()> = Mutex::new(());
+
     #[test]
-    fn no_step_starts_while_the_app_shuts_down() {
+    fn no_run_is_registered_while_the_app_shuts_down() {
+        let _serial = SERIAL
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         SHUTTING_DOWN.store(true, Ordering::SeqCst);
-        assert!(refuse_while_shutting_down().is_err());
+        let refused = register_run("register-refused-test");
+        SHUTTING_DOWN.store(false, Ordering::SeqCst);
+        assert!(refused.is_err());
+        assert!(!lock_running().contains_key("register-refused-test"));
+    }
+
+    #[test]
+    fn stop_all_finds_a_registered_run_and_stops_it() {
+        let _serial = SERIAL
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        SHUTTING_DOWN.store(false, Ordering::SeqCst);
+        let stop = register_run("register-found-test").expect("Eintrag");
+        assert!(register_run("register-found-test").is_err());
+        let remover = thread::spawn(|| {
+            thread::sleep(Duration::from_millis(100));
+            lock_running().remove("register-found-test");
+        });
+        stop_all(Duration::from_secs(10));
+        SHUTTING_DOWN.store(false, Ordering::SeqCst);
+        remover.join().expect("Thread");
+        assert!(stop.load(Ordering::SeqCst), "stop_all fand den Lauf nicht");
     }
 
     #[test]
     fn stop_all_ends_a_running_step_before_the_app_ends() {
+        let _serial = SERIAL
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         let step = vec![
             std::env::current_exe()
                 .expect("Pfad der Test-Exe")
@@ -432,6 +475,7 @@ mod tests {
         });
         thread::sleep(Duration::from_millis(500));
         stop_all(Duration::from_secs(10));
+        SHUTTING_DOWN.store(false, Ordering::SeqCst);
         let emptied = lock_running().is_empty();
         // Räumt den Kindprozess auch dann ab, wenn `stop_all` versagt hat.
         stop.store(true, Ordering::SeqCst);
