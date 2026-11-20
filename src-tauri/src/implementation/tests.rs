@@ -6698,6 +6698,15 @@ fn marking_a_station_with_a_start_error_done_is_allowed() {
 }
 
 #[test]
+fn a_failed_command_station_can_be_marked_done() {
+    let mut row = command_node("s", &[], &["gh pr merge 1"]);
+    row.start_error = Some("Programm fehlt".to_owned());
+    let view = marking_view(row, None);
+    assert_eq!(view.phases[0].stations[0].kind, model::StationKind::Command);
+    assert!(may_mark(&view));
+}
+
+#[test]
 fn marking_is_refused_while_a_restart_is_pending() {
     let row = StationRow {
         on_error: OnError::RestartOnce,
@@ -6746,7 +6755,7 @@ fn marking_is_refused_for_running_done_by_you_or_cancelled() {
         Some(MARK_DONE_REFUSED)
     );
     let by_user = StationRow {
-        by_user: true,
+        kind: model::StationKind::User,
         start_error: Some("x".to_owned()),
         ..station_row("s", 0, "Umsetzung")
     };
@@ -6940,6 +6949,7 @@ fn the_mark_done_command_is_classified_with_the_implementation_id() {
             .any(|target| target.kind == IdKind::Implementation && target.value == "impl"),
         "{ids:?}"
     );
+}
 
 // Befehls-Stationen (ADR 073).
 

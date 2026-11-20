@@ -67,9 +67,8 @@ use verwalter_lib::implementation::slots::{self, Start};
 use verwalter_lib::implementation::{
     Countdowns, Finish, STATION_BEGUN, SessionLive, amended_brief_changes, arms_on_new_pause,
     build_view, changes, checked_options, checked_settings, command, continues_after_quota,
-    handoff_changes,
-    kept_phases, link, new_rows, now_ms, plan_completion, plan_completion_with_types, report,
-    schedule, start, store_finish, wake,
+    handoff_changes, kept_phases, link, new_rows, now_ms, plan_completion,
+    plan_completion_with_types, report, schedule, start, store_finish, wake,
 };
 use verwalter_lib::projects::model::ProjectPriority;
 use verwalter_lib::remote::RemoteControl;

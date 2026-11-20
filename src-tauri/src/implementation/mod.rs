@@ -35,8 +35,8 @@ use model::{
     ImplementationRemovedEvent, ImplementationView, MAX_BRIEF_CHARS, MAX_PROMPT_CHARS,
     MAX_RETURN_CHARS, MAX_SKILL_CHARS, MAX_STATION_RESULT_CHARS, OnError, PendingCancel,
     PendingChange, PhaseInput, PhaseView, PredecessorsMay, StationInput, StationKind,
-    StationOptions, StationPause, StationPauseReason, StationReport, StationSettings,
-    StationState, StationView, StoredReport, check_length,
+    StationOptions, StationPause, StationPauseReason, StationReport, StationSettings, StationState,
+    StationView, StoredReport, check_length,
 };
 
 pub const IMPLEMENTATION_CHANGED_EVENT: &str = "implementation://changed";
@@ -496,8 +496,8 @@ pub fn complete_station_with_handoff(
 
 /// Braucht der Abschluss die gespeicherte Meldung? Eine Station des Agenten schon, „Erledigt“ einer
 /// Station des Benutzers, eine Befehls-Station und „Als fertig markieren“ (`by_hand`) nicht.
-fn needs_report(by_hand: bool, kind: StationKind) -> bool {
-    !by_hand && kind == StationKind::Agent
+fn needs_report(by_hand: bool, not_agent: bool) -> bool {
+    !by_hand && !not_agent
 }
 
 /// Eine Änderung des Auftrags eines Nachfolgers: (Station, Plan-Kennung, Änderung).
@@ -521,7 +521,8 @@ pub fn store_finish(
         .map_err(CommandError::Implementation)?;
     let needs_report = needs_report(
         finish.by_hand,
-        find_station(view, station_id).is_some_and(|(_, station): (_, &StationView)| station.kind),
+        find_station(view, station_id)
+            .is_some_and(|(_, station): (_, &StationView)| station.kind != StationKind::Agent),
     );
     if !registry.store_station_completion(station_id, &finish.result, &followups, needs_report)? {
         return Err(CommandError::Implementation(ALREADY_DECIDED.to_owned()));
