@@ -99,6 +99,8 @@ export const PURPOSE_COMMAND_TEXT =
   '– führt die Schritte nacheinander aus, ohne Agent und ohne Modell.';
 export const START_NOW_LABEL = '▶ Jetzt starten';
 export const START_NOW_TITLE = 'Startet diese Station sofort als neue Session';
+export const RESTART_COMMAND_TITLE = 'Startet die Schritte von vorn';
+export const START_NOW_COMMAND_TITLE = 'Startet die Befehle dieser Station sofort';
 export const CANCEL_COUNTDOWN_LABEL = 'Abbrechen';
 export const CANCEL_COUNTDOWN_TITLE = 'Hält den Countdown an; die Station bleibt bereit';
 export const DONE_BY_USER_RESULT = 'vom Benutzer erledigt';

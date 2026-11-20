@@ -35,6 +35,7 @@ import {
 import {
   isCommandStation,
   stageText,
+  stepPrograms,
   stepsSummary,
   stepsTitle,
 } from '@/features/implementation/commandStation';
@@ -319,6 +320,11 @@ export function PlanChangeCard({
               title={stepsTitle(station.command)}
             >
               {stepsSummary(station.command)}
+            </p>
+          )}
+          {station.command !== null && (
+            <p className="station-card__hint">
+              Programme: {stepPrograms(station.command).join(', ')}
             </p>
           )}
           {station.fields === 'brief' && brief}

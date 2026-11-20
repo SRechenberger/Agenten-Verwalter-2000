@@ -10,7 +10,6 @@ interface StationCommandSectionProps {
   station: StationView;
   isLocked: boolean;
   run: ActionError['run'];
-  onStart: (stationId: string) => void;
 }
 
 const COMMAND_LABEL = 'Befehl';
@@ -18,20 +17,17 @@ const OUTPUT_LABEL = 'Ausgabe';
 const STOP_LABEL = 'Abbrechen';
 const STOP_TITLE = 'Beendet den laufenden Schritt; die Station endet im Fehler „abgebrochen“';
 const STOP_FAILED = 'Der Befehl ließ sich nicht abbrechen.';
-const RESTART_LABEL = '▶';
-const RESTART_TITLE = 'Startet die Schritte von vorn';
 const VALUES_HINT =
   'Eingesetzte Werte der Vorgänger; {{env:…}} setzt der Verwalter erst beim Start ein.';
 
 /** „Befehl“ der Kartei (ADR 073): die Schritte mit eingesetzten Werten (`resolved`, sonst die Vorlage), der
- *  laufende Schritt, die Ausgabe in Monospace, „Abbrechen“ während `running` und ▶ nach `error`. Zeigt nur,
+ *  laufende Schritt, die Ausgabe in Monospace, „Abbrechen“ während `running`. Zeigt nur,
  *  was der Kern liefert; die Station wird hier nicht angelegt oder geändert. */
 export function StationCommandSection({
   implementationId,
   station,
   isLocked,
   run,
-  onStart,
 }: StationCommandSectionProps): ReactElement {
   const steps: readonly string[] = station.resolved ?? station.command ?? [];
   const outputRef = useRef<HTMLPreElement>(null);
@@ -69,34 +65,19 @@ export function StationCommandSection({
           {station.output}
         </pre>
       )}
-      {(station.state === 'running' || station.state === 'error') && (
+      {station.state === 'running' && (
         <div className="station-card__actions">
-          {station.state === 'running' && (
-            <button
-              type="button"
-              className="station-card__button"
-              title={STOP_TITLE}
-              disabled={isLocked}
-              onClick={(): void => {
-                run(() => stopStationCommand(implementationId, station.id), STOP_FAILED);
-              }}
-            >
-              {STOP_LABEL}
-            </button>
-          )}
-          {station.state === 'error' && (
-            <button
-              type="button"
-              className="station-card__button station-card__button--primary"
-              title={RESTART_TITLE}
-              disabled={isLocked}
-              onClick={(): void => {
-                onStart(station.id);
-              }}
-            >
-              {RESTART_LABEL}
-            </button>
-          )}
+          <button
+            type="button"
+            className="station-card__button"
+            title={STOP_TITLE}
+            disabled={isLocked}
+            onClick={(): void => {
+              run(() => stopStationCommand(implementationId, station.id), STOP_FAILED);
+            }}
+          >
+            {STOP_LABEL}
+          </button>
         </div>
       )}
     </section>

@@ -25,6 +25,8 @@ import {
   START_FAILED_HINT,
   START_FAILED_LEAD,
   START_NOW_LABEL,
+  RESTART_COMMAND_TITLE,
+  START_NOW_COMMAND_TITLE,
   START_NOW_TITLE,
 } from '@/features/implementation/implementationTexts';
 import { StationAgentSection } from '@/features/implementation/StationAgentSection';
@@ -215,13 +217,26 @@ export function StationCard({
           <button
             type="button"
             className="station-card__button station-card__button--primary"
-            title={START_NOW_TITLE}
+            title={isCommand ? START_NOW_COMMAND_TITLE : START_NOW_TITLE}
             disabled={isLocked}
             onClick={(): void => {
               onStart(station.id);
             }}
           >
             {START_NOW_LABEL}
+          </button>
+        )}
+        {isCommand && station.state === 'error' && (
+          <button
+            type="button"
+            className="station-card__button station-card__button--primary"
+            title={RESTART_COMMAND_TITLE}
+            disabled={isLocked}
+            onClick={(): void => {
+              onStart(station.id);
+            }}
+          >
+            ▶
           </button>
         )}
         {station.state === 'countdown' && (
@@ -314,7 +329,6 @@ export function StationCard({
           station={station}
           isLocked={isLocked}
           run={run}
-          onStart={onStart}
         />
       )}
       {renderActions()}

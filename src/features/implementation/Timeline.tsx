@@ -199,7 +199,7 @@ export function Timeline({
   function renderMeta(station: StationView): ReactElement {
     if (isCommandStation(station) && station.command !== null) {
       return (
-        <span className="timeline__meta" title={stepsTitle(station.command)}>
+        <span className="timeline__meta timeline__meta--steps" title={stepsTitle(station.command)}>
           {stepsSummary(station.command)}
         </span>
       );

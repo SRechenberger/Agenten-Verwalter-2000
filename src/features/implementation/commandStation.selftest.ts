@@ -6,6 +6,7 @@ import {
   programNameProblem,
   shortStep,
   stageText,
+  stepPrograms,
   stepProgress,
   stepsSummary,
   stepsTitle,
@@ -52,6 +53,10 @@ const cases: [string, boolean][] = [
   [
     'ohne Fehler kein Startfehler',
     !isStartFailure({ kind: 'agent', state: 'ready', startError: null }),
+  ],
+  [
+    'Programme der Schritte: je Programm einmal',
+    stepPrograms(['gh pr checks 1', 'gh pr merge 1', 'glab mr list']).join(',') === 'gh,glab',
   ],
 ];
 

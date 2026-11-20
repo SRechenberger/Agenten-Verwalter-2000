@@ -34,6 +34,14 @@ export function stepsSummary(steps: readonly string[]): string {
   return steps.map((step: string) => shortStep(step)).join(' · ');
 }
 
+/** Die Programme der Schritte (erstes Wort), je Programm einmal, in der Reihenfolge des ersten Auftretens. */
+export function stepPrograms(steps: readonly string[]): string[] {
+  const names: string[] = steps.map((step: string) => step.trim().split(/\s+/)[0] ?? '');
+  return names.filter(
+    (name: string, index: number) => name !== '' && names.indexOf(name) === index,
+  );
+}
+
 /** Alle Schritte ganz, einer je Zeile, nummeriert: für den Tooltip. */
 export function stepsTitle(steps: readonly string[]): string {
   return steps.map((step: string, index: number) => `${String(index + 1)}. ${step}`).join('\n');
