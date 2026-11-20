@@ -100,6 +100,28 @@ pub fn delete(connection: &Connection, id: i64) -> Result<(), CommandError> {
     Ok(())
 }
 
+/// Löscht die wartenden Weck-Zeilen des Verwalters zu dieser Station aus dem Posteingang des Masters
+/// ihrer Umsetzung (ADR 070): Eine angenommene oder zurückgegebene Meldung verfällt. Die Station
+/// steht nur im Text, als `(station_id: <ID>)` oder, beim Unterbrochen-Hinweis, `(station_id: <ID>, …)`;
+/// der Absender `verwalter` ist `implementation::wake::sender`. Nachrichten des Benutzers und anderer
+/// Sessions und die Zeilen anderer Stationen bleiben.
+pub fn delete_wakes_of_station(
+    connection: &Connection,
+    station_id: &str,
+) -> Result<(), CommandError> {
+    connection.execute(
+        "DELETE FROM session_inbox \
+         WHERE sender_id = 'verwalter' \
+           AND session_id = (SELECT i.master_session_id FROM implementation_stations s \
+                JOIN implementation_phases p ON p.id = s.phase_id \
+                JOIN implementations i ON i.id = p.implementation_id WHERE s.id = ?1) \
+           AND (instr(text, '(station_id: ' || ?1 || ')') > 0 \
+                OR instr(text, '(station_id: ' || ?1 || ',') > 0)",
+        params![station_id],
+    )?;
+    Ok(())
+}
+
 /// Wartet im Posteingang der Session eine Nachricht von diesem Absender, die ab `since` (ms) einging.
 pub fn has_from_since(
     connection: &Connection,

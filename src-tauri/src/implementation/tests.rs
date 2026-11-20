@@ -6,10 +6,11 @@ use crate::agents::event::ModelId;
 use std::path::Path;
 
 use crate::agent_types::model::{AgentTypeInput, AgentValueSource};
+use crate::agents::event::SessionRef;
 use crate::artifacts::tools::ArtifactTools;
 use crate::db::implementations::{self as implementation_rows, ImplementationRow, PhaseRow};
 use crate::db::sessions::{self as session_rows, SessionRow};
-use crate::db::{Database, agent_types as agent_type_rows};
+use crate::db::{Database, agent_types as agent_type_rows, session_inbox};
 use crate::error::CommandError;
 use crate::mcp_access::tools::{ToolCall, ToolResult, ToolSet, ToolSpec};
 use crate::mcp_access::{Caller, ProcessKind, rpc};
@@ -6099,6 +6100,141 @@ fn two_acceptances_and_an_acceptance_after_a_return_write_only_once() {
     assert!(stored_stations(&returned)[0].completed_at.is_none());
 }
 
+/// Der echte Weck-Text einer Meldung dieser Station, wie `wake::decide` ihn schreibt.
+fn wake_text(event: &wake::WakeEvent) -> String {
+    let facts = wake::WakeFacts {
+        implementation: "Umsetzung".to_owned(),
+        lane: "K".to_owned(),
+        stage: "Umsetzung".to_owned(),
+        text: "PR offen".to_owned(),
+        note: "Notiz an den Master".to_owned(),
+    };
+    wake::decide(event, &facts, true, &mut HashSet::new()).expect("eine Nachricht")
+}
+
+fn reported_event(station_id: &str) -> wake::WakeEvent {
+    wake::WakeEvent::Reported {
+        station_id: station_id.to_owned(),
+        returns: 0,
+        turn: 1,
+        fix_needed: false,
+    }
+}
+
+/// Eine Datenbank mit der Meldung von `s` und der offenen Station `t`; `session` ist der Master. Im
+/// Posteingang des Masters warten die Weck-Zeilen von `s` (Meldung und Unterbrochen) und von `t`, dazu
+/// eine Nachricht des Benutzers und eine einer anderen Session, die `s` nennt.
+fn database_with_waiting_wakes() -> Database {
+    let database = database_with(&[reported_row(0), station_row("t", 1, "Review")]);
+    let interrupted = wake::WakeEvent::Interrupted {
+        station_id: "s".to_owned(),
+        returns: 0,
+        session: "Session #2, ID x".to_owned(),
+    };
+    database
+        .with(|connection| {
+            implementation_rows::set_master(connection, "implementation", "session")?;
+            let rows = [
+                (wake::sender(), wake_text(&reported_event("s"))),
+                (wake::sender(), wake_text(&interrupted)),
+                (wake::sender(), wake_text(&reported_event("t"))),
+                (
+                    wake::sender(),
+                    "Meldung des Verwalters: Die Umsetzung ist fertig.".to_owned(),
+                ),
+                (
+                    SessionRef {
+                        id: "other".to_owned(),
+                        number: 2,
+                        title: "Andere".to_owned(),
+                    },
+                    "Ich habe (station_id: s) gesehen.".to_owned(),
+                ),
+            ];
+            for (created_at, (sender, text)) in
+                [10.0, 11.0, 12.0, 13.0, 14.0].into_iter().zip(&rows)
+            {
+                session_inbox::insert(connection, "session", sender, text, 0, created_at)?;
+            }
+            Ok(())
+        })
+        .expect("schreibbar");
+    database
+}
+
+fn waiting_texts(database: &Database) -> Vec<String> {
+    let mut texts = Vec::new();
+    while let Some(row) = database
+        .with(|connection| session_inbox::oldest(connection, "session"))
+        .expect("lesbar")
+    {
+        texts.push(row.text);
+        database
+            .with(|connection| session_inbox::delete(connection, row.id))
+            .expect("schreibbar");
+    }
+    texts
+}
+
+#[test]
+fn accepting_or_returning_a_report_drops_the_waiting_wake_rows_of_that_station_only() {
+    let stays = |texts: &[String]| {
+        assert_eq!(texts.len(), 3, "{texts:?}");
+        assert!(texts[0].contains("(station_id: t)"), "andere Station");
+        assert!(texts[1].contains("fertig"), "Weck-Zeile ohne Station");
+        assert!(texts[2].starts_with("Ich habe"), "Nachricht einer Session");
+    };
+    let accepted = database_with_waiting_wakes();
+    assert!(
+        accepted
+            .with(
+                |connection| implementation_rows::accept_station_with_followups(
+                    connection,
+                    "s",
+                    3.0,
+                    "PR offen",
+                    &[],
+                    true,
+                )
+            )
+            .expect("schreibbar")
+    );
+    stays(&waiting_texts(&accepted));
+    let returned = database_with_waiting_wakes();
+    assert!(
+        returned
+            .with(|connection| implementation_rows::return_report(connection, "s", 0))
+            .expect("schreibbar")
+    );
+    stays(&waiting_texts(&returned));
+}
+
+#[test]
+fn a_refused_acceptance_or_return_leaves_the_wake_rows_waiting() {
+    let database = database_with_waiting_wakes();
+    // Ein alter Stand der Rückgaben und eine Station ohne Meldung treffen keine Zeile.
+    assert!(
+        !database
+            .with(|connection| implementation_rows::return_report(connection, "s", 7))
+            .expect("schreibbar")
+    );
+    assert!(
+        !database
+            .with(
+                |connection| implementation_rows::accept_station_with_followups(
+                    connection,
+                    "t",
+                    3.0,
+                    "x",
+                    &[],
+                    true,
+                )
+            )
+            .expect("schreibbar")
+    );
+    assert_eq!(waiting_texts(&database).len(), 5);
+}
+
 #[test]
 fn release_marks_only_an_open_station_by_you() {
     let mut by_user = station_row("user", 0, "Merge");
@@ -6179,6 +6315,78 @@ fn the_accept_answer_says_accepted_and_names_the_started_successors() {
         REPORTED_ANSWER.starts_with("Gemeldet.")
             && REPORTED_ANSWER.contains("Dein Master entscheidet")
     );
+}
+
+/// Legt eine weitere Umsetzung des Vorhabens an, mit `master` und, wenn `cancelled`, abgebrochen.
+fn add_implementation(
+    database: &Database,
+    id: &str,
+    created_at: f64,
+    master: &str,
+    cancelled: bool,
+) {
+    database
+        .with(|connection| {
+            let row = ImplementationRow {
+                id: id.to_owned(),
+                created_at,
+                master_session_id: Some(master.to_owned()),
+                ..implementation_row()
+            };
+            let phase = PhaseRow {
+                id: format!("phase-{id}"),
+                implementation_id: id.to_owned(),
+                ..phase_row()
+            };
+            implementation_rows::insert(connection, &row, &[phase], &[])?;
+            if cancelled {
+                implementation_rows::cancel(connection, id, created_at + 0.5)?;
+            }
+            Ok(())
+        })
+        .expect("schreibbar");
+}
+
+#[test]
+fn a_master_gets_its_open_implementation_not_a_cancelled_one() {
+    use crate::sessions::registry::SessionRegistry;
+    let database = std::sync::Arc::new(database_with(&[]));
+    add_implementation(&database, "open", 2.0, "session", false);
+    add_implementation(&database, "cancelled", 3.0, "session", true);
+    add_implementation(&database, "foreign", 4.0, "other", false);
+    let registry = SessionRegistry::new(
+        std::sync::Arc::clone(&database),
+        std::sync::Arc::new(crate::remote::RemoteControl::default()),
+    );
+    let chosen = |session_id: &str| {
+        registry
+            .implementation_of_session(session_id)
+            .expect("lesbar")
+            .map(|view: ImplementationView| view.id)
+    };
+    // Ohne Station: die neueste offene des Masters, auch gegen eine neuere abgebrochene und fremde.
+    registry.add_session_for_test("session", "project", SessionStatus::Completed);
+    assert_eq!(chosen("session").as_deref(), Some("open"));
+    // Mit einer Station an einer abgebrochenen Umsetzung: die offene, die sie führt, gewinnt.
+    registry.add_station_session_for_test(
+        "station",
+        "project",
+        "cancelled",
+        SessionStatus::Completed,
+    );
+    add_implementation(&database, "own", 5.0, "station", false);
+    assert_eq!(chosen("station").as_deref(), Some("own"));
+    // Ohne eine offene Umsetzung als Master gilt wie bisher (ADR 048): die der Station, sonst die
+    // neueste des Vorhabens.
+    registry.add_station_session_for_test(
+        "plain-station",
+        "project",
+        "open",
+        SessionStatus::Completed,
+    );
+    assert_eq!(chosen("plain-station").as_deref(), Some("open"));
+    registry.add_session_for_test("plain", "project", SessionStatus::Completed);
+    assert_eq!(chosen("plain").as_deref(), Some("own"));
 }
 
 #[test]

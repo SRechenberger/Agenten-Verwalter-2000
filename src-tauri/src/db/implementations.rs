@@ -5,7 +5,7 @@ use rusqlite::{Connection, OptionalExtension, Row, params};
 
 use crate::agent_types::name_key;
 use crate::agents::event::{Effort, ModelId};
-use crate::db::{enum_from_text, enum_to_text};
+use crate::db::{enum_from_text, enum_to_text, session_inbox};
 use crate::error::CommandError;
 use crate::implementation::edit::EditedPlan;
 use std::collections::BTreeMap;
@@ -337,6 +337,24 @@ pub fn unfinished_of_project(
              WHERE project_id = ?1 AND finished_at IS NULL ORDER BY created_at DESC LIMIT 1",
             params![project_id],
             |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .optional()?;
+    Ok(found)
+}
+
+/// Die neueste Umsetzung ohne Ende (weder fertig noch abgebrochen; ein Abbruch setzt auch `finished_at`),
+/// die die Session als Master führt (ADR 048, ADR 070).
+pub fn latest_open_led_by(
+    connection: &Connection,
+    session_id: &str,
+) -> Result<Option<String>, CommandError> {
+    let found = connection
+        .query_row(
+            "SELECT id FROM implementations WHERE master_session_id = ?1 \
+             AND finished_at IS NULL AND cancelled_at IS NULL \
+             ORDER BY created_at DESC LIMIT 1",
+            params![session_id],
+            |row| row.get(0),
         )
         .optional()?;
     Ok(found)
@@ -773,6 +791,7 @@ pub fn accept_station_with_followups(
     if changed != 1 {
         return Ok(false);
     }
+    session_inbox::delete_wakes_of_station(&transaction, station_id)?;
     if !followups.is_empty() {
         let (phase_id, position, plan_id): (String, u32, String) = transaction.query_row(
             "SELECT phase_id, position, plan_id FROM implementation_stations WHERE id = ?1",
@@ -850,13 +869,19 @@ pub fn return_report(
     station_id: &str,
     seen: u32,
 ) -> Result<bool, CommandError> {
-    let changed = connection.execute(
+    let transaction = connection.unchecked_transaction()?;
+    let changed = transaction.execute(
         "UPDATE implementation_stations \
          SET report = NULL, reported_at = NULL, returns = returns + 1 \
          WHERE id = ?1 AND completed_at IS NULL AND report IS NOT NULL AND returns = ?2",
         params![station_id, seen],
     )?;
-    Ok(changed == 1)
+    if changed != 1 {
+        return Ok(false);
+    }
+    session_inbox::delete_wakes_of_station(&transaction, station_id)?;
+    transaction.commit()?;
+    Ok(true)
 }
 
 /// Der Master gibt eine Station „durch dich“ frei (ADR 070): setzt nur `released_at`. `false`: Die
