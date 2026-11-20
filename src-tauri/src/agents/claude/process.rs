@@ -214,7 +214,7 @@ pub fn stop_all(grace: Duration) {
 
 /// SIGTERM an die Gruppen der Agenten, dann höchstens `grace` für alle zusammen, dann SIGKILL an
 /// jede Gruppe, deren Anführer noch nicht eingesammelt ist. Für die Tests in `sessions::registry`.
-#[cfg(test)]
+#[cfg(all(test, unix))]
 pub(crate) fn stop(processes: &[&ClaudeProcess], grace: Duration) {
     let leaders: Vec<Arc<Mutex<Leader>>> = processes
         .iter()
