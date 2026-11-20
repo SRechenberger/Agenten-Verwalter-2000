@@ -72,6 +72,7 @@ Endet ein Zug einer Session ohne Station mit `TurnEnd::Completed`, setzt `end_tu
 
 - **Gäste sehen nur Lokales:** `dashboard_get` ist Klasse G; Karten aus Vorhaben eines Hosts erscheinen nicht, eine Zusammenführung über Hosts wäre eigene Arbeit.
 - **Ctrl J behält seine Liste** (`waitingQueue.ts`); das Dashboard ersetzt sie nicht.
+- **Fertige Station ohne Startfehler:** `StationView::start_error` ist bei einer fertigen Station immer leer, auch wenn sie mit Startfehler von Hand als fertig markiert wurde; gespeichert bleibt der Fehler, die Ansicht gibt ihn nur für eine nicht fertige Station weiter. Zeitleiste, Kartei, Leiste und Dashboard zeigen sie so als fertig (Abnahme SC.A, Befund 1).
 - **Wieder laufende fertige Station:** Sie bleibt fertig; ihre Session gibt eine Karte `error` oder `paused` nur im Fehler ohne Neustart und bei einer Pause ohne scharfen Zeitgeber (`StationView::live`, Taiga #152). Läuft sie, fragt sie oder wartet sie auf das Kontingent, gibt es keine Karte aus `live`; Anfragen bleiben Karten wie bisher. Die Karten zählen in `open` des Ablaufs, sein `state` folgt den Regeln oben.
 - **Nach einem App-Neustart** steht jede vorher aktive Session auf `Paused` und bekommt eine Karte „Unterbrochen“; „Gelesen“ räumt sie ab.
 - **`since` von `byYou`, `ready` und `masterMissing`** ist die letzte Aktivität der Umsetzung, nicht der Zeitpunkt, an dem die Station an der Reihe wurde; der Kern speichert diesen Zeitpunkt nicht.
