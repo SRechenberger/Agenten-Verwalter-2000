@@ -133,6 +133,8 @@ export function ChatTimeline({
   jump,
 }: ChatTimelineProps): ReactElement {
   const [containerHeight, setContainerHeight] = useState<number>(0);
+  // Höhe der angehefteten Nutzerzeile: Ein Sprung lässt sie frei, sonst deckt sie das Ziel zu.
+  const [pinnedHeight, setPinnedHeight] = useState<number>(0);
   // Auf-/Zugeklappt und halbe Antworten leben hier, nicht im Block: ein Block verlässt beim Scrollen das DOM.
   const [expandedKeys, setExpandedKeys] = useState<ReadonlySet<string>>(() => new Set<string>());
   const [selectionMenu, setSelectionMenu] = useState<SelectionMenuState | null>(null);
@@ -171,7 +173,7 @@ export function ChatTimeline({
     overscan: OVERSCAN,
     paddingStart: SURFACE_PADDING_TOP + topInset,
     paddingEnd: SURFACE_PADDING_BOTTOM + bottomInset,
-    scrollPaddingStart: topInset,
+    scrollPaddingStart: topInset + pinnedHeight,
   });
   const totalSize: number = virtualizer.getTotalSize();
   // Wenig Inhalt klebt unten: alle Blöcke rücken um den freien Platz nach unten.
@@ -208,13 +210,15 @@ export function ChatTimeline({
   const lastUserBlock: ChatBlock | undefined = blocks[lastUserIndex];
   const lastUserStart: number | null = virtualizer.measurementsCache[lastUserIndex]?.start ?? null;
   // Sobald die Oberkante der letzten eigenen Nachricht unter die TL;DR rutscht, bleibt eine Kopie dort hängen.
-  const pinnedText: string | null =
+  const lastUserText: string | null =
     lastUserBlock?.kind === 'entry' &&
-    (lastUserBlock.entry.kind === 'user' || lastUserBlock.entry.kind === 'sessionMessage') &&
-    lastUserStart !== null &&
-    lastUserStart + bottomOffset < (virtualizer.scrollOffset ?? 0) + topInset
+    (lastUserBlock.entry.kind === 'user' || lastUserBlock.entry.kind === 'sessionMessage')
       ? lastUserBlock.entry.text
       : null;
+  const isPinned: boolean =
+    lastUserText !== null &&
+    lastUserStart !== null &&
+    lastUserStart + bottomOffset < (virtualizer.scrollOffset ?? 0) + topInset;
 
   useEffect(() => {
     const element: HTMLDivElement | null = scrollRef.current;
@@ -583,8 +587,14 @@ export function ChatTimeline({
           </div>
         </FileLinkSessionContext.Provider>
       </div>
-      {pinnedText !== null && (
-        <PinnedUserMessage text={pinnedText} top={topInset} onJump={jumpToLastUserMessage} />
+      {lastUserText !== null && (
+        <PinnedUserMessage
+          text={lastUserText}
+          top={topInset}
+          visible={isPinned}
+          onHeight={setPinnedHeight}
+          onJump={jumpToLastUserMessage}
+        />
       )}
       {selectionMenu !== null && (
         <SelectionMenu
