@@ -6953,6 +6953,11 @@ fn the_mark_done_command_is_classified_with_the_implementation_id() {
 
 // Befehls-Stationen (ADR 073).
 
+/// Ein absoluter Ordner auf jedem Betriebssystem (`/tmp` ist unter Windows nicht absolut).
+fn absolute_dir() -> String {
+    std::env::temp_dir().to_string_lossy().into_owned()
+}
+
 fn command_node(id: &str, after: &[&str], steps: &[&str]) -> StationRow {
     let mut row = node(id, after);
     row.kind = model::StationKind::Command;
@@ -7269,7 +7274,7 @@ fn only_a_station_that_has_not_started_may_change_its_command() {
         change: vec![model::StationPatch {
             id: id.to_owned(),
             command: Some(vec!["gh pr merge 9".to_owned()]),
-            cwd: Some("/tmp".to_owned()),
+            cwd: Some(absolute_dir()),
             ..model::StationPatch::default()
         }],
         ..PlanEdit::default()
@@ -7279,7 +7284,7 @@ fn only_a_station_that_has_not_started_may_change_its_command() {
     let run = edited.updated[0].command.as_ref().expect("Befehl");
     assert_eq!(
         (run.steps.as_slice(), run.cwd.as_deref()),
-        (&["gh pr merge 9".to_owned()][..], Some("/tmp"))
+        (&["gh pr merge 9".to_owned()][..], Some(absolute_dir().as_str()))
     );
     let error = edit::edited_plan("implementation", &view.phases, &rows, &patch("again"), &[])
         .expect_err("begonnen");
@@ -7311,7 +7316,7 @@ fn only_a_station_that_has_not_started_may_change_its_command() {
 #[test]
 fn an_empty_cwd_in_an_edit_resets_to_the_project_folder_and_a_filled_one_must_be_absolute() {
     let mut row = command_node("merge", &[], &["gh pr merge 1"]);
-    row.command.as_mut().expect("Befehl").cwd = Some("/tmp".to_owned());
+    row.command.as_mut().expect("Befehl").cwd = Some(absolute_dir());
     let database = database_with(&[row]);
     let view = view_from(&database);
     let rows = stored_stations(&database);
@@ -7336,7 +7341,7 @@ fn an_empty_cwd_in_an_edit_resets_to_the_project_folder_and_a_filled_one_must_be
         )
     };
     assert_eq!(cwd_after(Some("")), Ok(None));
-    assert_eq!(cwd_after(None), Ok(Some("/tmp".to_owned())));
+    assert_eq!(cwd_after(None), Ok(Some(absolute_dir())));
     assert_eq!(cwd_after(Some("/var")), Ok(Some("/var".to_owned())));
     let error = cwd_after(Some("relativ")).expect_err("nicht absolut");
     assert!(error.contains("cwd"), "{error}");
@@ -7359,7 +7364,7 @@ fn an_empty_cwd_on_an_agent_station_is_refused_like_any_cwd() {
         edit::edited_plan("implementation", &view.phases, &rows, &edit, &[]).expect_err("abgelehnt")
     };
     assert!(refused("").contains("nur bei by: \"command\""));
-    assert!(refused("/tmp").contains("nur bei by: \"command\""));
+    assert!(refused(&absolute_dir()).contains("nur bei by: \"command\""));
 }
 
 #[test]
