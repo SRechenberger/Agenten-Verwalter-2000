@@ -118,7 +118,7 @@ const ENTRY_DATA = {
     category: 'agent',
     section: 'Agent',
     label: 'Standardmodell',
-    info: 'Mit diesem Modell startet die erste Session eines neuen Vorhabens; weitere Sessions im Vorhaben übernehmen den Stand der letzten. In der Session jederzeit über die Eingabeleiste änderbar.',
+    info: 'Mit diesem Modell startet jede neue Session, auch in einem bestehenden Vorhaben; nennt eine Session oder ihre Station ausdrücklich ein Modell, gilt dieses. In der Session jederzeit über die Eingabeleiste änderbar.',
   },
   masterCompactTokens: {
     category: 'agent',
@@ -136,7 +136,7 @@ const ENTRY_DATA = {
     category: 'agent',
     section: 'Agent',
     label: 'Standard-Modus',
-    info: 'Wie selbstständig Claude arbeitet und wie gründlich es nachdenkt. Gilt für neue Vorhaben; in der Session mit Umschalt + Tab bzw. über die Eingabeleiste wechselbar.',
+    info: 'Wie selbstständig Claude arbeitet und wie gründlich es nachdenkt. Der Denkaufwand gilt für jede neue Session, der Modus für neue Vorhaben (weitere Sessions erben ihn); in der Session mit Umschalt + Tab bzw. über die Eingabeleiste wechselbar.',
   },
   markUnsourced: {
     category: 'agent',

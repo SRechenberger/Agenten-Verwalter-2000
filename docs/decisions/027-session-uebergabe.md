@@ -20,11 +20,11 @@ Die Umsetzungs-Skills beenden eine Phase mit einer Einstiegszeile („Weiter: �
 - **Regel:** „Weiter:“ in den letzten fünf nicht leeren Zeilen (Code-Zäune zählen nicht, eine TL;DR-Zeile danach ist erlaubt); seit [ADR 040](040-automatisch-weiter.md), Nachtrag „Einstiegszeilen in der ganzen Antwort“, wird auch weiter oben außerhalb von Zäunen erkannt, die Automatik zählt aber nur das Fenster. Jede neue Textantwort überschreibt den Wert, jede Nutzernachricht löscht ihn. Eigenes Werkzeug oder Steuerzeichen wäre eine Änderung in jedem Skill ohne Mehrwert.
 - **Anzeige-Status „Wiedereinstieg“ nur in der Oberfläche,** kein neuer `SessionStatus` im Core: abgeschlossen, Einstiegszeile vorhanden und keine Folgesession im Vorhaben gestartet. Sobald die Folgesession läuft, zeigt die alte wieder den Haken, ohne dass der Core etwas zurücksetzt.
 - **Knopf setzt einen Entwurf, sendet nicht.** Vor der ersten Nachricht lassen sich Modell und Denkaufwand ändern — das ist der Sparhebel. Ein vorhandener Entwurf der Ziel-Session bleibt hinter der Zeile erhalten.
-- **Modell aus der Zeile:** Nennt sie `Modell <fable|opus|sonnet|haiku>`, stellt der Knopf die neue Session darauf um; Denkaufwand und Modus bleiben übernommen.
+- **Modell aus der Zeile:** Nennt sie `Modell <fable|opus|sonnet|haiku>`, stellt der Knopf die neue Session darauf um; Modus bleibt übernommen, der Denkaufwand kommt aus den Einstellungen (seit Taiga 47, [ADR 052](052-session-werkzeuge.md), Nachtrag 2026-11-20).
 - **Knopf nur unter der letzten Textantwort,** solange keine Nutzernachricht danach steht und der Agent nicht arbeitet.
 
 ## Konsequenzen
 
 - Gibt ein Skill die Zeile anders aus, bleibt der Haken und kein Knopf erscheint; schlimmstenfalls bleibt es beim Kopieren von Hand.
 - Sessions, deren letzte Antwort vor Migration 9 kam, zeigen erst nach ihrer nächsten Antwort das Symbol.
-- Die neue Session übernimmt die Werte der Session mit der höchsten Nummer; steht schon eine leere Session im Vorhaben, wird diese wiederverwendet.
+- Die neue Session übernimmt den Modus der Session mit der höchsten Nummer, Modell und Denkaufwand kommen aus den Einstellungen (seit Taiga 47, [ADR 052](052-session-werkzeuge.md), Nachtrag 2026-11-20); steht schon eine leere Session im Vorhaben, wird diese wiederverwendet.

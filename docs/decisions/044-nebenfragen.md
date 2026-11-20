@@ -37,3 +37,7 @@ Der Nutzer will eine Frage zur laufenden Session stellen, die Claude aus dem bis
 ## Nachtrag 2026-11-03: `dontAsk` sperrt nicht
 
 Oben steht, Werkzeuge seien nur durch `--permission-mode dontAsk` gesperrt. Das stimmt nicht: `dontAsk` lehnt nur ab, was nicht freigegeben ist; was `--allowedTools` freigibt, läuft auch dort (gemessen, siehe [ADR 046](046-mcp-zugang.md)). Eine Nebenfrage kann also freigegebene Werkzeuge aufrufen. Dass sie es nicht tut, sagt nur die Anweisung im Prompt. Die Sperre der Session-Werkzeuge liegt am eigenen Schlüssel der Nebenfrage.
+
+## Nachtrag 2026-11-20: eigener Schlüssel in jeder Betriebsart (Taiga 28)
+
+Der eigene Schlüssel der Nebenfrage galt nur mit Session-Werkzeugen (Claude); in „Claude Code + LM Studio“ bekam die Nebenfrage dieselbe Datei und denselben Schlüssel wie der Hauptprozess und konnte auch schreibende Werkzeuge rufen. Jetzt trägt die Nebenfrage in jeder Betriebsart einen Schlüssel der Art `Side`. Ohne Session-Werkzeuge steht der Schlüssel in der Datei, deshalb bekommt die Nebenfrage dort eine eigene Datei `<session-id>.side.json` (0600) und der Hauptprozess behält seine. Die Werkzeugliste bleibt die des Hauptprozesses (Prompt-Cache, siehe oben). Gesperrt sind für `Side` alle schreibenden Werkzeuge: die Sätze der Session-Werkzeuge, der Umsetzung und der Agententypen lassen nur ihr Lesen durch, und `artifact_show` (wechselt den Reiter der Oberfläche) lehnt sie ab; `artifact_list` bleibt erlaubt.

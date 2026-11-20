@@ -181,10 +181,11 @@ impl StoredRow {
 }
 
 /// Legt die Zeile an oder aktualisiert sie; `scratchpad_dir` kommt mit dem ersten `init` dazu.
-/// `created_at`, `workspace_dir`, `project_id`, `number`, `inquiry_of` und `archived_at` bleiben,
-/// wie sie sind: der Arbeitsordner einer Session ändert sich nie, ihr Vorhaben, ihre Nummer und
-/// ihre Umsetzung auch nicht. Die TL;DR-Spalten schreibt nur `db::tldr`. `agent_prompt` schreibt
-/// auch das `UPDATE`: der Start einer Station setzt ihn erst an der schon angelegten Zeile.
+/// `created_at`, `workspace_dir`, `project_id`, `number` und `archived_at` bleiben, wie sie sind:
+/// der Arbeitsordner einer Session ändert sich nie, ihr Vorhaben und ihre Nummer auch nicht. Die
+/// TL;DR-Spalten schreibt nur `db::tldr`. `agent_prompt` und `inquiry_of` schreibt auch das
+/// `UPDATE`: der Start einer Station setzt den Prompt, `new_inquiry` die Bindung der Rückfrage
+/// erst an der schon angelegten Zeile, und das Leeren muss ebenso ankommen.
 pub fn upsert(connection: &Connection, row: &SessionRow) -> Result<(), CommandError> {
     connection.execute(
         "INSERT INTO sessions (id, name, status, model, effort, mode, created_at, running_ms, \
@@ -212,6 +213,7 @@ pub fn upsert(connection: &Connection, row: &SessionRow) -> Result<(), CommandEr
              codex_model = excluded.codex_model, \
              prompt_cache = excluded.prompt_cache, \
              name_auto = excluded.name_auto, \
+             inquiry_of = excluded.inquiry_of, \
              agent_prompt = excluded.agent_prompt, \
              answer_at = excluded.answer_at, \
              answer_excerpt = excluded.answer_excerpt, \

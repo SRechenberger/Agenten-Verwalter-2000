@@ -26,7 +26,7 @@ Agenten sollen Werkzeuge des Verwalters aufrufen können: zuerst die Artefakte d
 ## Konsequenzen
 
 - Ein neues Feature mit Werkzeugen für den Agenten legt einen `ToolSet` an und hängt ihn in `tool_sets()` an — kein neuer Server, keine neue Übergabe.
-- Die Konfigurationsdatei enthält den Schlüssel im Klartext im Benutzerordner. Er gilt nur, solange die App läuft, und nur für die eine Session.
+- Die Konfigurationsdatei enthält den Schlüssel im Klartext im Benutzerordner. Er gilt nur, solange die App läuft, und nur für die eine Session. Seit Taiga 33 schreibt `config_for` die Datei über `remote::write_private` (0600) in einen Ordner `mcp` mit 0700 (Linux und macOS; unter Windows wie vorher); Dateien aus älteren Fassungen tragen Schlüssel, die mit dem App-Ende ungültig wurden, und werden beim nächsten Start des Agenten überschrieben.
 - Prüfen ohne Agent: `cargo run --example mcp-probe -- <konfigurationsdatei> [list | call <name> <json>] [--negative]`.
 - Für Codex braucht es eine eigene Prüfung gegen das Protokoll von `codex app-server`, sobald eine `codex.exe` verfügbar ist.
 

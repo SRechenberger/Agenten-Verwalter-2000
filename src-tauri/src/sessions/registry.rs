@@ -579,6 +579,20 @@ struct Outbox {
     compact: bool,
 }
 
+/// Modell, Codex-Modell und Denkaufwand einer neuen Session (Taiga 47): die Einstellungen. Ein
+/// ausdrücklich genanntes Modell gewinnt, der Denkaufwand kommt auch dann aus den Einstellungen. Das
+/// Codex-Modell `None` heißt „Standard von Codex“. Der Modus bleibt der der Vorgängerin.
+pub(crate) fn new_session_defaults(
+    settings: &settings::model::Settings,
+    model: Option<ModelId>,
+) -> (ModelId, Option<String>, Effort) {
+    (
+        model.unwrap_or(settings.default_model),
+        settings.default_codex_model.clone(),
+        settings.default_effort,
+    )
+}
+
 impl SessionRegistry {
     pub fn new(database: Arc<Database>, remote: Arc<RemoteControl>) -> SessionRegistry {
         SessionRegistry {
@@ -814,7 +828,8 @@ impl SessionRegistry {
     }
 
     /// Wie `create_in_project`, legt aber immer eine neue Session an — auch wenn eine im Status
-    /// „Neu“ wartet (Stationen einer Umsetzung, ADR 048).
+    /// „Neu“ wartet (Stationen einer Umsetzung, ADR 048). Modell, Codex-Modell und Denkaufwand
+    /// kommen aus den Einstellungen (Taiga 47), der Modus von der Session mit der höchsten Nummer.
     pub fn create_fresh_in_project(
         &self,
         project_id: &str,
@@ -826,15 +841,9 @@ impl SessionRegistry {
         else {
             return Err(project_not_found(project_id));
         };
-        let (model, codex_model, effort, mode) = {
-            let state = latest.lock();
-            (
-                state.model,
-                state.codex_model.clone(),
-                state.effort,
-                state.mode,
-            )
-        };
+        let mode = latest.lock().mode;
+        let (model, codex_model, effort) =
+            new_session_defaults(&settings::load(&self.database)?, None);
         let session = self.insert_new_session(project_id, |number: u32| {
             let mut state = SessionState::new(format!("Session {number}"), model, effort, mode);
             state.codex_model = codex_model;
@@ -4347,9 +4356,7 @@ fn update<R>(
         }
         // Auch bei einem Fehler: die Closure kann den Zustand schon verändert haben.
         persist(session, &mut state, &outbox);
-        if outbox.summary_dirty {
-            outbox.summary = Some(summarize(session, &state));
-        }
+        outbox.summary = changed_summary(session, &state, &outbox);
         result
     };
     outbox.emit(app, session);
@@ -4397,6 +4404,17 @@ fn update<R>(
     let value = result?;
     outbox.deliver(session)?;
     Ok(value)
+}
+
+/// Die Zusammenfassung für `session://changed`. Eine gelöschte Session sendet keine: das Frontend
+/// nähme die unbekannte ID wieder auf und zeigte eine Geisterzeile bis zum Neuladen (Taiga 35).
+fn changed_summary(
+    session: &Session,
+    state: &SessionState,
+    outbox: &Outbox,
+) -> Option<SessionSummary> {
+    (outbox.summary_dirty && !session.deleted.load(Ordering::SeqCst))
+        .then(|| summarize(session, state))
 }
 
 /// Die Erinnerung des Wächters geht in einem eigenen Thread hinaus, wie die Warteschlange der
@@ -6874,5 +6892,168 @@ mod tests {
                 [],
             )
             .expect("neue Tabelle");
+    }
+
+    // Neue Sessions nehmen die Einstellungen (Taiga 47).
+
+    fn defaults_of(
+        model: ModelId,
+        effort: Effort,
+        codex: Option<&str>,
+    ) -> settings::model::Settings {
+        let mut settings = settings::load(
+            &crate::db::Database::open(Path::new(":memory:")).expect("Datenbank im Speicher"),
+        )
+        .expect("Standardwerte");
+        settings.default_model = model;
+        settings.default_effort = effort;
+        settings.default_codex_model = codex.map(str::to_owned);
+        settings
+    }
+
+    #[test]
+    fn rule_1_a_new_session_takes_model_and_effort_from_the_settings() {
+        let settings = defaults_of(ModelId::Opus, Effort::Xhigh, None);
+        let (model, _, effort) = new_session_defaults(&settings, None);
+        assert_eq!((model, effort), (ModelId::Opus, Effort::Xhigh));
+    }
+
+    #[test]
+    fn rule_2_an_explicit_model_wins() {
+        let settings = defaults_of(ModelId::Opus, Effort::Xhigh, None);
+        let (model, _, _) = new_session_defaults(&settings, Some(ModelId::Haiku));
+        assert_eq!(model, ModelId::Haiku);
+    }
+
+    #[test]
+    fn rule_3_the_effort_comes_from_the_settings_even_with_an_explicit_model() {
+        let settings = defaults_of(ModelId::Opus, Effort::Xhigh, None);
+        let (_, _, effort) = new_session_defaults(&settings, Some(ModelId::Sonnet));
+        assert_eq!(effort, Effort::Xhigh);
+    }
+
+    #[test]
+    fn rule_5_the_codex_model_comes_from_the_settings_and_none_stays_the_codex_default() {
+        let set = defaults_of(ModelId::Opus, Effort::High, Some("gpt-5-codex"));
+        assert_eq!(
+            new_session_defaults(&set, None).1.as_deref(),
+            Some("gpt-5-codex")
+        );
+        let unset = defaults_of(ModelId::Opus, Effort::High, None);
+        assert_eq!(new_session_defaults(&unset, None).1, None);
+    }
+
+    /// Ein Vorhaben `p` mit einer Session `#1` auf `haiku`, `low`, `manual`, `codex-alt`, in der
+    /// Datenbank und in der Registry; die Einstellungen stehen auf `opus`, `xhigh`, `gpt-neu`.
+    fn registry_with_old_session(status: SessionStatus) -> SessionRegistry {
+        use crate::settings::model::SettingsChange;
+        let database = crate::db::Database::open(Path::new(":memory:")).expect("Datenbank");
+        database
+            .with(|connection| {
+                connection.execute(
+                    "INSERT INTO projects (id, name, created_at) VALUES ('p', 'Vorhaben', 1.0)",
+                    [],
+                )?;
+                Ok(())
+            })
+            .expect("Vorhaben");
+        settings::update(
+            &database,
+            SettingsChange::DefaultModel {
+                value: ModelId::Opus,
+            },
+        )
+        .expect("Modell");
+        settings::update(
+            &database,
+            SettingsChange::DefaultMode {
+                mode: Mode::Auto,
+                effort: Effort::Xhigh,
+            },
+        )
+        .expect("Modus");
+        settings::update(
+            &database,
+            SettingsChange::DefaultCodexModel {
+                value: Some("gpt-neu".to_owned()),
+            },
+        )
+        .expect("Codex-Modell");
+        let registry = SessionRegistry::new(Arc::new(database), Arc::new(RemoteControl::default()));
+        registry.add_session_for_test("old", "p", status);
+        {
+            let old = registry.get("old").expect("Session");
+            let mut state = old.lock();
+            state.model = ModelId::Haiku;
+            state.effort = Effort::Low;
+            state.mode = Mode::Manual;
+            state.codex_model = Some("codex-alt".to_owned());
+        }
+        registry
+    }
+
+    #[test]
+    fn rules_1_4_and_5_a_fresh_session_takes_the_settings_and_inherits_only_the_mode() {
+        let registry = registry_with_old_session(SessionStatus::Completed);
+        let created = registry.create_fresh_in_project("p").expect("angelegt");
+        let state = registry.get(&created.id).expect("Session");
+        let state = state.lock();
+        assert_eq!(state.model, ModelId::Opus, "Regel 1: Modell");
+        assert_eq!(state.effort, Effort::Xhigh, "Regel 1: Denkaufwand");
+        assert_eq!(state.mode, Mode::Manual, "Regel 4: Modus geerbt");
+        assert_eq!(state.codex_model.as_deref(), Some("gpt-neu"), "Regel 5");
+    }
+
+    #[test]
+    fn rule_6_existing_sessions_stay_untouched() {
+        let registry = registry_with_old_session(SessionStatus::Completed);
+        registry.create_fresh_in_project("p").expect("angelegt");
+        let old = registry.get("old").expect("Session");
+        let old = old.lock();
+        assert_eq!(
+            (old.model, old.effort, old.mode),
+            (ModelId::Haiku, Effort::Low, Mode::Manual)
+        );
+        assert_eq!(old.codex_model.as_deref(), Some("codex-alt"));
+    }
+
+    #[test]
+    fn rule_6_a_waiting_empty_session_is_returned_unchanged() {
+        let registry = registry_with_old_session(SessionStatus::New);
+        let summary = registry.create_in_project("p").expect("zurück");
+        assert_eq!(summary.id, "old");
+        assert_eq!(
+            (summary.model, summary.effort),
+            (ModelId::Haiku, Effort::Low)
+        );
+        assert_eq!(registry.project_members("p").len(), 1, "keine neue Session");
+    }
+
+    #[test]
+    fn a_deleted_session_sends_no_changed_summary() {
+        let session = Session {
+            id: "s".to_owned(),
+            project_id: "p".to_owned(),
+            number: 1,
+            workspace: PathBuf::new(),
+            repositories: RwLock::new(Vec::new()),
+            database: Arc::new(
+                crate::db::Database::open(Path::new(":memory:")).expect("Datenbank im Speicher"),
+            ),
+            state: Mutex::new(state()),
+            deleted: AtomicBool::new(false),
+        };
+        let dirty = Outbox {
+            summary_dirty: true,
+            ..Outbox::default()
+        };
+        let state = session.lock();
+        assert!(changed_summary(&session, &state, &dirty).is_some());
+        assert!(changed_summary(&session, &state, &Outbox::default()).is_none());
+        session.deleted.store(true, Ordering::SeqCst);
+        assert!(
+            changed_summary(&session, &state, &dirty).is_none(),
+            "gelöscht: kein Ereignis, auch nicht über eine geänderte Zusammenfassung"
+        );
     }
 }
