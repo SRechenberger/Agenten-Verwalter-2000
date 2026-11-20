@@ -7,7 +7,7 @@ use std::time::Duration;
 
 use tauri::{AppHandle, Manager};
 
-use crate::sessions::registry::{SessionRegistry, now_ms};
+use crate::sessions::registry::{SessionRegistry, now_ms, schedule_pass};
 
 pub const RESUME_TEXT: &str =
     "Das Kontingent ist zurückgesetzt. Mach bitte dort weiter, wo du aufgehört hast.";
@@ -31,8 +31,8 @@ pub enum WaitEnd {
 }
 
 /// Ab wann das Fortsetzen fällig ist: Rücksetzzeit samt Aufschlag. Ab dann belegt die Session keinen
-/// Platz mehr; ein fälliges Fortsetzen, das am Tor keinen Platz bekam, sammelt der Durchgang der
-/// globalen Warteschlange ein (ADR 068).
+/// Platz mehr; ein fälliges Fortsetzen sammelt der Durchgang der globalen Warteschlange ein und startet
+/// es nach `rank` (ADR 068).
 pub fn due_at(resets_at: f64) -> f64 {
     resets_at + RESUME_MARGIN_MS
 }
@@ -77,11 +77,10 @@ pub(crate) fn spawn(app: &AppHandle, session_id: &str, armed: ArmedResume) {
     }
 }
 
-/// Läuft im Thread des Zeitgebers, ohne gehaltene Sperre. Danach geht das Fortsetzen durch das Tor der
-/// globalen Warteschlange (ADR 068). Prüfen (unter der Sperre der Session) und Senden sind getrennt: eine
-/// Nachricht des Users genau dazwischen ist akzeptiert, der Agent bekommt den Text dann zusätzlich. Die
-/// Prüfung muss vor `send` liegen, weil `send` eine beendete Session neu startet und dabei die
-/// Begründung löscht.
+/// Läuft im Thread des Zeitgebers, ohne gehaltene Sperre. Danach belegt er keinen Platz selbst, sondern
+/// löst nur einen Durchgang der globalen Warteschlange aus: Der sammelt das fällige Fortsetzen (Zeit
+/// allein, kein `update` feuert dann) und startet es nach `rank`, also nicht vor einem höher gereihten
+/// Wartenden (ADR 068; `resume_claimed` im Durchgang prüft Zustand und Abbruch).
 fn run(app: &AppHandle, session_id: &str, armed: ArmedResume) {
     let registry = app.state::<SessionRegistry>();
     let end: WaitEnd = wait_until(
@@ -93,5 +92,6 @@ fn run(app: &AppHandle, session_id: &str, armed: ArmedResume) {
     if end == WaitEnd::Cancelled {
         return;
     }
-    registry.resume_through_gate(app, session_id);
+    // Kein eigener Platz: Der Durchgang sammelt das fällige Fortsetzen und startet es nach `rank`.
+    schedule_pass(app);
 }

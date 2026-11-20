@@ -154,7 +154,7 @@ const ENTRY_DATA = {
     category: 'agent',
     section: 'Agent',
     label: 'Gleichzeitige Agenten max.',
-    info: 'Was der Verwalter von selbst startet (Stationen, zugestellte Nachrichten, Fortsetzen nach Kontingent), wartet, wenn so viele Agenten laufen, und rückt in der Reihenfolge der Warteschlange nach: Priorität des Vorhabens, Vorrang der Station, Wartezeit. Eigene Nachrichten starten sofort und zählen mit. Leer = unbegrenzt, Standard 4. Eine höhere Zahl lässt sofort nachrücken, eine niedrigere beendet nichts. Gilt für die ganze App.',
+    info: 'Was der Verwalter von selbst startet (Stationen, zugestellte Nachrichten, Fortsetzen nach Kontingent), wartet, wenn so viele Agenten laufen, und rückt in der Reihenfolge der Warteschlange nach: Priorität des Vorhabens, Vorrang der Station, Wartezeit; eine Nachricht an den Master einer Umsetzung rückt vor die Wartenden ihres eigenen Vorhabens. Eigene Nachrichten starten sofort und zählen mit. Leer = unbegrenzt, Standard 4. Eine höhere Zahl lässt sofort nachrücken, eine niedrigere beendet nichts. Gilt für die ganze App.',
   },
   agentTypes: {
     category: 'agent',

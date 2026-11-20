@@ -4989,6 +4989,7 @@ fn session_waiter(
         },
         key: key.to_owned(),
         start: slots::Start::Session,
+        master_message: false,
     }
 }
 
@@ -5054,6 +5055,221 @@ fn rank_orders_by_project_level_then_station_priority_then_waiting_time() {
         .map(|waiter: &slots::Waiter| waiter.entry.position)
         .collect();
     assert_eq!(positions, [1, 2, 3, 4, 5, 6, 7]);
+}
+
+/// Ein Wartender einer Session im Vorhaben `project` (V189): Nachricht, wartend seit `since_ms`.
+fn waiter_in(
+    project: &str,
+    key: &str,
+    kind: slots::QueueKind,
+    priority: ProjectPriority,
+    since_ms: f64,
+    master_message: bool,
+) -> slots::Waiter {
+    let mut waiter = session_waiter(key, kind, priority, since_ms);
+    waiter.entry.project_id = project.to_owned();
+    waiter.master_message = master_message;
+    waiter
+}
+
+fn station_in(project: &str, key: &str, priority: ProjectPriority, since_ms: f64) -> slots::Waiter {
+    let mut waiter = station_waiter(key, priority, 0);
+    waiter.entry.project_id = project.to_owned();
+    waiter.entry.since_ms = since_ms;
+    waiter
+}
+
+fn message_in(project: &str, key: &str, priority: ProjectPriority, since_ms: f64) -> slots::Waiter {
+    waiter_in(
+        project,
+        key,
+        slots::QueueKind::Message,
+        priority,
+        since_ms,
+        true,
+    )
+}
+
+#[test]
+fn a_master_message_goes_before_the_waiters_of_its_own_project_only() {
+    // Beispiel des Nutzers: gleiche Stufe; Station B seit 10 min, Station A seit 5 min, Nachricht an
+    // den Master von A seit 1 min.
+    let mut waiters = vec![
+        message_in("a", "master-a", ProjectPriority::Normal, -60_000.0),
+        station_in("a", "station-a", ProjectPriority::Normal, -300_000.0),
+        station_in("b", "station-b", ProjectPriority::Normal, -600_000.0),
+    ];
+    slots::rank(&mut waiters);
+    assert_eq!(keys(&waiters), ["station-b", "master-a", "station-a"]);
+    let positions: Vec<u32> = waiters
+        .iter()
+        .map(|waiter: &slots::Waiter| waiter.entry.position)
+        .collect();
+    assert_eq!(positions, [1, 2, 3]);
+}
+
+#[test]
+fn a_master_message_alone_in_its_project_keeps_its_place() {
+    let mut waiters = vec![
+        station_in("b", "station-b", ProjectPriority::Normal, -600_000.0),
+        message_in("a", "master-a", ProjectPriority::Normal, -60_000.0),
+        station_in("c", "station-c", ProjectPriority::Normal, -30_000.0),
+    ];
+    slots::rank(&mut waiters);
+    assert_eq!(keys(&waiters), ["station-b", "master-a", "station-c"]);
+}
+
+#[test]
+fn a_master_message_of_a_lower_level_stays_behind_a_higher_level() {
+    let mut waiters = vec![
+        station_in("hoch", "station-high", ProjectPriority::High, -1_000.0),
+        station_in("niedrig", "station-low", ProjectPriority::Low, -900_000.0),
+        message_in("niedrig", "master-low", ProjectPriority::Low, -10.0),
+    ];
+    slots::rank(&mut waiters);
+    assert_eq!(
+        keys(&waiters),
+        ["station-high", "master-low", "station-low"]
+    );
+}
+
+#[test]
+fn a_message_to_a_session_that_is_no_master_does_not_move_up() {
+    let mut waiters = vec![
+        station_in("a", "station-a", ProjectPriority::Normal, -300_000.0),
+        waiter_in(
+            "a",
+            "other",
+            slots::QueueKind::Message,
+            ProjectPriority::Normal,
+            -60_000.0,
+            false,
+        ),
+    ];
+    slots::rank(&mut waiters);
+    assert_eq!(keys(&waiters), ["station-a", "other"]);
+}
+
+#[test]
+fn a_resume_of_the_master_does_not_move_up() {
+    let mut waiters = vec![
+        station_in("a", "station-a", ProjectPriority::Normal, -300_000.0),
+        waiter_in(
+            "a",
+            "master-a",
+            slots::QueueKind::Resume,
+            ProjectPriority::Normal,
+            -60_000.0,
+            false,
+        ),
+    ];
+    slots::rank(&mut waiters);
+    assert_eq!(keys(&waiters), ["station-a", "master-a"]);
+}
+
+#[test]
+fn master_messages_of_one_project_keep_their_order() {
+    let mut waiters = vec![
+        station_in("a", "station-a", ProjectPriority::Normal, -300_000.0),
+        message_in("a", "master-1", ProjectPriority::Normal, -90_000.0),
+        message_in("a", "master-2", ProjectPriority::Normal, -60_000.0),
+        message_in("a", "master-3", ProjectPriority::Normal, -30_000.0),
+    ];
+    slots::rank(&mut waiters);
+    assert_eq!(
+        keys(&waiters),
+        ["master-1", "master-2", "master-3", "station-a"]
+    );
+}
+
+#[test]
+fn with_three_projects_the_projects_keep_their_order_by_their_best_waiter() {
+    // Die Vorhaben a (hoch), b und c (normal); jedes mit Master-Nachricht, b und c auch mit Station.
+    let mut waiters = vec![
+        message_in("c", "master-c", ProjectPriority::Normal, -50_000.0),
+        station_in("c", "station-c", ProjectPriority::Normal, -400_000.0),
+        message_in("b", "master-b", ProjectPriority::Normal, -40_000.0),
+        station_in("b", "station-b", ProjectPriority::Normal, -500_000.0),
+        message_in("a", "master-a", ProjectPriority::High, -10.0),
+        station_in("a", "station-a", ProjectPriority::High, -5.0),
+    ];
+    slots::rank(&mut waiters);
+    // Grundordnung nach Stufe und Wartezeit: master-a, station-a, station-b, station-c, master-c,
+    // master-b. Jede Nachricht nimmt den Platz der besten Station ihres Vorhabens ein; die Vorhaben b und
+    // c bleiben in der Reihenfolge ihrer Stationen, a (hoch) bleibt vorn. master-b steht vor station-c, überholt
+    // aber nichts, was vor station-b stand; station-c rückt dafür nach hinten.
+    assert_eq!(
+        keys(&waiters),
+        [
+            "master-a",
+            "station-a",
+            "master-b",
+            "station-b",
+            "master-c",
+            "station-c"
+        ]
+    );
+    let projects: Vec<&str> = waiters
+        .iter()
+        .map(|waiter: &slots::Waiter| waiter.entry.project_id.as_str())
+        .collect();
+    assert_eq!(
+        projects,
+        ["a", "a", "b", "b", "c", "c"],
+        "die Vorhaben behalten ihre Reihenfolge, gemessen an ihrem besten Wartenden"
+    );
+}
+
+#[test]
+fn a_due_resume_waits_behind_a_higher_ranked_waiter_when_one_slot_is_free() {
+    // V155: Das Fortsetzen ist seit 0 fällig, aber eine Nachricht eines Vorhabens höherer Stufe wartet.
+    let waiters = vec![
+        waiter_in(
+            "niedrig",
+            "resume",
+            slots::QueueKind::Resume,
+            ProjectPriority::Low,
+            0.0,
+            false,
+        ),
+        waiter_in(
+            "hoch",
+            "message",
+            slots::QueueKind::Message,
+            ProjectPriority::High,
+            50.0,
+            false,
+        ),
+    ];
+    let mut countdowns = Countdowns::default();
+    let claimed = countdowns
+        .pass(0, Some(1), &[], waiters, 100.0, 200.0)
+        .expect("frische Zählung");
+    assert_eq!(claimed_keys(claimed), ["message"]);
+    let waiting: Vec<(&str, slots::QueueKind)> = countdowns
+        .queue()
+        .entries
+        .iter()
+        .map(|entry: &slots::QueueEntry| (entry.title.as_str(), entry.kind))
+        .collect();
+    assert_eq!(waiting, [("resume", slots::QueueKind::Resume)]);
+}
+
+#[test]
+fn a_due_resume_without_other_waiters_starts_in_the_next_pass() {
+    let waiters = vec![waiter_in(
+        "p",
+        "resume",
+        slots::QueueKind::Resume,
+        ProjectPriority::Normal,
+        0.0,
+        false,
+    )];
+    let mut countdowns = Countdowns::default();
+    let claimed = countdowns
+        .pass(0, Some(1), &[], waiters, 100.0, 200.0)
+        .expect("frische Zählung");
+    assert_eq!(claimed_keys(claimed), ["resume"]);
 }
 
 #[test]

@@ -6210,6 +6210,126 @@ mod tests {
         assert!(!passes_message_of(&registry));
     }
 
+    /// Eine Registry mit der Umsetzung `i` im Vorhaben `p` (Master `m`, Session im Vorhaben
+    /// `master_project`; `finished_at` und `cancelled_at` wie in der Datenbank, ein Abbruch setzt
+    /// beide) und einer zweiten ruhenden Session `x` in `p`; beide haben eine Nachricht im Posteingang
+    /// (echte Datenbank im Speicher).
+    fn registry_with_message_to_master(
+        master_project: &str,
+        finished_at: Option<f64>,
+        cancelled_at: Option<f64>,
+    ) -> SessionRegistry {
+        use crate::db::{Database, implementations, session_inbox};
+        let database = Database::open(std::path::Path::new(":memory:")).expect("Datenbank");
+        database
+            .with(|connection| {
+                connection.execute_batch("PRAGMA foreign_keys = OFF")?;
+                let row = implementations::ImplementationRow {
+                    id: "i".to_owned(),
+                    project_id: "p".to_owned(),
+                    name: "Umsetzung".to_owned(),
+                    source: String::new(),
+                    created_by_session_id: None,
+                    master_session_id: Some("m".to_owned()),
+                    created_at: 1.0,
+                    finished_at,
+                    auto_start: false,
+                    stop_after_current: false,
+                    pending_change: None,
+                    auto_resume: false,
+                    cancelled_at,
+                    pending_cancel: None,
+                };
+                implementations::insert(connection, &row, &[], &[])?;
+                let sender = SessionRef {
+                    id: "absender".to_owned(),
+                    number: 9,
+                    title: "Absender".to_owned(),
+                };
+                session_inbox::insert(connection, "m", &sender, "los", 0, 150.0)?;
+                session_inbox::insert(connection, "x", &sender, "los", 0, 160.0)
+            })
+            .expect("Umsetzung und Nachrichten");
+        let registry = SessionRegistry::new(Arc::new(database), Arc::new(RemoteControl::default()));
+        registry.add_project_for_test("p", "Vorhaben");
+        registry.add_project_for_test("q", "Anderes Vorhaben");
+        registry.add_session_for_test("m", master_project, SessionStatus::Completed);
+        registry.add_session_for_test("x", "p", SessionStatus::Completed);
+        registry
+    }
+
+    /// Ob der Wartende dieser Session eine Nachricht an einen Master ist; `None`, wenn sie nicht wartet.
+    fn master_message_of(registry: &SessionRegistry, session_id: &str) -> Option<bool> {
+        registry
+            .waiters(1e12)
+            .iter()
+            .find(|waiter| waiter.entry.session_id.as_deref() == Some(session_id))
+            .map(|waiter| waiter.master_message)
+    }
+
+    #[test]
+    fn a_message_to_the_master_of_an_open_implementation_in_its_project_counts_as_a_master_message()
+    {
+        let registry = registry_with_message_to_master("p", None, None);
+        assert_eq!(master_message_of(&registry, "m"), Some(true));
+        assert_eq!(
+            master_message_of(&registry, "x"),
+            Some(false),
+            "eine Session, die kein Master ist"
+        );
+    }
+
+    #[test]
+    fn a_message_to_the_master_of_a_cancelled_implementation_does_not_count() {
+        let registry = registry_with_message_to_master("p", Some(2.0), Some(2.0));
+        assert_eq!(master_message_of(&registry, "m"), Some(false));
+    }
+
+    #[test]
+    fn a_message_to_the_master_of_a_finished_implementation_does_not_count() {
+        // Fertig, nicht abgebrochen: Der frühere Master behält keinen Vorrang.
+        let registry = registry_with_message_to_master("p", Some(2.0), None);
+        assert_eq!(master_message_of(&registry, "m"), Some(false));
+    }
+
+    #[test]
+    fn a_message_to_a_master_outside_the_project_of_its_implementation_does_not_count() {
+        let registry = registry_with_message_to_master("q", None, None);
+        assert_eq!(master_message_of(&registry, "m"), Some(false));
+    }
+
+    #[test]
+    fn a_due_resume_is_collected_without_any_further_event_and_is_no_master_message() {
+        // V155: Der Zeitgeber löst nur einen Durchgang aus; der sammelt das fällige Fortsetzen selbst.
+        let registry = registry_with_message_to_master("p", None, None);
+        {
+            let master = registry.get("m").expect("Master");
+            let mut state = master.lock();
+            state.status = SessionStatus::Paused;
+            state.pause_reason = Some(PauseReason::Quota {
+                resets_at: Some(1.0),
+                auto_resume: true,
+            });
+        }
+        let waiters = registry.waiters(1e12);
+        let resume = waiters
+            .iter()
+            .find(|waiter| waiter.entry.session_id.as_deref() == Some("m"))
+            .expect("fälliges Fortsetzen gesammelt");
+        assert_eq!(resume.entry.kind, slots::QueueKind::Resume);
+        assert!(
+            !resume.master_message,
+            "ein Fortsetzen des Masters rückt nicht vor"
+        );
+        // Noch nicht fällig: kein Wartender.
+        assert!(
+            !registry
+                .waiters(0.0)
+                .iter()
+                .any(|waiter| waiter.entry.session_id.as_deref() == Some("m"))
+        );
+    }
+
     #[test]
     fn the_pause_start_is_set_on_pausing_and_survives_the_reaper() {
         let mut state = state();
