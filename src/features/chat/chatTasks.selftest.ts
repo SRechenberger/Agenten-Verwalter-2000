@@ -134,7 +134,7 @@ const CASES: { name: string; actual: () => unknown; expected: unknown }[] = [
     expected: 'true,true',
   },
   {
-    name: 'error_and_paused_of_a_station_session_cannot_be_read',
+    name: 'error_and_paused_of_a_station_session_can_be_read',
     actual: () =>
       chatTasks(
         view(task('a', 'error', { stationId: 'st' }), task('b', 'paused', { stationId: 'st' })),
@@ -142,7 +142,7 @@ const CASES: { name: string; actual: () => unknown; expected: unknown }[] = [
       )
         .cards.map((card) => card.canDismiss)
         .join(),
-    expected: 'false,false',
+    expected: 'true,true',
   },
   {
     name: 'plan_change_and_ready_cannot_be_read',
@@ -181,7 +181,7 @@ const CASES: { name: string; actual: () => unknown; expected: unknown }[] = [
   {
     name: 'hint_of_open_kind_has_only_open',
     actual: (): string => {
-      const { hint } = chatTasks(view(task('a', 'paused', { stationId: 'st' })), 's1');
+      const { hint } = chatTasks(view(task('a', 'ready', { stationId: 'st' })), 's1');
       return `${String(hint?.withJump)}${String(hint?.card.canOpen)}${String(hint?.card.canDismiss)}`;
     },
     expected: 'falsetruefalse',

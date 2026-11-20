@@ -6,7 +6,7 @@ pub mod model;
 #[cfg(test)]
 mod tests;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::agents::event::QuestionKind;
 use crate::implementation::model::{ImplementationView, StationState};
@@ -47,7 +47,7 @@ pub fn excerpt(text: &str) -> Option<String> {
     Some(cut)
 }
 
-/// Eine Session-Karte gilt, solange „Gelesen“ fehlt oder älter ist als der Zustand.
+/// Eine Karte mit Session gilt, solange „Gelesen“ fehlt oder älter ist als der Zustand.
 fn is_open(dismissed_at: Option<f64>, since: f64) -> bool {
     dismissed_at.is_none_or(|dismissed: f64| dismissed < since)
 }
@@ -159,7 +159,9 @@ impl<'a> Context<'a> {
             ..self.card(
                 project,
                 kind,
-                format!("{}:{}", kind.name(), session.id),
+                // Ohne Art: Die Karte einer Session behält ihre Kennung, wenn die Art wechselt, und ein
+                // offenes Popup bleibt offen. Höchstens eine Zustandskarte je Session.
+                format!("session:{}", session.id),
                 since,
                 title,
             )
@@ -195,6 +197,8 @@ impl<'a> Context<'a> {
 pub fn build(snapshot: &Snapshot, now: f64) -> DashboardView {
     let context = Context::of(snapshot);
     let mut tasks: Vec<DashboardTask> = Vec::new();
+    // Kennungen der Karten, die ein „Gelesen“ aus der Liste nimmt, ohne den Ablauf zu ändern.
+    let mut read: HashSet<String> = HashSet::new();
     for session in &snapshot.sessions {
         if let Some(project) = context.projects.get(session.project_id.as_str()) {
             session_tasks(&context, project, session, &mut tasks);
@@ -202,7 +206,7 @@ pub fn build(snapshot: &Snapshot, now: f64) -> DashboardView {
     }
     for flow in &snapshot.flows {
         if let Some(project) = context.projects.get(flow.project_id.as_str()) {
-            flow_tasks(&context, project, flow, &mut tasks);
+            flow_tasks(&context, project, flow, &mut tasks, &mut read);
         }
     }
     tasks.sort_by(|left: &DashboardTask, right: &DashboardTask| {
@@ -211,8 +215,11 @@ pub fn build(snapshot: &Snapshot, now: f64) -> DashboardView {
             .then(left.since.total_cmp(&right.since))
             .then_with(|| left.id.cmp(&right.id))
     });
+    // Zustand und Zahl eines Ablaufs zählen die gelesenen Karten mit.
+    let flows = flows_of(snapshot, &context, &tasks, now);
+    tasks.retain(|task: &DashboardTask| !read.contains(&task.id));
     DashboardView {
-        flows: flows_of(snapshot, &context, &tasks, now),
+        flows,
         sessions: sessions_of(snapshot, &context, &tasks),
         tasks,
     }
@@ -331,6 +338,7 @@ fn flow_tasks(
     project: &ProjectFacts,
     flow: &FlowFacts,
     tasks: &mut Vec<DashboardTask>,
+    read: &mut HashSet<String>,
 ) {
     // Eine beendete oder abgebrochene Umsetzung hat nichts mehr offen.
     if flow.finished_at.is_some() || flow.cancelled_at.is_some() {
@@ -380,7 +388,12 @@ fn flow_tasks(
         ));
     }
     for station in &flow.stations {
-        tasks.extend(station_card_of(context, project, flow, station));
+        if let Some((task, is_read)) = station_card_of(context, project, flow, station) {
+            if is_read {
+                read.insert(task.id.clone());
+            }
+            tasks.push(task);
+        }
     }
 }
 
@@ -390,7 +403,7 @@ fn station_card_of(
     project: &ProjectFacts,
     flow: &FlowFacts,
     station: &StationFacts,
-) -> Option<DashboardTask> {
+) -> Option<(DashboardTask, bool)> {
     let session: Option<&SessionFacts> = station
         .session_id
         .as_deref()
@@ -446,7 +459,11 @@ fn station_card_of(
         task.session_number = Some(session.number);
         task.session_title = Some(session.title.clone());
     }
-    Some(task)
+    // „Gelesen“ gibt es für „Unterbrochen“ und „Fehler“ einer Station mit Session; ein Startfehler ohne
+    // Session hat nichts, was sich merken ließe.
+    let is_read = matches!(kind, DashboardTaskKind::Error | DashboardTaskKind::Paused)
+        && session.is_some_and(|session: &SessionFacts| !is_open(session.dismissed_at, since));
+    Some((task, is_read))
 }
 
 /// Eine Station gab ab, ohne zu melden: Sie wartet auf ihren Master, nicht auf dich.

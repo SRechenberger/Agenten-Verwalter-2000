@@ -87,6 +87,14 @@ const CASES: { name: string; actual: () => unknown; expected: unknown }[] = [
     expected: 'ac',
   },
   {
+    name: 'filter_blocking_also_keeps_paused_cards_in_place',
+    actual: () =>
+      filterTasks([task('a', 'question'), task('b', 'asks'), task('c', 'paused')], true)
+        .map((t) => t.id)
+        .join(''),
+    expected: 'ac',
+  },
+  {
     name: 'filter_off_keeps_all',
     actual: () =>
       filterTasks(TASKS, false)

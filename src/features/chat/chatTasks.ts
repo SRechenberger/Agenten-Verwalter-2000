@@ -17,7 +17,7 @@ export interface ChatCard {
   jump: JumpTarget | null;
   /** „Öffnen“ zeigt das Popup des Dashboards; nur, wo es keine „Zur Stelle“ gibt. */
   canOpen: boolean;
-  /** „Gelesen“: Karten der Session ohne Station, die ein Klick abräumt. */
+  /** „Gelesen“: Karten der Session (bei einer Station nur „Unterbrochen“ und „Fehler“), die ein Klick abräumt. */
   canDismiss: boolean;
 }
 
@@ -56,7 +56,7 @@ export function chatCard(task: DashboardTask): ChatCard {
     task,
     jump,
     canOpen: jump === null,
-    canDismiss: task.stationId === null && DISMISS_KINDS.includes(task.kind),
+    canDismiss: DISMISS_KINDS.includes(task.kind),
   };
 }
 
