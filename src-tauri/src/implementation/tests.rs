@@ -7284,7 +7284,10 @@ fn only_a_station_that_has_not_started_may_change_its_command() {
     let run = edited.updated[0].command.as_ref().expect("Befehl");
     assert_eq!(
         (run.steps.as_slice(), run.cwd.as_deref()),
-        (&["gh pr merge 9".to_owned()][..], Some(absolute_dir().as_str()))
+        (
+            &["gh pr merge 9".to_owned()][..],
+            Some(absolute_dir().as_str())
+        )
     );
     let error = edit::edited_plan("implementation", &view.phases, &rows, &patch("again"), &[])
         .expect_err("begonnen");
