@@ -88,6 +88,7 @@ impl SessionState {
 
     /// Der Zug läuft: `start_turn` ruft das für jede Herkunft; der Compact-Zug fasst nichts anderes an.
     pub(super) fn enter_running(&mut self, outbox: &mut Outbox, is_compact: bool) {
+        self.compact_by_hand = false;
         if is_compact {
             self.begin_compact_turn(outbox);
         } else {
@@ -196,9 +197,9 @@ impl SessionRegistry {
         };
         let limit = loaded.master_compact_tokens;
         // Vor der Session-Sperre: Datenbank und LM Studio gehören nicht darunter.
-        let master = above_limit(session.lock().context_used, limit)
-            && self.is_master_of_open_implementation(&session.id);
         let context_used = session.lock().context_used;
+        let master =
+            above_limit(context_used, limit) && self.is_master_of_open_implementation(&session.id);
         let Some(input) = self.admit_compact_over_limit(
             &session.id,
             context_used,
@@ -238,17 +239,18 @@ impl SessionRegistry {
         if let Err(error) = &sent {
             session.log_line(format!("Compact nicht gesendet: {error}"));
         }
-        if self.give_back_slot(&session.id, started && sent.is_ok()) {
+        if self.give_back_slot(&session.id, started, sent.is_ok()) {
             schedule_pass(app);
         }
     }
 
     /// Die eine Stelle, durch die der Compact-Weg den Platz zurückgibt. `true`: Es lief kein
-    /// Compact-Zug, dessen Ende die Warteschlange bewegt; der Aufrufer stößt einen Durchgang an,
-    /// sonst bliebe eine wartende Nachricht liegen, wenn der Durchgang des Zugendes in der Lücke lief.
-    pub(super) fn give_back_slot(&self, session_id: &str, turn_started: bool) -> bool {
+    /// Compact-Zug, dessen Ende die Warteschlange bewegt (abgelehnt, oder der Start scheiterte);
+    /// der Aufrufer stößt einen Durchgang an, sonst bliebe eine wartende Nachricht liegen, wenn
+    /// der Durchgang des Zugendes in der Lücke lief.
+    pub(super) fn give_back_slot(&self, session_id: &str, started: bool, sent_ok: bool) -> bool {
         self.release_session_slot(session_id);
-        !turn_started
+        !(started && sent_ok)
     }
 }
 

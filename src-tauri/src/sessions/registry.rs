@@ -3196,16 +3196,32 @@ impl SessionState {
             comments,
             origin: device.map(str::to_owned),
         });
-        // `/compact` ist keine Frage: Die Antwort des Dashboards bleibt, wie sie war.
-        self.compact_by_hand = text.trim() == compact::COMPACT_TEXT;
+        self.note_input(outbox);
+        self.auto_chain = 0;
+        // Wer sendet, hat die Session gesehen.
+        self.seen_at = self.last_activity_at;
+    }
+
+    /// Die Eingabe eines Zugs: `push_user`, aber `/compact` ist keine Frage, die Antwort des
+    /// Dashboards bleibt, wie sie war. `true`, wenn die Eingabe nur `/compact` ist.
+    fn push_user_turn(
+        &mut self,
+        outbox: &mut Outbox,
+        text: &str,
+        attachments: Vec<Attachment>,
+        skill: Option<SkillRef>,
+        comments: Vec<ReviewComment>,
+        device: Option<&str>,
+    ) -> bool {
+        let by_hand = text.trim() == compact::COMPACT_TEXT;
         let kept = (
             self.answer_at,
             self.answer_excerpt.clone(),
             self.answer_kind.clone(),
             self.answer_line.clone(),
         );
-        self.note_input(outbox);
-        if self.compact_by_hand {
+        self.push_user(outbox, text, attachments, skill, comments, device);
+        if by_hand {
             (
                 self.answer_at,
                 self.answer_excerpt,
@@ -3213,9 +3229,7 @@ impl SessionState {
                 self.answer_line,
             ) = kept;
         }
-        self.auto_chain = 0;
-        // Wer sendet, hat die Session gesehen.
-        self.seen_at = self.last_activity_at;
+        by_hand
     }
 
     /// Ohne die Folgen für `seen_at` und `auto_chain`: Das Ziel bleibt ungelesen, die Kettenbremse
@@ -4605,6 +4619,7 @@ fn start_turn(
         TurnOrigin::Compact => PlanTurn::Reminder,
     };
     let is_compact = matches!(origin, TurnOrigin::Compact);
+    let mut by_hand = false;
     let (titled, line) = match origin {
         TurnOrigin::User {
             attachment_ids,
@@ -4661,7 +4676,8 @@ fn start_turn(
             );
             let line = message_line(&agent_text, &agent_attachments)?;
             let titled = state.begin_turn(outbox, session, text, &agent_text);
-            state.push_user(outbox, sent_text, sent_attachments, skill, comments, device);
+            by_hand =
+                state.push_user_turn(outbox, sent_text, sent_attachments, skill, comments, device);
             if let Some(found) = report_update {
                 state.last_report = Some(found.stripped.clone());
                 state.push_entry(outbox, |seq: u32| ChatEntry::Notice {
@@ -4705,6 +4721,8 @@ fn start_turn(
         PlanTurn::Reminder => {}
     }
     state.enter_running(outbox, is_compact);
+    // Der Merker gehört zum Zug: Scheitert das Schreiben, setzt der nächste Zug ihn zurück.
+    state.compact_by_hand = by_hand;
     outbox.write(state, line)?;
     Ok(titled)
 }
@@ -5437,10 +5455,10 @@ mod tests {
         let claim = || registry.admit_compact("m", true, Some(1), OperatingMode::Claude, || ());
         assert!(claim().is_some());
         // Unter der Sperre abgelehnt (etwa weil eine Nachricht wartet): kein Zug, also ein Durchgang.
-        assert!(registry.give_back_slot("m", false));
+        assert!(registry.give_back_slot("m", false, true));
         assert!(claim().is_some(), "der Platz ist frei");
         // Ein gestarteter Compact-Zug bewegt die Warteschlange mit seinem Ende.
-        assert!(!registry.give_back_slot("m", true));
+        assert!(!registry.give_back_slot("m", true, true));
     }
 
     #[test]
@@ -5451,8 +5469,8 @@ mod tests {
                 .admit_compact("m", true, Some(1), OperatingMode::Claude, || ())
                 .is_some()
         );
-        // `send_compact` meldet `started && sent.is_ok()`: ein Fehler nach dem Start zählt nicht.
-        assert!(registry.give_back_slot("m", false));
+        // Gestartet, aber das Senden scheiterte: kein Zug läuft, also ein Durchgang.
+        assert!(registry.give_back_slot("m", true, false));
     }
 
     #[test]
@@ -5496,32 +5514,62 @@ mod tests {
         assert_eq!(state.context_used, 180_000);
     }
 
+    /// Wie `start_turn`: Eingabe, Zug beginnt, Merker gehört zum Zug.
+    fn turn(state: &mut SessionState, text: &str) {
+        let mut outbox = Outbox::default();
+        let by_hand = state.push_user_turn(&mut outbox, text, Vec::new(), None, Vec::new(), None);
+        state.enter_running(&mut outbox, false);
+        state.compact_by_hand = by_hand;
+    }
+
+    fn end(state: &mut SessionState) {
+        let mut outbox = Outbox::default();
+        state.end_turn(&mut outbox, TurnEnd::Completed, None, Vec::new(), None);
+    }
+
     #[test]
     fn a_compact_turn_by_hand_gives_no_answer_card() {
         let mut state = state();
         state.answer_at = Some(4.0);
         state.answer_excerpt = Some("Auszug".to_owned());
-        let mut outbox = Outbox::default();
-        state.push_user(&mut outbox, "/compact", Vec::new(), None, Vec::new(), None);
-        state.enter_running(&mut outbox, false);
+        turn(&mut state, "/compact");
         assert_eq!(state.answer_at, Some(4.0), "die bestehende Karte bleibt");
         assert_eq!(state.answer_excerpt.as_deref(), Some("Auszug"));
-        let mut outbox = Outbox::default();
-        state.end_turn(&mut outbox, TurnEnd::Completed, None, Vec::new(), None);
+        end(&mut state);
         assert_eq!(state.answer_at, Some(4.0));
         assert_eq!(state.answer_excerpt.as_deref(), Some("Auszug"));
         // Ohne bestehende Karte entsteht keine.
         let mut fresh = self::state();
-        let mut outbox = Outbox::default();
-        fresh.push_user(&mut outbox, "/compact", Vec::new(), None, Vec::new(), None);
-        fresh.enter_running(&mut outbox, false);
-        fresh.end_turn(&mut outbox, TurnEnd::Completed, None, Vec::new(), None);
+        turn(&mut fresh, "/compact");
+        end(&mut fresh);
         assert_eq!(fresh.answer_at, None);
         // Eine gewöhnliche Eingabe setzt sie weiter.
-        fresh.push_user(&mut outbox, "weiter", Vec::new(), None, Vec::new(), None);
-        fresh.enter_running(&mut outbox, false);
-        fresh.end_turn(&mut outbox, TurnEnd::Completed, None, Vec::new(), None);
+        turn(&mut fresh, "weiter");
+        end(&mut fresh);
         assert!(fresh.answer_at.is_some());
+    }
+
+    #[test]
+    fn a_failed_write_of_compact_leaves_the_next_turn_its_answer_card() {
+        let mut state = state();
+        turn(&mut state, "/compact");
+        // Das Schreiben scheiterte: `end_turn` lief nie. Der nächste Zug, etwa eine Session-Nachricht,
+        // beginnt ohne `push_user` und setzt den Merker zurück.
+        let mut outbox = Outbox::default();
+        state.enter_running(&mut outbox, false);
+        end(&mut state);
+        assert!(state.answer_at.is_some());
+    }
+
+    #[test]
+    fn the_reply_compact_to_a_question_keeps_the_answer_card_of_the_turn() {
+        let mut state = state();
+        turn(&mut state, "frag mich");
+        // Die Antwort auf die Rückfrage geht über `push_user` im laufenden Zug, nicht über `start_turn`.
+        let mut outbox = Outbox::default();
+        state.push_user(&mut outbox, "/compact", Vec::new(), None, Vec::new(), None);
+        end(&mut state);
+        assert!(state.answer_at.is_some());
     }
 
     #[test]
