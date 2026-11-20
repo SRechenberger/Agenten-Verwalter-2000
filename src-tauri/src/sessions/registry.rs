@@ -4356,9 +4356,7 @@ fn update<R>(
         }
         // Auch bei einem Fehler: die Closure kann den Zustand schon verändert haben.
         persist(session, &mut state, &outbox);
-        if outbox.summary_dirty {
-            outbox.summary = Some(summarize(session, &state));
-        }
+        outbox.summary = changed_summary(session, &state, &outbox);
         result
     };
     outbox.emit(app, session);
@@ -4406,6 +4404,17 @@ fn update<R>(
     let value = result?;
     outbox.deliver(session)?;
     Ok(value)
+}
+
+/// Die Zusammenfassung für `session://changed`. Eine gelöschte Session sendet keine: das Frontend
+/// nähme die unbekannte ID wieder auf und zeigte eine Geisterzeile bis zum Neuladen (Taiga 35).
+fn changed_summary(
+    session: &Session,
+    state: &SessionState,
+    outbox: &Outbox,
+) -> Option<SessionSummary> {
+    (outbox.summary_dirty && !session.deleted.load(Ordering::SeqCst))
+        .then(|| summarize(session, state))
 }
 
 /// Die Erinnerung des Wächters geht in einem eigenen Thread hinaus, wie die Warteschlange der
@@ -7018,5 +7027,33 @@ mod tests {
             (ModelId::Haiku, Effort::Low)
         );
         assert_eq!(registry.project_members("p").len(), 1, "keine neue Session");
+    }
+
+    #[test]
+    fn a_deleted_session_sends_no_changed_summary() {
+        let session = Session {
+            id: "s".to_owned(),
+            project_id: "p".to_owned(),
+            number: 1,
+            workspace: PathBuf::new(),
+            repositories: RwLock::new(Vec::new()),
+            database: Arc::new(
+                crate::db::Database::open(Path::new(":memory:")).expect("Datenbank im Speicher"),
+            ),
+            state: Mutex::new(state()),
+            deleted: AtomicBool::new(false),
+        };
+        let dirty = Outbox {
+            summary_dirty: true,
+            ..Outbox::default()
+        };
+        let state = session.lock();
+        assert!(changed_summary(&session, &state, &dirty).is_some());
+        assert!(changed_summary(&session, &state, &Outbox::default()).is_none());
+        session.deleted.store(true, Ordering::SeqCst);
+        assert!(
+            changed_summary(&session, &state, &dirty).is_none(),
+            "gelöscht: kein Ereignis, auch nicht über eine geänderte Zusammenfassung"
+        );
     }
 }
