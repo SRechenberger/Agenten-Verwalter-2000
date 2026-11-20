@@ -83,9 +83,12 @@ export function isInterrupted(
   );
 }
 
+/** Der Name eines Platzhalters wie im Kern (`command.rs`); alles andere in `{{…}}` ist Text. */
+const PLACEHOLDER_NAME = /^[a-z][a-z0-9_]{0,31}$/;
+
 /** „Werte von 102.3 · PR: pr = 83, head = 4f2c9e1“: die Werte, die in den Schritten stehen, gelesen aus
- *  Vorlage und eingesetzten Schritten (die Ansicht trägt die Werte selbst nicht). `{{env:…}}` bleibt in
- *  `resolved` wie es ist und gibt nie einen Wert; `null`, wenn nichts eingesetzt ist. Ein Wert mit Leerraum
+ *  Vorlage und eingesetzten Schritten (die Ansicht trägt die Werte selbst nicht). `{{env:…}}` und `{{.x}}` einer
+ *  Go-Vorlage sind kein Name und geben nie einen Wert; `null`, wenn nichts eingesetzt ist. Ein Wert mit Leerraum
  *  steht in Anführungszeichen, wie der Kern ihn einsetzt. */
 export function valuesLine(
   command: readonly string[],
@@ -100,7 +103,7 @@ export function valuesLine(
       .split(/(\{\{[^}]*\}\})/)
       .map((part: string): string => {
         const name: string = /^\{\{([^}]*)\}\}$/.exec(part)?.[1] ?? '';
-        if (name === '' || name.startsWith('env:')) {
+        if (!PLACEHOLDER_NAME.test(name)) {
           return part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
         }
         names.push(name);

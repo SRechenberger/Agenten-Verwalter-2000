@@ -38,6 +38,14 @@ const cases: [string, boolean][] = [
       valuesLine(['x {{env:TOKEN}}'], ['x {{env:TOKEN}}'], ['A']) === null,
   ],
   [
+    'Platzhalter sind nur Namen des Kerns, {{.x}} einer Go-Vorlage bleibt Text',
+    valuesLine(
+      ['gh pr view {{pr}} --template {{.state}}'],
+      ['gh pr view 83 --template {{.state}}'],
+      ['A'],
+    ) === 'Werte von A: pr = 83',
+  ],
+  [
     'ohne Platzhalter keine Zeile der Werte',
     valuesLine(['git --version'], ['git --version'], ['A']) === null,
   ],
