@@ -80,10 +80,7 @@ pub(crate) fn spawn(app: &AppHandle, session_id: &str, armed: ArmedResume) {
 /// Läuft im Thread des Zeitgebers, ohne gehaltene Sperre. Danach belegt er keinen Platz selbst, sondern
 /// löst nur einen Durchgang der globalen Warteschlange aus: Der sammelt das fällige Fortsetzen (Zeit
 /// allein, kein `update` feuert dann) und startet es nach `rank`, also nicht vor einem höher gereihten
-/// Wartenden (ADR 068; `resume_claimed` im Durchgang prüft Zustand und Abbruch). Prüfen (unter der Sperre der Session) und Senden sind getrennt: eine
-/// Nachricht des Users genau dazwischen ist akzeptiert, der Agent bekommt den Text dann zusätzlich. Die
-/// Prüfung muss vor `send` liegen, weil `send` eine beendete Session neu startet und dabei die
-/// Begründung löscht.
+/// Wartenden (ADR 068; `resume_claimed` im Durchgang prüft Zustand und Abbruch).
 fn run(app: &AppHandle, session_id: &str, armed: ArmedResume) {
     let registry = app.state::<SessionRegistry>();
     let end: WaitEnd = wait_until(

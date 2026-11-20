@@ -142,8 +142,10 @@ impl SessionRegistry {
         self.lock_countdowns().release_session(session_id);
     }
 
-    /// Schickt den Fortsetz-Text, solange die Session noch mit scharfem Zeitgeber pausiert. Die Prüfung
-    /// liegt vor `send`, weil `send` die Begründung löscht.
+    /// Schickt den Fortsetz-Text, solange die Session noch mit scharfem Zeitgeber pausiert. Prüfen
+    /// (unter der Sperre der Session) und Senden sind getrennt: Eine Nachricht des Users genau dazwischen
+    /// ist akzeptiert, der Agent bekommt den Text dann zusätzlich. Die Prüfung muss vor `send` liegen,
+    /// weil `send` eine beendete Session neu startet und dabei die Begründung löscht.
     fn resume_claimed(&self, app: &AppHandle, session_id: &str) {
         let waits = self
             .get(session_id)
@@ -195,10 +197,11 @@ impl SessionRegistry {
             |project_id: &str| priorities.get(project_id).copied().unwrap_or_default();
         let armed: HashSet<String> = self.lock_countdowns().armed();
         let mut waiters: Vec<Waiter> = Vec::new();
-        // Master nicht abgebrochener Umsetzungen mit dem Vorhaben der Umsetzung (V189).
+        // Master laufender Umsetzungen (nicht fertig; ein Abbruch setzt `finished_at` mit) mit dem Vorhaben der
+        // Umsetzung (V189).
         let mut masters: HashSet<(String, String)> = HashSet::new();
         for view in self.implementation_views().unwrap_or_default() {
-            if let (Some(master_id), None) = (&view.master_session_id, view.cancelled_at) {
+            if let (Some(master_id), None) = (&view.master_session_id, view.finished_at) {
                 masters.insert((master_id.clone(), view.project_id.clone()));
             }
             waiters.extend(station_waiters(

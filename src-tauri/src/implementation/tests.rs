@@ -5183,7 +5183,7 @@ fn master_messages_of_one_project_keep_their_order() {
 }
 
 #[test]
-fn the_order_with_three_projects_is_total_and_never_passes_another_project() {
+fn with_three_projects_the_projects_keep_their_order_by_their_best_waiter() {
     // Die Vorhaben a (hoch), b und c (normal); jedes mit Master-Nachricht, b und c auch mit Station.
     let mut waiters = vec![
         message_in("c", "master-c", ProjectPriority::Normal, -50_000.0),
@@ -5195,8 +5195,9 @@ fn the_order_with_three_projects_is_total_and_never_passes_another_project() {
     ];
     slots::rank(&mut waiters);
     // Grundordnung nach Stufe und Wartezeit: master-a, station-a, station-b, station-c, master-c,
-    // master-b. Jede Nachricht rückt nur vor die beste Station ihres Vorhabens; b und c bleiben in der
-    // Reihenfolge ihrer Stationen, a (hoch) bleibt vorn.
+    // master-b. Jede Nachricht nimmt den Platz der besten Station ihres Vorhabens ein; die Vorhaben b und
+    // c bleiben in der Reihenfolge ihrer Stationen, a (hoch) bleibt vorn. master-b steht vor station-c, überholt
+    // aber nichts, was vor station-b stand; station-c rückt dafür nach hinten.
     assert_eq!(
         keys(&waiters),
         [
@@ -5215,7 +5216,7 @@ fn the_order_with_three_projects_is_total_and_never_passes_another_project() {
     assert_eq!(
         projects,
         ["a", "a", "b", "b", "c", "c"],
-        "kein Vorhaben überholt"
+        "die Vorhaben behalten ihre Reihenfolge, gemessen an ihrem besten Wartenden"
     );
 }
 

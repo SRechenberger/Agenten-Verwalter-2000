@@ -71,8 +71,8 @@ pub struct Waiter {
     /// Was der Anspruch belegt: die Station (Countdown, Neustart) oder die Session.
     pub key: String,
     pub start: Start,
-    /// Eine Nachricht an den Master einer nicht abgebrochenen Umsetzung desselben Vorhabens: `rank`
-    /// rückt sie vor die übrigen Wartenden dieses Vorhabens (ADR 068, D5).
+    /// Eine Nachricht an den Master einer laufenden Umsetzung (nicht fertig, nicht abgebrochen)
+    /// desselben Vorhabens: `rank` rückt sie vor die übrigen Wartenden dieses Vorhabens (ADR 068, D5).
     pub master_message: bool,
 }
 
@@ -81,7 +81,10 @@ pub struct Waiter {
 /// behalten die Reihenfolge, in der sie gesammelt wurden (nach dem App-Start die Planreihenfolge).
 /// Kein Altern. Danach rückt jede Nachricht an einen Master (`master_message`) direkt vor den besten
 /// Wartenden, der in ihrem Vorhaben vor ihr liegt und keine solche Nachricht ist; mehrere behalten ihre
-/// Reihenfolge, und gegenüber anderen Vorhaben ändert sich nichts. Setzt die Plätze 1-basiert.
+/// Reihenfolge. Die Vorhaben behalten ihre Reihenfolge, gemessen an ihrem besten Wartenden: Die Nachricht
+/// nimmt den Platz des besten Wartenden ihres Vorhabens ein, der keine Master-Nachricht ist, und überholt
+/// nie einen Wartenden eines anderen Vorhabens, der vor diesem steht; die Wartenden dahinter, auch
+/// anderer Vorhaben, rücken nach hinten. Setzt die Plätze 1-basiert.
 pub fn rank(waiters: &mut Vec<Waiter>) {
     waiters.sort_by(|left: &Waiter, right: &Waiter| {
         left.entry
@@ -105,7 +108,8 @@ pub fn rank(waiters: &mut Vec<Waiter>) {
 
 /// Rein: ordnet die schon nach Stufe, Vorrang und Wartezeit sortierten Wartenden um. Vor dem ersten
 /// Wartenden eines Vorhabens, der keine Master-Nachricht ist, stehen danach alle Master-Nachrichten
-/// dieses Vorhabens in ihrer bisherigen Reihenfolge; jeder andere Wartende behält seinen Platz.
+/// dieses Vorhabens in ihrer bisherigen Reihenfolge; die übrigen Wartenden behalten ihre Reihenfolge
+/// zueinander (sie rücken nur nach hinten, wo Nachrichten vor sie treten).
 fn advance_master_messages(waiters: &mut Vec<Waiter>) {
     if !waiters.iter().any(|waiter: &Waiter| waiter.master_message) {
         return;
