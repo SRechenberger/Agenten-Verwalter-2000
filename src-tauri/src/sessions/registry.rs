@@ -3963,12 +3963,16 @@ impl SessionState {
                     self.note_answer(outbox, excerpt);
                 }
                 outbox.compact = true;
-                outbox.classify = classify_input.map(|input| classify::Job {
-                    has_station: self.station_of.is_some(),
-                    has_open_request: !self.pending.is_empty(),
-                    answer_at: self.last_activity_at,
-                    input,
-                });
+                // Ein `/compact` von Hand ist keine Antwort: kein Modellaufruf, und ein wartender
+                // Auftrag des vorigen Zugs (`classify_next`) bleibt, wie er ist.
+                outbox.classify = classify_input
+                    .filter(|_| !by_hand)
+                    .map(|input| classify::Job {
+                        has_station: self.station_of.is_some(),
+                        has_open_request: !self.pending.is_empty(),
+                        answer_at: self.last_activity_at,
+                        input,
+                    });
                 outbox.turn_completed = true;
                 self.check_plan(outbox);
             }
@@ -5903,6 +5907,36 @@ mod tests {
         assert_eq!(job.input.started_by, "Prüfe das");
         assert_eq!(job.input.answer, "Geprüft.");
         assert!(!job.has_station && !job.has_open_request);
+    }
+
+    #[test]
+    fn a_compact_turn_by_hand_plans_no_classification_and_keeps_a_waiting_job() {
+        let (mut state, mut outbox) = answered();
+        let waiting = classify::Job {
+            has_station: false,
+            has_open_request: false,
+            answer_at: 3.0,
+            input: crate::dashboard::classify::Input {
+                started_by: "Vorher".to_owned(),
+                answer: "Echte Antwort".to_owned(),
+            },
+        };
+        state.classify_next = Some((waiting, ModelId::Haiku));
+        turn(&mut state, "/compact");
+        say(&mut state, &mut outbox, "Zusammengefasst.");
+        state.end_turn(&mut outbox, TurnEnd::Completed, None, Vec::new(), None);
+        assert!(outbox.classify.is_none(), "kein Auftrag nach /compact");
+        let (kept, _) = state
+            .classify_next
+            .as_ref()
+            .expect("der Auftrag wartet noch");
+        assert_eq!(kept.answer_at, 3.0);
+        // Eine gewöhnliche Eingabe danach plant wieder ein.
+        let mut next = Outbox::default();
+        turn(&mut state, "weiter");
+        say(&mut state, &mut next, "Fertig.");
+        state.end_turn(&mut next, TurnEnd::Completed, None, Vec::new(), None);
+        assert!(next.classify.is_some());
     }
 
     #[test]
