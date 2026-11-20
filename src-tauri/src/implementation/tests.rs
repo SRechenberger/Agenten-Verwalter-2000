@@ -6102,12 +6102,16 @@ fn two_acceptances_and_an_acceptance_after_a_return_write_only_once() {
 
 /// Der echte Weck-Text einer Meldung dieser Station, wie `wake::decide` ihn schreibt.
 fn wake_text(event: &wake::WakeEvent) -> String {
+    wake_text_with_note(event, "Notiz an den Master")
+}
+
+fn wake_text_with_note(event: &wake::WakeEvent, note: &str) -> String {
     let facts = wake::WakeFacts {
         implementation: "Umsetzung".to_owned(),
         lane: "K".to_owned(),
         stage: "Umsetzung".to_owned(),
         text: "PR offen".to_owned(),
-        note: "Notiz an den Master".to_owned(),
+        note: note.to_owned(),
     };
     wake::decide(event, &facts, true, &mut HashSet::new()).expect("eine Nachricht")
 }
@@ -6122,8 +6126,10 @@ fn reported_event(station_id: &str) -> wake::WakeEvent {
 }
 
 /// Eine Datenbank mit der Meldung von `s` und der offenen Station `t`; `session` ist der Master. Im
-/// Posteingang des Masters warten die Weck-Zeilen von `s` (Meldung und Unterbrochen) und von `t`, dazu
-/// eine Nachricht des Benutzers und eine einer anderen Session, die `s` nennt.
+/// Posteingang des Masters warten die Weck-Zeilen von `s` (Meldung und Unterbrochen) und von `t`, deren
+/// Notiz `(station_id: s)` nennt, zwei Nachrichten an einen neuen Master (die eine mit den Meldungen von
+/// `s` und `t`, die andere nur mit der von `s`), die zum Ende der Umsetzung und eine Nachricht einer
+/// anderen Session, die `s` nennt.
 fn database_with_waiting_wakes() -> Database {
     let database = database_with(&[reported_row(0), station_row("t", 1, "Review")]);
     let interrupted = wake::WakeEvent::Interrupted {
@@ -6131,13 +6137,32 @@ fn database_with_waiting_wakes() -> Database {
         returns: 0,
         session: "Session #2, ID x".to_owned(),
     };
+    let report = |id: &str| {
+        (
+            id.to_owned(),
+            "K".to_owned(),
+            "Umsetzung".to_owned(),
+            "PR offen".to_owned(),
+        )
+    };
     database
         .with(|connection| {
             implementation_rows::set_master(connection, "implementation", "session")?;
             let rows = [
                 (wake::sender(), wake_text(&reported_event("s"))),
                 (wake::sender(), wake_text(&interrupted)),
-                (wake::sender(), wake_text(&reported_event("t"))),
+                (
+                    wake::sender(),
+                    wake_text_with_note(&reported_event("t"), "Vorher war (station_id: s) dran."),
+                ),
+                (
+                    wake::sender(),
+                    wake::new_master_message("Umsetzung", &[report("s"), report("t")]),
+                ),
+                (
+                    wake::sender(),
+                    wake::new_master_message("Umsetzung", &[report("s")]),
+                ),
                 (
                     wake::sender(),
                     "Meldung des Verwalters: Die Umsetzung ist fertig.".to_owned(),
@@ -6151,8 +6176,9 @@ fn database_with_waiting_wakes() -> Database {
                     "Ich habe (station_id: s) gesehen.".to_owned(),
                 ),
             ];
-            for (created_at, (sender, text)) in
-                [10.0, 11.0, 12.0, 13.0, 14.0].into_iter().zip(&rows)
+            for (created_at, (sender, text)) in [10.0, 11.0, 12.0, 13.0, 14.0, 15.0, 16.0]
+                .into_iter()
+                .zip(&rows)
             {
                 session_inbox::insert(connection, "session", sender, text, 0, created_at)?;
             }
@@ -6179,10 +6205,21 @@ fn waiting_texts(database: &Database) -> Vec<String> {
 #[test]
 fn accepting_or_returning_a_report_drops_the_waiting_wake_rows_of_that_station_only() {
     let stays = |texts: &[String]| {
-        assert_eq!(texts.len(), 3, "{texts:?}");
-        assert!(texts[0].contains("(station_id: t)"), "andere Station");
-        assert!(texts[1].contains("fertig"), "Weck-Zeile ohne Station");
-        assert!(texts[2].starts_with("Ich habe"), "Nachricht einer Session");
+        assert_eq!(texts.len(), 5, "{texts:?}");
+        assert!(
+            texts[0].contains("(station_id: t)") && texts[0].contains("(station_id: s)"),
+            "andere Station, deren Notiz diese nennt"
+        );
+        assert!(
+            texts[1].contains("zum Master") && texts[1].contains("(station_id: t)"),
+            "Nachricht an einen neuen Master mit zwei Meldungen"
+        );
+        assert!(
+            texts[2].contains("zum Master") && !texts[2].contains("(station_id: t)"),
+            "Nachricht an einen neuen Master, die nur diese Station nennt"
+        );
+        assert!(texts[3].contains("fertig"), "Weck-Zeile ohne Station");
+        assert!(texts[4].starts_with("Ich habe"), "Nachricht einer Session");
     };
     let accepted = database_with_waiting_wakes();
     assert!(
@@ -6232,7 +6269,7 @@ fn a_refused_acceptance_or_return_leaves_the_wake_rows_waiting() {
             )
             .expect("schreibbar")
     );
-    assert_eq!(waiting_texts(&database).len(), 5);
+    assert_eq!(waiting_texts(&database).len(), 7);
 }
 
 #[test]

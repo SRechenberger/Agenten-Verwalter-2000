@@ -10,6 +10,10 @@ use crate::agents::event::SessionRef;
 /// Der Wortlaut ist an Haiku gemessen (ADR 070); eine Änderung braucht eine neue Messung. Er nennt die
 /// Quelle, sagt, was geschah, und sagt nicht, dass er keine Anweisung sei.
 const SOURCE: &str = "Meldung des Verwalters";
+/// Der feste Anfang jeder Weck-Nachricht zu einer Station (alle außer „Umsetzung fertig“); das Löschen
+/// verfallener Zeilen (`db::session_inbox::delete_wakes_of_station`) erkennt sie daran. Die Nachrichten
+/// an einen neuen Master und zum Ende der Umsetzung beginnen anders.
+pub const STATION_WAKE_START: &str = "Meldung des Verwalters: In der Umsetzung „";
 /// Betreff und Schluss der Antwort kommen auf eine Zeile und diese Länge; die Notiz einer Meldung darf
 /// so lang sein wie ihr Feld (`MAX_NOTE_CHARS`).
 const MAX_TEXT_CHARS: usize = 200;
@@ -484,6 +488,39 @@ mod tests {
             let id = event.station_id();
             assert!(text.contains(&format!("station_id: {id}")), "{text}");
         }
+    }
+
+    #[test]
+    fn only_the_wakes_about_a_station_start_with_the_fixed_station_start() {
+        let station_events = [
+            reported(0, 1),
+            WakeEvent::MarkedDone {
+                station_id: "s2".to_owned(),
+            },
+            WakeEvent::Unreported {
+                station_id: "s3".to_owned(),
+                returns: 0,
+                turn: 1,
+            },
+            WakeEvent::Interrupted {
+                station_id: "s4".to_owned(),
+                returns: 0,
+                session: "Session #2, ID x".to_owned(),
+            },
+            WakeEvent::Failed {
+                station_id: "s5".to_owned(),
+                returns: 0,
+                turn: 1,
+                stopped: true,
+            },
+        ];
+        for event in &station_events {
+            let text = message(event, &facts("x"));
+            assert!(text.starts_with(STATION_WAKE_START), "{text}");
+        }
+        assert!(!message(&finished(), &facts("x")).starts_with(STATION_WAKE_START));
+        let new_master = new_master_message("Umsetzung", &[]);
+        assert!(!new_master.starts_with(STATION_WAKE_START), "{new_master}");
     }
 
     #[test]

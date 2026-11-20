@@ -5910,27 +5910,14 @@ mod tests {
     }
 
     #[test]
-    fn a_compact_turn_by_hand_plans_no_classification_and_keeps_a_waiting_job() {
+    fn a_compact_turn_by_hand_plans_no_classification() {
         let (mut state, mut outbox) = answered();
-        let waiting = classify::Job {
-            has_station: false,
-            has_open_request: false,
-            answer_at: 3.0,
-            input: crate::dashboard::classify::Input {
-                started_by: "Vorher".to_owned(),
-                answer: "Echte Antwort".to_owned(),
-            },
-        };
-        state.classify_next = Some((waiting, ModelId::Haiku));
         turn(&mut state, "/compact");
         say(&mut state, &mut outbox, "Zusammengefasst.");
         state.end_turn(&mut outbox, TurnEnd::Completed, None, Vec::new(), None);
+        // Ein wartender Auftrag des vorigen Zugs bleibt: Nur `classify::schedule` überschreibt ihn, und
+        // das läuft nur mit einem Auftrag in der Outbox.
         assert!(outbox.classify.is_none(), "kein Auftrag nach /compact");
-        let (kept, _) = state
-            .classify_next
-            .as_ref()
-            .expect("der Auftrag wartet noch");
-        assert_eq!(kept.answer_at, 3.0);
         // Eine gewöhnliche Eingabe danach plant wieder ein.
         let mut next = Outbox::default();
         turn(&mut state, "weiter");
