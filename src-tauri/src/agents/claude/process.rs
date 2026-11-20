@@ -78,6 +78,10 @@ static LEADERS: Mutex<Vec<Weak<Mutex<Leader>>>> = Mutex::new(Vec::new());
 struct Leader {
     child: Child,
     reaped: bool,
+    /// Gesetzt beim App-Ende vor dem SIGTERM: Danach meldet der Prozess nichts mehr, weder Zeilen
+    /// noch `Exited`, denn sein Ende ist kein Absturz der Session. Je Prozess, nicht global: Die
+    /// Tests laufen als Threads eines Prozesses.
+    stopping: bool,
 }
 
 impl Leader {
@@ -124,7 +128,7 @@ enum Signal {
 type OutputHandler = Arc<dyn Fn(ProcessOutput) + Send + Sync>;
 
 /// Startet `claude.exe` ohne Shell und ohne Konsolenfenster. `on_output` läuft auf den
-/// Lese-Threads; nach dem letzten `Line` kommt genau ein `Exited`.
+/// Lese-Threads; nach dem letzten `Line` kommt genau ein `Exited`, außer nach `stop_all`.
 pub fn spawn(
     opts: SpawnOptions,
     on_output: impl Fn(ProcessOutput) + Send + Sync + 'static,
@@ -146,6 +150,7 @@ pub(crate) fn start(
         let mut leader = Leader {
             child,
             reaped: false,
+            stopping: false,
         };
         leader.signal(Signal::Kill);
         return Err(io::Error::other("Ein-/Ausgabe des Agenten nicht verfügbar"));
@@ -154,6 +159,7 @@ pub(crate) fn start(
     let child = Arc::new(Mutex::new(Leader {
         child,
         reaped: false,
+        stopping: false,
     }));
     {
         let mut leaders = lock(&LEADERS);
@@ -219,7 +225,9 @@ pub(crate) fn stop(processes: &[&ClaudeProcess], grace: Duration) {
 
 fn stop_leaders(leaders: &[Arc<Mutex<Leader>>], grace: Duration) {
     for leader in leaders {
-        lock(leader).signal(Signal::Terminate);
+        let mut leader = lock(leader);
+        leader.stopping = true;
+        leader.signal(Signal::Terminate);
     }
     let deadline = Instant::now() + grace;
     // `try_reap` beendet beim Einsammeln den Rest der Gruppe; ein Fehler zählt als beendet.
@@ -466,22 +474,28 @@ fn start_readers(
     on_output: OutputHandler,
 ) -> io::Result<()> {
     let stderr_output = Arc::clone(&on_output);
+    let stderr_child = Arc::clone(&child);
     thread::Builder::new()
         .name("claude-stderr".to_owned())
         .spawn(move || {
             for_each_line(stderr, |line: String| {
-                stderr_output(ProcessOutput::Stderr(line));
+                if !stopping(&stderr_child) {
+                    stderr_output(ProcessOutput::Stderr(line));
+                }
             });
         })?;
     thread::Builder::new()
         .name("claude-stdout".to_owned())
         .spawn(move || {
             for_each_line(stdout, |line: String| {
-                if !line.trim().is_empty() {
+                if !line.trim().is_empty() && !stopping(&child) {
                     on_output(ProcessOutput::Line(line));
                 }
             });
-            on_output(ProcessOutput::Exited(wait_for_exit(&child)));
+            let code = wait_for_exit(&child);
+            if !stopping(&child) {
+                on_output(ProcessOutput::Exited(code));
+            }
         })?;
     Ok(())
 }
@@ -517,6 +531,11 @@ fn wait_for_exit(child: &Mutex<Leader>) -> Option<i32> {
             Err(_) => return None,
         }
     }
+}
+
+/// Der Handler läuft ohne die Sperre: Er darf den Prozess selbst beenden (`kill`).
+fn stopping(child: &Mutex<Leader>) -> bool {
+    lock(child).stopping
 }
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {

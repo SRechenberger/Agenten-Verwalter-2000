@@ -7378,8 +7378,12 @@ mod tests {
             after_grace();
             let child_gone = gone(child);
             let leader_gone = gone(leader);
-            clean_up(child);
-            clean_up(leader);
+            if !child_gone {
+                clean_up(child);
+            }
+            if !leader_gone {
+                clean_up(leader);
+            }
             assert!(child_gone, "das Kind lebt noch");
             assert!(leader_gone, "der Agent lebt noch");
         }
@@ -7391,7 +7395,9 @@ mod tests {
             retire_process_after(Arc::clone(&agent), GRACE);
             after_grace();
             let child_gone = gone(child);
-            clean_up(child);
+            if !child_gone {
+                clean_up(child);
+            }
             assert!(child_gone, "das Kind lebt nach dem Ende des Agenten noch");
         }
 
@@ -7403,14 +7409,53 @@ mod tests {
             let started = std::time::Instant::now();
             process::stop(&[&polite, &stubborn], Duration::from_millis(300));
             let waited = started.elapsed();
-            let all_gone = [polite_child, polite.pid(), stubborn_child, stubborn.pid()]
-                .into_iter()
-                .all(gone);
+            let mut all_gone = true;
             for pid in [polite_child, polite.pid(), stubborn_child, stubborn.pid()] {
-                clean_up(pid);
+                if !gone(pid) {
+                    all_gone = false;
+                    clean_up(pid);
+                }
             }
             assert!(all_gone, "ein Prozess lebt noch");
             assert!(waited < Duration::from_secs(1), "gewartet: {waited:?}");
+        }
+
+        /// App-Ende: Das Beenden über `stop` ist kein Absturz der Session; der Handler erfährt
+        /// nichts mehr, weder `Exited` noch die Zeilen, die der Agent beim SIGTERM noch schreibt.
+        #[test]
+        fn stop_reports_neither_exit_nor_lines_to_the_handler() {
+            let mut command = crate::processes::command("sh");
+            command
+                .args([
+                    "-c",
+                    "trap 'echo bye; echo bye >&2; exit 3' TERM; sleep 300 & echo $!; wait",
+                ])
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped());
+            let (sender, receiver) = mpsc::channel::<ProcessOutput>();
+            let sender = Mutex::new(sender);
+            let agent = process::start(command, move |output: ProcessOutput| {
+                let _ = sender
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .send(output);
+            })
+            .expect("Wegwerf-Agent startet");
+            let child: u32 = match receiver.recv_timeout(Duration::from_secs(5)) {
+                Ok(ProcessOutput::Line(line)) => line.trim().parse().expect("PID ist eine Zahl"),
+                other => panic!("erwartet die PID des Kindes, kam: {other:?}"),
+            };
+            process::stop(&[&agent], Duration::from_secs(2));
+            let after_stop = receiver.recv_timeout(Duration::from_secs(1));
+            let leader = agent.pid();
+            if !gone(child) {
+                clean_up(child);
+            }
+            if !gone(leader) {
+                clean_up(leader);
+            }
+            assert!(after_stop.is_err(), "nach `stop` kam noch: {after_stop:?}");
         }
 
         /// V72: Die Annahme einer ruhenden Station gibt ihren Agenten frei.
@@ -7431,9 +7476,11 @@ mod tests {
             let leader_gone = released && gone(leader);
             // Ein roter Lauf räumt seine eigenen Prozesse ab, bevor er scheitert.
             agent.kill();
-            let _ = gone(leader);
-            clean_up(child);
-            clean_up(leader);
+            for pid in [child, leader] {
+                if !gone(pid) {
+                    clean_up(pid);
+                }
+            }
             assert!(
                 released,
                 "die Session gibt den Prozess nicht an `retire_process`"
@@ -7461,9 +7508,11 @@ mod tests {
             state.release_agent(&mut outbox);
             let kept = state.process.is_some() && !outbox.retire;
             agent.kill();
-            let _ = gone(leader);
-            clean_up(child);
-            clean_up(leader);
+            for pid in [child, leader] {
+                if !gone(pid) {
+                    clean_up(pid);
+                }
+            }
             assert!(kept, "der Agent wurde trotz Hintergrundarbeit beendet");
         }
     }

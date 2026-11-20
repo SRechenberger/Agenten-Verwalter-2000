@@ -482,7 +482,8 @@ pub(crate) mod groups {
         true
     }
 
-    /// Räumt einen Enkel ab, den ein roter Test übrig ließ — nur die eigene, gelesene PID.
+    /// Räumt einen Enkel ab, den ein roter Test übrig ließ — nur die eigene, gelesene PID, und nur
+    /// wenn `gone` sie eben noch lebend fand: Eine beendete PID kann schon neu vergeben sein.
     pub(crate) fn clean_up(pid: u32) {
         if alive(pid) {
             let pid = libc::pid_t::try_from(pid).expect("PID passt");
@@ -515,7 +516,9 @@ pub(crate) mod groups {
             let _ = child.kill();
             let _ = child.wait();
         }
-        clean_up(grandchild);
+        if !grandchild_gone {
+            clean_up(grandchild);
+        }
         sent.expect("die Gruppe nimmt das Signal");
         assert!(child_ended, "das Kind lebt noch");
         assert!(grandchild_gone, "der Enkel lebt noch");
