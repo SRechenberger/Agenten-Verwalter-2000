@@ -58,8 +58,8 @@ pub enum OperatingMode {
     Codex,
 }
 
-/// Werte, die für die ganze App gelten. Modell, Modus und Denkaufwand gelten für die erste Session
-/// eines neuen Vorhabens.
+/// Werte, die für die ganze App gelten. Modell und Denkaufwand gelten für jede neue Session, der
+/// Modus für die erste Session eines neuen Vorhabens (weitere Sessions erben ihn).
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct Settings {
@@ -70,7 +70,7 @@ pub struct Settings {
     pub operating_mode: OperatingMode,
     /// Kennung des Modells in LM Studio, z. B. `google/gemma-4-12b-qat`; `None`, solange keins gewählt ist.
     pub local_model: Option<String>,
-    /// Modell für neue Vorhaben in der Betriebsart Codex; `None` = Standardmodell von Codex.
+    /// Modell für neue Sessions in der Betriebsart Codex; `None` = Standardmodell von Codex.
     pub default_codex_model: Option<String>,
     /// Ordner mit den Originalen von Skills, Befehlen, Ausgabestilen und `CLAUDE.md`, mit dem die
     /// Umgebung abgeglichen wird (ADR 038); `None`, solange keiner gewählt ist.

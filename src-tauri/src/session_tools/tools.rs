@@ -92,7 +92,7 @@ impl ToolSet for SessionTools {
                         "model": {
                             "type": "string",
                             "enum": ["fable", "opus", "opusplan", "sonnet", "haiku"],
-                            "description": "Ohne Angabe das Modell dieser Session.",
+                            "description": "Ohne Angabe das Standardmodell aus den Einstellungen.",
                         },
                     },
                     "required": ["subject", "message"],

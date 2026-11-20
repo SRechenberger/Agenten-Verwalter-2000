@@ -381,8 +381,8 @@ export function SettingsView({
                   onChange={saveDefaultCodexModel}
                   onClose={closeMenu}
                   placement="below"
-                  title="Modell für neue Vorhaben"
-                  note="Gilt ab dem nächsten neuen Vorhaben."
+                  title="Modell für neue Sessions"
+                  note="Gilt ab der nächsten neuen Session."
                   emptyText={codexEmptyText}
                 />
               ) : (
@@ -392,8 +392,8 @@ export function SettingsView({
                   onChange={saveDefaultModel}
                   onClose={closeMenu}
                   placement="below"
-                  title="Modell für neue Vorhaben"
-                  note="Gilt ab dem nächsten neuen Vorhaben."
+                  title="Modell für neue Sessions"
+                  note="Gilt ab der nächsten neuen Session."
                 />
               )}
             </SelectButton>

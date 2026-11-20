@@ -31,6 +31,7 @@ use crate::session_tools::model::SelfRelease;
 use crate::session_tools::reference as message_text;
 use crate::session_tools::tools::ToolReply;
 use crate::sessions::model::SessionStatus;
+use crate::settings;
 
 /// Kettenbremse: So viele selbst freigegebene Aufrufe in Folge, danach erscheint der Kasten (ADR 052).
 const CHAIN_LIMIT: u32 = 6;
@@ -259,21 +260,11 @@ impl SessionRegistry {
         if message.trim().is_empty() {
             return Err(EMPTY_MESSAGE.to_owned());
         }
-        let (caller_model, codex_model, caller_effort, mode): (
-            ModelId,
-            Option<String>,
-            Effort,
-            Mode,
-        ) = {
-            let state = caller.lock();
-            (
-                state.model,
-                state.codex_model.clone(),
-                state.effort,
-                state.mode,
-            )
-        };
-        let model: ModelId = model.unwrap_or(caller_model);
+        let mode: Mode = caller.lock().mode;
+        // Modell, Codex-Modell und Denkaufwand kommen aus den Einstellungen; nur ein genanntes Modell
+        // gewinnt (Taiga 47).
+        let (model, codex_model, default_effort) =
+            super::new_session_defaults(&settings::load(&self.database).map_err(text_of)?, model);
         let release = self.self_release(&caller)?;
         let gate = self.gate(
             app,
@@ -283,14 +274,14 @@ impl SessionRegistry {
                 message: message.to_owned(),
                 subject: Some(subject.to_owned()),
                 model,
-                effort: caller_effort,
+                effort: default_effort,
             },
             Release::Chained(release.open_session),
         )?;
         let (decision, message, model, effort, chain): (&str, String, ModelId, Effort, u32) =
             match gate {
-                Gate::Auto(chain) => ("auto", message.to_owned(), model, caller_effort, chain),
-                Gate::Allowed => ("allowed", message.to_owned(), model, caller_effort, 0),
+                Gate::Auto(chain) => ("auto", message.to_owned(), model, default_effort, chain),
+                Gate::Allowed => ("allowed", message.to_owned(), model, default_effort, 0),
                 Gate::Edited {
                     message,
                     model: edited_model,
@@ -299,7 +290,7 @@ impl SessionRegistry {
                     "edited",
                     message,
                     edited_model.unwrap_or(model),
-                    effort.unwrap_or(caller_effort),
+                    effort.unwrap_or(default_effort),
                     0,
                 ),
                 Gate::Denied(reason) => {

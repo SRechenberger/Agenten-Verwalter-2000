@@ -123,3 +123,16 @@ Kasten aller drei Arten mit Ändern, Ablehnen und Freitext, Kettenbremse beim si
 ### Nachtrag: Betreff und `verwalter_read_message` ([ADR 072](072-nachrichten-ueber-referenzen.md))
 
 `verwalter_send_message_to` und `verwalter_open_session` verlangen ein Feld `subject` (Pflicht, eine Zeile, 1 bis 120 Zeichen; jede Regel hat ihren eigenen Fehlersatz). Der Empfänger bekommt den Betreff und eine Referenz `msg-<id>`; den Inhalt liest er mit dem neuen, lesenden Werkzeug `verwalter_read_message { reference }`, auch in Nebenfragen. Das Werkzeug liefert nur Referenzen, deren Empfänger die aufrufende Session ist, sonst „Unbekannte Referenz.“. Der Kasten und der Chat zeigen den Betreff.
+
+### Nachtrag 2026-11-20: Standardwerte für neue Sessions (Taiga 47)
+
+Entscheidung 1 oben (Werte kommen von der aufrufenden Session) und die Übernahme der Werte der letzten Session in `create_fresh_in_project` gelten nicht mehr. Der Nutzer wollte: Wenn eine Session eine neue startet, müssen Modell und Denkaufwand aus den Einstellungen kommen. Die Regeln (`new_session_defaults` in `sessions/registry.rs`):
+
+1. Alle Wege über `create_fresh_in_project` (neue Session, „In neuer Session weiter“, Retro, Station, Rückfrage zur Umsetzung) und `verwalter_open_session` nehmen die Einstellungen.
+2. Ein ausdrückliches Modell gewinnt: `model` im Werkzeug, das Modell der Station oder ihres Agententyps.
+3. Der Denkaufwand kommt auch bei einem ausdrücklichen Modell aus den Einstellungen; „Ändern“ im Kasten gewinnt über alles, und ein Denkaufwand der Station oder ihres Typs gewinnt (ADR 060).
+4. Der Modus bleibt geerbt: `default_mode` zu nehmen hieße, dass eine Session in `manual` eine in `auto` öffnen kann.
+5. Betriebsart Codex: `default_codex_model` statt des geerbten Modells; `NULL` heißt „Standard von Codex“.
+6. Bestehende Sessions bleiben unberührt; `create_in_project` gibt eine schon wartende leere Session unverändert zurück.
+
+Folge: „In neuer Session weiter“ läuft mit dem Standardmodell statt mit dem der alten Session.
