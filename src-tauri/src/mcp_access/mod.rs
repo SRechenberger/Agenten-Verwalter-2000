@@ -96,7 +96,7 @@ impl McpAccess {
     /// Im Claude-Betrieb (`session_tools`) verweist die Datei nur auf die Umgebung: Hauptprozess und
     /// Nebenfrage lesen dieselbe Datei und tragen verschiedene Schlüssel, ihre Argumente bleiben
     /// gleich (ADR 044), und kein Agent liest aus dem Ordner den Schlüssel einer anderen Session.
-    /// Sonst steht der eine Schlüssel in der Datei: Ob der eigene Agent `${…}` auflöst, ist ungeprüft,
+    /// Ordner und Dateien sind nur für den Benutzer lesbar. Sonst steht der eine Schlüssel in der Datei: Ob der eigene Agent `${…}` auflöst, ist ungeprüft,
     /// und ohne Session-Werkzeuge unterscheidet nichts die Prozessart.
     pub fn config_for(
         &self,
@@ -128,9 +128,10 @@ impl McpAccess {
             },
         });
         let file = self.config_file(session_id);
-        let written = fs::create_dir_all(&self.config_dir)
+        let written = self
+            .prepare_dir()
             .and_then(|()| serde_json::to_vec_pretty(&config).map_err(io::Error::other))
-            .and_then(|bytes: Vec<u8>| fs::write(&file, bytes));
+            .and_then(|bytes: Vec<u8>| crate::remote::write_private(&file, &bytes));
         match written {
             Ok(()) => Some(VerwalterMcp {
                 config: file,
@@ -148,6 +149,18 @@ impl McpAccess {
         self.lock_keys()
             .retain(|_, owner: &mut Caller| owner.session_id != session_id);
         let _ = fs::remove_file(self.config_file(session_id));
+    }
+
+    /// Legt den Ordner an; unter Linux und macOS nur für den Benutzer zugänglich (0700), auch wenn
+    /// ihn eine ältere Fassung offener angelegt hat.
+    fn prepare_dir(&self) -> io::Result<()> {
+        fs::create_dir_all(&self.config_dir)?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&self.config_dir, fs::Permissions::from_mode(0o700))?;
+        }
+        Ok(())
     }
 
     fn config_file(&self, session_id: &str) -> PathBuf {
@@ -368,3 +381,6 @@ fn text_reply(status: u16, reason: &'static str, text: &str) -> Reply {
         session_id: None,
     }
 }
+
+#[cfg(test)]
+mod tests;
