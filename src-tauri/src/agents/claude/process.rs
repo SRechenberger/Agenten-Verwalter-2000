@@ -1,10 +1,10 @@
 //! Start und Ein-/Ausgabe eines `claude.exe`-Prozesses.
 use std::io::{self, BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
-use std::process::{Child, ChildStderr, ChildStdin, ChildStdout, Command, Stdio};
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::process::{Child, ChildStderr, ChildStdin, ChildStdout, Command, ExitStatus, Stdio};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use crate::agents::claude::local::{self, LocalBackend, LocalProgram};
 use crate::agents::event::{Effort, Mode, ModelId};
@@ -64,9 +64,61 @@ pub enum ProcessOutput {
 }
 
 pub struct ClaudeProcess {
-    child: Arc<Mutex<Child>>,
+    child: Arc<Mutex<Leader>>,
     stdin: Mutex<Option<ChildStdin>>,
     pid: u32,
+}
+
+/// Alle gestarteten Agentenprozesse, für `stop_all`; ein beendeter fällt beim nächsten Start heraus.
+static LEADERS: Mutex<Vec<Weak<Mutex<Leader>>>> = Mutex::new(Vec::new());
+
+/// Der Agentenprozess als Anführer seiner Prozessgruppe (ADR 074). Eingesammelt wird er nur unter
+/// dieser Sperre, und `reaped` hält fest, dass es geschehen ist: Danach kann die Nummer der Gruppe
+/// einem fremden Prozess gehören, und kein Signal geht mehr an sie.
+struct Leader {
+    child: Child,
+    reaped: bool,
+}
+
+impl Leader {
+    /// Signal an die ganze Gruppe, solange der Anführer nicht eingesammelt ist; unter Windows
+    /// beendet `Child::kill` nur den Prozess selbst.
+    fn signal(&mut self, signal: Signal) {
+        if self.reaped {
+            return;
+        }
+        #[cfg(unix)]
+        {
+            let signal = match signal {
+                Signal::Terminate => processes::GroupSignal::Terminate,
+                Signal::Kill => processes::GroupSignal::Kill,
+            };
+            let _ = processes::signal_group(self.child.id(), signal);
+        }
+        #[cfg(not(unix))]
+        {
+            let _ = signal;
+            let _ = self.child.kill();
+        }
+    }
+
+    /// Nicht blockierend. Ist der Anführer beendet, aber noch nicht eingesammelt, stirbt erst der Rest
+    /// seiner Gruppe (seine Kinder können noch leben), dann wird er eingesammelt.
+    fn try_reap(&mut self) -> io::Result<Option<ExitStatus>> {
+        #[cfg(unix)]
+        if !self.reaped && processes::has_exited(self.child.id()).unwrap_or(false) {
+            self.signal(Signal::Kill);
+        }
+        let status = self.child.try_wait()?;
+        self.reaped |= status.is_some();
+        Ok(status)
+    }
+}
+
+#[derive(Clone, Copy)]
+enum Signal {
+    Terminate,
+    Kill,
 }
 
 type OutputHandler = Arc<dyn Fn(ProcessOutput) + Send + Sync>;
@@ -77,17 +129,39 @@ pub fn spawn(
     opts: SpawnOptions,
     on_output: impl Fn(ProcessOutput) + Send + Sync + 'static,
 ) -> io::Result<ClaudeProcess> {
-    let mut child = build_command(&opts).spawn()?;
+    start(build_command(&opts), on_output)
+}
+
+/// Startet `command` (Ein- und Ausgabe als Pipes) als Agentenprozess in eigener Prozessgruppe. Im
+/// ganzen Crate sichtbar für die Tests in `sessions::registry`.
+pub(crate) fn start(
+    mut command: Command,
+    on_output: impl Fn(ProcessOutput) + Send + Sync + 'static,
+) -> io::Result<ClaudeProcess> {
+    processes::own_group(&mut command);
+    let mut child = command.spawn()?;
     let (Some(stdin), Some(stdout), Some(stderr)) =
         (child.stdin.take(), child.stdout.take(), child.stderr.take())
     else {
-        let _ = child.kill();
+        let mut leader = Leader {
+            child,
+            reaped: false,
+        };
+        leader.signal(Signal::Kill);
         return Err(io::Error::other("Ein-/Ausgabe des Agenten nicht verfügbar"));
     };
     let pid = child.id();
-    let child = Arc::new(Mutex::new(child));
+    let child = Arc::new(Mutex::new(Leader {
+        child,
+        reaped: false,
+    }));
+    {
+        let mut leaders = lock(&LEADERS);
+        leaders.retain(|leader: &Weak<Mutex<Leader>>| leader.strong_count() > 0);
+        leaders.push(Arc::downgrade(&child));
+    }
     if let Err(error) = start_readers(Arc::clone(&child), stdout, stderr, Arc::new(on_output)) {
-        let _ = lock(&child).kill();
+        lock(&child).signal(Signal::Kill);
         return Err(error);
     }
     Ok(ClaudeProcess {
@@ -113,12 +187,51 @@ impl ClaudeProcess {
         drop(lock(&self.stdin).take());
     }
 
+    /// SIGKILL an die ganze Prozessgruppe des Agenten (Windows: nur an ihn), solange er nicht
+    /// eingesammelt ist.
     pub fn kill(&self) {
-        let _ = lock(&self.child).kill();
+        lock(&self.child).signal(Signal::Kill);
     }
 
     pub fn pid(&self) -> u32 {
         self.pid
+    }
+}
+
+/// App-Ende (ADR 074): beendet jeden Agentenprozess, der noch nicht eingesammelt ist, auch einen,
+/// der gerade in der Frist von `retire_process` steckt (`stop`).
+pub fn stop_all(grace: Duration) {
+    let leaders: Vec<Arc<Mutex<Leader>>> =
+        lock(&LEADERS).iter().filter_map(Weak::upgrade).collect();
+    stop_leaders(&leaders, grace);
+}
+
+/// SIGTERM an die Gruppen der Agenten, dann höchstens `grace` für alle zusammen, dann SIGKILL an
+/// jede Gruppe, deren Anführer noch nicht eingesammelt ist. Für die Tests in `sessions::registry`.
+#[cfg(test)]
+pub(crate) fn stop(processes: &[&ClaudeProcess], grace: Duration) {
+    let leaders: Vec<Arc<Mutex<Leader>>> = processes
+        .iter()
+        .map(|process: &&ClaudeProcess| Arc::clone(&process.child))
+        .collect();
+    stop_leaders(&leaders, grace);
+}
+
+fn stop_leaders(leaders: &[Arc<Mutex<Leader>>], grace: Duration) {
+    for leader in leaders {
+        lock(leader).signal(Signal::Terminate);
+    }
+    let deadline = Instant::now() + grace;
+    // `try_reap` beendet beim Einsammeln den Rest der Gruppe; ein Fehler zählt als beendet.
+    while Instant::now() < deadline
+        && leaders
+            .iter()
+            .any(|leader: &Arc<Mutex<Leader>>| matches!(lock(leader).try_reap(), Ok(None)))
+    {
+        thread::sleep(EXIT_POLL_INTERVAL);
+    }
+    for leader in leaders {
+        lock(leader).signal(Signal::Kill);
     }
 }
 
@@ -347,7 +460,7 @@ fn project_mcp_configs(dirs: &[PathBuf]) -> Vec<PathBuf> {
 }
 
 fn start_readers(
-    child: Arc<Mutex<Child>>,
+    child: Arc<Mutex<Leader>>,
     stdout: ChildStdout,
     stderr: ChildStderr,
     on_output: OutputHandler,
@@ -394,10 +507,10 @@ fn for_each_line(stream: impl Read, mut handle: impl FnMut(String)) {
 
 /// Fragt den Exit-Status in kurzen Abständen ab, statt `wait()` unter der Sperre zu halten —
 /// sonst müsste ein gleichzeitiges `kill()` warten, bis der Prozess von selbst endet.
-fn wait_for_exit(child: &Mutex<Child>) -> Option<i32> {
+fn wait_for_exit(child: &Mutex<Leader>) -> Option<i32> {
     loop {
         // Eigene Zeile: im `match`-Kopf hielte die Sperre bis nach dem `sleep`.
-        let exit_status = lock(child).try_wait();
+        let exit_status = lock(child).try_reap();
         match exit_status {
             Ok(Some(status)) => return status.code(),
             Ok(None) => thread::sleep(EXIT_POLL_INTERVAL),

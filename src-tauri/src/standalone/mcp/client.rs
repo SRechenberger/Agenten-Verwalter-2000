@@ -385,6 +385,8 @@ fn spawn(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
     hide_console(&mut process);
+    // Eigene Gruppe: `kill_process_tree` beendet so auch den Server hinter `npx` (ADR 074).
+    processes::own_group(&mut process);
     process.spawn()
 }
 

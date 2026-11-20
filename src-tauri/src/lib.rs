@@ -351,8 +351,9 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("Tauri-Laufzeit konnte nicht starten")
         .run(|app: &tauri::AppHandle, event: tauri::RunEvent| {
-            // Kein Shell-Prozess überlebt die App.
+            // Kein Agent und kein Shell-Prozess überlebt die App (ADR 074).
             if let tauri::RunEvent::Exit = event {
+                agents::claude::process::stop_all(std::time::Duration::from_secs(2));
                 if let Some(terminals) = app.try_state::<TerminalService>() {
                     terminals.close_all();
                 }

@@ -177,6 +177,8 @@ fn spawn_shell(
     context: &ToolContext,
 ) -> Result<Child, String> {
     let mut command = shell_command(kind, command_text)?;
+    // Eigene Gruppe: `kill_process_tree` beendet so auch, was `bash -c` startet (ADR 074).
+    processes::own_group(&mut command);
     command
         .current_dir(&context.cwd)
         .stdin(Stdio::null())

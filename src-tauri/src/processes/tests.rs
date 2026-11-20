@@ -429,3 +429,134 @@ fn entry_that_is_not_valid_unicode_is_kept() {
         ]
     );
 }
+
+/// Prozessgruppen (ADR 074): nur eigene Wegwerf-Prozesse, nur ihre Gruppe wird signalisiert.
+#[cfg(unix)]
+pub(crate) mod groups {
+    use std::io::{BufRead, BufReader};
+    use std::process::{Child, Stdio};
+    use std::thread;
+    use std::time::{Duration, Instant};
+
+    use super::super::*;
+
+    /// Höchstens so lange darf ein beendeter Prozess noch zu sehen sein (Einsammeln durch init).
+    const GONE_WITHIN: Duration = Duration::from_secs(2);
+
+    /// Ein Wegwerf-Baum: `sh` (Kind) mit `sleep 300` (Enkel), dessen PID die erste Zeile ist.
+    /// Der Enkel erbt stdout nicht, damit nur die Gruppe ihn beenden kann.
+    pub(crate) fn spawn_tree(group: bool) -> (Child, u32) {
+        let mut command = command("sh");
+        command
+            .args(["-c", "sleep 300 >/dev/null 2>&1 & echo $!; wait"])
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped());
+        if group {
+            own_group(&mut command);
+        }
+        let mut child = command.spawn().expect("sh startet");
+        let stdout = child.stdout.take().expect("stdout ist umgeleitet");
+        let mut line = String::new();
+        BufReader::new(stdout)
+            .read_line(&mut line)
+            .expect("PID des Enkels lesbar");
+        let grandchild: u32 = line.trim().parse().expect("PID ist eine Zahl");
+        (child, grandchild)
+    }
+
+    pub(crate) fn alive(pid: u32) -> bool {
+        let pid = libc::pid_t::try_from(pid).expect("PID passt");
+        // SAFETY: Signal 0 prüft nur, ob es den Prozess gibt; es wird nichts zugestellt.
+        unsafe { libc::kill(pid, 0) == 0 }
+    }
+
+    /// Wartet höchstens `GONE_WITHIN`, bis `pid` weg ist.
+    pub(crate) fn gone(pid: u32) -> bool {
+        let deadline = Instant::now() + GONE_WITHIN;
+        while alive(pid) {
+            if Instant::now() >= deadline {
+                return false;
+            }
+            thread::sleep(Duration::from_millis(20));
+        }
+        true
+    }
+
+    /// Räumt einen Enkel ab, den ein roter Test übrig ließ — nur die eigene, gelesene PID.
+    pub(crate) fn clean_up(pid: u32) {
+        if alive(pid) {
+            let pid = libc::pid_t::try_from(pid).expect("PID passt");
+            // SAFETY: `pid` ist der eigene Wegwerf-Enkel aus `spawn_tree`, gerade noch lebendig.
+            unsafe { libc::kill(pid, libc::SIGKILL) };
+        }
+    }
+
+    /// Wartet höchstens `GONE_WITHIN` auf das Ende des eigenen Kindes, ohne zu blockieren.
+    pub(crate) fn ended(child: &mut Child) -> bool {
+        let deadline = Instant::now() + GONE_WITHIN;
+        while matches!(child.try_wait(), Ok(None)) {
+            if Instant::now() >= deadline {
+                return false;
+            }
+            thread::sleep(Duration::from_millis(20));
+        }
+        true
+    }
+
+    #[test]
+    fn signal_group_ends_child_and_grandchild_of_an_own_group() {
+        let (mut child, grandchild) = spawn_tree(true);
+        // Vor dem Einsammeln: Der Anführer gehört noch seiner Gruppe.
+        let sent = signal_group(child.id(), GroupSignal::Kill);
+        let child_ended = ended(&mut child);
+        let grandchild_gone = gone(grandchild);
+        // Ein roter Lauf räumt seine eigenen Prozesse ab, bevor er scheitert.
+        if !child_ended {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+        clean_up(grandchild);
+        sent.expect("die Gruppe nimmt das Signal");
+        assert!(child_ended, "das Kind lebt noch");
+        assert!(grandchild_gone, "der Enkel lebt noch");
+    }
+
+    #[test]
+    fn signal_group_refuses_zero_one_and_the_own_group_without_signalling() {
+        // Nur die Prüfung, nie `signal_group` selbst: Fehlte sie, träfe ein Test alle Prozesse.
+        // SAFETY: `getpgrp` hat keine Vorbedingungen.
+        let own = u32::try_from(unsafe { libc::getpgrp() }).expect("Gruppe ist positiv");
+        for pgid in [0, 1, own, u32::MAX] {
+            let error = group_target(pgid).expect_err("abgelehnt");
+            assert_eq!(error.kind(), std::io::ErrorKind::InvalidInput, "{pgid}");
+        }
+        let child = 4242_u32;
+        assert_eq!(group_target(child).ok(), Some(-4242));
+    }
+
+    #[test]
+    fn signal_group_counts_a_missing_group_as_done() {
+        // Ohne eigene Gruppe gibt es keine Gruppe mit der PID des lebenden, uneingesammelten Kindes.
+        let mut child = command("sleep").arg("300").spawn().expect("sleep startet");
+        let sent = signal_group(child.id(), GroupSignal::Terminate);
+        let _ = child.kill();
+        let _ = child.wait();
+        sent.expect("ESRCH ist kein Fehler");
+    }
+
+    #[test]
+    fn has_exited_sees_the_end_without_reaping() {
+        let mut child = command("sh")
+            .args(["-c", "exit 3"])
+            .spawn()
+            .expect("sh startet");
+        let deadline = Instant::now() + GONE_WITHIN;
+        while !has_exited(child.id()).expect("waitid gelingt") {
+            assert!(Instant::now() < deadline, "sh endet nicht");
+            thread::sleep(Duration::from_millis(10));
+        }
+        // Noch nicht eingesammelt: `try_wait` bekommt den Status erst jetzt.
+        let status = child.try_wait().expect("try_wait").expect("beendet");
+        assert_eq!(status.code(), Some(3));
+    }
+}

@@ -4958,14 +4958,20 @@ fn retire_idle_process(state: &mut SessionState, outbox: &mut Outbox) {
 }
 
 /// Ohne Standardeingabe beendet sich ein ruhender Agent selbst; der Abschuss nach der Frist
-/// fängt einen ab, der hängt.
+/// fängt einen ab, der hängt. Er trifft die ganze Prozessgruppe, auch wenn der Agent sich selbst
+/// beendet hat: Seine Kinder (MCP-Server, Shells, Builds) können noch leben (ADR 074).
 fn retire_process(process: Arc<ClaudeProcess>) {
+    retire_process_after(process, KILL_GRACE);
+}
+
+/// `retire_process` mit wählbarer Frist, für die Tests.
+fn retire_process_after(process: Arc<ClaudeProcess>, grace: Duration) {
     process.close_stdin();
     let killer = Arc::clone(&process);
     let spawned = thread::Builder::new()
         .name("claude-retire".to_owned())
         .spawn(move || {
-            thread::sleep(KILL_GRACE);
+            thread::sleep(grace);
             killer.kill();
         });
     if spawned.is_err() {
@@ -7175,5 +7181,99 @@ mod tests {
             changed_summary(&session, &state, &dirty).is_none(),
             "gelöscht: kein Ereignis, auch nicht über eine geänderte Zusammenfassung"
         );
+    }
+
+    /// Prozessgruppen (ADR 074): nur eigene Wegwerf-Prozesse.
+    #[cfg(unix)]
+    mod groups {
+        use std::process::Stdio;
+        use std::sync::mpsc;
+
+        use super::*;
+        use crate::agents::claude::process::{self, ProcessOutput};
+        use crate::processes::tests::groups::{clean_up, gone};
+
+        /// Startet `script` als Agentenprozess; die erste Zeile seiner Ausgabe ist die PID seines
+        /// Kindes `sleep 300`, das stdout erbt und den Anführer damit uneingesammelt hält.
+        fn agent(script: &str) -> (Arc<ClaudeProcess>, u32) {
+            let mut command = crate::processes::command("sh");
+            command
+                .args(["-c", script])
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped());
+            let (sender, receiver) = mpsc::channel::<String>();
+            let sender = Mutex::new(sender);
+            let process = process::start(command, move |output: ProcessOutput| {
+                if let ProcessOutput::Line(line) = output {
+                    let _ = lock_sender(&sender).send(line);
+                }
+            })
+            .expect("Wegwerf-Agent startet");
+            let line = receiver
+                .recv_timeout(Duration::from_secs(5))
+                .expect("PID des Kindes kommt");
+            (
+                Arc::new(process),
+                line.trim().parse().expect("PID ist eine Zahl"),
+            )
+        }
+
+        fn lock_sender(
+            sender: &Mutex<mpsc::Sender<String>>,
+        ) -> MutexGuard<'_, mpsc::Sender<String>> {
+            sender.lock().unwrap_or_else(PoisonError::into_inner)
+        }
+
+        /// Die Frist im Test.
+        const GRACE: Duration = Duration::from_millis(100);
+
+        /// Wartet die Frist ab und gibt dem Abschuss Zeit; `process` bleibt gehalten.
+        fn after_grace() {
+            thread::sleep(GRACE + Duration::from_millis(200));
+        }
+
+        #[test]
+        fn retire_process_ends_the_group_of_an_agent_that_ignores_stdin() {
+            let (agent, child) = agent("sleep 300 & echo $!; exec sleep 300");
+            let leader = agent.pid();
+            retire_process_after(Arc::clone(&agent), GRACE);
+            after_grace();
+            let child_gone = gone(child);
+            let leader_gone = gone(leader);
+            clean_up(child);
+            clean_up(leader);
+            assert!(child_gone, "das Kind lebt noch");
+            assert!(leader_gone, "der Agent lebt noch");
+        }
+
+        #[test]
+        fn retire_process_ends_the_group_even_if_the_agent_exits_by_itself() {
+            // Ohne stdin endet `read` und mit ihm der Agent in der Frist; sein Kind läuft weiter.
+            let (agent, child) = agent("sleep 300 & echo $!; read line");
+            retire_process_after(Arc::clone(&agent), GRACE);
+            after_grace();
+            let child_gone = gone(child);
+            clean_up(child);
+            assert!(child_gone, "das Kind lebt nach dem Ende des Agenten noch");
+        }
+
+        #[test]
+        fn stop_terminates_then_kills_agents_that_ignore_sigterm() {
+            let (polite, polite_child) = agent("sleep 300 & echo $!; exec sleep 300");
+            let (stubborn, stubborn_child) =
+                agent("trap '' TERM; sleep 300 & echo $!; while :; do sleep 1; done");
+            let started = std::time::Instant::now();
+            process::stop(&[&polite, &stubborn], Duration::from_millis(300));
+            let waited = started.elapsed();
+            let all_gone = [polite_child, polite.pid(), stubborn_child, stubborn.pid()]
+                .into_iter()
+                .all(gone);
+            for pid in [polite_child, polite.pid(), stubborn_child, stubborn.pid()] {
+                clean_up(pid);
+            }
+            assert!(all_gone, "ein Prozess lebt noch");
+            assert!(waited < Duration::from_secs(1), "gewartet: {waited:?}");
+        }
     }
 }

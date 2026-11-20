@@ -5584,6 +5584,7 @@ dependencies = [
  "html2text",
  "ignore",
  "jiff",
+ "libc",
  "parakeet-rs",
  "portable-pty",
  "rcgen",
