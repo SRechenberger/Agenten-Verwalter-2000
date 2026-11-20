@@ -63,3 +63,61 @@ export function programNameProblem(name: string, existing: readonly string[]): s
   }
   return existing.includes(trimmed) ? 'Steht schon in der Liste.' : null;
 }
+
+/** Der Grund, den der Kern einer Station setzt, die beim Ende der App lief (`REASON_INTERRUPTED`). */
+export const INTERRUPTED_REASON = 'unterbrochen';
+
+/** Der Hinweis in der Kartei einer unterbrochenen Befehls-Station: Nach einem harten Ende der App kann ein
+ *  Schritt weitergelaufen sein. */
+export const INTERRUPTED_HINT =
+  'Ein Schritt kann weitergelaufen sein. Prüfe den Stand, bevor du ▶ drückst.';
+
+/** Eine Befehls-Station, die beim Ende der App lief. */
+export function isInterrupted(
+  station: Pick<StationView, 'kind' | 'state' | 'startError'>,
+): boolean {
+  return (
+    isCommandStation(station) &&
+    station.state === 'error' &&
+    station.startError === INTERRUPTED_REASON
+  );
+}
+
+/** „Werte von 102.3 · PR: pr = 83, head = 4f2c9e1“: die Werte, die in den Schritten stehen, gelesen aus
+ *  Vorlage und eingesetzten Schritten (die Ansicht trägt die Werte selbst nicht). `{{env:…}}` bleibt in
+ *  `resolved` wie es ist und gibt nie einen Wert; `null`, wenn nichts eingesetzt ist. Ein Wert mit Leerraum
+ *  steht in Anführungszeichen, wie der Kern ihn einsetzt. */
+export function valuesLine(
+  command: readonly string[],
+  resolved: readonly string[],
+  from: readonly string[],
+): string | null {
+  const values: string[] = [];
+  const seen = new Set<string>();
+  command.forEach((template: string, index: number): void => {
+    const names: string[] = [];
+    const pattern: string = template
+      .split(/(\{\{[^}]*\}\})/)
+      .map((part: string): string => {
+        const name: string = /^\{\{([^}]*)\}\}$/.exec(part)?.[1] ?? '';
+        if (name === '' || name.startsWith('env:')) {
+          return part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        }
+        names.push(name);
+        return '(.+?)';
+      })
+      .join('');
+    const match: RegExpExecArray | null = new RegExp(`^${pattern}$`).exec(resolved[index] ?? '');
+    names.forEach((name: string, position: number): void => {
+      const value: string | undefined = match?.[position + 1];
+      if (value !== undefined && !seen.has(name)) {
+        seen.add(name);
+        values.push(`${name} = ${value}`);
+      }
+    });
+  });
+  if (values.length === 0) {
+    return null;
+  }
+  return `Werte von ${from.join(', ')}: ${values.join(', ')}`;
+}

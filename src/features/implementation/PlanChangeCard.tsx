@@ -36,7 +36,6 @@ import {
   isCommandStation,
   stageText,
   stepPrograms,
-  stepsSummary,
   stepsTitle,
 } from '@/features/implementation/commandStation';
 import type { StationRef } from '@/features/implementation/implementationOrder';
@@ -315,12 +314,13 @@ export function PlanChangeCard({
           {head}
           {sets}
           {station.command !== null && (
-            <p
-              className="station-card__hint plan-change-card__steps"
-              title={stepsTitle(station.command)}
-            >
-              {stepsSummary(station.command)}
-            </p>
+            <ol className="plan-change-card__steps" title={stepsTitle(station.command)}>
+              {station.command.map((step: string, position: number) => (
+                <li key={`${String(position)}-${step}`} className="plan-change-card__step">
+                  {step}
+                </li>
+              ))}
+            </ol>
           )}
           {station.command !== null && (
             <p className="station-card__hint">

@@ -270,6 +270,7 @@ export function StationCard({
             stationId={station.id}
             label={`Lane ${phase.key} · ${stageText(station)}`}
             className="station-card__button"
+            isCommand={isCommand}
             isLocked={isLocked}
           />
         )}
@@ -327,6 +328,9 @@ export function StationCard({
         <StationCommandSection
           implementationId={implementationId}
           station={station}
+          predecessors={refs
+            .filter((ref: StationRef) => station.after.includes(ref.station.planId))
+            .map((ref: StationRef) => `${ref.phase.key} · ${ref.station.stage}`)}
           isLocked={isLocked}
           run={run}
         />
