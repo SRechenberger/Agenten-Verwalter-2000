@@ -961,6 +961,20 @@ impl SessionRegistry {
         Ok(())
     }
 
+    /// Die Station dieser Session ist angenommen (ADR 074): Ruht die Session, endet ihr Agent wie beim
+    /// Leerlauf-Reaper (`SessionState::release_agent`).
+    pub fn release_agent(&self, app: &AppHandle, session_id: &str) -> Result<(), CommandError> {
+        let session = self.get(session_id)?;
+        update(
+            app,
+            &session,
+            |state: &mut SessionState, outbox: &mut Outbox| {
+                state.release_agent(outbox);
+                Ok(())
+            },
+        )
+    }
+
     /// `false` auch, wenn die Session verschwunden ist.
     pub(crate) fn auto_resume_is_current(&self, session_id: &str, armed: ArmedResume) -> bool {
         self.get(session_id)
@@ -3055,6 +3069,15 @@ impl SessionState {
         self.background.iter().any(BackgroundItem::is_running)
     }
 
+    /// Gibt den Agenten einer ruhenden Session frei, auf dem Weg des Leerlauf-Reapers
+    /// (`retire_idle_process`); die nächste Nachricht startet ihn mit `--resume` neu. Läuft noch
+    /// etwas im Hintergrund, behält die Session ihn.
+    fn release_agent(&mut self, outbox: &mut Outbox) {
+        if self.process.is_some() && self.is_resting() {
+            retire_idle_process(self, outbox);
+        }
+    }
+
     /// Weder der Agent noch etwas im Hintergrund arbeitet: ein Neustart des Prozesses unterbricht nichts.
     fn is_resting(&self) -> bool {
         !matches!(
@@ -4764,10 +4787,10 @@ fn with_overlap_hint(
 }
 
 /// Startet den Agenten neu und ersetzt einen noch laufenden Prozess. Kennt das zu startende Programm
-/// die Session schon (`has_agent_history` und ein Transkript von ihm), setzt der Start sie mit ihrem
-/// Verlauf fort (`--resume`), sonst legt er sie unter der Session-ID an (`--session-id`). Die
-/// Claude-Kommandozeile und der eigene Agent führen getrennte Transkripte (ADR 017): nach einem
-/// Wechsel der Betriebsart beginnt der Verlauf neu, und der Chat sagt das.
+/// die Session schon (`resumes`), setzt der Start sie mit ihrem Verlauf fort (`--resume`), sonst
+/// legt er sie unter der Session-ID an (`--session-id`). Die Claude-Kommandozeile und der eigene
+/// Agent führen getrennte Transkripte (ADR 017): nach einem Wechsel der Betriebsart beginnt der
+/// Verlauf neu, und der Chat sagt das.
 ///
 /// Vorher prüft `worktrees::ensure` die Arbeitsordner: fehlende App-Worktrees entstehen neu, ein
 /// Repository ohne Haupt-Checkout bleibt draußen und bekommt einen Fehler-Eintrag im Chat. Ordner
@@ -4785,11 +4808,12 @@ fn start_process(
     } else {
         None
     };
-    let (exe, leading_args, has_transcript) = if codex_exe.is_some() {
+    let (exe, leading_args, is_claude, transcript) = if codex_exe.is_some() {
         (
             codex::program()?,
             codex::leading_args(),
-            codex::has_thread(&session.id),
+            false,
+            Some(codex::has_thread(&session.id)),
         )
     } else if is_standalone(backend) {
         let has_transcript = crate::standalone::transcript_path(&session.id)
@@ -4797,14 +4821,19 @@ fn start_process(
         (
             standalone::program()?,
             standalone::leading_args(),
-            has_transcript,
+            false,
+            Some(has_transcript),
         )
     } else {
         let exe = find_claude().ok_or(CommandError::ClaudeNotFound)?;
-        (exe, Vec::new(), locate::has_transcript(&session.id))
+        let transcript = locate::transcript_in_project(&session.id, &session.workspace);
+        (exe, Vec::new(), true, transcript)
     };
-    let resume = state.has_agent_history && has_transcript;
-    if state.has_agent_history && !resume {
+    let StartChoice {
+        resume,
+        history_lost,
+    } = start_choice(is_claude, state.has_agent_history, transcript);
+    if history_lost {
         state.push_entry(outbox, |seq: u32| ChatEntry::Error {
             seq,
             title: "Verlauf nicht übernommen".to_owned(),
@@ -4902,6 +4931,33 @@ fn start_process(
     Ok(())
 }
 
+/// Wie ein Start die Session übernimmt (`start_choice`).
+#[derive(Debug, PartialEq, Eq)]
+struct StartChoice {
+    /// `--resume` statt `--session-id`.
+    resume: bool,
+    /// Die Session hat Verlauf, der Agent übernimmt ihn nicht: Hinweis „Verlauf nicht übernommen“.
+    history_lost: bool,
+}
+
+/// Ob der Start die Session fortsetzt (`--resume`) statt sie anzulegen (`--session-id`), ADR 074.
+/// `transcript`: ob das Programm ein Transkript der Session findet, `None`, wenn das nicht lesbar
+/// ist (dann gilt `has_agent_history`). Im Claude-Betrieb (`is_claude`) entscheidet allein das
+/// Transkript im Ordner des Arbeitsverzeichnisses, denn dort lehnt die Kommandozeile `--session-id`
+/// ab, auch wenn `system/init` nie ankam. Codex und der eigene Agent setzen nur fort, was sie selbst
+/// begonnen haben (`has_agent_history` und Transkript).
+fn start_choice(is_claude: bool, has_agent_history: bool, transcript: Option<bool>) -> StartChoice {
+    let resume = match transcript {
+        None => has_agent_history,
+        Some(found) if is_claude => found,
+        Some(found) => has_agent_history && found,
+    };
+    StartChoice {
+        resume,
+        history_lost: has_agent_history && !resume,
+    }
+}
+
 /// Legt den Scratchpad-Ordner der Session an und merkt ihn sich; ein Ordner, den eine ältere
 /// Version aus `system/init` übernommen hat, wird dabei ersetzt. Scheitert das Anlegen, startet
 /// der Agent ohne Vorgabe.
@@ -4958,14 +5014,20 @@ fn retire_idle_process(state: &mut SessionState, outbox: &mut Outbox) {
 }
 
 /// Ohne Standardeingabe beendet sich ein ruhender Agent selbst; der Abschuss nach der Frist
-/// fängt einen ab, der hängt.
+/// fängt einen ab, der hängt. Er trifft die ganze Prozessgruppe, auch wenn der Agent sich selbst
+/// beendet hat: Seine Kinder (MCP-Server, Shells, Builds) können noch leben (ADR 074).
 fn retire_process(process: Arc<ClaudeProcess>) {
+    retire_process_after(process, KILL_GRACE);
+}
+
+/// `retire_process` mit wählbarer Frist, für die Tests.
+fn retire_process_after(process: Arc<ClaudeProcess>, grace: Duration) {
     process.close_stdin();
     let killer = Arc::clone(&process);
     let spawned = thread::Builder::new()
         .name("claude-retire".to_owned())
         .spawn(move || {
-            thread::sleep(KILL_GRACE);
+            thread::sleep(grace);
             killer.kill();
         });
     if spawned.is_err() {
@@ -7175,5 +7237,288 @@ mod tests {
             changed_summary(&session, &state, &dirty).is_none(),
             "gelöscht: kein Ereignis, auch nicht über eine geänderte Zusammenfassung"
         );
+    }
+
+    /// V98 (ADR 074): Im Claude-Betrieb entscheidet allein das Transkript im Ordner des
+    /// Arbeitsverzeichnisses; nicht lesbar heißt `has_agent_history`.
+    #[test]
+    fn start_choice_resumes_a_claude_session_exactly_when_its_folder_has_the_transcript() {
+        let resume = StartChoice {
+            resume: true,
+            history_lost: false,
+        };
+        let fresh = StartChoice {
+            resume: false,
+            history_lost: false,
+        };
+        let fresh_with_notice = StartChoice {
+            resume: false,
+            history_lost: true,
+        };
+        // Transkript da, `system/init` kam nie an: sonst „Session ID … is already in use“.
+        assert_eq!(start_choice(true, false, Some(true)), resume);
+        assert_eq!(start_choice(true, true, Some(true)), resume);
+        // Verlauf, aber kein Transkript in diesem Ordner (auch: nur in einem anderen Ordner).
+        assert_eq!(start_choice(true, true, Some(false)), fresh_with_notice);
+        assert_eq!(start_choice(true, false, Some(false)), fresh);
+        // `projects` nicht lesbar: `has_agent_history` wie bisher.
+        assert_eq!(start_choice(true, true, None), resume);
+        assert_eq!(start_choice(true, false, None), fresh);
+        // Codex und der eigene Agent bleiben bei Verlauf und Transkript.
+        assert_eq!(start_choice(false, false, Some(true)), fresh);
+        assert_eq!(start_choice(false, true, Some(true)), resume);
+        assert_eq!(start_choice(false, true, Some(false)), fresh_with_notice);
+    }
+
+    #[test]
+    fn project_folder_matches_the_cli_also_for_long_paths() {
+        assert_eq!(
+            locate::project_folder(Path::new(
+                "/home/srechenberger/.verwalter/workspaces/82166188"
+            )),
+            "-home-srechenberger--verwalter-workspaces-82166188"
+        );
+        // Je UTF-16-Einheit ein Zeichen: „Ä“ ein `-`, der Krebs (Ersatzpaar) zwei.
+        assert_eq!(
+            locate::project_folder(Path::new("/a/Ärger 🦀")),
+            "-a--rger---"
+        );
+        // Über 200 Zeichen: Kürzung und Hash, Wert aus den Funktionen der Kommandozeile 2.1.296.
+        let long = format!(
+            "/home/srechenberger/.verwalter/workspaces/{}/Vorhaben-Ärger 🦀/{}",
+            "x".repeat(120),
+            "y".repeat(60)
+        );
+        assert_eq!(
+            locate::project_folder(Path::new(&long)),
+            format!(
+                "-home-srechenberger--verwalter-workspaces-{}-Vorhaben--rger----{}-w95gpt",
+                "x".repeat(120),
+                "y".repeat(19)
+            )
+        );
+    }
+
+    #[test]
+    fn transcript_in_counts_only_the_folder_of_the_working_directory() {
+        let base = std::env::temp_dir().join(format!("verwalter-v98-{}", uuid::Uuid::new_v4()));
+        let cwd = std::env::temp_dir();
+        let id = "11111111-2222-3333-4444-555555555555";
+        // Ohne `projects`: nicht lesbar.
+        assert_eq!(locate::transcript_in(&base, id, &cwd), None);
+        let other = base.join("projects").join("-anderer-Ordner");
+        fs::create_dir_all(&other).expect("Ordner anlegbar");
+        fs::write(other.join(format!("{id}.jsonl")), "{}").expect("Transkript schreibbar");
+        assert_eq!(locate::transcript_in(&base, id, &cwd), Some(false));
+        // Wie `locate::real_dir`: unter Unix ohne symbolische Links, unter Windows unverändert.
+        let real_cwd = if cfg!(unix) {
+            fs::canonicalize(&cwd).unwrap_or(cwd.clone())
+        } else {
+            cwd.clone()
+        };
+        let own = base
+            .join("projects")
+            .join(locate::project_folder(&real_cwd));
+        fs::create_dir_all(&own).expect("Ordner anlegbar");
+        fs::write(own.join(format!("{id}.jsonl")), "{}").expect("Transkript schreibbar");
+        assert_eq!(locate::transcript_in(&base, id, &cwd), Some(true));
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    /// Prozessgruppen (ADR 074): nur eigene Wegwerf-Prozesse.
+    #[cfg(unix)]
+    mod groups {
+        use std::process::Stdio;
+        use std::sync::mpsc;
+
+        use super::*;
+        use crate::agents::claude::process::{self, ProcessOutput};
+        use crate::processes::tests::groups::{clean_up, gone};
+
+        /// Startet `script` als Agentenprozess; die erste Zeile seiner Ausgabe ist die PID seines
+        /// Kindes `sleep 300`, das stdout erbt und den Anführer damit uneingesammelt hält.
+        fn agent(script: &str) -> (Arc<ClaudeProcess>, u32) {
+            let mut command = crate::processes::command("sh");
+            command
+                .args(["-c", script])
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped());
+            let (sender, receiver) = mpsc::channel::<String>();
+            let sender = Mutex::new(sender);
+            let process = process::start(command, move |output: ProcessOutput| {
+                if let ProcessOutput::Line(line) = output {
+                    let _ = lock_sender(&sender).send(line);
+                }
+            })
+            .expect("Wegwerf-Agent startet");
+            let line = receiver
+                .recv_timeout(Duration::from_secs(5))
+                .expect("PID des Kindes kommt");
+            (
+                Arc::new(process),
+                line.trim().parse().expect("PID ist eine Zahl"),
+            )
+        }
+
+        fn lock_sender(
+            sender: &Mutex<mpsc::Sender<String>>,
+        ) -> MutexGuard<'_, mpsc::Sender<String>> {
+            sender.lock().unwrap_or_else(PoisonError::into_inner)
+        }
+
+        /// Die Frist im Test.
+        const GRACE: Duration = Duration::from_millis(100);
+
+        /// Wartet die Frist ab und gibt dem Abschuss Zeit; `process` bleibt gehalten.
+        fn after_grace() {
+            thread::sleep(GRACE + Duration::from_millis(200));
+        }
+
+        #[test]
+        fn retire_process_ends_the_group_of_an_agent_that_ignores_stdin() {
+            let (agent, child) = agent("sleep 300 & echo $!; exec sleep 300");
+            let leader = agent.pid();
+            retire_process_after(Arc::clone(&agent), GRACE);
+            after_grace();
+            let child_gone = gone(child);
+            let leader_gone = gone(leader);
+            if !child_gone {
+                clean_up(child);
+            }
+            if !leader_gone {
+                clean_up(leader);
+            }
+            assert!(child_gone, "das Kind lebt noch");
+            assert!(leader_gone, "der Agent lebt noch");
+        }
+
+        #[test]
+        fn retire_process_ends_the_group_even_if_the_agent_exits_by_itself() {
+            // Ohne stdin endet `read` und mit ihm der Agent in der Frist; sein Kind läuft weiter.
+            let (agent, child) = agent("sleep 300 & echo $!; read line");
+            retire_process_after(Arc::clone(&agent), GRACE);
+            after_grace();
+            let child_gone = gone(child);
+            if !child_gone {
+                clean_up(child);
+            }
+            assert!(child_gone, "das Kind lebt nach dem Ende des Agenten noch");
+        }
+
+        #[test]
+        fn stop_terminates_then_kills_agents_that_ignore_sigterm() {
+            let (polite, polite_child) = agent("sleep 300 & echo $!; exec sleep 300");
+            let (stubborn, stubborn_child) =
+                agent("trap '' TERM; sleep 300 & echo $!; while :; do sleep 1; done");
+            let started = std::time::Instant::now();
+            process::stop(&[&polite, &stubborn], Duration::from_millis(300));
+            let waited = started.elapsed();
+            let mut all_gone = true;
+            for pid in [polite_child, polite.pid(), stubborn_child, stubborn.pid()] {
+                if !gone(pid) {
+                    all_gone = false;
+                    clean_up(pid);
+                }
+            }
+            assert!(all_gone, "ein Prozess lebt noch");
+            assert!(waited < Duration::from_secs(1), "gewartet: {waited:?}");
+        }
+
+        /// App-Ende: Das Beenden über `stop` ist kein Absturz der Session; der Handler erfährt
+        /// nichts mehr, weder `Exited` noch die Zeilen, die der Agent beim SIGTERM noch schreibt.
+        #[test]
+        fn stop_reports_neither_exit_nor_lines_to_the_handler() {
+            let mut command = crate::processes::command("sh");
+            command
+                .args([
+                    "-c",
+                    "trap 'echo bye; echo bye >&2; exit 3' TERM; sleep 300 & echo $!; wait",
+                ])
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped());
+            let (sender, receiver) = mpsc::channel::<ProcessOutput>();
+            let sender = Mutex::new(sender);
+            let agent = process::start(command, move |output: ProcessOutput| {
+                let _ = sender
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .send(output);
+            })
+            .expect("Wegwerf-Agent startet");
+            let child: u32 = match receiver.recv_timeout(Duration::from_secs(5)) {
+                Ok(ProcessOutput::Line(line)) => line.trim().parse().expect("PID ist eine Zahl"),
+                other => panic!("erwartet die PID des Kindes, kam: {other:?}"),
+            };
+            process::stop(&[&agent], Duration::from_secs(2));
+            let after_stop = receiver.recv_timeout(Duration::from_secs(1));
+            let leader = agent.pid();
+            if !gone(child) {
+                clean_up(child);
+            }
+            if !gone(leader) {
+                clean_up(leader);
+            }
+            assert!(after_stop.is_err(), "nach `stop` kam noch: {after_stop:?}");
+        }
+
+        /// V72: Die Annahme einer ruhenden Station gibt ihren Agenten frei.
+        #[test]
+        fn release_agent_retires_a_resting_station_like_the_reaper() {
+            let (agent, child) = agent("sleep 300 & echo $!; exec sleep 300");
+            let leader = agent.pid();
+            let mut state = state();
+            let mut outbox = Outbox::default();
+            state.process = Some(Arc::clone(&agent));
+            state.status = SessionStatus::Completed;
+            state.release_agent(&mut outbox);
+            let released = state.process.is_none() && outbox.retire;
+            if let Some(retired) = outbox.process.take().filter(|_| released) {
+                retire_process_after(retired, GRACE);
+                after_grace();
+            }
+            let leader_gone = released && gone(leader);
+            // Ein roter Lauf räumt seine eigenen Prozesse ab, bevor er scheitert.
+            agent.kill();
+            for pid in [child, leader] {
+                if !gone(pid) {
+                    clean_up(pid);
+                }
+            }
+            assert!(
+                released,
+                "die Session gibt den Prozess nicht an `retire_process`"
+            );
+            assert!(leader_gone, "der Agent lebt noch");
+        }
+
+        /// V72, Gegenfall: Mit laufender Hintergrundarbeit behält die Station ihren Agenten.
+        #[test]
+        fn release_agent_keeps_the_agent_while_background_work_runs() {
+            let (agent, child) = agent("sleep 300 & echo $!; exec sleep 300");
+            let leader = agent.pid();
+            let mut state = state();
+            let mut outbox = Outbox::default();
+            state.process = Some(Arc::clone(&agent));
+            state.status = SessionStatus::Completed;
+            state.start_background(
+                &mut outbox,
+                "b1".to_owned(),
+                "t1".to_owned(),
+                BackgroundKind::Process,
+                "Dev-Server".to_owned(),
+                None,
+            );
+            state.release_agent(&mut outbox);
+            let kept = state.process.is_some() && !outbox.retire;
+            agent.kill();
+            for pid in [child, leader] {
+                if !gone(pid) {
+                    clean_up(pid);
+                }
+            }
+            assert!(kept, "der Agent wurde trotz Hintergrundarbeit beendet");
+        }
     }
 }

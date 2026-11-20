@@ -10,7 +10,7 @@
 //! des AppImage) ändern sie nichts.
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
 
 use std::env;
 use std::ffi::{OsStr, OsString};
@@ -146,6 +146,102 @@ pub fn pty_command(program: impl AsRef<OsStr>) -> CommandBuilder {
     let mut builder = CommandBuilder::new(program);
     apply_to_pty(&mut builder, &current_changes(program));
     builder
+}
+
+/// Unter Unix startet der Kindprozess in einer eigenen Prozessgruppe, deren Nummer seine PID ist
+/// (`process_group(0)`); was er startet, erbt sie, und `signal_group` beendet alles zusammen (ADR 074).
+/// Für Agentenprozesse, nie für kurze Befehle wie `git`. Unter Windows ändert der Helfer nichts.
+pub fn own_group(command: &mut Command) -> &mut Command {
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        command.process_group(0);
+    }
+    command
+}
+
+/// Das Signal an eine Prozessgruppe: `Terminate` lässt ihr Zeit zum Aufräumen, `Kill` nicht.
+#[cfg(unix)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GroupSignal {
+    Terminate,
+    Kill,
+}
+
+/// Schickt der Prozessgruppe `pgid` ein Signal (`kill(-pgid, …)`). Eine Gruppe, die es nicht mehr
+/// gibt (`ESRCH`), ist kein Fehler. `0`, `1` und die eigene Gruppe des Verwalters lehnt der Helfer
+/// ab, ohne zu signalisieren (`group_target`).
+///
+/// Pflicht des Aufrufers: Der Anführer der Gruppe (der Prozess mit der PID `pgid`) ist noch nicht
+/// eingesammelt (`wait`, `try_wait` mit Ergebnis). Danach kann die Nummer frei sein und zu einem
+/// fremden Prozess gehören.
+#[cfg(unix)]
+pub fn signal_group(pgid: u32, signal: GroupSignal) -> std::io::Result<()> {
+    let target = group_target(pgid)?;
+    let number = match signal {
+        GroupSignal::Terminate => libc::SIGTERM,
+        GroupSignal::Kill => libc::SIGKILL,
+    };
+    // SAFETY: `kill` liest und schreibt keinen Speicher des Prozesses. `target` ist negativ und nie
+    // `-1` oder die eigene Gruppe (`group_target`), trifft also genau die Gruppe `pgid`.
+    if unsafe { libc::kill(target, number) } == 0 {
+        return Ok(());
+    }
+    let error = std::io::Error::last_os_error();
+    if error.raw_os_error() == Some(libc::ESRCH) {
+        return Ok(());
+    }
+    Err(error)
+}
+
+/// Das Ziel für `kill` zur Gruppe `pgid`, also `-pgid`. Abgelehnt: `0` (die eigene Gruppe), `1`
+/// (`kill(-1, …)` träfe jeden Prozess des Benutzers), eine Nummer über `i32::MAX` und die eigene
+/// Gruppe des Verwalters (`getpgrp()`).
+#[cfg(unix)]
+fn group_target(pgid: u32) -> std::io::Result<libc::pid_t> {
+    let refuse = |reason: &str| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            format!("Prozessgruppe {pgid} {reason}"),
+        )
+    };
+    let Ok(pgid) = libc::pid_t::try_from(pgid) else {
+        return Err(refuse("gibt es nicht"));
+    };
+    if pgid <= 1 {
+        return Err(refuse("ist keine Gruppe eines Agenten"));
+    }
+    // SAFETY: `getpgrp` hat keine Vorbedingungen und kann nicht scheitern.
+    if pgid == unsafe { libc::getpgrp() } {
+        return Err(refuse("ist die Gruppe des Verwalters"));
+    }
+    Ok(-pgid)
+}
+
+/// Ob das Kind `pid` beendet ist, ohne es einzusammeln (`waitid` mit `WNOWAIT`): Solange es nicht
+/// eingesammelt ist, gehört die Nummer seiner Gruppe noch ihm, und `signal_group` darf sie treffen.
+/// Ein Fehler (etwa `ECHILD`: kein Kind des Verwalters) kommt zurück.
+#[cfg(unix)]
+pub fn has_exited(pid: u32) -> std::io::Result<bool> {
+    let pid = libc::id_t::from(pid);
+    // SAFETY: `siginfo_t` ist ein C-Struct ohne Zeiger; Nullen sind ein gültiger Wert.
+    let mut info: libc::siginfo_t = unsafe { std::mem::zeroed() };
+    // SAFETY: `info` ist ein gültiger, beschreibbarer `siginfo_t`. `WNOHANG` kehrt sofort zurück,
+    // `WNOWAIT` lässt das Kind uneingesammelt.
+    let result = unsafe {
+        libc::waitid(
+            libc::P_PID,
+            pid,
+            &raw mut info,
+            libc::WEXITED | libc::WNOHANG | libc::WNOWAIT,
+        )
+    };
+    if result != 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    // SAFETY: `waitid` hat `info` gefüllt oder gelassen, wie es war (genullt); `si_pid` liest nur.
+    // Ohne beendetes Kind bleibt `si_pid` 0 (der portable Weg laut `waitid(2)`).
+    Ok(unsafe { info.si_pid() } != 0)
 }
 
 /// Unterdrückt das Konsolenfenster, das Windows für jeden Kindprozess einer GUI-App öffnet.

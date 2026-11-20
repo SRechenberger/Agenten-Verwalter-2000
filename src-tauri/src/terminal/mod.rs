@@ -13,7 +13,8 @@ use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::path::Path;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::thread;
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use portable_pty::{ChildKiller, MasterPty, PtySize, native_pty_system};
 use tauri::ipc::Channel;
@@ -26,9 +27,17 @@ use model::{TerminalChanged, TerminalInfo, TerminalOutput};
 
 const MAX_RUNNING: usize = 8;
 const READ_CHUNK: usize = 8192;
+/// So lange hat eine Shell nach SIGHUP Zeit, bevor SIGKILL ihre Gruppe trifft (ADR 074).
+const HANGUP_GRACE: Duration = Duration::from_secs(1);
+/// Abstand, in dem der Waiter nach dem Ende der Shell fragt.
+const EXIT_POLL_INTERVAL: Duration = Duration::from_millis(50);
 pub const CHANGED_EVENT: &str = "terminal://changed";
 
 struct Terminal {
+    /// Die Shell; portable-pty startet sie mit `setsid`, ihre Prozessgruppe ist ihre PID.
+    #[cfg(unix)]
+    pid: Option<u32>,
+    /// `running` wird erst `false`, wenn der Waiter die Shell unter dieser Sperre eingesammelt hat.
     info: Mutex<TerminalInfo>,
     io: Mutex<TerminalIo>,
     output: Mutex<OutputState>,
@@ -151,6 +160,27 @@ impl TerminalService {
         cols: u16,
         rows: u16,
     ) -> Result<TerminalInfo, CommandError> {
+        let exit_app = app.clone();
+        let info = self.start(
+            project_id,
+            workspace,
+            (cols, rows),
+            shell::shell_command(),
+            move |project_id: &str| emit_changed(&exit_app, project_id),
+        )?;
+        emit_changed(app, project_id);
+        Ok(info)
+    }
+
+    /// `open` ohne `AppHandle`: `on_exit` bekommt das Vorhaben, wenn die Shell endet.
+    fn start(
+        &self,
+        project_id: &str,
+        workspace: &Path,
+        (cols, rows): (u16, u16),
+        shell: shell::ShellCommand,
+        on_exit: impl FnOnce(&str) + Send + 'static,
+    ) -> Result<TerminalInfo, CommandError> {
         let running: usize = self
             .list(project_id)
             .iter()
@@ -170,7 +200,6 @@ impl TerminalService {
                 pixel_height: 0,
             })
             .map_err(not_started)?;
-        let shell = shell::shell_command();
         let mut builder = processes::pty_command(&shell.program);
         builder.args(&shell.args);
         builder.cwd(workspace);
@@ -182,6 +211,8 @@ impl TerminalService {
         let reader = pair.master.try_clone_reader().map_err(not_started)?;
         let writer = pair.master.take_writer().map_err(not_started)?;
         let killer = child.clone_killer();
+        #[cfg(unix)]
+        let pid = child.process_id();
 
         let info = TerminalInfo {
             id: uuid::Uuid::new_v4().to_string(),
@@ -194,6 +225,8 @@ impl TerminalService {
             exit_code: None,
         };
         let terminal = Arc::new(Terminal {
+            #[cfg(unix)]
+            pid,
             info: Mutex::new(info.clone()),
             io: Mutex::new(TerminalIo {
                 writer,
@@ -209,8 +242,7 @@ impl TerminalService {
         lock(&self.terminals).insert(info.id.clone(), Arc::clone(&terminal));
 
         spawn_reader(Arc::clone(&terminal), reader);
-        spawn_waiter(Arc::clone(&terminal), app.clone(), child);
-        emit_changed(app, project_id);
+        spawn_waiter(Arc::clone(&terminal), on_exit, child);
         Ok(info)
     }
 
@@ -304,23 +336,63 @@ impl TerminalService {
         }
     }
 
-    /// App-Ende: kein Shell-Prozess bleibt zurück, die Oberfläche braucht kein Ereignis mehr.
+    /// App-Ende: kein Shell-Prozess bleibt zurück, die Oberfläche braucht kein Ereignis mehr. Wartet
+    /// höchstens `HANGUP_GRACE` für alle Terminals zusammen.
     pub fn close_all(&self) {
         let ids: Vec<String> = lock(&self.terminals).keys().cloned().collect();
-        for id in ids {
-            self.remove(&id);
-        }
+        let terminals: Vec<Arc<Terminal>> = ids.iter().filter_map(|id| self.hang_up(id)).collect();
+        finish_off(&terminals, HANGUP_GRACE);
     }
 
-    /// Nimmt das Terminal aus der Map und beendet den Prozess; liefert sein Vorhaben.
+    /// Nimmt das Terminal aus der Map und beendet den Prozess; liefert sein Vorhaben. Lebt die
+    /// Shell nach `HANGUP_GRACE` noch, trifft SIGKILL ihre Gruppe (`finish_off`).
     fn remove(&self, id: &str) -> Option<String> {
-        let terminal = lock(&self.terminals).remove(id)?;
+        let terminal = self.hang_up(id)?;
         let project_id: String = lock(&terminal.info).project_id.clone();
-        let mut io = lock(&terminal.io);
-        // Ein schon beendeter Prozess meldet hier einen Fehler — dann ist nichts mehr zu beenden.
-        let _ = io.killer.kill();
-        io.master = None;
+        let spawned = thread::Builder::new()
+            .name("terminal-finish".into())
+            .spawn(move || finish_off(&[terminal], HANGUP_GRACE));
+        if let Err(error) = spawned {
+            eprintln!("Abschuss des Terminals nicht geplant: {error}");
+        }
         Some(project_id)
+    }
+
+    /// Nimmt das Terminal aus der Map und schickt der Shell SIGHUP (portable-pty).
+    fn hang_up(&self, id: &str) -> Option<Arc<Terminal>> {
+        let terminal = lock(&self.terminals).remove(id)?;
+        {
+            let mut io = lock(&terminal.io);
+            // Ein schon beendeter Prozess meldet hier einen Fehler — dann ist nichts mehr zu beenden.
+            let _ = io.killer.kill();
+            io.master = None;
+        }
+        Some(terminal)
+    }
+}
+
+/// Wartet höchstens `grace`, bis alle Shells beendet sind; jede, deren Ende der Waiter bis dahin nicht
+/// gesehen hat, bekommt SIGKILL an ihre Gruppe (ADR 074). Unter Windows endet die Shell schon mit
+/// `ChildKiller::kill`.
+fn finish_off(terminals: &[Arc<Terminal>], grace: Duration) {
+    let deadline = Instant::now() + grace;
+    while Instant::now() < deadline
+        && terminals
+            .iter()
+            .any(|terminal: &Arc<Terminal>| lock(&terminal.info).running)
+    {
+        thread::sleep(EXIT_POLL_INTERVAL);
+    }
+    #[cfg(unix)]
+    for terminal in terminals {
+        let info = lock(&terminal.info);
+        // Unter der Sperre, unter der der Waiter einsammelt: Läuft die Shell laut `info`, ist sie
+        // nicht eingesammelt, und ihre Gruppennummer gehört noch ihr.
+        if info.running
+            && let Some(pid) = terminal.pid
+        {
+            let _ = processes::signal_group(pid, processes::GroupSignal::Kill);
+        }
     }
 }
 
@@ -360,20 +432,31 @@ fn spawn_reader(terminal: Arc<Terminal>, mut reader: Box<dyn Read + Send>) {
     }
 }
 
+/// Fragt in kurzen Abständen nach dem Ende der Shell und sammelt sie unter der Sperre von `info` ein,
+/// statt in `wait` zu blockieren: So sieht `finish_off` an `running`, ob die Gruppe noch ihr gehört.
 fn spawn_waiter(
     terminal: Arc<Terminal>,
-    app: AppHandle,
+    on_exit: impl FnOnce(&str) + Send + 'static,
     mut child: Box<dyn portable_pty::Child + Send + Sync>,
 ) {
     let spawned = std::thread::Builder::new()
         .name("terminal-wait".into())
         .spawn(move || {
-            let code: Option<u32> = child.wait().ok().map(|status| status.exit_code());
-            let project_id: String = {
-                let mut info = lock(&terminal.info);
-                info.running = false;
-                info.exit_code = code;
-                info.project_id.clone()
+            let (code, project_id): (Option<u32>, String) = loop {
+                {
+                    let mut info = lock(&terminal.info);
+                    let code: Option<Option<u32>> = match child.try_wait() {
+                        Ok(Some(status)) => Some(Some(status.exit_code())),
+                        Ok(None) => None,
+                        Err(_) => Some(None),
+                    };
+                    if let Some(code) = code {
+                        info.running = false;
+                        info.exit_code = code;
+                        break (code, info.project_id.clone());
+                    }
+                }
+                thread::sleep(EXIT_POLL_INTERVAL);
             };
             {
                 let mut output = lock(&terminal.output);
@@ -381,9 +464,57 @@ fn spawn_waiter(
                 output.send(&TerminalOutput::Exit { code });
             }
             lock(&terminal.io).master = None;
-            emit_changed(&app, &project_id);
+            on_exit(&project_id);
         });
     if let Err(error) = spawned {
         eprintln!("Warte-Thread des Terminals nicht gestartet: {error}");
+    }
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::*;
+
+    /// Wartet höchstens `limit`, bis `done` gilt.
+    fn within(limit: Duration, done: impl Fn() -> bool) -> bool {
+        let deadline = Instant::now() + limit;
+        while !done() {
+            if Instant::now() >= deadline {
+                return false;
+            }
+            thread::sleep(Duration::from_millis(20));
+        }
+        true
+    }
+
+    #[test]
+    fn remove_kills_the_group_of_a_shell_that_ignores_hangup_within_two_seconds() {
+        let service = TerminalService::new();
+        let shell = shell::ShellCommand {
+            program: "/bin/sh".into(),
+            args: vec![
+                "-c".to_owned(),
+                "trap '' HUP; echo bereit; while :; do sleep 1; done".to_owned(),
+            ],
+            label: "sh".to_owned(),
+        };
+        let info = service
+            .start("p", &std::env::temp_dir(), (80, 24), shell, |_: &str| {})
+            .expect("Terminal startet");
+        let terminal = service.get(&info.id).expect("Terminal ist eingetragen");
+        let pid = terminal.pid.expect("Shell hat eine PID");
+        let ready = within(Duration::from_secs(5), || {
+            lock(&terminal.output).buffer.snapshot().contains("bereit")
+        });
+        service.remove(&info.id);
+        let ended = within(Duration::from_secs(2), || !lock(&terminal.info).running);
+        // Ein roter Lauf räumt seine eigene Shell ab: Sie ist nicht eingesammelt (`running`).
+        let info_now = lock(&terminal.info);
+        if info_now.running {
+            let _ = processes::signal_group(pid, processes::GroupSignal::Kill);
+        }
+        drop(info_now);
+        assert!(ready, "die Shell meldet sich nicht");
+        assert!(ended, "die Shell lebt 2 s nach `remove` noch");
     }
 }
