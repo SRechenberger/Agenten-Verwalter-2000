@@ -201,7 +201,7 @@ fn a_completed_answer_without_kind_is_an_answer_card_with_the_excerpt() {
     assert_eq!(task.kind, DashboardTaskKind::Answer);
     assert_eq!(task.title, "Auszug");
     assert_eq!(task.since, 200.0);
-    assert_eq!(task.id, "answer:a");
+    assert_eq!(task.id, "session:a");
     // Ohne `answer_at` (Bestand vor dem Dashboard, gelesen) gibt es keine Karte.
     let without = SessionFacts {
         answer_at: None,
@@ -469,8 +469,8 @@ fn a_paused_session_is_a_card_naming_the_reason() {
         vec![DashboardTaskKind::Paused, DashboardTaskKind::Paused]
     );
     // Gleiche Stufe: die am längsten wartende vorn (`since` aufsteigend).
-    assert_eq!(view.tasks[0].id, "paused:b");
-    assert_eq!(view.tasks[1].id, "paused:a");
+    assert_eq!(view.tasks[0].id, "session:b");
+    assert_eq!(view.tasks[1].id, "session:a");
     assert!(
         view.tasks[1].title.contains("14:30"),
         "{}",
@@ -663,19 +663,19 @@ fn cards_are_ordered_by_level_then_longest_waiting() {
         vec![
             "permission:q:early",
             "question:q:late",
-            "asks:ask2",
-            "asks:ask",
-            "requests:req",
-            "answer:ans",
+            "session:ask2",
+            "session:ask",
+            "session:req",
+            "session:ans",
             "planChange:i",
             "cancelRequest:i",
             "byYou:i:you",
             "returnsExhausted:i:exh",
             "masterMissing:i",
-            "error:err",
-            "paused:pau",
+            "session:err",
+            "session:pau",
             "ready:i:ready",
-            "done:done",
+            "session:done",
         ]
     );
 }
@@ -706,7 +706,10 @@ fn card_ids_are_stable_across_builds() {
             .collect()
     };
     assert_eq!(ids(&make()), ids(&make()));
-    assert_eq!(ids(&make()), vec!["question:q:r", "answer:a", "ready:i:st"]);
+    assert_eq!(
+        ids(&make()),
+        vec!["question:q:r", "session:a", "ready:i:st"]
+    );
 }
 
 #[test]
@@ -1064,4 +1067,88 @@ fn a_reported_paused_station_is_a_paused_card() {
         vec![flow("i", vec![reported])],
     );
     assert_eq!(kinds(&view), vec![DashboardTaskKind::Paused]);
+}
+
+#[test]
+fn a_session_card_keeps_its_id_when_the_kind_changes() {
+    let id_of = |session: SessionFacts| view_of(vec![session], vec![]).tasks[0].id.clone();
+    let plain = answered("a", 200.0);
+    let classified = SessionFacts {
+        answer_kind: Some(AnswerKind::Asks),
+        answer_line: Some("Fragt".to_owned()),
+        ..answered("a", 200.0)
+    };
+    let before = view_of(vec![plain], vec![]);
+    let after = view_of(vec![classified], vec![]);
+    assert_eq!(before.tasks[0].kind, DashboardTaskKind::Answer);
+    assert_eq!(after.tasks[0].kind, DashboardTaskKind::Asks);
+    assert_eq!(before.tasks[0].id, after.tasks[0].id);
+    assert_eq!(id_of(answered("b", 1.0)), "session:b");
+}
+
+fn paused_station_flow(dismissed_at: Option<f64>, idle_since: f64) -> DashboardView {
+    let session = SessionFacts {
+        dismissed_at,
+        idle_since,
+        ..station_session(SessionStatus::Paused)
+    };
+    view_of(
+        vec![session],
+        vec![flow(
+            "i",
+            vec![with_session(station("st", StationState::WaitsForYou))],
+        )],
+    )
+}
+
+#[test]
+fn reading_hides_a_paused_station_card_until_a_newer_pause_but_not_in_the_flow() {
+    let open = paused_station_flow(None, 400.0);
+    assert_eq!(kinds(&open), vec![DashboardTaskKind::Paused]);
+    let read = paused_station_flow(Some(500.0), 400.0);
+    assert!(read.tasks.is_empty(), "gelesen: nicht in der Liste");
+    // Zustand und Zahl des Ablaufs bleiben wie ohne „Gelesen“.
+    assert_eq!(read.flows[0].open, open.flows[0].open);
+    assert_eq!(read.flows[0].state, open.flows[0].state);
+    assert_eq!(read.flows[0].open, 1);
+    // Eine neue Pause danach bringt die Karte zurück.
+    assert_eq!(
+        kinds(&paused_station_flow(Some(500.0), 600.0)),
+        vec![DashboardTaskKind::Paused]
+    );
+}
+
+#[test]
+fn reading_hides_a_station_error_card_of_a_session_until_new_activity() {
+    let build = |dismissed_at: Option<f64>, last_activity_at: f64| {
+        let session = SessionFacts {
+            dismissed_at,
+            last_activity_at,
+            ..station_session(SessionStatus::Error)
+        };
+        view_of(
+            vec![session],
+            vec![flow(
+                "i",
+                vec![with_session(station("st", StationState::Error))],
+            )],
+        )
+    };
+    assert_eq!(kinds(&build(None, 400.0)), vec![DashboardTaskKind::Error]);
+    let read = build(Some(500.0), 400.0);
+    assert!(read.tasks.is_empty());
+    assert_eq!(read.flows[0].state, DashboardFlowState::Error);
+    assert_eq!(
+        kinds(&build(Some(500.0), 600.0)),
+        vec![DashboardTaskKind::Error]
+    );
+}
+
+#[test]
+fn a_station_error_without_session_cannot_be_read() {
+    let view = view_of(
+        vec![],
+        vec![flow("i", vec![station("st", StationState::Error)])],
+    );
+    assert_eq!(kinds(&view), vec![DashboardTaskKind::Error]);
 }

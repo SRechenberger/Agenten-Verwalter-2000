@@ -72,12 +72,14 @@ export function isAnswerKind(kind: DashboardTaskKind): boolean {
   return kind === 'asks' || kind === 'requests' || kind === 'done' || kind === 'answer';
 }
 
-/** Nur `blocking` filtert; die Reihenfolge bleibt die des Core. */
+/** „Nur, was einen Agenten anhält“: `blocking` und pausierte Karten; die Reihenfolge bleibt die des Core. */
 export function filterTasks(
   tasks: readonly DashboardTask[],
   blockingOnly: boolean,
 ): DashboardTask[] {
-  return blockingOnly ? tasks.filter((task: DashboardTask) => task.blocking) : [...tasks];
+  return blockingOnly
+    ? tasks.filter((task: DashboardTask) => task.blocking || task.kind === 'paused')
+    : [...tasks];
 }
 
 /** Zahl am Eintrag der Leiste: alle Karten, nicht die gefilterten; bei 0 keine Zahl. */

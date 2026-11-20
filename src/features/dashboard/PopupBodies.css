@@ -55,6 +55,13 @@
   &--before {
     color: var(--color-fg-secondary);
   }
+
+  /* Markdown bricht selbst um; der Umbruch des Rohtexts würde in Listen, Code und Tabellen mitvererbt. */
+  &--markdown {
+    white-space: normal;
+    overflow-wrap: normal;
+    min-width: 0;
+  }
 }
 
 .popup-code {

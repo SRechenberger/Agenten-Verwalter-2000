@@ -35,8 +35,10 @@
     font-size: var(--font-size-lg);
   }
 
+  /* Tailwinds Preflight nimmt Listen die Zeichen; `revert` gibt sie auch verschachtelten Listen zurück. */
   :is(ul, ol) {
     padding-left: var(--space-3xl);
+    list-style: revert;
   }
 
   li > * + * {

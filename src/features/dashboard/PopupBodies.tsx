@@ -1,5 +1,7 @@
 import { useState } from 'react';
 import type { ReactElement, ReactNode } from 'react';
+import { Markdown } from '@/components/Markdown';
+import { FileLinkSessionContext } from '@/components/FileLinkSessionContext';
 import { QuestionBlock } from '@/features/chat/QuestionBlock';
 import { SessionToolBlock } from '@/features/chat/SessionToolBlock';
 import {
@@ -363,14 +365,14 @@ export function MasterMissingBody(props: PopupProps): ReactElement {
   );
 }
 
-/** „Gelesen“ gibt es nur bei einer Session ohne Station. */
+/** „Gelesen“ gibt es, wo die Karte eine Session hat; ein Startfehler einer Station ohne Session bleibt ohne. */
 function ReadButton({
   task,
   run,
   isLocked,
 }: Pick<PopupProps, 'task' | 'run' | 'isLocked'>): ReactElement | null {
   const { sessionId } = task;
-  if (sessionId === null || task.stationId !== null) {
+  if (sessionId === null) {
     return null;
   }
   return (
@@ -384,6 +386,20 @@ function ReadButton({
     >
       Gelesen
     </button>
+  );
+}
+
+/** Unter „Gelesen“ bei einer Station: Die Karte verschwindet nur aus der Liste, der Ablauf bleibt, wie er ist. */
+function StationReadNote({ task }: Pick<PopupProps, 'task'>): ReactElement | null {
+  if (task.sessionId === null || task.stationId === null) {
+    return null;
+  }
+  return (
+    <p className="popup-note">
+      Mit „Gelesen“ verschwindet die Karte aus der Liste. Sie kommt zurück, wenn die Station danach
+      erneut pausiert, einen Fehler meldet oder neu aktiv wird. Zustand und Zahl des Ablaufs ändern
+      sich nicht.
+    </p>
   );
 }
 
@@ -413,6 +429,7 @@ export function ErrorBody(props: PopupProps): ReactElement {
       }
     >
       <div className="popup-code">{task.title}</div>
+      <StationReadNote task={task} />
     </Layout>
   );
 }
@@ -443,6 +460,7 @@ export function PausedBody(props: PopupProps): ReactElement {
       }
     >
       <p>{task.title}</p>
+      <StationReadNote task={task} />
     </Layout>
   );
 }
@@ -517,10 +535,16 @@ function OpenAnswerBody({
     >
       <p className="popup-note">{classifiedText(task)}</p>
       {error !== null && <p role="alert">{error}</p>}
-      {exchange !== null && exchange.before !== null && (
-        <div className="popup-message popup-message--before">{exchange.before}</div>
-      )}
-      <div className="popup-message">{exchange?.answer ?? task.title}</div>
+      <FileLinkSessionContext.Provider value={sessionId}>
+        {exchange !== null && exchange.before !== null && (
+          <div className="popup-message popup-message--markdown popup-message--before">
+            <Markdown text={exchange.before} />
+          </div>
+        )}
+        <div className="popup-message popup-message--markdown">
+          <Markdown text={exchange?.answer ?? task.title} />
+        </div>
+      </FileLinkSessionContext.Provider>
       <textarea
         className="popup-input"
         rows={3}

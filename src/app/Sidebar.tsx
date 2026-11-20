@@ -134,6 +134,9 @@ export function Sidebar({
   const cardCount: number | null = useDashboardStore((state) =>
     badgeCount(state.view?.tasks ?? []),
   );
+  // Ohne Schriftzug trägt das Label den Namen des Knopfes.
+  const dashboardLabel: string =
+    cardCount === null ? 'Dashboard' : `Dashboard – ${String(cardCount)} Aufgaben warten auf dich`;
   const showAllSessions: Record<string, boolean> = useSessionsStore(
     (state) => state.showAllSessions,
   );
@@ -723,39 +726,6 @@ export function Sidebar({
           <span className="sidebar__new-label">Neues Vorhaben</span>
           <kbd className="sidebar__new-key">Ctrl N</kbd>
         </button>
-        <button
-          type="button"
-          className={`sidebar__dashboard${isDashboardOpen ? ' sidebar__dashboard--active' : ''}`}
-          aria-current={isDashboardOpen ? 'page' : undefined}
-          onClick={onOpenDashboard}
-        >
-          <svg
-            width="14"
-            height="14"
-            viewBox="0 0 14 14"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.5"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            aria-hidden="true"
-          >
-            <rect x="1.5" y="1.5" width="4.5" height="4.5" rx="1" />
-            <rect x="8" y="1.5" width="4.5" height="4.5" rx="1" />
-            <rect x="1.5" y="8" width="4.5" height="4.5" rx="1" />
-            <rect x="8" y="8" width="4.5" height="4.5" rx="1" />
-          </svg>
-          <span>Dashboard</span>
-          {cardCount !== null && (
-            <span
-              className="sidebar__dashboard-count"
-              title="Aufgaben, die auf dich warten"
-              aria-label={`${String(cardCount)} Aufgaben warten auf dich`}
-            >
-              {cardCount}
-            </span>
-          )}
-        </button>
       </div>
       {loadError !== null && (
         <p className="sidebar__error" role="alert">
@@ -799,7 +769,39 @@ export function Sidebar({
         </div>
       )}
       <div className="sidebar__footer">
-        <QueueChip projects={projects} />
+        <div className="sidebar__footer-row">
+          <QueueChip projects={projects} />
+          <button
+            type="button"
+            className={`sidebar__dashboard${isDashboardOpen ? ' sidebar__dashboard--active' : ''}`}
+            aria-current={isDashboardOpen ? 'page' : undefined}
+            aria-label={dashboardLabel}
+            title={dashboardLabel}
+            onClick={onOpenDashboard}
+          >
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 14 14"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <rect x="1.5" y="1.5" width="4.5" height="4.5" rx="1" />
+              <rect x="8" y="1.5" width="4.5" height="4.5" rx="1" />
+              <rect x="1.5" y="8" width="4.5" height="4.5" rx="1" />
+              <rect x="8" y="8" width="4.5" height="4.5" rx="1" />
+            </svg>
+            {cardCount !== null && (
+              <span className="sidebar__dashboard-count" aria-hidden="true">
+                {cardCount}
+              </span>
+            )}
+          </button>
+        </div>
         <UsageSection hasOwn={hasUsage} />
         <button type="button" className="sidebar__archive" onClick={onOpenArchive}>
           <svg
