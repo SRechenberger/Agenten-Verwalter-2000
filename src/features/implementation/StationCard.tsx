@@ -2,6 +2,8 @@ import { useState } from 'react';
 import type { ReactElement } from 'react';
 import { AgentTypeDialog } from '@/features/agenttypes/AgentTypeDialog';
 import { useAgentTypes } from '@/features/agenttypes/useAgentTypes';
+import { isCommandStation, stageText } from '@/features/implementation/commandStation';
+import { StationCommandSection } from '@/features/implementation/StationCommandSection';
 import { isBegun, type StationRef } from '@/features/implementation/implementationOrder';
 import {
   CANCEL_COUNTDOWN_LABEL,
@@ -11,7 +13,10 @@ import {
   lockInfo,
   OPEN_CHAT_LABEL,
   OPEN_CHAT_TITLE,
+  COMMAND_FAILED_LEAD,
   PURPOSE_BY_USER,
+  PURPOSE_COMMAND,
+  PURPOSE_COMMAND_TEXT,
   PURPOSE_BY_USER_TEXT,
   PURPOSE_LEAD,
   PURPOSE_NO_TYPE,
@@ -109,7 +114,8 @@ export function StationCard({
   const { agentTypes } = useAgentTypes();
   const [isTypeDialogOpen, setIsTypeDialogOpen] = useState<boolean>(false);
   const types: readonly AgentType[] = agentTypes ?? [];
-  const type: AgentType | null = station.byUser ? null : typeOfStation(types, station);
+  const isCommand: boolean = isCommandStation(station);
+  const type: AgentType | null = station.byUser || isCommand ? null : typeOfStation(types, station);
   // Der Typ, den „Typ bearbeiten“ öffnet: der, als der die Station starten will.
   const editableType: AgentType | null =
     station.agentType === null ? null : typeNamed(types, station.agentType);
@@ -127,6 +133,13 @@ export function StationCard({
   }
 
   function renderPurpose(): ReactElement {
+    if (isCommand) {
+      return (
+        <p className="station-card__purpose">
+          {PURPOSE_LEAD} <b>{PURPOSE_COMMAND}</b> {PURPOSE_COMMAND_TEXT}
+        </p>
+      );
+    }
     if (station.byUser) {
       return (
         <p className="station-card__purpose">
@@ -154,8 +167,16 @@ export function StationCard({
     }
     return (
       <p className="station-card__fail" role="alert">
-        <b className="station-card__fail-lead">{START_FAILED_LEAD}</b> {station.startError}{' '}
-        {START_FAILED_HINT}
+        {isCommand && station.state === 'error' ? (
+          <>
+            <b className="station-card__fail-lead">{COMMAND_FAILED_LEAD}</b> {station.startError}
+          </>
+        ) : (
+          <>
+            <b className="station-card__fail-lead">{START_FAILED_LEAD}</b> {station.startError}{' '}
+            {START_FAILED_HINT}
+          </>
+        )}
       </p>
     );
   }
@@ -232,7 +253,7 @@ export function StationCard({
           <MarkDoneButton
             implementationId={implementationId}
             stationId={station.id}
-            label={`Lane ${phase.key} · ${station.stage}`}
+            label={`Lane ${phase.key} · ${stageText(station)}`}
             className="station-card__button"
             isLocked={isLocked}
           />
@@ -256,11 +277,11 @@ export function StationCard({
   return (
     <article
       className={`station-card station-card--${stationTone(station)}`}
-      aria-label={`Lane ${phase.key} · ${station.stage}`}
+      aria-label={`Lane ${phase.key} · ${stageText(station)}`}
     >
       <div className="station-card__head">
         <b className="station-card__title">
-          Lane {phase.key} · {station.stage}
+          Lane {phase.key} · {stageText(station)}
         </b>
         <span className="station-card__number">{number}</span>
       </div>
@@ -287,6 +308,15 @@ export function StationCard({
         isLocked={isLocked}
         run={run}
       />
+      {isCommand && (
+        <StationCommandSection
+          implementationId={implementationId}
+          station={station}
+          isLocked={isLocked}
+          run={run}
+          onStart={onStart}
+        />
+      )}
       {renderActions()}
       <div className="station-card__sections">
         <StationFlowSection
@@ -299,28 +329,32 @@ export function StationCard({
           run={run}
           onFocus={onFocus}
         />
-        <StationBriefSection
-          implementationId={implementationId}
-          stationRef={stationRef}
-          refs={refs}
-          isOpen={openSections.brief}
-          onToggle={toggle('brief')}
-          isLocked={isLocked}
-          run={run}
-          onCompleteByUser={onCompleteByUser}
-        />
-        <StationAgentSection
-          implementationId={implementationId}
-          stationRef={stationRef}
-          agentTypes={agentTypes}
-          operatingMode={operatingMode}
-          session={session}
-          ruleSession={ruleSession}
-          isOpen={openSections.agent}
-          onToggle={toggle('agent')}
-          isLocked={isLocked}
-          run={run}
-        />
+        {!isCommand && (
+          <StationBriefSection
+            implementationId={implementationId}
+            stationRef={stationRef}
+            refs={refs}
+            isOpen={openSections.brief}
+            onToggle={toggle('brief')}
+            isLocked={isLocked}
+            run={run}
+            onCompleteByUser={onCompleteByUser}
+          />
+        )}
+        {!isCommand && (
+          <StationAgentSection
+            implementationId={implementationId}
+            stationRef={stationRef}
+            agentTypes={agentTypes}
+            operatingMode={operatingMode}
+            session={session}
+            ruleSession={ruleSession}
+            isOpen={openSections.agent}
+            onToggle={toggle('agent')}
+            isLocked={isLocked}
+            run={run}
+          />
+        )}
         <StationAutomationSection
           implementationId={implementationId}
           station={station}

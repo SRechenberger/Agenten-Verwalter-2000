@@ -470,3 +470,60 @@
     }
   }
 }
+
+/* Abschnitt „Befehl“ einer Befehls-Station (ADR 073). */
+.station-card__command {
+  display: grid;
+  gap: var(--space-md);
+}
+
+.station-card__command-title {
+  margin: 0;
+  font-size: var(--font-size-xs);
+}
+
+.station-card__command-progress {
+  margin-left: var(--space-md);
+  color: var(--color-fg-muted);
+  font-weight: 400;
+}
+
+.station-card__steps {
+  display: grid;
+  gap: var(--space-xs);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.station-card__step,
+.station-card__output {
+  box-sizing: border-box;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-surface);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.station-card__step {
+  padding: var(--space-md) var(--space-lg);
+  color: var(--color-fg-secondary);
+
+  &--current {
+    border-color: var(--color-status-running);
+    color: var(--color-fg-primary);
+  }
+}
+
+.station-card__output {
+  max-height: 160px;
+  margin: 0;
+  background: var(--color-bg-sidebar);
+  border-color: transparent;
+  padding: var(--space-md) var(--space-lg);
+  overflow: auto;
+  color: var(--color-fg-secondary);
+}

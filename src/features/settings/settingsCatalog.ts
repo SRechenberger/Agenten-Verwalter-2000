@@ -126,6 +126,12 @@ const ENTRY_DATA = {
     label: 'Master zusammenfassen ab … Tokens',
     info: 'Eine ruhende Master-Session einer unfertigen Umsetzung, deren Kontext über dieser Grenze liegt, bekommt vom Verwalter /compact als eigenen Zug. Der Zug ist keine Eingabe: Dashboard und Ungelesen bleiben, im Chat steht nur „Verlauf zusammengefasst“. Erlaubt 50 000 bis 2 000 000, leer = Aus, Standard 150 000. Nur über die Claude-Kommandozeile (Claude, Claude Code + LM Studio); Autark fasst selbst zusammen. Gilt für die ganze App.',
   },
+  commandPrograms: {
+    category: 'agent',
+    section: 'Agent',
+    label: 'Programme für Befehls-Stationen',
+    info: 'Nur diese Programme darf eine Befehls-Station starten; andere lehnt der Verwalter beim Anlegen ab. Der Platzhalter {{env:NAME}} liest eine Umgebungsvariable des Verwalters und erscheint nie im Protokoll. Standard: gh und glab. Gilt für die ganze App.',
+  },
   defaultMode: {
     category: 'agent',
     section: 'Agent',

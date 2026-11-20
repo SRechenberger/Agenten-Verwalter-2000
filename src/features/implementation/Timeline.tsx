@@ -1,3 +1,8 @@
+import {
+  isCommandStation,
+  stepsSummary,
+  stepsTitle,
+} from '@/features/implementation/commandStation';
 import { Fragment, type ReactElement } from 'react';
 import {
   changeFocusId,
@@ -192,6 +197,13 @@ export function Timeline({
 
   /** „Opus · hoch“ hinter dem Titel, bei „durch dich“ die Marke; dazu die Abweichung von „Automatisch starten“. */
   function renderMeta(station: StationView): ReactElement {
+    if (isCommandStation(station) && station.command !== null) {
+      return (
+        <span className="timeline__meta" title={stepsTitle(station.command)}>
+          {stepsSummary(station.command)}
+        </span>
+      );
+    }
     if (station.byUser) {
       return (
         <span className="timeline__meta" title={BY_USER_MARK_TITLE}>

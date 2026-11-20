@@ -34,3 +34,11 @@
     font-size: var(--font-size-xs);
   }
 }
+
+/* Schritte einer Befehls-Station im Vorschlag (ADR 073). */
+.plan-change-card__steps {
+  font-family: var(--font-mono);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

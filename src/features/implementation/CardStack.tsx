@@ -20,6 +20,7 @@ import {
 import { masterOf } from '@/features/implementation/masterTexts';
 import { PlanChangeCard, type ProposalOverride } from '@/features/implementation/PlanChangeCard';
 import { latestSessionOf } from '@/features/implementation/stationAgent';
+import { stageText } from '@/features/implementation/commandStation';
 import { StationCard, type CardSectionKey } from '@/features/implementation/StationCard';
 import { StationDot } from '@/features/implementation/StationDot';
 import { useOperatingMode } from '@/features/remote/useOperatingMode';
@@ -150,7 +151,7 @@ export function CardStack({
       >
         <StationDot station={ref.station} />
         <span className="card-stack__small-title">
-          Lane {ref.phase.key} · {ref.station.stage}
+          Lane {ref.phase.key} · {stageText(ref.station)}
           {ref.station.agentType !== null && (
             <span className="card-stack__small-agent" title={AGENT_TYPE_NAME_TITLE}>
               {ref.station.agentType}
