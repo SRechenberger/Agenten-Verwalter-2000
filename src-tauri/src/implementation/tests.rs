@@ -7345,7 +7345,11 @@ fn an_empty_cwd_in_an_edit_resets_to_the_project_folder_and_a_filled_one_must_be
     };
     assert_eq!(cwd_after(Some("")), Ok(None));
     assert_eq!(cwd_after(None), Ok(Some(absolute_dir())));
-    assert_eq!(cwd_after(Some("/var")), Ok(Some("/var".to_owned())));
+    let other = std::path::Path::new(&absolute_dir())
+        .join("anderer")
+        .to_string_lossy()
+        .into_owned();
+    assert_eq!(cwd_after(Some(&other)), Ok(Some(other.clone())));
     let error = cwd_after(Some("relativ")).expect_err("nicht absolut");
     assert!(error.contains("cwd"), "{error}");
 }
