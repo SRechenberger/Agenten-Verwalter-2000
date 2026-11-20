@@ -7310,7 +7310,12 @@ mod tests {
         fs::create_dir_all(&other).expect("Ordner anlegbar");
         fs::write(other.join(format!("{id}.jsonl")), "{}").expect("Transkript schreibbar");
         assert_eq!(locate::transcript_in(&base, id, &cwd), Some(false));
-        let real_cwd = fs::canonicalize(&cwd).unwrap_or(cwd.clone());
+        // Wie `locate::real_dir`: unter Unix ohne symbolische Links, unter Windows unverändert.
+        let real_cwd = if cfg!(unix) {
+            fs::canonicalize(&cwd).unwrap_or(cwd.clone())
+        } else {
+            cwd.clone()
+        };
         let own = base
             .join("projects")
             .join(locate::project_folder(&real_cwd));
