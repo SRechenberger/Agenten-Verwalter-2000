@@ -2085,12 +2085,19 @@ fn station_view(
         agent_effort: resolved.and_then(|resolved: Resolved<'_>| resolved.effort),
         agent_effort_from: resolved.and_then(|resolved: Resolved<'_>| resolved.effort_from),
         // Bei einer Befehls-Station steht hier auch der Grund ihres Fehlers (ADR 073).
-        start_error: station.start_error.clone().or_else(|| {
-            station
-                .command
-                .as_ref()
-                .and_then(|run: &CommandRow| run.error.clone())
-        }),
+        // Eine fertige Station zeigt keinen Startfehler (V152); gespeichert bleibt er.
+        start_error: station
+            .completed_at
+            .is_none()
+            .then(|| {
+                station.start_error.clone().or_else(|| {
+                    station
+                        .command
+                        .as_ref()
+                        .and_then(|run: &CommandRow| run.error.clone())
+                })
+            })
+            .flatten(),
         plan_id: station.plan_id.clone(),
         after: station.after.clone(),
         next: Vec::new(),

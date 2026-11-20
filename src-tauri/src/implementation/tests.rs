@@ -688,6 +688,18 @@ fn view_with(stations: Vec<StationRow>, types: &[AgentType]) -> ImplementationVi
 }
 
 #[test]
+fn finished_station_shows_no_start_error_but_unfinished_one_keeps_it() {
+    let mut marked = station_row("marked", 0, "Umsetzung");
+    marked.start_error = Some("Den Typ „reviewr“ gibt es nicht mehr.".to_owned());
+    marked.completed_at = Some(1.0);
+    let mut failed = station_row("failed", 1, "Review");
+    failed.start_error = marked.start_error.clone();
+    let view = view_with(vec![marked.clone(), failed.clone()], &types());
+    assert_eq!(view.phases[0].stations[0].start_error, None);
+    assert_eq!(view.phases[0].stations[1].start_error, failed.start_error);
+}
+
+#[test]
 fn station_with_start_error_is_not_scheduled_for_automatic_start() {
     let done = || {
         let mut done = station_row("done", 0, "Umsetzung");
