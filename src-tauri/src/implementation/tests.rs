@@ -1071,6 +1071,44 @@ fn upsert_writes_the_agent_prompt_on_update_and_both_loads_read_it() {
     );
 }
 
+#[test]
+fn upsert_writes_inquiry_of_on_update_and_clearing_it_arrives_too() {
+    let database = database_with(&[]);
+    let inquiry_of = |database: &Database| -> Option<String> {
+        database
+            .with(|connection| session_rows::load_active(connection))
+            .expect("lesbar")
+            .pop()
+            .expect("Session")
+            .inquiry_of
+    };
+    let before = database
+        .with(|connection| session_rows::load_active(connection))
+        .expect("lesbar")
+        .pop()
+        .expect("Session");
+    assert_eq!(before.inquiry_of, None, "angelegt ohne Rückfrage");
+
+    // `new_inquiry` legt die Session an und setzt die Bindung danach: über das `UPDATE`.
+    let bound = SessionRow {
+        inquiry_of: Some("umsetzung".to_owned()),
+        ..before
+    };
+    database
+        .with(|connection| session_rows::upsert(connection, &bound))
+        .expect("schreibbar");
+    assert_eq!(inquiry_of(&database).as_deref(), Some("umsetzung"));
+
+    let cleared = SessionRow {
+        inquiry_of: None,
+        ..bound
+    };
+    database
+        .with(|connection| session_rows::upsert(connection, &cleared))
+        .expect("schreibbar");
+    assert_eq!(inquiry_of(&database), None);
+}
+
 // Werkzeuge des Planers, Einstellungen einer Station und Plan-Änderung (ADR 060).
 
 /// Eine Station mit allen fünf Abweichungen, wie der Planer sie setzt.
