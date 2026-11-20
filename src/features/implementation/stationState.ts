@@ -1,3 +1,4 @@
+import { isStartFailure } from '@/features/implementation/commandStation';
 import type { DisplayStatus } from '@/features/sessions/sessionStatus';
 import { START_FAILED_LABEL } from '@/features/implementation/implementationTexts';
 import { ICON, liveText, shownState } from '@/features/implementation/stationLive';
@@ -72,7 +73,7 @@ export function stationDot(station: StationView): { tone: StationTone; isChecked
 
 /** Name des Zustands für Screenreader; ein Startfehler geht vor „bereit“. */
 export function stationLabel(station: StationView): string {
-  return station.startError === null
+  return !isStartFailure(station)
     ? (liveText(station) ?? LABEL[station.state])
     : START_FAILED_LABEL;
 }

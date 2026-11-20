@@ -1,3 +1,4 @@
+import { isStartFailure, stageText } from '@/features/implementation/commandStation';
 import type { StationRef } from '@/features/implementation/implementationOrder';
 import { clockText, liveText } from '@/features/implementation/stationLive';
 import { stationLabel as stateNameOf } from '@/features/implementation/stationState';
@@ -92,8 +93,14 @@ export const BACK_TO_CURRENT_LABEL = 'Zur aktuellen';
 export const BACK_TO_CURRENT_TITLE = 'Springt zurück zur Station, die gerade läuft oder fragt';
 export const OPEN_CHAT_LABEL = 'Chat öffnen';
 export const OPEN_CHAT_TITLE = 'Öffnet die Session dieser Station; Fragen beantwortest du dort';
+export const COMMAND_FAILED_LEAD = 'Fehler.';
+export const PURPOSE_COMMAND = 'Befehl des Verwalters';
+export const PURPOSE_COMMAND_TEXT =
+  '– führt die Schritte nacheinander aus, ohne Agent und ohne Modell.';
 export const START_NOW_LABEL = '▶ Jetzt starten';
 export const START_NOW_TITLE = 'Startet diese Station sofort als neue Session';
+export const RESTART_COMMAND_TITLE = 'Startet die Schritte von vorn';
+export const START_NOW_COMMAND_TITLE = 'Startet die Befehle dieser Station sofort';
 export const CANCEL_COUNTDOWN_LABEL = 'Abbrechen';
 export const CANCEL_COUNTDOWN_TITLE = 'Hält den Countdown an; die Station bleibt bereit';
 export const DONE_BY_USER_RESULT = 'vom Benutzer erledigt';
@@ -289,7 +296,7 @@ export function durationText(milliseconds: number): string {
 /** „Review #7“; solange die Station keine Session hat, nur die Stufe. */
 export function stationLabel(station: StationView): string {
   const number: number | null = station.sessionNumber;
-  return number === null ? station.stage : `${station.stage} #${String(number)}`;
+  return number === null ? stageText(station) : `${stageText(station)} #${String(number)}`;
 }
 
 export const TRAIL_BACK_TITLE = 'Zurück zur Umsetzung';
@@ -340,7 +347,7 @@ export function stateText(station: StationView, now: number): string {
 
 /** Kurzfassung für die Zeitleiste: Dauer, „läuft“, „fragt“, „startet nicht“ — leer, solange nichts war. */
 export function stationMeta(station: StationView, now: number): string {
-  if (station.startError !== null) {
+  if (isStartFailure(station)) {
     return START_FAILED_LABEL;
   }
   const live: string | null = liveText(station);
@@ -415,7 +422,7 @@ export function shortEffort(effort: Effort): string {
 /** „Lane 2 · Review Core #6“; ohne Session ohne Nummer. */
 export function rowTitle(laneKey: string, station: StationView): string {
   const number: string = station.sessionNumber === null ? '' : ` #${String(station.sessionNumber)}`;
-  return `Lane ${laneKey} · ${station.stage}${number}`;
+  return `Lane ${laneKey} · ${stageText(station)}${number}`;
 }
 
 /** „Modell: Opus 5.5 (Typ) · Denkaufwand: hoch (Station)“, nach dem Start mit „– Werte der Session“. */
@@ -478,7 +485,7 @@ export function resumesAtChip(at: number): string {
 
 /** Zustand rechts in der Zeile: „läuft · 12 min“, „bereit · Warteschlange 1“, „startet in 7 s“. */
 export function rowStateText(station: StationView, now: number): string {
-  if (station.startError !== null) {
+  if (isStartFailure(station)) {
     return START_FAILED_LABEL;
   }
   const live: string | null = liveText(station);
@@ -823,6 +830,12 @@ export function patchSetsText(patch: StationPatch): string {
   }
   if (patch.skill !== undefined) {
     parts.push(`${SKILL_LABEL} → ${patch.skill}`);
+  }
+  if (patch.command !== undefined) {
+    parts.push('Befehl');
+  }
+  if (patch.cwd !== undefined) {
+    parts.push('Ordner');
   }
   return `Ändert: ${parts.length === 0 ? 'nichts' : parts.join(' · ')}`;
 }

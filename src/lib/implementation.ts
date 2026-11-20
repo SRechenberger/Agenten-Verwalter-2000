@@ -84,6 +84,16 @@ export async function startStation(id: string, stationId: string): Promise<void>
   await invoke('implementation_start_station', { id, stationId });
 }
 
+/** „Abbrechen“ einer laufenden Befehls-Station: beendet den laufenden Schritt, die Station endet im Fehler
+ *  „abgebrochen“ (ADR 073).
+ *  @throws {import('@/lib/bindings/CommandError').CommandError} `implementation` (läuft nicht, keine Befehls-Station) */
+export async function stopStationCommand(
+  implementationId: string,
+  stationId: string,
+): Promise<void> {
+  await invoke('implementation_stop_command', { id: implementationId, stationId });
+}
+
 /** „Einstellungen“ einer Station ohne Session: ersetzt Typ, Modell, Denkaufwand, Zusatztext und Skill auf einmal,
  *  `null` löscht eine Abweichung (ADR 060). Wirkt auf keine Session und startet nichts; die Prüfung liegt im Core.
  *  @throws {import('@/lib/bindings/CommandError').CommandError} `implementation` (Station hat begonnen, Station des Benutzers, unbekannter Typ, Länge von Zusatztext und Skill), `database` */

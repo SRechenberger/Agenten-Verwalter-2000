@@ -101,6 +101,11 @@
     text-overflow: ellipsis;
   }
 
+  /* Der Schritte-Chip einer Befehls-Station hat eine Höchstbreite: Der Name „<Stufe> · Befehl“ bleibt ganz. */
+  &__meta--steps {
+    max-width: 16em;
+  }
+
   &__new {
     border-color: var(--color-accent);
     color: var(--color-accent-text);

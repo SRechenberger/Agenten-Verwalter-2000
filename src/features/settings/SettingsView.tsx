@@ -31,6 +31,7 @@ import { useKnownRepositories } from '@/features/repositories/useKnownRepositori
 import { ColorSchemeSegment } from '@/features/settings/ColorSchemeSegment';
 import { TerminalPlacementSegment } from '@/features/settings/TerminalPlacementSegment';
 import { LocalModelMenu } from '@/features/settings/LocalModelMenu';
+import { CommandProgramsRow } from '@/features/settings/CommandProgramsRow';
 import { MasterCompactRow } from '@/features/settings/MasterCompactRow';
 import { MaxAgentsRow } from '@/features/settings/MaxAgentsRow';
 import { OperatingModeSegment } from '@/features/settings/OperatingModeSegment';
@@ -480,6 +481,8 @@ export function SettingsView({
         );
       case 'masterCompactTokens':
         return <MasterCompactRow value={current.masterCompactTokens} save={save} />;
+      case 'commandPrograms':
+        return <CommandProgramsRow value={current.commandPrograms} save={save} />;
       case 'maxAgents':
         return <MaxAgentsRow value={current.maxAgents} save={save} />;
       case 'agentTypes':

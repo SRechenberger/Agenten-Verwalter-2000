@@ -1,6 +1,6 @@
 # 073 — Befehls-Stationen: Schritte ohne Modell, aus einer Vorlage, nur Programme der Freigabeliste
 
-**Status:** angenommen und umgesetzt im Kern (Migration 33, Art der Station, Vorlage, Werte der Vorgänger, Freigabeliste, Lauf und Stopp; Story Taiga #134, Phase 134.1). Die Oberfläche folgt in Phase 134.2.
+**Status:** angenommen und umgesetzt im Kern (Migration 33, Art der Station, Vorlage, Werte der Vorgänger, Freigabeliste, Lauf und Stopp; Story Taiga #134, Phase 134.1). Die Oberfläche steht seit Phase 134.2.
 
 ## Kontext
 
@@ -38,6 +38,13 @@ Vom Benutzer entschieden (N1, N2, N7, D9 bis D13):
 - Ein Prozess, der beim Abbrechen Kindprozesse hat, lässt sie laufen (`Child::kill` beendet nur den Prozess).
 - Der Master wird nicht geweckt, wenn der Erfolg die letzte Station abschließt.
 - `StationView.startError` trägt bei einer Befehls-Station den Grund ihres Fehlers.
+
+## Oberfläche
+
+- **Plan-Karte und Zeitleiste:** Eine Befehls-Station heißt `<Stufe> · Befehl` und zeigt ihre Schritte gekürzt (`commandStation.ts`), alle im Tooltip. In der Zeitleiste hat der Schritte-Chip eine Höchstbreite: Der Name bleibt ganz, der Chip kürzt sich zuerst. In „Plan ändern?“ gibt es für sie nichts zu ändern; die Schritte stehen da, dazu die Zeile „Programme“ (je Programm einmal).
+- **Kartei:** Der Abschnitt „Befehl“ zeigt die Schritte mit den eingesetzten Werten (`resolved`, `{{env:…}}` bleibt stehen), den laufenden Schritt, die Ausgabe in Monospace (folgt der Ansicht), „Abbrechen“ während `running` (`implementation_stop_command`) und ▶ nach `error` (der vorhandene Start, in der Aktionszeile der Karte neben „Als fertig markieren …“; sein Tooltip nennt keine Session). Auftrag und Agent entfallen; „Als fertig markieren …“ gilt wie bei jeder Station im Fehler. Bei einer Befehls-Station im Fehler trägt `startError` den Grund des Laufs und heißt „Fehler“, nicht „Startet nicht“.
+- **Einstellungen:** „Programme für Befehls-Stationen“ mit Hinzufügen und Entfernen; die Oberfläche prüft nur Name, Pfad und Doppelte, den Satz bei Ungültigem liefert der Kern.
+- **Nichts angelegt:** Die Oberfläche legt keine Befehls-Station an und rechnet keine Regel des Kerns nach.
 
 ## Prüfung
 
