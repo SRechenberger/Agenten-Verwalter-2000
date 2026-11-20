@@ -3,6 +3,7 @@ use rusqlite::{Connection, OptionalExtension, params};
 
 use crate::agents::event::SessionRef;
 use crate::error::CommandError;
+use crate::implementation::wake::STATION_WAKE_START;
 
 pub struct InboxRow {
     pub id: i64,
@@ -97,6 +98,33 @@ pub fn oldest(connection: &Connection, session_id: &str) -> Result<Option<InboxR
 
 pub fn delete(connection: &Connection, id: i64) -> Result<(), CommandError> {
     connection.execute("DELETE FROM session_inbox WHERE id = ?1", params![id])?;
+    Ok(())
+}
+
+/// Löscht die wartenden Weck-Zeilen des Verwalters zu dieser Station aus dem Posteingang des Masters
+/// ihrer Umsetzung (ADR 070): Eine angenommene oder zurückgegebene Meldung verfällt. Gelöscht wird eine
+/// Zeile nur, wenn (1) ihr Text mit dem festen Anfang der Weck-Nachrichten zu einer Station beginnt
+/// (`wake::STATION_WAKE_START`; die Nachricht an einen neuen Master und die zum Ende der Umsetzung
+/// beginnen anders) und (2) ihre erste Kennung `(station_id: <ID>)` oder, beim Unterbrochen-Hinweis,
+/// `(station_id: <ID>, …)` die dieser Station ist; eine Kennung erst im Betreff oder in der Notiz einer
+/// anderen Station zählt nicht. Der Absender `verwalter` ist `wake::sender`. Nachrichten des Benutzers
+/// und anderer Sessions bleiben.
+pub fn delete_wakes_of_station(
+    connection: &Connection,
+    station_id: &str,
+) -> Result<(), CommandError> {
+    connection.execute(
+        "DELETE FROM session_inbox \
+         WHERE sender_id = 'verwalter' \
+           AND session_id = (SELECT i.master_session_id FROM implementation_stations s \
+                JOIN implementation_phases p ON p.id = s.phase_id \
+                JOIN implementations i ON i.id = p.implementation_id WHERE s.id = ?1) \
+           AND substr(text, 1, length(?2)) = ?2 \
+           AND instr(text, '(station_id: ') > 0 \
+           AND instr(text, '(station_id: ') IN (instr(text, '(station_id: ' || ?1 || ')'), \
+                                                instr(text, '(station_id: ' || ?1 || ','))",
+        params![station_id, STATION_WAKE_START],
+    )?;
     Ok(())
 }
 

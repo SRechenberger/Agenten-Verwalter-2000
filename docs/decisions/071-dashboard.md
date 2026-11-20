@@ -88,9 +88,9 @@ Eine Karte `answer` („Antwort liegt vor“) zeigt nur den Anfang der Antwort. 
 
 - **Auslöser:** `update` startet die Einordnung, wenn ein Zug mit `TurnEnd::Completed` endet, die Session keine Station ist, keine Anfrage offen ist und die Einstellung `answer_model` nicht aus ist. Pause, Kontingent, Fehler und Abbruch lösen nichts aus. Die Eingabe sammelt `end_turn` unter der Session-Sperre aus `entries` im Speicher; danach läuft alles ohne Sperre.
 - **Eingabe** (`dashboard::classify::collect`): die Nachricht, die den Zug begann (der letzte `User`- oder `SessionMessage`-Eintrag vor den `Text`-Einträgen des Zugs, höchstens 2000 Zeichen vom Anfang), und die letzte `Text`-Antwort des Zugs (höchstens 6000 Zeichen vom Ende). Die Probe `answer-probe --texts` baut die Eingabe der Beispiele direkt und schreibt sie durch dieselbe Formatierung (`input_text`); das Kürzen von `collect` prüfen die Tests unter `dashboard::classify::`.
-- **Prompt und Schema** stehen in `src-tauri/src/dashboard/classify.rs` (deutscher Systemprompt; Schema `{"kind": "asks" | "requests" | "done", "line": string}`). „Fertig. Soll ich noch X?“ ist `asks`.
+- **Prompt und Schema** stehen in `src-tauri/src/dashboard/classify.rs` (deutscher Systemprompt; Schema `{"kind": "asks" | "requests" | "done", "line": string}`). „Fertig. Soll ich noch X?“ ist `asks`. Art und Einzeiler beziehen sich nur auf die letzte Antwort; die Nachricht davor erklärt nur, worauf sie antwortet. Stellt die Antwort keine Frage und bittet um nichts, ist sie weder `asks` noch `requests`, auch wenn die Nachricht davor Fragen oder Bitten enthält (Issue 180: Eine Weck-Nachricht des Verwalters mit „Offen für dich: …“ in der Notiz und die Antwort „nichts weiter zu tun“ wurde `asks`, der Einzeiler stammte aus der Notiz).
 - **Aufruf:** `print_program` und `ask_model` (wie das TL;DR) in einem eigenen Thread je Aufruf, Zeitlimit 60 s, nie unter einer Sperre. Je Session läuft höchstens ein Aufruf (`classify_running`); endet ein weiterer Zug währenddessen, wartet nur der jüngste in `classify_next` und läuft danach. Der Ort ist `sessions/registry/classify.rs`.
-- **Speichern:** unter der Sperre nur, wenn `answer_at` noch dasselbe Zugende nennt (`same_turn`): Ein neuer Zug ändert `answer_at` und macht das Ergebnis wertlos; „Gelesen“ ändert es nicht. Dann setzt `update` `answer_kind` und `answer_line` (getrimmt, höchstens 120 Zeichen an einer Zeichengrenze), schreibt sie und sendet `session://changed`.
+- **Speichern:** unter der Sperre nur, wenn `answer_at` noch dasselbe Zugende nennt (`same_turn`): Ein neuer Zug ändert `answer_at` und macht das Ergebnis wertlos; „Gelesen“ ändert es nicht. Dann setzt `update` `answer_kind` und `answer_line` (getrimmt, höchstens 120 Zeichen; ein längerer Einzeiler endet an der letzten Wortgrenze mit „…“, samt „…“ nicht länger, ein Wort ohne Grenze davor wird an der Zeichengrenze gekürzt), schreibt sie und sendet `session://changed`.
 - **Rückfall:** Fehler, Zeitlimit, eine unlesbare Antwort, eine unbekannte Art oder ein leerer Einzeiler schreiben nichts; eine Zeile im Log der Session, die Karte bleibt `answer`.
 - **Einstellung:** `Settings.answerModel: ModelId | null` (Schlüssel `answer_model`, Standard Haiku, leerer Wert = aus), global. Ohne Schlüssel gilt Haiku, auch in einer bestehenden Datenbank; eine Migration gibt es nicht. In den Einstellungen steht die Zeile „Modell der Einordnung“ im Abschnitt „Dashboard“ gleich hinter „Modell des TL;DR“, mit der Wahl „Aus“.
 - **Kosten:** ein Aufruf je abgegebenem Zug einer Session ohne Station, mit Haiku unter 0,01 $ (gemessen 0,0001 bis 0,0013 $, im Mittel 0,0003 $).
@@ -100,48 +100,54 @@ Eine Karte `answer` („Antwort liegt vor“) zeigt nur den Anfang der Antwort. 
 
 ### Messung
 
-Wortlaut und Eingabe wie die App (`answer-probe --texts`, 12 Beispiele: je vier `asks`, `requests`, `done`, Deutsch und Englisch; Grenzfälle: Frage am Ende eines langen Berichts, „Fertig. Soll ich noch …?“, eine Bitte um Datei oder Programmstart außerhalb, ein Bericht ohne Frage). Je Beispiel drei Läufe mit `claude -p --model haiku --tools "" --setting-sources "" --no-session-persistence --output-format json`, `--system-prompt` aus `prompt.txt`, `--json-schema` aus `schema.json`, Eingabe aus der Datei auf der Standardeingabe, Wegwerf-`HOME` mit nur der verlinkten `.credentials.json`, ohne `CLAUDE*`-Variablen. Claude Code 2.1.296, Modell `claude-haiku-5-5`, 2026-11-18, keine Läufe mit 429.
+Wortlaut und Eingabe wie die App (`answer-probe --texts`, 14 Beispiele: je vier `asks` und `requests`, sechs `done`, Deutsch und Englisch; Grenzfälle: Frage am Ende eines langen Berichts, „Fertig. Soll ich noch …?“, eine Bitte um Datei oder Programmstart außerhalb, ein Bericht ohne Frage; neu seit Issue 180: 13 und 14, Weck-Nachrichten des Verwalters, deren Notiz „Offen für dich: …“ bzw. eine Frage enthält, mit einer Antwort ohne Frage). Je Beispiel drei Läufe mit `claude -p --model haiku --tools "" --setting-sources "" --no-session-persistence --output-format json`, `--system-prompt` aus `prompt.txt`, `--json-schema` aus `schema.json`, Eingabe aus der Datei auf der Standardeingabe, Wegwerf-`HOME` mit nur der verlinkten `.credentials.json`, ohne `CLAUDE*`-Variablen. Claude Code 2.1.296, Modell Haiku, 2026-11-20, kein Lauf mit Fehler.
 
-**Ergebnis: 36 von 36 richtig**, Kosten zusammen 0,0119 $. Auffällig nur: Lauf 10-done-3 erfindet im Einzeiler „Git-Commits ungeprüft (kein Repo)“, was nicht in der Antwort steht; die Art stimmt. Der Einzeiler ist Beiwerk, das die Karte zeigt, und wird nicht als Entscheidung gelesen.
+**Ergebnis: 42 von 42 richtig**, Kosten zusammen 0,0130 $. Die Messung davor (12 Beispiele, Wortlaut ohne die Bindung an die letzte Antwort, 2026-11-18) hatte 36 von 36. Die Einzeiler der Fälle 13 und 14 beschreiben die Antwort, nicht die Notiz („C-3 ist bereits angenommen, für dich nichts weiter zu tun“); mit dem alten Wortlaut (je drei Läufe, nur Fälle 13 und 14) war die Art ebenfalls `done`, der Einzeiler von 13-1 und 13-3 nannte aber die offenen Wahlen der Notiz. Auffällig: Haiku hält die 120 Zeichen nicht immer ein (längste Zeile 148); `trim_line` kürzt dann an der Wortgrenze. Lauf 08-requests-1 ergänzt „ich kann sie hier nicht ausführen“, was nicht in der Antwort steht; die Art stimmt.
 
 | Lauf | Soll | Ist | Einzeiler | Kosten ($) |
 |---|---|---|---|---|
-| 01-asks-1 | asks | asks | Soll ich die Zeilen in 500er-Transaktionen bündeln und die Ländertabelle cachen, oder den Import auf eine Staging-Tabelle umbauen? | 0.0003 |
-| 01-asks-2 | asks | asks | Soll ich die Transaktionen bündeln und die Ländertabelle cachen, oder den Import auf eine Staging-Tabelle umbauen? | 0.0013 |
-| 01-asks-3 | asks | asks | Soll ich nur Transaktionen bündeln und die Ländertabelle cachen (3,2 s statt 41 s) oder den Import auf eine Staging-Tabelle umbauen? | 0.0001 |
-| 02-asks-1 | asks | asks | Soll ich zusätzlich den Migrationsguide für die umbenannten Config-Keys aktualisieren? | 0.0003 |
-| 02-asks-2 | asks | asks | Soll ich auch den Migrationsleitfaden für die umbenannten Config-Keys aktualisieren? | 0.0005 |
-| 02-asks-3 | asks | asks | Soll ich auch den Migrationsguide für die umbenannten Config-Keys aktualisieren? | 0.0001 |
-| 03-asks-1 | asks | asks | Soll die Suche in der Projektliste zusätzlich mit Tastenkürzeln (Strg+F zum Öffnen, Esc zum Schließen) ausgestattet werden? | 0.0002 |
-| 03-asks-2 | asks | asks | Soll die Suche in der Projektliste noch Tastenkürzel (Strg+F zum Öffnen, Esc zum Schließen) bekommen? | 0.0001 |
-| 03-asks-3 | asks | asks | Soll ich die Tastenkürzel Strg+F und Esc für die Suche in der Projektliste noch ergänzen? | 0.0001 |
-| 04-asks-1 | asks | asks | Retry-Strategie: ganzer Upload neu mit Backoff (a) oder Fortsetzen ab letztem Chunk (b), wofür Staging noch keinen Offset liefert? | 0.0003 |
-| 04-asks-2 | asks | asks | Ganzer Upload neu mit Backoff, oder ab letztem Chunk fortsetzen? Staging liefert den Offset noch nicht. | 0.0002 |
-| 04-asks-3 | asks | asks | Vollständiger Neuversuch mit Backoff oder Resume ab letztem Chunk? Staging-Server liefert den Offset noch nicht. | 0.0006 |
-| 05-requests-1 | requests | requests | Starte pnpm dev, öffne http://localhost:5173 und sag, ob die Startseite ohne Fehler in der Konsole lädt. | 0.0005 |
-| 05-requests-2 | requests | requests | Dev-Server mit pnpm dev starten, http://localhost:5173 im Browser öffnen und melden, ob die Startseite ohne Konsolenfehler lädt. | 0.0002 |
-| 05-requests-3 | requests | requests | Bitte `pnpm dev` starten, http://localhost:5173 öffnen und melden, ob die Startseite ohne Konsolenfehler lädt. | 0.0003 |
-| 06-requests-1 | requests | requests | Bitte service-account.json in den Ordner secrets/ des Repos legen, damit die Integrationstests gegen den echten Endpoint laufen können | 0.0005 |
-| 06-requests-2 | requests | requests | Bitte service-account.json in den Ordner secrets/ des Repositories legen, damit die Integrationstests gegen den echten Endpoint laufen können. | 0.0003 |
-| 06-requests-3 | requests | requests | Bitte service-account.json in den Ordner secrets/ des Repositories legen, damit die Integrationstests laufen können. | 0.0002 |
-| 07-requests-1 | requests | requests | Im Dashboard des Zahlungsanbieters Live-Schlüssel erzeugen und als PAYMENT_KEY in .env.production eintragen. | 0.0005 |
-| 07-requests-2 | requests | requests | Im Dashboard des Zahlungsanbieters Live-Schlüssel erzeugen und als PAYMENT_KEY in .env.production eintragen | 0.0003 |
-| 07-requests-3 | requests | requests | Live-Schlüssel im Zahlungsanbieter-Dashboard erzeugen und als PAYMENT_KEY in .env.production eintragen | 0.0001 |
-| 08-requests-1 | requests | requests | Bitte App mit leerer Settings-Datei starten, prüfen, ob sie startet, und ob die Warnung im Log erscheint. | 0.0005 |
-| 08-requests-2 | requests | requests | Bitte App mit leerer Settings-Datei starten, prüfen ob sie startet und die Warnung im Log erscheint | 0.0002 |
-| 08-requests-3 | requests | requests | Bitte App mit leerer Settings-Datei starten, prüfen ob sie startet und die Warnung im Log erscheint | 0.0001 |
+| 01-asks-1 | asks | asks | Soll ich die Transaktionen bündeln und die Ländertabelle cachen, oder den Import komplett auf eine Staging-Tabelle umbauen? | 0.0006 |
+| 01-asks-2 | asks | asks | Soll ich Transaktionen bündeln und die Ländertabelle cachen (3,2 s statt 41 s) oder den Import auf eine Staging-Tabelle umbauen? | 0.0001 |
+| 01-asks-3 | asks | asks | Soll ich Transaktionen bündeln und die Ländertabelle cachen, oder den Import auf eine Staging-Tabelle umbauen? | 0.0013 |
+| 02-asks-1 | asks | asks | Soll ich auch den Migrationsleitfaden für die umbenannten Config-Keys aktualisieren? | 0.0003 |
+| 02-asks-2 | asks | asks | Soll ich auch den Migration-Guide für die umbenannten Config-Keys aktualisieren? | 0.0005 |
+| 02-asks-3 | asks | asks | Soll ich auch den Migrationsguide für die umbenannten Config-Keys aktualisieren? | 0.0002 |
+| 03-asks-1 | asks | asks | Sollen zusätzlich Tastenkürzel (Strg+F zum Suchen, Esc zum Leeren/Schließen) in der Projektliste ergänzt werden? | 0.0002 |
+| 03-asks-2 | asks | asks | Soll die Suche in der Projektliste zusätzlich per Tastenkürzel (Strg+F, Esc) bedienbar sein? | 0.0001 |
+| 03-asks-3 | asks | asks | Soll ich noch die Tastenkürzel Strg+F und Esc für die Suche in der Projektliste ergänzen? | 0.0005 |
+| 04-asks-1 | asks | asks | Retry: ganzen Upload mit Exponential Backoff neu senden, oder ab letztem bestätigten Chunk fortsetzen (Server liefert Offset in Staging noch nicht)? | 0.0003 |
+| 04-asks-2 | asks | asks | Retry: gesamten Upload mit Backoff neu senden (einfach, Daten doppelt) oder ab letztem Chunk fortsetzen (Server-Offset fehlt in Staging)? | 0.0002 |
+| 04-asks-3 | asks | asks | Retry ganzen Upload neu mit Backoff (a) oder Resume ab letztem Chunk (b)? Staging liefert noch keinen Server-Offset. | 0.0002 |
+| 05-requests-1 | requests | requests | Dev-Server mit pnpm dev starten, http://localhost:5173 im Browser öffnen und melden, ob die Startseite ohne Konsolenfehler lädt. | 0.0003 |
+| 05-requests-2 | requests | requests | Bitte `pnpm dev` starten, http://localhost:5173 im Browser öffnen und melden, ob die Startseite ohne Konsolenfehler lädt. | 0.0001 |
+| 05-requests-3 | requests | requests | Dev-Server mit pnpm dev starten, http://localhost:5173 öffnen und melden, ob die Startseite ohne Konsolenfehler lädt | 0.0001 |
+| 06-requests-1 | requests | requests | Bitte service-account.json in den Ordner secrets/ des Repositorys legen, damit die Integrationstests gegen den echten Endpoint laufen können. | 0.0002 |
+| 06-requests-2 | requests | requests | Bitte legen Sie service-account.json in den Ordner secrets/ des Repositories, damit die Integrationstests laufen können. | 0.0005 |
+| 06-requests-3 | requests | requests | Bitte service-account.json in den Ordner secrets/ des Repositories legen, damit die Integrationstests gegen den echten Endpoint laufen können. | 0.0001 |
+| 07-requests-1 | requests | requests | Im Zahlungsanbieter-Dashboard den Live-Schlüssel erzeugen und als PAYMENT_KEY in .env.production eintragen | 0.0003 |
+| 07-requests-2 | requests | requests | Live-Schlüssel im Dashboard des Zahlungsanbieters erzeugen und als PAYMENT_KEY in .env.production eintragen | 0.0001 |
+| 07-requests-3 | requests | requests | Live-Schlüssel im Dashboard des Zahlungsanbieters erzeugen und als PAYMENT_KEY in .env.production eintragen | 0.0001 |
+| 08-requests-1 | requests | requests | App mit leerer Settings-Datei starten und prüfen, ob sie startet und die Warnung im Log erscheint; ich kann sie hier nicht ausführen. | 0.0005 |
+| 08-requests-2 | requests | requests | App mit leerer Settings-Datei starten und prüfen, dass sie startet und die Warnung im Log erscheint | 0.0002 |
+| 08-requests-3 | requests | requests | Bitte App mit leerer Settings-Datei starten, prüfen ob sie startet und die Warnung im Log erscheint. | 0.0001 |
 | 09-done-1 | done | done | Vier ungenutzte Pakete (lodash, moment, classnames, uuid) entfernt; Build und 212 Tests grün, Bundle 74 KB kleiner. | 0.0003 |
 | 09-done-2 | done | done | Vier ungenutzte Pakete (lodash, moment, classnames, uuid) entfernt; Build und 212 Tests grün, Bundle 74 KB kleiner. | 0.0006 |
-| 09-done-3 | done | done | Vier ungenutzte Pakete (lodash, moment, classnames, uuid) entfernt; Build und 212 Tests grün, Bundle 74 KB kleiner. | 0.0001 |
-| 10-done-1 | done | done | Auth-Modul: Session-Token laufen nach 12 statt 24 Stunden ab, Reset-Mail neu mit Request-IP, verifyToken gibt null statt zu werfen. | 0.0003 |
-| 10-done-2 | done | done | Auth seit letzter Woche: Sessions 12 h statt 24 h, neues Reset-Mail-Template mit IP, verifyToken gibt null zurück. | 0.0007 |
-| 10-done-3 | done | done | Auth-Modul: Session 12h statt 24h, Reset-Mail neu mit IP, verifyToken gibt null; Git-Commits ungeprüft (kein Repo) | 0.0004 |
-| 11-done-1 | done | done | Alle 42 Tests sind grün (Dauer 8,3 s). | 0.0005 |
-| 11-done-2 | done | done | Alle 42 Tests sind grün (Dauer 8,3 s). | 0.0001 |
-| 11-done-3 | done | done | Alle 42 Tests laufen grün, Dauer 8,3 s. | 0.0001 |
-| 12-done-1 | done | done | Umbenennung fmtDate zu formatDate abgeschlossen: 23 Stellen in 9 Dateien, Type-Check und Lint laufen durch. | 0.0005 |
-| 12-done-2 | done | done | Helper fmtDate in 9 Dateien zu formatDate umbenannt (23 Stellen), Typcheck und Lint bestehen; Changelog unberührt. | 0.0002 |
-| 12-done-3 | done | done | Helper fmtDate in 9 Dateien (23 Stellen) zu formatDate umbenannt; Typecheck und Lint laufen durch, Changelog unverändert. | 0.0001 |
+| 09-done-3 | done | done | Vier ungenutzte Pakete (lodash, moment, classnames, uuid) entfernt; Build und 212 Tests grün, Bundle 74 KB kleiner. | 0.0002 |
+| 10-done-1 | done | done | Auth-Modul seit letzter Woche: Session-Ablauf auf 12 h, Reset-Mail mit neuem Template und Anfrage-IP, verifyToken gibt null statt Wurf zurück. | 0.0003 |
+| 10-done-2 | done | done | Auth-Modul seit letzter Woche: Session-Ablauf auf 12 h, neues Reset-Mail-Template mit IP, verifyToken gibt null statt zu werfen. | 0.0006 |
+| 10-done-3 | done | done | Auth-Modul: Session-Ablauf auf 12h verkürzt, Passwort-Reset-Mail mit neuem Template und Request-IP, verifyToken gibt null statt zu werfen. | 0.0001 |
+| 11-done-1 | done | done | Alle 42 Tests sind grün (Laufzeit 8,3 s). | 0.0004 |
+| 11-done-2 | done | done | Alle 42 Tests sind grün (Dauer 8,3 s). | 0.0002 |
+| 11-done-3 | done | done | Alle 42 Tests sind grün (Dauer 8,3 s). | 0.0001 |
+| 12-done-1 | done | done | fmtDate ist überall in 9 Dateien (23 Vorkommen) zu formatDate umbenannt; Type-Check und Lint laufen durch. | 0.0005 |
+| 12-done-2 | done | done | fmtDate ist überall in 9 Dateien (23 Vorkommen) zu formatDate umbenannt; Type-Check und Lint bestehen, Changelog unverändert. | 0.0002 |
+| 12-done-3 | done | done | fmtDate ist überall in 9 Dateien zu formatDate umbenannt (23 Stellen); Typprüfung und Lint laufen durch, Changelog unverändert. | 0.0001 |
+| 13-done-1 | done | done | C-3 ist bereits angenommen, für dich nichts weiter zu tun; der Agent wartet auf C-4 und R-5. | 0.0006 |
+| 13-done-2 | done | done | C-3 ist laut Agent bereits angenommen, nichts weiter zu tun; er wartet auf C-4 und R-5. | 0.0003 |
+| 13-done-3 | done | done | Lane C-3 ist bereits angenommen; der Agent wartet auf C-4 und R-5 und hat selbst nichts mehr zu tun. | 0.0002 |
+| 14-done-1 | done | done | R-7 noch nicht angenommen: Die Meldung ist eine veraltete Erstmeldung, der Agent wartet auf eine erneute Meldung. | 0.0006 |
+| 14-done-2 | done | done | Veraltete Erstmeldung von R-7 nicht angenommen; Agent wartet auf deren erneute Meldung. | 0.0002 |
+| 14-done-3 | done | done | Verspätete Erstmeldung von R-7 wird nicht angenommen; der Agent wartet auf deren erneute Meldung. | 0.0003 |
 
 ## Oberfläche
 

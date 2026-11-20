@@ -130,16 +130,20 @@ impl SessionRegistry {
         Ok(settings::load(&self.database)?.operating_mode)
     }
 
-    /// Für eine Station ihre Umsetzung, sonst die neueste des Vorhabens der Session.
+    /// Die neueste offene Umsetzung, die die Session als Master führt; sonst für eine Station ihre
+    /// Umsetzung, sonst die neueste des Vorhabens der Session (ADR 048). Alle Werkzeuge wählen hier.
     pub fn implementation_of_session(
         &self,
         session_id: &str,
     ) -> Result<Option<ImplementationView>, CommandError> {
         let session = self.get(session_id)?;
         let station_of: Option<String> = session.lock().station_of.clone();
-        let id = match station_of {
-            Some(id) => Some(id),
-            None => self.database.with(|connection| {
+        let led = self
+            .database
+            .with(|connection| implementation_rows::latest_open_led_by(connection, session_id))?;
+        let id = match (led, station_of) {
+            (Some(id), _) | (None, Some(id)) => Some(id),
+            (None, None) => self.database.with(|connection| {
                 implementation_rows::latest_of_project(connection, &session.project_id)
             })?,
         };

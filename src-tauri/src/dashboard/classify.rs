@@ -19,7 +19,7 @@ pub const ANSWER_CHARS: usize = 6000;
 /// Der Einzeiler der Karte: höchstens so viele Zeichen.
 pub const LINE_CHARS: usize = 120;
 
-pub const SYSTEM_PROMPT: &str = "Du ordnest die letzte Antwort eines Coding-Agenten (Claude) an einen Entwickler ein. Du bekommst zuerst die Nachricht, die den Zug begann, danach die letzte Antwort des Agenten. Entscheide, was der Entwickler jetzt tun muss. kind: \"asks\", wenn der Agent eine Frage stellt oder eine Entscheidung oder Auswahl verlangt, auch wenn die Frage am Ende eines langen Berichts steht oder die Antwort sonst fertig klingt (\"Fertig. Soll ich noch X?\" ist asks). \"requests\", wenn der Agent den Entwickler bittet, selbst etwas außerhalb der Session zu tun (ein Programm starten, eine Datei liefern oder ablegen, etwas prüfen oder freigeben), ohne es zu fragen. \"done\", wenn der Agent ein Ergebnis oder einen Stand berichtet und nichts vom Entwickler erwartet. line: ein Einzeiler für eine Karte, auf Deutsch (auch bei englischer Antwort), höchstens 120 Zeichen, ohne Anführungszeichen: bei asks die Frage, bei requests das, worum der Agent bittet, bei done das Ergebnis. Erfinde nichts, was nicht in der Antwort steht.";
+pub const SYSTEM_PROMPT: &str = "Du ordnest die letzte Antwort eines Coding-Agenten (Claude) an einen Entwickler ein. Du bekommst zuerst die Nachricht, die den Zug begann, danach die letzte Antwort des Agenten. Art und Einzeiler beziehen sich nur auf die letzte Antwort; die Nachricht davor erklärt nur, worauf sie antwortet. Stellt die letzte Antwort keine Frage und bittet um nichts, ist sie weder \"asks\" noch \"requests\", auch wenn die Nachricht davor Fragen oder Bitten enthält. Entscheide, was der Entwickler jetzt tun muss. kind: \"asks\", wenn der Agent eine Frage stellt oder eine Entscheidung oder Auswahl verlangt, auch wenn die Frage am Ende eines langen Berichts steht oder die Antwort sonst fertig klingt (\"Fertig. Soll ich noch X?\" ist asks). \"requests\", wenn der Agent den Entwickler bittet, selbst etwas außerhalb der Session zu tun (ein Programm starten, eine Datei liefern oder ablegen, etwas prüfen oder freigeben), ohne es zu fragen. \"done\", wenn der Agent ein Ergebnis oder einen Stand berichtet und nichts vom Entwickler erwartet. line: ein Einzeiler für eine Karte, auf Deutsch (auch bei englischer Antwort), höchstens 120 Zeichen, ohne Anführungszeichen: bei asks die Frage, bei requests das, worum der Agent bittet, bei done das Ergebnis. Erfinde nichts, was nicht in der Antwort steht.";
 
 pub const SCHEMA: &str = r#"{"type":"object","properties":{"kind":{"type":"string","enum":["asks","requests","done"]},"line":{"type":"string"}},"required":["kind","line"],"additionalProperties":false}"#;
 
@@ -110,10 +110,23 @@ pub fn same_turn(current_answer_at: Option<f64>, asked_at: f64) -> bool {
     current_answer_at == Some(asked_at)
 }
 
-/// Getrimmt und auf `LINE_CHARS` Zeichen an einer Zeichengrenze gekürzt.
+/// Getrimmt; ein längerer Einzeiler endet an der letzten Wortgrenze mit „…“, samt „…“ höchstens
+/// `LINE_CHARS` Zeichen. Ein Wort ohne Grenze davor wird an der Zeichengrenze gekürzt.
 pub fn trim_line(line: &str) -> String {
-    let cut: String = line.trim().chars().take(LINE_CHARS).collect();
-    cut.trim_end().to_owned()
+    let line: &str = line.trim();
+    if line.chars().count() <= LINE_CHARS {
+        return line.to_owned();
+    }
+    let window: &str = &line[..line
+        .char_indices()
+        .nth(LINE_CHARS - 1)
+        .map_or(line.len(), |(end, _)| end)];
+    let at_boundary: bool = line[window.len()..].starts_with(char::is_whitespace);
+    let head: &str = match window.rsplit_once(char::is_whitespace) {
+        Some((before, _)) if !at_boundary => before,
+        _ => window,
+    };
+    format!("{}…", head.trim_end())
 }
 
 #[cfg(test)]
@@ -223,16 +236,42 @@ mod tests {
     }
 
     #[test]
-    fn the_line_is_trimmed_to_120_characters() {
-        let long: String = format!("  {}ä{}  ", "a".repeat(LINE_CHARS - 1), "b".repeat(50));
+    fn a_long_line_ends_at_a_word_boundary_with_an_ellipsis_in_120_characters() {
+        // Das Wort „Wörter“ liegt über der Grenze: Es fällt weg, der Rest endet mit „…“.
+        let long: String = format!(
+            "  {} Wörter und mehr Wörter  ",
+            "wort ".repeat(23).trim_end()
+        );
         let line = trim_line(&long);
-        assert_eq!(line.chars().count(), LINE_CHARS);
-        assert!(line.ends_with('ä'));
+        assert!(line.chars().count() <= LINE_CHARS, "{line}");
+        assert!(line.ends_with("wort…"), "{line}");
+        assert!(!line.contains("Wö"), "kein halbes Wort: {line}");
+        // Liegt die Grenze genau hinter einem Wort, bleibt es stehen.
+        let exact: String = format!("{} {}", "a".repeat(LINE_CHARS - 2), "b".repeat(30));
+        assert_eq!(
+            trim_line(&exact),
+            format!("{}…", "a".repeat(LINE_CHARS - 2))
+        );
+        // Ein Wort ohne Grenze wird an der Zeichengrenze gekürzt, mit Umlaut an der Kante.
+        let one_word: String = format!("{}ä{}", "a".repeat(LINE_CHARS - 2), "b".repeat(50));
+        let cut = trim_line(&one_word);
+        assert_eq!(cut.chars().count(), LINE_CHARS);
+        assert!(cut.ends_with("ä…"), "{cut}");
+        // Ein kurzer Einzeiler bleibt unverändert, auch genau an der Grenze.
+        assert_eq!(trim_line("  Kurz und gut  "), "Kurz und gut");
+        let at_limit: String = "x".repeat(LINE_CHARS);
+        assert_eq!(trim_line(&at_limit), at_limit);
         let answer = Answer {
             kind: "done".to_owned(),
             line: long,
         };
         assert_eq!(accept(&answer).map(|(_, line)| line), Some(line));
+    }
+
+    #[test]
+    fn the_prompt_ties_kind_and_line_to_the_last_answer() {
+        assert!(SYSTEM_PROMPT.contains("beziehen sich nur auf die letzte Antwort"));
+        assert!(SYSTEM_PROMPT.contains("weder \"asks\" noch \"requests\""));
     }
 
     #[test]

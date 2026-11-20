@@ -1,7 +1,7 @@
 //! Schreibt die Eingabe der Einordnung (ADR 071) so, wie die App sie dem Modell gibt, für die Messung
 //! mit `claude -p --model haiku`: `prompt.txt`, `schema.json` und je Beispiel `NN-<soll>.txt`.
 //! Aufruf: `cargo run --manifest-path src-tauri/Cargo.toml --example answer-probe -- --texts <Ordner>`.
-//! Die 12 Beispiele (je vier `asks`, `requests`, `done`, Deutsch und Englisch) liegen in
+//! Die 14 Beispiele (je vier `asks`, `requests`, sechs `done`, Deutsch und Englisch; 13 und 14 sind Weck-Nachrichten des Verwalters mit einer Antwort ohne Frage) liegen in
 //! `examples/answer-probe-cases/`: Nachricht, eine Zeile `=====`, Antwort. Ohne Datenbank und ohne
 //! Kommandozeile.
 use std::env;
@@ -11,7 +11,7 @@ use std::process::ExitCode;
 
 use verwalter_lib::dashboard::classify::{Input, SCHEMA, SYSTEM_PROMPT, input_text};
 
-const CASES: [(&str, &str); 12] = [
+const CASES: [(&str, &str); 14] = [
     ("01-asks", include_str!("answer-probe-cases/01-asks.txt")),
     ("02-asks", include_str!("answer-probe-cases/02-asks.txt")),
     ("03-asks", include_str!("answer-probe-cases/03-asks.txt")),
@@ -36,6 +36,8 @@ const CASES: [(&str, &str); 12] = [
     ("10-done", include_str!("answer-probe-cases/10-done.txt")),
     ("11-done", include_str!("answer-probe-cases/11-done.txt")),
     ("12-done", include_str!("answer-probe-cases/12-done.txt")),
+    ("13-done", include_str!("answer-probe-cases/13-done.txt")),
+    ("14-done", include_str!("answer-probe-cases/14-done.txt")),
 ];
 
 fn main() -> ExitCode {

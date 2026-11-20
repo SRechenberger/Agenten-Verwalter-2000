@@ -3963,12 +3963,16 @@ impl SessionState {
                     self.note_answer(outbox, excerpt);
                 }
                 outbox.compact = true;
-                outbox.classify = classify_input.map(|input| classify::Job {
-                    has_station: self.station_of.is_some(),
-                    has_open_request: !self.pending.is_empty(),
-                    answer_at: self.last_activity_at,
-                    input,
-                });
+                // Ein `/compact` von Hand ist keine Antwort: kein Modellaufruf, und ein wartender
+                // Auftrag des vorigen Zugs (`classify_next`) bleibt, wie er ist.
+                outbox.classify = classify_input
+                    .filter(|_| !by_hand)
+                    .map(|input| classify::Job {
+                        has_station: self.station_of.is_some(),
+                        has_open_request: !self.pending.is_empty(),
+                        answer_at: self.last_activity_at,
+                        input,
+                    });
                 outbox.turn_completed = true;
                 self.check_plan(outbox);
             }
@@ -5903,6 +5907,23 @@ mod tests {
         assert_eq!(job.input.started_by, "Prüfe das");
         assert_eq!(job.input.answer, "Geprüft.");
         assert!(!job.has_station && !job.has_open_request);
+    }
+
+    #[test]
+    fn a_compact_turn_by_hand_plans_no_classification() {
+        let (mut state, mut outbox) = answered();
+        turn(&mut state, "/compact");
+        say(&mut state, &mut outbox, "Zusammengefasst.");
+        state.end_turn(&mut outbox, TurnEnd::Completed, None, Vec::new(), None);
+        // Ein wartender Auftrag des vorigen Zugs bleibt: Nur `classify::schedule` überschreibt ihn, und
+        // das läuft nur mit einem Auftrag in der Outbox.
+        assert!(outbox.classify.is_none(), "kein Auftrag nach /compact");
+        // Eine gewöhnliche Eingabe danach plant wieder ein.
+        let mut next = Outbox::default();
+        turn(&mut state, "weiter");
+        say(&mut state, &mut next, "Fertig.");
+        state.end_turn(&mut next, TurnEnd::Completed, None, Vec::new(), None);
+        assert!(next.classify.is_some());
     }
 
     #[test]
