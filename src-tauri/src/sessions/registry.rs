@@ -4720,9 +4720,8 @@ fn start_turn(
         PlanTurn::Start => state.plan_guard = Some(PlanGuard::new(text)),
         PlanTurn::Reminder => {}
     }
-    state.enter_running(outbox, is_compact);
     // Der Merker gehört zum Zug: Scheitert das Schreiben, setzt der nächste Zug ihn zurück.
-    state.compact_by_hand = by_hand;
+    state.enter_running(outbox, is_compact, by_hand);
     outbox.write(state, line)?;
     Ok(titled)
 }
@@ -5518,8 +5517,7 @@ mod tests {
     fn turn(state: &mut SessionState, text: &str) {
         let mut outbox = Outbox::default();
         let by_hand = state.push_user_turn(&mut outbox, text, Vec::new(), None, Vec::new(), None);
-        state.enter_running(&mut outbox, false);
-        state.compact_by_hand = by_hand;
+        state.enter_running(&mut outbox, false, by_hand);
     }
 
     fn end(state: &mut SessionState) {
@@ -5556,7 +5554,7 @@ mod tests {
         // Das Schreiben scheiterte: `end_turn` lief nie. Der nächste Zug, etwa eine Session-Nachricht,
         // beginnt ohne `push_user` und setzt den Merker zurück.
         let mut outbox = Outbox::default();
-        state.enter_running(&mut outbox, false);
+        state.enter_running(&mut outbox, false, false);
         end(&mut state);
         assert!(state.answer_at.is_some());
     }
@@ -5618,7 +5616,7 @@ mod tests {
         state.status = SessionStatus::Completed;
         let mut outbox = Outbox::default();
         // Der Weg von `start_turn(.., TurnOrigin::Compact)` in den Zustand.
-        state.enter_running(&mut outbox, true);
+        state.enter_running(&mut outbox, true, false);
         assert_eq!(state.status, SessionStatus::Running);
         assert!(state.entries.is_empty(), "kein Benutzereintrag");
         assert_eq!(state.seen_at, 5.0);
@@ -5674,7 +5672,7 @@ mod tests {
             state.answer_at = Some(4.0);
             state.status = SessionStatus::Completed;
             let mut outbox = Outbox::default();
-            state.enter_running(&mut outbox, true);
+            state.enter_running(&mut outbox, true, false);
             let mut outbox = Outbox::default();
             state.end_turn(&mut outbox, end, None, Vec::new(), None);
             assert_eq!(state.status, SessionStatus::Completed, "ruht wie vorher");
@@ -5701,14 +5699,14 @@ mod tests {
         let mut state = state();
         state.status = SessionStatus::Completed;
         let mut outbox = Outbox::default();
-        state.enter_running(&mut outbox, true);
+        state.enter_running(&mut outbox, true, false);
         state.pause_requested = true;
         let mut outbox = Outbox::default();
         state.end_turn(&mut outbox, TurnEnd::Aborted, None, Vec::new(), None);
         assert_eq!(state.status, SessionStatus::Paused);
         assert!(!state.pause_requested);
         let mut outbox = Outbox::default();
-        state.enter_running(&mut outbox, false);
+        state.enter_running(&mut outbox, false, false);
         say(&mut state, &mut outbox, "Antwort");
         let mut outbox = Outbox::default();
         state.end_turn(&mut outbox, TurnEnd::Completed, None, Vec::new(), None);
@@ -5722,7 +5720,7 @@ mod tests {
         let mut state = state();
         state.status = SessionStatus::Completed;
         let mut outbox = Outbox::default();
-        state.enter_running(&mut outbox, true);
+        state.enter_running(&mut outbox, true, false);
         let mut outbox = Outbox::default();
         state.end_turn(&mut outbox, TurnEnd::Aborted, None, Vec::new(), None);
         assert_eq!(state.status, SessionStatus::Completed);

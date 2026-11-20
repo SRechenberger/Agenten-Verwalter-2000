@@ -87,8 +87,8 @@ impl SessionState {
     }
 
     /// Der Zug läuft: `start_turn` ruft das für jede Herkunft; der Compact-Zug fasst nichts anderes an.
-    pub(super) fn enter_running(&mut self, outbox: &mut Outbox, is_compact: bool) {
-        self.compact_by_hand = false;
+    pub(super) fn enter_running(&mut self, outbox: &mut Outbox, is_compact: bool, by_hand: bool) {
+        self.compact_by_hand = by_hand;
         if is_compact {
             self.begin_compact_turn(outbox);
         } else {
