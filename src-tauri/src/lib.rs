@@ -352,10 +352,11 @@ pub fn run() {
         .expect("Tauri-Laufzeit konnte nicht starten")
         .run(|app: &tauri::AppHandle, event: tauri::RunEvent| {
             // Kein Shell-Prozess überlebt die App.
-            if let tauri::RunEvent::Exit = event
-                && let Some(terminals) = app.try_state::<TerminalService>()
-            {
-                terminals.close_all();
+            if let tauri::RunEvent::Exit = event {
+                if let Some(terminals) = app.try_state::<TerminalService>() {
+                    terminals.close_all();
+                }
+                implementation::command_run::stop_all(std::time::Duration::from_secs(3));
             }
         });
 }
