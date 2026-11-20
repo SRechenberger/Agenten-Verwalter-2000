@@ -127,6 +127,10 @@ Ein Master lebt über lange Umsetzungen, sein Kontext wächst, bis jede Nachrich
 - **Kosten:** Ein Compact ist ein voller Modellaufruf über den ganzen Kontext und baut den Prompt-Cache neu auf; dafür kostet jede folgende Nachricht des Masters weniger.
 - **Prüfung:** Tests unter `sessions::registry::tests::` (Regel mit Gegenfällen, Tor, kein Eingang, Zugende ohne Antwort, Einstellung, alter Hinweis, billige Prüfungen zuerst, Neuprüfung unter der Sperre, gescheiterter Compact-Zug, pausierter Compact-Zug, kein Pausenwunsch nach gescheitertem Zug).
 
+### Nachtrag: Befehls-Stationen ([ADR 073](073-befehls-stationen.md))
+
+Eine Befehls-Station meldet nicht: Ihr Erfolg ist eine Annahme ohne Meldung und ohne Wecken. Ein Fehler weckt den Master mit dem Weck-Text „Fehler“ (`WakeEvent::Failed`), „Abbrechen“ mit „gestoppt“; der Zug ist der Lauf, seine Marke der Beginn des Laufs.
+
 ## Nachtrag: Befunde der Abnahme NC.A (Taiga #175)
 
 Der Probelauf zeigte: Eine Nachricht an einen laufenden Master blieb in 4 von 9 Läufen liegen, nach einem Compact zeigte die Session den alten Kontext, und „Compact“ von Hand hinterließ eine leere Karte „Antwort liegt vor“. Vier Regeln:

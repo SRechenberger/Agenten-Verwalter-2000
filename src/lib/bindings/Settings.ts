@@ -33,7 +33,7 @@ markUnsourced: boolean,
 /**
  * Selbstfreigabe, die ein neues Vorhaben übernimmt; bestehende bleiben unverändert.
  */
-defaultSelfRelease: SelfRelease, defaultAutoResume: boolean, answerModel: ModelId | null, maxAgents: number | null, masterCompactTokens: number | null, terminalPlacement: TerminalPlacement, 
+defaultSelfRelease: SelfRelease, defaultAutoResume: boolean, answerModel: ModelId | null, maxAgents: number | null, masterCompactTokens: number | null, commandPrograms: Array<string>, terminalPlacement: TerminalPlacement, 
 /**
  * Gezogene Höhe des Terminal-Docks in Pixeln.
  */

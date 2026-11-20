@@ -165,6 +165,10 @@ pub fn run() {
                 Err(error) => eprintln!("MCP-Zugang nicht gestartet: {error}"),
             }
             SessionRegistry::deliver_inbox_on_start(app.handle().clone());
+            // Eine Befehls-Station, die beim Ende der App lief, ist „unterbrochen“ und startet nicht von selbst.
+            if let Err(error) = app.state::<SessionRegistry>().interrupt_commands() {
+                eprintln!("Befehls-Stationen nicht als unterbrochen vermerkt: {error}");
+            }
             implementation::wake_reported_on_start(app.handle().clone());
             Ok(())
         })
@@ -301,6 +305,7 @@ pub fn run() {
             commands::implementation::implementation_set_station_auto_resume,
             commands::implementation::agent_queue,
             commands::implementation::implementation_start_station,
+            commands::implementation::implementation_stop_command,
             commands::implementation::implementation_set_station_agent,
             commands::implementation::implementation_set_station_options,
             commands::implementation::implementation_remove_brief_change,

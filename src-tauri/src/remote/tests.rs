@@ -248,7 +248,7 @@ fn registry_with_two_implementations() -> SessionRegistry {
                         position: 0,
                         stage: "Umsetzung".to_owned(),
                         model: None,
-                        by_user: false,
+                        kind: Default::default(),
                         skill: None,
                         brief: String::new(),
                         session_id: None,
@@ -274,6 +274,8 @@ fn registry_with_two_implementations() -> SessionRegistry {
                         report: None,
                         returns: 0,
                         released_at: None,
+                        vars: Default::default(),
+                        command: None,
                     }],
                 )?;
             }

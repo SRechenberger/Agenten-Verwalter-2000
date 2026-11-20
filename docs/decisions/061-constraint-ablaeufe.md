@@ -115,3 +115,8 @@ Beim Gesamt-Review gefunden und nicht behoben, weil sie nicht ausgelöst oder vo
 - Wer „Erledigt“ an einer Station des Benutzers drückt, bevor ihre Vorgänger fertig sind, macht ihre Nachfolger bereit, ohne dass die früheren Stationen der Kette fertig sein müssen; vorher hielt die Regel alle früheren Stationen fest. Der Befehl prüft das weiterhin nicht.
 - Prüfen ohne App: `cargo run --example implementation-probe -- --selftest` (Sortierung, bereiter Satz, Zyklus, Einfügen, Verzweigung und Zusammenlauf, Migration, Warteschlange, Konfiguration je Station, Delta, Übergabenotiz, Ersteller wecken) und `pnpm selftest` (Stufe, Weg, Zyklus und Delta in der Oberfläche).
 - Eine Umsetzung ohne die neuen Felder verhält sich wie vorher; nur der Satz von `STATION_BEGUN` nennt jetzt die fünf festgeschriebenen Einstellungen.
+
+### Nachtrag: Befehls-Stationen ([ADR 073](073-befehls-stationen.md))
+
+- **`by: "command"`** an einer Station von `implementation_create`, `implementation_set_phases` und `implementation_edit`; dann ist `command` (1 bis 5 Schritte) Pflicht, `cwd` optional, und `agent`, `model`, `effort`, `prompt` und `skill` sind verboten. Bei jeder anderen Art sind `command` und `cwd` verboten. `change` von `implementation_edit` ändert `command` und `cwd` einer nicht gestarteten Befehls-Station.
+- **`vars` an `implementation_complete_station`:** höchstens 20 Werte (`^[a-z][a-z0-9_]{0,31}$` → 1 bis 500 Zeichen, eine Zeile), gespeichert mit der Meldung und von einer neuen Meldung ersetzt; die Befehls-Stationen unter den direkten Nachfolgern setzen sie mit `{{name}}` ein.

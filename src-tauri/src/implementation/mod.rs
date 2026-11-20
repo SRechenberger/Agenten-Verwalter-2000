@@ -1,5 +1,7 @@
 //! Umsetzung eines Plans: Phasen, Stationen, Werkzeuge für den Agenten (ADR 048).
 pub mod changes;
+pub mod command;
+pub mod command_run;
 pub mod edit;
 pub mod master;
 pub mod model;
@@ -14,7 +16,7 @@ pub mod wake;
 #[cfg(test)]
 mod tests;
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use tauri::{AppHandle, Emitter, Manager};
@@ -22,7 +24,7 @@ use tauri::{AppHandle, Emitter, Manager};
 use crate::agent_types::{self, Resolved, StationValues, UnknownAgent, model::AgentType};
 use crate::agents::event::{Effort, ModelId};
 use crate::db::implementations::{
-    ChangeRow, ImplementationRow, PhaseRow, StationRow, StoredImplementation,
+    ChangeRow, CommandRow, ImplementationRow, PhaseRow, StationRow, StoredImplementation,
 };
 use crate::error::CommandError;
 use crate::sessions::model::{PauseReason, SessionStatus};
@@ -32,9 +34,9 @@ use model::{
     BriefChange, BriefChangeKind, ChangeSummary, ChangeView, Handoff, ImplementationChangedEvent,
     ImplementationRemovedEvent, ImplementationView, MAX_BRIEF_CHARS, MAX_PROMPT_CHARS,
     MAX_RETURN_CHARS, MAX_SKILL_CHARS, MAX_STATION_RESULT_CHARS, OnError, PendingCancel,
-    PendingChange, PhaseInput, PhaseView, PredecessorsMay, StationInput, StationOptions,
-    StationPause, StationPauseReason, StationReport, StationSettings, StationState, StationView,
-    StoredReport, check_length,
+    PendingChange, PhaseInput, PhaseView, PredecessorsMay, StationInput, StationKind,
+    StationOptions, StationPause, StationPauseReason, StationReport, StationSettings, StationState,
+    StationView, StoredReport, check_length,
 };
 
 pub const IMPLEMENTATION_CHANGED_EVENT: &str = "implementation://changed";
@@ -301,6 +303,7 @@ pub fn report_station(
     implementation_id: &str,
     station_id: &str,
     report: &StoredReport,
+    vars: &BTreeMap<String, String>,
 ) -> Result<(), CommandError> {
     let registry = app.state::<SessionRegistry>();
     let view = registry.implementation_view(implementation_id)?;
@@ -310,7 +313,7 @@ pub fn report_station(
     let rows = registry.station_rows(implementation_id)?;
     handoff_changes(&rows, station_id, &followups, &report.handoff(), now_ms())
         .map_err(CommandError::Implementation)?;
-    if !registry.store_report(station_id, report)? {
+    if !registry.store_report_with_vars(station_id, report, vars)? {
         return Err(CommandError::Implementation(
             "Diese Station ist schon angenommen.".to_owned(),
         ));
@@ -492,9 +495,9 @@ pub fn complete_station_with_handoff(
 }
 
 /// Braucht der Abschluss die gespeicherte Meldung? Eine Station des Agenten schon, „Erledigt“ einer
-/// Station des Benutzers und „Als fertig markieren“ (`by_hand`) nicht.
-fn needs_report(by_hand: bool, station_by_user: bool) -> bool {
-    !by_hand && !station_by_user
+/// Station des Benutzers, eine Befehls-Station und „Als fertig markieren“ (`by_hand`) nicht.
+fn needs_report(by_hand: bool, not_agent: bool) -> bool {
+    !by_hand && !not_agent
 }
 
 /// Eine Änderung des Auftrags eines Nachfolgers: (Station, Plan-Kennung, Änderung).
@@ -516,9 +519,11 @@ pub fn store_finish(
     let rows = registry.station_rows(&view.id)?;
     let changes = handoff_changes(&rows, station_id, &followups, &finish.handoff, now_ms())
         .map_err(CommandError::Implementation)?;
-    let station_by_user = find_station(view, station_id)
-        .is_some_and(|(_, station): (_, &StationView)| station.by_user);
-    let needs_report = needs_report(finish.by_hand, station_by_user);
+    let needs_report = needs_report(
+        finish.by_hand,
+        find_station(view, station_id)
+            .is_some_and(|(_, station): (_, &StationView)| station.kind != StationKind::Agent),
+    );
     if !registry.store_station_completion(station_id, &finish.result, &followups, needs_report)? {
         return Err(CommandError::Implementation(ALREADY_DECIDED.to_owned()));
     }
@@ -1766,7 +1771,7 @@ fn fix_stations(
         position: 0,
         stage,
         model: carried.model,
-        by_user: false,
+        kind: StationKind::Agent,
         skill: carried.skill,
         brief,
         session_id: None,
@@ -1792,6 +1797,8 @@ fn fix_stations(
         report: None,
         returns: 0,
         released_at: None,
+        vars: BTreeMap::new(),
+        command: None,
     };
     vec![
         row(FIX_STAGE.to_owned(), FIX_BRIEF.to_owned(), fix_carried),
@@ -1851,7 +1858,9 @@ pub fn build_view(
                 .stations
                 .iter()
                 .filter(|station: &&StationRow| station.phase_id == phase.id)
-                .map(|station: &StationRow| station_view(station, row, live, types))
+                .map(|station: &StationRow| {
+                    station_view(station, row, live, types, &stored.stations)
+                })
                 .collect(),
         })
         .collect();
@@ -1961,6 +1970,7 @@ fn station_view(
     implementation: &ImplementationRow,
     live: &HashMap<String, SessionLive>,
     types: &[AgentType],
+    rows: &[StationRow],
 ) -> StationView {
     let session = station
         .session_id
@@ -1975,21 +1985,22 @@ fn station_view(
     // Vor dem Start die Auflösung; nennt die Station einen unbekannten Typ, nur ihre eigenen Werte
     // (ihr Start scheitert). Nach dem Start gilt der gespeicherte Typ, eine Station des Benutzers
     // läuft nie als Typ.
-    let resolved: Option<Resolved<'_>> = if station.session_id.is_some() || station.by_user {
-        None
-    } else {
-        agent_types::resolve(types, &values)
-            .or_else(|_| {
-                agent_types::resolve(
-                    &[],
-                    &StationValues {
-                        agent: None,
-                        ..values
-                    },
-                )
-            })
-            .ok()
-    };
+    let resolved: Option<Resolved<'_>> =
+        if station.session_id.is_some() || station.kind != StationKind::Agent {
+            None
+        } else {
+            agent_types::resolve(types, &values)
+                .or_else(|_| {
+                    agent_types::resolve(
+                        &[],
+                        &StationValues {
+                            agent: None,
+                            ..values
+                        },
+                    )
+                })
+                .ok()
+        };
     let session_state = session.map_or(StationState::Pending, |session: &SessionLive| {
         state_of(
             session.status,
@@ -2012,6 +2023,13 @@ fn station_view(
     // Rückfrage geht vor: Der Benutzer muss sie beantworten.
     let state = if station.completed_at.is_some() {
         StationState::Done
+    } else if let Some(run) = &station.command {
+        // Befehls-Station (ADR 073): ohne Session; der Zustand folgt aus dem gespeicherten Lauf.
+        match (run.step, &run.error) {
+            (Some(_), _) => StationState::Running,
+            (None, Some(_)) => StationState::Error,
+            (None, None) => StationState::Pending,
+        }
     } else if report.is_some() && session_state != StationState::Asking {
         if returns_left == 0 {
             StationState::WaitsForYou
@@ -2038,7 +2056,8 @@ fn station_view(
         position: station.position,
         stage: station.stage.clone(),
         model: station.model,
-        by_user: station.by_user,
+        kind: station.kind,
+        by_user: station.kind == StationKind::User,
         skill: station.skill.clone(),
         brief: station.brief.clone(),
         session_id: station.session_id.clone(),
@@ -2065,7 +2084,13 @@ fn station_view(
         agent_model_from: resolved.and_then(|resolved: Resolved<'_>| resolved.model_from),
         agent_effort: resolved.and_then(|resolved: Resolved<'_>| resolved.effort),
         agent_effort_from: resolved.and_then(|resolved: Resolved<'_>| resolved.effort_from),
-        start_error: station.start_error.clone(),
+        // Bei einer Befehls-Station steht hier auch der Grund ihres Fehlers (ADR 073).
+        start_error: station.start_error.clone().or_else(|| {
+            station
+                .command
+                .as_ref()
+                .and_then(|run: &CommandRow| run.error.clone())
+        }),
         plan_id: station.plan_id.clone(),
         after: station.after.clone(),
         next: Vec::new(),
@@ -2087,6 +2112,23 @@ fn station_view(
         released: station.released_at.is_some(),
         live,
         pause,
+        command: station
+            .command
+            .as_ref()
+            .map(|run: &CommandRow| run.steps.clone()),
+        cwd: station
+            .command
+            .as_ref()
+            .and_then(|run: &CommandRow| run.cwd.clone()),
+        resolved: command::resolved_steps(station, rows),
+        output: station
+            .command
+            .as_ref()
+            .and_then(|run: &CommandRow| run.output.clone()),
+        step: station
+            .command
+            .as_ref()
+            .and_then(|run: &CommandRow| run.step),
     }
 }
 
@@ -2374,7 +2416,7 @@ pub fn station_row(
         position,
         stage: station.stage.trim().to_owned(),
         model: station.model_id(),
-        by_user: station.is_by_user(),
+        kind: station.kind(),
         skill: station.skill_name(),
         brief: station.brief.clone().unwrap_or_default().trim().to_owned(),
         session_id: None,
@@ -2400,5 +2442,20 @@ pub fn station_row(
         report: None,
         returns: 0,
         released_at: None,
+        vars: BTreeMap::new(),
+        command: station
+            .command
+            .as_ref()
+            .map(|steps: &Vec<String>| CommandRow {
+                steps: steps
+                    .iter()
+                    .map(|step: &String| step.trim().to_owned())
+                    .collect(),
+                cwd: station
+                    .cwd
+                    .as_ref()
+                    .map(|cwd: &String| cwd.trim().to_owned()),
+                ..CommandRow::default()
+            }),
     }
 }

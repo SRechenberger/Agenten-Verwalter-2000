@@ -16,7 +16,7 @@ use crate::mcp_access::{Caller, ProcessKind, rpc};
 use crate::projects::model::ProjectPriority;
 use crate::session_tools::tools::SessionTools;
 use crate::settings::model::OperatingMode;
-use model::{PendingChange, PhaseInput, StationSettings, check_agents, validate};
+use model::{PendingChange, PhaseInput, PlanEdit, StationSettings, check_agents, validate};
 use serde_json::{Value, json};
 use start::{StartPlan, Trigger, is_allowed, start_plan};
 
@@ -26,6 +26,7 @@ fn station(stage: &str, model: ModelId, skill: &str) -> StationView {
         position: 0,
         stage: stage.to_owned(),
         model: Some(model),
+        kind: model::StationKind::Agent,
         by_user: false,
         skill: Some(skill.to_owned()),
         brief: format!("Auftrag der Stufe {stage}"),
@@ -68,6 +69,11 @@ fn station(stage: &str, model: ModelId, skill: &str) -> StationView {
         released: false,
         live: None,
         pause: None,
+        command: None,
+        cwd: None,
+        resolved: None,
+        output: None,
+        step: None,
     }
 }
 
@@ -252,7 +258,7 @@ fn second_review_keeps_stage_brief_model_and_skill_of_the_reporting_station() {
     assert_eq!(second_review.brief, reporting_brief);
     assert_eq!(second_review.model, Some(ModelId::Fable));
     assert_eq!(second_review.skill.as_deref(), Some("review"));
-    assert!(!second_review.by_user);
+    assert!(second_review.kind != model::StationKind::User);
 }
 
 #[test]
@@ -264,7 +270,7 @@ fn fix_round_is_a_fix_station_with_the_fix_brief_for_the_agent() {
     let (fix_round, _) = fix_round_and_second_review(stations, 1);
     assert_eq!(fix_round.stage, FIX_STAGE);
     assert_eq!(fix_round.brief, FIX_BRIEF);
-    assert!(!fix_round.by_user);
+    assert!(fix_round.kind != model::StationKind::User);
 }
 
 #[test]
@@ -633,7 +639,7 @@ fn station_row(id: &str, position: u32, stage: &str) -> StationRow {
         position,
         stage: stage.to_owned(),
         model: None,
-        by_user: false,
+        kind: model::StationKind::Agent,
         skill: None,
         brief: String::new(),
         session_id: None,
@@ -659,6 +665,8 @@ fn station_row(id: &str, position: u32, stage: &str) -> StationRow {
         report: None,
         returns: 0,
         released_at: None,
+        vars: Default::default(),
+        command: None,
     }
 }
 
@@ -1238,7 +1246,7 @@ fn set_station_agent_refuses_a_started_station() {
 #[test]
 fn set_station_agent_refuses_a_station_of_the_user() {
     let mut yours = station_row("yours", 0, "Merge");
-    yours.by_user = true;
+    yours.kind = model::StationKind::User;
     let view = view_with(vec![yours], &types());
     assert_eq!(
         refusal(checked_settings(
@@ -4127,7 +4135,7 @@ fn station_value_is_written_until_the_station_is_finished_also_with_a_session() 
     let mut started = node("started", &[]);
     started.session_id = Some("session".to_owned());
     let mut of_user = node("user", &[]);
-    of_user.by_user = true;
+    of_user.kind = model::StationKind::User;
     let database = database_with(&[started, finished(node("done", &[])), of_user]);
     let write = |id: &str, value: Option<bool>| {
         database
@@ -6082,7 +6090,7 @@ fn two_acceptances_and_an_acceptance_after_a_return_write_only_once() {
 #[test]
 fn release_marks_only_an_open_station_by_you() {
     let mut by_user = station_row("user", 0, "Merge");
-    by_user.by_user = true;
+    by_user.kind = model::StationKind::User;
     let database = database_with(&[by_user, station_row("agent", 1, "Umsetzung")]);
     let release = |id: &str| {
         database
@@ -6690,6 +6698,15 @@ fn marking_a_station_with_a_start_error_done_is_allowed() {
 }
 
 #[test]
+fn a_failed_command_station_can_be_marked_done() {
+    let mut row = command_node("s", &[], &["gh pr merge 1"]);
+    row.start_error = Some("Programm fehlt".to_owned());
+    let view = marking_view(row, None);
+    assert_eq!(view.phases[0].stations[0].kind, model::StationKind::Command);
+    assert!(may_mark(&view));
+}
+
+#[test]
 fn marking_is_refused_while_a_restart_is_pending() {
     let row = StationRow {
         on_error: OnError::RestartOnce,
@@ -6738,7 +6755,7 @@ fn marking_is_refused_for_running_done_by_you_or_cancelled() {
         Some(MARK_DONE_REFUSED)
     );
     let by_user = StationRow {
-        by_user: true,
+        kind: model::StationKind::User,
         start_error: Some("x".to_owned()),
         ..station_row("s", 0, "Umsetzung")
     };
@@ -6932,4 +6949,779 @@ fn the_mark_done_command_is_classified_with_the_implementation_id() {
             .any(|target| target.kind == IdKind::Implementation && target.value == "impl"),
         "{ids:?}"
     );
+}
+
+// Befehls-Stationen (ADR 073).
+
+/// Ein absoluter Ordner auf jedem Betriebssystem (`/tmp` ist unter Windows nicht absolut).
+fn absolute_dir() -> String {
+    std::env::temp_dir().to_string_lossy().into_owned()
+}
+
+fn command_node(id: &str, after: &[&str], steps: &[&str]) -> StationRow {
+    let mut row = node(id, after);
+    row.kind = model::StationKind::Command;
+    row.command = Some(crate::db::implementations::CommandRow {
+        steps: steps.iter().map(|step: &&str| (*step).to_owned()).collect(),
+        ..Default::default()
+    });
+    row
+}
+
+fn view_from(database: &Database) -> ImplementationView {
+    let stored = database
+        .with(|connection| implementation_rows::load(connection, "implementation"))
+        .expect("lesbar")
+        .expect("Umsetzung vorhanden");
+    build_view(
+        &stored,
+        &HashMap::new(),
+        &HashMap::new(),
+        &HashMap::new(),
+        &[],
+    )
+}
+
+fn station_of<'a>(view: &'a ImplementationView, id: &str) -> &'a StationView {
+    view.phases[0]
+        .stations
+        .iter()
+        .find(|station: &&StationView| station.id == id)
+        .expect("Station")
+}
+
+fn command_input(stage: &str, steps: &[&str]) -> StationInput {
+    StationInput {
+        stage: stage.to_owned(),
+        by: Some("command".to_owned()),
+        command: Some(steps.iter().map(|step: &&str| (*step).to_owned()).collect()),
+        ..StationInput::default()
+    }
+}
+
+#[test]
+fn the_migration_sets_kind_from_by_user() {
+    let mut connection = rusqlite::Connection::open_in_memory().expect("Datenbank");
+    for script in crate::db::migrations::first(32) {
+        connection.execute_batch(script).expect("alte Migration");
+    }
+    connection
+        .execute_batch(
+            "PRAGMA user_version = 32; \
+             INSERT INTO projects (id, name, created_at) VALUES ('project', 'V', 1.0); \
+             INSERT INTO implementations (id, project_id, name, source, created_at) \
+                 VALUES ('implementation', 'project', 'U', '', 1.0); \
+             INSERT INTO implementation_phases (id, implementation_id, position, key, title, description) \
+                 VALUES ('phase', 'implementation', 0, '1', 'P', ''); \
+             INSERT INTO implementation_stations (id, phase_id, position, stage, by_user) \
+                 VALUES ('yours', 'phase', 0, 'Merge', 1), ('agent', 'phase', 1, 'Umsetzung', 0);",
+        )
+        .expect("Bestand");
+    crate::db::migrations::run(&mut connection).expect("wandert");
+    let stored = implementation_rows::load(&connection, "implementation")
+        .expect("lesbar")
+        .expect("Umsetzung");
+    let kinds: Vec<(&str, model::StationKind)> = stored
+        .stations
+        .iter()
+        .map(|station: &StationRow| (station.id.as_str(), station.kind))
+        .collect();
+    assert_eq!(
+        kinds,
+        [
+            ("yours", model::StationKind::User),
+            ("agent", model::StationKind::Agent)
+        ]
+    );
+    assert!(
+        stored
+            .stations
+            .iter()
+            .all(|station: &StationRow| station.command.is_none())
+    );
+}
+
+#[test]
+fn by_user_in_the_view_follows_kind() {
+    let mut yours = node("yours", &[]);
+    yours.kind = model::StationKind::User;
+    let database = database_with(&[
+        yours,
+        node("agent", &[]),
+        command_node("command", &[], &["gh pr list"]),
+    ]);
+    let view = view_from(&database);
+    let shown: Vec<(model::StationKind, bool)> = view.phases[0]
+        .stations
+        .iter()
+        .map(|station: &StationView| (station.kind, station.by_user))
+        .collect();
+    assert_eq!(
+        shown,
+        [
+            (model::StationKind::User, true),
+            (model::StationKind::Agent, false),
+            (model::StationKind::Command, false)
+        ]
+    );
+    let command = station_of(&view, "command");
+    assert_eq!(
+        command.command.as_deref(),
+        Some(&["gh pr list".to_owned()][..])
+    );
+    assert_eq!(
+        (command.live, command.pause),
+        (None, None),
+        "V152: ohne Session"
+    );
+}
+
+#[test]
+fn vars_are_stored_with_the_report_and_replaced_by_a_new_one() {
+    let database = database_with(&[node("build", &[])]);
+    let report = |text: &str| serde_json::to_string(&stored_report(text, false)).expect("JSON");
+    let vars = |pairs: &[(&str, &str)]| -> std::collections::BTreeMap<String, String> {
+        pairs
+            .iter()
+            .map(|(name, value): &(&str, &str)| ((*name).to_owned(), (*value).to_owned()))
+            .collect()
+    };
+    let write = |text: &str, values: &std::collections::BTreeMap<String, String>| {
+        database
+            .with(|connection| {
+                implementation_rows::set_report_with_vars(
+                    connection,
+                    "build",
+                    2.0,
+                    &report(text),
+                    values,
+                )
+            })
+            .expect("schreibbar")
+    };
+    assert!(write(
+        "erste",
+        &vars(&[("pr", "88"), ("branch", "feature/x")])
+    ));
+    assert_eq!(
+        stored_stations(&database)[0].vars,
+        vars(&[("branch", "feature/x"), ("pr", "88")])
+    );
+    assert!(write("zweite", &vars(&[("pr", "89")])));
+    assert_eq!(
+        stored_stations(&database)[0].vars,
+        vars(&[("pr", "89")]),
+        "ersetzt, nicht ergänzt"
+    );
+    assert!(write("dritte", &vars(&[])));
+    assert!(stored_stations(&database)[0].vars.is_empty());
+    database
+        .with(|connection| implementation_rows::complete_station(connection, "build", 3.0, "ok"))
+        .expect("fertig");
+    assert!(
+        !write("vierte", &vars(&[("pr", "1")])),
+        "angenommen: nichts mehr geschrieben"
+    );
+}
+
+#[test]
+fn a_placeholder_is_resolved_from_the_vars_of_the_direct_predecessors_in_the_view() {
+    let mut build = finished(node("build", &[]));
+    build.vars.insert("pr".to_owned(), "88".to_owned());
+    let mut other = finished(node("other", &[]));
+    other.vars.insert("pr".to_owned(), "1".to_owned());
+    let database = database_with(&[
+        build,
+        other,
+        command_node(
+            "merge",
+            &["build"],
+            &["gh pr merge {{pr}} --repo {{env:REPO}}"],
+        ),
+        command_node("clash", &["build", "other"], &["gh pr merge {{pr}}"]),
+        command_node("missing", &["build"], &["gh pr merge {{nr}}"]),
+    ]);
+    let view = view_from(&database);
+    assert_eq!(
+        station_of(&view, "merge").resolved.as_deref(),
+        Some(&["gh pr merge 88 --repo {{env:REPO}}".to_owned()][..])
+    );
+    assert_eq!(
+        station_of(&view, "clash").resolved,
+        None,
+        "zwei Werte widersprechen sich"
+    );
+    assert_eq!(
+        station_of(&view, "missing").resolved,
+        None,
+        "ein Wert fehlt"
+    );
+}
+
+#[test]
+fn command_is_required_exactly_for_command_stations() {
+    let ok = command_input("Merge", &["gh pr merge 1"]);
+    assert_eq!(model::validate_station("s", &ok), Ok(()));
+    let without = StationInput {
+        command: None,
+        ..ok.clone()
+    };
+    assert!(
+        model::validate_station("s", &without)
+            .expect_err("Pflicht")
+            .contains("s.command")
+    );
+    let on_agent = StationInput {
+        by: Some("agent".to_owned()),
+        ..ok.clone()
+    };
+    assert!(
+        model::validate_station("s", &on_agent)
+            .expect_err("nur bei command")
+            .contains("s.command")
+    );
+    let cwd_on_agent = StationInput {
+        stage: "Test".to_owned(),
+        cwd: Some("/x".to_owned()),
+        ..StationInput::default()
+    };
+    assert!(
+        model::validate_station("s", &cwd_on_agent)
+            .expect_err("cwd")
+            .contains("s.cwd")
+    );
+    assert_eq!(
+        model::validate_station(
+            "s",
+            &StationInput {
+                stage: "Test".to_owned(),
+                ..StationInput::default()
+            }
+        ),
+        Ok(())
+    );
+    let unknown = StationInput {
+        by: Some("robot".to_owned()),
+        ..ok
+    };
+    assert!(model::validate_station("s", &unknown).is_err());
+}
+
+#[test]
+fn agent_fields_on_a_command_station_are_refused() {
+    let base = command_input("Merge", &["gh pr merge 1"]);
+    for (name, input) in [
+        (
+            "agent",
+            StationInput {
+                agent: Some("reviewer".to_owned()),
+                ..base.clone()
+            },
+        ),
+        (
+            "model",
+            StationInput {
+                model: Some("opus".to_owned()),
+                ..base.clone()
+            },
+        ),
+        (
+            "effort",
+            StationInput {
+                effort: Some("high".to_owned()),
+                ..base.clone()
+            },
+        ),
+        (
+            "prompt",
+            StationInput {
+                prompt: Some("x".to_owned()),
+                ..base.clone()
+            },
+        ),
+        (
+            "skill",
+            StationInput {
+                skill: Some("implement".to_owned()),
+                ..base.clone()
+            },
+        ),
+    ] {
+        let error = model::validate_station("stations[0]", &input).expect_err(name);
+        assert!(error.contains(&format!("stations[0].{name}")), "{error}");
+    }
+    assert_eq!(
+        model::validate_station(
+            "s",
+            &StationInput {
+                brief: Some("Ein PR wird gemergt".to_owned()),
+                ..base
+            }
+        ),
+        Ok(())
+    );
+}
+
+#[test]
+fn only_a_station_that_has_not_started_may_change_its_command() {
+    let fresh = command_node("merge", &[], &["gh pr merge 1"]);
+    let mut started = command_node("again", &[], &["gh pr merge 2"]);
+    started.started_at = Some(5.0);
+    let database = database_with(&[fresh, started]);
+    let view = view_from(&database);
+    let rows = stored_stations(&database);
+    let patch = |id: &str| PlanEdit {
+        change: vec![model::StationPatch {
+            id: id.to_owned(),
+            command: Some(vec!["gh pr merge 9".to_owned()]),
+            cwd: Some(absolute_dir()),
+            ..model::StationPatch::default()
+        }],
+        ..PlanEdit::default()
+    };
+    let edited = edit::edited_plan("implementation", &view.phases, &rows, &patch("merge"), &[])
+        .expect("geändert");
+    let run = edited.updated[0].command.as_ref().expect("Befehl");
+    assert_eq!(
+        (run.steps.as_slice(), run.cwd.as_deref()),
+        (
+            &["gh pr merge 9".to_owned()][..],
+            Some(absolute_dir().as_str())
+        )
+    );
+    let error = edit::edited_plan("implementation", &view.phases, &rows, &patch("again"), &[])
+        .expect_err("begonnen");
+    assert!(error.contains("hat schon begonnen"), "{error}");
+    // Ein Agent-Feld an einer Befehls-Station und `command` an einer Agenten-Station gehen nicht.
+    let agent_patch = PlanEdit {
+        change: vec![model::StationPatch {
+            id: "merge".to_owned(),
+            agent: Some("reviewer".to_owned()),
+            ..model::StationPatch::default()
+        }],
+        ..PlanEdit::default()
+    };
+    assert!(edit::edited_plan("implementation", &view.phases, &rows, &agent_patch, &[]).is_err());
+    let database = database_with(&[node("agent", &[])]);
+    let view = view_from(&database);
+    assert!(
+        edit::edited_plan(
+            "implementation",
+            &view.phases,
+            &stored_stations(&database),
+            &patch("agent"),
+            &[]
+        )
+        .is_err()
+    );
+}
+
+#[test]
+fn an_empty_cwd_in_an_edit_resets_to_the_project_folder_and_a_filled_one_must_be_absolute() {
+    let mut row = command_node("merge", &[], &["gh pr merge 1"]);
+    row.command.as_mut().expect("Befehl").cwd = Some(absolute_dir());
+    let database = database_with(&[row]);
+    let view = view_from(&database);
+    let rows = stored_stations(&database);
+    let with_cwd = |cwd: Option<&str>| PlanEdit {
+        change: vec![model::StationPatch {
+            id: "merge".to_owned(),
+            cwd: cwd.map(str::to_owned),
+            ..model::StationPatch::default()
+        }],
+        ..PlanEdit::default()
+    };
+    let cwd_after = |cwd: Option<&str>| {
+        edit::edited_plan("implementation", &view.phases, &rows, &with_cwd(cwd), &[]).map(
+            |edited: edit::EditedPlan| {
+                edited.updated[0]
+                    .command
+                    .as_ref()
+                    .expect("Befehl")
+                    .cwd
+                    .clone()
+            },
+        )
+    };
+    assert_eq!(cwd_after(Some("")), Ok(None));
+    assert_eq!(cwd_after(None), Ok(Some(absolute_dir())));
+    let other = std::path::Path::new(&absolute_dir())
+        .join("anderer")
+        .to_string_lossy()
+        .into_owned();
+    assert_eq!(cwd_after(Some(&other)), Ok(Some(other.clone())));
+    let error = cwd_after(Some("relativ")).expect_err("nicht absolut");
+    assert!(error.contains("cwd"), "{error}");
+}
+
+#[test]
+fn an_empty_cwd_on_an_agent_station_is_refused_like_any_cwd() {
+    let database = database_with(&[node("agent", &[])]);
+    let view = view_from(&database);
+    let rows = stored_stations(&database);
+    let refused = |cwd: &str| {
+        let edit = PlanEdit {
+            change: vec![model::StationPatch {
+                id: "agent".to_owned(),
+                cwd: Some(cwd.to_owned()),
+                ..model::StationPatch::default()
+            }],
+            ..PlanEdit::default()
+        };
+        edit::edited_plan("implementation", &view.phases, &rows, &edit, &[]).expect_err("abgelehnt")
+    };
+    assert!(refused("").contains("nur bei by: \"command\""));
+    assert!(refused(&absolute_dir()).contains("nur bei by: \"command\""));
+}
+
+#[test]
+fn creating_and_changing_refuse_a_program_outside_the_list_and_a_cwd_outside_the_limits() {
+    let registry = crate::sessions::registry::SessionRegistry::new(
+        std::sync::Arc::new(database_with(&[])),
+        std::sync::Arc::new(crate::remote::RemoteControl::default()),
+    );
+    let station = |command: &str, cwd: Option<&str>| StationInput {
+        by: Some("command".to_owned()),
+        command: Some(vec![command.to_owned()]),
+        cwd: cwd.map(str::to_owned),
+        ..StationInput::default()
+    };
+    fn named(station: &StationInput) -> Vec<(String, &StationInput)> {
+        vec![("phases[0].stations[0]".to_owned(), station)]
+    }
+    let refused = station("curl http://x", None);
+    assert_eq!(
+        registry.check_commands("project", &named(&refused), &[]),
+        Err("phases[0].stations[0].command: Programm „curl“ ist für Befehls-Stationen nicht freigegeben."
+            .to_owned())
+    );
+    let elsewhere = station("gh pr list", Some("/nirgends"));
+    let error = registry
+        .check_commands("project", &named(&elsewhere), &[])
+        .expect_err("cwd außerhalb");
+    assert!(error.starts_with("phases[0].stations[0].cwd:"), "{error}");
+    assert!(
+        registry
+            .check_commands("project", &named(&station("gh pr list", Some(""))), &[])
+            .is_ok()
+    );
+    let patch = model::StationPatch {
+        id: "merge".to_owned(),
+        command: Some(vec!["rm -rf x".to_owned()]),
+        ..model::StationPatch::default()
+    };
+    let error = registry
+        .check_commands("project", &[], &[patch])
+        .expect_err("Programm außerhalb");
+    assert!(
+        error.starts_with("change[0].command: Programm „rm“"),
+        "{error}"
+    );
+}
+
+#[test]
+fn every_caller_refuses_a_program_outside_the_list() {
+    let registry = registry_with_station_session(
+        database_with(&[station_row("first", 0, "Umsetzung")]),
+        SessionStatus::Running,
+    );
+    let sentence = "Programm „curl“ ist für Befehls-Stationen nicht freigegeben.";
+    let phases = vec![PhaseInput {
+        key: "1".to_owned(),
+        title: "Phase".to_owned(),
+        description: None,
+        wave: None,
+        stations: vec![StationInput {
+            stage: "Merge".to_owned(),
+            by: Some("command".to_owned()),
+            command: Some(vec!["curl http://x".to_owned()]),
+            ..Default::default()
+        }],
+    }];
+    let refused = |error: String| assert!(error.contains(sentence), "{error}");
+    // implementation_create
+    refused(
+        match registry.create_implementation("session", "Name", "", &phases) {
+            Err(crate::error::CommandError::Implementation(error)) => error,
+            other => panic!("abgelehnt erwartet: {other:?}"),
+        },
+    );
+    // implementation_set_phases
+    refused(changes::checked_view(&registry, "session", &phases).expect_err("abgelehnt"));
+    // implementation_edit
+    let view = registry
+        .implementation_view("implementation")
+        .expect("Umsetzung");
+    let edit = PlanEdit {
+        add: vec![model::StationAddition {
+            lane: "1".to_owned(),
+            station: phases[0].stations[0].clone(),
+        }],
+        ..PlanEdit::default()
+    };
+    refused(match edit::plan_of(&registry, &view, &edit) {
+        Err(crate::error::CommandError::Implementation(error)) => error,
+        other => panic!("abgelehnt erwartet: {other:?}"),
+    });
+}
+
+#[test]
+fn the_program_list_is_checked_again_at_start() {
+    let rows = vec![command_node("merge", &[], &["gh pr list", "curl http://x"])];
+    let allowed = |names: &[&str]| -> Vec<String> {
+        names.iter().map(|name: &&str| (*name).to_owned()).collect()
+    };
+    let env = |_: &str| None;
+    let folder = std::env::temp_dir();
+    let at_start = |list: &[&str]| command::prepare(&rows[0], &rows, &allowed(list), &folder, &env);
+    assert_eq!(
+        at_start(&["gh"]).expect_err("curl fehlt"),
+        "Programm „curl“ ist für Befehls-Stationen nicht freigegeben."
+    );
+    let (steps, cwd) = at_start(&["gh", "curl"]).expect("freigegeben");
+    assert_eq!((steps.len(), cwd), (2, folder));
+    // Beim Anlegen war curl freigegeben; die Liste ändert sich danach, der Start prüft neu.
+    assert!(command::check_programs(&["curl http://x".to_owned()], &allowed(&["curl"])).is_ok());
+}
+
+#[test]
+fn a_command_station_holds_no_slot() {
+    let mut running = command_node("running", &[], &["gh pr list"]);
+    running.command.as_mut().expect("Befehl").step = Some(1);
+    running.started_at = Some(1.0);
+    let database = database_with(&[
+        running,
+        command_node("ready", &[], &["gh pr list"]),
+        node("agent", &[]),
+    ]);
+    let view = view_from(&database);
+    assert_eq!(station_of(&view, "running").state, StationState::Running);
+    assert_eq!(station_of(&view, "ready").state, StationState::Ready);
+    // Das Tor kennt sie nicht: Wartend ist nur die Agenten-Station.
+    let waiters = slots::station_waiters(&view, true, ProjectPriority::Normal);
+    assert_eq!(
+        waiters
+            .iter()
+            .map(|waiter: &slots::Waiter| waiter.key.as_str())
+            .collect::<Vec<&str>>(),
+        ["agent"]
+    );
+    assert!(
+        schedule::due_for_countdown(&view.phases)
+            .iter()
+            .all(|(_, station): &(&PhaseView, &StationView)| station.kind
+                == model::StationKind::Agent)
+    );
+    // Eine laufende Befehls-Station nimmt dem Agenten den einzigen Platz nicht.
+    let mut gate = Countdowns::default();
+    assert_eq!(gate.used(&[]), 0);
+    let seen = gate.releases();
+    let claimed = gate
+        .pass(seen, Some(1), &[], waiters, 0.0, 10.0)
+        .expect("Durchgang");
+    assert_eq!(claimed.len(), 1);
+    // Die Automatik startet die bereite Befehls-Station ohne Countdown, die laufende nicht.
+    let due: Vec<&str> = command_run::due_commands(&view.phases)
+        .iter()
+        .map(|station: &&StationView| station.id.as_str())
+        .collect();
+    assert_eq!(due, ["ready"]);
+}
+
+#[test]
+fn a_successful_command_completes_the_station_without_wake() {
+    let database = database_with(&[
+        command_node("merge", &[], &["git --version"]),
+        node("next", &["merge"]),
+    ]);
+    database
+        .with(|connection| implementation_rows::begin_command_run(connection, "merge", 2.0))
+        .expect("beginnt");
+    assert_eq!(
+        station_of(&view_from(&database), "merge").state,
+        StationState::Running
+    );
+    let view = view_from(&database);
+    let (followups, hint) = plan_completion(&view, "merge", false).expect("plan");
+    assert!(followups.is_empty() && hint.is_none(), "keine Fix-Runde");
+    let accepted = database
+        .with(|connection| {
+            implementation_rows::accept_station_with_followups(
+                connection,
+                "merge",
+                3.0,
+                "git version 2",
+                &followups,
+                false,
+            )
+        })
+        .expect("angenommen");
+    assert!(accepted, "ohne Meldung");
+    let view = view_from(&database);
+    let merge = station_of(&view, "merge");
+    assert_eq!(
+        (merge.state, merge.step, merge.result.as_deref()),
+        (StationState::Done, None, Some("git version 2"))
+    );
+    assert!(merge.report.is_none());
+    assert_eq!(
+        station_of(&view, "next").state,
+        StationState::Ready,
+        "der Nachfolger ist an der Reihe"
+    );
+    // Kein Wecken: Der Abschluss läuft als Annahme des Masters (auch die letzte Station weckt ihn nicht).
+    assert!(wake::events_after_acceptance("merge", true, true).is_empty());
+    assert!(wake::events_after_acceptance("merge", false, true).is_empty());
+}
+
+#[test]
+fn a_failing_step_shows_its_reason_and_starts_again_only_by_hand() {
+    let database = database_with(&[
+        command_node("merge", &[], &["git --version"]),
+        node("next", &["merge"]),
+    ]);
+    let run = |f: &dyn Fn(&rusqlite::Connection) -> Result<bool, CommandError>| {
+        database
+            .with(|connection| f(connection))
+            .expect("schreibbar")
+    };
+    assert!(run(&|connection| implementation_rows::begin_command_run(
+        connection, "merge", 2.0
+    )));
+    assert!(
+        !run(&|connection| implementation_rows::begin_command_run(connection, "merge", 2.5)),
+        "läuft schon"
+    );
+    assert!(run(&|connection| implementation_rows::fail_command_run(
+        connection,
+        "merge",
+        "Schritt 2: Exit 1",
+        "zeile"
+    )));
+    let view = view_from(&database);
+    let merge = station_of(&view, "merge");
+    assert_eq!(merge.state, StationState::Error);
+    assert_eq!(merge.start_error.as_deref(), Some("Schritt 2: Exit 1"));
+    assert_eq!(
+        (merge.output.as_deref(), merge.step, merge.restarting),
+        (Some("zeile"), None, false)
+    );
+    assert!(
+        command_run::due_commands(&view.phases).is_empty(),
+        "kein automatischer Neustart"
+    );
+    assert!(
+        schedule::is_due(&view.phases, "merge"),
+        "▶ startet die Schritte erneut"
+    );
+    assert_eq!(station_of(&view, "next").state, StationState::Pending);
+    // „Bei Fehler“: Der Neustart zählt genau einmal und beginnt von vorn.
+    assert!(run(&|connection| implementation_rows::begin_command_run(
+        connection, "merge", 3.0
+    )));
+    assert!(run(&|connection| implementation_rows::restart_command_run(
+        connection, "merge", 0, 4.0
+    )));
+    assert!(!run(
+        &|connection| implementation_rows::restart_command_run(connection, "merge", 0, 4.0)
+    ));
+    let again = &stored_stations(&database)[0];
+    assert_eq!(
+        (
+            again.restarts,
+            again
+                .command
+                .as_ref()
+                .and_then(|run: &crate::db::implementations::CommandRow| run.step)
+        ),
+        (1, Some(1))
+    );
+}
+
+#[test]
+fn stopping_sets_error_aborted_and_wakes_stopped() {
+    let facts = wake::WakeFacts {
+        implementation: "Umsetzung".to_owned(),
+        lane: "3".to_owned(),
+        stage: "Merge".to_owned(),
+        text: String::new(),
+        note: String::new(),
+    };
+    let wake_text = |reason: &str| {
+        let event = command_run::failure_event("merge", 0, Some(5.0), reason);
+        wake::decide(&event, &facts, true, &mut HashSet::new()).expect("weckt")
+    };
+    assert!(wake_text(command::REASON_ABORTED).contains("gestoppt worden"));
+    assert!(wake_text("Schritt 1: Exit 1").contains("mit einem Fehler"));
+    assert!(wake_text(command::REASON_TIME_LIMIT).contains("mit einem Fehler"));
+    // Ein neuer Lauf ist ein neuer Zug und weckt wieder; derselbe Lauf nur einmal.
+    let mut claimed = HashSet::new();
+    let first = command_run::failure_event("merge", 0, Some(5.0), "Zeitlimit");
+    let second = command_run::failure_event("merge", 0, Some(6.0), "Zeitlimit");
+    assert!(wake::decide(&first, &facts, true, &mut claimed).is_some());
+    assert!(wake::decide(&first, &facts, true, &mut claimed).is_none());
+    assert!(wake::decide(&second, &facts, true, &mut claimed).is_some());
+    // Der Abbruch steht mit Grund an der Station.
+    let database = database_with(&[command_node("merge", &[], &["git --version"])]);
+    database
+        .with(|connection| {
+            implementation_rows::begin_command_run(connection, "merge", 2.0)?;
+            implementation_rows::fail_command_run(connection, "merge", command::REASON_ABORTED, "")
+        })
+        .expect("schreibbar");
+    let view = view_from(&database);
+    assert_eq!(
+        (
+            station_of(&view, "merge").state,
+            station_of(&view, "merge").start_error.as_deref()
+        ),
+        (StationState::Error, Some("abgebrochen"))
+    );
+}
+
+#[test]
+fn a_running_command_after_app_restart_is_interrupted_and_does_not_start() {
+    let mut running = command_node("merge", &[], &["git --version"]);
+    running.started_at = Some(1.0);
+    running.command.as_mut().expect("Befehl").step = Some(2);
+    let database = database_with(&[running, command_node("idle", &[], &["git --version"])]);
+    assert_eq!(
+        station_of(&view_from(&database), "merge").state,
+        StationState::Running
+    );
+    let touched = database
+        .with(|connection| {
+            implementation_rows::interrupt_command_runs(connection, command::REASON_INTERRUPTED)
+        })
+        .expect("schreibbar");
+    assert_eq!(touched, 1, "nur die laufende");
+    // Der Grund steht in der Datenbank: Ein zweiter Start der App liest ihn wieder.
+    let view = view_from(&database);
+    let merge = station_of(&view, "merge");
+    assert_eq!(
+        (merge.state, merge.start_error.as_deref(), merge.step),
+        (StationState::Error, Some("unterbrochen"), None)
+    );
+    assert!(!merge.restarting);
+    assert!(
+        command_run::due_commands(&view.phases)
+            .iter()
+            .all(|station: &&StationView| station.id != "merge")
+    );
+    assert!(slots::station_waiters(&view, true, ProjectPriority::Normal).is_empty());
+}
+
+#[test]
+fn a_database_of_version_32_keeps_the_session_message_tables() {
+    // Die Migration 33 ändert nur `implementation_stations`: Die Tabelle der Nachrichten bleibt.
+    let mut connection = rusqlite::Connection::open_in_memory().expect("Datenbank");
+    crate::db::migrations::run(&mut connection).expect("wandert");
+    let version: u32 = connection
+        .query_row("PRAGMA user_version", [], |row| row.get(0))
+        .expect("Version");
+    assert_eq!(version, 33);
+    connection
+        .execute("SELECT subject FROM session_inbox", [])
+        .ok();
+    assert!(connection.prepare("SELECT kind, command, cwd, vars, step, output, command_error FROM implementation_stations").is_ok());
 }

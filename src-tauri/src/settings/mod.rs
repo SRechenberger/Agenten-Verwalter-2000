@@ -37,6 +37,8 @@ const KEY_ANSWER_MODEL: &str = "answer_model";
 const KEY_MAX_AGENTS: &str = "max_agents";
 /// Leer = aus; fehlt der Schlüssel, gilt der Standard (ADR 070).
 const KEY_MASTER_COMPACT_TOKENS: &str = "master_compact_tokens";
+/// JSON-Liste; fehlt der Schlüssel, gilt `DEFAULT_COMMAND_PROGRAMS` (ADR 073).
+const KEY_COMMAND_PROGRAMS: &str = "command_programs";
 const KEY_TERMINAL_PLACEMENT: &str = "terminal_placement";
 const KEY_TERMINAL_HEIGHT: &str = "terminal_height";
 const KEY_TERMINAL_WIDTH: &str = "terminal_width";
@@ -85,6 +87,8 @@ pub const DEFAULT_SETTINGS: Settings = Settings {
     answer_model: Some(ModelId::Haiku),
     max_agents: Some(4),
     master_compact_tokens: Some(150_000),
+    // ponytail: eine `const` hält keine Zeichenketten; `load` setzt `DEFAULT_COMMAND_PROGRAMS` ein.
+    command_programs: Vec::new(),
     terminal_placement: TerminalPlacement::Bottom,
     terminal_height: 260,
     terminal_width: 460,
@@ -147,6 +151,10 @@ pub fn load(database: &Database) -> Result<Settings, CommandError> {
             .map_or(DEFAULT_SETTINGS.master_compact_tokens, |text: &String| {
                 stored_master_compact_tokens(text)
             }),
+        command_programs: stored
+            .get(KEY_COMMAND_PROGRAMS)
+            .and_then(|text: &String| serde_json::from_str::<Vec<String>>(text).ok())
+            .unwrap_or_else(default_command_programs),
         terminal_placement: stored_or(
             &stored,
             KEY_TERMINAL_PLACEMENT,
@@ -262,6 +270,12 @@ pub fn update(database: &Database, change: SettingsChange) -> Result<Settings, C
                     .unwrap_or_default();
                 setting_rows::write(&transaction, KEY_MASTER_COMPACT_TOKENS, &text)?;
             }
+            SettingsChange::CommandPrograms { value } => {
+                let programs = checked_programs(&value)?;
+                let text = serde_json::to_string(&programs)
+                    .map_err(|error| CommandError::Internal(error.to_string()))?;
+                setting_rows::write(&transaction, KEY_COMMAND_PROGRAMS, &text)?;
+            }
             SettingsChange::DefaultAutoResume { value } => {
                 setting_rows::write(&transaction, KEY_DEFAULT_AUTO_RESUME, &value.to_string())?;
             }
@@ -366,6 +380,33 @@ pub fn remote_host_id(database: &Database) -> Result<String, CommandError> {
         setting_rows::write(connection, KEY_REMOTE_HOST_ID, &id)?;
         Ok(id)
     })
+}
+
+/// Standard der Freigabeliste (ADR 073).
+pub fn default_command_programs() -> Vec<String> {
+    crate::implementation::command::DEFAULT_PROGRAMS
+        .iter()
+        .map(|name: &&str| (*name).to_owned())
+        .collect()
+}
+
+/// Getrimmt, ohne Doppel; jedes Programm ein bloßer Name ohne Pfad, Leerraum und Anführungszeichen.
+fn checked_programs(value: &[String]) -> Result<Vec<String>, CommandError> {
+    let mut programs: Vec<String> = Vec::new();
+    for name in value.iter().map(|name: &String| name.trim()) {
+        if name.is_empty()
+            || name.contains(['/', '\\', '"', '{', '}'])
+            || name.contains(char::is_whitespace)
+        {
+            return Err(CommandError::Internal(format!(
+                "„{name}“ ist kein Programmname: ein bloßer Name ohne Pfad."
+            )));
+        }
+        if !programs.iter().any(|known: &String| known == name) {
+            programs.push(name.to_owned());
+        }
+    }
+    Ok(programs)
 }
 
 /// Gespeicherter Wert von „Modell der Einordnung“: leer = aus, ein unlesbarer Wert = der Standard.

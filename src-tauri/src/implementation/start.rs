@@ -6,7 +6,9 @@ use std::thread;
 use tauri::{AppHandle, Manager};
 
 use super::master::MasterRef;
-use super::model::{BriefChange, ImplementationView, PhaseView, StationState, StationView};
+use super::model::{
+    BriefChange, ImplementationView, PhaseView, StationKind, StationState, StationView,
+};
 use super::slots::{Claimed, Start};
 use super::{IS_CANCELLED, START_DELAY, StationRef, announce, schedule, station_in};
 use crate::agent_types::model::{AgentType, AgentValueSource};
@@ -426,6 +428,19 @@ pub fn start_now(
     implementation_id: &str,
     station_id: &str,
 ) -> Result<(), CommandError> {
+    // Eine Befehls-Station läuft ohne Session und ohne Platz am Tor (ADR 073).
+    if super::command_run::is_command_station(
+        &app.state::<SessionRegistry>(),
+        implementation_id,
+        station_id,
+    ) {
+        return super::command_run::start_command(
+            app,
+            implementation_id,
+            station_id,
+            Trigger::User,
+        );
+    }
     if let Err(error) = start(app, implementation_id, station_id, Trigger::User) {
         // Ein beendeter Countdown gibt seinen Platz frei (ADR 068).
         refill(app);
@@ -475,6 +490,11 @@ fn start_claimed(
     if station.by_user {
         return Err(CommandError::Implementation(
             "Diese Station erledigst du selbst.".to_owned(),
+        ));
+    }
+    if station.kind == StationKind::Command {
+        return Err(CommandError::Implementation(
+            "Eine Befehls-Station führt der Verwalter selbst aus.".to_owned(),
         ));
     }
     if !is_allowed(trigger, &view.phases, station_id) {
