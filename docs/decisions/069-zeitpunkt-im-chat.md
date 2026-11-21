@@ -34,5 +34,5 @@ Nur Nutzernachrichten und Session-Nachrichten speicherten einen Zeitpunkt (`sent
 ## Nachtrag 2026-11-21: Zeit und Name am Fragekasten (Issue Taiga 185)
 
 - **Zeit:** Der Fragekasten (Rückfrage, Rechte-Abfrage, Kasten eines Session-Werkzeugs) zählt wie eine Nachricht: Seine Uhrzeit steht in eigener Zeile über dem Kasten und immer, nicht mehr schwebend im Abstand des Blocks darüber, wo sie nach einem Klick auf eine Antwort (der Knopf behält den Fokus) stehen blieb und wie die Zeit des Gedankengangs davor wirkte. Entwurf: `docs/design/2026-11-21_chat-sprung/` (Variante A; B, rechts im Kopf, verworfen: eine zweite Art, Zeit zu zeigen).
-- **Name:** „… hat gefragt“, „… wartet auf deine Entscheidung“ und „… arbeitet …“ nennen den Agenten der Betriebsart des Vorhabens: Claude, „Claude (LM Studio)“, Autark, Codex (`agentName`). Der Name geht als Prop auch an das Popup des Dashboards.
+- **Name:** „… hat gefragt“, „… wartet auf deine Entscheidung“ und „… arbeitet …“ und der Platzhalter des Notizfelds („Notiz für …“) nennen den Agenten der Betriebsart des Vorhabens: Claude, „Claude (LM Studio)“, Autark, Codex (`agentName`). Der Name geht als Prop auch an das Popup des Dashboards.
 - **Folge:** Ein Fragekasten wird eine Zeile (14 px) höher.
