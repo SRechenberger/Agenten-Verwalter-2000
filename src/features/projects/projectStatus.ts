@@ -4,7 +4,7 @@ import {
   metaLine,
   scriptLabel,
   type DisplayStatus,
-} from '@/features/sessions/sessionStatus';
+} from '../sessions/sessionStatus.ts';
 import type { ProjectSummary } from '@/lib/bindings/ProjectSummary';
 import type { SessionSummary } from '@/lib/bindings/SessionSummary';
 
@@ -49,6 +49,18 @@ export function sessionsOf(
  *  zählen aber in Aktivität und Ungelesen des Vorhabens mit. */
 export function visibleSessions(sessions: readonly SessionSummary[]): SessionSummary[] {
   return sessions.filter((session: SessionSummary) => session.stationOf === null);
+}
+
+/** Die Session, die die Hauptfläche zeigt: die gewählte, sonst die zuletzt aktive mit eigener Zeile.
+ *  Der Rückfall nimmt nie eine Station (ADR 048, 065): Sie hat keine Zeile, auf die er zeigen könnte. */
+export function chooseSession(
+  sessions: readonly SessionSummary[],
+  activeSessionId: string | null,
+): SessionSummary | undefined {
+  return (
+    sessions.find((session: SessionSummary) => session.id === activeSessionId) ??
+    visibleSessions(sessions)[0]
+  );
 }
 
 /** Sessions eines Vorhabens, zuletzt aktive zuerst — die Reihenfolge in der Sidebar. */
@@ -96,8 +108,14 @@ export function mostUrgent(sessions: readonly SessionSummary[]): SessionSummary 
   return best;
 }
 
-/** Zweite Zeile eines Vorhabens in der Sidebar; `null`, wenn es nichts Nützliches zu sagen gibt. */
-export function projectMetaLine(sessions: readonly SessionSummary[], now: number): string | null {
+/** Zweite Zeile eines Vorhabens in der Sidebar; `null`, wenn es nichts Nützliches zu sagen gibt.
+ *  Sie zählt und nennt nur Sessions mit eigener Zeile; eine Station zeigt ihren Zustand an ihrer
+ *  Zeile oder an der Marke der Umsetzung. */
+export function projectMetaLine(
+  allSessions: readonly SessionSummary[],
+  now: number,
+): string | null {
+  const sessions: SessionSummary[] = visibleSessions(allSessions);
   const urgent: SessionSummary | null = mostUrgent(sessions);
   if (urgent === null) {
     return null;

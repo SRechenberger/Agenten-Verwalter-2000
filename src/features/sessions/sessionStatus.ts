@@ -1,8 +1,8 @@
-import { formatDuration } from '@/features/background/backgroundLabels';
+import { formatDuration } from '../background/backgroundLabels.ts';
 import type { AwaitedScript } from '@/lib/bindings/AwaitedScript';
 import type { SessionStatus } from '@/lib/bindings/SessionStatus';
 import type { SessionSummary } from '@/lib/bindings/SessionSummary';
-import { modelName, repositoryCountLabel } from '@/lib/labels';
+import { modelName, repositoryCountLabel } from '../../lib/labels.ts';
 
 export const STATUS_LABEL: Record<SessionStatus, string> = {
   starting: 'Startet',

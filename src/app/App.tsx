@@ -29,7 +29,7 @@ import { countChangedFiles } from '@/features/changes/changesScope';
 import { ChangesView } from '@/features/changes/ChangesView';
 import { useSessionChanges } from '@/features/changes/useSessionChanges';
 import { ProjectOverview } from '@/features/projects/ProjectOverview';
-import { sessionsOf } from '@/features/projects/projectStatus';
+import { chooseSession, sessionsOf } from '@/features/projects/projectStatus';
 import { useProjectGroups } from '@/features/projects/useProjectGroups';
 import { useProjectSummaries } from '@/features/projects/useProjectSummaries';
 import { CloseGuard } from '@/features/remote/CloseGuard';
@@ -282,8 +282,7 @@ export function App(): ReactElement {
   const overviewSessions: SessionSummary[] =
     overviewProject === undefined ? [] : sessionsOf(overviewProject.id, sessions);
   const isOverview: boolean = overviewProject !== undefined && overviewSessions.length > 0;
-  const chosenSession: SessionSummary | undefined =
-    sessions.find((session: SessionSummary) => session.id === activeSessionId) ?? sessions[0];
+  const chosenSession: SessionSummary | undefined = chooseSession(sessions, activeSessionId);
   const isImplementation: boolean = isOverview && shownImplementation !== undefined;
   const hasProjectRepositories: boolean = (overviewProject?.repositoryNames.length ?? 0) > 0;
   const currentSession: SessionSummary | undefined = isOverview
