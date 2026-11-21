@@ -19,7 +19,7 @@ use serde_json::{Value, json};
 use uuid::Uuid;
 
 use super::output::Output;
-use crate::processes;
+use crate::processes::kill_process_tree;
 
 const PROCESS_ID_PREFIX: char = 'b';
 const SUBAGENT_ID_PREFIX: char = 'a';
@@ -315,32 +315,6 @@ fn new_task_id(prefix: char) -> String {
         .take(ID_HEX_CHARS)
         .collect();
     format!("{prefix}{hex}")
-}
-
-/// Beendet den Prozess `pid` samt Kindern — `bash -c` startet seine Befehle als eigene Prozesse.
-/// Unter Unix SIGKILL an seine Gruppe (er startete mit `processes::own_group`); der Aufrufer sorgt
-/// dafür, dass er noch nicht eingesammelt ist (ADR 074). Unter Windows nimmt `taskkill /T` die
-/// Kindprozesse mit.
-#[cfg(unix)]
-pub fn kill_process_tree(pid: u32) {
-    let _ = processes::signal_group(pid, processes::GroupSignal::Kill);
-}
-
-/// Siehe die Fassung für Unix.
-#[cfg(not(unix))]
-pub fn kill_process_tree(pid: u32) {
-    use std::process::Stdio;
-
-    use crate::processes::hide_console;
-
-    let mut taskkill = processes::command("taskkill");
-    taskkill
-        .args(["/PID", &pid.to_string(), "/T", "/F"])
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null());
-    hide_console(&mut taskkill);
-    let _ = taskkill.status();
 }
 
 /// Wartet, bis alle Lese-Threads fertig sind (Kanal getrennt) oder die Frist um ist.

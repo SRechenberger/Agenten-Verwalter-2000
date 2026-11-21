@@ -16,7 +16,6 @@ use std::env;
 use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
 use std::process::Command;
-#[cfg(not(windows))]
 use std::process::Stdio;
 
 use portable_pty::CommandBuilder;
@@ -192,6 +191,68 @@ pub fn signal_group(pgid: u32, signal: GroupSignal) -> std::io::Result<()> {
         return Ok(());
     }
     Err(error)
+}
+
+/// Fängt SIGTERM für Übersetzer und eigenen Agenten, damit sie vor dem Ende ihre Kinder in eigenen
+/// Gruppen abräumen (ADR 074): blockiert das Signal für diesen und jeden später gestarteten Thread
+/// und ruft `handler` auf einem eigenen Thread, sobald es kommt (`sigwait`). Vor dem ersten
+/// weiteren Thread aufrufen; ein Thread ohne Sperre nähme das Signal an, und der Prozess endet
+/// ohne Aufräumen. Kindprozesse erben die Sperre nicht: `Command` setzt ihre Signalmaske zurück.
+/// Nie im Testprozess aufrufen.
+#[cfg(unix)]
+pub fn on_terminate(handler: impl FnOnce() + Send + 'static) -> std::io::Result<()> {
+    // SAFETY: `sigset_t` ist ein C-Struct ohne Zeiger; `sigemptyset` füllt es gleich danach.
+    let mut set: libc::sigset_t = unsafe { std::mem::zeroed() };
+    // SAFETY: `set` ist ein gültiger, beschreibbarer `sigset_t`, SIGTERM eine gültige Nummer.
+    unsafe {
+        libc::sigemptyset(&raw mut set);
+        libc::sigaddset(&raw mut set, libc::SIGTERM);
+    }
+    let change_mask = |how: libc::c_int| -> std::io::Result<()> {
+        // SAFETY: `set` ist gefüllt; die alte Maske wird nicht gebraucht (Nullzeiger erlaubt).
+        match unsafe { libc::pthread_sigmask(how, &raw const set, std::ptr::null_mut()) } {
+            0 => Ok(()),
+            error => Err(std::io::Error::from_raw_os_error(error)),
+        }
+    };
+    change_mask(libc::SIG_BLOCK)?;
+    let spawned = std::thread::Builder::new()
+        .name("sigterm".to_owned())
+        .spawn(move || {
+            let mut signal: libc::c_int = 0;
+            // SAFETY: `set` und `signal` sind gültig und gehören diesem Thread; `sigwait` nimmt
+            // nur SIGTERM an, das alle Threads des Prozesses gesperrt haben.
+            while unsafe { libc::sigwait(&raw const set, &raw mut signal) } != 0 {}
+            handler();
+        });
+    if let Err(error) = spawned {
+        // Sonst bliebe SIGTERM gesperrt, und nur SIGKILL beendete den Prozess.
+        let _ = change_mask(libc::SIG_UNBLOCK);
+        return Err(error);
+    }
+    Ok(())
+}
+
+/// Beendet den Prozess `pid` samt Kindern. Unter Unix SIGKILL an seine Gruppe (er startete mit
+/// `own_group`), unter Windows `taskkill /PID <pid> /T /F` für den ganzen Baum; Kinder, deren
+/// Elternprozess schon beendet ist, erreicht `/T` nicht. Pflicht des Aufrufers wie bei
+/// `signal_group`: Der Prozess ist noch nicht eingesammelt (ADR 074).
+#[cfg(unix)]
+pub fn kill_process_tree(pid: u32) {
+    let _ = signal_group(pid, GroupSignal::Kill);
+}
+
+/// Siehe die Fassung für Unix.
+#[cfg(not(unix))]
+pub fn kill_process_tree(pid: u32) {
+    let mut taskkill = command("taskkill");
+    taskkill
+        .args(["/PID", &pid.to_string(), "/T", "/F"])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+    hide_console(&mut taskkill);
+    let _ = taskkill.status();
 }
 
 /// Das Ziel für `kill` zur Gruppe `pgid`, also `-pgid`. Abgelehnt: `0` (die eigene Gruppe), `1`

@@ -1,7 +1,7 @@
 //! Kurzlebiger `claude.exe` im Druckmodus für eine einzige strukturierte Antwort, unabhängig von jeder Session.
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
-use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
+use std::process::{ChildStdin, ChildStdout, Command, Stdio};
 use std::sync::Arc;
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
 use std::thread;
@@ -13,6 +13,7 @@ use tauri::{AppHandle, Manager};
 
 use crate::agents::claude::local::{self, LocalBackend, LocalProgram};
 use crate::agents::claude::locate::find_claude;
+use crate::agents::claude::process::ChildGroup;
 use crate::agents::codex::{self, find_codex};
 use crate::agents::event::ModelId;
 use crate::agents::standalone;
@@ -132,21 +133,20 @@ pub struct HaikuRequest<'a> {
 }
 
 /// Startet `claude.exe`, schickt `input` über die Standardeingabe und liefert `structured_output`.
-/// Der Prozess wird in jedem Fall beendet, auch nach Zeitlimit oder Fehler.
+/// Der Prozess wird in jedem Fall samt seiner Gruppe beendet, auch nach Zeitlimit oder Fehler, und
+/// bis dahin beendet ihn auch das App-Ende (`ChildGroup`).
 pub fn run_print(
     exe: &Path,
     cwd: &Path,
     request: &PrintRequest<'_>,
     timeout: Duration,
 ) -> Result<Value, String> {
-    let mut child = print_command(exe, cwd, request)
-        .spawn()
+    let call = ChildGroup::spawn(print_command(exe, cwd, request))
         .map_err(|error| format!("Claude-Kommandozeile startet nicht: {error}"))?;
-    let output = exchange(&mut child, request.input, timeout);
-    // Ohne `wait` bliebe ein Prozess-Handle offen; Lese- und Schreib-Thread enden nach `kill` mit
-    // dem Schließen der Pipes.
-    let _ = child.kill();
-    let _ = child.wait();
+    let (stdin, stdout, _) = call.take_pipes();
+    let output = exchange(stdin, stdout, request.input, timeout);
+    // Lese- und Schreib-Thread enden mit dem Schließen der Pipes.
+    call.end();
     structured_output(&output?)
 }
 
@@ -199,11 +199,12 @@ fn print_command(exe: &Path, cwd: &Path, request: &PrintRequest<'_>) -> Command 
 /// Die ganze Standardausgabe als Text. Schreiben und Lesen laufen in eigenen Threads, damit das
 /// Zeitlimit auch dann greift, wenn die Kommandozeile die Eingabe nicht abnimmt.
 pub(super) fn exchange(
-    child: &mut Child,
+    stdin: Option<ChildStdin>,
+    stdout: Option<ChildStdout>,
     input: &str,
     timeout: Duration,
 ) -> Result<String, String> {
-    let (Some(stdin), Some(stdout)) = (child.stdin.take(), child.stdout.take()) else {
+    let (Some(stdin), Some(stdout)) = (stdin, stdout) else {
         return Err("Ein-/Ausgabe von Claude nicht verfügbar".to_owned());
     };
     let receiver = start_reader(stdout)?;
