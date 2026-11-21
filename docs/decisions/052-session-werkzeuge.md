@@ -136,3 +136,14 @@ Entscheidung 1 oben (Werte kommen von der aufrufenden Session) und die Übernahm
 6. Bestehende Sessions bleiben unberührt; `create_in_project` gibt eine schon wartende leere Session unverändert zurück.
 
 Folge: „In neuer Session weiter“ läuft mit dem Standardmodell statt mit dem der alten Session.
+
+### Nachtrag 2026-11-21: Sprung in die Ziel-Session (Story Taiga 107)
+
+Wer eine Nachricht an eine andere Session schickt, kommt mit einem Klick in diese Session. Kein Eingriff in den Kern, keine Bindings: Die Oberfläche liest, was sie schon hat.
+
+1. **Kasten:** Empfänger (`sendMessage`) und Ziel (`getTldr`) sind Knöpfe mit `aria-label` („Zu Session 12 „Titel““), die `selectSession` aufrufen, im Chat wie im Popup des Dashboards (dort wie „Session öffnen“). Steht die Session nicht mehr in der Liste, bleibt es Text.
+2. **Werkzeugzeile:** Für `verwalter_send_message_to` und `verwalter_open_session` lädt die Zeile ihre Ausgabe, sobald der Aufruf fertig ist, ohne Aufklappen (`useToolLinks`, einmal je Zeile) und liest sie in `sessionLinks.ts`: bei der Sendung `recipients[]` mit Zustand (zugestellt, wartet, nicht zustellbar), bei `open_session` `sessionId`. Gelesen wird die Ausgabe, nicht die Eingabe: Die Eingabe ist auf 32 KiB gekürzt, und `session_ids` steht in ihr alphabetisch hinter einer langen Nachricht. Nummer und Titel kommen aus der Liste der Sessions, sonst der Titel der Ausgabe als Text. Abgelehnt, Fehler oder unlesbar: die Zeile bleibt, wie sie war, ohne Meldung.
+3. **Selbstfreigabe:** Der Weg über die Ausgabe gilt für freigegebene und selbst freigegebene Aufrufe gleich; bei Selbstfreigabe gibt es nur die Zeile.
+4. **Zeile:** Die Links stehen neben dem Knopf zum Aufklappen, nicht in ihm (ein Knopf in einem Knopf ist kein gültiges HTML). Eine Zeile ohne Links bleibt ein einziger Knopf.
+
+Der Name vor „möchte …“, „wartet auf deine Entscheidung“ und „hat gefragt“ ist der des Agenten der Betriebsart (siehe [ADR 069](069-zeitpunkt-im-chat.md), Nachtrag 2026-11-21). Entwurf: `docs/design/2026-11-21_chat-sprung/`.

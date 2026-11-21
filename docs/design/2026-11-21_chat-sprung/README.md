@@ -1,6 +1,6 @@
 # Design-Entwurf: Sprung in die Ziel-Session, Zeit und Name am Fragekasten
 
-**Status:** Entwurf vom 2026-11-21, wartet auf die Wahl des Nutzers (Taiga Story 107, Issue 185; [ADR 052](../../decisions/052-session-werkzeuge.md), [ADR 069](../../decisions/069-zeitpunkt-im-chat.md)). Aufbau und Stil wie [2026-11-20_dashboard-zettel](../2026-11-20_dashboard-zettel/README.md).
+**Status:** Entwurf vom 2026-11-21, vom Nutzer gewählt: Zeit A, Namen wie vorgeschlagen (Taiga Story 107, Issue 185; [ADR 052](../../decisions/052-session-werkzeuge.md), [ADR 069](../../decisions/069-zeitpunkt-im-chat.md)). Aufbau und Stil wie [2026-11-20_dashboard-zettel](../2026-11-20_dashboard-zettel/README.md).
 
 ## Ansehen
 
@@ -17,16 +17,18 @@
 | 4 | #185 | Gedankengang und Fragekasten: heute (Zeit schwebt im Abstand), Variante A (eigene Zeile über dem Kasten), Variante B (rechts im Kopf) |
 | 5 | #185 | Kopf „… hat gefragt“ für Claude, Claude (LM Studio), Autark und Codex; Tabelle der Namen |
 
-## Offen: Zeit des Fragekastens (A oder B)
+## Zeit des Fragekastens: A oder B
 
 - **A:** eigene Zeile wie bei Nachrichten ([ADR 069](../../decisions/069-zeitpunkt-im-chat.md): `entry-time--message`). Einheitlich mit den Nachrichten, kostet eine Zeile Höhe.
 - **B:** rechts im Kopf des Kastens, vor der Zahl „N Fragen“, wenn es mehrere gibt. Die Zeit gehört sichtbar zum Kasten und braucht keine Zeile; es ist eine zweite Art, Zeit zu zeigen.
 
-**Es gilt:** noch offen (Wahl des Nutzers).
+**Es gilt:** Zeit A.
 
-## Offen: kurze Namen der Betriebsarten
+## Namen der Betriebsarten
 
-Vorschlag: Claude → „Claude“, Claude Code + LM Studio → „Claude (LM Studio)“, Autark → „Autark“, Codex → „Codex“.
+Claude → „Claude“, Claude Code + LM Studio → „Claude (LM Studio)“, Autark → „Autark“, Codex → „Codex“.
+
+**Es gilt:** die Namen wie hier.
 
 ## Festlegungen des Entwurfs
 
