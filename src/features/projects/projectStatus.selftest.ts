@@ -1,7 +1,7 @@
 // Selbsttest der Auswahl und der Metazeile in der Leiste (ADR 048, 065): `node src/features/projects/projectStatus.selftest.ts`
 // (`pnpm selftest`). Je Fall `PASS`/`FAIL`, Exit 1 bei einem Fehlschlag. Node streicht die Typen; die
 // geprüfte Datei und ihre Importe sind relativ gebunden und binden Typen nur über `import type`.
-import { chooseSession, projectMetaLine, visibleSessions } from './projectStatus.ts';
+import { chooseSession, metaSession, projectMetaLine, visibleSessions } from './projectStatus.ts';
 import type { SessionSummary } from '../../lib/bindings/SessionSummary.ts';
 
 function session(fields: Partial<SessionSummary>): SessionSummary {
@@ -78,6 +78,11 @@ const CASES: { name: string; actual: () => unknown; expected: unknown }[] = [
     name: 'meta_line_ignores_a_waiting_station_next_to_a_running_session',
     actual: () => projectMetaLine([STATION, OWN], 0),
     expected: projectMetaLine([OWN], 0),
+  },
+  {
+    name: 'meta_session_is_the_running_own_session_not_the_waiting_station',
+    actual: () => metaSession([STATION, OWN])?.id,
+    expected: 'own',
   },
   {
     name: 'meta_line_counts_only_sessions_with_a_row',

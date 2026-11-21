@@ -108,6 +108,12 @@ export function mostUrgent(sessions: readonly SessionSummary[]): SessionSummary 
   return best;
 }
 
+/** Die Session, von der die Metazeile des Vorhabens spricht: die dringendste mit eigener Zeile.
+ *  Text, Farbe und Ticken der Zeile kommen alle aus ihr; Symbol und „erledigt“ zählen die Stationen mit. */
+export function metaSession(allSessions: readonly SessionSummary[]): SessionSummary | null {
+  return mostUrgent(visibleSessions(allSessions));
+}
+
 /** Zweite Zeile eines Vorhabens in der Sidebar; `null`, wenn es nichts Nützliches zu sagen gibt.
  *  Sie zählt und nennt nur Sessions mit eigener Zeile; eine Station zeigt ihren Zustand an ihrer
  *  Zeile oder an der Marke der Umsetzung. */
@@ -116,7 +122,7 @@ export function projectMetaLine(
   now: number,
 ): string | null {
   const sessions: SessionSummary[] = visibleSessions(allSessions);
-  const urgent: SessionSummary | null = mostUrgent(sessions);
+  const urgent: SessionSummary | null = metaSession(allSessions);
   if (urgent === null) {
     return null;
   }

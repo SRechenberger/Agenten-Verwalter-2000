@@ -288,8 +288,8 @@ export function App(): ReactElement {
   const currentSession: SessionSummary | undefined = isOverview
     ? overviewSessions[overviewSessions.length - 1]
     : chosenSession;
-  // Der Rückfall gilt einmal und bleibt dann stehen: `sessions[0]` wechselt mit jeder Aktivität, die Ansicht
-  // spränge sonst ohne Zutun in eine andere Session.
+  // Der Rückfall (`chooseSession`: die erste Session mit eigener Zeile) gilt einmal und bleibt dann stehen: Sie wechselt
+  // mit jeder Aktivität, die Ansicht spränge sonst ohne Zutun in eine andere Session.
   const chosenSessionId: string | null = chosenSession?.id ?? null;
   useEffect(() => {
     // Zeigt die Hauptfläche den Hinweis oder das Angebot, bleibt die gewählte Session stehen, auch wenn sie fehlt.
