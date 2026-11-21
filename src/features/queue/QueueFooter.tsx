@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import type { ReactElement, ReactNode } from 'react';
+import type { PointerEvent, ReactElement, ReactNode } from 'react';
 import { Popover } from '@/components/Popover';
 import { QueueChip, QueueList } from '@/features/queue/QueueChip';
 import {
@@ -44,8 +44,22 @@ export function QueueFooter({ projects, children }: QueueFooterProps): ReactElem
     setIsOpen(!isOpen);
   }
 
+  // Der Anker des losgelösten Popovers ist der ganze Fuß, und was darin gedrückt wird, schließt der Fuß selbst.
+  // Ausgenommen: Ziele außerhalb des DOM-Teilbaums (die Liste hängt per Portal am body, React reicht ihre Ereignisse
+  // hierher weiter) und die beiden Auslöser, die selbst umschalten.
+  function closeOnPress(event: PointerEvent<HTMLDivElement>): void {
+    const target = event.target as Element;
+    if (!event.currentTarget.contains(target)) {
+      return;
+    }
+    if (target.closest('.queue-footer__bar, .queue-chip__button') !== null) {
+      return;
+    }
+    setIsOpen(false);
+  }
+
   return (
-    <div className="queue-footer">
+    <div className="queue-footer" onPointerDown={closeOnPress}>
       {queue !== null && isBarShown && (
         <button
           type="button"
@@ -68,16 +82,7 @@ export function QueueFooter({ projects, children }: QueueFooterProps): ReactElem
         {entries.length > 0 && (
           <QueueChip count={entries.length} isOpen={isOpen} onToggle={toggle} />
         )}
-        {/* `display: contents`: Der Knopf behält Lage und Aussehen. Er liegt im Anker des Popovers und zählt dort
-            nicht als „außerhalb“, deshalb schließt die Liste hier selbst. */}
-        <div
-          className="queue-footer__extra"
-          onPointerDown={(): void => {
-            setIsOpen(false);
-          }}
-        >
-          {children}
-        </div>
+        {children}
       </div>
       {isOpen && isBarShown && (
         <Popover
