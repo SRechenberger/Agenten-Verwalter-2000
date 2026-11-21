@@ -30,10 +30,7 @@ export function CancelRequestCard({
 }: CancelRequestCardProps): ReactElement {
   const title: string = request.delete ? DELETE_REQUEST_TITLE : CANCEL_REQUEST_TITLE;
   return (
-    <article
-      className="station-card plan-change-card plan-change-card--proposal"
-      aria-label={title}
-    >
+    <article className="station-card plan-change-card" aria-label={title}>
       <div className="station-card__head">
         <b className="station-card__title">{title}</b>
         <span className="station-card__number">

@@ -1,23 +1,6 @@
 .plan-change-card {
   border-left-color: var(--color-accent);
 
-  /* Der Vorschlag hebt sich ab (#132): getönter Grund, kräftiger Rahmen und, weil er nur als Karte vorn
-     steht, ein Fokusring. */
-  &--proposal {
-    border: 1.5px solid var(--color-accent);
-    border-left-width: 5px;
-    background:
-      linear-gradient(var(--color-accent-subtle), var(--color-accent-subtle)),
-      var(--color-bg-surface);
-    box-shadow: 0 0 0 3px var(--color-accent-subtle);
-    outline: 2px solid var(--color-accent);
-    outline-offset: 3px;
-
-    & .station-card__title {
-      color: var(--color-accent-text);
-    }
-  }
-
   &__icon {
     margin-right: var(--space-sm);
   }
@@ -83,4 +66,21 @@
   font-size: var(--font-size-xs);
   white-space: pre-wrap;
   word-break: break-all;
+}
+
+/* Der Vorschlag hebt sich ab (#132): getönter Grund, kräftiger Rahmen und, weil er nur als Karte vorn
+   steht, ein Fokusring. Zwei Klassen, denn `.station-card` setzt Rand und Grund sonst bei gleicher
+   Spezifität zurück, je nach Reihenfolge der Stylesheets im Bundle. */
+.station-card.plan-change-card--proposal {
+  border: 1.5px solid var(--color-accent);
+  border-left-width: 5px;
+  background:
+    linear-gradient(var(--color-accent-subtle), var(--color-accent-subtle)), var(--color-bg-surface);
+  box-shadow: 0 0 0 3px var(--color-accent-subtle);
+  outline: 2px solid var(--color-accent);
+  outline-offset: 3px;
+
+  & .station-card__title {
+    color: var(--color-accent-text);
+  }
 }
