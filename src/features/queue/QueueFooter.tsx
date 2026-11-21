@@ -34,6 +34,11 @@ export function QueueFooter({ projects, children }: QueueFooterProps): ReactElem
   const queue: AgentQueue | null = useAgentQueueStore((state) => state.queue);
   const entries: readonly QueueEntry[] = queue?.entries ?? [];
   const isBarShown: boolean = queue !== null && isSlotsBarShown(queue);
+  // Verschwindet die Balkenzeile, hat die Liste keinen Auslöser mehr: Sie darf beim nächsten belegten Platz
+  // nicht von selbst offen stehen.
+  if (isOpen && !isBarShown) {
+    setIsOpen(false);
+  }
 
   function toggle(): void {
     setIsOpen(!isOpen);
