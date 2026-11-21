@@ -209,12 +209,7 @@ pub fn build(snapshot: &Snapshot, now: f64) -> DashboardView {
             flow_tasks(&context, project, flow, &mut tasks, &mut read);
         }
     }
-    tasks.sort_by(|left: &DashboardTask, right: &DashboardTask| {
-        level(left)
-            .cmp(&level(right))
-            .then(left.since.total_cmp(&right.since))
-            .then_with(|| left.id.cmp(&right.id))
-    });
+    sort_tasks(&mut tasks);
     // Zustand und Zahl eines Ablaufs zählen die gelesenen Karten mit.
     let flows = flows_of(snapshot, &context, &tasks, now);
     tasks.retain(|task: &DashboardTask| !read.contains(&task.id));
@@ -223,6 +218,17 @@ pub fn build(snapshot: &Snapshot, now: f64) -> DashboardView {
         sessions: sessions_of(snapshot, &context, &tasks),
         tasks,
     }
+}
+
+/// Die Reihenfolge der Karten: nach Stufe, dann am längsten wartend zuerst; auch für die Karten der
+/// Hosts beim Gast.
+pub fn sort_tasks(tasks: &mut [DashboardTask]) {
+    tasks.sort_by(|left: &DashboardTask, right: &DashboardTask| {
+        level(left)
+            .cmp(&level(right))
+            .then(left.since.total_cmp(&right.since))
+            .then_with(|| left.id.cmp(&right.id))
+    });
 }
 
 fn request_kind(kind: QuestionKind) -> DashboardTaskKind {

@@ -1,5 +1,6 @@
 //! Regeln des Dashboards (ADR 071): jede Zeile der Tabelle mit ihrem Gegenfall, die Reihenfolge, die
 //! Abläufe und die Spalte der Sessions. Reine Funktionen über einer Momentaufnahme, ohne Tauri.
+use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -11,8 +12,10 @@ use super::model::{
 use super::{EXCERPT_CHARS, build, excerpt};
 use crate::agents::event::QuestionKind;
 use crate::db::Database;
+use crate::error::CommandError;
 use crate::implementation::model::StationState;
 use crate::remote::RemoteControl;
+use crate::remote::guest::merge_dashboards;
 use crate::sessions::model::{PauseReason, SessionStatus};
 use crate::sessions::registry::SessionRegistry;
 
@@ -1151,4 +1154,110 @@ fn a_station_error_without_session_cannot_be_read() {
         vec![flow("i", vec![station("st", StationState::Error)])],
     );
     assert_eq!(kinds(&view), vec![DashboardTaskKind::Error]);
+}
+
+/// Die Sessions im Vorhaben `h` eines Hosts.
+fn on_host(mut session: SessionFacts) -> SessionFacts {
+    session.project_id = "h".to_owned();
+    session
+}
+
+fn ids(view: &DashboardView) -> Vec<String> {
+    view.tasks
+        .iter()
+        .map(|task: &DashboardTask| task.id.clone())
+        .collect()
+}
+
+/// Lokale Sessions in `p`, die eines Hosts in `h`; die Stufen und Zeiten greifen ineinander.
+fn local_and_host() -> (Snapshot, Snapshot) {
+    let mut asking = on_host(session("h-ask", SessionStatus::Waiting));
+    asking.requests = vec![request("r", QuestionKind::AskUser, 900.0)];
+    let local = snapshot(
+        vec![
+            answered("p-early", 200.0),
+            answered("p-late", 700.0),
+            session("p-error", SessionStatus::Error),
+        ],
+        Vec::new(),
+    );
+    let host = Snapshot {
+        projects: vec![project("h")],
+        sessions: vec![
+            asking,
+            on_host(answered("h-middle", 400.0)),
+            on_host(session("h-error", SessionStatus::Error)),
+        ],
+        flows: Vec::new(),
+    };
+    (local, host)
+}
+
+fn host_answer(host: &Snapshot) -> Result<serde_json::Value, CommandError> {
+    Ok(serde_json::to_value(build(host, NOW)).expect("JSON"))
+}
+
+#[test]
+fn merged_local_and_host_cards_stand_in_the_order_build_gives_all_of_them() {
+    let (local, host) = local_and_host();
+    let merged = merge_dashboards(
+        build(&local, NOW),
+        vec![host_answer(&host)],
+        &HashMap::new(),
+    );
+    let all = Snapshot {
+        projects: [local.projects, host.projects].concat(),
+        sessions: [local.sessions, host.sessions].concat(),
+        flows: Vec::new(),
+    };
+    assert_eq!(ids(&merged), ids(&build(&all, NOW)));
+    assert_eq!(merged.tasks.len(), 6);
+}
+
+#[test]
+fn a_host_card_takes_the_local_group_of_the_guest_not_the_one_of_the_host() {
+    let (local, host) = local_and_host();
+    let groups: HashMap<String, String> = HashMap::from([("h".to_owned(), "Meine".to_owned())]);
+    let merged = merge_dashboards(build(&local, NOW), vec![host_answer(&host)], &groups);
+    let group_of = |project_id: &str| {
+        merged
+            .tasks
+            .iter()
+            .filter(|task: &&DashboardTask| task.project_id == project_id)
+            .map(|task: &DashboardTask| task.group_name.clone())
+            .collect::<Vec<Option<String>>>()
+    };
+    assert_eq!(group_of("h"), vec![Some("Meine".to_owned()); 3]);
+    assert_eq!(group_of("p"), vec![Some("Gruppe".to_owned()); 3]);
+    // Ohne lokale Gruppe steht die Karte ohne Gruppe, auch wenn der Host eine nennt.
+    let merged = merge_dashboards(
+        build(&local, NOW),
+        vec![host_answer(&host)],
+        &HashMap::new(),
+    );
+    assert!(
+        merged
+            .tasks
+            .iter()
+            .filter(|task: &&DashboardTask| task.project_id == "h")
+            .all(|task: &DashboardTask| task.group_name.is_none())
+    );
+}
+
+#[test]
+fn a_host_without_answer_changes_nothing_in_the_local_view() {
+    let (local, host) = local_and_host();
+    let unreachable = || Err(CommandError::HostUnreachable("Host".to_owned()));
+    let alone = merge_dashboards(build(&local, NOW), vec![unreachable()], &HashMap::new());
+    assert_eq!(
+        serde_json::to_value(&alone).expect("JSON"),
+        serde_json::to_value(build(&local, NOW)).expect("JSON")
+    );
+    // Ein zweiter Host, der antwortet, trägt trotzdem bei.
+    let both = merge_dashboards(
+        build(&local, NOW),
+        vec![unreachable(), host_answer(&host)],
+        &HashMap::new(),
+    );
+    assert_eq!(both.tasks.len(), 6);
 }
