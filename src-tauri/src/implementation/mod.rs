@@ -205,6 +205,8 @@ pub struct CompleteOutcome {
     pub handed: Vec<(String, BriefChangeKind)>,
     /// Eine Übergabenotiz kam mit, aber kein Nachfolger wartet.
     pub handoff_unused: bool,
+    /// Stationen „durch dich“, die jetzt an der Reihe sind (`id`, Lane und Stufe; #136).
+    pub for_user: Vec<(String, StationRef)>,
 }
 
 impl CompleteOutcome {
@@ -227,6 +229,19 @@ impl CompleteOutcome {
                 .map(|next: &StationRef| format!("Lane {} · {}", next.phase_key, next.stage))
                 .collect();
             text.push_str(&format!(" Als Nächstes startet: {}.", names.join(", ")));
+        }
+        if !self.for_user.is_empty() {
+            let names: Vec<String> = self
+                .for_user
+                .iter()
+                .map(|(id, station): &(String, StationRef)| {
+                    format!("Lane {} · {} (id {id})", station.phase_key, station.stage)
+                })
+                .collect();
+            text.push_str(&format!(
+                " An der Reihe „durch dich“: {}; freigeben mit `release`.",
+                names.join(", ")
+            ));
         }
         for (kind, label) in [
             (BriefChangeKind::Append, "Übergabenotiz ergänzt bei"),
@@ -897,7 +912,11 @@ fn after_completion(
     } else {
         outcome.waits_for_user = true;
     }
-    announce(app, &registry.implementation_view(implementation_id)?);
+    let view = registry.implementation_view(implementation_id)?;
+    if !outcome.is_finished {
+        outcome.for_user = due_for_user(&view);
+    }
+    announce(app, &view);
     Ok(outcome)
 }
 
@@ -1368,6 +1387,55 @@ pub fn resumes_queue(view: &ImplementationView) -> bool {
 /// Warteschlange der übrigen Umsetzungen nach.
 pub fn refills_after_switch_off(view: &ImplementationView) -> bool {
     has_begun(view) && resumes_queue(view)
+}
+
+/// Was nach dem Umschalten von „Automatisch starten“ der Umsetzung in die Warteschlange geht.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SwitchEffect {
+    /// Die bereiten Stationen dieser Umsetzung warten (`start::schedule_ready`, schaltet sie scharf).
+    Schedule,
+    /// Nur die Warteschlange der übrigen rückt nach (`start::refill`).
+    Refill,
+    /// Nichts: Die Umsetzung hat nicht begonnen, und der Schalter allein startet sie nicht (#51).
+    Nothing,
+}
+
+/// Der Schalter allein beginnt keine Umsetzung (ADR 061, Nachtrag zu #51): Eingeschaltet plant er nur
+/// eine begonnene; sonst startet sie erst „Umsetzung starten“ oder ▶. Einmal scharf, bliebe sie es bis
+/// zum Ende der App, deshalb schützt die Regel schon den Aufruf von `start::schedule_ready`.
+pub fn after_auto_start_switch(view: &ImplementationView, enabled: bool) -> SwitchEffect {
+    match (enabled, has_begun(view)) {
+        (true, true) => SwitchEffect::Schedule,
+        (true, false) => SwitchEffect::Nothing,
+        (false, _) if refills_after_switch_off(view) => SwitchEffect::Schedule,
+        (false, _) => SwitchEffect::Refill,
+    }
+}
+
+/// Stationen „durch dich“, die jetzt an der Reihe sind und der Master freigeben kann (#136): dieselbe
+/// Regel wie `release`.
+pub fn due_for_user(view: &ImplementationView) -> Vec<(String, StationRef)> {
+    view.phases
+        .iter()
+        .flat_map(|phase: &PhaseView| {
+            phase
+                .stations
+                .iter()
+                .map(move |station: &StationView| (phase, station))
+        })
+        .filter(|(_, station): &(&PhaseView, &StationView)| {
+            master::release_refusal(station.by_user, station.state).is_none()
+        })
+        .map(|(phase, station): (&PhaseView, &StationView)| {
+            (
+                station.id.clone(),
+                StationRef {
+                    phase_key: phase.key.clone(),
+                    stage: station.stage.clone(),
+                },
+            )
+        })
+        .collect()
 }
 
 /// Ein Countdown endete, ohne zu starten (Startfehler, Automatik aus, Halt): Der Platz ist frei, aber
