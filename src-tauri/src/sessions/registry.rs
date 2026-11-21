@@ -126,6 +126,9 @@ const MS_PER_SECOND: f64 = 1000.0;
 /// Werkzeuge, mit denen der Agent Dateien schreibt (ADR 014).
 const WRITING_TOOLS: [&str; 4] = ["Edit", "Write", "MultiEdit", "NotebookEdit"];
 const KILL_GRACE: Duration = Duration::from_secs(5);
+/// Nach `KILL_GRACE` bekommt der Agent SIGTERM und so lange, bis SIGKILL seine Gruppe trifft:
+/// Übersetzer und eigener Agent räumen in der Zeit ihre verschachtelten Gruppen ab (ADR 074).
+const TERM_GRACE: Duration = Duration::from_secs(2);
 /// Abstand zwischen dem Abschuss des Agenten und dem Aufräumen seiner Worktrees.
 const CLEANUP_MARGIN: Duration = Duration::from_secs(1);
 const MAX_LOG_LINES: usize = 300;
@@ -5013,9 +5016,10 @@ fn retire_idle_process(state: &mut SessionState, outbox: &mut Outbox) {
     state.idle_since = None;
 }
 
-/// Ohne Standardeingabe beendet sich ein ruhender Agent selbst; der Abschuss nach der Frist
-/// fängt einen ab, der hängt. Er trifft die ganze Prozessgruppe, auch wenn der Agent sich selbst
-/// beendet hat: Seine Kinder (MCP-Server, Shells, Builds) können noch leben (ADR 074).
+/// Ohne Standardeingabe beendet sich ein ruhender Agent selbst; nach der Frist fängt SIGTERM, nach
+/// `TERM_GRACE` SIGKILL einen ab, der hängt. Beides trifft die ganze Prozessgruppe, auch wenn der
+/// Agent sich selbst beendet hat: Seine Kinder (MCP-Server, Shells, Builds) können noch leben
+/// (ADR 074).
 fn retire_process(process: Arc<ClaudeProcess>) {
     retire_process_after(process, KILL_GRACE);
 }
@@ -5028,7 +5032,7 @@ fn retire_process_after(process: Arc<ClaudeProcess>, grace: Duration) {
         .name("claude-retire".to_owned())
         .spawn(move || {
             thread::sleep(grace);
-            killer.kill();
+            killer.terminate(TERM_GRACE);
         });
     if spawned.is_err() {
         process.kill();
@@ -5042,7 +5046,7 @@ fn schedule_worktree_cleanup(workspace: PathBuf, repositories: Vec<SessionReposi
     let _ = thread::Builder::new()
         .name("worktree-cleanup".to_owned())
         .spawn(move || {
-            thread::sleep(KILL_GRACE + CLEANUP_MARGIN);
+            thread::sleep(KILL_GRACE + TERM_GRACE + CLEANUP_MARGIN);
             worktrees::remove_clean(&workspace, &repositories);
         });
 }
@@ -7404,6 +7408,38 @@ mod tests {
                 clean_up(child);
             }
             assert!(child_gone, "das Kind lebt nach dem Ende des Agenten noch");
+        }
+
+        /// V195: Nach der Frist kommt erst SIGTERM, dann SIGKILL; Übersetzer und eigener Agent
+        /// räumen in der Zeit ihre verschachtelten Gruppen ab.
+        #[test]
+        fn retire_process_sends_sigterm_before_sigkill() {
+            let marker =
+                std::env::temp_dir().join(format!("verwalter-v195-{}", uuid::Uuid::new_v4()));
+            let script = format!(
+                "trap 'echo term > \"{}\"; exit 0' TERM; sleep 300 & echo $!; while :; do sleep 1; done",
+                marker.display()
+            );
+            let (agent, child) = agent(&script);
+            let leader = agent.pid();
+            retire_process_after(Arc::clone(&agent), GRACE);
+            let deadline = std::time::Instant::now() + GRACE + Duration::from_secs(3);
+            while !marker.exists() && std::time::Instant::now() < deadline {
+                thread::sleep(Duration::from_millis(20));
+            }
+            let terminated = marker.exists();
+            let child_gone = gone(child);
+            let leader_gone = gone(leader);
+            if !child_gone {
+                clean_up(child);
+            }
+            if !leader_gone {
+                clean_up(leader);
+            }
+            let _ = fs::remove_file(&marker);
+            assert!(terminated, "der Agent bekam kein SIGTERM vor dem SIGKILL");
+            assert!(child_gone, "das Kind lebt noch");
+            assert!(leader_gone, "der Agent lebt noch");
         }
 
         #[test]

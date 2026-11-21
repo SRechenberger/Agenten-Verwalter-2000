@@ -253,6 +253,14 @@ impl ClaudeProcess {
         lock(&self.child).signal(Signal::Kill);
     }
 
+    /// SIGTERM an die ganze Gruppe, dann höchstens `grace`, dann SIGKILL, solange der Agent nicht
+    /// eingesammelt ist (Windows: beides `taskkill /T`). Übersetzer und eigener Agent räumen beim
+    /// SIGTERM ihre verschachtelten Gruppen ab (ADR 074). Endet er in der Frist, beendet `try_reap`
+    /// den Rest der Gruppe vor dem Einsammeln.
+    pub fn terminate(&self, grace: Duration) {
+        terminate_leaders(std::slice::from_ref(&self.child), grace);
+    }
+
     pub fn pid(&self) -> u32 {
         self.pid
     }
@@ -286,9 +294,14 @@ pub(crate) fn stop(processes: &[&ClaudeProcess], grace: Duration) {
 
 fn stop_leaders(leaders: &[Arc<Mutex<Leader>>], grace: Duration) {
     for leader in leaders {
-        let mut leader = lock(leader);
-        leader.stopping = true;
-        leader.signal(Signal::Terminate);
+        lock(leader).stopping = true;
+    }
+    terminate_leaders(leaders, grace);
+}
+
+fn terminate_leaders(leaders: &[Arc<Mutex<Leader>>], grace: Duration) {
+    for leader in leaders {
+        lock(leader).signal(Signal::Terminate);
     }
     let deadline = Instant::now() + grace;
     // `try_reap` beendet beim Einsammeln den Rest der Gruppe; ein Fehler zählt als beendet.

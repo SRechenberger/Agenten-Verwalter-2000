@@ -27,6 +27,13 @@ pub const EXE_VARIABLE: &str = "VERWALTER_CODEX_EXE";
 
 const DATA_DIR: &str = ".verwalter";
 const THREAD_DIR: &str = "codex";
+/// So lange bekommt Codex nach einem SIGTERM an den Übersetzer, bevor SIGKILL seine Gruppe trifft;
+/// das App-Ende wartet höchstens 2 s auf alle Agenten zusammen (ADR 074).
+#[cfg(unix)]
+const STOP_GRACE: std::time::Duration = std::time::Duration::from_millis(500);
+/// Exit-Code nach SIGTERM, wie ihn eine Shell meldet (128 + 15).
+#[cfg(unix)]
+const EXIT_TERMINATED: i32 = 143;
 
 /// `<Benutzerordner>\.verwalter\codex\<id>.json` mit der Codex-Thread-ID der Session; ohne bekannten
 /// Benutzerordner `None`.
@@ -41,6 +48,16 @@ pub fn thread_file(session_id: &str) -> Option<PathBuf> {
 
 /// Läuft bis zum Dateiende der Standardeingabe; Rückgabe ist der Exit-Code des Prozesses.
 pub fn run(raw_args: Vec<String>) -> i32 {
+    // Codex läuft in eigener Gruppe, und das SIGTERM des Verwalters an die Gruppe des Übersetzers
+    // erreicht ihn nicht: Der Übersetzer beendet ihn selbst, ohne `SHUTDOWN_GRACE` abzuwarten. Die
+    // Liste von `stop_all` enthält hier nur die eigenen Codex-Prozesse (`RpcClient`).
+    #[cfg(unix)]
+    if let Err(error) = crate::processes::on_terminate(|| {
+        crate::agents::claude::process::stop_all(STOP_GRACE);
+        std::process::exit(EXIT_TERMINATED);
+    }) {
+        eprintln!("SIGTERM wird nicht abgefangen: {error}");
+    }
     let parsed = match args::parse(&raw_args) {
         Ok(parsed) => parsed,
         Err(error) => {
