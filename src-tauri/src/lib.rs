@@ -202,6 +202,7 @@ pub fn run() {
             commands::remote::remote_give_back,
             commands::remote::remote_host_profile,
             commands::remote::remote_usage_load,
+            commands::remote::remote_agent_queue,
             commands::remote::remote_usage_refresh,
             commands::remote::remote_asset_base,
             commands::archive::archive_search,

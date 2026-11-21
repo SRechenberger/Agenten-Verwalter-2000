@@ -1,5 +1,5 @@
 //! Was der Host einem angemeldeten Gast antwortet (ADR 059): `remote_take` und `remote_give_back`
-//! hier, die Listen aus Klasse F und das Dashboard gefiltert nach Freigabe und Inhaber, jeder
+//! hier, die Listen aus Klasse F, das Dashboard und die Warteschlange gefiltert nach Freigabe und Inhaber, jeder
 //! andere Befehl erst nach `access::check` und dann wie von der Oberfläche. Wie er den Befehl
 //! ausführt, sagt `Host`: in der App über `Webview::on_message`, in der Probe ein Stub.
 //! `terminal_attach` und `terminal_detach` beantwortet `answer_on` über `TerminalHost`, denn ihr
@@ -30,6 +30,7 @@ use crate::dashboard::{
     model::{FlowFacts, ProjectFacts, SessionFacts, Snapshot},
 };
 use crate::error::CommandError;
+use crate::implementation::slots::{AgentQueue, QueueEntry};
 use crate::sessions::registry::{SessionRegistry, now_ms};
 use crate::terminal::model::TerminalOutput;
 use crate::terminal::{TerminalService, Viewer};
@@ -54,6 +55,8 @@ pub trait Host: Send + Sync {
     fn list(&self, command: &str) -> Result<Vec<Value>, CommandError>;
     /// Die Momentaufnahme des Dashboards aus der Registry, ungefiltert; nie über `dashboard_get`.
     fn dashboard_snapshot(&self) -> Result<Snapshot, CommandError>;
+    /// Die Warteschlange aus der Registry, ungefiltert; nie über `agent_queue`.
+    fn agent_queue(&self) -> AgentQueue;
     /// Führt den Command aus wie die eigene Oberfläche, mit der Kopfzeile des Servers.
     fn invoke(&self, command: &str, args: Value) -> Result<Value, CommandError>;
     /// Der Ordner `.artefakte` im Workspace der Session.
@@ -105,6 +108,7 @@ pub fn answer(
             "Terminals eines Hosts gehen nur über die Verbindung des Geräts.".to_owned(),
         )),
         "dashboard_get" => dashboard_for(host, control, device),
+        "agent_queue" => queue_for(host, control, device),
         list if MERGED_LISTS.contains(&list) => {
             let items = host.list(list)?;
             Ok(Value::Array(filter_list(
@@ -345,6 +349,22 @@ fn dashboard_for(
     to_json(&dashboard::build(&snapshot, now_ms()))
 }
 
+/// Die Warteschlange für einen Gast (ADR 068, Nachtrag Story 188): Grenze und belegte Plätze des Hosts,
+/// Wartende nur der Vorhaben, die das Gerät hält, mit ihrem Rang beim Host. Aus der Registry wie das
+/// Dashboard, nicht über `agent_queue`.
+fn queue_for(
+    host: &dyn Host,
+    control: &RemoteControl,
+    device: &DeviceRef,
+) -> Result<Value, CommandError> {
+    let held: HashSet<String> = control.with(|control| control.held_by(&device.id));
+    let mut queue = host.agent_queue();
+    queue
+        .entries
+        .retain(|entry: &QueueEntry| held.contains(&entry.project_id));
+    to_json(&queue)
+}
+
 /// Der Host in der App: Befehle laufen über `Webview::on_message` auf dem Fenster `main`, also
 /// durch dieselben Commands und Antworten wie für die eigene Oberfläche. `invoke_key` bleibt hier.
 pub struct AppHost {
@@ -392,6 +412,10 @@ impl Host for AppHost {
 
     fn dashboard_snapshot(&self) -> Result<Snapshot, CommandError> {
         self.app.state::<SessionRegistry>().dashboard_snapshot()
+    }
+
+    fn agent_queue(&self) -> AgentQueue {
+        self.app.state::<SessionRegistry>().agent_queue()
     }
 
     fn invoke(&self, command: &str, args: Value) -> Result<Value, CommandError> {

@@ -20,12 +20,12 @@ import { isLocked, isRemote, LOCKED_TITLE } from '@/features/remote/projectAcces
 import { displayStatus } from '@/features/sessions/sessionStatus';
 import { QueueFooter } from '@/features/queue/QueueFooter';
 import { badgeCount } from '@/features/dashboard/dashboardTexts';
-import { messageWaitPosition } from '@/features/queue/queueTexts';
+import { sessionWaitPosition } from '@/features/queue/queueTexts';
 import { UsageSection } from '@/features/usage/UsageSection';
 import type { ImplementationView } from '@/lib/bindings/ImplementationView';
 import type { ProjectGroup } from '@/lib/bindings/ProjectGroup';
 import type { ProjectSummary } from '@/lib/bindings/ProjectSummary';
-import type { QueueEntry } from '@/lib/bindings/QueueEntry';
+import type { AgentQueue } from '@/lib/bindings/AgentQueue';
 import type { SessionSummary } from '@/lib/bindings/SessionSummary';
 import { renameImplementation } from '@/lib/implementation';
 import {
@@ -46,7 +46,7 @@ import { useEnvironmentStore } from '@/stores/environment';
 import { useImplementationStore } from '@/stores/implementation';
 import { useSessionsStore } from '@/stores/sessions';
 import type { RenameKind, RenameTarget } from '@/stores/sessions';
-import { useAgentQueueStore } from '@/stores/agentQueue';
+import { useAgentQueueStore, waitQueuesOf } from '@/stores/agentQueue';
 import { useSettingsStore } from '@/stores/settings';
 import './Sidebar.css';
 
@@ -65,7 +65,6 @@ const LAST_SESSION_EXTRA = 4;
 const NEW_GROUP_NAME = 'Neue Gruppe';
 /** So lange darf die Zeile eines Umbenennens fehlen, bevor es endet. */
 const RENAME_ROW_WAIT_MS = 1000;
-const NO_ENTRIES: readonly QueueEntry[] = [];
 
 interface RankedProject extends SidebarProjectEntry {
   /** Jüngste Aktivität im Vorhaben — bestimmt die Reihenfolge der Vorhaben. */
@@ -153,9 +152,11 @@ export function Sidebar({
   const needsEnvironmentAttention: boolean = useEnvironmentStore((state) =>
     needsAttention(state.status),
   );
-  const queueEntries: readonly QueueEntry[] = useAgentQueueStore(
-    (state) => state.queue?.entries ?? NO_ENTRIES,
+  const queue: AgentQueue | null = useAgentQueueStore((state) => state.queue);
+  const hostQueues: Readonly<Record<string, AgentQueue>> = useAgentQueueStore(
+    (state) => state.hostQueues,
   );
+  const waitQueues: (AgentQueue | null)[] = waitQueuesOf({ queue, hostQueues });
   const openStation = useOpenStation();
   const setFocused = useImplementationStore((state) => state.setFocused);
   const { error: actionError, run, report: reportError } = useActionError('sidebar');
@@ -654,7 +655,7 @@ export function Sidebar({
           session={session}
           status={displayStatus(session, sessions)}
           isMaster={row.isMaster}
-          messageWait={messageWaitPosition(queueEntries, session.id)}
+          messageWait={sessionWaitPosition(waitQueues, session.id)}
           isActive={session.id === activeSessionId}
           isRenaming={
             renaming !== null && renaming.kind === 'session' && renaming.id === session.id

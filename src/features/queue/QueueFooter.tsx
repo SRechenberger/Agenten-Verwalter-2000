@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { Fragment, useState } from 'react';
 import type { PointerEvent, ReactElement, ReactNode } from 'react';
 import { Popover } from '@/components/Popover';
 import { QueueChip, QueueList } from '@/features/queue/QueueChip';
@@ -6,15 +6,20 @@ import {
   isOverLimit,
   isSlotsBarShown,
   QUEUE_LIST_LABEL,
+  queueSections,
   slotCells,
   slotsBarLabel,
   slotsShort,
+  waitingCount,
+  type QueueSection,
   type SlotCell,
 } from '@/features/queue/queueTexts';
+import { refreshHostQueues } from '@/features/queue/useAgentQueueSync';
 import type { AgentQueue } from '@/lib/bindings/AgentQueue';
 import type { ProjectSummary } from '@/lib/bindings/ProjectSummary';
-import type { QueueEntry } from '@/lib/bindings/QueueEntry';
+import type { RemoteHostStatus } from '@/lib/bindings/RemoteHostStatus';
 import { useAgentQueueStore } from '@/stores/agentQueue';
+import { useRemoteStore } from '@/stores/remote';
 import './QueueFooter.css';
 
 const LIST_WIDTH = 540;
@@ -27,13 +32,22 @@ interface QueueFooterProps {
 }
 
 /** Fuß der Sidebar über den Archiv-Zeilen: die Balkenzeile der Belegung, solange ein Platz belegt ist oder
- *  etwas wartet (Critical Rule 1, ADR 068, Nachtrag 2026-11-21), und darunter die Zeile mit der Marke
- *  „n warten“. Beide öffnen dieselbe Liste. */
+ *  etwas wartet (Critical Rule 1, ADR 068, Nachtrag 2026-11-21), darunter je Host nach derselben Regel eine mit
+ *  seinem Namen (Nachtrag Story 188), und darunter die Zeile mit der Marke „n warten“. Alle öffnen dieselbe Liste. */
 export function QueueFooter({ projects, children }: QueueFooterProps): ReactElement {
   const [isOpen, setIsOpen] = useState<boolean>(false);
   const queue: AgentQueue | null = useAgentQueueStore((state) => state.queue);
-  const entries: readonly QueueEntry[] = queue?.entries ?? [];
-  const isBarShown: boolean = queue !== null && isSlotsBarShown(queue);
+  const hostQueues: Readonly<Record<string, AgentQueue>> = useAgentQueueStore(
+    (state) => state.hostQueues,
+  );
+  const hosts: RemoteHostStatus[] = useRemoteStore((state) => state.hosts);
+  const sections: QueueSection[] = queueSections(queue, hosts, hostQueues);
+  const hostSections: QueueSection[] = sections.filter(
+    (section: QueueSection) => section.hostId !== null,
+  );
+  const waiting: number = waitingCount(sections);
+  const isOwnBarShown: boolean = queue !== null && isSlotsBarShown(queue);
+  const isBarShown: boolean = isOwnBarShown || hostSections.length > 0;
   // Verschwindet die Balkenzeile, hat die Liste keinen Auslöser mehr: Sie darf beim nächsten belegten Platz
   // nicht von selbst offen stehen.
   if (isOpen && !isBarShown) {
@@ -41,7 +55,32 @@ export function QueueFooter({ projects, children }: QueueFooterProps): ReactElem
   }
 
   function toggle(): void {
+    if (!isOpen) {
+      refreshHostQueues();
+    }
     setIsOpen(!isOpen);
+  }
+
+  function renderBar(shown: AgentQueue, hostName: string | null): ReactElement {
+    return (
+      <button
+        type="button"
+        className={`queue-footer__bar${isOverLimit(shown) ? ' queue-footer__bar--over' : ''}`}
+        aria-expanded={isOpen}
+        aria-label={slotsBarLabel(shown, hostName)}
+        title={slotsBarLabel(shown, hostName)}
+        onClick={toggle}
+      >
+        {hostName !== null && <span className="queue-footer__host">{hostName}</span>}
+        <span className="queue-footer__segs" aria-hidden="true">
+          {slotCells(shown).map((cell: SlotCell, index: number) => (
+            <i key={index} className={`queue-footer__seg queue-footer__seg--${cell}`} />
+          ))}
+          {shown.limit === null && <i className="queue-footer__seg queue-footer__seg--open" />}
+        </span>
+        <span>{slotsShort(shown)}</span>
+      </button>
+    );
   }
 
   // Der Anker des losgelösten Popovers ist der ganze Fuß, und was darin gedrückt wird, schließt der Fuß selbst.
@@ -60,28 +99,12 @@ export function QueueFooter({ projects, children }: QueueFooterProps): ReactElem
 
   return (
     <div className="queue-footer" onPointerDown={closeOnPress}>
-      {queue !== null && isBarShown && (
-        <button
-          type="button"
-          className={`queue-footer__bar${isOverLimit(queue) ? ' queue-footer__bar--over' : ''}`}
-          aria-expanded={isOpen}
-          aria-label={slotsBarLabel(queue)}
-          title={slotsBarLabel(queue)}
-          onClick={toggle}
-        >
-          <span className="queue-footer__segs" aria-hidden="true">
-            {slotCells(queue).map((cell: SlotCell, index: number) => (
-              <i key={index} className={`queue-footer__seg queue-footer__seg--${cell}`} />
-            ))}
-            {queue.limit === null && <i className="queue-footer__seg queue-footer__seg--open" />}
-          </span>
-          <span>{slotsShort(queue)}</span>
-        </button>
-      )}
+      {queue !== null && isOwnBarShown && renderBar(queue, null)}
+      {hostSections.map((section: QueueSection) => (
+        <Fragment key={section.hostId}>{renderBar(section.queue, section.hostName)}</Fragment>
+      ))}
       <div className="sidebar__footer-row">
-        {entries.length > 0 && (
-          <QueueChip count={entries.length} isOpen={isOpen} onToggle={toggle} />
-        )}
+        {waiting > 0 && <QueueChip count={waiting} isOpen={isOpen} onToggle={toggle} />}
         {children}
       </div>
       {isOpen && isBarShown && (
@@ -96,7 +119,7 @@ export function QueueFooter({ projects, children }: QueueFooterProps): ReactElem
           }}
         >
           <QueueList
-            entries={entries}
+            sections={sections}
             projects={projects}
             onClose={(): void => {
               setIsOpen(false);

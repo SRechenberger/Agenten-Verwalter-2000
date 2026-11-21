@@ -8,20 +8,26 @@ import {
   type SlotCell,
 } from '@/features/queue/queueTexts';
 import type { AgentQueue } from '@/lib/bindings/AgentQueue';
-import { useAgentQueueStore } from '@/stores/agentQueue';
 import { useSessionsStore } from '@/stores/sessions';
 import { useSettingsNavStore } from '@/stores/settingsNav';
 import './SlotsMeter.css';
 
 interface SlotsMeterProps {
+  /** `null`, solange sie nicht gelesen ist: Dann steht nichts da. */
+  queue: AgentQueue | null;
+  /** Die Warteschlange eines Hosts: sein Name statt „App“ und kein Link, denn die Grenze stellt der Host ein. */
+  hostName?: string | null;
   /** Läuft, wenn der Link die Einstellungen öffnet (die Liste im Fuß schließt sich dann). */
   onNavigate?: () => void;
 }
 
 /** „Plätze n von m (App)“ mit Füllstand und dem Weg zur Grenze in den Einstellungen (ADR 068); ersetzt
  *  den Zähler je Umsetzung. Bis die Warteschlange gelesen ist, steht nichts da. */
-export function SlotsMeter({ onNavigate }: SlotsMeterProps): ReactElement | null {
-  const queue: AgentQueue | null = useAgentQueueStore((state) => state.queue);
+export function SlotsMeter({
+  queue,
+  hostName = null,
+  onNavigate,
+}: SlotsMeterProps): ReactElement | null {
   if (queue === null) {
     return null;
   }
@@ -34,20 +40,22 @@ export function SlotsMeter({ onNavigate }: SlotsMeterProps): ReactElement | null
           ))}
         </span>
         <span className={isOverLimit(queue) ? 'slots-meter__text--over' : undefined}>
-          {slotsText(queue)}
+          {slotsText(queue, hostName)}
         </span>
       </span>
-      <button
-        type="button"
-        className="slots-meter__link"
-        onClick={(): void => {
-          useSettingsNavStore.getState().setCategory('agent');
-          useSessionsStore.getState().openSettings();
-          onNavigate?.();
-        }}
-      >
-        {SLOTS_SETTINGS_LINK}
-      </button>
+      {hostName === null && (
+        <button
+          type="button"
+          className="slots-meter__link"
+          onClick={(): void => {
+            useSettingsNavStore.getState().setCategory('agent');
+            useSessionsStore.getState().openSettings();
+            onNavigate?.();
+          }}
+        >
+          {SLOTS_SETTINGS_LINK}
+        </button>
+      )}
     </>
   );
 }

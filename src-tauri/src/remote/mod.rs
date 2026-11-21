@@ -27,6 +27,8 @@ use control::{Control, Refused};
 pub const CHANGED_EVENT: &str = "remote://changed";
 /// `{ hostId }`, am Gast: Das Kontingent eines Hosts hat sich geändert (`usage://changed` am Host).
 pub const USAGE_CHANGED_EVENT: &str = "remote://usage-changed";
+/// `{ hostId }`, am Gast: Die Warteschlange eines Hosts hat sich geändert (`agent_queue://changed` am Host).
+pub const AGENT_QUEUE_CHANGED_EVENT: &str = "remote://agent-queue-changed";
 /// Ordner unter `~/.verwalter` für Zertifikat und Hosts.
 pub const DIR_NAME: &str = "remote";
 pub const HOST_KEY_FILE: &str = "host-key.pem";

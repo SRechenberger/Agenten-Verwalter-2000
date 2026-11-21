@@ -21,6 +21,7 @@ use tauri::ipc::Channel;
 use verwalter_lib::dashboard::model::Snapshot;
 use verwalter_lib::db::{Database, remote as remote_rows};
 use verwalter_lib::error::CommandError;
+use verwalter_lib::implementation::slots::AgentQueue;
 use verwalter_lib::remote::RemoteControl;
 use verwalter_lib::remote::access::{IdKind, TargetId};
 use verwalter_lib::remote::client::{ClientHooks, RemoteClients, SavedHost};
@@ -818,6 +819,10 @@ impl dispatch::Host for StubHost {
 
     fn dashboard_snapshot(&self) -> Result<Snapshot, CommandError> {
         Ok(Snapshot::default())
+    }
+
+    fn agent_queue(&self) -> AgentQueue {
+        AgentQueue::default()
     }
 
     fn invoke(&self, command: &str, args: Value) -> Result<Value, CommandError> {
