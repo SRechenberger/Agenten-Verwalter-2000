@@ -1943,6 +1943,27 @@ fn a_failed_plan_change_replans_only_a_begun_automatic_implementation() {
 }
 
 #[test]
+fn an_implementation_is_begun_once_any_station_has_begun_with_or_without_a_session() {
+    let begun = |edit: fn(&mut StationRow)| {
+        let mut row = station_row("a", 0, "Umsetzung");
+        edit(&mut row);
+        has_begun(&view_with(
+            vec![row, station_row("b", 1, "Review")],
+            &types(),
+        ))
+    };
+    assert!(
+        begun(|row: &mut StationRow| row.completed_at = Some(1.0)),
+        "durch dich erledigt, ohne Session"
+    );
+    assert!(
+        begun(|row: &mut StationRow| row.started_at = Some(1.0)),
+        "nur started_at"
+    );
+    assert!(!begun(|_: &mut StationRow| {}), "unberührt");
+}
+
+#[test]
 fn a_station_counts_as_starting_between_the_claim_and_its_release() {
     let mut countdowns = Countdowns::default();
     assert!(!countdowns.is_starting("a"));
@@ -2256,6 +2277,16 @@ fn a_planner_call_with_max_parallel_is_rejected_naming_the_global_setting() {
     assert_eq!(model::refuse_max_parallel(None), Ok(()));
     assert!(model::MAX_PARALLEL_GONE.contains("„Gleichzeitige Agenten max.“"));
     assert!(model::MAX_PARALLEL_GONE.starts_with("`max_parallel` gibt es nicht mehr"));
+}
+
+#[test]
+fn set_phases_rejects_max_parallel_like_create_and_edit() {
+    let with = json!({ "phases": [], "max_parallel": 2 });
+    assert_eq!(
+        tools::set_phases_input(&with),
+        Err(model::MAX_PARALLEL_GONE.to_owned())
+    );
+    assert!(tools::set_phases_input(&json!({ "phases": [] })).is_ok());
 }
 
 /// Die Regel vor ADR 061 als Vergleich: Gruppen aus Wellen nacheinander, in der Phase der Reihe

@@ -552,6 +552,8 @@ pub struct PendingCancel {
 #[serde(rename_all = "camelCase")]
 pub struct ImplementationRemovedEvent {
     pub id: String,
+    /// Das Vorhaben der gelöschten Umsetzung: Daran findet die Fernsteuerung den Gast, der es hält.
+    pub project_id: String,
 }
 
 /// Gesendet als `implementation://changed`.

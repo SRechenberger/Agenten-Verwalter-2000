@@ -29,7 +29,7 @@ import { countChangedFiles } from '@/features/changes/changesScope';
 import { ChangesView } from '@/features/changes/ChangesView';
 import { useSessionChanges } from '@/features/changes/useSessionChanges';
 import { ProjectOverview } from '@/features/projects/ProjectOverview';
-import { sessionsOf } from '@/features/projects/projectStatus';
+import { chooseSession, sessionsOf } from '@/features/projects/projectStatus';
 import { useProjectGroups } from '@/features/projects/useProjectGroups';
 import { useProjectSummaries } from '@/features/projects/useProjectSummaries';
 import { CloseGuard } from '@/features/remote/CloseGuard';
@@ -282,15 +282,14 @@ export function App(): ReactElement {
   const overviewSessions: SessionSummary[] =
     overviewProject === undefined ? [] : sessionsOf(overviewProject.id, sessions);
   const isOverview: boolean = overviewProject !== undefined && overviewSessions.length > 0;
-  const chosenSession: SessionSummary | undefined =
-    sessions.find((session: SessionSummary) => session.id === activeSessionId) ?? sessions[0];
+  const chosenSession: SessionSummary | undefined = chooseSession(sessions, activeSessionId);
   const isImplementation: boolean = isOverview && shownImplementation !== undefined;
   const hasProjectRepositories: boolean = (overviewProject?.repositoryNames.length ?? 0) > 0;
   const currentSession: SessionSummary | undefined = isOverview
     ? overviewSessions[overviewSessions.length - 1]
     : chosenSession;
-  // Der Rückfall gilt einmal und bleibt dann stehen: `sessions[0]` wechselt mit jeder Aktivität, die Ansicht
-  // spränge sonst ohne Zutun in eine andere Session.
+  // Der Rückfall (`chooseSession`: die erste Session mit eigener Zeile) gilt einmal und bleibt dann stehen: Sie wechselt
+  // mit jeder Aktivität, die Ansicht spränge sonst ohne Zutun in eine andere Session.
   const chosenSessionId: string | null = chosenSession?.id ?? null;
   useEffect(() => {
     // Zeigt die Hauptfläche den Hinweis oder das Angebot, bleibt die gewählte Session stehen, auch wenn sie fehlt.

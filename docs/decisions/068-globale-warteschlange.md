@@ -63,3 +63,7 @@ Der Benutzer hat am 2026-11-16 entschieden (U1 bis U4 der Story): Es reiht sich 
 ### Nachtrag: Befehls-Stationen ([ADR 073](073-befehls-stationen.md))
 
 Eine Befehls-Station belegt keinen Platz: Sie hat keine Session, steht in keinem Countdown und in keiner Warteschlange (`due_for_countdown` und `station_waiters` lassen sie aus). Ein Durchgang startet die bereiten Befehls-Stationen einer markierten Umsetzung gleich, ohne das Tor.
+
+### Nachtrag 2026-11-21: Beschreibung von `verwalter_open_session` (Taiga #156)
+
+D6 gilt wie beschrieben; neu ist nur der Text des Werkzeugs: Die Beschreibung von `verwalter_open_session` sagt jetzt, dass die neue Session bei voller Grenze „Gleichzeitige Agenten max.“ auf einen Platz wartet und `verwalter_get_sessions` sie dann mit `waitsForSlot` nennt. Die Antwort des Werkzeugs bleibt unverändert.

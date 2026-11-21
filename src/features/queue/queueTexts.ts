@@ -84,9 +84,10 @@ export function entryStage(entry: QueueEntry): string {
     : `${level} · Station ${entry.stationPriority > 0 ? '+' : ''}${String(entry.stationPriority)}`;
 }
 
-/** Spalte „wartet“ einer Zeile; „–“ bei „Fortsetzen“, weil der Core dort `sinceMs` bei jedem Durchgang neu setzt. */
+/** Spalte „wartet“ einer Zeile, für jede Art gleich: Bei „Fortsetzen“ ist `sinceMs` die Fälligkeit
+ *  (Rücksetzzeit plus 30 s), bei den anderen der Beginn des Wartens. */
 export function entrySinceText(entry: QueueEntry, now: number): string {
-  return entry.kind === 'resume' ? '–' : waitingSinceText(entry.sinceMs, now);
+  return waitingSinceText(entry.sinceMs, now);
 }
 
 /** Spalte „wartet“: „gerade eben“, „vor 4 min“, „vor 2 h“. */

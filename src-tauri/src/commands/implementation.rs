@@ -246,8 +246,10 @@ pub async fn implementation_delete(
     registry: tauri::State<'_, SessionRegistry>,
     id: String,
 ) -> Result<(), CommandError> {
+    // Die Zeile ist danach weg; das Vorhaben braucht das Ereignis für den Gast.
+    let project_id = registry.implementation_view(&id)?.project_id;
     registry.delete_implementation(&app, &id)?;
-    announce_removed(&app, &id);
+    announce_removed(&app, &id, &project_id);
     Ok(())
 }
 
@@ -278,7 +280,7 @@ pub async fn implementation_apply_cancel(
     // Abgebrochen ist schon; ein Fehler beim Löschen ist kein gescheitertes Bestätigen.
     match registry.delete_implementation(&app, &id) {
         Ok(()) => {
-            announce_removed(&app, &id);
+            announce_removed(&app, &id, &view.project_id);
             Ok(None)
         }
         Err(error) => Ok(Some(error.to_string())),

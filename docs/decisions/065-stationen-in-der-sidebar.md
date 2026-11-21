@@ -43,3 +43,7 @@ Die Idee kommt aus Upstream, das in Phasen nacheinander plant. Der Fork plant se
 - Der Baum wird bei parallelen Stationen länger: je aktiver Station eine Zeile; eine lange Warteschlange steht ganz in der Sidebar.
 - `pending` und `done` bleiben draußen; fertige Stationen erreicht man weiter über die Zeitleiste.
 - Keine Migration: die Zeilen werden aus der Ansicht der Umsetzung abgeleitet.
+
+### Nachtrag 2026-11-21: Auswahl und Metazeile ohne Stationen (Taiga #39)
+
+Eine Station hat keine eigene Zeile in der Leiste (`visibleSessions`). Zwei Stellen rechneten sie trotzdem mit: Der Rückfall der Auswahl in `App.tsx` nahm `sessions[0]`, bei der jüngsten Aktivität also oft eine Station, und die Metazeile eines Vorhabens zählte und nannte sie (`projectMetaLine`). Beides nimmt jetzt nur Sessions aus `visibleSessions`: `chooseSession` (rein; die gewählte Session bleibt, auch eine Station, der Rückfall nie) und `projectMetaLine`. Eine Station zeigt ihren Zustand an ihrer Zeile in der Umsetzung oder an der Marke der Umsetzung; Symbol, Aktivität und Ungelesen des Vorhabens zählen sie weiter mit. Prüfung: `projectStatus.selftest.ts` in `pnpm selftest`.

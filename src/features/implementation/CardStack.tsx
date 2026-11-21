@@ -4,6 +4,7 @@ import { CancelRequestCard } from '@/features/implementation/CancelRequestCard';
 import {
   changeIdOf,
   flatStations,
+  isBegun,
   neighbors,
   PENDING_FOCUS,
   type StationNeighbors,
@@ -33,7 +34,6 @@ import type { PendingChange } from '@/lib/bindings/PendingChange';
 import type { PhaseInput } from '@/lib/bindings/PhaseInput';
 import type { PhaseView } from '@/lib/bindings/PhaseView';
 import type { SessionSummary } from '@/lib/bindings/SessionSummary';
-import type { StationView } from '@/lib/bindings/StationView';
 import type { ActionError } from '@/lib/useActionError';
 import './CardStack.css';
 
@@ -63,12 +63,6 @@ interface CardStackProps {
   run: ActionError['run'];
 }
 
-function isBegun(phase: PhaseView): boolean {
-  return phase.stations.some(
-    (station: StationView) => station.sessionId !== null || station.completedAt !== null,
-  );
-}
-
 const ALL_OPEN: Record<CardSectionKey, boolean> = {
   flow: true,
   brief: true,
@@ -92,7 +86,7 @@ export function stationsAfterProposal(
     );
   }
   const kept: number = implementation.phases
-    .filter(isBegun)
+    .filter((phase: PhaseView) => phase.stations.some(isBegun))
     .reduce((sum: number, phase: PhaseView) => sum + phase.stations.length, 0);
   const proposed: number = pending.phases.reduce(
     (sum: number, phase: PhaseInput) => sum + phase.stations.length,

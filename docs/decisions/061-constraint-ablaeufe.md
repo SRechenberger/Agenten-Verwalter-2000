@@ -120,3 +120,9 @@ Beim Gesamt-Review gefunden und nicht behoben, weil sie nicht ausgelöst oder vo
 
 - **`by: "command"`** an einer Station von `implementation_create`, `implementation_set_phases` und `implementation_edit`; dann ist `command` (1 bis 5 Schritte) Pflicht, `cwd` optional, und `agent`, `model`, `effort`, `prompt` und `skill` sind verboten. Bei jeder anderen Art sind `command` und `cwd` verboten. `change` von `implementation_edit` ändert `command` und `cwd` einer nicht gestarteten Befehls-Station.
 - **`vars` an `implementation_complete_station`:** höchstens 20 Werte (`^[a-z][a-z0-9_]{0,31}$` → 1 bis 500 Zeichen, eine Zeile), gespeichert mit der Meldung und von einer neuen Meldung ersetzt; die Befehls-Stationen unter den direkten Nachfolgern setzen sie mit `{{name}}` ein.
+
+### Nachtrag 2026-11-21: „begonnen“ (Taiga #52)
+
+Eine Umsetzung gilt als begonnen, sobald eine ihrer Stationen begonnen hat (`changes::station_is_begun`: Session, `started_at` oder `completed_at`). `has_begun` zählte bisher nur Stationen mit Session und hielt eine Umsetzung, deren einzige begonnene Station „durch dich“ oder eine Befehls-Station war, für unberührt, auch nach einem Neustart der App; Neuplanung und Nachrücken blieben dann aus. Der Text oben, der „begonnen“ mit „hat eine Session“ gleichsetzt, ist damit überholt. Die Oberfläche folgt derselben Regel (`isBegun` in `implementationOrder.ts`), damit „Löschen“, die Sperren der Stationskarte und die Automatik-Optionen mit dem Core übereinstimmen. Der Schalter „Automatisch starten“ ändert sich nicht (Taiga #51).
+
+Dazu `implementation_set_phases`: Ein übergebenes `max_parallel` lehnt es wie `implementation_create` und `implementation_edit` mit dem Satz aus [ADR 068](068-globale-warteschlange.md) ab, statt es still zu verwerfen (Taiga #157).

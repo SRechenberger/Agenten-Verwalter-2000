@@ -133,9 +133,11 @@ fn ticket_folder_path(
     }
 }
 
-/// Die Schreib-Ordner einer Session als normalisierter Schlüssel → Anzeige. Ein Haupt-Checkout
-/// zählt nur, wenn die Session dort eine Datei geschrieben hat, die in keinem ihrer
-/// Ticket-Worktrees liegt (ein innerer Worktree liegt im Haupt-Checkout).
+/// Die Schreib-Ordner einer Session als normalisierter Schlüssel → Anzeige. Ein Ticket-Worktree
+/// zählt nur, wenn die Session dort eine Datei geschrieben hat; ein Haupt-Checkout nur, wenn sie
+/// dort eine Datei geschrieben hat, die in keinem ihrer Ticket-Worktrees liegt (ein innerer
+/// Worktree liegt im Haupt-Checkout). Gelesen reicht nie: `ticket_worktrees` nennt auch Ordner, die
+/// nur ein lesendes Werkzeug berührt hat.
 fn write_folders(
     snapshot: &WriterSnapshot,
     touched: &HashMap<String, f64>,
@@ -147,7 +149,9 @@ fn write_folders(
         .map(|folder: &PathBuf| normalize_path(&folder.to_string_lossy()))
         .collect();
     for (folder, key) in snapshot.ticket_folders.iter().zip(&ticket_keys) {
-        folders.insert(key.clone(), folder.display().to_string());
+        if touched.keys().any(|path: &String| is_inside(path, key)) {
+            folders.insert(key.clone(), folder.display().to_string());
+        }
     }
     for repository in &snapshot.repositories {
         if matches!(repository.checkout, RepositoryCheckout::AppWorktree { .. }) {
@@ -225,3 +229,6 @@ pub(super) fn overlap_hint(overlap: &SessionOverlap) -> String {
         .replace("{folder}", &overlap.folder)
         .replace("{name}", &overlap.other_name)
 }
+
+#[cfg(test)]
+mod tests;

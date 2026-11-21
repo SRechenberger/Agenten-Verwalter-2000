@@ -60,9 +60,10 @@ export function changeFocusId(change: ChangeView): string {
   return `${CHANGE_PREFIX}${change.id}`;
 }
 
-/** Hat die Station eine Session oder ist sie fertig? Dann sind Auftrag, Agent und Kanten fest (ADR 061). */
+/** Hat die Station eine Session, lief sie (`startedAt`) oder ist sie fertig? Dann sind Auftrag, Agent und
+ *  Kanten fest (ADR 061); dieselbe Regel wie `station_is_begun` im Core. */
 export function isBegun(station: StationView): boolean {
-  return station.sessionId !== null || station.completedAt !== null;
+  return station.sessionId !== null || station.startedAt !== null || station.completedAt !== null;
 }
 
 /** Name einer Station in Chips und Sätzen: die Stufe, bei gleichen Namen in mehreren Lanes mit Lane
