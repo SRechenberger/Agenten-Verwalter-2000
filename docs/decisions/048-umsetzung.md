@@ -33,3 +33,7 @@ Ein freigegebener Plan wird heute Phase für Phase in frischen Sessions umgesetz
 ### Nachtrag: Art der Station ([ADR 073](073-befehls-stationen.md))
 
 Eine Station hat eine Art (`kind`): `agent`, `user` („durch dich“) oder `command` (Befehls-Station: Der Verwalter führt Schritte ohne Session und ohne Modell aus). Die Spalte `kind` (Migration 33) ist die Quelle; `byUser` in der Ansicht folgt aus ihr, die Eingabe heißt `by: "agent" | "you" | "command"`. Eine Befehls-Station hat keine Session, ihr Zustand folgt aus dem gespeicherten Lauf (`running`, `error`, `done`).
+
+### Nachtrag 2026-11-21: Marke „Plan ändern?“ in der Leiste (Taiga #132)
+
+Hat eine Umsetzung einen offenen Vorschlag (`pendingChange`), trägt ihre Zeile in der Leiste die Marke „✎ Plan?“, ein Knopf mit `aria-label` „Plan ändern? Vorschlag ansehen“ (Variante A des Entwurfs `docs/design/2026-11-21_stationen-bedienen/`, nur an der Zeile der Umsetzung). Ein Klick öffnet die Umsetzung mit der Karte „Plan ändern?“ vorn (`PENDING_FOCUS`). Ist der Vorschlag entschieden, ist `pendingChange` leer, und die Marke verschwindet. Die Karte selbst hebt sich stärker ab: getönter Grund, kräftiger Rahmen mit Fokusring, im Kopf ✎ und „wartet auf dich“. Es ist nur Darstellung; Zustand und Core bleiben.

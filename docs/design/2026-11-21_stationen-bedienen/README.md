@@ -1,6 +1,6 @@
 # Design-Entwurf: Stationen bedienen
 
-**Status:** Entwurf vom 2026-11-21, wartet auf die Wahl des Nutzers (Taiga-Stories 135, 136, 132; Issues 51, 53). Aufbau und Stil wie [2026-11-20_dashboard-zettel](../2026-11-20_dashboard-zettel/README.md).
+**Status:** Entwurf vom 2026-11-21, gewählt am selben Tag (siehe „Es gilt“) (Taiga-Stories 135, 136, 132; Issues 51, 53). Aufbau und Stil wie [2026-11-20_dashboard-zettel](../2026-11-20_dashboard-zettel/README.md).
 
 ## Ansehen
 
@@ -27,4 +27,4 @@
 - **#132:** A, B oder C. Empfehlung: **C**: bei zugeklappter Master-Gruppe bleibt die Marke sichtbar.
 - **Karte „Plan ändern?“:** Vorschlag (getönter Grund, kräftiger Rahmen, Kopf mit Symbol und „wartet auf dich“) oder wie heute.
 
-**Es gilt:** noch offen; der Master trägt die Wahl des Nutzers hier ein.
+**Es gilt** (Wahl des Nutzers vom 2026-11-21): 1 A (Hauptknopf links vor den Schaltern, kein Knopf im Dashboard, kein Streifen), 2 A (Chip „✓ freigegeben“ in der zweiten Zeile der Station in der Leiste, Marke an der Karte im Dashboard; „Erledigt“ vor „Öffnen“ in der Zeile; dieselbe Rückfrage in Zeile, Kartei und Popup), 3 A (Marke nur an der Zeile der Umsetzung), Karte „Plan ändern?“ nach dem Vorschlag.
