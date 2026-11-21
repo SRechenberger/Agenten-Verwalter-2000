@@ -130,6 +130,25 @@ export function slotsText(queue: AgentQueue): string {
   return isOverLimit(queue) ? `${base} · über der Grenze` : base;
 }
 
+/** Kurzform der Balkenzeile im Fuß der Sidebar: „2/4“, „5/4“, „3/∞“. */
+export function slotsShort(queue: AgentQueue): string {
+  return `${String(queue.used)}/${queue.limit === null ? '∞' : String(queue.limit)}`;
+}
+
+/** Die Balkenzeile steht nur, solange ein Platz belegt ist oder etwas wartet (Critical Rule 1, ADR 068). */
+export function isSlotsBarShown(queue: AgentQueue | null): boolean {
+  return queue !== null && (queue.used > 0 || queue.entries.length > 0);
+}
+
+/** Name und Titel der Balkenzeile: die lange Belegung samt Wartenden, „Plätze 4 von 4 (App) · 3 warten“. */
+export function slotsBarLabel(queue: AgentQueue): string {
+  const waiting: string =
+    queue.entries.length === 0 ? 'nichts wartet' : waitingChipText(queue.entries.length);
+  return `${slotsText(queue)} · ${waiting}`;
+}
+
+export const QUEUE_NOTHING_WAITING = 'Nichts wartet.';
+
 export const SLOTS_TITLE =
   'Agenten, die gerade einen Platz belegen, über alle Vorhaben. Eigene Nachrichten starten sofort, auch über der Grenze; was der Verwalter von selbst startet, wartet. Über der Grenze liegt die Zahl nach einem eigenen Start oder nach dem Senken der Grenze.';
 export const SLOTS_SETTINGS_LINK = 'Grenze in den Einstellungen';

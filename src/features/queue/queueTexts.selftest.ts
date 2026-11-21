@@ -10,8 +10,11 @@ import {
   messageWaitPosition,
   messageWaitShort,
   messageWaitText,
+  isSlotsBarShown,
   priorityMark,
   slotCells,
+  slotsBarLabel,
+  slotsShort,
   slotsText,
   waitingChipText,
   waitingSinceText,
@@ -35,8 +38,8 @@ function entry(fields: Partial<QueueEntry>): QueueEntry {
   };
 }
 
-function queue(limit: number | null, used: number): AgentQueue {
-  return { limit, used, entries: [] };
+function queue(limit: number | null, used: number, waiting = 0): AgentQueue {
+  return { limit, used, entries: Array.from({ length: waiting }, () => entry({})) };
 }
 
 const MINUTE = 60_000;
@@ -139,6 +142,35 @@ const CASES: { name: string; actual: () => unknown; expected: unknown }[] = [
     expected: 'Nachricht wartet · Platz 2',
   },
   { name: 'message_wait_short', actual: () => messageWaitShort(2), expected: '✉ Platz 2' },
+  { name: 'slots_bar_hidden_without_queue', actual: () => isSlotsBarShown(null), expected: false },
+  {
+    name: 'slots_bar_hidden_when_nothing_used_and_nothing_waits',
+    actual: () => isSlotsBarShown(queue(4, 0)),
+    expected: false,
+  },
+  {
+    name: 'slots_bar_shown_when_a_slot_is_used',
+    actual: () => isSlotsBarShown(queue(4, 1)),
+    expected: true,
+  },
+  {
+    name: 'slots_bar_shown_when_something_waits_with_no_slot_used',
+    actual: () => isSlotsBarShown(queue(4, 0, 1)),
+    expected: true,
+  },
+  { name: 'slots_short_under_limit', actual: () => slotsShort(queue(4, 2)), expected: '2/4' },
+  { name: 'slots_short_over_limit', actual: () => slotsShort(queue(4, 5)), expected: '5/4' },
+  { name: 'slots_short_unlimited', actual: () => slotsShort(queue(null, 3)), expected: '3/∞' },
+  {
+    name: 'slots_bar_label_reuses_long_text_and_names_waiting',
+    actual: () => slotsBarLabel(queue(4, 4, 3)),
+    expected: 'Plätze 4 von 4 (App) · 3 warten',
+  },
+  {
+    name: 'slots_bar_label_says_nothing_waits',
+    actual: () => slotsBarLabel(queue(4, 2)),
+    expected: 'Plätze 2 von 4 (App) · nichts wartet',
+  },
   {
     name: 'slots_under_limit',
     actual: () => slotsText(queue(4, 3)),

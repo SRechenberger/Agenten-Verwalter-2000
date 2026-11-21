@@ -221,10 +221,6 @@
     display: flex;
     align-items: center;
     margin-bottom: var(--space-md);
-
-    & .queue-chip {
-      margin-bottom: 0;
-    }
   }
 
   &__dashboard {
