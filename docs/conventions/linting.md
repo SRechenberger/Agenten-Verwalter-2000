@@ -16,7 +16,7 @@ Lint, Typecheck und Build sind die Qualitätsschranke dieses Projekts — Tests 
 
 ```text
 pnpm version:check Abgleich der vier Versionsstellen, dazu der Selbsttest der Versionsregel (`selftest`)
-pnpm selftest      Selbsttests der Oberfläche (Kanten-Regeln und Warnleiste: Stufe, Weg, Zyklus, Kontingent, implementationGraph.selftest.ts; Zeitpunkt im Chat: entryTimeText.selftest.ts; Beschriftungen der Warteschlange: queueTexts.selftest.ts; Platzierung der Umsetzungen unter ihrem Master, Beschriftungen des Masters und Zustand der Session an der Station: sidebarPlacement.selftest.ts; Texte, Gruppen und Filter des Dashboards: dashboardTexts.selftest.ts; Karten des Chats: Auswahl, Knöpfe und Rahmen, chatTasks.selftest.ts; Befehls-Stationen: Beschriftung, Kürzen, Freigabeliste, Zeile der Werte, Hinweis bei „unterbrochen“, commandStation.selftest.ts)
+pnpm selftest      Selbsttests der Oberfläche (Kanten-Regeln und Warnleiste: Stufe, Weg, Zyklus, Kontingent, implementationGraph.selftest.ts; Zeitpunkt im Chat: entryTimeText.selftest.ts; Ziele aus der Ausgabe der Session-Werkzeuge und Name des Agenten: sessionJump.selftest.ts; Beschriftungen der Warteschlange: queueTexts.selftest.ts; Platzierung der Umsetzungen unter ihrem Master, Beschriftungen des Masters und Zustand der Session an der Station: sidebarPlacement.selftest.ts; Texte, Gruppen und Filter des Dashboards: dashboardTexts.selftest.ts; Karten des Chats: Auswahl, Knöpfe und Rahmen, chatTasks.selftest.ts; Befehls-Stationen: Beschriftung, Kürzen, Freigabeliste, Zeile der Werte, Hinweis bei „unterbrochen“, commandStation.selftest.ts)
 pnpm lint          ESLint
 pnpm typecheck     tsc für App und Vite-Konfiguration
 pnpm format:check  Prettier

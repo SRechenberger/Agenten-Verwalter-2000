@@ -30,3 +30,9 @@ Nur Nutzernachrichten und Session-Nachrichten speicherten einen Zeitpunkt (`sent
 - Solange älterer Verlauf nachzuladen ist, hat der älteste geladene Block keinen Tagestrenner (`dayDividers(times, now, atStartOfHistory)`, in `ChatTimeline` `!hasMore`). Rest: Wechselt der Tag genau an der Seitengrenze, bekommt der bisher älteste Block beim Nachladen einen Trenner und wird einmalig eine Zeile höher; ebenso der erste Block, wenn der Anfang des Verlaufs erreicht ist.
 - Ein Rückfall der Kalendertage auf UTC fällt im Selbsttest nur außerhalb einer UTC-Zeitzone auf, und die CI läuft in UTC: bekannte Grenze. Eine Zeitzone als Parameter wäre eine API-Änderung für einen Fall, den die CI nicht braucht.
 - Geprüft: `agents::event::` und `sessions::registry::tests::` (Rust, in der CI), `entryTimeText.selftest.ts` (`pnpm selftest`), Bildprüfung gegen den Mock.
+
+## Nachtrag 2026-11-21: Zeit und Name am Fragekasten (Issue Taiga 185)
+
+- **Zeit:** Der Fragekasten (Rückfrage, Rechte-Abfrage, Kasten eines Session-Werkzeugs) zählt wie eine Nachricht: Seine Uhrzeit steht in eigener Zeile über dem Kasten und immer, nicht mehr schwebend im Abstand des Blocks darüber, wo sie nach einem Klick auf eine Antwort (der Knopf behält den Fokus) stehen blieb und wie die Zeit des Gedankengangs davor wirkte. Entwurf: `docs/design/2026-11-21_chat-sprung/` (Variante A; B, rechts im Kopf, verworfen: eine zweite Art, Zeit zu zeigen).
+- **Name:** „… hat gefragt“, „… wartet auf deine Entscheidung“ und „… arbeitet …“ und der Platzhalter des Notizfelds („Notiz für …“) nennen den Agenten der Betriebsart des Vorhabens: Claude, „Claude (LM Studio)“, Autark, Codex (`agentName`). Der Name geht als Prop auch an das Popup des Dashboards.
+- **Folge:** Ein Fragekasten wird eine Zeile (14 px) höher.
