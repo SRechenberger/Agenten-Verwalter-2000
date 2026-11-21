@@ -69,7 +69,8 @@ pub struct ClaudeProcess {
     pid: u32,
 }
 
-/// Alle gestarteten Agentenprozesse, für `stop_all`; ein beendeter fällt beim nächsten Start heraus.
+/// Alle gestarteten Agentenprozesse und Einmalaufrufe (`ChildGroup`), für `stop_all`; ein beendeter
+/// fällt beim nächsten Start heraus.
 static LEADERS: Mutex<Vec<Weak<Mutex<Leader>>>> = Mutex::new(Vec::new());
 
 /// Der Agentenprozess als Anführer seiner Prozessgruppe (ADR 074). Eingesammelt wird er nur unter
@@ -158,16 +159,7 @@ pub(crate) fn start(
         return Err(io::Error::other("Ein-/Ausgabe des Agenten nicht verfügbar"));
     };
     let pid = child.id();
-    let child = Arc::new(Mutex::new(Leader {
-        child,
-        reaped: false,
-        stopping: false,
-    }));
-    {
-        let mut leaders = lock(&LEADERS);
-        leaders.retain(|leader: &Weak<Mutex<Leader>>| leader.strong_count() > 0);
-        leaders.push(Arc::downgrade(&child));
-    }
+    let child = register(child);
     if let Err(error) = start_readers(Arc::clone(&child), stdout, stderr, Arc::new(on_output)) {
         lock(&child).signal(Signal::Kill);
         return Err(error);
@@ -177,6 +169,66 @@ pub(crate) fn start(
         stdin: Mutex::new(Some(stdin)),
         pid,
     })
+}
+
+/// Trägt `child` als Anführer seiner Gruppe in die Liste für `stop_all` ein.
+fn register(child: Child) -> Arc<Mutex<Leader>> {
+    let leader = Arc::new(Mutex::new(Leader {
+        child,
+        reaped: false,
+        stopping: false,
+    }));
+    let mut leaders = lock(&LEADERS);
+    leaders.retain(|leader: &Weak<Mutex<Leader>>| leader.strong_count() > 0);
+    leaders.push(Arc::downgrade(&leader));
+    leader
+}
+
+/// Ein Einmalaufruf (`print`, `helper`, `side`) oder Codex hinter `RpcClient` als Anführer seiner
+/// Prozessgruppe, eingetragen für `stop_all` wie die Agentenprozesse (ADR 074). Sein Ende durch den
+/// Aufrufer (`end` oder Fallenlassen) trifft die ganze Gruppe, solange er nicht eingesammelt ist;
+/// danach fällt er aus der Liste.
+pub(crate) struct ChildGroup(Arc<Mutex<Leader>>);
+
+impl ChildGroup {
+    /// Startet `command` in eigener Prozessgruppe und trägt ihn ein.
+    pub(crate) fn spawn(mut command: Command) -> io::Result<ChildGroup> {
+        processes::own_group(&mut command);
+        Ok(ChildGroup(register(command.spawn()?)))
+    }
+
+    /// Die umgeleiteten Pipes; was nicht umgeleitet oder schon geholt ist, ist `None`.
+    pub(crate) fn take_pipes(
+        &self,
+    ) -> (Option<ChildStdin>, Option<ChildStdout>, Option<ChildStderr>) {
+        let mut leader = lock(&self.0);
+        let child = &mut leader.child;
+        (child.stdin.take(), child.stdout.take(), child.stderr.take())
+    }
+
+    /// Nicht blockierend: ob der Prozess beendet und eingesammelt ist; vor dem Einsammeln endet der
+    /// Rest seiner Gruppe (`try_reap`). Ein Fehler zählt als beendet.
+    pub(crate) fn has_ended(&self) -> bool {
+        !matches!(lock(&self.0).try_reap(), Ok(None))
+    }
+
+    /// SIGKILL an die Gruppe (Windows: an den Baum), solange der Anführer nicht eingesammelt ist,
+    /// dann einsammeln — unter derselben Sperre. Mehrfach aufrufbar.
+    pub(crate) fn end(&self) {
+        let mut leader = lock(&self.0);
+        if leader.reaped {
+            return;
+        }
+        leader.signal(Signal::Kill);
+        let _ = leader.child.wait();
+        leader.reaped = true;
+    }
+}
+
+impl Drop for ChildGroup {
+    fn drop(&mut self) {
+        self.end();
+    }
 }
 
 impl ClaudeProcess {
@@ -209,9 +261,16 @@ impl ClaudeProcess {
 /// App-Ende (ADR 074): beendet jeden Agentenprozess, der noch nicht eingesammelt ist, auch einen,
 /// der gerade in der Frist von `retire_process` steckt (`stop`).
 pub fn stop_all(grace: Duration) {
-    let leaders: Vec<Arc<Mutex<Leader>>> =
-        lock(&LEADERS).iter().filter_map(Weak::upgrade).collect();
-    stop_leaders(&leaders, grace);
+    stop_leaders(&listed(|_: u32| true), grace);
+}
+
+/// Die eingetragenen Prozesse, die noch leben, deren PID `filter` annimmt.
+fn listed(filter: impl Fn(u32) -> bool) -> Vec<Arc<Mutex<Leader>>> {
+    lock(&LEADERS)
+        .iter()
+        .filter_map(Weak::upgrade)
+        .filter(|leader: &Arc<Mutex<Leader>>| filter(lock(leader).child.id()))
+        .collect()
 }
 
 /// SIGTERM an die Gruppen der Agenten, dann höchstens `grace` für alle zusammen, dann SIGKILL an
@@ -606,5 +665,70 @@ mod windows_tests {
             processes::kill_process_tree(ping);
         }
         assert!(!ping_alive, "der ping lebt nach dem Signal noch");
+    }
+}
+
+/// Einmalaufrufe als Anführer (ADR 074): nur eigene Wegwerf-Prozesse `sh` und `sleep`, nur ihre
+/// Gruppe wird signalisiert.
+#[cfg(all(test, unix))]
+mod tests {
+    use std::io::{BufRead, BufReader};
+
+    use super::*;
+    use crate::processes::tests::groups::{clean_up, gone};
+
+    /// Ein Einmalaufruf mit einem Wegwerf-Programm statt der Kommandozeile; die erste Zeile seiner
+    /// Ausgabe ist die PID seines Kindes `sleep 300`.
+    fn one_shot() -> (ChildGroup, u32, u32) {
+        let mut command = processes::command("sh");
+        command
+            .args(["-c", "sleep 300 >/dev/null 2>&1 & echo $!; wait"])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped());
+        let call = ChildGroup::spawn(command).expect("Wegwerf-Einmalaufruf startet");
+        let (_, stdout, _) = call.take_pipes();
+        let mut line = String::new();
+        BufReader::new(stdout.expect("stdout ist umgeleitet"))
+            .read_line(&mut line)
+            .expect("PID des Kindes lesbar");
+        let pid = lock(&call.0).child.id();
+        (call, pid, line.trim().parse().expect("PID ist eine Zahl"))
+    }
+
+    fn is_listed(pid: u32) -> bool {
+        !listed(|id: u32| id == pid).is_empty()
+    }
+
+    #[test]
+    fn stop_all_ends_a_listed_one_shot_with_its_child() {
+        let (call, pid, child) = one_shot();
+        let was_listed = is_listed(pid);
+        // `stop_all` auf diesen einen Eintrag beschränkt: Die Tests laufen als Threads eines
+        // Prozesses, die übrigen Einträge gehören anderen Tests.
+        stop_leaders(&listed(|id: u32| id == pid), Duration::from_millis(300));
+        let call_ended = call.has_ended();
+        let child_gone = gone(child);
+        if !child_gone {
+            clean_up(child);
+        }
+        drop(call);
+        assert!(was_listed, "der Einmalaufruf steht nicht in der Liste");
+        assert!(call_ended, "der Einmalaufruf lebt noch");
+        assert!(child_gone, "sein Kind lebt noch");
+    }
+
+    #[test]
+    fn a_one_shot_ended_by_its_caller_takes_its_group_and_leaves_the_list() {
+        let (call, pid, child) = one_shot();
+        drop(call);
+        let child_gone = gone(child);
+        if !child_gone {
+            clean_up(child);
+        }
+        assert!(
+            !is_listed(pid),
+            "der beendete Einmalaufruf steht noch in der Liste"
+        );
+        assert!(child_gone, "sein Kind lebt nach dem Ende noch");
     }
 }

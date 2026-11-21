@@ -4,7 +4,7 @@
 use std::collections::HashMap;
 use std::io::{self, BufRead, BufReader, Read, Write};
 use std::path::Path;
-use std::process::{Child, ChildStdin, Stdio};
+use std::process::{ChildStdin, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{self, RecvTimeoutError, Sender};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
@@ -13,7 +13,8 @@ use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
 
-use crate::processes::{self, hide_console, kill_process_tree};
+use crate::agents::claude::process::ChildGroup;
+use crate::processes::{self, hide_console};
 
 /// Zeit, die `codex app-server` nach dem Schließen seiner Standardeingabe zum Beenden bekommt.
 const SHUTDOWN_GRACE: Duration = Duration::from_secs(3);
@@ -41,7 +42,9 @@ pub enum Incoming {
 type Pending = Arc<Mutex<HashMap<u64, Sender<Result<Value, String>>>>>;
 
 pub struct RpcClient {
-    child: Mutex<Child>,
+    /// Eingetragen für `stop_all`: Der Codex-Helfer der App endet mit ihr, und ein Übersetzer
+    /// beendet Codex beim SIGTERM über dieselbe Liste (ADR 074).
+    process: ChildGroup,
     stdin: Mutex<Option<ChildStdin>>,
     next_id: AtomicU64,
     pending: Pending,
@@ -63,12 +66,9 @@ impl RpcClient {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
         hide_console(&mut command);
-        processes::own_group(&mut command);
-        let mut child = command.spawn()?;
-        let (Some(stdin), Some(stdout), Some(stderr)) =
-            (child.stdin.take(), child.stdout.take(), child.stderr.take())
-        else {
-            let _ = child.kill();
+        // Fallenlassen beendet die Gruppe, auch auf den Fehlerwegen unten.
+        let process = ChildGroup::spawn(command)?;
+        let (Some(stdin), Some(stdout), Some(stderr)) = process.take_pipes() else {
             return Err(io::Error::other("Ein-/Ausgabe von Codex nicht verfügbar"));
         };
         let pending: Pending = Arc::new(Mutex::new(HashMap::new()));
@@ -90,12 +90,9 @@ impl RpcClient {
                         for_each_line(stderr, |line: &str| eprintln!("codex: {line}"));
                     })
             });
-        if let Err(error) = started {
-            let _ = child.kill();
-            return Err(error);
-        }
+        started?;
         Ok(RpcClient {
-            child: Mutex::new(child),
+            process,
             stdin: Mutex::new(Some(stdin)),
             next_id: AtomicU64::new(1),
             pending,
@@ -156,21 +153,11 @@ impl RpcClient {
     pub fn shutdown(&self) {
         drop(lock(&self.stdin).take());
         let deadline = Instant::now() + SHUTDOWN_GRACE;
-        while Instant::now() < deadline {
-            // Eigene Zeile: im `match`-Kopf hielte die Sperre bis nach dem `sleep`.
-            let exit_status = lock(&self.child).try_wait();
-            match exit_status {
-                Ok(None) => thread::sleep(EXIT_POLL_INTERVAL),
-                Ok(Some(_)) | Err(_) => return,
-            }
+        // Endet Codex in der Frist, endet beim Einsammeln auch der Rest seiner Gruppe (ADR 074).
+        while Instant::now() < deadline && !self.process.has_ended() {
+            thread::sleep(EXIT_POLL_INTERVAL);
         }
-        // Unter derselben Sperre wie die Prüfung: Ein nicht eingesammeltes Codex gehört noch seiner
-        // Gruppe, und sie endet mit ihm (ADR 074).
-        let mut child = lock(&self.child);
-        if let Ok(None) = child.try_wait() {
-            kill_process_tree(child.id());
-            let _ = child.kill();
-        }
+        self.process.end();
     }
 
     fn write(&self, message: &Value) -> io::Result<()> {
