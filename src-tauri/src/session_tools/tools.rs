@@ -77,7 +77,9 @@ impl ToolSet for SessionTools {
             ToolSpec {
                 name: OPEN_SESSION,
                 description: "Öffnet eine neue Session im selben Vorhaben, die sofort mit der Nachricht \
-                    losarbeitet. Der Nutzer kann das erlauben, ablehnen oder ändern. Die neue Session sieht \
+                    losarbeitet. Bei voller Grenze „Gleichzeitige Agenten max.“ wartet die Session auf \
+                    einen Platz; verwalter_get_sessions nennt sie dann mit waitsForSlot. \
+                    Der Nutzer kann das erlauben, ablehnen oder ändern. Die neue Session sieht \
                     deine ID als Absender und kann sich bei dir melden.",
                 input_schema: json!({
                     "type": "object",
