@@ -264,10 +264,13 @@ pub fn announce(app: &AppHandle, view: &ImplementationView) {
 }
 
 /// Meldet der Oberfläche, dass die Umsetzung gelöscht ist.
-pub fn announce_removed(app: &AppHandle, id: &str) {
+pub fn announce_removed(app: &AppHandle, id: &str, project_id: &str) {
     let _ = app.emit(
         IMPLEMENTATION_REMOVED_EVENT,
-        ImplementationRemovedEvent { id: id.to_owned() },
+        ImplementationRemovedEvent {
+            id: id.to_owned(),
+            project_id: project_id.to_owned(),
+        },
     );
 }
 

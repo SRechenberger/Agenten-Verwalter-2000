@@ -38,3 +38,12 @@ fn a_reported_entry_without_an_id_leaves_the_cache_unchanged() {
     replace_or_push(&mut items, &json!({ "projectId": "p" }));
     assert_eq!(items, vec![json!({ "id": "a" })]);
 }
+
+#[test]
+fn a_removed_entry_leaves_the_cached_list_and_the_others_stay() {
+    let mut items = vec![json!({ "id": "a" }), json!({ "id": "b", "projectId": "p" })];
+    remove_by_id(&mut items, "a");
+    assert_eq!(items, vec![json!({ "id": "b", "projectId": "p" })]);
+    remove_by_id(&mut items, "unbekannt");
+    assert_eq!(items.len(), 1);
+}

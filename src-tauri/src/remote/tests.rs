@@ -424,3 +424,35 @@ fn concurrent_private_writes_of_one_file_all_succeed() {
     );
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn a_removed_implementation_reaches_only_the_guest_that_holds_its_project() {
+    use super::forward::{FORWARDED, connected_holder, project_in};
+    let (_, owner) = *FORWARDED
+        .iter()
+        .find(|(name, _)| *name == "implementation://removed")
+        .expect("wird weitergegeben");
+    let remote = RemoteControl::default();
+    remote.with(|control| {
+        for (project, device) in [("held-by-a", "a"), ("held-by-b", "b"), ("lost-c", "c")] {
+            control.share(project);
+            let device = DeviceRef {
+                id: device.to_owned(),
+                name: device.to_owned(),
+            };
+            control.take(project, device).expect("frei");
+        }
+        control.share("free");
+        control.connection_lost("c", 1.0);
+    });
+    let reaches = |project: &str| {
+        let payload = json!({ "id": "impl", "projectId": project });
+        project_in(owner, &payload).and_then(|found: String| connected_holder(&remote, &found))
+    };
+    assert_eq!(reaches("held-by-a"), Some("a".to_owned()));
+    assert_eq!(reaches("held-by-b"), Some("b".to_owned()));
+    assert_eq!(reaches("lost-c"), None, "Verbindung weg");
+    assert_eq!(reaches("free"), None, "ohne Inhaber");
+    assert_eq!(reaches("unknown"), None, "nicht freigegeben");
+    assert_eq!(project_in(owner, &json!({ "id": "impl" })), None);
+}
