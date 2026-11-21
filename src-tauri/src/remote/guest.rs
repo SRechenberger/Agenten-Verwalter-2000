@@ -142,8 +142,9 @@ pub async fn dashboards(
 }
 
 /// Das Dashboard am Gast (ADR 071): an die eigene Ansicht kommen Karten, Abläufe und Sessions aus
-/// den Antworten der Hosts. Die Gruppe einer Karte ist die lokale (`group_names`), die Karten stehen
-/// nach der Regel von `build`. Ein Host ohne Antwort trägt nichts bei.
+/// den Antworten der Hosts. Die Gruppe einer Karte ist die lokale (`group_names`); Karten, Abläufe und
+/// Sessions stehen eigene und entfernte gemeinsam nach der Regel von `build`. Ein Host ohne Antwort
+/// trägt nichts bei.
 pub fn merge_dashboards(
     mut view: DashboardView,
     answers: Vec<Result<Value, CommandError>>,
@@ -165,6 +166,8 @@ pub fn merge_dashboards(
         view.sessions.extend(remote.sessions);
     }
     dashboard::sort_tasks(&mut view.tasks);
+    dashboard::sort_flows(&mut view.flows);
+    dashboard::sort_sessions(&mut view.sessions);
     view
 }
 

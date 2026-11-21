@@ -69,8 +69,8 @@ use verwalter_lib::{
         AwaitedScript, ChatEntryEvent, ChatPage, SessionOverlap, SessionStatus, SessionSummary,
     },
     settings::model::{
-        ColorScheme, OperatingMode, PanelId, PanelWidths, Settings, SettingsChange,
-        SettingsOverview, TerminalPlacement,
+        ColorScheme, DashboardChoice, OperatingMode, PanelId, PanelWidths, Settings,
+        SettingsChange, SettingsOverview, TerminalPlacement,
     },
     side::model::{SideChangedEvent, SideQuestion, SideState, SideUsage},
     skills::model::{SkillInfo, SkillKind, SkillOrigin, SkillRef, SkillUse},
@@ -210,6 +210,7 @@ fn main() -> Result<(), ts_rs::ExportError> {
     TerminalPlacement::export_all(&cfg)?;
     PanelId::export_all(&cfg)?;
     PanelWidths::export_all(&cfg)?;
+    DashboardChoice::export_all(&cfg)?;
     LocalModelKind::export_all(&cfg)?;
     LocalModel::export_all(&cfg)?;
     LocalModels::export_all(&cfg)?;

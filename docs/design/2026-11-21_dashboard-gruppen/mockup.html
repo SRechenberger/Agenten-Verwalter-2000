@@ -1,0 +1,347 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Entwurf: Dashboard-Gruppen und Marke „entfernt“ (#186, #198)</title>
+<style>
+:root{color-scheme:dark;--bg:#1f1f1f;--side:#181818;--surf:#252526;--hover:#2e2e30;--sel:#37373d;--bds:#2b2b2b;--bd:#3c3c3c;--fg:#d4d4d4;--fg2:#b0b0b0;--fgm:#8f8f8f;--acc:#e0825c;--acct:#f0a888;--onacc:#1d130e;--accsub:rgba(224,130,92,.16);--run:#5b9dff;--wait:#f2b33d;--waitsub:rgba(242,179,61,.14);--err:#f47067;--ok:#4cc38a;--master:#8ab8ea;--pause:#8f8f8f;--shadow:0 10px 30px rgb(0 0 0/.45);--font:'Segoe UI Variable Text','Segoe UI',system-ui,sans-serif;--mono:'Cascadia Code',Consolas,ui-monospace,monospace}
+:root[data-theme=light]{color-scheme:light;--bg:#fff;--side:#f8f8f8;--surf:#fff;--hover:#f0f0f0;--sel:#e6e8f0;--bds:#e6e6e6;--bd:#cecece;--fg:#3c3c3c;--fg2:#5f5f5f;--fgm:#6e6e6e;--acc:#c4572f;--acct:#a3401c;--onacc:#fff;--accsub:rgba(196,87,47,.1);--run:#2563eb;--wait:#a86a00;--waitsub:rgba(168,106,0,.1);--err:#d23b33;--ok:#16803c;--master:#3d6fa8;--pause:#6e6e6e;--shadow:0 10px 30px rgb(0 0 0/.14)}
+*{box-sizing:border-box}
+body{margin:0;background:var(--side);color:var(--fg);font:13px/1.45 var(--font)}
+main{max-width:1180px;margin:0 auto;padding:16px}
+h1{font-size:15px;margin:0 0 4px}h2{font-size:14px;margin:30px 0 4px}h2 small{color:var(--fgm);font-weight:400}
+.lead,.cap{color:var(--fg2);margin:0 0 10px}.cap{font-size:12px;color:var(--fgm);margin:6px 0 0}
+button{font:inherit;color:inherit}
+#sim{display:flex;flex-wrap:wrap;gap:8px 10px;align-items:center;margin:0 0 8px;padding:8px 10px;border:1px dashed var(--bd);border-radius:6px;color:var(--fgm);font-size:12px}
+#sim button{border:1px solid var(--bd);background:transparent;border-radius:6px;padding:3px 10px;cursor:pointer}
+#sim button[aria-pressed=true]{background:var(--sel);color:var(--fg)}
+#sim .sp{margin-left:12px}
+.row{display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:start}
+.row>*,.row3>*{min-width:0}
+.row3{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;align-items:start}
+.lbl{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--fgm);margin:0 0 4px}
+.lbl b{color:var(--acc)}
+.why{color:var(--fg2);font-size:12px;margin:6px 0 0}
+/* Fenster wie .dashboard__tasks */
+.win{background:var(--bg);border:1px solid var(--bd);border-radius:10px;padding:12px 16px}
+.bar{display:flex;flex-wrap:wrap;align-items:center;gap:12px 16px;margin-bottom:12px}
+.bar h3{margin:0;font-size:13px;font-weight:600}.cnt{color:var(--fgm);font-weight:400}
+.chk{display:inline-flex;align-items:center;gap:6px;color:var(--fg2);font-size:12px}
+.chk i{width:13px;height:13px;border:1px solid var(--bd);border-radius:3px;display:inline-block;position:relative;background:var(--bg)}
+.chk i.on{background:var(--acc);border-color:var(--acc)}
+.chk i.on::after{content:'';position:absolute;left:3.5px;top:0.5px;width:3px;height:7px;border:solid var(--onacc);border-width:0 1.6px 1.6px 0;transform:rotate(40deg)}
+.by{display:inline-flex;align-items:center;gap:8px;color:var(--fg2);font-size:12px}
+.seg{display:inline-flex;overflow:hidden;border:1px solid var(--bd);border-radius:6px}
+.seg button{padding:3px 11px;border:0;border-left:1px solid var(--bd);background:transparent;color:var(--fg2);font-size:12px;white-space:nowrap;cursor:pointer}
+.seg button:first-child{border-left:0}
+.seg button[aria-pressed=true]{background:var(--sel);color:var(--fg)}
+.seg.focus button.fo{outline:2px solid var(--acc);outline-offset:-2px}
+/* Karten wie .dashboard-card */
+.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(205px,1fr));gap:8px}
+.win.one .cards{grid-template-columns:1fr}
+.card{position:relative;border:1px solid var(--bd);border-left:3px solid var(--k);border-radius:8px;background:var(--surf);padding:8px 12px;display:flex;flex-direction:column;gap:4px;min-height:96px;text-align:left}
+.card .top{display:flex;align-items:center;gap:6px;font-size:11px}
+.card .kind{font-weight:600;color:var(--k)}
+.card .since{margin-left:auto;color:var(--fgm);white-space:nowrap}
+.card .t{font-size:12.5px;overflow-wrap:anywhere}
+.card .src{margin-top:auto;font-size:11px;color:var(--fgm);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ai{padding:0 6px;border:1px solid var(--bd);border-radius:99px;color:var(--fgm);font-size:10.5px}
+/* Gruppen: drei Ebenen */
+.g{margin-top:8px}
+.g .g{margin-left:7px;padding-left:12px;border-left:1px solid var(--bds)}
+.gh{display:flex;align-items:center;gap:6px;width:100%;margin:0 0 6px;padding:3px 4px;border:0;border-radius:6px;background:transparent;text-align:left;cursor:pointer}
+.gh:hover{background:var(--hover)}
+.gh.fo{outline:2px solid var(--acc);outline-offset:1px}
+.gh svg{flex:none;color:var(--fgm);transition:transform .12s}
+.gh[aria-expanded=false] svg{transform:rotate(-90deg)}
+.gh .n{color:var(--fgm);font-weight:400}
+.gh .plus{padding:0 7px;border-radius:99px;background:var(--accsub);color:var(--acct);font-size:11px;font-weight:600}
+.l-group>.gh{font-size:13px;font-weight:600;color:var(--fg);border-bottom:1px solid var(--bds);border-radius:6px 6px 0 0;margin-bottom:8px}
+.l-project>.gh{font-size:12px;font-weight:600;color:var(--fg2)}
+.l-kind>.gh{font-size:11px;font-weight:600;color:var(--fgm)}
+.l-kind>.gh .dt{width:7px;height:7px;border-radius:50%;background:var(--k)}
+.pri{font-size:11px;font-weight:400;color:var(--acct)}.pri.low{color:var(--fgm)}
+.rmk{display:inline-flex;color:var(--acc)}
+.g.shut{margin-bottom:0}
+.g.shut>.gh{margin-bottom:0}
+.g .cards{margin:0 0 8px}
+/* Marke „entfernt“ */
+.rm{display:inline-flex;align-items:center;gap:3px;padding:0 6px;border:1px solid var(--acc);border-radius:99px;color:var(--acct);font-size:10.5px;white-space:nowrap}
+.rm svg{color:var(--acc)}
+.host{display:flex;align-items:center;gap:4px;font-size:11px;color:var(--acct)}
+.rc{box-shadow:-4px 0 0 0 var(--acc);margin-left:4px}
+.rowc{border-left:3px solid var(--acc)!important;padding-left:5px!important;border-radius:0 6px 6px 0!important}
+.tip{position:absolute;z-index:3;padding:3px 8px;border:1px solid var(--bd);border-radius:6px;background:var(--surf);box-shadow:var(--shadow);font-size:11.5px;color:var(--fg);white-space:nowrap}
+/* Abläufe wie .dashboard-flow, .dashboard-session */
+.flows{display:flex;flex-direction:column;gap:6px}
+.sub{margin:0;font-size:13px;font-weight:600}.sub.s{margin-top:12px;color:var(--fg2);font-size:12px}
+.flow{--tone:var(--fgm);display:flex;flex-direction:column;gap:4px;padding:6px;border-radius:6px;color:var(--fg)}
+.flow:hover{background:var(--hover)}
+.flow .ln{display:flex;align-items:center;gap:8px}
+.flow .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.flow .st{color:var(--tone);font-size:11.5px;white-space:nowrap}
+.flow .ic{width:10px;height:10px;border:1.6px solid var(--tone);border-radius:3px;flex:none}
+.flow .pb{flex:1;height:6px;border-radius:99px;background:var(--hover);overflow:hidden}.flow .pb i{display:block;height:100%;background:var(--tone);border-radius:99px}
+.flow .fr{width:38px;text-align:right;color:var(--fgm);font-size:11.5px;font-variant-numeric:tabular-nums}
+.flow .op{width:44px;color:var(--wait);font-size:11px}
+.ses{--tone:var(--fgm);display:flex;align-items:center;gap:8px;padding:3px 6px;border-radius:6px;font-size:12.5px}
+.ses:hover{background:var(--hover)}
+.ses .dot{width:7px;height:7px;border-radius:50%;background:var(--tone);flex:none}
+.ses .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ses .st{color:var(--tone);font-size:11.5px;white-space:nowrap}
+.run{--tone:var(--run)}.wt{--tone:var(--wait)}.er{--tone:var(--err)}.ma{--tone:var(--master)}
+.rail{border:1px solid var(--bd);border-radius:10px;background:var(--bg);padding:12px 12px}
+.pan{border:1px solid var(--bd);border-radius:10px;background:var(--bg);padding:12px;display:grid;grid-template-columns:230px minmax(0,1fr);gap:14px;align-items:start}
+.pan .col{display:flex;flex-direction:column;gap:8px}
+.sm{font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--fgm);margin:6px 0 0}
+.sm:first-child{margin-top:0}
+.gut{display:grid;grid-template-columns:62px 1fr;gap:0 8px;align-items:center}
+.gut .a{white-space:nowrap;font-size:10.5px;color:var(--fgm);text-align:right;font-variant-numeric:tabular-nums}
+.gut .a.r{color:var(--acct)}
+.gutwrap{display:flex;flex-direction:column;gap:6px}
+.pick{outline:2px solid var(--acc);outline-offset:2px;border-radius:6px}
+section.doc{margin-top:28px;color:var(--fg2);max-width:900px}
+@media (max-width:1000px){.row,.row3,.pan{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<main>
+<h1>Entwurf: Dashboard-Gruppen und Marke „entfernt“ (Taiga #186, Rest von #198)</h1>
+<p class="lead">Mockup vor der Umsetzung, Stand 2026-11-21. Alle Namen und Zahlen sind Beispieldaten. Farben und Abstände sind aus den Dateien der Oberfläche übernommen; die Regeln der Schachtelung laufen im Mockup wirklich (Gruppen in Bild 2 klappen auf Klick). Die Schalter wirken auf alle Bilder; Sprungmarke <code>#theme=light|dark</code> und <code>#mark=A|B|C|D</code>.</p>
+<div id="sim"><span>Farbschema</span><button data-theme="dark">Dunkel</button><button data-theme="light">Hell</button><span class="sp">Marke „entfernt“ in Bild 2, 3 und 5</span><button data-mark="A">A</button><button data-mark="B">B</button><button data-mark="C">C</button><button data-mark="D">D</button></div>
+
+<!-- ===================== 1 ===================== -->
+<h2>1 · #186 Kopf der Liste <small>drei Schalter in fester Reihenfolge, daneben der Filter</small></h2>
+<div class="win" style="display:flex;flex-direction:column;gap:14px">
+  <div><p class="lbl">Alles aus (Standard, wie heute flach)</p><div id="bar0"></div></div>
+  <div><p class="lbl">Gruppe, Vorhaben und Art an (ganz geschachtelt) und der Filter</p><div id="bar1"></div></div>
+  <div><p class="lbl">Nur Vorhaben an, Tastaturfokus auf „Art“</p><div id="bar2"></div></div>
+</div>
+<p class="cap">Heute: Kontrollkästchen „Gruppiert“ und ein Dreier-Schalter, der genau eine Ebene wählt. Neu: drei unabhängige Schalter (<code>aria-pressed</code>, Stil des heutigen Dreier-Schalters), die sich in fester Reihenfolge Gruppe › Vorhaben › Art schachteln. Der Filter bleibt, wie er ist. Alle vier Wahlen bleiben nach einem Neustart. Ein Hinweis darauf ist nicht nötig: Ein Schalter, der nach dem Neustart noch steht, überrascht nicht, und die Zeile bliebe dauernd stehen.</p>
+
+<!-- ===================== 2 ===================== -->
+<h2>2 · #186 Ganz geschachtelt <small>Gruppe → Vorhaben → Art, Vorhaben nach Priorität, einklappbar</small></h2>
+<div class="row">
+  <div>
+    <p class="lbl">Flache Liste zum Vergleich (Reihenfolge des Core: Stufe, dann am längsten wartend)</p>
+    <div class="win one" id="flat"></div>
+    <p class="cap">Das erste Vorhaben der flachen Liste ist „Upstream-Features“ (niedrig). Geschachtelt rückt es hinter „Dashboard-Ticket“ (hoch). Bei gleicher Priorität gilt die flache Liste: In „Sonstiges“ steht „Build-Pipeline“ (hoch) vor „Vault-Pflege“ (normal); stünden beide normal, käme „Vault-Pflege“ zuerst, weil seine Karte in der flachen Liste vorn steht.</p>
+  </div>
+  <div>
+    <p class="lbl">Geschachtelt, Gruppe „Sonstiges“ eingeklappt und mit einer neuen Karte</p>
+    <div class="win" id="nest"></div>
+    <p class="cap">Klick auf einen Kopf klappt die Gruppe auf oder zu. „Sonstiges“ ist zu und zeigt die Zahl ihrer Karten; die neue Karte (<span class="gh" style="display:inline;padding:0"><span class="plus">+1</span></span>) hat sie nicht geöffnet. „Upstream-Features“ ist zu, „Antwort liegt vor“ bei „Dashboard-Ticket“ ebenfalls: jede Ebene klappt für sich. Das „+1“ ist ein Vorschlag über den Vertrag hinaus (der Store zählt die Karten beim Einklappen mit); ohne es zeigt der Kopf nur die Zahl.</p>
+  </div>
+</div>
+<p class="lbl" style="margin-top:14px">Kopf einer Gruppe in vier Zuständen</p>
+<div class="win" style="display:grid;grid-template-columns:repeat(4,1fr);gap:14px">
+  <div id="h1"></div><div id="h2"></div><div id="h3"></div><div id="h4"></div>
+</div>
+<p class="cap">Offen, zu, zu mit neuer Karte, Tastaturfokus. Der Kopf ist ein Knopf mit <code>aria-expanded</code>; der Pfeil zeigt nach unten (offen) oder nach rechts (zu). Der Zustand lebt nur, solange die App läuft, und übersteht das Verlassen des Dashboards.</p>
+
+<!-- ===================== 3 ===================== -->
+<h2>3 · #186 Teilweise <small>nur Vorhaben, nur Art, alles aus</small></h2>
+<div class="row3">
+  <div><p class="lbl">Nur Vorhaben</p><div class="win one" id="p1"></div></div>
+  <div><p class="lbl">Nur Art</p><div class="win one" id="p2"></div></div>
+  <div><p class="lbl">Alles aus (wie heute flach)</p><div class="win one" id="p3"></div></div>
+</div>
+<p class="cap">„Nur Vorhaben“ steht nach Priorität (hoch zuerst). „Nur Art“ und „Gruppe“ behalten die Reihenfolge ihrer ersten Karte. Mit dem Schalter „Gruppe“ allein steht dasselbe wie „Nur Vorhaben“, eine Ebene höher.</p>
+
+<!-- ===================== 4 ===================== -->
+<h2>4 · #198 Marke „entfernt“ <small>Karte, Zeile im Ablauf, Session; je Variante mit einem eigenen Vorhaben zum Vergleich</small></h2>
+<div class="row" id="marks"></div>
+<p class="cap">Gezeigt ist jeweils die Karte, die Zeile eines Ablaufs und die Zeile einer Session des entfernten Vorhabens „Build-Pipeline“ (Host „Annas Laptop“), jeweils darunter die lokale Entsprechung. Die Marke folgt nur aus der <code>projectId</code> des Vorhabens (<code>access.kind === 'remote'</code>); in allen Varianten tragen <code>title</code> und <code>aria-label</code> den Namen des Hosts.</p>
+
+<!-- ===================== 5 ===================== -->
+<h2>5 · #198 Abläufe und Sessions <small>lokal und entfernt gemischt, nach letzter Aktivität</small></h2>
+<div class="row">
+  <div><p class="lbl">Heute beim Gast: erst die lokalen, entfernte hinten angehängt</p><div class="rail" id="r0"></div></div>
+  <div><p class="lbl">Neu: eine Ordnung, zuletzt aktiv zuerst</p><div class="rail" id="r1"></div></div>
+</div>
+<p class="cap">Die Spalte links der Zeilen (Zeit der letzten Aktivität) gibt es nur im Mockup; die Ansicht zeigt sie nicht, sie ordnet nur danach. Die lokale Ordnung ändert sich nicht, entfernte Zeilen reihen sich nach derselben Regel ein. Marke hier in der oben gewählten Variante.</p>
+
+<section class="doc">
+  <h2>Was der Entwurf zeigt</h2>
+  <ul>
+    <li><b>#186:</b> drei Schalter in fester Reihenfolge (Bild 1), Schachtelung mit Priorität und Einklappen auf jeder Ebene (Bild 2), Teilmengen (Bild 3).</li>
+    <li><b>#198:</b> Marke „entfernt“ in vier Formen (Bild 4), gemischte Ordnung der Abläufe und Sessions (Bild 5).</li>
+    <li><b>Marke, Vorschlag D:</b> nur das Zeichen ⇄ (wie in der Leiste) in der Kopfzeile von Karte, Ablauf und Session; der Name des Hosts steht auf der Karte als Anfang der Herkunftszeile, sonst im <code>title</code>. D braucht keine neue Zeile, keine neue Farbfläche und keinen Platz in den schon vollen Zeilen der Abläufe; C stößt auf den Rand der Karte, der schon die Art zeigt.</li>
+    <li><b>Offen für den Nutzer:</b> die Wahl der Marke (A bis D), und ob das „+1“ an der eingeklappten Gruppe gewünscht ist.</li>
+  </ul>
+</section>
+</main>
+
+<script>
+const root=document.documentElement,hash=new URLSearchParams(location.hash.slice(1));
+let MARK=hash.get('mark')||'D';
+const HOST='Annas Laptop';
+const rmSvg='<svg width="11" height="11" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1.5 5h10L9 2.5M12.5 9h-10L5 11.5"/></svg>';
+const chev='<svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 3.5l3 3 3-3"/></svg>';
+const T_={wait:'var(--wait)',accent:'var(--acc)',error:'var(--err)',muted:'var(--pause)'};
+const PRIO={high:0,normal:1,low:2};
+const P={
+ A:{name:'Upstream-Features',group:'Verwalter',prio:'low'},
+ B:{name:'Dashboard-Ticket',group:'Verwalter',prio:'high'},
+ C:{name:'Vault-Pflege',group:'Sonstiges',prio:'normal'},
+ D:{name:'Build-Pipeline',group:'Sonstiges',prio:'high',host:HOST}};
+const K={asks:['Fragt','wait'],question:['Rückfrage','wait'],permission:['Rechte-Abfrage','wait'],error:['Fehler','error'],paused:['Unterbrochen','muted'],answer:['Antwort liegt vor','muted']};
+// flache Ordnung des Core: Stufe, dann am längsten wartend
+const TASKS=[
+ {p:'A',k:'asks',s:'31 min',t:'Soll der Import Tags mitnehmen?',o:'#2 Architekt',ai:1},
+ {p:'C',k:'question',s:'22 min',t:'Soll „Parallel max.“ je Umsetzung entfallen?',o:'#1 Destillieren'},
+ {p:'B',k:'question',s:'12 min',t:'Popup beim Wechsel der Art offen lassen?',o:'#1 Architekt'},
+ {p:'D',k:'permission',s:'9 min',t:'Bash: pnpm build',o:'#3 Entwicklung'},
+ {p:'B',k:'error',s:'8 min',t:'Station 4.2 Umsetzung: Test rot',o:'Ablauf Welle 4'},
+ {p:'A',k:'paused',s:'25 min',t:'Kontingent aufgebraucht',o:'Station 2.1'},
+ {p:'C',k:'answer',s:'15 min',t:'Drei Dinge geändert …',o:'#1 Destillieren'},
+ {p:'B',k:'answer',s:'6 min',t:'Review ohne Befund',o:'Station 4.3'},
+ {p:'D',k:'paused',s:'3 min',t:'Pausiert, Meldung liegt vor',o:'Station 1.2'},
+ {p:'D',k:'answer',s:'1 min',t:'Build grün, 3 Warnungen',o:'#3 Entwicklung',neu:1},
+];
+const REMOTE_TITLE='Entfernt: Das Vorhaben liegt bei „'+HOST+'“';
+const aria=(h)=>`role="img" aria-label="Entfernt, Host ${h}" title="Entfernt: Host ${h}"`;
+function card(t,opt={}){
+ const pr=P[t.p],rem=!!pr.host,[kl,tone]=K[t.k],m=opt.mark||MARK;
+ let top=`<span class="kind">${kl}</span>`+(t.ai?'<span class="ai" title="Eingeordnet von einem kleinen Modell aus der letzten Antwort">✦ eingeordnet</span>':'');
+ let cls='card',extra='',src=`${pr.name} · ${t.o}`,tail='';
+ if(rem){
+  if(m==='A')top+=`<span class="rm" ${aria(pr.host)}>${rmSvg}${pr.host}</span>`;
+  if(m==='B')tail=`<span class="host" ${aria(pr.host)}>${rmSvg}${pr.host}</span>`;
+  if(m==='C'){cls+=' rc';extra=` title="Entfernt: Host ${pr.host}"`}
+  if(m==='D'){top+=`<span class="rmk" ${aria(pr.host)}>${rmSvg}</span>`;src=`⇄ ${pr.host} · ${src}`}
+ }
+ return `<div class="${cls}" style="--k:${T_[tone]}"${extra}><span class="top">${top}<span class="since">${t.s}</span></span><span class="t">${t.t}</span>${tail}<span class="src">${src}</span></div>`;
+}
+const cards=(ts)=>`<div class="cards">${ts.map(t=>card(t)).join('')}</div>`;
+
+// ---- Schachtelung: gruppiert in Reihenfolge der ersten Karte; Vorhaben danach stabil nach Priorität ----
+const LEVELS=['group','project','kind'];
+const LABEL={group:t=>P[t.p].group,project:t=>P[t.p].name,kind:t=>K[t.k][0]};
+const KEY={group:t=>'g:'+P[t.p].group,project:t=>t.p,kind:t=>t.k};
+function nest(ts,lv){
+ if(!lv.length)return null;
+ const [by,...rest]=lv,gs=[];
+ for(const t of ts){let g=gs.find(x=>x.key===KEY[by](t));if(!g)gs.push(g={by,key:KEY[by](t),label:LABEL[by](t),tasks:[]});g.tasks.push(t)}
+ if(by==='project')gs.sort((a,b)=>PRIO[P[a.tasks[0].p].prio]-PRIO[P[b.tasks[0].p].prio]); // stabil
+ gs.forEach(g=>g.kids=nest(g.tasks,rest));
+ return gs;
+}
+function head(g,state,path){
+ const rem=g.by==='project'&&P[g.tasks[0].p].host,pr=g.by==='project'?P[g.tasks[0].p].prio:null;
+ const open=!state.shut.has(path);
+ let lead=g.by==='kind'?'<i class="dt"></i>':'';
+ let mid=g.label+(pr==='high'?' <span class="pri" title="Priorität hoch">▲</span>':pr==='low'?' <span class="pri low" title="Priorität niedrig">▼</span>':'')
+  +(rem?` <span class="rmk" ${aria(rem)}>${rmSvg}</span>`:'');
+ const plus=!open&&state.neu&&state.neu[path]?` <span class="plus" title="Neue Karte, seit die Gruppe zu ist">+${state.neu[path]}</span>`:'';
+ return `<button type="button" class="gh${state.fo===path?' fo':''}" aria-expanded="${open}" data-path="${path}">${chev}${lead}<span>${mid}</span><span class="n">${g.tasks.length}</span>${plus}</button>`;
+}
+function body(gs,tasksIfLeaf,state,prefix){
+ if(!gs)return cards(tasksIfLeaf);
+ return gs.map(g=>{
+  const path=prefix+'/'+g.key,open=!state.shut.has(path);
+  const k=g.by==='kind'?` style="--k:${T_[K[g.tasks[0].k][1]]}"`:'';
+  return `<section class="g l-${g.by}${open?'':' shut'}"${k}>${head(g,state,path)}${open?body(g.kids,g.tasks,state,path):''}</section>`;
+ }).join('');
+}
+function mount(el,ts,lv,state){
+ const draw=()=>{const gs=nest(ts,lv);el.innerHTML=body(gs,ts,state,'');};
+ draw();
+ el.onclick=e=>{const b=e.target.closest('.gh');if(!b)return;const p=b.dataset.path;state.shut.has(p)?state.shut.delete(p):state.shut.add(p);if(state.neu)delete state.neu[p];draw()};
+}
+
+// ---- Kopf ----
+function bar(on,filter,fo){
+ const b=['Gruppe','Vorhaben','Art'].map((n,i)=>`<button type="button" aria-pressed="${!!on[i]}"${fo===i?' class="fo"':''} title="Schachtelt in fester Reihenfolge: Gruppe, Vorhaben, Art">${n}</button>`).join('');
+ return `<div class="bar" style="margin:0"><h3>Aufgaben <span class="cnt">10</span></h3><span class="by">Gruppiert nach<span class="seg${fo!=null?' focus':''}" role="group" aria-label="Gruppiert nach">${b}</span></span><label class="chk"><i class="${filter?'on':''}"></i>Nur, was einen Agenten anhält</label></div>`;
+}
+const barSet=()=>{
+ bar0.innerHTML=bar([0,0,0],0);bar1.innerHTML=bar([1,1,1],1);bar2.innerHTML=bar([0,1,0],0,2);
+};
+
+// ---- Bilder ----
+function render(){
+ barSet();
+ flat.innerHTML=cards(TASKS);
+ // Bild 2: Zustand einmal anlegen, bei Wechsel der Marke behalten
+ mount(nest_,TASKS,LEVELS,nestState);
+ // Kopf in vier Zuständen
+ const sample={by:'group',label:'Sonstiges',tasks:TASKS.filter(t=>P[t.p].group==='Sonstiges')};
+ const st=(shut,neu,fo)=>({shut:new Set(shut?['x']:[]),neu:neu?{x:1}:null,fo:fo?'x':null});
+ h1.innerHTML=head(sample,st(0,0,0),'x');h2.innerHTML=head(sample,st(1,0,0),'x');h3.innerHTML=head(sample,st(1,1,0),'x');h4.innerHTML=head(sample,st(0,0,1),'x');
+ const some=TASKS.slice(0,8);
+ mount(p1,some,['project'],{shut:new Set()});
+ mount(p2,some,['kind'],{shut:new Set()});
+ p3.innerHTML=cards(some);
+ marks();rails();
+}
+const nest_=document.getElementById('nest');
+const nestState={shut:new Set(['/g:Sonstiges','/g:Verwalter/A','/g:Verwalter/B/answer']),neu:{'/g:Sonstiges':1},fo:null};
+// „+1“: die neue Karte zählt schon in der Zahl (5), das Plus nennt sie
+// ---- Marke, Bild 4 ----
+function flowRow(f,m,rem){
+ const nm=f.n;let pre='',post='',cls=`flow ${f.c}`,below='';
+ if(rem){
+  if(m==='A')post=`<span class="rm" ${aria(HOST)}>${rmSvg}${HOST}</span>`;
+  if(m==='B')below=`<span class="host" ${aria(HOST)}>${rmSvg}${HOST}</span>`;
+  if(m==='C')cls+=' rowc';
+  if(m==='D')pre=`<span class="rmk" ${aria(HOST)}>${rmSvg}</span>`;
+ }
+ const ttl=rem&&m==='C'?` title="Entfernt: Host ${HOST}"`:'';
+ return `<div class="${cls}"${ttl}><span class="ln"><span class="ic"></span>${pre}<span class="nm">${nm}</span>${post}<span class="st">${f.l}</span></span>${below?`<span class="ln" style="padding-left:18px">${below}</span>`:''}<span class="ln"><span class="pb"><i style="width:${f.d/f.t*100}%"></i></span><span class="fr">${f.d}/${f.t}</span><span class="op">${f.o}</span></span></div>`;
+}
+function sesRow(s,m,rem){
+ let pre='',post='',cls=`ses ${s.c}`,below='';
+ if(rem){
+  if(m==='A')post=`<span class="rm" ${aria(HOST)}>${rmSvg}${HOST}</span>`;
+  if(m==='B')below=`<span class="host" ${aria(HOST)}>${rmSvg}${HOST}</span>`;
+  if(m==='C')cls+=' rowc';
+  if(m==='D')pre=`<span class="rmk" ${aria(HOST)}>${rmSvg}</span>`;
+ }
+ const ttl=rem&&m==='C'?` title="Entfernt: Host ${HOST}"`:'';
+ return `<div class="${cls}"${ttl}><span class="dot"></span>${pre}<span class="nm" style="${below?'white-space:normal':''}">${s.n}${below?'<br>'+below:''}</span>${post}<span class="st">${s.l}</span></div>`;
+}
+const FL=[{n:'Build-Release',c:'run',l:'läuft',d:2,t:5,o:'',rem:1},{n:'Welle 4 Dashboard',c:'run',l:'läuft',d:3,t:6,o:'',rem:0}];
+const SE=[{n:'Build-Pipeline · #3 Entwicklung',c:'run',l:'läuft',rem:1},{n:'Vault-Pflege · #1 Destillieren',c:'wt',l:'wartet auf dich',rem:0}];
+function marks(){
+ const rcard=TASKS.find(t=>t.p==='D'&&t.k==='permission'),lcard=TASKS.find(t=>t.p==='B'&&t.k==='question');
+ const txt={A:['A','⇄ mit dem Namen des Hosts als kleine Marke, wie in der Leiste','Pille mit ⇄ und Host in der Kopfzeile der Karte und hinter dem Namen im Ablauf. Eindeutig, aber der Host-Name kostet Breite in den vollen Zeilen der Abläufe.'],
+  B:['B','der Name des Hosts als zweite Zeile unter dem Titel','Zeigt den Namen immer, ohne Tooltip. Kostet in jeder Zeile eine Zeile Höhe; die Session-Zeile wird zweizeilig, der Ablauf dreizeilig.'],
+  C:['C','ein farbiger Rand links, der Name im Tooltip','Der Rand links ist auf der Karte schon die Art (Farbe der Stufe): zwei Ränder nebeneinander lesen sich als ein dicker Streifen. In Ablauf und Session geht es gut.'],
+  D:['D','Vorschlag: nur ⇄ in der Kopfzeile, der Host zuerst in der Herkunftszeile der Karte','Wie in der Leiste: ein kleines ⇄ in Akzentfarbe. Auf der Karte steht der Host vorn in der Herkunftszeile, die es schon gibt; in Ablauf und Session im <code>title</code>. Keine neue Zeile, keine neue Fläche.']};
+ document.getElementById('marks').innerHTML=Object.keys(txt).map(m=>{
+  const tip=m==='C'?'<span class="tip" style="left:96px;top:44px">Entfernt: Host '+HOST+'</span>':'';
+  return `<div><p class="lbl"><b>${txt[m][0]}</b> · ${txt[m][1]}</p><div class="pan"><div class="col"><p class="sm">Karte, entfernt</p><div style="position:relative">${card(rcard,{mark:m})}${tip}</div><p class="sm">Karte, lokal</p>${card(lcard,{mark:m})}</div><div class="col"><p class="sm">Ablauf, entfernt</p><div class="flows">${flowRow(FL[0],m,1)}</div><p class="sm">Ablauf, lokal</p><div class="flows">${flowRow(FL[1],m,0)}</div><p class="sm">Session, entfernt</p>${sesRow(SE[0],m,1)}<p class="sm">Session, lokal</p>${sesRow(SE[1],m,0)}</div></div><p class="why">${txt[m][2]}</p></div>`;
+ }).join('');
+}
+// ---- Bild 5 ----
+const FLOWS=[
+ {n:'Welle 4 Dashboard',c:'run',l:'läuft',d:3,t:6,o:'',a:1,rem:0},
+ {n:'Build-Release',c:'run',l:'läuft',d:2,t:5,o:'',a:2,rem:1},
+ {n:'Agententypen per MCP',c:'wt',l:'wartet auf dich',d:4,t:7,o:'2 offen',a:14,rem:0},
+ {n:'Upstream-Sync',c:'ma',l:'wartet auf Master',d:1,t:4,o:'',a:40,rem:1}];
+const SESS=[
+ {n:'Build-Pipeline · #3 Entwicklung',c:'run',l:'läuft',a:0.5,rem:1},
+ {n:'Vault-Pflege · #1 Destillieren',c:'wt',l:'wartet auf dich',a:5,rem:0},
+ {n:'Build-Pipeline · #1 Architekt',c:'run',l:'läuft',a:20,rem:1},
+ {n:'Upstream-Features · #2 Architekt',c:'er',l:'Fehler',a:180,rem:0}];
+const ago=a=>a<1?'vor 30 s':a<60?`vor ${a} min`:`vor ${a/60} h`;
+function rail(fl,se){
+ const g=(x,html)=>`<div class="gut"><span class="a${x.rem?' r':''}">${ago(x.a)}</span>${html}</div>`;
+ return `<div class="flows"><h3 class="sub">Abläufe</h3>${fl.map(f=>g(f,flowRow(f,MARK,f.rem))).join('')}<h3 class="sub s">Sessions ohne Ablauf</h3>${se.map(s=>g(s,sesRow(s,MARK,s.rem))).join('')}</div>`;
+}
+function rails(){
+ const heute=(l)=>[...l.filter(x=>!x.rem),...l.filter(x=>x.rem)];
+ const neu=(l)=>[...l].sort((a,b)=>a.a-b.a);
+ r0.innerHTML=rail(heute(FLOWS),heute(SESS));r1.innerHTML=rail(neu(FLOWS),neu(SESS));
+}
+
+function setTheme(t){root.dataset.theme=t;document.querySelectorAll('#sim [data-theme]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.theme===t)))}
+function setMark(m){MARK=m;document.querySelectorAll('#sim [data-mark]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.mark===m)));render()}
+document.querySelectorAll('#sim [data-theme]').forEach(b=>b.onclick=()=>setTheme(b.dataset.theme));
+document.querySelectorAll('#sim [data-mark]').forEach(b=>b.onclick=()=>setMark(b.dataset.mark));
+setTheme(hash.get('theme')||'dark');setMark(MARK);
+</script>
+</body>
+</html>

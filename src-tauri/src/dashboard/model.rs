@@ -103,6 +103,11 @@ pub struct DashboardFlow {
     pub stations_total: u32,
     // Zahl der Karten dieser Umsetzung.
     pub open: u32,
+    // Ordnet beim Gast eigene und entfernte Abläufe gemeinsam (`sort_flows`); die Ansicht zeigt sie
+    // nicht. `default`: Ein älterer Host schickt sie nicht.
+    #[serde(default)]
+    #[ts(skip)]
+    pub last_activity_at: f64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -123,6 +128,10 @@ pub struct DashboardSession {
     pub project_id: String,
     pub project_name: String,
     pub state: DashboardSessionState,
+    // Wie bei `DashboardFlow` (`sort_sessions`).
+    #[serde(default)]
+    #[ts(skip)]
+    pub last_activity_at: f64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
