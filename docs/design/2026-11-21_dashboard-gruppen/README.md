@@ -1,6 +1,6 @@
 # Design-Entwurf: Dashboard-Gruppen und Marke „entfernt“
 
-**Status:** Entwurf vom 2026-11-21, wartet auf die Wahl des Nutzers (Taiga-Story 186, Issue 198; [ADR 071](../../decisions/071-dashboard.md)). Aufbau und Stil wie [2026-11-20_dashboard-zettel](../2026-11-20_dashboard-zettel/README.md).
+**Status:** Entwurf vom 2026-11-21, gewählt und umgesetzt (Taiga-Story 186, Issue 198; [ADR 071](../../decisions/071-dashboard.md)). Aufbau und Stil wie [2026-11-20_dashboard-zettel](../2026-11-20_dashboard-zettel/README.md).
 
 ## Ansehen
 
@@ -32,4 +32,4 @@
 - Ein Hinweis, dass die Wahl bleibt, steht nicht im Kopf: nicht nötig.
 - Die Zeit der letzten Aktivität in Bild 5 zeigt nur das Mockup; die Ansicht ordnet danach, ohne sie zu zeigen.
 
-**Es gilt:** noch offen (Wahl des Nutzers).
+**Es gilt:** Marke D, kein „+1“ (Wahl des Nutzers vom 2026-11-21). Bilder 1 bis 3 und 5 wie im Mockup mit den Festlegungen oben; eine eingeklappte Gruppe zeigt nur die Zahl ihrer Karten.
