@@ -94,11 +94,98 @@
     }
   }
 
-  &__group-title {
-    margin: var(--space-2xl) 0 var(--space-sm);
+  &__by {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-md);
     color: var(--color-fg-secondary);
     font-size: var(--font-size-xs);
+  }
+
+  &__group {
+    margin-top: var(--space-md);
+
+    /* Ebenen unter der obersten rücken mit einer Linie ein. */
+    & & {
+      margin-left: 7px;
+      padding-left: var(--space-lg);
+      border-left: 1px solid var(--color-border-subtle);
+    }
+
+    & .dashboard__cards {
+      margin-bottom: var(--space-md);
+    }
+  }
+
+  &__group-title {
+    margin: 0 0 var(--space-sm);
+    font-size: var(--font-size-xs);
     font-weight: 600;
+  }
+
+  &__group-head {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    width: 100%;
+    padding: 3px var(--space-xs);
+    border: 0;
+    border-radius: var(--radius-md);
+    background: transparent;
+    color: var(--color-fg-secondary);
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+
+    &:hover {
+      background: var(--color-bg-hover);
+    }
+
+    &[aria-expanded='false'] .dashboard__chevron {
+      transform: rotate(-90deg);
+    }
+  }
+
+  &__group--group > &__group-title > &__group-head {
+    border-bottom: 1px solid var(--color-border-subtle);
+    border-radius: var(--radius-md) var(--radius-md) 0 0;
+    color: var(--color-fg-primary);
+    font-size: var(--font-size-md);
+  }
+
+  &__group--kind > &__group-title > &__group-head {
+    color: var(--color-fg-muted);
+    font-size: var(--font-size-2xs);
+  }
+
+  &__chevron {
+    flex: none;
+    color: var(--color-fg-muted);
+    transition: transform 0.12s;
+  }
+
+  &__dot {
+    flex: none;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--tone);
+  }
+
+  &__priority {
+    color: var(--color-accent-text);
+    font-size: var(--font-size-2xs);
+    font-weight: 400;
+
+    &--low {
+      color: var(--color-fg-muted);
+    }
+  }
+
+  &__remote {
+    display: inline-flex;
+    flex: none;
+    color: var(--color-accent);
   }
 
   &__cards {

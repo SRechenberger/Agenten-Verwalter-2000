@@ -1,21 +1,21 @@
 // Beschriftungen, Gruppen, Filter und Zählung des Dashboards (ADR 071, Entwurf 2026-11-17). Welche Karte es gibt,
 // ihre Reihenfolge, `blocking`, `open` und der Zustand eines Ablaufs kommen vom Core; hier steht nur, wie sie
-// aussehen. Importiert nur Typen: `pnpm selftest` fährt `dashboardTexts.selftest.ts` direkt mit Node.
+// aussehen. Importiert Werte nur relativ aus Dateien, die selbst nur Typen importieren: `pnpm selftest` fährt
+// `dashboardTexts.selftest.ts` direkt mit Node.
+import { PRIORITY_ORDER } from '../queue/queueTexts.ts';
+import { hostNameOf } from '../remote/projectAccess.ts';
 import type { ChatEntry } from '@/lib/bindings/ChatEntry';
+import type { DashboardChoice } from '@/lib/bindings/DashboardChoice';
 import type { DashboardFlow } from '@/lib/bindings/DashboardFlow';
 import type { DashboardFlowState } from '@/lib/bindings/DashboardFlowState';
 import type { DashboardSessionState } from '@/lib/bindings/DashboardSessionState';
 import type { DashboardTask } from '@/lib/bindings/DashboardTask';
 import type { DashboardTaskKind } from '@/lib/bindings/DashboardTaskKind';
+import type { ProjectPriority } from '@/lib/bindings/ProjectPriority';
+import type { ProjectSummary } from '@/lib/bindings/ProjectSummary';
 
-/** Die Wahl „Gruppiert“: nach Vorhaben (Standard), nach Art oder nach Gruppe des Vorhabens (#11). */
+/** Eine Ebene der Gruppierung: nach Vorhaben, nach Art oder nach Gruppe des Vorhabens (#11). */
 export type GroupBy = 'project' | 'kind' | 'group';
-
-export const GROUP_BY_LABEL: Record<GroupBy, string> = {
-  project: 'nach Vorhaben',
-  kind: 'nach Art',
-  group: 'nach Gruppe',
-};
 
 export const NO_GROUP_LABEL = 'Ohne Gruppe';
 
@@ -117,6 +117,82 @@ export function groupTasks(tasks: readonly DashboardTask[], by: GroupBy): TaskGr
     }
   }
   return groups;
+}
+
+/** Ebenen der Schachtelung in fester Reihenfolge (Story 186), gleich welche Schalter an sind. */
+export const NEST_ORDER: readonly GroupBy[] = ['group', 'project', 'kind'];
+
+export const NEST_LABEL: Record<GroupBy, string> = {
+  group: 'Gruppe',
+  project: 'Vorhaben',
+  kind: 'Art',
+};
+
+/** Ob der Schalter einer Ebene an ist. */
+export function isNested(choice: DashboardChoice, by: GroupBy): boolean {
+  return by === 'group' ? choice.byGroup : by === 'project' ? choice.byProject : choice.byKind;
+}
+
+/** Die eingeschalteten Ebenen in der Reihenfolge Gruppe → Vorhaben → Art; leer = flach. */
+export function levelsOf(choice: DashboardChoice): GroupBy[] {
+  return NEST_ORDER.filter((by: GroupBy) => isNested(choice, by));
+}
+
+export interface TaskNode extends TaskGroup {
+  by: GroupBy;
+  /** Kennung über alle Ebenen (`/group:Verwalter/p1/question`), Schlüssel des Einklapp-Zustands. */
+  path: string;
+  /** `null` auf der untersten Ebene: Dort stehen die Karten. */
+  children: TaskNode[] | null;
+}
+
+/** Priorität eines Vorhabens; ein unbekanntes gilt als normal. */
+export function priorityOf(
+  projectId: string,
+  projects: readonly ProjectSummary[],
+): ProjectPriority {
+  return projects.find((project: ProjectSummary) => project.id === projectId)?.priority ?? 'normal';
+}
+
+/** Schachtelt die Karten über `groupTasks` je Ebene. Vorhaben stehen nach Priorität, bei gleicher nach ihrer
+ *  ersten Karte; Gruppe und Art nach ihrer ersten Karte. Ohne Ebene `null`: Die Liste bleibt flach. */
+export function nestTasks(
+  tasks: readonly DashboardTask[],
+  levels: readonly GroupBy[],
+  projects: readonly ProjectSummary[],
+  parent = '',
+): TaskNode[] | null {
+  const [by, ...rest] = levels;
+  if (by === undefined) {
+    return null;
+  }
+  const groups: TaskGroup[] = groupTasks(tasks, by);
+  if (by === 'project') {
+    const rank = (group: TaskGroup): number =>
+      PRIORITY_ORDER.indexOf(priorityOf(group.key, projects));
+    // `sort` ist stabil: Bei gleicher Priorität bleibt die Reihenfolge der ersten Karte.
+    groups.sort((left: TaskGroup, right: TaskGroup) => rank(left) - rank(right));
+  }
+  return groups.map((group: TaskGroup) => {
+    const path = `${parent}/${group.key}`;
+    return { ...group, by, path, children: nestTasks(group.tasks, rest, projects, path) };
+  });
+}
+
+/** Host eines entfernten Vorhabens, allein aus der `projectId` (Issue 198); `null` bei eigenen und unbekannten. */
+export function remoteHostOf(
+  projectId: string,
+  projects: readonly ProjectSummary[],
+): string | null {
+  const project: ProjectSummary | undefined = projects.find(
+    (candidate: ProjectSummary) => candidate.id === projectId,
+  );
+  return project === undefined ? null : hostNameOf(project.access);
+}
+
+/** `title` und `aria-label` der Marke ⇄. */
+export function remoteTitle(host: string): string {
+  return `Entfernt: Host „${host}“`;
 }
 
 const MS_PER_MINUTE = 60_000;
