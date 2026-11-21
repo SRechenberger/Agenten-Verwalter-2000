@@ -8428,3 +8428,21 @@ fn report_of_an_implementation_not_begun_says_the_user_starts_it() {
     let view = limited_view(vec![begun], None, true, &[]);
     assert!(report::text(&view, 0.0, false).contains("Jetzt: nichts läuft\n"));
 }
+
+#[test]
+fn report_after_start_with_a_station_counting_down_or_queued_says_nothing_runs() {
+    let not_begun_line = "Jetzt: nichts läuft; die Stationen startet der Verwalter";
+    let view = limited_view(vec![node("a", &[]), node("b", &[])], None, true, &["a"]);
+    let text = report::text(&view, 0.0, false);
+    assert!(
+        text.contains("Jetzt: nichts läuft\n") && !text.contains(not_begun_line),
+        "Countdown: {text}"
+    );
+    let mut view = limited_view(vec![node("a", &[]), node("b", &[])], None, true, &[]);
+    view.phases[0].stations[1].queue_position = Some(1);
+    let text = report::text(&view, 0.0, false);
+    assert!(
+        text.contains("Jetzt: nichts läuft\n") && !text.contains(not_begun_line),
+        "eingereiht: {text}"
+    );
+}

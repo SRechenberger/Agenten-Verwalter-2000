@@ -83,7 +83,12 @@ pub fn text_with(
             pending.session_number, pending.reason
         ));
     }
-    let idle = if super::has_begun(view) {
+    // Nach „Umsetzung starten“ stehen Stationen im Countdown oder in der Warteschlange, ohne dass
+    // die Umsetzung schon begonnen hat: Dann hat der Benutzer sie gestartet.
+    let started = stations(view).any(|(_, station): (&PhaseView, &StationView)| {
+        station.state == StationState::Countdown || station.queue_position.is_some()
+    });
+    let idle = if super::has_begun(view) || started {
         "nichts läuft"
     } else {
         NOT_BEGUN
