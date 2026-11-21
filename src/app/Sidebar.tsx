@@ -17,7 +17,7 @@ import {
 } from '@/features/projects/projectStatus';
 import { isLocked, isRemote, LOCKED_TITLE } from '@/features/remote/projectAccess';
 import { displayStatus } from '@/features/sessions/sessionStatus';
-import { QueueChip } from '@/features/queue/QueueChip';
+import { QueueFooter } from '@/features/queue/QueueFooter';
 import { badgeCount } from '@/features/dashboard/dashboardTexts';
 import { messageWaitPosition } from '@/features/queue/queueTexts';
 import { UsageSection } from '@/features/usage/UsageSection';
@@ -769,8 +769,7 @@ export function Sidebar({
         </div>
       )}
       <div className="sidebar__footer">
-        <div className="sidebar__footer-row">
-          <QueueChip projects={projects} />
+        <QueueFooter projects={projects}>
           <button
             type="button"
             className={`sidebar__dashboard${isDashboardOpen ? ' sidebar__dashboard--active' : ''}`}
@@ -801,7 +800,7 @@ export function Sidebar({
               </span>
             )}
           </button>
-        </div>
+        </QueueFooter>
         <UsageSection hasOwn={hasUsage} />
         <button type="button" className="sidebar__archive" onClick={onOpenArchive}>
           <svg

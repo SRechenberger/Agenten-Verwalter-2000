@@ -1,6 +1,6 @@
 # Design-Entwurf: Belegung der Plätze sichtbar
 
-**Status:** Entwurf vom 2026-11-21, wartet auf die Wahl des Nutzers (Taiga-Story 188; [ADR 068](../../decisions/068-globale-warteschlange.md)). Aufbau und Stil wie [2026-11-20_dashboard-zettel](../2026-11-20_dashboard-zettel/README.md).
+**Status:** Entwurf vom 2026-11-21, Wahl getroffen: Variante C (Taiga-Story 188; [ADR 068](../../decisions/068-globale-warteschlange.md)). Aufbau und Stil wie [2026-11-20_dashboard-zettel](../2026-11-20_dashboard-zettel/README.md).
 
 ## Ansehen
 
@@ -40,4 +40,4 @@ Die gestrichelte Umrandung markiert, was neu ist. Der Block `UsageSection` fehlt
 
 Empfehlung: **B**. Sie sagt in Worten, was die Zahl bedeutet, braucht keine neue Form und keinen Platz für Zellen, und der Knopf bleibt in den üblichen Fällen in der Zeile. D ist die kompakte Alternative, wenn die Zellen sichtbar bleiben sollen.
 
-Es gilt: (vom Nutzer nach der Wahl einzutragen)
+Es gilt: Variante C, mit dem Link „Grenze in den Einstellungen“ in der Kopfzeile der Liste.

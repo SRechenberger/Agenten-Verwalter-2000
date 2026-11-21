@@ -1,68 +1,65 @@
-import { useState } from 'react';
 import type { ReactElement } from 'react';
-import { Popover } from '@/components/Popover';
 import { useNow } from '@/features/background/useNow';
+import { SlotsMeter } from '@/features/queue/SlotsMeter';
 import {
   entrySinceText,
   entryStage,
   entryWhat,
-  QUEUE_LIST_LABEL,
+  QUEUE_NOTHING_WAITING,
   QUEUE_ORDER_NOTE,
   WAITING_CHIP_TITLE,
   waitingChipText,
 } from '@/features/queue/queueTexts';
-import type { AgentQueue } from '@/lib/bindings/AgentQueue';
 import type { ProjectSummary } from '@/lib/bindings/ProjectSummary';
 import type { QueueEntry } from '@/lib/bindings/QueueEntry';
-import { useAgentQueueStore } from '@/stores/agentQueue';
 import './QueueChip.css';
 
-const LIST_WIDTH = 540;
-
 interface QueueChipProps {
-  /** Für die Spalte „Vorhaben“. */
-  projects: readonly ProjectSummary[];
+  count: number;
+  isOpen: boolean;
+  onToggle: () => void;
 }
 
-/** Marke „n warten“ im Fuß der Sidebar, nur solange etwas wartet (Critical Rule 1); ein Klick zeigt die
- *  Liste in der Reihenfolge des Cores (ADR 068). */
-export function QueueChip({ projects }: QueueChipProps): ReactElement | null {
-  const [isOpen, setIsOpen] = useState<boolean>(false);
-  const queue: AgentQueue | null = useAgentQueueStore((state) => state.queue);
-  const entries: readonly QueueEntry[] = queue?.entries ?? [];
-  const now: number = useNow(isOpen);
-  if (entries.length === 0) {
-    return null;
-  }
+/** Marke „n warten“ im Fuß der Sidebar; der Klick schaltet die Liste um (ADR 068). */
+export function QueueChip({ count, isOpen, onToggle }: QueueChipProps): ReactElement {
+  return (
+    <button
+      type="button"
+      className="queue-chip__button"
+      aria-expanded={isOpen}
+      title={WAITING_CHIP_TITLE}
+      onClick={onToggle}
+    >
+      {waitingChipText(count)}
+    </button>
+  );
+}
+
+interface QueueListProps {
+  entries: readonly QueueEntry[];
+  /** Für die Spalte „Vorhaben“. */
+  projects: readonly ProjectSummary[];
+  /** Der Weg zur Grenze verlässt die Liste. */
+  onClose: () => void;
+}
+
+/** Inhalt der Liste: oben die Belegung, darunter die Wartenden in der Reihenfolge des Cores oder der Hinweis. */
+export function QueueList({ entries, projects, onClose }: QueueListProps): ReactElement {
+  const now: number = useNow(true);
 
   function projectName(projectId: string): string {
     return projects.find((project: ProjectSummary) => project.id === projectId)?.name ?? '–';
   }
 
   return (
-    <div className="queue-chip">
-      <button
-        type="button"
-        className="queue-chip__button"
-        aria-expanded={isOpen}
-        title={WAITING_CHIP_TITLE}
-        onClick={(): void => {
-          setIsOpen(!isOpen);
-        }}
-      >
-        {waitingChipText(entries.length)}
-      </button>
-      {isOpen && (
-        <Popover
-          detached
-          label={QUEUE_LIST_LABEL}
-          placement="above"
-          align="start"
-          width={LIST_WIDTH}
-          onClose={(): void => {
-            setIsOpen(false);
-          }}
-        >
+    <>
+      <div className="queue-chip__head">
+        <SlotsMeter onNavigate={onClose} />
+      </div>
+      {entries.length === 0 ? (
+        <p className="queue-chip__note">{QUEUE_NOTHING_WAITING}</p>
+      ) : (
+        <>
           <table className="queue-chip__table">
             <thead>
               <tr>
@@ -86,8 +83,8 @@ export function QueueChip({ projects }: QueueChipProps): ReactElement | null {
             </tbody>
           </table>
           <p className="queue-chip__note">{QUEUE_ORDER_NOTE}</p>
-        </Popover>
+        </>
       )}
-    </div>
+    </>
   );
 }

@@ -1,6 +1,13 @@
 .queue-chip {
-  position: relative;
-  margin-bottom: var(--space-md);
+  &__head {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-md);
+    align-items: center;
+    padding: 4px 6px var(--space-md);
+    border-bottom: 1px solid var(--color-border-subtle);
+    font-size: var(--font-size-sm);
+  }
 
   &__button {
     padding: 1px 10px;

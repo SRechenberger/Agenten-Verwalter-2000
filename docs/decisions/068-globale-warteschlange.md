@@ -67,3 +67,13 @@ Eine Befehls-Station belegt keinen Platz: Sie hat keine Session, steht in keinem
 ### Nachtrag 2026-11-21: Beschreibung von `verwalter_open_session` (Taiga #156)
 
 D6 gilt wie beschrieben; neu ist nur der Text des Werkzeugs: Die Beschreibung von `verwalter_open_session` sagt jetzt, dass die neue Session bei voller Grenze „Gleichzeitige Agenten max.“ auf einen Platz wartet und `verwalter_get_sessions` sie dann mit `waitsForSlot` nennt. Die Antwort des Werkzeugs bleibt unverändert.
+
+### Nachtrag 2026-11-21: Belegung der Plätze im Fuß (Taiga Story 188)
+
+Löst zwei Sätze des Abschnitts „Oberfläche“ ab: Die Marke „n warten“ steht nicht mehr nur bei Wartenden, und `SlotsMeter` steht nicht mehr nur in der Leiste der Umsetzung. Im Fuß der Sidebar steht über der Zeile mit der Marke eine Balkenzeile (`QueueFooter`), **solange mindestens ein Platz belegt ist oder etwas wartet** (`isSlotsBarShown`: `used > 0` oder `entries` nicht leer). Sonst bleibt der Fuß wie zuvor; Critical Rule 1 gilt damit weiter: Die Belegung hilft beim Agent-Workflow, solange Agenten laufen, und verschwindet mit dem letzten.
+
+- **Balken:** ein Segment je Platz aus `slotCells` (höchstens 12), belegt in der Akzentfarbe, über der Grenze bernsteinfarben, frei leer; ohne Grenze endet er gestrichelt. Rechts steht die Kurzform `slotsShort` („2/4“, „5/4“, „3/∞“). Er ist ein Knopf mit `aria-label` und `title` aus `slotsBarLabel` („Plätze 4 von 4 (App) · 3 warten“).
+- **Liste:** Der Balken und die Marke „n warten“ öffnen dasselbe Popover. Oben steht die Belegung (`SlotsMeter` mit Zellen, `slotsText` und „Grenze in den Einstellungen“), darunter die Tabelle oder, ohne Wartende, „Nichts wartet.“
+- **Daten:** nur `useAgentQueueStore`, kein neuer Befehl, kein Eingriff in den Kern. `SlotsMeter` bleibt in der Leiste der Umsetzung.
+- **Grenze:** Die Belegung zeigt die Warteschlange der eigenen App; `agent_queue` bleibt Klasse G (D9). Einen Host, den ein Gast hält, zeigt der Fuß nicht.
+- **Prüfung:** `queueTexts.selftest.ts` prüft Regel, Kurzform und Beschriftung. Entwurf: `docs/design/2026-11-21_warteschlange-sichtbar/` (Variante C).
