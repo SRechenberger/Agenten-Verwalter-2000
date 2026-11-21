@@ -9,8 +9,8 @@ use crate::implementation::model::{
 };
 use crate::implementation::slots::AgentQueue;
 use crate::implementation::{
-    self, ALREADY_FINISHED, announce, announce_removed, changes, edit, now_ms,
-    refills_after_switch_off, replans_after_plan_change, start,
+    self, ALREADY_FINISHED, SwitchEffect, after_auto_start_switch, announce, announce_removed,
+    changes, edit, now_ms, replans_after_plan_change, start,
 };
 use crate::remote::client::RemoteClients;
 use crate::remote::guest;
@@ -64,7 +64,8 @@ pub async fn implementation_rename(
 
 /// Schaltet „Automatisch weiter“. Aus: laufende Countdowns enden, außer an Stationen, deren
 /// „Automatisch starten“ an ist; in die frei gewordenen Plätze rückt die globale Warteschlange
-/// (ADR 061, 068). An: Stationen, die starten dürfen, warten auf einen Platz.
+/// (ADR 061, 068). An: In einer begonnenen Umsetzung warten Stationen, die starten dürfen, auf einen
+/// Platz; eine nicht begonnene startet erst „Umsetzung starten“ oder ▶ (#51).
 #[tauri::command]
 pub async fn implementation_set_auto_start(
     app: AppHandle,
@@ -74,9 +75,7 @@ pub async fn implementation_set_auto_start(
 ) -> Result<(), CommandError> {
     let view = registry.implementation_view(&id)?;
     registry.store_implementation_flags(&id, enabled, view.stop_after_current, view.finished_at)?;
-    if enabled {
-        start::schedule_ready(&app, &id)?;
-    } else {
+    if !enabled {
         for station in registry
             .implementation_view(&id)?
             .phases
@@ -86,11 +85,13 @@ pub async fn implementation_set_auto_start(
         {
             let _ = registry.cancel_countdown(&station.id);
         }
-        if refills_after_switch_off(&registry.implementation_view(&id)?) {
+    }
+    match after_auto_start_switch(&registry.implementation_view(&id)?, enabled) {
+        SwitchEffect::Schedule => {
             start::schedule_ready(&app, &id)?;
-        } else {
-            start::refill(&app);
         }
+        SwitchEffect::Refill => start::refill(&app),
+        SwitchEffect::Nothing => {}
     }
     announce(&app, &registry.implementation_view(&id)?);
     Ok(())
@@ -144,6 +145,13 @@ pub async fn implementation_set_stop_after_current(
     }
     announce(&app, &registry.implementation_view(&id)?);
     Ok(())
+}
+
+/// „Umsetzung starten“ (#135): „Automatisch starten“ an, die bereiten Stationen bis zur Grenze in den
+/// Countdown, der Rest wartet; gesperrt lehnt er mit einem Satz ab.
+#[tauri::command]
+pub async fn implementation_start(app: AppHandle, id: String) -> Result<(), CommandError> {
+    start::start_implementation(&app, &id)
 }
 
 /// ▶: startet die Station sofort, auch mit laufendem Countdown.

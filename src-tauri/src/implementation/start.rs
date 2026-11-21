@@ -24,6 +24,8 @@ use crate::settings::model::OperatingMode;
 
 const HELD_BY_CANCEL: &str =
     "Eine Anfrage zum Abbrechen liegt vor; erst bestätigen oder verwerfen.";
+const HELD_BY_HALT: &str =
+    "Die Umsetzung hält nach dieser Session an; erst „Anhalten nach dieser Session“ ausschalten.";
 
 // Wie man meldet, samt Übergabenotiz (ADR 061, 070); die Felder nennt die Beschreibung des Werkzeugs,
 // nicht dieser Text.
@@ -383,6 +385,33 @@ pub fn is_held(view: &ImplementationView) -> Option<&'static str> {
     } else {
         None
     }
+}
+
+/// Warum „Umsetzung starten“ (#135) ablehnt: wie `is_held`, dazu „Anhalten nach dieser Session“, unter
+/// dem nichts zugelassen würde; `None`, wenn er starten darf.
+pub fn start_refusal(view: &ImplementationView) -> Option<&'static str> {
+    is_held(view).or_else(|| view.stop_after_current.then_some(HELD_BY_HALT))
+}
+
+/// „Umsetzung starten“ (#135): schaltet „Automatisch starten“ ein und nimmt die bereiten Stationen in die
+/// globale Warteschlange. Bis zur Grenze „Gleichzeitige Agenten max.“ beginnen Countdowns, der Rest
+/// wartet; Befehls-Stationen starten ohne Platz; Stationen mit eigenem „Automatisch starten“ aus bleiben
+/// bei ▶.
+pub fn start_implementation(app: &AppHandle, implementation_id: &str) -> Result<(), CommandError> {
+    switch_on_for_start(&app.state::<SessionRegistry>(), implementation_id)?;
+    schedule_ready(app, implementation_id).map(|_scheduled: Vec<StationRef>| ())
+}
+
+/// Der Teil von „Umsetzung starten“ ohne Tauri: prüft die Sperre und schaltet „Automatisch starten“ ein.
+pub(crate) fn switch_on_for_start(
+    registry: &SessionRegistry,
+    implementation_id: &str,
+) -> Result<(), CommandError> {
+    let view = registry.implementation_view(implementation_id)?;
+    if let Some(reason) = start_refusal(&view) {
+        return Err(CommandError::Implementation(reason.to_owned()));
+    }
+    registry.store_implementation_flags(implementation_id, true, false, view.finished_at)
 }
 
 /// Vor der Nachricht, die den Agenten einer Station arbeiten lässt (ADR 066): Wurde die Umsetzung

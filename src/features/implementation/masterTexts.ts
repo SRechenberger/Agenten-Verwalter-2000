@@ -26,6 +26,11 @@ export const RELEASED_MARK = '✓ vom Master freigegeben';
 export const RELEASED_TITLE =
   'Der Master hat diese Station „durch dich“ freigegeben; „Erledigt“ bleibt bei dir.';
 
+/** Rückfrage vor „Erledigt“ an einer Station ohne Freigabe, wenn die Umsetzung einen Master hat (#136). */
+export const NOT_RELEASED_QUESTION =
+  'Der Master hat diese Station nicht freigegeben. Trotzdem erledigt?';
+export const NOT_RELEASED_BACK_LABEL = 'Zurück';
+
 export const REPORT_TITLE = 'Bericht an den Master';
 export const REPORT_FIX_MARK = 'Befund · Fix-Runde bei Annahme';
 export const REPORT_NO_FIX_MARK = 'ohne Befund';

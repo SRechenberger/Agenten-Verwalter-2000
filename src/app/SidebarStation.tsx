@@ -7,6 +7,7 @@ import {
   stationLabel,
   stationMeta,
 } from '@/features/implementation/implementationTexts';
+import { RELEASED_CHIP, RELEASED_TITLE } from '@/features/implementation/masterTexts';
 import { liveText, pauseChip, stationIcon } from '@/features/implementation/stationLive';
 import { stateLabel, stationTone, type StationTone } from '@/features/implementation/stationState';
 import { messageWaitPosition, messageWaitShort } from '@/features/queue/queueTexts';
@@ -57,7 +58,7 @@ export function SidebarStation({
       : messageWaitShort(messageWait);
   const chip: string | null = pauseChip(station);
   // Zustandstext und Chip einer Station mit Session-Zustand sind zu lang für die Zeile des Namens.
-  const isStacked: boolean = chip !== null || liveText(station) !== null;
+  const isStacked: boolean = chip !== null || station.released || liveText(station) !== null;
   const opening: string =
     station.sessionId === null ? 'öffnet die Karte in der Umsetzung' : 'öffnet den Chat';
   return (
@@ -91,6 +92,14 @@ export function SidebarStation({
             {meta}
           </span>
           {chip !== null && <span className="sidebar-station__chip">{chip}</span>}
+          {station.released && (
+            <span
+              className="sidebar-station__chip sidebar-station__chip--released"
+              title={RELEASED_TITLE}
+            >
+              {RELEASED_CHIP}
+            </span>
+          )}
         </span>
       </button>
     </div>

@@ -353,7 +353,8 @@ pub(super) fn agent_types_answer(types: &[AgentType]) -> ToolResult {
 /// Was `implementation_create` tut und wie ein Plan aussieht; die Feldnamen stehen nur hier und im Schema.
 const CREATE_DESCRIPTION: &str = "Legt nach der Freigabe eines Plans die Umsetzung in diesem \
      Vorhaben an: Lanes (`phases`, gleichwertig `lanes`) in Plan-Reihenfolge, je Lane Stationen (z. B. \
-     Test, Umsetzung, Review), die der Verwalter als frische Sessions startet. Die Reihenfolge kommt aus \
+     Test, Umsetzung, Review), die der Verwalter als frische Sessions startet, sobald der Benutzer die \
+     Umsetzung gestartet hat (mit „Umsetzung starten“ oder ▶ an einer Station). Die Reihenfolge kommt aus \
      Kanten: Eine Station hat eine Kennung `id` (ohne Angabe `<Lane-Schlüssel>-<Nummer>`, die Nummer \
      1-basiert in der Lane) und nennt in `after` die Kennungen der Stationen, auf die sie wartet; ohne \
      `after` ist sie eine Startstation und darf sofort und parallel zu anderen starten. Unter bereiten \
@@ -523,8 +524,8 @@ fn create(call: &ToolCall, registry: &SessionRegistry) -> Result<ToolResult, Str
         .create_implementation(call.session_id, &arguments.name, &source, &arguments.phases)
         .map_err(|error| error.to_string())?;
     announce(call, &view);
-    // Die erste Station steht bereit (▶): wann die Umsetzung beginnt, entscheidet der Benutzer. Die
-    // Automatik, die danach die Folgestationen startet, ist an.
+    // Die Startstationen stehen bereit: wann die Umsetzung beginnt, entscheidet der Benutzer
+    // („Umsetzung starten“ oder ▶). Die Automatik, die danach die Folgestationen startet, ist an.
     Ok(answer(registry, &view))
 }
 

@@ -8267,3 +8267,182 @@ fn a_database_of_version_32_keeps_the_session_message_tables() {
         .ok();
     assert!(connection.prepare("SELECT kind, command, cwd, vars, step, output, command_error FROM implementation_stations").is_ok());
 }
+
+// Ab hier #51, #135 und #136: Umsetzung starten, der Schalter allein und die Antwort an den Master.
+
+/// Ein Durchgang wie `run_pass`: Wartende nur, wenn die Umsetzung scharf ist.
+fn pass_as_armed(
+    countdowns: &mut Countdowns,
+    limit: Option<u32>,
+    view: &ImplementationView,
+) -> Vec<slots::Claimed> {
+    let is_armed = countdowns.armed().contains(&view.id);
+    let waiters = slots::station_waiters(view, is_armed, ProjectPriority::Normal);
+    let seen = countdowns.releases();
+    countdowns
+        .pass(seen, limit, &[], waiters, 1.0, 2.0)
+        .expect("frische Zählung")
+}
+
+#[test]
+fn switching_auto_start_off_and_on_never_arms_an_implementation_not_begun() {
+    let mut countdowns = Countdowns::default();
+    for enabled in [false, true] {
+        let view = limited_view(vec![node("a", &[]), node("b", &[])], None, enabled, &[]);
+        if after_auto_start_switch(&view, enabled) == SwitchEffect::Schedule {
+            countdowns.arm(&view.id);
+        }
+        assert!(
+            pass_as_armed(&mut countdowns, Some(1), &view).is_empty(),
+            "Schalter {enabled}: keine Station im Countdown"
+        );
+    }
+    assert!(
+        countdowns.armed().is_empty(),
+        "die Umsetzung ist nicht scharf"
+    );
+
+    let mut begun = finished(node("build", &[]));
+    begun.session_id = Some("session".to_owned());
+    let view = limited_view(vec![begun, node("a", &[])], None, true, &[]);
+    assert_eq!(
+        after_auto_start_switch(&view, true),
+        SwitchEffect::Schedule,
+        "eine begonnene Umsetzung plant wie bisher"
+    );
+}
+
+#[test]
+fn starting_an_implementation_not_begun_counts_down_up_to_the_limit_and_queues_the_rest() {
+    let mut own_off = node("off", &[]);
+    own_off.auto_start = Some(false);
+    let registry = crate::sessions::registry::SessionRegistry::new(
+        std::sync::Arc::new(database_with(&[node("a", &[]), node("b", &[]), own_off])),
+        std::sync::Arc::new(crate::remote::RemoteControl::default()),
+    );
+    registry
+        .store_implementation_flags("implementation", false, false, None)
+        .expect("Automatik aus");
+    start::switch_on_for_start(&registry, "implementation").expect("startet");
+    let view = registry
+        .implementation_view("implementation")
+        .expect("lesbar");
+    assert!(view.auto_start, "„Automatisch starten“ ist an");
+    assert!(!has_begun(&view));
+
+    let mut countdowns = Countdowns::default();
+    countdowns.arm(&view.id);
+    let claimed = pass_as_armed(&mut countdowns, Some(1), &view);
+    assert_eq!(claimed_keys(claimed), ["a"], "Grenze 1: eine im Countdown");
+    let waiting: Vec<Option<String>> = countdowns
+        .queue()
+        .entries
+        .iter()
+        .map(|entry: &slots::QueueEntry| entry.station_id.clone())
+        .collect();
+    assert_eq!(
+        waiting,
+        [Some("b".to_owned())],
+        "eine wartet; die mit eigenem „aus“ bleibt bei ▶"
+    );
+}
+
+#[test]
+fn starting_a_held_implementation_is_refused_with_a_sentence() {
+    let database = database_with(&[node("a", &[])]);
+    database
+        .with(|connection| implementation_rows::cancel(connection, "implementation", 5.0))
+        .expect("abgebrochen");
+    let registry = crate::sessions::registry::SessionRegistry::new(
+        std::sync::Arc::new(database),
+        std::sync::Arc::new(crate::remote::RemoteControl::default()),
+    );
+    let refused = start::switch_on_for_start(&registry, "implementation")
+        .expect_err("gesperrt")
+        .to_string();
+    assert!(refused.ends_with('.'), "ein Satz: {refused}");
+
+    let mut halted = limited_view(vec![node("a", &[])], None, false, &[]);
+    halted.stop_after_current = true;
+    assert!(start::start_refusal(&halted).is_some(), "Halt sperrt");
+    let free = limited_view(vec![node("a", &[])], None, false, &[]);
+    assert!(start::start_refusal(&free).is_none());
+}
+
+#[test]
+fn acceptance_names_the_stations_by_you_that_are_due_with_id_and_stage() {
+    let mut yours = node("yours", &["a"]);
+    yours.kind = model::StationKind::User;
+    yours.stage = "Abnahme".to_owned();
+    let mut later = node("later", &["yours"]);
+    later.kind = model::StationKind::User;
+    let view = limited_view(
+        vec![finished(node("a", &[])), yours, later],
+        None,
+        true,
+        &[],
+    );
+    let due = due_for_user(&view);
+    assert_eq!(
+        due.iter()
+            .map(|(id, station): &(String, StationRef)| (id.as_str(), station.stage.as_str()))
+            .collect::<Vec<_>>(),
+        [("yours", "Abnahme")],
+        "nur die, die an der Reihe ist"
+    );
+
+    let outcome = CompleteOutcome {
+        waits_for_user: true,
+        for_user: due,
+        ..CompleteOutcome::default()
+    };
+    let text = outcome.text();
+    assert!(
+        text.starts_with(
+            "Angenommen: Die Station ist fertig. Die Umsetzung wartet auf den Benutzer."
+        ),
+        "der bisherige Text bleibt: {text}"
+    );
+    assert!(
+        text.contains("Lane 1 · Abnahme (id yours)") && text.contains("`release`"),
+        "{text}"
+    );
+    assert!(
+        !CompleteOutcome::default().text().contains("durch dich"),
+        "ohne solche Station kein Zusatz"
+    );
+}
+
+#[test]
+fn report_of_an_implementation_not_begun_says_the_user_starts_it() {
+    let view = limited_view(vec![node("a", &[])], None, true, &[]);
+    let text = report::text(&view, 0.0, false);
+    assert!(
+        text.contains(
+            "Jetzt: nichts läuft; die Stationen startet der Verwalter, sobald der Benutzer"
+        ),
+        "{text}"
+    );
+    let mut begun = finished(node("build", &[]));
+    begun.session_id = Some("session".to_owned());
+    let view = limited_view(vec![begun], None, true, &[]);
+    assert!(report::text(&view, 0.0, false).contains("Jetzt: nichts läuft\n"));
+}
+
+#[test]
+fn report_after_start_with_a_station_counting_down_or_queued_says_nothing_runs() {
+    let not_begun_line = "Jetzt: nichts läuft; die Stationen startet der Verwalter";
+    let view = limited_view(vec![node("a", &[]), node("b", &[])], None, true, &["a"]);
+    let text = report::text(&view, 0.0, false);
+    assert!(
+        text.contains("Jetzt: nichts läuft\n") && !text.contains(not_begun_line),
+        "Countdown: {text}"
+    );
+    let mut view = limited_view(vec![node("a", &[]), node("b", &[])], None, true, &[]);
+    view.phases[0].stations[1].queue_position = Some(1);
+    let text = report::text(&view, 0.0, false);
+    assert!(
+        text.contains("Jetzt: nichts läuft\n") && !text.contains(not_begun_line),
+        "eingereiht: {text}"
+    );
+}

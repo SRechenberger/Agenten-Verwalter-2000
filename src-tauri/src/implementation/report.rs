@@ -9,6 +9,9 @@ use crate::file_links::{self, LinkRoots};
 
 const INQUIRY_LINE: &str =
     "Diese Session ist eine Rückfrage: lesen, erklären, umplanen; keinen Code ändern.";
+// Die Zeile „Jetzt“ einer nicht begonnenen Umsetzung (#53): Ohne den Benutzer startet nichts.
+const NOT_BEGUN: &str = "nichts läuft; die Stationen startet der Verwalter, sobald der Benutzer die \
+     Umsetzung gestartet hat (mit „Umsetzung starten“ oder ▶ an einer Station)";
 const INDENT: &str = "  ";
 const SEPARATOR: &str = " · ";
 const GOAL_FILE: &str = "README.md";
@@ -80,7 +83,17 @@ pub fn text_with(
             pending.session_number, pending.reason
         ));
     }
-    push_section(&mut lines, "Jetzt", now_lines(view), "nichts läuft");
+    // Nach „Umsetzung starten“ stehen Stationen im Countdown oder in der Warteschlange, ohne dass
+    // die Umsetzung schon begonnen hat: Dann hat der Benutzer sie gestartet.
+    let started = stations(view).any(|(_, station): (&PhaseView, &StationView)| {
+        station.state == StationState::Countdown || station.queue_position.is_some()
+    });
+    let idle = if super::has_begun(view) || started {
+        "nichts läuft"
+    } else {
+        NOT_BEGUN
+    };
+    push_section(&mut lines, "Jetzt", now_lines(view), idle);
     push_section(&mut lines, "Fertig", done_lines(view), "noch nichts");
     let open = open_summary(view);
     if open.is_empty() {

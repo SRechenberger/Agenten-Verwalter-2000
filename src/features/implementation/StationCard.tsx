@@ -51,6 +51,8 @@ export type CardSectionKey = 'flow' | 'brief' | 'agent' | 'automation';
 
 interface StationCardProps {
   implementationId: string;
+  /** Master der Umsetzung: ohne Freigabe fragt „Erledigt“ nach (#136). */
+  masterSessionId: string | null;
   /** Eine abgebrochene Umsetzung lässt nichts mehr von Hand fertig markieren. */
   isImplementationCancelled: boolean;
   stationRef: StationRef;
@@ -89,6 +91,7 @@ interface StationCardProps {
  *  Automatik. Fragen werden im Chat beantwortet, nicht hier. */
 export function StationCard({
   implementationId,
+  masterSessionId,
   isImplementationCancelled,
   stationRef,
   refs,
@@ -357,6 +360,7 @@ export function StationCard({
             isLocked={isLocked}
             run={run}
             onCompleteByUser={onCompleteByUser}
+            masterSessionId={masterSessionId}
           />
         )}
         {!isCommand && (

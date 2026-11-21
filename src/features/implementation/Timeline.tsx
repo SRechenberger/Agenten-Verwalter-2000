@@ -3,7 +3,7 @@ import {
   stepsSummary,
   stepsTitle,
 } from '@/features/implementation/commandStation';
-import { Fragment, type ReactElement } from 'react';
+import { Fragment, useState, type ReactElement } from 'react';
 import {
   changeFocusId,
   flatStations,
@@ -21,6 +21,8 @@ import {
   CHANGE_MARKER_TITLE,
   changeMarkerText,
   CHIP_TITLE,
+  DONE_BY_USER_LABEL,
+  DONE_BY_USER_TITLE,
   END_OF_PLAN_CHIP,
   MANUAL_MARK,
   MANUAL_MARK_TITLE,
@@ -56,6 +58,8 @@ import {
   type CardAgentFacts,
 } from '@/features/implementation/stationAgent';
 import { RELEASED_CHIP, RELEASED_TITLE, returnsChip } from '@/features/implementation/masterTexts';
+import { DoneConfirm } from '@/features/implementation/DoneConfirm';
+import { asksBeforeDone, isDoneByYou } from '@/features/implementation/stationControls';
 import { StationDot } from '@/features/implementation/StationDot';
 import { pauseChip } from '@/features/implementation/stationLive';
 import { messageWaitPosition, messageWaitText } from '@/features/queue/queueTexts';
@@ -85,6 +89,8 @@ interface TimelineProps {
   onCancelCountdown: (stationId: string) => void;
   /** ↻ der Zeile: schreibt den Wert nur dieser Station. */
   onSetAutoResume: (stationId: string, enabled: boolean) => void;
+  /** „Erledigt“ der Zeile an einer Station „durch dich“, mit dem Standardtext (#136). */
+  onCompleteByUser: (stationId: string) => void;
 }
 
 /** Eine Stufe: die Stationen mit derselben errechneten Stufe, in Plan-Reihenfolge. */
@@ -121,7 +127,10 @@ export function Timeline({
   onStart,
   onCancelCountdown,
   onSetAutoResume,
+  onCompleteByUser,
 }: TimelineProps): ReactElement {
+  /** Station, deren „Erledigt“ gerade nachfragt (ohne Freigabe des Masters). */
+  const [askingDoneId, setAskingDoneId] = useState<string | null>(null);
   const operatingMode: OperatingMode = useOperatingMode(implementation.projectId);
   const queueEntries: readonly QueueEntry[] = useAgentQueueStore(
     (state) => state.queue?.entries ?? NO_ENTRIES,
@@ -273,9 +282,33 @@ export function Timeline({
           onCancelCountdown(station.id);
         });
       case 'waitsForYou':
-        return action(ROW_OPEN_LABEL, ROW_OPEN_TITLE, (): void => {
-          onFocus(station.id);
-        });
+        return isDoneByYou(station) ? (
+          <>
+            <button
+              type="button"
+              className={`timeline__mini${station.released ? ' timeline__mini--primary' : ''}`}
+              title={DONE_BY_USER_TITLE}
+              disabled={isLocked}
+              aria-expanded={askingDoneId === station.id}
+              onClick={(): void => {
+                if (asksBeforeDone(station, implementation)) {
+                  setAskingDoneId(station.id);
+                } else {
+                  onCompleteByUser(station.id);
+                }
+              }}
+            >
+              {DONE_BY_USER_LABEL}
+            </button>
+            {action(ROW_OPEN_LABEL, ROW_OPEN_TITLE, (): void => {
+              onFocus(station.id);
+            })}
+          </>
+        ) : (
+          action(ROW_OPEN_LABEL, ROW_OPEN_TITLE, (): void => {
+            onFocus(station.id);
+          })
+        );
       case 'asking':
         return action(ROW_OPEN_LABEL, ROW_OPEN_CHAT_TITLE, (): void => {
           onOpenChat(station.id);
@@ -403,6 +436,20 @@ export function Timeline({
           {renderResume(station)}
         </span>
         {renderSub(station)}
+        {askingDoneId === station.id && isDoneByYou(station) && (
+          <span className="timeline__confirm">
+            <DoneConfirm
+              isLocked={isLocked}
+              onConfirm={(): void => {
+                setAskingDoneId(null);
+                onCompleteByUser(station.id);
+              }}
+              onBack={(): void => {
+                setAskingDoneId(null);
+              }}
+            />
+          </span>
+        )}
       </div>
     );
   }
