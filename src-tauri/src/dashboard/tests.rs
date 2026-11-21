@@ -1261,3 +1261,106 @@ fn a_host_without_answer_changes_nothing_in_the_local_view() {
     );
     assert_eq!(both.tasks.len(), 6);
 }
+
+/// Eigene und entfernte Abläufe und Sessions, deren Aktivität ineinandergreift; je Seite ein fertiger
+/// Ablauf.
+fn local_and_host_flows() -> (Snapshot, Snapshot) {
+    let at = |id: &str, project_id: &str, last: f64, finished: Option<f64>| FlowFacts {
+        project_id: project_id.to_owned(),
+        last_activity_at: last,
+        finished_at: finished,
+        ..flow(id, vec![station("st", StationState::Running)])
+    };
+    let running = |id: &str, last: f64| SessionFacts {
+        last_activity_at: last,
+        ..session(id, SessionStatus::Running)
+    };
+    let local = snapshot(
+        vec![running("p-new", 300.0), running("p-old", 100.0)],
+        vec![
+            at("p-new", "p", 2000.0, None),
+            at("p-old", "p", 500.0, None),
+            at("p-done", "p", 3000.0, Some(NOW - HOUR_MS)),
+        ],
+    );
+    let host = Snapshot {
+        projects: vec![project("h")],
+        sessions: vec![on_host(running("h-middle", 200.0))],
+        flows: vec![
+            at("h-middle", "h", 1000.0, None),
+            at("h-done", "h", 2500.0, Some(NOW - HOUR_MS)),
+        ],
+    };
+    (local, host)
+}
+
+fn flow_and_session_ids(view: &DashboardView) -> (Vec<String>, Vec<String>) {
+    (
+        view.flows
+            .iter()
+            .map(|flow| flow.implementation_id.clone())
+            .collect(),
+        view.sessions
+            .iter()
+            .map(|session| session.session_id.clone())
+            .collect(),
+    )
+}
+
+#[test]
+fn merged_local_and_host_flows_and_sessions_stand_in_the_order_build_gives_all_of_them() {
+    let (local, host) = local_and_host_flows();
+    let merged = merge_dashboards(
+        build(&local, NOW),
+        vec![host_answer(&host)],
+        &HashMap::new(),
+    );
+    let all = Snapshot {
+        projects: [local.projects, host.projects].concat(),
+        sessions: [local.sessions, host.sessions].concat(),
+        flows: [local.flows, host.flows].concat(),
+    };
+    let (flows, sessions) = flow_and_session_ids(&merged);
+    assert_eq!(
+        (flows.clone(), sessions.clone()),
+        flow_and_session_ids(&build(&all, NOW))
+    );
+    // Nicht fertige nach letzter Aktivität, fertige danach; der Host reiht sich ein.
+    assert_eq!(flows, ["p-new", "h-middle", "p-old", "p-done", "h-done"]);
+    assert_eq!(sessions, ["p-new", "h-middle", "p-old"]);
+}
+
+#[test]
+fn the_view_carries_the_last_activity_of_flows_and_sessions() {
+    let (local, _) = local_and_host_flows();
+    let view = build(&local, NOW);
+    let flows: Vec<f64> = view
+        .flows
+        .iter()
+        .map(|flow| flow.last_activity_at)
+        .collect();
+    let sessions: Vec<f64> = view
+        .sessions
+        .iter()
+        .map(|session| session.last_activity_at)
+        .collect();
+    assert_eq!(flows, [2000.0, 500.0, 3000.0]);
+    assert_eq!(sessions, [300.0, 100.0]);
+}
+
+#[test]
+fn a_host_answer_without_last_activity_still_reads() {
+    let (local, host) = local_and_host_flows();
+    let mut answer = host_answer(&host).expect("JSON");
+    for list in ["flows", "sessions"] {
+        for item in answer[list].as_array_mut().expect("Liste") {
+            item.as_object_mut()
+                .expect("Objekt")
+                .remove("lastActivityAt")
+                .expect("Feld");
+        }
+    }
+    let merged = merge_dashboards(build(&local, NOW), vec![Ok(answer)], &HashMap::new());
+    assert_eq!(merged.flows.len(), 5);
+    assert_eq!(merged.sessions.len(), 3);
+}

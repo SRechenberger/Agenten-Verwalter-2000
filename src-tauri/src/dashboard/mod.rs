@@ -231,6 +231,25 @@ pub fn sort_tasks(tasks: &mut [DashboardTask]) {
     });
 }
 
+/// Die Ordnung der Abläufe aus `flows_of` für die fertige Ansicht: nicht fertige zuerst, dann nach
+/// letzter Aktivität absteigend. Für die Abläufe der Hosts beim Gast; eine beendete Umsetzung hat
+/// keine Karten und steht deshalb auf `Done`.
+pub fn sort_flows(flows: &mut [DashboardFlow]) {
+    flows.sort_by(|left: &DashboardFlow, right: &DashboardFlow| {
+        (left.state == DashboardFlowState::Done)
+            .cmp(&(right.state == DashboardFlowState::Done))
+            .then(right.last_activity_at.total_cmp(&left.last_activity_at))
+    });
+}
+
+/// Die Ordnung der Sessions aus `sessions_of`: zuletzt aktiv zuerst; für die Sessions der Hosts beim
+/// Gast.
+pub fn sort_sessions(sessions: &mut [DashboardSession]) {
+    sessions.sort_by(|left: &DashboardSession, right: &DashboardSession| {
+        right.last_activity_at.total_cmp(&left.last_activity_at)
+    });
+}
+
 fn request_kind(kind: QuestionKind) -> DashboardTaskKind {
     match kind {
         QuestionKind::AskUser => DashboardTaskKind::Question,
@@ -521,6 +540,7 @@ fn flows_of(
                 stations_done: flow.stations_done,
                 stations_total: flow.stations_total,
                 open: u32::try_from(open).unwrap_or(u32::MAX),
+                last_activity_at: flow.last_activity_at,
             })
         })
         .collect()
@@ -604,6 +624,7 @@ fn sessions_of(
                 project_id: project.id.clone(),
                 project_name: project.name.clone(),
                 state,
+                last_activity_at: session.last_activity_at,
             })
         })
         .collect()
