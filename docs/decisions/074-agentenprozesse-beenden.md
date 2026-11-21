@@ -1,6 +1,6 @@
 # 074 — Agentenprozesse samt Kindern beenden, Annahme gibt den Agenten frei, Neustart aus dem Transkript
 
-**Status:** angenommen und umgesetzt im Kern (Taiga-Issues 71, 72, 50 und 98; keine Migration).
+**Status:** angenommen und umgesetzt im Kern (Taiga-Issues 71, 72, 50 und 98; keine Migration). Nachtrag 2026-11-21: Einmalaufrufe, verschachtelte Gruppen und Windows (Taiga-Issues 196, 195 und 197; keine Migration).
 
 ## Kontext
 
@@ -41,10 +41,44 @@ Nach dem Speichern der Annahme (`complete_station_with_handoff`, nicht „Als fe
 ## Grenzen
 
 - **Kinder mit eigener Gruppe oder Sitzung** (`setsid`, `setpgid`, Job-Steuerung einer interaktiven Shell) verlassen die Gruppe und überleben. Im Terminal betrifft das Vordergrund-Jobs einer interaktiven Shell, die SIGHUP ignorieren.
-- **Verschachtelte Gruppen.** Codex, die Shell-Aufgaben und die MCP-Clients des eigenen Agenten haben eigene Gruppen innerhalb des Übersetzers bzw. eigenen Agenten. Beendet der sich geordnet (stdin zu), räumt er sie selbst ab. Trifft ihn SIGKILL nach der Frist oder SIGTERM beim App-Ende, erreicht das ihre Gruppen nicht.
-- **Kurze Aufrufe der Kommandozeile** (Nebenfrage, `-p`, Helfer) sind keine Agentenprozesse in diesem Sinn und laufen ohne eigene Gruppe.
-- **Windows:** keine Prozessgruppen und keine Job Objects. `Child::kill` beendet nur die Kommandozeile, `taskkill /T /F` die Bäume der Aufgaben und MCP-Clients. Ein eigener systemd-Scope oder cgroups sind nicht Teil dieser Entscheidung.
+- ~~**Verschachtelte Gruppen.** Codex, die Shell-Aufgaben und die MCP-Clients des eigenen Agenten haben eigene Gruppen innerhalb des Übersetzers bzw. eigenen Agenten. Beendet der sich geordnet (stdin zu), räumt er sie selbst ab. Trifft ihn SIGKILL nach der Frist oder SIGTERM beim App-Ende, erreicht das ihre Gruppen nicht.~~ Überholt durch den Nachtrag 2026-11-21: Beide fangen SIGTERM und räumen ab; offen bleibt nur ein Übersetzer oder Agent, der das SIGTERM übersteht (siehe dort, „Grenzen“).
+- ~~**Kurze Aufrufe der Kommandozeile** (Nebenfrage, `-p`, Helfer) sind keine Agentenprozesse in diesem Sinn und laufen ohne eigene Gruppe.~~ Überholt durch den Nachtrag 2026-11-21: Sie starten als `ChildGroup` in eigener Gruppe.
+- ~~**Windows:** keine Prozessgruppen und keine Job Objects. `Child::kill` beendet nur die Kommandozeile, `taskkill /T /F` die Bäume der Aufgaben und MCP-Clients.~~ Überholt durch den Nachtrag 2026-11-21, Abschnitt „Windows“. Ein eigener systemd-Scope oder cgroups sind nicht Teil dieser Entscheidung.
 
 ## Tests
 
 `processes::tests::groups` (Wegwerf-Baum `sh` mit `sleep`, Ablehnung von `0`, `1` und der eigenen Gruppe, `ESRCH`, `has_exited` ohne Einsammeln), `sessions::registry::tests` (Frist von `retire_process` im Test einstellbar: Agent ignoriert stdin, Agent endet selbst; `stop` mit einem Agenten, der SIGTERM ignoriert; Annahme ruhend und mit Hintergrundarbeit; `start_choice` mit allen Fällen; `project_folder` mit langem Pfad; `transcript_in`), `terminal::tests` (Shell mit `trap '' HUP` nach `remove` in 2 s weg). Nur unter Unix.
+
+## Nachtrag 2026-11-21: Einmalaufrufe, verschachtelte Gruppen, Windows (Taiga 196, 195, 197)
+
+**Anlass:** In der Nachprüfung der ersten Umsetzung lebten zwei Einmalaufrufe der Einordnung nach dem App-Ende weiter, bis ihre Wartezeit von 45 s ablief.
+
+### Einmalaufrufe als Anführer (196)
+
+- Die Einordnung und andere `-p`-Aufrufe (`agents/claude/print.rs`), die Steueranfrage (`helper.rs`), die Nebenfrage (`side.rs`) und Codex hinter `RpcClient` (Codex-Helfer der App, Codex des Übersetzers) starten über `ChildGroup` in `agents/claude/process.rs`: eigene Gruppe (`own_group`) und ein Eintrag in derselben Liste wie die Agentenprozesse. `stop_all` beim App-Ende trifft sie also mit.
+- Das Ende durch den Aufrufer (Antwort, Zeitlimit, Fehler; `end` oder Fallenlassen) schickt SIGKILL an die ganze Gruppe und sammelt den Anführer ein, beides unter der Sperre des `Leader` (Regel 3). Danach fällt der Eintrag aus der Liste. Die Schnittstellen der Aufrufer bleiben.
+
+### Verschachtelte Gruppen (195)
+
+- Übersetzer (`codex::run`) und eigener Agent (`standalone::session::run`) fangen unter Unix SIGTERM: `processes::on_terminate` sperrt das Signal für alle Threads, bevor der erste weitere startet, und ein eigener Thread wartet mit `sigwait`. Kindprozesse erben die Sperre nicht.
+- **Übersetzer:** Auf SIGTERM beendet er seine Codex-Prozesse über `stop_all` mit 500 ms Frist, ohne `SHUTDOWN_GRACE` (3 s) abzuwarten, und endet. Beim geordneten Ende (stdin zu) bleibt `RpcClient::shutdown`: stdin zu, höchstens `SHUTDOWN_GRACE`, dann SIGKILL an die Gruppe; das liegt innerhalb von `KILL_GRACE`.
+- **Eigener Agent:** SIGTERM nimmt denselben Weg wie das Ende von stdin. `clean_up` bricht den laufenden Zug ab und wartet höchstens 1 s auf ihn (eine Vordergrund-Shell beendet er dabei samt Gruppe), dann beendet es die Shell-Aufgaben und die MCP-Clients.
+- Beide signalisieren nur Gruppen, deren Anführer sie selbst gestartet und noch nicht eingesammelt haben (Regel 3). Der Verwalter signalisiert diese Gruppen nie selbst.
+- **SIGTERM-Stufe in `retire_process`:** Nach `KILL_GRACE` geht erst SIGTERM an die Gruppe des Agenten, nach höchstens `TERM_GRACE` (2 s) SIGKILL (`ClaudeProcess::terminate`). Endet der Anführer in der Frist, beendet `try_reap` den Rest der Gruppe vor dem Einsammeln, wie bisher. Eine Session, die in `KILL_GRACE` endet, wartet nicht länger. Das Aufräumen der Worktrees wartet entsprechend `KILL_GRACE + TERM_GRACE + CLEANUP_MARGIN`.
+
+### Windows (197)
+
+- `Leader::signal` beendet unter Windows den ganzen Baum mit `taskkill /PID <pid> /T /F`, solange der Anführer nicht eingesammelt ist, danach `Child::kill` als Rückfall. SIGTERM und SIGKILL sind dort beide hart. Das gilt für Beenden, Leerlauf, App-Ende und die Einmalaufrufe.
+- `kill_process_tree` (Unix: SIGKILL an die Gruppe, Windows: `taskkill /T /F`) ist von `standalone/tasks.rs` nach `processes` umgezogen und dient `Leader`, den Aufgaben, der Vordergrund-Shell und den MCP-Clients.
+- Keine Job Objects, keine neue Abhängigkeit.
+
+### Grenzen
+
+- Übersteht ein hängender Übersetzer oder eigener Agent das SIGTERM (er kommt nicht dazu, abzuräumen), überleben die verschachtelten Gruppen das SIGKILL danach weiterhin.
+- Ein MCP-Server, dessen Handschlag beim Prozessende noch läuft, wird von seinem Verbindungs-Thread beendet, der den Abbruch erst sieht, wenn der Prozess vielleicht schon beendet ist.
+- Hintergrund-Subagenten des eigenen Agenten bekommen den Abbruch; auf ihr Ende wird nicht gewartet.
+- **Windows:** `/T` erreicht keine Kinder, deren Elternprozess schon beendet ist; sie laufen weiter.
+
+### Tests
+
+`agents::claude::process::tests` (Einmalaufruf steht in der Liste, `stop_all` beendet ihn samt Kind; nach dem Ende durch den Aufrufer ist er aus der Liste und sein Kind weg), `sessions::registry::tests::groups::retire_process_sends_sigterm_before_sigkill` (Wegwerf-Agent mit `trap … TERM` schreibt eine Markierung), `standalone::session::tests` (`clean_up` wartet auf den Zug und beendet Vordergrund-Shell, Shell-Aufgabe und MCP-Server samt Gruppen), unter Windows `agents::claude::process::windows_tests` (`cmd /c ping` als Anführer, der `ping` ist nach `signal` binnen 5 s weg).
