@@ -437,6 +437,9 @@ struct CreateArguments {
 struct SetPhasesArguments {
     #[serde(default, alias = "lanes")]
     phases: Vec<PhaseInput>,
+    // Wie bei `CreateArguments`.
+    #[serde(default)]
+    max_parallel: Option<Value>,
 }
 
 // Die Eingabe von `implementation_edit` mit den Feldnamen der Werkzeuge; `PlanEdit` ist dieselbe
@@ -456,10 +459,17 @@ struct EditArguments {
     max_parallel: Option<Value>,
 }
 
+/// Liest die Eingabe von `implementation_set_phases` und lehnt `max_parallel` ab (ADR 068).
+pub(super) fn set_phases_input(arguments: &Value) -> Result<Vec<PhaseInput>, String> {
+    let arguments: SetPhasesArguments = parse(arguments)?;
+    refuse_max_parallel(arguments.max_parallel.as_ref())?;
+    Ok(arguments.phases)
+}
+
 fn set_phases(call: &ToolCall) -> Result<ToolResult, String> {
-    let arguments: SetPhasesArguments = parse(call.arguments)?;
-    refuse_user_options(&stations_in("phases", &arguments.phases))?;
-    let text = changes::propose(call.app, call.session_id, &arguments.phases)?;
+    let phases = set_phases_input(call.arguments)?;
+    refuse_user_options(&stations_in("phases", &phases))?;
+    let text = changes::propose(call.app, call.session_id, &phases)?;
     let structured = call
         .app
         .try_state::<SessionRegistry>()

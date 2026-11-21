@@ -2258,6 +2258,16 @@ fn a_planner_call_with_max_parallel_is_rejected_naming_the_global_setting() {
     assert!(model::MAX_PARALLEL_GONE.starts_with("`max_parallel` gibt es nicht mehr"));
 }
 
+#[test]
+fn set_phases_rejects_max_parallel_like_create_and_edit() {
+    let with = json!({ "phases": [], "max_parallel": 2 });
+    assert_eq!(
+        tools::set_phases_input(&with),
+        Err(model::MAX_PARALLEL_GONE.to_owned())
+    );
+    assert!(tools::set_phases_input(&json!({ "phases": [] })).is_ok());
+}
+
 /// Die Regel vor ADR 061 als Vergleich: Gruppen aus Wellen nacheinander, in der Phase der Reihe
 /// nach. `phases` sind (Welle, fertig je Station).
 fn due_by_position_and_wave(
