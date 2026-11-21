@@ -164,6 +164,7 @@ export function QuestionBlock({
         isActive
         isLocked={isSending}
         extras={{
+          agentName,
           notes: draft.notes[questionIndex] ?? {},
           custom: draft.custom[questionIndex] ?? null,
           onToggleNote: (name: string): void => {

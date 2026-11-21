@@ -14,6 +14,8 @@ const CUSTOM_FIELD = 'custom';
 
 /** Notiz je Option und eigene Antwort der Frage; ohne sie ist die Frage reine Anzeige. */
 export interface QuestionExtras {
+  /** Name des Agenten nach der Betriebsart des Vorhabens; der Platzhalter der Notiz nennt ihn. */
+  agentName: string;
   /** Name → Notiz; ein vorhandener Schlüssel heißt „Feld offen“. */
   notes: Readonly<Record<string, string>>;
   /** Eigene Antwort, `null` = Feld zu. */
@@ -105,7 +107,7 @@ export function QuestionItem({
         }}
         value={text}
         maxLength={NOTE_MAX_LENGTH}
-        placeholder="Notiz für Claude …"
+        placeholder={`Notiz für ${extra.agentName} …`}
         aria-label={`Notiz zu „${name}“`}
         disabled={isLocked}
         onChange={(event: ChangeEvent<HTMLInputElement>): void => {
