@@ -19,13 +19,15 @@ const NO_PROPOSAL: &str = "Es liegt kein Vorschlag vor.";
 const IS_FINISHED: &str = "Die Umsetzung ist fertig; es gibt nichts mehr zu ändern.";
 const APPLIED: &str = "Übernommen.";
 
-/// Eine Phase hat begonnen, sobald eine ihrer Stationen eine Session hat oder angenommen ist.
+/// Eine Station hat begonnen, sobald sie eine Session hat, gestartet oder angenommen ist; das gilt
+/// auch für eine Station „durch dich“ und eine Befehls-Station, die nie eine Session bekommen.
+pub fn station_is_begun(station: &StationView) -> bool {
+    station.session_id.is_some() || station.started_at.is_some() || station.completed_at.is_some()
+}
+
+/// Eine Phase hat begonnen, sobald eine ihrer Stationen begonnen hat.
 pub fn is_begun(phase: &PhaseView) -> bool {
-    phase.stations.iter().any(|station: &StationView| {
-        station.session_id.is_some()
-            || station.started_at.is_some()
-            || station.completed_at.is_some()
-    })
+    phase.stations.iter().any(station_is_begun)
 }
 
 /// Die erste Station, deren Session gerade arbeitet, auf das Kontingent wartet (ihr Zeitgeber lässt sie

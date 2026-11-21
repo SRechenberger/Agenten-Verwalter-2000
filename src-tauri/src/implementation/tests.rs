@@ -1943,6 +1943,27 @@ fn a_failed_plan_change_replans_only_a_begun_automatic_implementation() {
 }
 
 #[test]
+fn an_implementation_is_begun_once_any_station_has_begun_with_or_without_a_session() {
+    let begun = |edit: fn(&mut StationRow)| {
+        let mut row = station_row("a", 0, "Umsetzung");
+        edit(&mut row);
+        has_begun(&view_with(
+            vec![row, station_row("b", 1, "Review")],
+            &types(),
+        ))
+    };
+    assert!(
+        begun(|row: &mut StationRow| row.completed_at = Some(1.0)),
+        "durch dich erledigt, ohne Session"
+    );
+    assert!(
+        begun(|row: &mut StationRow| row.started_at = Some(1.0)),
+        "nur started_at"
+    );
+    assert!(!begun(|_: &mut StationRow| {}), "unberührt");
+}
+
+#[test]
 fn a_station_counts_as_starting_between_the_claim_and_its_release() {
     let mut countdowns = Countdowns::default();
     assert!(!countdowns.is_starting("a"));

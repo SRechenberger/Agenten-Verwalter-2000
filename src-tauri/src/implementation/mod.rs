@@ -1323,13 +1323,10 @@ pub fn is_automatic(view: &ImplementationView) -> bool {
             .any(|station: &StationView| station.auto_start == Some(true))
 }
 
-/// Hat der Benutzer die Umsetzung begonnen: Eine Station hat eine Session. Vorher startet nichts von
-/// selbst.
+/// Hat der Benutzer die Umsetzung begonnen: Eine Station hat begonnen (`changes::station_is_begun`),
+/// auch eine ohne Session. Vorher startet nichts von selbst.
 pub fn has_begun(view: &ImplementationView) -> bool {
-    view.phases
-        .iter()
-        .flat_map(|phase: &PhaseView| phase.stations.iter())
-        .any(|station: &StationView| station.session_id.is_some())
+    view.phases.iter().any(changes::is_begun)
 }
 
 /// Plant eine Änderung am Plan (Delta, Plan-Änderung, Kanten) neu: Die Umsetzung hat begonnen und die
