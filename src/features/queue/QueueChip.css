@@ -7,6 +7,10 @@
     padding: 4px 6px var(--space-md);
     border-bottom: 1px solid var(--color-border-subtle);
     font-size: var(--font-size-sm);
+
+    & .slots-meter__link {
+      margin-left: auto;
+    }
   }
 
   &__button {

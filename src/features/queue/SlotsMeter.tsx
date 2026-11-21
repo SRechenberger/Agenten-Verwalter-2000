@@ -13,13 +13,13 @@ import { useSessionsStore } from '@/stores/sessions';
 import { useSettingsNavStore } from '@/stores/settingsNav';
 import './SlotsMeter.css';
 
-/** „Plätze n von m (App)“ mit Füllstand und dem Weg zur Grenze in den Einstellungen (ADR 068); ersetzt
- *  den Zähler je Umsetzung. Bis die Warteschlange gelesen ist, steht nichts da. */
 interface SlotsMeterProps {
   /** Läuft, wenn der Link die Einstellungen öffnet (die Liste im Fuß schließt sich dann). */
   onNavigate?: () => void;
 }
 
+/** „Plätze n von m (App)“ mit Füllstand und dem Weg zur Grenze in den Einstellungen (ADR 068); ersetzt
+ *  den Zähler je Umsetzung. Bis die Warteschlange gelesen ist, steht nichts da. */
 export function SlotsMeter({ onNavigate }: SlotsMeterProps): ReactElement | null {
   const queue: AgentQueue | null = useAgentQueueStore((state) => state.queue);
   if (queue === null) {

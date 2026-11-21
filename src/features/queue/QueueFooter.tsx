@@ -68,7 +68,16 @@ export function QueueFooter({ projects, children }: QueueFooterProps): ReactElem
         {entries.length > 0 && (
           <QueueChip count={entries.length} isOpen={isOpen} onToggle={toggle} />
         )}
-        {children}
+        {/* `display: contents`: Der Knopf behält Lage und Aussehen. Er liegt im Anker des Popovers und zählt dort
+            nicht als „außerhalb“, deshalb schließt die Liste hier selbst. */}
+        <div
+          className="queue-footer__extra"
+          onPointerDown={(): void => {
+            setIsOpen(false);
+          }}
+        >
+          {children}
+        </div>
       </div>
       {isOpen && isBarShown && (
         <Popover

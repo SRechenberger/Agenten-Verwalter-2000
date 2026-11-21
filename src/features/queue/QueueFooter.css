@@ -1,6 +1,10 @@
 .queue-footer {
   position: relative;
 
+  &__extra {
+    display: contents;
+  }
+
   &__bar {
     display: flex;
     gap: var(--space-md);
