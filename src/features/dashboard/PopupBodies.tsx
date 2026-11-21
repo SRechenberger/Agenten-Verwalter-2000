@@ -2,6 +2,7 @@ import { useState } from 'react';
 import type { ReactElement, ReactNode } from 'react';
 import { Markdown } from '@/components/Markdown';
 import { FileLinkSessionContext } from '@/components/FileLinkSessionContext';
+import { agentName } from '@/features/chat/agentName';
 import { QuestionBlock } from '@/features/chat/QuestionBlock';
 import { SessionToolBlock } from '@/features/chat/SessionToolBlock';
 import {
@@ -37,6 +38,7 @@ import { masterOf, RELEASED_MARK, RELEASED_TITLE } from '@/features/implementati
 import { PlanChangeCard } from '@/features/implementation/PlanChangeCard';
 import { StationReportSection } from '@/features/implementation/StationReportSection';
 import { lockNote } from '@/features/remote/projectAccess';
+import { useOperatingMode } from '@/features/remote/useOperatingMode';
 import type { DashboardTask } from '@/lib/bindings/DashboardTask';
 import type { ImplementationView } from '@/lib/bindings/ImplementationView';
 import type { ProjectSummary } from '@/lib/bindings/ProjectSummary';
@@ -144,6 +146,7 @@ function OpenRequestBody({
   const answering: QuestionAnswering = useQuestionAnswering(sessionId, task.projectId);
   useQuestionKeys(entry, answering);
   const request = entry.toolRequest;
+  const agent: string = agentName(useOperatingMode(task.projectId));
   const sessionNumber: number | null =
     sessions.find((session: SessionSummary) => session.id === sessionId)?.number ??
     task.sessionNumber;
@@ -163,6 +166,8 @@ function OpenRequestBody({
           sessionId={sessionId}
           sessionNumber={sessionNumber ?? 0}
           projectId={task.projectId}
+          agentName={agent}
+          sessions={sessions}
           selfRelease={
             projects.find((project: ProjectSummary) => project.id === task.projectId)
               ?.selfRelease ?? null
@@ -186,6 +191,7 @@ function OpenRequestBody({
     <Layout open={open}>
       <QuestionBlock
         entry={entry}
+        agentName={agent}
         draft={answering.draftFor(entry)}
         lockNote={answering.lock === null ? null : lockNote(answering.lock)}
         isSending={answering.isSending(entry.requestId)}

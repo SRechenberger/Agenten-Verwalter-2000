@@ -1,0 +1,50 @@
+.session-link {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--space-md);
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+
+  &--jump {
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--color-accent-text);
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+
+    &:hover .session-link__title {
+      text-decoration: underline;
+    }
+
+    &:focus-visible {
+      outline: 2px solid var(--color-accent);
+      outline-offset: 2px;
+      border-radius: var(--radius-sm);
+    }
+  }
+
+  &__title {
+    min-width: 0;
+  }
+
+  &__state {
+    flex-shrink: 0;
+    color: var(--color-fg-muted);
+    font-size: var(--font-size-2xs);
+
+    &--ok {
+      color: var(--color-status-completed);
+    }
+
+    &--wait {
+      color: var(--color-status-waiting);
+    }
+
+    &--err {
+      color: var(--color-status-error);
+    }
+  }
+}

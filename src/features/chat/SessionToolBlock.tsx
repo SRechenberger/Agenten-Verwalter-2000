@@ -11,6 +11,7 @@ import {
   type ToolDraft,
   type ToolEdit,
 } from '@/features/chat/questionDraft';
+import { SessionLink } from '@/features/chat/SessionLink';
 import { SelectButton } from '@/features/settings/SelectButton';
 import { useProjectLocked } from '@/features/remote/useProjectAccess';
 import type { Effort } from '@/lib/bindings/Effort';
@@ -19,6 +20,7 @@ import type { QuestionAnswer } from '@/lib/bindings/QuestionAnswer';
 import type { QuestionOption } from '@/lib/bindings/QuestionOption';
 import type { SelfRelease } from '@/lib/bindings/SelfRelease';
 import type { SessionRef } from '@/lib/bindings/SessionRef';
+import type { SessionSummary } from '@/lib/bindings/SessionSummary';
 import type { ToolRequest } from '@/lib/bindings/ToolRequest';
 import { commandErrorText } from '@/lib/errors';
 import { effortLabel, MODEL_OPTIONS, modelName } from '@/lib/labels';
@@ -45,6 +47,10 @@ interface SessionToolBlockProps {
   /** Nummer der Session; der Dialog „Vorschlag bearbeiten“ nennt sie. */
   sessionNumber: number;
   projectId: string;
+  /** Name des Agenten nach der Betriebsart des Vorhabens („Claude“, „Autark“, …). */
+  agentName: string;
+  /** Liste der Sessions: Nur wer noch darin steht, ist ein Sprungziel. */
+  sessions: readonly SessionSummary[];
   /** Selbstfreigabe des Vorhabens; `null`, solange das Vorhaben nicht geladen ist. */
   selfRelease: SelfRelease | null;
   draft: ToolDraft;
@@ -79,6 +85,8 @@ function SessionToolCallBlock({
   entry,
   request,
   projectId,
+  agentName,
+  sessions,
   selfRelease,
   draft,
   isSending,
@@ -138,8 +146,15 @@ function SessionToolCallBlock({
   function renderSession(session: SessionRef): ReactElement {
     return (
       <li key={session.id} className="session-tool__session">
-        <span className="question-block__chip">Session {session.number}</span>
-        <span className="session-tool__title">{session.title}</span>
+        <SessionLink
+          id={session.id}
+          number={session.number}
+          title={session.title}
+          canJump={sessions.some((other: SessionSummary) => other.id === session.id)}
+        >
+          <span className="question-block__chip">Session {session.number}</span>
+          <span className="session-tool__title session-link__title">{session.title}</span>
+        </SessionLink>
       </li>
     );
   }
@@ -149,7 +164,7 @@ function SessionToolCallBlock({
       case 'sendMessage':
         return (
           <>
-            <p className="question-block__text">Claude möchte eine Nachricht senden an:</p>
+            <p className="question-block__text">{agentName} möchte eine Nachricht senden an:</p>
             <ul className="session-tool__sessions">{request.recipients.map(renderSession)}</ul>
             {request.subject !== null && (
               <p className="session-tool__subject">Betreff: {request.subject}</p>
@@ -160,14 +175,14 @@ function SessionToolCallBlock({
       case 'getTldr':
         return (
           <>
-            <p className="question-block__text">Claude möchte das TL;DR lesen von:</p>
+            <p className="question-block__text">{agentName} möchte das TL;DR lesen von:</p>
             <ul className="session-tool__sessions">{renderSession(request.target)}</ul>
           </>
         );
       case 'openSession':
         return (
           <>
-            <p className="question-block__text">Claude möchte eine neue Session öffnen:</p>
+            <p className="question-block__text">{agentName} möchte eine neue Session öffnen:</p>
             {request.subject !== null && (
               <p className="session-tool__subject">Betreff: {request.subject}</p>
             )}
@@ -337,7 +352,9 @@ function SessionToolCallBlock({
     >
       <div className="question-block__head">
         <StatusIcon status={isAnswered ? 'completed' : 'waiting'} size={12} />
-        <span>{isAnswered ? 'Claude hat gefragt' : 'Claude wartet auf deine Entscheidung'}</span>
+        <span>
+          {isAnswered ? `${agentName} hat gefragt` : `${agentName} wartet auf deine Entscheidung`}
+        </span>
       </div>
       <div className="question-block__question">{renderRequest()}</div>
       {edit === null ? renderOptions() : renderEdit(edit)}

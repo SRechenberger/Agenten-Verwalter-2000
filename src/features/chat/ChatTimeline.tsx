@@ -14,6 +14,7 @@ import { ErrorBlock } from '@/features/chat/ErrorBlock';
 import { HandoffAnswer } from '@/features/chat/HandoffAnswer';
 import { PinnedUserMessage } from '@/features/chat/PinnedUserMessage';
 import { lastAnswerSeq } from '@/features/chat/handoff';
+import { agentName } from '@/features/chat/agentName';
 import { QuestionBlock } from '@/features/chat/QuestionBlock';
 import { SessionMessage } from '@/features/chat/SessionMessage';
 import { SessionToolBlock } from '@/features/chat/SessionToolBlock';
@@ -62,7 +63,6 @@ const SURFACE_PADDING_BOTTOM = 12;
 const STICK_TO_BOTTOM_TOLERANCE = 24;
 const LOAD_OLDER_THRESHOLD = 200;
 const WORKING_KEY = 'working';
-const WORKING_FALLBACK_LABEL = 'Claude arbeitet …';
 
 /** Schlüssel eines einzelnen Aufrufs in `expandedKeys`; Gruppen-Schlüssel kommen aus `buildBlocks`. */
 function toolKey(toolUseId: string): string {
@@ -140,6 +140,7 @@ export function ChatTimeline({
   const [selectionMenu, setSelectionMenu] = useState<SelectionMenuState | null>(null);
   const operatingMode: OperatingMode = useOperatingMode(session.projectId);
   const isClaude: boolean = operatingMode === 'claude';
+  const agent: string = agentName(operatingMode);
   // Entwürfe und Senden der Antworten teilt der Chat mit dem Popup des Dashboards.
   const answering: QuestionAnswering = useQuestionAnswering(session.id, session.projectId);
   const { lock } = answering;
@@ -201,7 +202,10 @@ export function ChatTimeline({
     session.handoffLines.length > 0 &&
     !HANDOFF_HIDDEN_STATUSES.includes(session.status) &&
     !isRemote;
-  const workingLabel: string = useMemo(() => findActiveTodoLabel(entries), [entries]);
+  const workingLabel: string = useMemo(
+    () => findActiveTodoLabel(entries, `${agent} arbeitet …`),
+    [entries, agent],
+  );
   const oldestOpenQuestion: QuestionEntry | null = useMemo(
     () => findOldestOpenQuestion(entries),
     [entries],
@@ -440,6 +444,8 @@ export function ChatTimeline({
             sessionId={session.id}
             sessionNumber={session.number}
             projectId={session.projectId}
+            agentName={agent}
+            sessions={sessions}
             selfRelease={selfRelease}
             draft={answering.toolDraftFor(entry.requestId)}
             isSending={answering.isSending(entry.requestId)}
@@ -456,6 +462,7 @@ export function ChatTimeline({
         ) : (
           <QuestionBlock
             entry={entry}
+            agentName={agent}
             draft={answering.draftFor(entry)}
             lockNote={lock === null ? null : lockNote(lock)}
             isSending={answering.isSending(entry.requestId)}
@@ -517,6 +524,7 @@ export function ChatTimeline({
           block.kind === 'entry' &&
           (block.entry.kind === 'user' ||
             block.entry.kind === 'sessionMessage' ||
+            block.entry.kind === 'question' ||
             block.entry.kind === 'text')
         }
       />
@@ -532,6 +540,7 @@ export function ChatTimeline({
         <ToolGroup
           sessionId={session.id}
           tools={block.tools}
+          sessions={sessions}
           isExpanded={expandedKeys.has(block.key)}
           onToggle={(): void => {
             toggleExpanded(block.key);
@@ -682,17 +691,17 @@ function findLastSeq(
   return null;
 }
 
-function findActiveTodoLabel(entries: readonly ChatEntry[]): string {
+function findActiveTodoLabel(entries: readonly ChatEntry[], fallback: string): string {
   for (let index = entries.length - 1; index >= 0; index -= 1) {
     const entry: ChatEntry | undefined = entries[index];
     if (entry?.kind === 'todos') {
       const active: TodoItem | undefined = entry.items.find(
         (item: TodoItem) => item.state === 'active',
       );
-      return active === undefined ? WORKING_FALLBACK_LABEL : active.label;
+      return active === undefined ? fallback : active.label;
     }
   }
-  return WORKING_FALLBACK_LABEL;
+  return fallback;
 }
 
 function findOldestOpenQuestion(entries: readonly ChatEntry[]): QuestionEntry | null {
