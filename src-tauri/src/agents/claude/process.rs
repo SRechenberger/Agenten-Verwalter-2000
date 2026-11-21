@@ -85,8 +85,9 @@ struct Leader {
 }
 
 impl Leader {
-    /// Signal an die ganze Gruppe, solange der Anführer nicht eingesammelt ist; unter Windows
-    /// beendet `Child::kill` nur den Prozess selbst.
+    /// Signal an die ganze Gruppe, solange der Anführer nicht eingesammelt ist. Unter Windows gibt
+    /// es kein sanftes Signal: Beide beenden den ganzen Baum (`taskkill /T /F`), `Child::kill` ist
+    /// der Rückfall, falls `taskkill` fehlt oder scheitert.
     fn signal(&mut self, signal: Signal) {
         if self.reaped {
             return;
@@ -102,6 +103,7 @@ impl Leader {
         #[cfg(not(unix))]
         {
             let _ = signal;
+            processes::kill_process_tree(self.child.id());
             let _ = self.child.kill();
         }
     }
@@ -193,8 +195,8 @@ impl ClaudeProcess {
         drop(lock(&self.stdin).take());
     }
 
-    /// SIGKILL an die ganze Prozessgruppe des Agenten (Windows: nur an ihn), solange er nicht
-    /// eingesammelt ist.
+    /// SIGKILL an die ganze Prozessgruppe des Agenten (Windows: `taskkill /T` an seinen Baum),
+    /// solange er nicht eingesammelt ist.
     pub fn kill(&self) {
         lock(&self.child).signal(Signal::Kill);
     }
@@ -540,4 +542,69 @@ fn stopping(child: &Mutex<Leader>) -> bool {
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+/// Ganzer Baum unter Windows (ADR 074): nur eigene Wegwerf-Prozesse `cmd` und `ping`.
+#[cfg(all(test, windows))]
+mod windows_tests {
+    use super::*;
+
+    /// So lange darf der `ping` nach dem Signal noch leben.
+    const GONE_WITHIN: Duration = Duration::from_secs(5);
+
+    fn output_of(program: &str, args: &[&str]) -> String {
+        let mut command = processes::command(program);
+        command.args(args).stdin(Stdio::null());
+        hide_console(&mut command);
+        command
+            .output()
+            .map(|output: std::process::Output| {
+                String::from_utf8_lossy(&output.stdout).into_owned()
+            })
+            .unwrap_or_default()
+    }
+
+    /// Die PID des Kindes von `parent`, sobald es läuft.
+    fn child_of(parent: u32) -> Option<u32> {
+        let filter =
+            format!("(Get-CimInstance Win32_Process -Filter 'ParentProcessId={parent}').ProcessId");
+        let deadline = Instant::now() + GONE_WITHIN;
+        while Instant::now() < deadline {
+            let text = output_of("powershell", &["-NoProfile", "-Command", &filter]);
+            if let Some(pid) = text.lines().find_map(|line: &str| line.trim().parse().ok()) {
+                return Some(pid);
+            }
+            thread::sleep(Duration::from_millis(200));
+        }
+        None
+    }
+
+    fn alive(pid: u32) -> bool {
+        let filter = format!("PID eq {pid}");
+        output_of("tasklist", &["/FI", &filter, "/NH", "/FO", "CSV"])
+            .contains(&format!("\"{pid}\""))
+    }
+
+    #[test]
+    fn signal_ends_the_whole_tree_on_windows() {
+        let mut command = processes::command("cmd");
+        command
+            .args(["/c", "ping", "-n", "60", "127.0.0.1"])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        let agent = start(command, |_: ProcessOutput| {}).expect("Wegwerf-Baum startet");
+        let ping = child_of(agent.pid()).expect("ping läuft unter cmd");
+        agent.kill();
+        let deadline = Instant::now() + GONE_WITHIN;
+        while alive(ping) && Instant::now() < deadline {
+            thread::sleep(Duration::from_millis(200));
+        }
+        let ping_alive = alive(ping);
+        if ping_alive {
+            // Nur der eigene, eben noch lebende Wegwerf-`ping`.
+            processes::kill_process_tree(ping);
+        }
+        assert!(!ping_alive, "der ping lebt nach dem Signal noch");
+    }
 }

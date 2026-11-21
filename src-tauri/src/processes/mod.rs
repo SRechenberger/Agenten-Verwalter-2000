@@ -16,7 +16,6 @@ use std::env;
 use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
 use std::process::Command;
-#[cfg(not(windows))]
 use std::process::Stdio;
 
 use portable_pty::CommandBuilder;
@@ -192,6 +191,28 @@ pub fn signal_group(pgid: u32, signal: GroupSignal) -> std::io::Result<()> {
         return Ok(());
     }
     Err(error)
+}
+
+/// Beendet den Prozess `pid` samt Kindern. Unter Unix SIGKILL an seine Gruppe (er startete mit
+/// `own_group`), unter Windows `taskkill /PID <pid> /T /F` für den ganzen Baum; Kinder, deren
+/// Elternprozess schon beendet ist, erreicht `/T` nicht. Pflicht des Aufrufers wie bei
+/// `signal_group`: Der Prozess ist noch nicht eingesammelt (ADR 074).
+#[cfg(unix)]
+pub fn kill_process_tree(pid: u32) {
+    let _ = signal_group(pid, GroupSignal::Kill);
+}
+
+/// Siehe die Fassung für Unix.
+#[cfg(not(unix))]
+pub fn kill_process_tree(pid: u32) {
+    let mut taskkill = command("taskkill");
+    taskkill
+        .args(["/PID", &pid.to_string(), "/T", "/F"])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+    hide_console(&mut taskkill);
+    let _ = taskkill.status();
 }
 
 /// Das Ziel für `kill` zur Gruppe `pgid`, also `-pgid`. Abgelehnt: `0` (die eigene Gruppe), `1`
