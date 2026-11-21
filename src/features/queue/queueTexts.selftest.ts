@@ -109,9 +109,9 @@ const CASES: { name: string; actual: () => unknown; expected: unknown }[] = [
     expected: 'gerade eben',
   },
   {
-    name: 'since_resume_shows_dash',
+    name: 'since_resume_shows_the_time_it_became_due',
     actual: () => entrySinceText(entry({ kind: 'resume', sinceMs: 0 }), 4 * MINUTE),
-    expected: '–',
+    expected: 'vor 4 min',
   },
   {
     name: 'since_station_shows_time',
