@@ -139,6 +139,13 @@
     font-size: var(--font-size-2xs);
     line-height: 1.4;
     white-space: nowrap;
+
+    /* „✓ freigegeben“: Freigabe des Masters an einer Station „durch dich“ (#136). */
+    &--released {
+      border-color: var(--color-status-reported);
+      color: var(--color-status-reported);
+      font-weight: 600;
+    }
   }
 
   &__unread {

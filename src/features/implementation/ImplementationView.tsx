@@ -18,6 +18,7 @@ import {
 import {
   APPLY_FAILED,
   CANCELLED_NOT_DELETED,
+  DONE_BY_USER_RESULT,
   START_FAILED,
 } from '@/features/implementation/implementationTexts';
 import {
@@ -45,6 +46,7 @@ import {
   setImplementationAutoStart,
   setImplementationStopAfterCurrent,
   setStationAutoResume,
+  startImplementation,
   startStation,
 } from '@/lib/implementation';
 import { useActionError } from '@/lib/useActionError';
@@ -384,6 +386,9 @@ export function ImplementationView({
             onSetAutoResume={(stationId: string, enabled: boolean): void => {
               run(() => setStationAutoResume(implementationId, stationId, enabled));
             }}
+            onCompleteByUser={(stationId: string): void => {
+              run(() => completeStationByUser(implementationId, stationId, DONE_BY_USER_RESULT));
+            }}
           />
         </div>
         <div className="implementation-view__cards">{renderCards()}</div>
@@ -425,6 +430,9 @@ export function ImplementationView({
         isReportBusy={isReportBusy}
         onNewInquiry={startInquiry}
         onOpenReport={openReport}
+        onStart={(): void => {
+          run(() => startImplementation(implementationId), START_FAILED);
+        }}
         onSetAutoStart={(enabled: boolean): void => {
           run(() => setImplementationAutoStart(implementationId, enabled));
         }}

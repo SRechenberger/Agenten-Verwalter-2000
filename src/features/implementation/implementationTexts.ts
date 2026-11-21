@@ -45,6 +45,13 @@ export function progressShort(implementation: ImplementationView): string {
 export const AUTO_START_LABEL = 'Automatisch starten';
 export const AUTO_START_TITLE =
   'Startet jede Station, deren Vorgänger fertig sind, nach 10 Sekunden Countdown von selbst. Einzelne Stationen können abweichen.';
+/** Marke „Plan ändern?“ an der Zeile der Umsetzung in der Leiste (#132). */
+export const PLAN_CHANGE_MARK = '✎ Plan?';
+export const PLAN_CHANGE_MARK_LABEL = 'Plan ändern? Vorschlag ansehen';
+export const PLAN_CHANGE_MARK_TITLE = 'Plan ändern? Zeigt den Vorschlag';
+export const START_IMPLEMENTATION_LABEL = '▶ Umsetzung starten';
+export const START_IMPLEMENTATION_TITLE =
+  'Schaltet „Automatisch starten“ ein und startet die bereiten Stationen bis zur Grenze „Gleichzeitige Agenten max.“; der Rest wartet in der Warteschlange.';
 export const AUTO_RESUME_LABEL = 'Automatisch fortsetzen';
 export const AUTO_RESUME_GLYPH = '↻';
 export const AUTO_RESUME_TITLE =
@@ -117,6 +124,8 @@ export const TIMELINE_LABEL = 'Zeitleiste der Umsetzung';
 export const NO_PHASES = 'Diese Umsetzung hat noch keine Lanes.';
 
 export const PLAN_PROPOSAL_TITLE = 'Plan ändern?';
+/** Marke im Kopf der Karte „Plan ändern?“ (#132). */
+export const PLAN_PROPOSAL_BADGE = 'wartet auf dich';
 export const PLAN_CHANGED_TITLE = 'Plan geändert';
 export const APPLY_CHANGE_LABEL = 'Übernehmen';
 export const APPLY_CHANGE_TITLE = 'Übernimmt den Vorschlag mit den Werten, wie sie hier stehen';

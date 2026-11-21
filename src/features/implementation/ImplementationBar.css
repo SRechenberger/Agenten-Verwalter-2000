@@ -113,6 +113,20 @@
     &--danger {
       border-color: var(--color-status-error);
     }
+
+    /* „Umsetzung starten“: der eine Hauptknopf der Leiste. */
+    &--primary {
+      border-color: var(--color-accent);
+      background: var(--color-accent);
+      color: var(--color-fg-on-accent);
+      font-weight: 600;
+
+      &:hover:not(:disabled) {
+        border-color: var(--color-accent-text);
+        background: var(--color-accent-text);
+        color: var(--color-fg-on-accent);
+      }
+    }
   }
 }
 

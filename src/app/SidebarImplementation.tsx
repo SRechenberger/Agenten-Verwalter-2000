@@ -3,7 +3,12 @@ import type { MouseEvent, ReactElement } from 'react';
 import { RenameField } from '@/app/SidebarItem';
 import { Popover } from '@/components/Popover';
 import { StatusIcon } from '@/components/StatusIcon';
-import { progressShort } from '@/features/implementation/implementationTexts';
+import {
+  PLAN_CHANGE_MARK,
+  PLAN_CHANGE_MARK_LABEL,
+  PLAN_CHANGE_MARK_TITLE,
+  progressShort,
+} from '@/features/implementation/implementationTexts';
 import { implementationIcon } from '@/features/implementation/stationLive';
 import { stateLabel } from '@/features/implementation/stationState';
 import type { ImplementationView } from '@/lib/bindings/ImplementationView';
@@ -16,6 +21,8 @@ interface SidebarImplementationProps {
   isActive: boolean;
   isRenaming: boolean;
   onSelect: () => void;
+  /** Marke „Plan ändern?“: öffnet die Umsetzung mit dem Vorschlag vorn (#132). */
+  onOpenPlanChange: () => void;
   onStartRename: () => void;
   onCommitRename: (name: string) => void;
   onCancelRename: () => void;
@@ -28,6 +35,7 @@ export function SidebarImplementation({
   isActive,
   isRenaming,
   onSelect,
+  onOpenPlanChange,
   onStartRename,
   onCommitRename,
   onCancelRename,
@@ -52,7 +60,7 @@ export function SidebarImplementation({
     >
       <button
         type="button"
-        className={`sidebar-implementation__button${isActive ? ' sidebar-implementation__button--active' : ''}`}
+        className={`sidebar-implementation__button${isActive ? ' sidebar-implementation__button--active' : ''}${implementation.pendingChange === null ? '' : ' sidebar-implementation__button--marked'}`}
         aria-current={isActive ? 'page' : undefined}
         title={`Umsetzung ${implementation.name} · ${stateLabel(implementation.urgency)} · ${progress} Sessions fertig`}
         onClick={onSelect}
@@ -80,6 +88,17 @@ export function SidebarImplementation({
           />
         )}
       </button>
+      {implementation.pendingChange !== null && (
+        <button
+          type="button"
+          className="sidebar-implementation__plan-change"
+          aria-label={PLAN_CHANGE_MARK_LABEL}
+          title={PLAN_CHANGE_MARK_TITLE}
+          onClick={onOpenPlanChange}
+        >
+          {PLAN_CHANGE_MARK}
+        </button>
+      )}
       {isMenuOpen && (
         <Popover
           detached

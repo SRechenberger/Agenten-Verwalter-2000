@@ -9,6 +9,7 @@ import { SidebarItem } from '@/app/SidebarItem';
 import { SidebarProject } from '@/app/SidebarProject';
 import { SidebarStation } from '@/app/SidebarStation';
 import { useSidebarDrag } from '@/app/useSidebarDrag';
+import { PENDING_FOCUS } from '@/features/implementation/implementationOrder';
 import { useOpenStation } from '@/features/implementation/useOpenStation';
 import {
   projectActivity,
@@ -42,6 +43,7 @@ import { needsAttention } from '@/features/environment/environmentTexts';
 import { useAppUpdateStore } from '@/stores/appUpdate';
 import { useDashboardStore } from '@/stores/dashboard';
 import { useEnvironmentStore } from '@/stores/environment';
+import { useImplementationStore } from '@/stores/implementation';
 import { useSessionsStore } from '@/stores/sessions';
 import type { RenameKind, RenameTarget } from '@/stores/sessions';
 import { useAgentQueueStore } from '@/stores/agentQueue';
@@ -155,6 +157,7 @@ export function Sidebar({
     (state) => state.queue?.entries ?? NO_ENTRIES,
   );
   const openStation = useOpenStation();
+  const setFocused = useImplementationStore((state) => state.setFocused);
   const { error: actionError, run, report: reportError } = useActionError('sidebar');
 
   // Solange ein Gast das Vorhaben steuert oder der Host fehlt, lehnt der Core Umbenennen, Archivieren und
@@ -603,6 +606,10 @@ export function Sidebar({
             renaming.id === implementation.id
           }
           onSelect={(): void => {
+            onSelectImplementation(implementation.id);
+          }}
+          onOpenPlanChange={(): void => {
+            setFocused(implementation.id, PENDING_FOCUS);
             onSelectImplementation(implementation.id);
           }}
           onStartRename={(): void => {

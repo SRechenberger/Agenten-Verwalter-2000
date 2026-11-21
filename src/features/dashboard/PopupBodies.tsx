@@ -31,11 +31,13 @@ import {
   START_FAILED,
 } from '@/features/implementation/implementationTexts';
 import { isCommandStation } from '@/features/implementation/commandStation';
+import { DoneConfirm } from '@/features/implementation/DoneConfirm';
 import { canMarkDone } from '@/features/implementation/markDone';
 import { MarkDoneButton } from '@/features/implementation/MarkDoneButton';
 import { MasterWarning, MasterPicker } from '@/features/implementation/MasterPicker';
 import { masterOf, RELEASED_MARK, RELEASED_TITLE } from '@/features/implementation/masterTexts';
 import { PlanChangeCard } from '@/features/implementation/PlanChangeCard';
+import { asksBeforeDone } from '@/features/implementation/stationControls';
 import { StationReportSection } from '@/features/implementation/StationReportSection';
 import { lockNote } from '@/features/remote/projectAccess';
 import { useOperatingMode } from '@/features/remote/useOperatingMode';
@@ -279,12 +281,24 @@ export function CancelRequestBody(props: PopupProps): ReactElement {
 export function ByYouBody(props: PopupProps): ReactElement {
   const { task, isLocked, run, open } = props;
   const [result, setResult] = useState<string>('');
+  const [isAskingDone, setIsAskingDone] = useState<boolean>(false);
   const implementation: ImplementationView | undefined = implementationOf(props);
   const ref: StationRef | undefined =
     implementation === undefined ? undefined : stationOf(props, implementation);
   if (implementation === undefined || ref === undefined) {
     return <Layout open={open}>{NOT_OPEN_ANYMORE}</Layout>;
   }
+  const complete = (): void => {
+    run(
+      () =>
+        completeStationByUser(
+          implementation.id,
+          ref.station.id,
+          result.trim() === '' ? DONE_BY_USER_RESULT : result.trim(),
+        ),
+      'Erledigen fehlgeschlagen',
+    );
+  };
   return (
     <Layout
       open={open}
@@ -294,16 +308,13 @@ export function ByYouBody(props: PopupProps): ReactElement {
           className="popup-button popup-button--primary"
           title={DONE_BY_USER_TITLE}
           disabled={isLocked}
+          aria-expanded={isAskingDone}
           onClick={(): void => {
-            run(
-              () =>
-                completeStationByUser(
-                  implementation.id,
-                  ref.station.id,
-                  result.trim() === '' ? DONE_BY_USER_RESULT : result.trim(),
-                ),
-              'Erledigen fehlgeschlagen',
-            );
+            if (asksBeforeDone(ref.station, implementation)) {
+              setIsAskingDone(true);
+            } else {
+              complete();
+            }
           }}
         >
           {DONE_BY_USER_LABEL}
@@ -327,6 +338,18 @@ export function ByYouBody(props: PopupProps): ReactElement {
           setResult(event.target.value);
         }}
       />
+      {isAskingDone && (
+        <DoneConfirm
+          isLocked={isLocked}
+          onConfirm={(): void => {
+            setIsAskingDone(false);
+            complete();
+          }}
+          onBack={(): void => {
+            setIsAskingDone(false);
+          }}
+        />
+      )}
     </Layout>
   );
 }

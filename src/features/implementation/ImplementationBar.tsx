@@ -7,6 +7,7 @@ import {
   type StationRef,
   workingStation,
 } from '@/features/implementation/implementationOrder';
+import { showsStartButton } from '@/features/implementation/stationControls';
 import {
   AUTO_START_LABEL,
   AUTO_START_TITLE,
@@ -28,6 +29,8 @@ import {
   progressLine,
   REPORT_LABEL,
   REPORT_TITLE,
+  START_IMPLEMENTATION_LABEL,
+  START_IMPLEMENTATION_TITLE,
   STOP_AFTER_LABEL,
   STOP_AFTER_TITLE,
 } from '@/features/implementation/implementationTexts';
@@ -45,6 +48,8 @@ interface ImplementationBarProps {
   isLocked: boolean;
   /** Der Lagebericht wird gerade erstellt. */
   isReportBusy: boolean;
+  /** „Umsetzung starten“ (#135). */
+  onStart: () => void;
   onSetAutoStart: (enabled: boolean) => void;
   onSetAutoResume: (enabled: boolean) => void;
   onSetStopAfterCurrent: (enabled: boolean) => void;
@@ -68,6 +73,7 @@ export function ImplementationBar({
   isInquiryBusy,
   isLocked,
   isReportBusy,
+  onStart,
   onSetAutoStart,
   onSetAutoResume,
   onSetStopAfterCurrent,
@@ -131,11 +137,22 @@ export function ImplementationBar({
     );
   }
 
-  /** „Automatisch weiter“ und „Automatisch fortsetzen“; eine abgebrochene Umsetzung zeigt stattdessen das
-   *  Datum. */
+  /** „Umsetzung starten“ links vor den Schaltern, „Automatisch weiter“ und „Automatisch fortsetzen“; eine
+   *  abgebrochene Umsetzung zeigt stattdessen das Datum. */
   function renderAutomation(): ReactElement {
     return (
       <>
+        {showsStartButton(implementation) && (
+          <button
+            type="button"
+            className="implementation-bar__button implementation-bar__button--primary"
+            disabled={isLocked}
+            title={START_IMPLEMENTATION_TITLE}
+            onClick={onStart}
+          >
+            {START_IMPLEMENTATION_LABEL}
+          </button>
+        )}
         <span className="implementation-bar__switch">
           {AUTO_START_LABEL}
           <Switch

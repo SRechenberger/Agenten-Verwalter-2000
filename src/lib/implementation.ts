@@ -46,7 +46,8 @@ export async function renameImplementation(id: string, name: string): Promise<vo
   await invoke('implementation_rename', { id, name });
 }
 
-/** Schaltet „Automatisch starten“ (Feld `auto_start`); an: Stationen, die starten dürfen, bekommen einen Countdown.
+/** Schaltet „Automatisch starten“ (Feld `auto_start`); an: In einer begonnenen Umsetzung bekommen Stationen,
+ *  die starten dürfen, einen Countdown; eine nicht begonnene startet erst `startImplementation` oder ▶.
  *  @throws {import('@/lib/bindings/CommandError').CommandError} `implementation`, `database` */
 export async function setImplementationAutoStart(id: string, enabled: boolean): Promise<void> {
   await invoke('implementation_set_auto_start', { id, enabled });
@@ -76,6 +77,13 @@ export async function setImplementationStopAfterCurrent(
   enabled: boolean,
 ): Promise<void> {
   await invoke('implementation_set_stop_after_current', { id, enabled });
+}
+
+/** „Umsetzung starten“: schaltet „Automatisch starten“ ein und nimmt die bereiten Stationen in die Warteschlange;
+ *  bis zur Grenze beginnt ihr Countdown, der Rest wartet.
+ *  @throws {import('@/lib/bindings/CommandError').CommandError} `implementation` (abgebrochen, Anfrage zum Abbrechen, Halt), `database` */
+export async function startImplementation(id: string): Promise<void> {
+  await invoke('implementation_start', { id });
 }
 
 /** Startet die Station sofort, auch mit laufendem Countdown.

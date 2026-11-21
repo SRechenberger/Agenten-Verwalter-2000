@@ -20,6 +20,7 @@ import {
   type TaskNode,
 } from '@/features/dashboard/dashboardTexts';
 import { TaskPopup } from '@/features/dashboard/TaskPopup';
+import { RELEASED_MARK, RELEASED_TITLE } from '@/features/implementation/masterTexts';
 import { useNow } from '@/features/background/useNow';
 import { priorityMark, type PriorityMark } from '@/features/queue/queueTexts';
 import { useSettingsUpdate } from '@/features/settings/useSettingsUpdate';
@@ -113,6 +114,11 @@ export function DashboardView({
               title="Eingeordnet von einem kleinen Modell aus der letzten Antwort"
             >
               ✦ eingeordnet
+            </span>
+          )}
+          {task.released && (
+            <span className="dashboard-card__released" title={RELEASED_TITLE}>
+              {RELEASED_MARK}
             </span>
           )}
           {host !== null && <DashboardRemoteMark host={host} />}

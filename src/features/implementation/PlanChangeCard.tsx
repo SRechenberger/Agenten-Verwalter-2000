@@ -18,6 +18,7 @@ import {
   OPEN_CHAT_TITLE,
   patchSetsText,
   PLAN_CHANGED_TITLE,
+  PLAN_PROPOSAL_BADGE,
   PLAN_PROPOSAL_TITLE,
   PROPOSAL_EMPTY_BRIEF,
   PROPOSAL_HINT,
@@ -482,7 +483,15 @@ export function PlanChangeCard({
       aria-label={title}
     >
       <div className="station-card__head">
-        <b className="station-card__title">{title}</b>
+        <b className="station-card__title">
+          {isProposal && (
+            <span className="plan-change-card__icon" aria-hidden="true">
+              ✎
+            </span>
+          )}
+          {title}
+        </b>
+        {isProposal && <span className="plan-change-card__badge">{PLAN_PROPOSAL_BADGE}</span>}
         <span className="station-card__number">{changeOrigin(sessionNumber, at)}</span>
       </div>
       {isProposal && <p className="station-card__phase">{proposalLead(sessionNumber)}</p>}
