@@ -1,9 +1,9 @@
 //! Was der Host einem angemeldeten Gast antwortet (ADR 059): `remote_take` und `remote_give_back`
-//! hier, die Listen aus Klasse F und das Dashboard gefiltert nach Freigabe und Inhaber, jeder andere
-//! Befehl erst nach
-//! `access::check` und dann wie von der Oberfläche. Wie er den Befehl ausführt, sagt `Host`: in der
-//! App über `Webview::on_message`, in der Probe ein Stub. `terminal_attach` und `terminal_detach`
-//! beantwortet `answer_on` über `TerminalHost`, denn ihr Kanal führt in die Verbindung.
+//! hier, die Listen aus Klasse F und das Dashboard gefiltert nach Freigabe und Inhaber, jeder
+//! andere Befehl erst nach `access::check` und dann wie von der Oberfläche. Wie er den Befehl
+//! ausführt, sagt `Host`: in der App über `Webview::on_message`, in der Probe ein Stub.
+//! `terminal_attach` und `terminal_detach` beantwortet `answer_on` über `TerminalHost`, denn ihr
+//! Kanal führt in die Verbindung.
 use std::collections::HashSet;
 use std::io;
 use std::path::PathBuf;
