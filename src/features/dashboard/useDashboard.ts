@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef } from 'react';
 import type { UnlistenFn } from '@tauri-apps/api/event';
+import { useRemoteChanged } from '@/features/remote/useRemoteChanged';
 import { loadDashboard } from '@/lib/dashboard';
 import { onImplementationChanged, onImplementationRemoved } from '@/lib/implementation';
 import { onProjectGroupsChanged } from '@/lib/projectGroups';
@@ -11,8 +12,9 @@ import { useDashboardStore } from '@/stores/dashboard';
 const DEBOUNCE_MS = 500;
 
 /** Hält `useDashboardStore` aktuell; einmal in der App. Der Core rechnet die Karten; hier wird nur geladen:
- *  beim Start und nach den fünf Ereignissen, die einen Zustand dahinter ändern. Das Löschen einer Session
- *  sendet kein Ereignis, die App ruft dafür die zurückgegebene Funktion. */
+ *  beim Start, nach den fünf Ereignissen, die einen Zustand dahinter ändern, und nach `remote://changed`
+ *  (beim Gast kommen die Karten gehaltener Host-Vorhaben dazu). Das Löschen einer Session sendet kein
+ *  Ereignis, die App ruft dafür die zurückgegebene Funktion. */
 export function useDashboard(): () => void {
   const setView = useDashboardStore((state) => state.setView);
   // Eine Abfrage zugleich; kommt währenddessen ein Ereignis, folgt genau eine weitere.
@@ -44,6 +46,8 @@ export function useDashboard(): () => void {
     }
     load();
   }, [setView]);
+
+  useRemoteChanged(refresh);
 
   useEffect(() => {
     refresh();

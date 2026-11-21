@@ -4,6 +4,7 @@ use std::fs;
 use std::sync::Mutex;
 
 use super::*;
+use crate::dashboard::model::DashboardView;
 use crate::remote::model::HostProfile;
 
 const PROJECT: &str = "project";
@@ -64,6 +65,10 @@ impl Host for Stub {
 
     fn list(&self, _: &str) -> Result<Vec<Value>, CommandError> {
         Ok(Vec::new())
+    }
+
+    fn dashboard_snapshot(&self) -> Result<Snapshot, CommandError> {
+        Ok(two_projects())
     }
 
     fn invoke(&self, command: &str, args: Value) -> Result<Value, CommandError> {
@@ -388,4 +393,94 @@ fn the_header_value_of_the_server_is_random_per_start_and_not_a_fixed_word() {
     let pass = crate::remote::intercept::remote_pass();
     assert_eq!(pass, crate::remote::intercept::remote_pass());
     assert!(pass.len() >= 32, "zu kurz zum Raten: {pass}");
+}
+
+/// `PROJECT` und ein fremdes Vorhaben mit je einer Session im Fehler und einer laufenden Umsetzung.
+fn two_projects() -> Snapshot {
+    use crate::dashboard::model::{FlowFacts, ProjectFacts, SessionFacts};
+    use crate::sessions::model::SessionStatus;
+    let mut snapshot = Snapshot::default();
+    for (project, session) in [(PROJECT, OWN_SESSION), ("foreign-project", FOREIGN_SESSION)] {
+        snapshot.projects.push(ProjectFacts {
+            id: project.to_owned(),
+            name: format!("Name {project}"),
+            group_name: Some(format!("Gruppe {project}")),
+        });
+        snapshot.sessions.push(SessionFacts {
+            id: session.to_owned(),
+            number: 1,
+            title: format!("Titel {session}"),
+            project_id: project.to_owned(),
+            station_of: None,
+            status: SessionStatus::Error,
+            awaits_script: false,
+            awaits_subagent: false,
+            last_activity_at: 100.0,
+            idle_since: 100.0,
+            pause_reason: None,
+            resets_text: None,
+            answer_at: None,
+            answer_excerpt: None,
+            answer_kind: None,
+            answer_line: None,
+            dismissed_at: None,
+            requests: Vec::new(),
+        });
+        snapshot.flows.push(FlowFacts {
+            id: format!("flow-{project}"),
+            name: format!("Umsetzung {project}"),
+            project_id: project.to_owned(),
+            finished_at: None,
+            cancelled_at: None,
+            last_activity_at: 100.0,
+            stations_done: 0,
+            stations_total: 0,
+            master_missing: false,
+            pending_change: None,
+            pending_cancel: None,
+            stations: Vec::new(),
+        });
+    }
+    snapshot
+}
+
+fn dashboard_of(device_id: &str) -> (DashboardView, Value, Vec<(String, Value)>) {
+    let host = Stub::new(&Scratch::new());
+    let value =
+        call(&host, &held_by_a(), device_id, "dashboard_get", Value::Null).expect("Ansicht");
+    let view: DashboardView = serde_json::from_value(value.clone()).expect("DashboardView");
+    (view, value, host.invoked())
+}
+
+#[test]
+fn dashboard_get_gives_a_guest_only_cards_flows_and_sessions_of_projects_it_holds() {
+    let (view, value, invoked) = dashboard_of("a");
+    assert!(!view.tasks.is_empty() && !view.flows.is_empty() && !view.sessions.is_empty());
+    assert!(view.tasks.iter().all(|task| task.project_id == PROJECT));
+    assert!(view.flows.iter().all(|flow| flow.project_id == PROJECT));
+    assert!(
+        view.sessions
+            .iter()
+            .all(|session| session.project_id == PROJECT)
+    );
+    // Auch kein Name, keine Gruppe und keine ID des fremden Vorhabens.
+    assert!(!value.to_string().contains("foreign"), "{value}");
+    assert!(view.tasks.iter().all(|task| task.group_name.is_none()));
+    // Aus der Registry gebaut, nie über den Befehl: kein Kreis zwischen zwei Instanzen.
+    assert!(invoked.is_empty(), "{invoked:?}");
+}
+
+#[test]
+fn dashboard_get_gives_a_guest_that_holds_nothing_an_empty_view() {
+    let (view, _, invoked) = dashboard_of("b");
+    assert!(view.tasks.is_empty() && view.flows.is_empty() && view.sessions.is_empty());
+    assert!(invoked.is_empty(), "{invoked:?}");
+}
+
+#[test]
+fn dashboard_get_is_reachable_for_guests_without_an_id() {
+    assert_eq!(
+        access::class_of("dashboard_get"),
+        Some(access::Class::Reachable)
+    );
 }

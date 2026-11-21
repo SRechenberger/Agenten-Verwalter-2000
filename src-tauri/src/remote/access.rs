@@ -220,6 +220,7 @@ const TABLE: &[(Class, Option<IdKind>, &[&str])] = &[
             "session_list",
             "implementation_list",
             "session_overlaps",
+            "dashboard_get",
         ],
     ),
     (
@@ -235,7 +236,6 @@ const TABLE: &[(Class, Option<IdKind>, &[&str])] = &[
             "cli_update_load",
             "cli_update_run",
             "codex_account_load",
-            "dashboard_get",
             "codex_account_login",
             "environment_status",
             "environment_mirror",

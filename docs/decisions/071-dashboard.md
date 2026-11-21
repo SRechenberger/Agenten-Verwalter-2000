@@ -59,7 +59,7 @@ Vom Architekten (D1 bis D18, hier die Teile des Kerns):
 
 - **Abläufe:** jede nicht abgebrochene Umsetzung eigener Vorhaben, die nicht fertig ist oder in den letzten 24 Stunden fertig wurde. `state` nach der ersten zutreffenden Regel: `error` (eine Station im Fehler), `waitsForYou` (eine Karte der Umsetzung), `waitsForMaster` (eine Station gemeldet oder ohne Meldung abgegeben), `done`, sonst `running`; `open` zählt die Karten mit ihrer Kennung. Nicht fertige zuerst nach letzter Aktivität absteigend, fertige danach.
 - **Sessions:** Sessions ohne Station aus eigenen Vorhaben, nur aktive: `running` (startet, läuft, auch mit wartendem Skript oder Subagent), `asking`, `waitsForYou` (offene Session-Karte außer `error`), `error`. Nach letzter Aktivität absteigend.
-- **Befehle:** `dashboard_get() -> DashboardView` (Klasse G, nur lokal), `dashboard_dismiss(sessionId)` (Klasse C mit Session-ID): setzt `card_dismissed_at` auf jetzt und sendet `session://changed`.
+- **Befehle:** `dashboard_get() -> DashboardView` (Klasse F, beim Gast mit den Karten gehaltener Host-Vorhaben, siehe Nachtrag 2026-11-21; vorher Klasse G), `dashboard_dismiss(sessionId)` (Klasse C mit Session-ID): setzt `card_dismissed_at` auf jetzt und sendet `session://changed`.
 - **Momentaufnahme** (`SessionRegistry::dashboard_snapshot`): erst die Datenbank (Gruppen, Umsetzungen über den Weg der Ansicht), dann jede Session einmal und kurz unter ihrer Sperre, nie zwei zugleich; der Verlauf wird nicht geladen (die Anfragen kommen aus `pending`, ihr Eintrag aus `entries[seq]`, soweit er im Speicher liegt).
 
 ## Antwort am Zugende und leere Nachrichten
@@ -70,7 +70,7 @@ Endet ein Zug einer Session ohne Station mit `TurnEnd::Completed`, setzt `end_tu
 
 ## Grenzen
 
-- **Gäste sehen nur Lokales:** `dashboard_get` ist Klasse G; Karten aus Vorhaben eines Hosts erscheinen nicht, eine Zusammenführung über Hosts wäre eigene Arbeit.
+- **Überholt durch den Nachtrag vom 2026-11-21 (Taiga-Issue 198):** ~~**Gäste sehen nur Lokales:** `dashboard_get` ist Klasse G; Karten aus Vorhaben eines Hosts erscheinen nicht, eine Zusammenführung über Hosts wäre eigene Arbeit.~~
 - **Ctrl J behält seine Liste** (`waitingQueue.ts`); das Dashboard ersetzt sie nicht.
 - **Fertige Station ohne Startfehler:** `StationView::start_error` ist bei einer fertigen Station immer leer, auch wenn sie mit Startfehler von Hand als fertig markiert wurde; gespeichert bleibt der Fehler, die Ansicht gibt ihn nur für eine nicht fertige Station weiter. Zeitleiste, Kartei, Leiste und Dashboard zeigen sie so als fertig (Abnahme SC.A, Befund 1).
 - **Wieder laufende fertige Station:** Sie bleibt fertig; ihre Session gibt eine Karte `error` oder `paused` nur im Fehler ohne Neustart und bei einer Pause ohne scharfen Zeitgeber (`StationView::live`, Taiga #152). Läuft sie, fragt sie oder wartet sie auf das Kontingent, gibt es keine Karte aus `live`; Anfragen bleiben Karten wie bisher. Die Karten zählen in `open` des Ablaufs, sein `state` folgt den Regeln oben.
@@ -198,3 +198,14 @@ Nichts. [ADR 070](070-master-session.md) bleibt in Kraft: Das Dashboard liest `S
 ## Tests
 
 `cargo test --manifest-path src-tauri/Cargo.toml --lib -- implementation:: agent_types:: dashboard::` führt die Regeln unter `dashboard::` mit (Karten je Art mit Gegenfall, Reihenfolge, stabile Kennungen (`session:<Session>` bleibt beim Wechsel der Art), „Gelesen“ für pausierte und fehlerhafte Stationen mit Session ohne Wirkung auf den Ablauf, Abläufe, Sessions, Auszug, Migration 31); die Einordnung (Auslöser, Eingabe, veraltetes Ergebnis, Einzeiler, Einstellung) unter `dashboard::classify::`; die Sperre leerer Nachrichten, das Festhalten der Antwort am Zugende und der Auslöser der Einordnung in `end_turn` (nur `Completed`, Eingabe, Zugende, offene Anfrage) laufen unter `sessions::registry::tests::`.
+
+## Nachtrag 2026-11-21: Dashboard beim Gast (Taiga-Issue 198)
+
+Vom Benutzer als Fehler gemeldet: Die Karten der Sessions eines Hosts landeten nur auf dessen Dashboard, nicht beim Gast. Die Grenze „Gäste sehen nur Lokales“ gilt nicht mehr.
+
+- **Was der Gast sieht:** Karten, Abläufe und Sessions der Vorhaben, die er an einem Host **hält**, nicht aller freigegebenen; dieselbe Regel wie bei den zusammengeführten Listen ([ADR 059](059-remote-sessions.md)). Die Zahl am Dashboard-Knopf zählt sie mit.
+- **Host:** `remote/dispatch.rs` beantwortet `dashboard_get` eines Gastes aus der Momentaufnahme der Registry (`Host::dashboard_snapshot`), nie über den Befehl: Zwei Instanzen, die gegenseitig Gast sind, rufen einander nicht im Kreis. Vor `build` filtert er Vorhaben, Sessions und Umsetzungen auf `held_by` des Geräts und lässt die Gruppe weg; nichts aus anderen Vorhaben verlässt den Host. `dashboard_get` ist dafür Klasse F.
+- **Gast:** `dashboard_get` fragt jeden verbundenen Host, je Host ein Aufruf in eigenem Thread mit dem Zeitlimit der Listen (`guest::dashboards`), und hängt Karten, Abläufe und Sessions an die eigenen an (`guest::merge_dashboards`). Die Gruppe einer entfernten Karte ist die lokale Gruppe des Vorhabens; die Karten stehen nach derselben Regel wie lokal (`dashboard::sort_tasks`). Ein Host, der nicht antwortet, trägt nichts bei; die Ansicht scheitert deshalb nicht.
+- **Oberfläche:** `useDashboard` lädt auch bei `remote://changed` neu. Layout unverändert, noch keine Marke „entfernt“.
+- **Aktionen:** Die Knöpfe der Popups rufen Befehle der Klassen A bis C mit Session- oder Umsetzungs-ID; die gehen an den Host. „Gelesen“ an einer Host-Karte räumt sie auf dem Host ab, auch für dessen eigenes Dashboard. Eingeordnet werden Antworten auf dem Host.
+- **Tests:** `remote::dispatch::tests::dashboard_get_*` (nur gehaltene Vorhaben, leere Ansicht ohne Steuerrecht, kein Aufruf des Befehls, Klasse F) und `dashboard::tests::` (Reihenfolge wie `build` über alle, Gruppe des Gastes, Host ohne Antwort).
