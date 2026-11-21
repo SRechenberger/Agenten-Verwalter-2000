@@ -17,11 +17,11 @@ use super::server::RemoteServer;
 use super::wire::Frame;
 use super::{CHANGED_EVENT, RemoteControl, USAGE_CHANGED_EVENT};
 use crate::db::Database;
+use crate::implementation::IMPLEMENTATION_REMOVED_EVENT as REMOVED_EVENT;
 use crate::sessions::registry::{SessionRegistry, now_ms};
 use crate::usage::USAGE_CHANGED_EVENT as HOST_USAGE_EVENT;
 
 const PROJECT_CHANGED_EVENT: &str = "project://changed";
-const REMOVED_EVENT: &str = "implementation://removed";
 const EXPIRY_TICK: Duration = Duration::from_secs(5);
 
 /// Woran ein weitergegebenes Ereignis sein Vorhaben erkennt.
