@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Entwurf: Belegung der Plätze sichtbar (#188)</title>
+<style>
+/* Tokens aus src/styles/theme.css, je Bild in einem eigenen Geltungsbereich, damit Hell und Dunkel nebeneinander stehen. */
+.t-dark{color-scheme:dark;--base:#1f1f1f;--side:#181818;--pop:#252526;--hover:#2e2e30;--sel:#37373d;--bds:#2b2b2b;--bd:#3c3c3c;--fg:#d4d4d4;--fg2:#b0b0b0;--fgm:#8f8f8f;--acc:#e0825c;--acct:#eea283;--wait:#f2b33d;--waitsub:rgba(242,179,61,.11);--shadow:0 10px 30px rgb(0 0 0/.45)}
+.t-light{color-scheme:light;--base:#fff;--side:#f8f8f8;--pop:#fff;--hover:#f0f0f0;--sel:#e4e6f1;--bds:#e5e5e5;--bd:#cecece;--fg:#3c3c3c;--fg2:#555;--fgm:#6e6e6e;--acc:#c4572f;--acct:#a8461f;--wait:#a86a00;--waitsub:rgba(168,106,0,.10);--shadow:0 10px 30px rgb(0 0 0/.14)}
+:root{--font:'Segoe UI Variable Text','Segoe UI',system-ui,sans-serif}
+*{box-sizing:border-box}
+body{margin:0;background:#1a1a1a;color:#d4d4d4;font:13px/1.45 var(--font)}
+main{max-width:1180px;margin:0 auto;padding:16px}
+h1{font-size:15px;margin:0 0 4px}h2{font-size:14px;margin:30px 0 4px}h2 small{color:#8f8f8f;font-weight:400}
+.lead,.cap{color:#b0b0b0;margin:0 0 10px}.cap{font-size:12px;color:#8f8f8f;margin:6px 0 0}
+code{font:12px ui-monospace,Consolas,monospace}
+.why{color:#b0b0b0;font-size:12px;margin:2px 0 10px}
+table.grid{border-collapse:separate;border-spacing:0 10px;width:100%}
+table.grid th{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:#8f8f8f;font-weight:400;text-align:left;padding:0 0 0 0}
+table.grid td{vertical-align:top;padding:0 24px 0 0}
+table.grid td.st{width:210px;font-size:12px;color:#b0b0b0;padding-top:6px}
+table.grid td.st b{color:#d4d4d4;display:block}
+/* Leiste, echte Breite 256 px (Sidebar.css) */
+.sb{width:256px;background:var(--side);color:var(--fg);border-right:1px solid var(--bds);font:13px/1.45 var(--font)}
+.foot{padding:8px 10px;border-top:1px solid var(--bds)}
+.frow{display:flex;flex-wrap:wrap;align-items:center;margin-bottom:8px;gap:6px 8px;min-height:22px}
+.fi{display:flex;align-items:center;gap:8px;height:30px;padding:0 8px;border-radius:6px;color:var(--fg2)}
+.dash{display:inline-flex;align-items:center;gap:6px;margin-left:auto;padding:1px 8px;border-radius:999px;color:var(--fg2);flex:none}
+.dash i{font-style:normal;min-width:18px;padding:0 5px;border-radius:999px;background:var(--wait);color:var(--base);font-size:11px;font-weight:600;text-align:center}
+/* Zellen wie SlotsMeter.css */
+.cells{display:inline-flex;gap:2px;flex:none}
+.cells i{width:10px;height:10px;border:1px solid var(--bd);border-radius:2px;box-sizing:border-box}
+.cells i.on{border-color:var(--acc);background:var(--acc)}
+.cells i.over{border-color:var(--wait);background:var(--wait)}
+/* Marken */
+.chip{display:inline-flex;align-items:center;gap:6px;padding:1px 10px;border:1px solid var(--bd);border-radius:999px;color:var(--fg2);font-size:12.5px;white-space:nowrap;flex:none}
+.chip.w{border-color:var(--wait);background:var(--waitsub);color:var(--wait)}
+.chip.o{color:var(--wait);border-color:var(--wait)}
+.chip.o .t{color:var(--wait)}
+.chip .cells i{border-color:var(--bd)}
+.chip.w .cells i:not(.on):not(.over){border-color:color-mix(in srgb,var(--wait) 45%,transparent)}
+/* D: eine Marke aus zwei Teilen */
+.split{display:inline-flex;border:1px solid var(--bd);border-radius:999px;overflow:hidden;font-size:12.5px;white-space:nowrap;color:var(--fg2);flex:none}
+.split>span{display:inline-flex;align-items:center;gap:6px;padding:1px 9px}
+.split>span+span{border-left:1px solid var(--wait);background:var(--waitsub);color:var(--wait)}
+.split.w{border-color:var(--wait)}
+.split.o>span:first-child{color:var(--wait)}
+/* C: Füllbalken */
+.bar{display:flex;align-items:center;gap:8px;margin-bottom:8px;color:var(--fg2);font-size:11px}
+.bar .segs{flex:1;display:flex;gap:2px;height:4px}
+.bar .segs i{flex:1;border-radius:2px;background:var(--bds)}
+.bar .segs i.on{background:var(--acc)}.bar .segs i.over{background:var(--wait)}
+.bar .segs i.inf{background:none;border:1px dashed var(--bd);height:4px}
+.bar.o span{color:var(--wait)}
+/* Popover wie Popover.css und QueueChip.css */
+.stage{position:relative;width:560px;background:var(--base);border:1px solid var(--bd);border-radius:10px;overflow:hidden;color:var(--fg);font:13px/1.45 var(--font);display:flex;flex-direction:column;justify-content:flex-end;min-height:330px}
+.stage .sbf{z-index:1}.stage .col{position:absolute;left:0;top:0;bottom:0;width:256px;background:var(--side);border-right:1px solid var(--bds)}
+.stage .sbf{position:relative;width:256px}
+.stage .anch{position:relative;margin-left:10px}
+.pop{position:absolute;bottom:calc(100% + 8px);left:0;z-index:2;width:540px;max-width:540px;background:var(--pop);border:1px solid var(--bd);border-radius:10px;box-shadow:var(--shadow);padding:4px;display:flex;flex-direction:column;gap:1px}
+.pop .ph{display:flex;align-items:center;gap:8px;padding:6px 6px 8px;border-bottom:1px solid var(--bds);margin-bottom:2px;white-space:nowrap}
+.pop .ph .ot{color:var(--fg)}.pop .ph.o .ot{color:var(--wait)}
+.pop .ph a{margin-left:auto;color:var(--acct);text-decoration:underline}
+.pop table{width:100%;border-collapse:collapse;font-size:12.5px}
+.pop th{padding:3px 6px;border-bottom:1px solid var(--bds);color:var(--fgm);font-weight:400;text-align:left}
+.pop td{padding:4px 6px;border-bottom:1px solid var(--bds);color:var(--fg)}
+.pop td.r{color:var(--acct);font-weight:600}.pop td.s{white-space:nowrap}
+.pop .note{margin:8px 6px 4px;color:var(--fgm);font-size:12px}
+.pop .none{margin:8px 6px;color:var(--fg2);font-size:12.5px}
+.chip.x{background:var(--wait);color:var(--base);border-color:var(--wait)}
+.pick{outline:1px dashed var(--acc);outline-offset:3px}
+.row2{display:grid;grid-template-columns:auto auto;gap:24px;align-items:end;justify-content:start}
+.lbl{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:#8f8f8f;margin:0 0 4px}
+.lbl b{color:#e0825c}
+@media (max-width:1100px){.row2{grid-template-columns:auto}}
+</style>
+</head>
+<body>
+<main>
+<h1>Entwurf: Belegung der Plätze sichtbar (Taiga #188)</h1>
+<p class="lead">Mockup vor der Umsetzung, Stand 2026-11-21. Gezeigt wird der Fuß der Leiste in echter Breite (256 px), jeweils Hell und Dunkel. Namen und Zahlen sind Beispieldaten; Farben, Abstände und Schriften stammen aus <code>theme.css</code>, <code>Sidebar.css</code>, <code>QueueChip.css</code> und <code>SlotsMeter.css</code>. Der Rahmen um die Marke zeigt, wo die Umsetzung etwas Neues hinstellt. Unter dem Rahmen steht je Zeile, was sich zu heute ändert.</p>
+
+<h2>Zustände <small>gelten für alle Varianten</small></h2>
+<ol class="why">
+<li><b>Nichts belegt, nichts wartet:</b> der Fuß zeigt wie heute nur den Dashboard-Knopf.</li>
+<li><b>2 von 4 belegt,</b> nichts wartet.</li>
+<li><b>4 von 4 belegt, 3 warten.</b></li>
+<li><b>5 von 4 belegt,</b> über der Grenze, nichts wartet.</li>
+<li><b>Ohne Grenze:</b> 3 von ∞.</li>
+<li><b>Grenzfall (nur hier zugefügt):</b> 12 von 12 belegt, 14 warten; zeigt, ob die Marke in 235 px Platz noch passt.</li>
+</ol>
+
+<div id="variants"></div>
+
+<h2>Liste nach einem Klick <small>für alle Varianten gleich, hier mit Variante B</small></h2>
+<p class="why">Das Popover ist das bestehende (<code>Popover</code>, 540 px, über der Marke, links ausgerichtet). Neu ist die Kopfzeile mit der Belegung im Wortlaut von <code>slotsText</code>, mit den Zellen von <code>slotCells</code> und dem Weg zur Grenze. Darunter steht die Tabelle wie heute, ohne Wartende der Hinweis „Nichts wartet“.</p>
+<div id="pops"></div>
+
+</main>
+<script>
+const grid='<svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><rect x="1.5" y="1.5" width="4.5" height="4.5" rx="1"/><rect x="8" y="1.5" width="4.5" height="4.5" rx="1"/><rect x="1.5" y="8" width="4.5" height="4.5" rx="1"/><rect x="8" y="8" width="4.5" height="4.5" rx="1"/></svg>';
+const dash=`<span class="dash">${grid}<i>7</i></span>`;
+const foot=(row,bar='',theme)=>`<div class="sb"><div class="foot">${bar}<div class="frow">${row}</div><div class="fi">⌸ Archiv</div><div class="fi">⚙ Einstellungen</div></div></div>`;
+// Zustände: used, limit (null = ohne), waiting
+const S=[
+ {n:1,u:0,l:4,w:0,t:'1 · Nichts belegt, nichts wartet',d:'wie heute'},
+ {n:2,u:2,l:4,w:0,t:'2 · 2 von 4 belegt',d:'nichts wartet'},
+ {n:3,u:4,l:4,w:3,t:'3 · 4 von 4 belegt, 3 warten',d:''},
+ {n:4,u:5,l:4,w:0,t:'4 · 5 von 4 belegt',d:'über der Grenze'},
+ {n:5,u:3,l:null,w:0,t:'5 · Ohne Grenze: 3 von ∞',d:''},
+ {n:6,u:12,l:12,w:14,t:'6 · Grenzfall: 12 von 12, 14 warten',d:'breiteste Marke'},
+];
+const MAX=12;
+const over=s=>s.l!==null&&s.u>s.l;
+const cells=s=>{const tot=Math.min(Math.max(s.l??s.u,s.u),MAX);return Array.from({length:tot},(_,i)=>i>=s.u?'free':(s.l!==null&&i>=s.l?'over':'on'))};
+const cellsHtml=s=>`<span class="cells" aria-hidden="true">${cells(s).map(c=>`<i class="${c==='free'?'':c}"></i>`).join('')}</span>`;
+const lim=s=>s.l===null?'∞':String(s.l);
+const wait=s=>`${s.w} ${s.w===1?'wartet':'warten'}`;
+const waitChip=s=>`<span class="chip w">${wait(s)}</span>`;
+// Textform für die Marke (kurz); die lange Form „Plätze … (App)“ steht in Titel und Liste.
+const V={
+ A:{t:'A · eigene Marke der Belegung links neben „n warten“',
+  why:'Zwei Marken, beide öffnen dieselbe Liste. Die Belegung ist Zellen plus „2/4“, neutral umrandet; nur wartend oder über der Grenze wird sie bernsteinfarben.',
+  row:s=>{const o=over(s);return `${s.u>0||s.w>0?`<span class="chip${o?' o':''} pick">${cellsHtml(s)}<span class="t">${s.u}/${lim(s)}</span></span>`:''}${s.w>0?waitChip(s):''}${dash}`}},
+ B:{t:'B · eine gemeinsame Marke',
+  why:'Ein Text, ein Knopf. „2 von 4 belegt“, mit Wartenden „· 3 warten“. Ist etwas in der Warteschlange oder die Grenze überschritten, ist die ganze Marke bernsteinfarben, wie die Marke „n warten“ heute.',
+  row:s=>{if(!(s.u>0||s.w>0))return dash;const o=over(s);const txt=o?`${s.u} von ${lim(s)} · über der Grenze`:`${s.u} von ${lim(s)} belegt`+(s.w?` · ${wait(s)}`:'');return `<span class="chip pick${s.w>0||o?' w':''}">${txt}</span>${dash}`}},
+ C:{t:'C · schmaler Füllbalken über die Breite der Zeile',
+  why:'Der Balken steht über der Zeile mit Marke und Knopf, die bleiben wie heute. Ein Segment je Platz, belegt in der Akzentfarbe, über der Grenze bernsteinfarben, ohne Grenze mit gestricheltem Ende. Rechts steht „2/4“. Ohne Balken-Zeile bleibt die Zeile unverändert.',
+  row:s=>(s.w>0?waitChip(s):'')+dash,
+  bar:s=>{if(!(s.u>0||s.w>0))return '';const n=Math.min(Math.max(s.l??s.u,s.u),MAX);const seg=Array.from({length:n},(_,i)=>i>=s.u?'':(s.l!==null&&i>=s.l?'over':'on'));const inf=s.l===null?'<i class="inf"></i>':'';return `<div class="bar pick${over(s)?' o':''}" style="border-radius:6px"><span class="segs">${seg.map(c=>`<i class="${c}"></i>`).join('')}${inf}</span><span>${s.u}/${lim(s)}</span></div>`}},
+ D:{t:'D · eine Marke aus zwei Teilen (eigene Variante)',
+  why:'Links die Belegung mit Zellen und „2/4“, rechts angeheftet in Bernstein „3 warten“. Es ist ein Knopf mit einem Fokus statt zwei Marken, die dasselbe tun; die Teile wachsen von links nach rechts, nichts springt, wenn Wartende hinzukommen. Gegenüber B bleibt die Zahl kurz, gegenüber A gibt es keine doppelte Klickfläche.',
+  row:s=>{if(!(s.u>0||s.w>0))return dash;const o=over(s);return `<span class="split pick${s.w>0?' w':''}${o?' o':''}"><span>${cellsHtml(s)}${s.u}/${lim(s)}</span>${s.w>0?`<span>${wait(s)}</span>`:''}</span>${dash}`}},
+};
+function cell(vk,s,theme){const v=V[vk];return `<div class="t-${theme}">${foot(v.row(s),v.bar?v.bar(s):'',theme)}</div>`}
+document.getElementById('variants').innerHTML=Object.entries(V).map(([k,v])=>`
+<h2>${v.t}</h2><p class="why">${v.why}</p>
+<table class="grid" aria-label="Variante ${k}"><tr><th></th><th>Hell</th><th>Dunkel</th></tr>
+${S.map(s=>`<tr><td class="st"><b>${s.t}</b>${s.d}</td><td>${cell(k,s,'light')}</td><td>${cell(k,s,'dark')}</td></tr>`).join('')}
+</table>`).join('');
+
+// Liste
+const ROWS=[['1','Station · Lane H · Umsetzung','Welle 4','normal','vor 4 min'],['2','Nachricht · Master Welle 4','Welle 4','normal','vor 2 min'],['3','Fortsetzen · Station 109.3','Agententypen per MCP','niedrig','vor 1 h']];
+const full=s=>`Plätze ${s.u} von ${lim(s)} (App)${over(s)?' · über der Grenze':''}`;
+const pop=(s,theme,rows)=>{const o=over(s);
+ const head=`<div class="ph${o?' o':''}">${cellsHtml(s)}<span class="ot">${full(s)}</span><a>Grenze in den Einstellungen</a></div>`;
+ const body=rows?`<table><thead><tr><th>Rang</th><th>Was</th><th>Vorhaben</th><th>Stufe</th><th>wartet</th></tr></thead><tbody>${ROWS.map(r=>`<tr><td class="r">${r[0]}</td><td>${r[1]}</td><td>${r[2]}</td><td>${r[3]}</td><td class="s">${r[4]}</td></tr>`).join('')}</tbody></table><p class="note">Reihenfolge: Stufe des Vorhabens, dann Priorität der Station, dann wer früher wartet. Eine Nachricht an den Master einer Umsetzung steht vor den Wartenden ihres Vorhabens.</p>`:`<p class="none">Nichts wartet.</p>`;
+ const row=V.B.row(s).replace(' pick','').replace('class="chip','class="chip x');
+ return `<div class="t-${theme}"><div class="stage" style="min-height:${rows?340:230}px"><div class="col"></div><div class="sbf"><div class="foot"><div class="frow" style="position:relative">${row}<div class="pop">${head}${body}</div></div><div class="fi">⌸ Archiv</div><div class="fi">⚙ Einstellungen</div></div></div></div></div>`};
+const sA={u:4,l:4,w:3},sB={u:2,l:4,w:0};
+document.getElementById('pops').innerHTML=`
+<p class="lbl">Mit Wartenden · 4 von 4 belegt, 3 warten</p>
+<div class="row2" style="margin-bottom:18px">${pop(sA,'light',true)}${pop(sA,'dark',true)}</div>
+<p class="lbl">Ohne Wartende, aber mit belegten Plätzen · 2 von 4 belegt</p>
+<div class="row2">${pop(sB,'light',false)}${pop(sB,'dark',false)}</div>`;
+</script>
+</body>
+</html>
