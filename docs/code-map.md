@@ -97,4 +97,4 @@ Features: `projects` (Vorhaben), `terminal`, `sessions`, `tldr`, `chat`, `attach
 - Neuer Agenten-Typ? → neues Modul in `src-tauri/src/agents/`, das denselben Provider-Vertrag erfüllt; die UI ändert sich nicht.
 - Ein Typ, den UI und Core beide kennen? → im Core definieren, nach `src/lib/bindings/` generieren.
 - Neuer Typ über die Tauri-Grenze? → `derive(TS)` im Core, in `gen-bindings.rs` eintragen, `pnpm bindings`.
-- Git-Aufruf? → ausschließlich über `src-tauri/src/git/`, nie verstreut `Command::new("git")`. 
+- Git-Aufruf? → ausschließlich über `src-tauri/src/git/`, nie verstreut `Command::new("git")`.

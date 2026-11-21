@@ -51,4 +51,4 @@ Kein CMake, kein LLVM. Zusätzlich zu Rust braucht der Bau unter Windows:
 ## Critical Rules
 
 1. **Die Prüfkette muss vor jedem Commit grün sein** — sie ist das einzige automatische Sicherheitsnetz.
-2. **Keine pauschalen Ausnahmen** — jede abgeschaltete Regel braucht einen Grund an der Stelle. 
+2. **Keine pauschalen Ausnahmen** — jede abgeschaltete Regel braucht einen Grund an der Stelle.
