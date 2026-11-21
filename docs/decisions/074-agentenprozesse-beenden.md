@@ -78,6 +78,9 @@ Nach dem Speichern der Annahme (`complete_station_with_handoff`, nicht „Als fe
 - Ein MCP-Server, dessen Handschlag beim Prozessende noch läuft, wird von seinem Verbindungs-Thread beendet, der den Abbruch erst sieht, wenn der Prozess vielleicht schon beendet ist.
 - Hintergrund-Subagenten des eigenen Agenten bekommen den Abbruch; auf ihr Ende wird nicht gewartet.
 - **Windows:** `/T` erreicht keine Kinder, deren Elternprozess schon beendet ist; sie laufen weiter.
+- **Codex-Einmalaufruf:** Beendet der Aufrufer einen Einmalaufruf im Betrieb Codex (Zeitlimit, Fehler), trifft SIGKILL den Übersetzer ohne SIGTERM vorher; seine Codex-Gruppe räumt er dann nicht ab. Codex endet nur, wenn er auf das Ende seiner Standardeingabe reagiert; ein SIGKILL als Rückfall fehlt dort.
+- **Hooks des eigenen Agenten** laufen ohne eigene Gruppe (`standalone/hooks.rs`). Bei Zeitlimit oder Abbruch beendet `shell::wait_for` unter Unix nur die `bash` des Hooks; die Kinder des Hooks enden erst mit der Gruppe des Agenten.
+- **Windows, Dauer:** `Leader::signal` wartet auf `taskkill`, und `terminate_leaders` signalisiert die Anführer nacheinander, bevor die Frist beginnt. Beim App-Ende kommt so je Eintrag eine Laufzeit von `taskkill` zu den 2 s hinzu, und jedes `ChildGroup::end` startet ein `taskkill`. Gemessen ist das nicht.
 
 ### Tests
 
