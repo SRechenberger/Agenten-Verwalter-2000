@@ -114,6 +114,7 @@ function ToolLine({ sessionId, tool, sessions, isOpen, onToggle }: ToolLineProps
               number={known?.number ?? 0}
               title={title}
               canJump={known !== undefined}
+              state={link.state?.text}
             >
               <span className="session-link__title">
                 {known === undefined ? title : `Session ${String(known.number)} „${title}“`}

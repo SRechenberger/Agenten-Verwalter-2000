@@ -9,6 +9,8 @@ interface SessionLinkProps {
   title: string;
   /** Die Session steht noch in der Liste; sonst gibt es keinen Sprung. */
   canJump: boolean;
+  /** Zustand der Zustellung in der Werkzeugzeile; das `aria-label` ersetzt den Inhalt, also nennt es ihn mit. */
+  state?: string | undefined;
   children: ReactNode;
 }
 
@@ -18,6 +20,7 @@ export function SessionLink({
   number,
   title,
   canJump,
+  state,
   children,
 }: SessionLinkProps): ReactElement {
   const selectSession = useSessionsStore((state) => state.selectSession);
@@ -28,7 +31,7 @@ export function SessionLink({
     <button
       type="button"
       className="session-link session-link--jump"
-      aria-label={`Zu Session ${String(number)} „${title}“`}
+      aria-label={`Zu Session ${String(number)} „${title}“${state === undefined ? '' : `, ${state}`}`}
       onClick={(): void => {
         selectSession(id);
       }}
