@@ -1,0 +1,328 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Entwurf: Sprung in die Ziel-Session, Zeit und Name am Fragekasten (#107, #185)</title>
+<style>
+  /* Tokens aus src/styles/theme.css (hell, dunkel), nur die hier gebrauchten. */
+  :root {
+    color-scheme: light;
+    --font-sans: 'Segoe UI Variable Text', 'Segoe UI', system-ui, sans-serif;
+    --font-mono: 'Cascadia Code', 'Cascadia Mono', Consolas, ui-monospace, monospace;
+    --font-size-2xs: 11px; --font-size-xs: 12px; --font-size-sm: 12.5px; --font-size-md: 13px; --font-size-lg: 13.5px;
+    --space-2xs: 2px; --space-xs: 4px; --space-sm: 6px; --space-md: 8px; --space-lg: 10px;
+    --space-xl: 12px; --space-2xl: 16px; --space-3xl: 20px; --space-4xl: 24px; --space-5xl: 32px;
+    --radius-sm: 4px; --radius-md: 6px; --radius-lg: 8px; --radius-full: 999px;
+    --color-bg-base: #ffffff; --color-bg-sidebar: #f8f8f8; --color-bg-surface: #ffffff; --color-bg-hover: #f0f0f0;
+    --color-border: #cecece; --color-border-subtle: #e5e5e5;
+    --color-fg-primary: #3c3c3c; --color-fg-secondary: #555555; --color-fg-muted: #6e6e6e;
+    --color-accent: #c4572f; --color-accent-text: #a8461f; --color-accent-subtle: color-mix(in srgb, #c4572f 10%, transparent);
+    --color-fg-on-accent: #ffffff;
+    --color-status-error: #d23b33; --color-status-running: #2563eb; --color-status-completed: #16803c; --color-status-waiting: #a86a00;
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --color-bg-base: #1f1f1f; --color-bg-sidebar: #181818; --color-bg-surface: #252526; --color-bg-hover: #2e2e30;
+    --color-border: #3c3c3c; --color-border-subtle: #2b2b2b;
+    --color-fg-primary: #d4d4d4; --color-fg-secondary: #b0b0b0; --color-fg-muted: #8f8f8f;
+    --color-accent: #e0825c; --color-accent-text: #eea283; --color-accent-subtle: color-mix(in srgb, #e0825c 10%, transparent);
+    --color-fg-on-accent: #1d130e;
+    --color-status-error: #f47067; --color-status-running: #5b9dff; --color-status-completed: #4cc38a; --color-status-waiting: #f2b33d;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--color-bg-sidebar); color: var(--color-fg-primary); font: var(--font-size-md)/1.5 var(--font-sans); }
+  .page { width: min(1180px, 100%); margin: 0 auto; padding: 24px 16px 48px; }
+  h1 { margin: 0 0 4px; font-size: 18px; }
+  h2 { margin: 32px 0 4px; font-size: 14px; }
+  h2 small { color: var(--color-fg-muted); font-weight: 400; }
+  code { font: 12px var(--font-mono); }
+  .lead, .cap { margin: 0 0 12px; color: var(--color-fg-secondary); }
+  .cap { margin: 6px 0 0; font-size: var(--font-size-xs); color: var(--color-fg-muted); }
+  .lbl { margin: 0 0 4px; font-size: var(--font-size-2xs); text-transform: uppercase; letter-spacing: .05em; color: var(--color-fg-muted); }
+  .lbl b { color: var(--color-accent-text); }
+  .seg { display: inline-flex; gap: 8px; align-items: center; margin: 0 0 12px; padding: 6px 10px; border: 1px dashed var(--color-border); border-radius: var(--radius-md); color: var(--color-fg-muted); font-size: var(--font-size-xs); }
+  .seg button { padding: 3px 10px; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: transparent; color: inherit; font: inherit; cursor: pointer; }
+  .seg button[aria-pressed="true"] { background: var(--color-bg-hover); color: var(--color-fg-primary); }
+  .row2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; align-items: start; }
+  .row3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; align-items: start; }
+  @media (max-width: 1000px) { .row2, .row3 { grid-template-columns: minmax(0, 1fr); } }
+
+  /* ===== Verlauf: wie ChatTimeline.css es rahmt ===== */
+  .timeline { padding-top: var(--space-2xl); border: 1px solid var(--color-border); border-radius: var(--radius-lg); background: var(--color-bg-base); }
+  .block { position: relative; padding: 0 var(--space-5xl) 14px; }
+  .block:hover .entry-time--hover, .block:focus-within .entry-time--hover, .force-hover .entry-time--hover { opacity: 1; }
+  .entry-time { color: var(--color-fg-muted); font-size: var(--font-size-2xs); font-variant-numeric: tabular-nums; white-space: nowrap; user-select: none; }
+  .entry-time--message { display: block; margin: 0 0 var(--space-xs); line-height: 14px; }
+  .entry-time--hover { position: absolute; top: -11px; left: var(--space-5xl); line-height: 11px; opacity: 0; transition: opacity 120ms; }
+
+  /* ===== ThinkingBlock, ToolGroup ===== */
+  .thinking__toggle { display: flex; align-items: center; gap: var(--space-sm); padding: 0; border: 0; background: transparent; color: var(--color-fg-muted); font: inherit; font-size: var(--font-size-sm); font-style: italic; }
+  .tool-group { display: flex; flex-direction: column; gap: 3px; }
+  .tool-group__toggle { display: flex; align-items: center; gap: var(--space-md); color: var(--color-fg-secondary); }
+  .dot { flex: none; width: 8px; height: 8px; border-radius: var(--radius-full); background: var(--color-status-completed); }
+  .dot--failed { background: var(--color-status-error); }
+  .tool-group__title { color: var(--color-fg-primary); font-weight: 600; }
+  .tool-group__lines { display: flex; flex-direction: column; gap: var(--space-2xs); padding-left: var(--space-2xl); }
+  .tool-group__line { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-md); min-width: 0; font-size: var(--font-size-sm); }
+  .tool-group__branch { flex: none; color: var(--color-fg-muted); font-family: var(--font-mono); }
+  .tool-group__tool { flex: none; font-weight: 600; }
+  .tool-group__line--failed .tool-group__tool { color: var(--color-status-error); }
+  .tool-group__chevron { color: var(--color-fg-muted); margin-left: auto; }
+
+  /* ===== NEU: Sprungziel (nach SessionMessage.css: Akzentfarbe, Unterstreichung bei Hover, Fokusring) ===== */
+  .jump { display: inline-flex; align-items: baseline; gap: var(--space-md); max-width: 100%; padding: 0; border: 0; background: transparent; color: var(--color-accent-text); font: inherit; text-align: left; cursor: pointer; }
+  .jump__title { min-width: 0; overflow-wrap: anywhere; }
+  .jump:hover .jump__title, .jump.is-hover .jump__title { text-decoration: underline; }
+  .jump:focus-visible, .jump.is-focus { outline: 2px solid var(--color-accent); outline-offset: 2px; border-radius: var(--radius-sm); }
+  .jump__state { flex: none; color: var(--color-fg-muted); font-size: var(--font-size-2xs); }
+  .jump__state--ok { color: var(--color-status-completed); }
+  .jump__state--wait { color: var(--color-status-waiting); }
+  .jump__state--err { color: var(--color-status-error); }
+  .recipients { display: flex; flex-wrap: wrap; gap: var(--space-xs) var(--space-2xl); }
+
+  /* ===== Kasten (QuestionBlock.css + SessionToolBlock.css, nachgebaut) ===== */
+  .question-block { display: flex; flex-direction: column; gap: var(--space-lg); padding: var(--space-xl); border: 1px solid var(--color-status-waiting); border-radius: var(--radius-lg); background: var(--color-bg-surface); }
+  .question-block--answered { border-color: var(--color-border); }
+  .question-block__head { display: flex; align-items: center; gap: var(--space-md); color: var(--color-status-waiting); font-size: var(--font-size-xs); font-weight: 600; }
+  .question-block--answered .question-block__head { color: var(--color-fg-muted); }
+  .question-block__head .when { margin-left: auto; color: var(--color-fg-muted); font-size: var(--font-size-2xs); font-weight: 400; font-variant-numeric: tabular-nums; }
+  .question-block__text { margin: 0; font-size: var(--font-size-lg); font-weight: 500; }
+  .question-block__chip { display: inline-flex; flex: none; align-items: center; height: 20px; padding: 0 var(--space-md); border-radius: var(--radius-full); background: var(--color-bg-hover); color: var(--color-fg-secondary); font-size: var(--font-size-2xs); font-weight: 600; letter-spacing: .02em; white-space: nowrap; }
+  .session-tool__sessions { display: flex; flex-direction: column; gap: var(--space-xs); margin: 0; padding: 0; list-style: none; }
+  .session-tool__session { display: flex; align-items: center; gap: var(--space-md); min-width: 0; }
+  .session-tool__subject { margin: 0; font-weight: 600; }
+  .session-tool__message { margin: 0; padding: var(--space-md) var(--space-lg); border: 1px solid var(--color-border-subtle); border-radius: var(--radius-md); background: var(--color-bg-base); line-height: 1.6; }
+  .session-tool__meta { margin: 0; color: var(--color-fg-secondary); font-size: var(--font-size-xs); }
+  .question-block__options { display: flex; flex-direction: column; gap: var(--space-sm); }
+  .question-block__option { display: flex; align-items: center; padding: 9px var(--space-xl); border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-bg-base); color: var(--color-fg-primary); font: inherit; }
+  .question-block__option--selected { border-color: var(--color-accent); background: var(--color-accent-subtle); }
+  .question-block__question-text { margin: 0; color: var(--color-fg-primary); font-size: var(--font-size-lg); font-weight: 500; }
+  .question-block__row { display: grid; grid-template-columns: 16px auto minmax(0, 1fr); align-items: center; gap: var(--space-lg); padding: var(--space-md) var(--space-lg); border: 1px solid var(--color-border-subtle); border-radius: var(--radius-md); color: var(--color-fg-primary); font-size: var(--font-size-sm); }
+  .question-block__row .ico { color: var(--color-status-completed); }
+  .question-block__body { display: flex; flex-direction: column; gap: var(--space-md); }
+  .question-block--ask { gap: var(--space-xl); }
+
+  /* ===== Fragekasten: die drei Zeiten ===== */
+  .qtime-hint { color: var(--color-accent-text); font-weight: 600; }
+  .agents { width: 100%; border-collapse: collapse; font-size: var(--font-size-sm); }
+  .agents th, .agents td { padding: 4px 10px; border: 1px solid var(--color-border-subtle); text-align: left; }
+  .agents th { background: var(--color-bg-hover); font-weight: 600; }
+  .pick { outline: 2px solid var(--color-accent); outline-offset: 3px; border-radius: var(--radius-md); }
+  section.doc { margin-top: 28px; max-width: 900px; color: var(--color-fg-secondary); }
+</style>
+</head>
+<body>
+<div class="page">
+<h1>Entwurf: Sprung in die Ziel-Session, Zeit und Name am Fragekasten</h1>
+<p class="lead">Mockup vor der Umsetzung, Stand 2026-11-21 (Taiga Story 107, Issue 185). Alle Namen, Nummern und Uhrzeiten sind Beispieldaten. Farben, Abstände und Schriften stammen aus <code>src/styles/theme.css</code> und <code>src/features/chat/*.css</code>. Der Schalter wirkt auf alle Bilder; Sprungmarke <code>#theme=light|dark</code>.</p>
+<div class="seg" id="sim"><span>Farbschema</span><button data-v="dark">Dunkel</button><button data-v="light">Hell</button></div>
+
+<!-- ===================== #107 Bild 1 ===================== -->
+<h2>1 · #107 Freigegebene Sendung <small>Kasten „Claude möchte eine Nachricht senden an …“</small></h2>
+<div class="row2">
+  <div>
+    <p class="lbl">Empfänger als Links (Session 12 im Zustand Hover, Session 14 mit Fokus, Session 9 gibt es nicht mehr)</p>
+    <div class="question-block session-tool" role="group" aria-label="Aufruf eines Session-Werkzeugs">
+      <div class="question-block__head"><span id="ic-wait"></span><span>Claude wartet auf deine Entscheidung</span></div>
+      <div class="question-block__question" style="display:flex;flex-direction:column;gap:var(--space-lg)">
+        <p class="question-block__text">Claude möchte eine Nachricht senden an:</p>
+        <ul class="session-tool__sessions">
+          <li class="session-tool__session"><button class="jump is-hover" aria-label="Zu Session 12 „Dashboard-Ticket“"><span class="question-block__chip">Session 12</span><span class="jump__title">Dashboard-Ticket</span></button></li>
+          <li class="session-tool__session"><button class="jump is-focus" aria-label="Zu Session 14 „Globale Warteschlange“"><span class="question-block__chip">Session 14</span><span class="jump__title">Globale Warteschlange</span></button></li>
+          <li class="session-tool__session"><span class="question-block__chip">Session 9</span><span class="session-tool__title">Upstream-Features (gelöscht)</span></li>
+        </ul>
+        <p class="session-tool__subject">Betreff: Schnittstelle der Karten</p>
+        <p class="session-tool__message">Die Karten tragen künftig die Kennung <code>session:&lt;Session&gt;</code>. Bitte den Filter anpassen.</p>
+      </div>
+      <div class="question-block__options">
+        <button class="question-block__option">Erlauben</button>
+        <button class="question-block__option">Ablehnen</button>
+      </div>
+    </div>
+    <p class="cap">Der Link ist ein Knopf wie der Kopf einer <code>SessionMessage</code>: Akzentfarbe, Unterstreichung bei Hover, Fokusring. Ein Klick wählt die Session aus. Wer nicht (mehr) existiert, bleibt Text mit Nummer und Titel. Dasselbe gilt für „TL;DR lesen von …“ und im Popup des Dashboards.</p>
+  </div>
+  <div>
+    <p class="lbl">Derselbe Kasten im Popup des Dashboards (schmal)</p>
+    <div class="question-block session-tool" style="max-width:340px" role="group" aria-label="Aufruf eines Session-Werkzeugs">
+      <div class="question-block__head"><span id="ic-wait2"></span><span>Claude wartet auf deine Entscheidung</span></div>
+      <p class="question-block__text">Claude möchte das TL;DR lesen von:</p>
+      <ul class="session-tool__sessions">
+        <li class="session-tool__session"><button class="jump" aria-label="Zu Session 12 „Dashboard-Ticket“"><span class="question-block__chip">Session 12</span><span class="jump__title">Dashboard-Ticket</span></button></li>
+      </ul>
+      <div class="question-block__options"><button class="question-block__option">Erlauben</button><button class="question-block__option">Ablehnen</button></div>
+    </div>
+    <p class="cap">Im Popup gilt dasselbe wie im Chat: Der Link springt in die Session; Verhalten des Popups beim Sprung wie bei „Session öffnen“.</p>
+  </div>
+</div>
+
+<!-- ===================== #107 Bild 2 ===================== -->
+<h2>2 · #107 Selbst freigegebene Sendung <small>nur die Werkzeugzeile, kein Kasten</small></h2>
+<div class="row2">
+  <div>
+    <p class="lbl">Mit Links (Ausgabe des Werkzeugs gelesen, ohne Aufklappen)</p>
+    <div class="timeline"><div class="block">
+      <div class="tool-group">
+        <div class="tool-group__toggle"><span class="dot"></span><span class="tool-group__title">Verwalter</span><span>2 Aufrufe</span></div>
+        <div class="tool-group__lines">
+          <div class="tool-group__line"><span class="tool-group__branch">⎿</span><span class="tool-group__tool">verwalter_send_message_to</span>
+            <span class="recipients">
+              <button class="jump" aria-label="Zu Session 12 „Dashboard-Ticket“"><span class="jump__title">Session 12 „Dashboard-Ticket“</span><span class="jump__state jump__state--ok">zugestellt</span></button>
+              <button class="jump is-hover" aria-label="Zu Session 14 „Globale Warteschlange“"><span class="jump__title">Session 14 „Globale Warteschlange“</span><span class="jump__state jump__state--wait">wartet</span></button>
+              <span><span>Upstream-Features</span> <span class="jump__state jump__state--err">nicht zustellbar</span></span>
+            </span>
+          </div>
+        </div>
+      </div>
+    </div></div>
+    <p class="cap">Zustand aus der Ausgabe (<code>recipients[].status</code>): zugestellt, wartet, nicht zustellbar. Nummer und Titel kommen aus der Liste der Sessions; ist die Session dort nicht mehr, steht der Titel aus der Ausgabe als Text ohne Link (Zeile 3).</p>
+  </div>
+  <div>
+    <p class="lbl">Vorher (heute): die Zeile nennt keinen Empfänger</p>
+    <div class="timeline"><div class="block">
+      <div class="tool-group">
+        <div class="tool-group__toggle"><span class="dot"></span><span class="tool-group__title">Verwalter</span><span>2 Aufrufe</span></div>
+        <div class="tool-group__lines">
+          <div class="tool-group__line"><span class="tool-group__branch">⎿</span><span class="tool-group__tool">verwalter_send_message_to</span><span class="tool-group__chevron">⌄</span></div>
+        </div>
+      </div>
+    </div></div>
+    <p class="lbl" style="margin-top:12px">Ausgabe abgelehnt, fehlerhaft oder nicht lesbar: wie vorher, ohne Fehlermeldung</p>
+    <div class="timeline"><div class="block">
+      <div class="tool-group__lines" style="padding-left:0">
+        <div class="tool-group__line tool-group__line--failed"><span class="tool-group__branch">⎿</span><span class="tool-group__tool">verwalter_send_message_to</span><span class="tool-group__chevron">⌄</span></div>
+      </div>
+    </div></div>
+    <p class="cap">Die Links stehen in der Zeile neben dem Knopf zum Aufklappen, nicht in ihm: ein Knopf in einem Knopf ist kein gültiges HTML und ließe den Klick doppelt wirken.</p>
+  </div>
+</div>
+
+<!-- ===================== #107 Bild 3 ===================== -->
+<h2>3 · #107 <code>verwalter_open_session</code> <small>das Ziel steht erst nach dem Aufruf fest</small></h2>
+<div class="row2">
+  <div>
+    <p class="lbl">Neue Session angelegt: Link zur neuen Session</p>
+    <div class="timeline"><div class="block">
+      <div class="tool-group__lines" style="padding-left:0">
+        <div class="tool-group__line"><span class="tool-group__branch">⎿</span><span class="tool-group__tool">verwalter_open_session</span>
+          <button class="jump" aria-label="Zu Session 21 „Lane C — Entwicklung“"><span class="jump__title">Session 21 „Lane C — Entwicklung“</span><span class="jump__state">neu</span></button>
+        </div>
+      </div>
+    </div></div>
+    <p class="cap">Ausgabe <code>{decision, sessionId, model, effort}</code>: Die Nummer kommt aus der Liste der Sessions; ist die neue Session dort noch nicht, steht nur der Betreff des Aufrufs (sonst „neue Session“).</p>
+  </div>
+  <div>
+    <p class="lbl">Abgelehnt (ohne <code>sessionId</code>): kein Link</p>
+    <div class="timeline"><div class="block">
+      <div class="tool-group__lines" style="padding-left:0">
+        <div class="tool-group__line tool-group__line--failed"><span class="tool-group__branch">⎿</span><span class="tool-group__tool">verwalter_open_session</span><span class="tool-group__chevron">⌄</span></div>
+      </div>
+    </div></div>
+    <p class="cap">Gleiches Verhalten bei Fehler und unlesbarer Ausgabe.</p>
+  </div>
+</div>
+
+<!-- ===================== #185 Bild 4 ===================== -->
+<h2>4 · #185 Zeit am Fragekasten <small>vorher und nachher, die Zeit nach einem Klick auf eine Antwort</small></h2>
+<div class="row3">
+  <div>
+    <p class="lbl">Vorher (heute)</p>
+    <div class="timeline">
+      <div class="block"><div class="thinking"><button class="thinking__toggle"><span>✳</span><span>Gedankengang · 1 s</span></button></div></div>
+      <div class="block force-hover"><span class="entry-time entry-time--hover">15:23</span>
+        <div id="q-before"></div>
+      </div>
+    </div>
+    <p class="cap">Die Zeit schwebt im Abstand zwischen Gedankengang und Kasten und bleibt, solange der geklickte Knopf den Fokus hat. Sie liest sich wie die Zeit des Gedankengangs.</p>
+  </div>
+  <div>
+    <p class="lbl"><b>A</b> · eigene Zeile über dem Kasten, wie bei Nachrichten</p>
+    <div class="timeline">
+      <div class="block"><div class="thinking"><button class="thinking__toggle"><span>✳</span><span>Gedankengang · 1 s</span></button></div></div>
+      <div class="block"><span class="entry-time entry-time--message">15:23</span>
+        <div id="q-a"></div>
+      </div>
+    </div>
+    <p class="cap">Gleiche Form wie <code>entry-time--message</code> (ADR 069): immer sichtbar, der Block ist eine Zeile höher, die Zeit steht fest über dem Kasten.</p>
+  </div>
+  <div>
+    <p class="lbl"><b>B</b> · rechts im Kopf des Kastens</p>
+    <div class="timeline">
+      <div class="block"><div class="thinking"><button class="thinking__toggle"><span>✳</span><span>Gedankengang · 1 s</span></button></div></div>
+      <div class="block">
+        <div id="q-b"></div>
+      </div>
+    </div>
+    <p class="cap">Die Zeit gehört zum Kasten und braucht keine eigene Zeile. Bei mehreren Fragen steht sie hinter „2 Fragen“.</p>
+  </div>
+</div>
+
+<!-- ===================== #185 Bild 5 ===================== -->
+<h2>5 · #185 Name des Agenten <small>„… hat gefragt“ und „… arbeitet …“ je Betriebsart</small></h2>
+<div class="row2">
+  <div>
+    <p class="lbl">Kopf „hat gefragt“ je Betriebsart</p>
+    <div style="display:flex;flex-direction:column;gap:10px">
+      <div class="question-block question-block--answered" style="padding:var(--space-lg) var(--space-xl)"><div class="question-block__head"><span class="ic-ok"></span><span>Claude hat gefragt</span></div></div>
+      <div class="question-block question-block--answered" style="padding:var(--space-lg) var(--space-xl)"><div class="question-block__head"><span class="ic-ok"></span><span>Claude (LM Studio) hat gefragt</span></div></div>
+      <div class="question-block question-block--answered" style="padding:var(--space-lg) var(--space-xl)"><div class="question-block__head"><span class="ic-ok"></span><span>Autark hat gefragt</span></div></div>
+      <div class="question-block question-block--answered" style="padding:var(--space-lg) var(--space-xl)"><div class="question-block__head"><span class="ic-ok"></span><span>Codex hat gefragt</span></div></div>
+    </div>
+    <p class="cap">Auch das Warten („Codex wartet auf deine Entscheidung“) und „Codex arbeitet …“ im Arbeitsanzeiger tragen den Namen. Der Name kommt als Prop aus der Betriebsart des Vorhabens, auch ins Popup.</p>
+  </div>
+  <div>
+    <p class="lbl">Vorschlag für die kurzen Namen</p>
+    <table class="agents">
+      <thead><tr><th>Betriebsart</th><th>Heute in den Einstellungen</th><th>Im Chat (Vorschlag)</th></tr></thead>
+      <tbody>
+        <tr><td>claude</td><td>Claude</td><td><b>Claude</b></td></tr>
+        <tr><td>claudeCodeLocal</td><td>Claude Code + LM Studio</td><td><b>Claude (LM Studio)</b></td></tr>
+        <tr><td>standalone</td><td>Autark</td><td><b>Autark</b></td></tr>
+        <tr><td>codex</td><td>Codex</td><td><b>Codex</b></td></tr>
+      </tbody>
+    </table>
+    <p class="cap">„Claude (LM Studio)“ nennt den Agenten und das Modell dahinter in einem Wort, ohne „Code +“. „Autark“ bleibt, weil der Nutzer die Betriebsart so kennt; „Autark-Agent“ wäre länger und sagt nichts mehr.</p>
+  </div>
+</div>
+
+<section class="doc">
+  <h2>Was der Entwurf zeigt</h2>
+  <ul>
+    <li><b>#107:</b> Empfänger und Ziel im Kasten als Links (Bild 1), Links in der Werkzeugzeile bei Selbstfreigabe (Bild 2) und bei <code>verwalter_open_session</code> (Bild 3). Ohne Ziel kein Link und keine Fehlermeldung.</li>
+    <li><b>#185:</b> Die Zeit des Fragekastens in zwei Varianten, A (eigene Zeile) und B (im Kopf), gegen den heutigen Zustand (Bild 4); der Name des Agenten je Betriebsart (Bild 5).</li>
+    <li>Die Wahl zwischen A und B und die Namen trifft der Nutzer.</li>
+  </ul>
+</section>
+</div>
+
+<script>
+const root = document.documentElement;
+const hash = new URLSearchParams(location.hash.slice(1));
+function setTheme(t) {
+  root.dataset.theme = t;
+  document.querySelectorAll('#sim button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.v === t)));
+}
+setTheme(hash.get('theme') || 'dark');
+document.querySelectorAll('#sim button').forEach(b => { b.onclick = () => setTheme(b.dataset.v); });
+
+const wait = '<svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="6" cy="6" r="4.5"/><path d="M6 3.5V6l1.8 1.2"/></svg>';
+const ok = '<svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="6" cy="6" r="4.5"/><path d="M3.8 6.2l1.6 1.6 2.8-3.2"/></svg>';
+['ic-wait', 'ic-wait2'].forEach(id => { document.getElementById(id).innerHTML = wait; });
+document.querySelectorAll('.ic-ok').forEach(el => { el.style.display = 'inline-flex'; el.style.color = 'var(--color-status-completed)'; el.innerHTML = ok; });
+
+/* Beantworteter Fragekasten (Rückfrage, ADR 045). */
+function question(name, time) {
+  const when = time ? `<span class="when">${time}</span>` : '';
+  return `<div class="question-block question-block--ask question-block--answered" role="group">
+    <div class="question-block__head"><span style="display:inline-flex;color:var(--color-status-completed)">${ok}</span><span>${name} hat gefragt</span>${when}</div>
+    <div class="question-block__body">
+      <p class="question-block__question-text">Welches Farbschema soll der Entwurf zuerst zeigen?</p>
+      <div class="question-block__row"><span class="ico">${ok}</span><span class="question-block__chip">Farbschema</span><span>Hell</span></div>
+    </div></div>`;
+}
+document.getElementById('q-before').innerHTML = question('Claude');
+document.getElementById('q-a').innerHTML = question('Claude');
+document.getElementById('q-b').innerHTML = question('Claude', '15:23');
+</script>
+</body>
+</html>
