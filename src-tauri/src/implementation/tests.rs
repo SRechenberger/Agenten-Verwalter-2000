@@ -1926,16 +1926,14 @@ fn plan_tool_counts_the_edit_tool_because_create_refuses_in_a_running_implementa
 fn a_failed_plan_change_replans_only_a_begun_automatic_implementation() {
     let begun = view_with_sessions(
         vec![node("a", &[]), node("b", &["a"])],
-        None,
         true,
         &[("a", SessionStatus::Running, false)],
     );
     assert!(replans_after_plan_change(&begun));
-    let not_begun = view_with_sessions(vec![node("a", &[])], None, true, &[]);
+    let not_begun = view_with_sessions(vec![node("a", &[])], true, &[]);
     assert!(!replans_after_plan_change(&not_begun), "nichts begonnen");
     let manual = view_with_sessions(
         vec![node("a", &[])],
-        None,
         false,
         &[("a", SessionStatus::Running, false)],
     );
@@ -2004,11 +2002,10 @@ fn finished(mut row: StationRow) -> StationRow {
     row
 }
 
-/// Die Ansicht einer Phase aus diesen Stationen (Positionen in Reihenfolge) mit Grenze, Automatik
+/// Die Ansicht einer Phase aus diesen Stationen (Positionen in Reihenfolge) mit Automatik
 /// und laufenden Countdowns der genannten Stationen.
 fn limited_view(
     stations: Vec<StationRow>,
-    _max_parallel: Option<u32>,
     auto_start: bool,
     counting_down: &[&str],
 ) -> ImplementationView {
@@ -2036,7 +2033,7 @@ fn limited_view(
 }
 
 fn graph(stations: Vec<StationRow>) -> ImplementationView {
-    limited_view(stations, None, true, &[])
+    limited_view(stations, true, &[])
 }
 
 fn due_ids(view: &ImplementationView) -> Vec<String> {
@@ -2527,7 +2524,7 @@ fn queue_holds_ready_stations_beyond_the_limit_in_start_order() {
     let mut urgent = node("urgent", &[]);
     urgent.priority = 1;
     let rows = vec![node("a", &[]), node("b", &[]), node("c", &[]), urgent];
-    let mut view = limited_view(rows.clone(), None, true, &["a"]);
+    let mut view = limited_view(rows.clone(), true, &["a"]);
     let mut countdowns = Countdowns::default();
     countdowns.begin("a", 5.0);
     let claimed = claimed_keys(pass_over(&mut countdowns, Some(2), &[], &view));
@@ -2549,19 +2546,14 @@ fn queue_holds_ready_stations_beyond_the_limit_in_start_order() {
         ],
         "dann b und c in Planreihenfolge"
     );
-    let without_automatic = limited_view(rows.clone(), None, false, &["a"]);
+    let without_automatic = limited_view(rows.clone(), false, &["a"]);
     assert!(
         slots::station_waiters(&without_automatic, true, ProjectPriority::Normal).is_empty(),
         "ohne Automatik keine Warteschlange"
     );
     let mut unlimited = Countdowns::default();
     unlimited.begin("a", 5.0);
-    pass_over(
-        &mut unlimited,
-        None,
-        &[],
-        &limited_view(rows, None, true, &["a"]),
-    );
+    pass_over(&mut unlimited, None, &[], &limited_view(rows, true, &["a"]));
     assert!(unlimited.queue().entries.is_empty(), "ohne Grenze keine");
 }
 
@@ -2575,7 +2567,6 @@ fn slots_never_exceed_the_limit_when_two_passes_claim_at_once() {
             node("c", &[]),
             node("d", &[]),
         ],
-        None,
         true,
         &[],
     );
@@ -2614,7 +2605,7 @@ fn slots_never_exceed_the_limit_when_two_passes_claim_at_once() {
 
 #[test]
 fn countdown_ending_into_a_start_keeps_the_station_counted() {
-    let view = limited_view(vec![node("a", &[]), node("b", &[])], None, true, &[]);
+    let view = limited_view(vec![node("a", &[]), node("b", &[])], true, &[]);
     let mut countdowns = Countdowns::default();
     let claimed = pass_over(&mut countdowns, Some(1), &[], &view);
     let [(waiter, token)] = &claimed[..] else {
@@ -2646,7 +2637,7 @@ fn countdown_ending_into_a_start_keeps_the_station_counted() {
 
 #[test]
 fn queue_is_replanned_on_session_end_only_with_automatic_start() {
-    let view = |auto_start: bool| limited_view(vec![node("a", &[])], None, auto_start, &[]);
+    let view = |auto_start: bool| limited_view(vec![node("a", &[])], auto_start, &[]);
     assert!(resumes_queue(&view(true)));
     assert!(
         !resumes_queue(&view(false)),
@@ -2688,11 +2679,11 @@ fn queue_moves_up_when_a_countdown_ends_in_a_start_error() {
     failed.start_error = Some("Den Typ „reviewr“ gibt es nicht mehr.".to_owned());
     let rows = vec![failed, node("b", &[])];
     assert!(resumes_queue_after_start_error(
-        &limited_view(rows.clone(), Some(1), true, &[]),
+        &limited_view(rows.clone(), true, &[]),
         "a"
     ));
     assert!(
-        !resumes_queue_after_start_error(&limited_view(rows, Some(1), true, &[]), "b"),
+        !resumes_queue_after_start_error(&limited_view(rows, true, &[]), "b"),
         "ohne gespeicherten Startfehler nicht: sonst versuchte der Countdown es endlos"
     );
 }
@@ -2703,7 +2694,7 @@ fn a_countdown_ending_without_a_start_frees_its_place_once_the_station_stops_wai
         node("b", &[]),
         with_auto_start(node("off", &[]), Some(false)),
     ];
-    let view = limited_view(rows, None, true, &[]);
+    let view = limited_view(rows, true, &[]);
     assert!(
         resumes_queue_after_start_error(&view, "off"),
         "Automatik aus: die Station wartet nicht mehr, ihr Platz geht an die Warteschlange"
@@ -2716,7 +2707,7 @@ fn a_countdown_ending_without_a_start_frees_its_place_once_the_station_stops_wai
 
 #[test]
 fn a_running_countdown_is_not_begun_again() {
-    let view = limited_view(vec![node("a", &[]), node("b", &[])], None, true, &[]);
+    let view = limited_view(vec![node("a", &[]), node("b", &[])], true, &[]);
     let mut countdowns = Countdowns::default();
     let token = countdowns.begin("a", 1.0);
     // Die Ansicht kennt a's Countdown noch nicht: a steht unter den Wartenden.
@@ -2732,7 +2723,6 @@ fn a_running_countdown_is_not_begun_again() {
 fn a_station_with_an_active_session_counts_against_the_limit() {
     let mut view = limited_view(
         vec![node("a", &[]), node("b", &[]), node("c", &[])],
-        None,
         true,
         &[],
     );
@@ -2750,7 +2740,7 @@ fn a_station_with_an_active_session_counts_against_the_limit() {
 
 #[test]
 fn counting_against_a_view_read_before_a_start_ended_begins_nothing() {
-    let view = limited_view(vec![node("a", &[]), node("b", &[])], None, true, &[]);
+    let view = limited_view(vec![node("a", &[]), node("b", &[])], true, &[]);
     let waiters = || slots::station_waiters(&view, true, ProjectPriority::Normal);
     let mut countdowns = Countdowns::default();
     assert!(countdowns.claim_start("a"));
@@ -2781,7 +2771,7 @@ fn counting_against_a_view_read_before_a_start_ended_begins_nothing() {
 
 #[test]
 fn queue_is_not_replanned_while_stop_after_current_is_set() {
-    let mut view = limited_view(vec![node("a", &[])], Some(1), true, &[]);
+    let mut view = limited_view(vec![node("a", &[])], true, &[]);
     view.stop_after_current = true;
     assert!(!resumes_queue(&view));
 }
@@ -2806,7 +2796,6 @@ fn fix_round_and_second_review_inherit_the_priority_of_the_review() {
 /// Lauf der App).
 fn view_with_sessions(
     stations: Vec<StationRow>,
-    _max_parallel: Option<u32>,
     auto_start: bool,
     sessions: &[(&str, SessionStatus, bool)],
 ) -> ImplementationView {
@@ -2865,7 +2854,6 @@ fn station_auto_start_on_schedules_it_although_the_implementation_has_no_automat
             with_auto_start(node("on", &[]), Some(true)),
             node("inherits", &[]),
         ],
-        None,
         false,
         &[],
     );
@@ -2881,7 +2869,6 @@ fn station_auto_start_off_keeps_it_out_of_countdown_and_queue() {
             node("a", &[]),
             node("b", &[]),
         ],
-        None,
         true,
         &[],
     );
@@ -2904,13 +2891,12 @@ fn station_auto_start_off_keeps_it_out_of_countdown_and_queue() {
 
 #[test]
 fn without_any_automation_there_is_no_queue_and_no_replanning() {
-    let view = limited_view(vec![node("a", &[]), node("b", &[])], Some(1), false, &[]);
+    let view = limited_view(vec![node("a", &[]), node("b", &[])], false, &[]);
     assert!(due_ids(&view).is_empty());
     assert_eq!(view.queued, 0);
     assert!(!resumes_queue(&view));
     let view = limited_view(
         vec![with_auto_start(node("a", &[]), Some(true)), node("b", &[])],
-        Some(1),
         false,
         &[],
     );
@@ -3198,7 +3184,6 @@ fn failing(on_error: OnError, restarts: u32) -> StationRow {
 fn on_error_restarts_a_fresh_failure_and_keeps_its_place_in_the_queue() {
     let mut view = view_with_sessions(
         vec![failing(OnError::RestartOnce, 0), node("waiting", &[])],
-        None,
         true,
         &[("failing", SessionStatus::Error, true)],
     );
@@ -3233,7 +3218,6 @@ fn on_error_counts_its_restarts_and_then_waits_for_the_user() {
     ] {
         let mut view = view_with_sessions(
             vec![failing(on_error, restarts), node("waiting", &[])],
-            Some(1),
             true,
             &[("failing", SessionStatus::Error, true)],
         );
@@ -3259,7 +3243,6 @@ fn on_error_does_not_restart_after_an_app_restart_a_cancel_or_a_halt() {
     let restarting = |view: &ImplementationView| shown(view, "failing").restarting;
     let loaded = view_with_sessions(
         vec![failing(OnError::RestartOnce, 0)],
-        None,
         true,
         &[("failing", SessionStatus::Error, false)],
     );
@@ -3269,7 +3252,6 @@ fn on_error_does_not_restart_after_an_app_restart_a_cancel_or_a_halt() {
     );
     let cancelled = view_with_sessions(
         vec![failing(OnError::RestartOnce, 0)],
-        None,
         true,
         &[("failing", SessionStatus::Cancelled, false)],
     );
@@ -3327,7 +3309,6 @@ fn a_redeemed_halt_drops_the_pending_restart_of_every_failed_station() {
             node("running", &[]),
             node("stopping", &[]),
         ],
-        None,
         true,
         &[
             ("failing", SessionStatus::Error, true),
@@ -3372,7 +3353,6 @@ fn a_claimed_restart_keeps_its_place_while_the_session_is_briefly_paused() {
     // `SessionRegistry::restart` setzt die Session auf pausiert, bevor die Nachricht sie startet.
     let view = view_with_sessions(
         vec![failing(OnError::RestartOnce, 1), node("waiting", &[])],
-        None,
         true,
         &[("failing", SessionStatus::Paused, false)],
     );
@@ -3395,16 +3375,15 @@ fn switching_automatic_off_frees_the_place_for_a_queued_station_with_its_own_on(
     // Die Umsetzung ist aus, der Countdown von „a“ ist eben beendet.
     let view = limited_view(
         vec![begun.clone(), node("a", &[]), own_on.clone()],
-        Some(1),
         false,
         &[],
     );
     assert!(refills_after_switch_off(&view));
     assert_eq!(due_ids(&view), ["b"]);
 
-    let without_own_on = limited_view(vec![begun, node("a", &[])], Some(1), false, &[]);
+    let without_own_on = limited_view(vec![begun, node("a", &[])], false, &[]);
     assert!(!refills_after_switch_off(&without_own_on));
-    let not_begun = limited_view(vec![node("a", &[]), own_on], Some(1), false, &[]);
+    let not_begun = limited_view(vec![node("a", &[]), own_on], false, &[]);
     assert!(
         !refills_after_switch_off(&not_begun),
         "vor dem Start startet nichts von selbst"
@@ -3865,7 +3844,6 @@ fn report_names_lanes_start_stations_limit_and_edges() {
             node("b", &["a"]),
             node("c", &["a"]),
         ],
-        None,
         true,
         &[],
     );
@@ -3977,12 +3955,11 @@ fn tools_refuse_predecessors_may() {
 
 // Ab hier ADR 064: „Automatisch fortsetzen“ nach aufgebrauchtem Kontingent je Umsetzung und Station.
 
-/// Eine Phase aus diesen Stationen mit „Automatisch fortsetzen“ der Umsetzung, Grenze und Sessions als
+/// Eine Phase aus diesen Stationen mit „Automatisch fortsetzen“ der Umsetzung und Sessions als
 /// (Station, Status, Zeitgeber scharf).
 fn quota_view(
     stations: Vec<StationRow>,
     auto_resume: bool,
-    _max_parallel: Option<u32>,
     sessions: &[(&str, SessionStatus, bool)],
 ) -> ImplementationView {
     let mut stations: Vec<StationRow> = (0..)
@@ -4042,8 +4019,8 @@ fn effective_auto_resume_prefers_station_over_implementation() {
             node("inherits", &[]),
         ]
     };
-    let switched_off = quota_view(stations(), false, None, &[]);
-    let switched_on = quota_view(stations(), true, None, &[]);
+    let switched_off = quota_view(stations(), false, &[]);
+    let switched_on = quota_view(stations(), true, &[]);
     let effective = |view: &ImplementationView| {
         ["on", "off", "inherits"].map(|id: &str| shown(view, id).resumes_automatically)
     };
@@ -4085,7 +4062,6 @@ fn finished_station_never_arms() {
             resuming(node("open", &[]), Some(true)),
         ],
         true,
-        None,
         &[("open", SessionStatus::Paused, false)],
     );
     let now = 1_000.0;
@@ -4119,12 +4095,10 @@ fn waits_for_quota_counts_as_active_for_the_queue() {
     let mut view = quota_view(
         vec![node("waiting", &[]), node("next", &[])],
         true,
-        None,
         &[("waiting", SessionStatus::Paused, true)],
     );
     let waiting = shown(&view, "waiting");
     assert_eq!(waiting.state, StationState::WaitsForQuota);
-    assert!(waiting.is_active());
     // Die Registry zählt die Session mit scharfem Zeitgeber als belegt (`holds_slot`).
     let mut countdowns = Countdowns::default();
     pass_over(
@@ -4143,12 +4117,10 @@ fn disarming_a_waiting_station_frees_its_slot() {
     let mut view = quota_view(
         vec![node("waiting", &[]), node("next", &[])],
         true,
-        None,
         &[("waiting", SessionStatus::Paused, false)],
     );
     let waiting = shown(&view, "waiting");
     assert_eq!(waiting.state, StationState::WaitsForYou);
-    assert!(!waiting.is_active());
     let mut countdowns = Countdowns::default();
     let claimed = claimed_keys(pass_over(&mut countdowns, Some(1), &[], &view));
     slots::apply_queue(&mut view, countdowns.queue());
@@ -4171,7 +4143,6 @@ fn report_names_a_station_that_resumes_automatically() {
     let view = quota_view(
         vec![node("waiting", &[])],
         true,
-        None,
         &[("waiting", SessionStatus::Paused, true)],
     );
     let text = report::text(&view, 0.0, false);
@@ -4813,7 +4784,6 @@ fn cancel_stops_station_waiting_for_quota() {
     let view = quota_view(
         vec![node("waiting", &[]), node("paused", &[])],
         true,
-        None,
         &[
             ("waiting", SessionStatus::Paused, true),
             ("paused", SessionStatus::Paused, false),
@@ -4838,7 +4808,6 @@ fn cancelled_implementation_arms_no_auto_resume() {
         quota_view(
             vec![resuming(node("open", &[]), Some(true))],
             true,
-            None,
             &[("open", SessionStatus::Paused, false)],
         )
     };
@@ -4862,7 +4831,6 @@ fn pending_cancel_arms_no_auto_resume() {
         quota_view(
             vec![resuming(node("open", &[]), Some(true))],
             true,
-            None,
             &[("open", SessionStatus::Paused, false)],
         )
     };
@@ -5302,7 +5270,7 @@ fn a_due_resume_without_other_waiters_starts_in_the_next_pass() {
 
 #[test]
 fn waiting_sources_are_merged_into_one_order() {
-    let mut view = limited_view(vec![node("a", &[]), node("b", &[])], None, true, &[]);
+    let mut view = limited_view(vec![node("a", &[]), node("b", &[])], true, &[]);
     view.project_id = "project-stations".to_owned();
     let mut waiters = slots::station_waiters(&view, true, ProjectPriority::Low);
     waiters.push(session_waiter(
@@ -5341,7 +5309,7 @@ fn waiting_sources_are_merged_into_one_order() {
 
 #[test]
 fn a_user_start_may_exceed_the_limit_but_nothing_is_started_while_over() {
-    let view = limited_view(vec![node("a", &[])], None, true, &[]);
+    let view = limited_view(vec![node("a", &[])], true, &[]);
     // Drei Sessions laufen, zwei davon hat der Benutzer über die Grenze hinaus gestartet.
     let busy: Vec<String> = ["one", "two", "three"].map(str::to_owned).to_vec();
     let mut countdowns = Countdowns::default();
@@ -5359,7 +5327,6 @@ fn a_user_start_may_exceed_the_limit_but_nothing_is_started_while_over() {
 fn empty_limit_never_makes_anything_wait() {
     let view = limited_view(
         vec![node("a", &[]), node("b", &[]), node("c", &[])],
-        None,
         true,
         &[],
     );
@@ -5378,7 +5345,6 @@ fn empty_limit_never_makes_anything_wait() {
 fn a_restart_after_error_passes_the_gate() {
     let view = view_with_sessions(
         vec![failing(OnError::RestartOnce, 0)],
-        None,
         true,
         &[("failing", SessionStatus::Error, true)],
     );
@@ -5413,7 +5379,6 @@ fn a_restart_after_error_passes_the_gate() {
 fn ready_stations_wait_only_in_an_armed_implementation_but_restarts_always() {
     let view = view_with_sessions(
         vec![failing(OnError::RestartOnce, 0), node("ready", &[])],
-        None,
         true,
         &[("failing", SessionStatus::Error, true)],
     );
@@ -5439,7 +5404,7 @@ fn ready_stations_wait_only_in_an_armed_implementation_but_restarts_always() {
 
 #[test]
 fn a_cancelled_countdown_waits_again_only_after_an_event_of_its_implementation() {
-    let view = limited_view(vec![node("a", &[])], None, true, &[]);
+    let view = limited_view(vec![node("a", &[])], true, &[]);
     let mut countdowns = Countdowns::default();
     let claimed = pass_over(&mut countdowns, Some(2), &[], &view);
     assert_eq!(claimed_keys(claimed), ["a"]);
@@ -5560,7 +5525,6 @@ fn raising_the_limit_starts_waiters_in_rank_order() {
     urgent.priority = 1;
     let view = limited_view(
         vec![node("a", &[]), node("b", &[]), node("c", &[]), urgent],
-        None,
         true,
         &[],
     );
@@ -5581,7 +5545,6 @@ fn raising_the_limit_starts_waiters_in_rank_order() {
 fn lowering_the_limit_stops_nothing() {
     let view = limited_view(
         vec![node("a", &[]), node("b", &[]), node("c", &[])],
-        None,
         true,
         &[],
     );
@@ -6071,7 +6034,7 @@ fn a_session_that_is_not_a_station_is_never_finished_for_the_timer() {
 
 #[test]
 fn a_cancel_request_or_a_stop_holds_back_the_countdown_waiters_of_an_armed_implementation() {
-    let ready = || limited_view(vec![node("a", &[])], None, true, &[]);
+    let ready = || limited_view(vec![node("a", &[])], true, &[]);
     let waiting = |view: &ImplementationView| {
         slots::station_waiters(view, true, ProjectPriority::Normal).len()
     };
@@ -8277,7 +8240,7 @@ fn pass_as_armed(
 fn switching_auto_start_off_and_on_never_arms_an_implementation_not_begun() {
     let mut countdowns = Countdowns::default();
     for enabled in [false, true] {
-        let view = limited_view(vec![node("a", &[]), node("b", &[])], None, enabled, &[]);
+        let view = limited_view(vec![node("a", &[]), node("b", &[])], enabled, &[]);
         if after_auto_start_switch(&view, enabled) == SwitchEffect::Schedule {
             countdowns.arm(&view.id);
         }
@@ -8293,7 +8256,7 @@ fn switching_auto_start_off_and_on_never_arms_an_implementation_not_begun() {
 
     let mut begun = finished(node("build", &[]));
     begun.session_id = Some("session".to_owned());
-    let view = limited_view(vec![begun, node("a", &[])], None, true, &[]);
+    let view = limited_view(vec![begun, node("a", &[])], true, &[]);
     assert_eq!(
         after_auto_start_switch(&view, true),
         SwitchEffect::Schedule,
@@ -8351,10 +8314,10 @@ fn starting_a_held_implementation_is_refused_with_a_sentence() {
         .to_string();
     assert!(refused.ends_with('.'), "ein Satz: {refused}");
 
-    let mut halted = limited_view(vec![node("a", &[])], None, false, &[]);
+    let mut halted = limited_view(vec![node("a", &[])], false, &[]);
     halted.stop_after_current = true;
     assert!(start::start_refusal(&halted).is_some(), "Halt sperrt");
-    let free = limited_view(vec![node("a", &[])], None, false, &[]);
+    let free = limited_view(vec![node("a", &[])], false, &[]);
     assert!(start::start_refusal(&free).is_none());
 }
 
@@ -8365,12 +8328,7 @@ fn acceptance_names_the_stations_by_you_that_are_due_with_id_and_stage() {
     yours.stage = "Abnahme".to_owned();
     let mut later = node("later", &["yours"]);
     later.kind = model::StationKind::User;
-    let view = limited_view(
-        vec![finished(node("a", &[])), yours, later],
-        None,
-        true,
-        &[],
-    );
+    let view = limited_view(vec![finished(node("a", &[])), yours, later], true, &[]);
     let due = due_for_user(&view);
     assert_eq!(
         due.iter()
@@ -8404,7 +8362,7 @@ fn acceptance_names_the_stations_by_you_that_are_due_with_id_and_stage() {
 
 #[test]
 fn report_of_an_implementation_not_begun_says_the_user_starts_it() {
-    let view = limited_view(vec![node("a", &[])], None, true, &[]);
+    let view = limited_view(vec![node("a", &[])], true, &[]);
     let text = report::text(&view, 0.0, false);
     assert!(
         text.contains(
@@ -8414,20 +8372,20 @@ fn report_of_an_implementation_not_begun_says_the_user_starts_it() {
     );
     let mut begun = finished(node("build", &[]));
     begun.session_id = Some("session".to_owned());
-    let view = limited_view(vec![begun], None, true, &[]);
+    let view = limited_view(vec![begun], true, &[]);
     assert!(report::text(&view, 0.0, false).contains("Jetzt: nichts läuft\n"));
 }
 
 #[test]
 fn report_after_start_with_a_station_counting_down_or_queued_says_nothing_runs() {
     let not_begun_line = "Jetzt: nichts läuft; die Stationen startet der Verwalter";
-    let view = limited_view(vec![node("a", &[]), node("b", &[])], None, true, &["a"]);
+    let view = limited_view(vec![node("a", &[]), node("b", &[])], true, &["a"]);
     let text = report::text(&view, 0.0, false);
     assert!(
         text.contains("Jetzt: nichts läuft\n") && !text.contains(not_begun_line),
         "Countdown: {text}"
     );
-    let mut view = limited_view(vec![node("a", &[]), node("b", &[])], None, true, &[]);
+    let mut view = limited_view(vec![node("a", &[]), node("b", &[])], true, &[]);
     view.phases[0].stations[1].queue_position = Some(1);
     let text = report::text(&view, 0.0, false);
     assert!(

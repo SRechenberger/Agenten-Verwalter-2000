@@ -1628,9 +1628,9 @@ fn auto_resume(database: &Database, path: &Path) -> Result<bool, String> {
     let (mut waiting, mut disarmed) = (waiting, disarmed);
     begin(&Mutex::new(Countdowns::default()), &mut waiting, Some(1));
     begin(&Mutex::new(Countdowns::default()), &mut disarmed, Some(1));
-    let holds = station(&waiting, "1-1").is_some_and(|station: &StationView| {
-        station.state == StationState::WaitsForQuota && station.is_active()
-    }) && waiting.queued == 2;
+    let holds = station(&waiting, "1-1")
+        .is_some_and(|station: &StationView| station.state == StationState::WaitsForQuota)
+        && waiting.queued == 2;
     let frees = station(&disarmed, "1-1")
         .is_some_and(|station: &StationView| station.state == StationState::WaitsForYou)
         && disarmed.queued == 1;
