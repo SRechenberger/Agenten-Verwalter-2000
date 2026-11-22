@@ -57,7 +57,7 @@ use verwalter_lib::implementation::master::{self, Decider};
 use verwalter_lib::implementation::model::{
     BriefChange, BriefChangeKind, Handoff, ImplementationView, OnError, PhaseView, PlanEdit,
     PredecessorsMay, StationOptions, StationSettings, StationState, StationView, StoredReport,
-    effective_brief,
+    effective_brief, station_label,
 };
 use verwalter_lib::implementation::model::{
     MAX_NAME_CHARS, MAX_SOURCE_CHARS, PhaseInput, check_agents, check_length, validate,
@@ -316,7 +316,7 @@ fn complete(
         .iter()
         .flat_map(|phase| phase.stations.iter().map(move |station| (phase, station)))
         .filter(|(_, station)| station.state == StationState::Ready)
-        .map(|(phase, station)| format!("  Phase {} · {}", phase.key, station.stage))
+        .map(|(_, station)| format!("  {}", station_label(&station.plan_id, &station.stage)))
         .collect();
     let hint_line = hint
         .map(|text: String| format!("\nHinweis: {text}"))
@@ -356,7 +356,7 @@ fn mark_by_hand(
         .iter()
         .flat_map(|phase| phase.stations.iter().map(move |station| (phase, station)))
         .filter(|(_, station)| station.state == StationState::Ready)
-        .map(|(phase, station)| format!("  Phase {} · {}", phase.key, station.stage))
+        .map(|(_, station)| format!("  {}", station_label(&station.plan_id, &station.stage)))
         .collect();
     let next = if startable.is_empty() {
         "  (keine)".to_owned()
@@ -956,7 +956,7 @@ fn selftest(path: &Path) -> Result<bool, String> {
     )?;
     all &= check(
         "Sortierung: priority absteigend, dann Planreihenfolge",
-        due(&plan_view(&database, &sorted)?) == ["c", "a", "d", "b"],
+        due(&plan_view(&database, &sorted)?) == ["1-3", "1-1", "1-4", "1-2"],
     );
 
     // Bereiter Satz: Startstationen sofort, die übrigen erst nach ihren Vorgängern.
@@ -969,11 +969,11 @@ fn selftest(path: &Path) -> Result<bool, String> {
         ] }]))?,
     )?;
     let before = plan_view(&database, &chain)?;
-    mark_done(&database, &before, "test")?;
+    mark_done(&database, &before, "1-1")?;
     let after = plan_view(&database, &chain)?;
     all &= check(
         "Bereiter Satz: ohne after bereit, mit after nach dem Vorgänger",
-        due(&before) == ["test", "docs"] && due(&after) == ["docs", "build"],
+        due(&before) == ["1-1", "1-2"] && due(&after) == ["1-2", "1-3"],
     );
 
     // Zyklus: beim Anlegen abgelehnt, der Satz nennt die Stationen.
@@ -1077,12 +1077,12 @@ fn selftest(path: &Path) -> Result<bool, String> {
         ] }]))?,
     )?;
     let join_view = plan_view(&database, &join)?;
-    mark_done(&database, &join_view, "start")?;
+    mark_done(&database, &join_view, "1-1")?;
     let branches = due(&plan_view(&database, &join)?);
     let countdowns = Arc::new(Mutex::new(Countdowns::default()));
     let database = Arc::new(database);
     let starts: Vec<bool> = thread::scope(|scope| {
-        let handles: Vec<_> = ["left", "right"]
+        let handles: Vec<_> = ["1-2", "1-3"]
             .into_iter()
             .map(|branch: &str| {
                 let database = Arc::clone(&database);
@@ -1092,10 +1092,10 @@ fn selftest(path: &Path) -> Result<bool, String> {
                 scope.spawn(move || -> Result<bool, String> {
                     mark_done(&database, &join_view, branch)?;
                     let fresh = plan_view(&database, &join)?;
-                    if !due(&fresh).contains(&"join".to_owned()) {
+                    if !due(&fresh).contains(&"1-4".to_owned()) {
                         return Ok(false);
                     }
-                    let join_id = id_of(&fresh, "join");
+                    let join_id = id_of(&fresh, "1-4");
                     Ok(countdowns
                         .lock()
                         .map(|mut countdowns| countdowns.claim_start(&join_id))
@@ -1110,7 +1110,7 @@ fn selftest(path: &Path) -> Result<bool, String> {
     });
     all &= check(
         "Verzweigung und Zusammenlauf: beide Äste zugleich, Join genau einmal (claim_start)",
-        branches == ["left", "right"] && starts.iter().filter(|started| **started).count() == 1,
+        branches == ["1-2", "1-3"] && starts.iter().filter(|started| **started).count() == 1,
     );
 
     // Migration aus Position und Welle.
@@ -1165,12 +1165,15 @@ fn selftest(path: &Path) -> Result<bool, String> {
     begin(&countdowns, &mut waiting, limit);
     all &= check(
         "Warteschlange, Grenze: 2 Plätze starten a und b, c und d warten app-weit",
-        plan_ids(&waiting, &begun) == ["a", "b"]
+        plan_ids(&waiting, &begun) == ["1-1", "1-2"]
             && waiting.queued == 2
-            && station(&waiting, "c").and_then(|c| c.queue_position) == Some(1),
+            && station(&waiting, "1-3").and_then(|c| c.queue_position) == Some(1),
     );
 
-    let running = [("a", SessionStatus::Running), ("b", SessionStatus::Running)];
+    let running = [
+        ("1-1", SessionStatus::Running),
+        ("1-2", SessionStatus::Running),
+    ];
     let full = Mutex::new(Countdowns::default());
     let none_begun = begin(
         &full,
@@ -1178,21 +1181,21 @@ fn selftest(path: &Path) -> Result<bool, String> {
         limit,
     );
     let done_a = plan_view(&database, &queued)?;
-    mark_done(&database, &done_a, "a")?;
+    mark_done(&database, &done_a, "1-1")?;
     let moved = begin(
         &full,
         &mut view_with(
             &database,
             &queued,
             &HashMap::new(),
-            &[("b", SessionStatus::Running)],
+            &[("1-2", SessionStatus::Running)],
         )?,
         limit,
     );
     let after_done = plan_view(&database, &queued)?;
     all &= check(
         "Warteschlange, Nachrücken: a meldet fertig, c rückt ohne Klick nach",
-        none_begun.is_empty() && plan_ids(&after_done, &moved) == ["c"],
+        none_begun.is_empty() && plan_ids(&after_done, &moved) == ["1-3"],
     );
 
     let failing = Mutex::new(Countdowns::default());
@@ -1202,13 +1205,16 @@ fn selftest(path: &Path) -> Result<bool, String> {
             &database,
             &queued,
             &HashMap::new(),
-            &[("b", SessionStatus::Error), ("c", SessionStatus::Running)],
+            &[
+                ("1-2", SessionStatus::Error),
+                ("1-3", SessionStatus::Running),
+            ],
         )?,
         limit,
     );
     all &= check(
         "Warteschlange, Fehlerfall: b endet mit Fehler, sein Platz geht an d",
-        plan_ids(&after_done, &after_error) == ["d"],
+        plan_ids(&after_done, &after_error) == ["1-4"],
     );
 
     let view = plan_view(&database, &queued)?;
@@ -1235,7 +1241,10 @@ fn selftest(path: &Path) -> Result<bool, String> {
         &database,
         &queued,
         &HashMap::new(),
-        &[("b", SessionStatus::Running), ("c", SessionStatus::Running)],
+        &[
+            ("1-2", SessionStatus::Running),
+            ("1-3", SessionStatus::Running),
+        ],
     )?;
     let over = begin(&Mutex::new(Countdowns::default()), &mut user_over, Some(1));
     let unlimited = begin(
@@ -1247,7 +1256,7 @@ fn selftest(path: &Path) -> Result<bool, String> {
         "Warteschlange, über der Grenze: zwei laufen bei Grenze 1, nichts rückt nach; leer = kein Warten",
         over.is_empty()
             && user_over.queued == 1
-            && plan_ids(&after_done, &unlimited) == ["b", "c", "d"],
+            && plan_ids(&after_done, &unlimited) == ["1-2", "1-3", "1-4"],
     );
 
     // Neustart: Die Sessions sind pausiert, Countdowns liegen nur im Speicher. Geprüft wird die
@@ -1257,7 +1266,10 @@ fn selftest(path: &Path) -> Result<bool, String> {
         &database,
         &queued,
         &HashMap::new(),
-        &[("b", SessionStatus::Paused), ("c", SessionStatus::Paused)],
+        &[
+            ("1-2", SessionStatus::Paused),
+            ("1-3", SessionStatus::Paused),
+        ],
     )?;
     let has_no_countdown = restarted
         .phases
@@ -1266,7 +1278,7 @@ fn selftest(path: &Path) -> Result<bool, String> {
         .all(|station: &StationView| station.state != StationState::Countdown);
     all &= check(
         "Warteschlange, Neustart: geladene Ansicht ohne Countdown, d bleibt bereit",
-        has_no_countdown && due(&restarted) == ["d"],
+        has_no_countdown && due(&restarted) == ["1-4"],
     );
 
     all &= station_options(&database)?;
@@ -1329,25 +1341,25 @@ fn plan_edits(database: &Database) -> Result<bool, String> {
         database,
         &plan,
         serde_json::json!({
-            "add": [{ "lane": "1", "stage": "Test", "id": "x", "after": ["a"] }],
-            "change": [{ "id": "b", "after": ["x"] }],
+            "add": [{ "lane": "1", "stage": "Test", "id": "x", "after": ["1-1"] }],
+            "change": [{ "id": "1-2", "after": ["x"] }],
             "lanes": [{ "key": "2", "title": "Neu", "stations": [
-                { "stage": "PR", "after": ["b"] },
+                { "stage": "PR", "after": ["1-2"] },
             ] }],
         }),
         &[],
     )?;
     let view = plan_view(database, &plan)?;
-    mark_done(database, &view, "a")?;
+    mark_done(database, &view, "1-1")?;
     let after_a = plan_view(database, &plan)?;
     all &= check(
         "Bearbeiten: Delta → Plan (Station eingefügt, Kante geändert, neue Lane)",
         applied.is_ok()
-            && after_of(&view, "x") == ["a"]
-            && after_of(&view, "b") == ["x"]
-            && after_of(&view, "2-1") == ["b"]
+            && after_of(&view, "1-3") == ["1-1"]
+            && after_of(&view, "1-2") == ["1-3"]
+            && after_of(&view, "2-1") == ["1-2"]
             && view.phases.len() == 2
-            && due(&after_a) == ["x"],
+            && due(&after_a) == ["1-3"],
     );
     let stored = database
         .with(|connection| implementations::load(connection, &plan))
@@ -1368,46 +1380,55 @@ fn plan_edits(database: &Database) -> Result<bool, String> {
     let cycle = edit_in(
         database,
         &plan,
-        serde_json::json!({ "change": [{ "id": "x", "after": ["b"] }] }),
+        serde_json::json!({ "change": [{ "id": "1-3", "after": ["1-2"] }] }),
         &[],
     )?;
     all &= check(
         "Bearbeiten: Zyklus wird mit den Stationen abgelehnt, nichts geschrieben",
         cycle
             .as_ref()
-            .is_err_and(|error| error == "Zyklus: b → x → b")
-            && after_of(&plan_view(database, &plan)?, "x") == ["a"],
+            .is_err_and(|error| error == "Zyklus: 1-2 → 1-3 → 1-2")
+            && after_of(&plan_view(database, &plan)?, "1-3") == ["1-1"],
     );
 
     let begun = edit_in(
         database,
         &plan,
-        serde_json::json!({ "change": [{ "id": "x", "brief": "Neu." }] }),
-        &["x"],
+        serde_json::json!({ "change": [{ "id": "1-3", "brief": "Neu." }] }),
+        &["1-3"],
     )?;
-    let removed = edit_in(database, &plan, serde_json::json!({ "remove": ["x"] }), &[])?;
-    let done = edit_in(database, &plan, serde_json::json!({ "remove": ["a"] }), &[])?;
+    let removed = edit_in(
+        database,
+        &plan,
+        serde_json::json!({ "remove": ["1-3"] }),
+        &[],
+    )?;
+    let done = edit_in(
+        database,
+        &plan,
+        serde_json::json!({ "remove": ["1-1"] }),
+        &[],
+    )?;
     let after_remove = plan_view(database, &plan)?;
     all &= check(
         "Bearbeiten: gestartete und fertige Stationen bleiben, Nachfolger einer entfernten erben ihre Vorgänger",
-        begun
-            .as_ref()
-            .is_err_and(|error| error.starts_with("change[0].id: Station „x“ hat schon begonnen"))
-            && removed.is_ok()
+        begun.as_ref().is_err_and(|error| {
+            error.starts_with("change[0].id: Station „1-3“ hat schon begonnen")
+        }) && removed.is_ok()
             && done.is_err()
-            && station(&after_remove, "x").is_none()
-            && after_of(&after_remove, "b") == ["a"],
+            && station(&after_remove, "1-3").is_none()
+            && after_of(&after_remove, "1-2") == ["1-1"],
     );
 
     // Die Zeilen zeigen a noch wartend, gespeichert ist a fertig: begonnen, während gerechnet wurde.
     let mut stale = rows_of(database, &plan)?;
     for row in stale
         .iter_mut()
-        .filter(|row: &&mut StationRow| row.plan_id == "a")
+        .filter(|row: &&mut StationRow| row.plan_id == "1-1")
     {
         row.completed_at = None;
     }
-    let edit: PlanEdit = serde_json::from_value(serde_json::json!({ "remove": ["a"] }))
+    let edit: PlanEdit = serde_json::from_value(serde_json::json!({ "remove": ["1-1"] }))
         .map_err(|error| format!("Eingabe nicht lesbar: {error}"))?;
     let edited = edited_plan(&plan, &after_remove.phases, &stale, &edit, &[])?;
     let is_written = database
@@ -1415,7 +1436,7 @@ fn plan_edits(database: &Database) -> Result<bool, String> {
         .map_err(|error| error.to_string())?;
     all &= check(
         "Bearbeiten: der Speicher entfernt keine Station, die inzwischen begonnen hat",
-        !is_written && station(&plan_view(database, &plan)?, "a").is_some(),
+        !is_written && station(&plan_view(database, &plan)?, "1-1").is_some(),
     );
     Ok(all)
 }
@@ -1436,7 +1457,7 @@ fn handoffs(database: &Database) -> Result<bool, String> {
         ] }]))?,
     )?;
     let rows = rows_of(database, &plan)?;
-    let build = id_of(&plan_view(database, &plan)?, "build");
+    let build = id_of(&plan_view(database, &plan)?, "1-1");
     let note = |text: &str| Handoff {
         note: Some(text.to_owned()),
         replace: Vec::new(),
@@ -1444,7 +1465,7 @@ fn handoffs(database: &Database) -> Result<bool, String> {
     let hands_off = handoff_changes(&rows, &build, &[], &note("Achte auf X."), now_ms());
     let without_off: Vec<StationRow> = rows
         .iter()
-        .filter(|row: &&StationRow| row.plan_id != "off")
+        .filter(|row: &&StationRow| row.plan_id != "1-4")
         .cloned()
         .collect();
     let appended = handoff_changes(&without_off, &build, &[], &note("Achte auf X."), now_ms());
@@ -1452,9 +1473,9 @@ fn handoffs(database: &Database) -> Result<bool, String> {
         note: Some("Achte auf X.".to_owned()),
         replace: vec![(plan_id.to_owned(), "Prüfe nur die Migration.".to_owned())],
     };
-    let replaced = handoff_changes(&without_off, &build, &[], &replace("change"), now_ms());
-    let append_only = handoff_changes(&without_off, &build, &[], &replace("append"), now_ms());
-    let not_next = handoff_changes(&without_off, &build, &[], &replace("later"), now_ms());
+    let replaced = handoff_changes(&without_off, &build, &[], &replace("1-3"), now_ms());
+    let append_only = handoff_changes(&without_off, &build, &[], &replace("1-2"), now_ms());
+    let not_next = handoff_changes(&without_off, &build, &[], &replace("1-5"), now_ms());
     let targets = |changes: &[(String, String, BriefChange)]| -> Vec<String> {
         changes
             .iter()
@@ -1468,7 +1489,7 @@ fn handoffs(database: &Database) -> Result<bool, String> {
         |changes: &Vec<(String, String, BriefChange)>| {
             let folded: Vec<BriefChange> = changes
                 .iter()
-                .filter(|(_, plan_id, _): &&(String, String, BriefChange)| plan_id == "change")
+                .filter(|(_, plan_id, _): &&(String, String, BriefChange)| plan_id == "1-3")
                 .map(|(_, _, change): &(String, String, BriefChange)| change.clone())
                 .collect();
             effective_brief("Prüfe.", &folded)
@@ -1476,13 +1497,13 @@ fn handoffs(database: &Database) -> Result<bool, String> {
     );
     all &= check(
         "Übergabe: nur ergänzen und ergänzen und ändern ergänzen, nicht anfassen lehnt ab, Ersatz nur mit Erlaubnis",
-        hands_off.is_err_and(|error| error.starts_with("predecessors_may: Die Station „off“"))
+        hands_off.is_err_and(|error| error.starts_with("predecessors_may: Die Station „1-4“"))
             && appended
                 .as_ref()
-                .is_ok_and(|changes| targets(changes) == ["append:Append", "change:Append"])
+                .is_ok_and(|changes| targets(changes) == ["1-2:Append", "1-3:Append"])
             && change_brief == "Prüfe nur die Migration.\nAchte auf X."
             && append_only
-                .is_err_and(|error| error.starts_with("predecessors_may: Die Station „append“"))
+                .is_err_and(|error| error.starts_with("predecessors_may: Die Station „1-2“"))
             && not_next.is_err_and(|error| error.starts_with("handoff.replace[0].id: ")),
     );
     Ok(all)
@@ -1551,7 +1572,7 @@ fn auto_resume(database: &Database, path: &Path) -> Result<bool, String> {
     ] }]))?;
     let implementation = create_in(database, &plan)?;
     let view = plan_view(database, &implementation)?;
-    let (a, b) = (id_of(&view, "a"), id_of(&view, "b"));
+    let (a, b) = (id_of(&view, "1-1"), id_of(&view, "1-2"));
     let write_station = |station_id: &str, value: Option<bool>| {
         database
             .with(|connection| {
@@ -1567,7 +1588,7 @@ fn auto_resume(database: &Database, path: &Path) -> Result<bool, String> {
             .map_err(|error| error.to_string())
     };
     let effective = |view: &ImplementationView| {
-        ["a", "b", "c"].map(|plan_id: &str| {
+        ["1-1", "1-2", "1-3"].map(|plan_id: &str| {
             station(view, plan_id)
                 .is_some_and(|station: &StationView| station.resumes_automatically)
         })
@@ -1595,22 +1616,22 @@ fn auto_resume(database: &Database, path: &Path) -> Result<bool, String> {
         database,
         &implementation,
         &HashMap::new(),
-        &[("a", SessionStatus::Paused)],
-        &["a"],
+        &[("1-1", SessionStatus::Paused)],
+        &["1-1"],
     )?;
     let disarmed = view_with(
         database,
         &implementation,
         &HashMap::new(),
-        &[("a", SessionStatus::Paused)],
+        &[("1-1", SessionStatus::Paused)],
     )?;
     let (mut waiting, mut disarmed) = (waiting, disarmed);
     begin(&Mutex::new(Countdowns::default()), &mut waiting, Some(1));
     begin(&Mutex::new(Countdowns::default()), &mut disarmed, Some(1));
-    let holds = station(&waiting, "a").is_some_and(|station: &StationView| {
+    let holds = station(&waiting, "1-1").is_some_and(|station: &StationView| {
         station.state == StationState::WaitsForQuota && station.is_active()
     }) && waiting.queued == 2;
-    let frees = station(&disarmed, "a")
+    let frees = station(&disarmed, "1-1")
         .is_some_and(|station: &StationView| station.state == StationState::WaitsForYou)
         && disarmed.queued == 1;
     all &= check(
@@ -1635,10 +1656,10 @@ fn auto_resume(database: &Database, path: &Path) -> Result<bool, String> {
             && !slots::awaits_arming(true, Some(now - 1.0), now),
     );
 
-    let open = station(&switched_on, "c").ok_or("keine Station c")?;
-    mark_done(database, &switched_on, "c")?;
+    let open = station(&switched_on, "1-3").ok_or("keine Station 1-3")?;
+    mark_done(database, &switched_on, "1-3")?;
     let done_view = plan_view(database, &implementation)?;
-    let done = station(&done_view, "c").ok_or("keine Station c")?;
+    let done = station(&done_view, "1-3").ok_or("keine Station 1-3")?;
     all &= check(
         "Automatisch fortsetzen: neue Pause nur mit Rücksetzzeit in der Zukunft, fertig nie",
         arms_on_new_pause(open, now + 60_000.0, now)
@@ -1653,13 +1674,13 @@ fn auto_resume(database: &Database, path: &Path) -> Result<bool, String> {
         &reopened,
         &implementation,
         &HashMap::new(),
-        &[("a", SessionStatus::Paused)],
+        &[("1-1", SessionStatus::Paused)],
     )?;
     all &= check(
         "Automatisch fortsetzen, Neustart: Werte bleiben, keine Station wartet auf das Kontingent",
         restarted.auto_resume
             && effective(&restarted) == [false, true, true]
-            && station(&restarted, "a")
+            && station(&restarted, "1-1")
                 .is_some_and(|station: &StationView| station.state == StationState::WaitsForYou),
     );
     Ok(all)
@@ -1688,11 +1709,11 @@ fn station_options(database: &Database) -> Result<bool, String> {
     let with = due(&plan_view(database, &implementation)?);
     all &= check(
         "Automatisch starten je Station: an trotz Umsetzung aus, aus trotz Umsetzung an",
-        without == ["on"] && with == ["on", "inherits"],
+        without == ["1-1"] && with == ["1-1", "1-3"],
     );
 
     // Sperren: vor dem Start alle drei, danach nur „Bei Fehler“, fertig nichts.
-    let off_id = id_of(&plan_view(database, &implementation)?, "off");
+    let off_id = id_of(&plan_view(database, &implementation)?, "1-2");
     let write = |options: StationOptions| {
         database
             .with(|connection| implementations::set_station_options(connection, &off_id, &options))
@@ -1710,7 +1731,7 @@ fn station_options(database: &Database) -> Result<bool, String> {
         database,
         &implementation,
         &HashMap::new(),
-        &[("off", SessionStatus::Running)],
+        &[("1-2", SessionStatus::Running)],
     )?;
     let locked = StationOptions {
         auto_start: Some(true),
@@ -1723,7 +1744,7 @@ fn station_options(database: &Database) -> Result<bool, String> {
     let after_start = checked_options(&started, &off_id, &locked)
         .is_err_and(|error| error.to_string().contains("auto_start: "))
         && checked_options(&started, &off_id, &on_error_only).is_ok();
-    mark_done(database, &started, "off")?;
+    mark_done(database, &started, "1-2")?;
     let finished = checked_options(
         &plan_view(database, &implementation)?,
         &off_id,
@@ -1752,23 +1773,23 @@ fn station_options(database: &Database) -> Result<bool, String> {
         id: "hint".to_owned(),
         kind,
         text: "Achte auf die Migration.".to_owned(),
-        source_station_id: "build".to_owned(),
+        source_station_id: "1-1".to_owned(),
         at: now_ms(),
     };
     let row = |plan_id: &str| stored_row(database, &handoff, plan_id);
-    let append = amended_brief_changes(&row("append")?, hint(BriefChangeKind::Append));
-    let append_replace = amended_brief_changes(&row("append")?, hint(BriefChangeKind::Replace));
-    let change = amended_brief_changes(&row("change")?, hint(BriefChangeKind::Replace));
-    let hands_off = amended_brief_changes(&row("off")?, hint(BriefChangeKind::Append));
-    let append_id = row("append")?.id;
+    let append = amended_brief_changes(&row("1-2")?, hint(BriefChangeKind::Append));
+    let append_replace = amended_brief_changes(&row("1-2")?, hint(BriefChangeKind::Replace));
+    let change = amended_brief_changes(&row("1-3")?, hint(BriefChangeKind::Replace));
+    let hands_off = amended_brief_changes(&row("1-4")?, hint(BriefChangeKind::Append));
+    let append_id = row("1-2")?.id;
     if let Ok(changes) = &append {
         database
             .with(|connection| implementations::set_brief_changes(connection, &append_id, changes))
             .map_err(|error| error.to_string())?;
     }
-    mark_done(database, &plan_view(database, &handoff)?, "build")?;
+    mark_done(database, &plan_view(database, &handoff)?, "1-1")?;
     let view = plan_view(database, &handoff)?;
-    let message = station(&view, "append")
+    let message = station(&view, "1-2")
         .map(|target| start::first_message(&view, &view.phases[0], target, &[], None))
         .unwrap_or_default();
     all &= check(
@@ -1788,12 +1809,12 @@ fn station_options(database: &Database) -> Result<bool, String> {
             { "stage": "B", "id": "waiting", "after": [] },
         ] }]))?,
     )?;
-    let failing_id = id_of(&plan_view(database, &failing)?, "failing");
+    let failing_id = id_of(&plan_view(database, &failing)?, "1-1");
     let mut restarts_seen: Vec<bool> = Vec::new();
     let mut held_place = true;
     for seen in 0..4 {
-        let view = view_failed(database, &failing, "failing", true)?;
-        let is_restarting = station(&view, "failing").is_some_and(|failed| failed.restarting);
+        let view = view_failed(database, &failing, "1-1", true)?;
+        let is_restarting = station(&view, "1-1").is_some_and(|failed| failed.restarting);
         restarts_seen.push(is_restarting);
         // Der Neustart wartet am Tor (ADR 068) und rückt vor der bereiten Station nach.
         let mut view = view;
@@ -1816,12 +1837,12 @@ fn station_options(database: &Database) -> Result<bool, String> {
             Ok(())
         })
         .map_err(|error| error.to_string())?;
-    let after_app_restart = view_failed(database, &failing, "failing", false)?;
+    let after_app_restart = view_failed(database, &failing, "1-1", false)?;
     all &= check(
         "Bei Fehler: bis 3× neu starten, Platz belegt solange, danach frei; nach App-Neustart kein Neustart",
         restarts_seen == [true, true, true, false]
             && held_place
-            && station(&after_app_restart, "failing").is_some_and(|failed| !failed.restarting),
+            && station(&after_app_restart, "1-1").is_some_and(|failed| !failed.restarting),
     );
     Ok(all)
 }
@@ -1837,7 +1858,7 @@ fn write_wake_texts(folder: &Path) -> Result<(), String> {
     .map_err(|error| error.to_string())?;
     let facts = wake::WakeFacts {
         implementation: "Master-Session".to_owned(),
-        lane: "99.1".to_owned(),
+        lane: "C-5".to_owned(),
         stage: "Umsetzung".to_owned(),
         text: "Kern gebaut, Tests grün, Branch bereit".to_owned(),
         note:
@@ -1950,7 +1971,7 @@ fn write_wake_texts(folder: &Path) -> Result<(), String> {
     }
     let reports = [(
         "st-7".to_owned(),
-        "99.1".to_owned(),
+        "C-5".to_owned(),
         "Umsetzung".to_owned(),
         "Kern gebaut, Tests grün, Branch bereit".to_owned(),
     )];
@@ -1987,7 +2008,7 @@ fn write_reference_texts(folder: &Path, facts: &wake::WakeFacts) -> Result<(), S
         order,
     )?;
     let verwalter = wake::sender();
-    let message = "/vault:role-rust-developer\nStation: Phase 99.1 „Master-Session“ · Umsetzung\n\
+    let message = "/vault:role-rust-developer\nStation: C-5 · Umsetzung in Lane C „Master-Session“\n\
                    Auftrag: Brief lesen und die Lane umsetzen.";
     let (command, content) = reference::split_command(message);
     write(
@@ -1995,7 +2016,7 @@ fn write_reference_texts(folder: &Path, facts: &wake::WakeFacts) -> Result<(), S
         &reference::station(
             command,
             &verwalter,
-            "Auftrag: Lane 99.1 · Umsetzung in „Master-Session“",
+            "Auftrag: C-5 · Umsetzung in „Master-Session“",
             13,
         ),
         content,
@@ -2108,7 +2129,7 @@ fn wakes(database: &Database) -> Result<bool, String> {
             { "stage": "Review", "id": "review", "after": ["build"] },
         ] }]))?,
     )?;
-    let build = id_of(&plan_view(database, &implementation)?, "build");
+    let build = id_of(&plan_view(database, &implementation)?, "1-1");
     let report = StoredReport {
         result: "PR offen".to_owned(),
         note: "Alles gebaut".to_owned(),
@@ -2124,7 +2145,7 @@ fn wakes(database: &Database) -> Result<bool, String> {
         database,
         &implementation,
         &HashMap::new(),
-        &[("build", SessionStatus::Running)],
+        &[("1-1", SessionStatus::Running)],
     )?;
     let ended = master::turn_ended(SessionStatus::Completed, false);
     let refusal = master::accept_refusal(
@@ -2135,7 +2156,7 @@ fn wakes(database: &Database) -> Result<bool, String> {
     );
     all &= check(
         "Master: Annehmen vor dem Zugende abgelehnt, der Satz sagt, dass der Verwalter erneut weckt",
-        station(&running, "build").is_some_and(|station| station.state == StationState::Reported)
+        station(&running, "1-1").is_some_and(|station| station.state == StationState::Reported)
             && refusal.is_some_and(|text| text.contains("weckt dich erneut"))
             && ended
             && master::accept_refusal(Decider::Master, true, ended, 0).is_none(),
@@ -2146,7 +2167,7 @@ fn wakes(database: &Database) -> Result<bool, String> {
             .with(|connection| implementations::load(connection, &implementation))
             .map_err(|error| error.to_string())?
             .and_then(|stored| stored.stations.into_iter().find(|row| row.id == build))
-            .ok_or("keine Station build")?;
+            .ok_or("keine Station 1-1")?;
         let refused =
             master::return_refusal(Decider::Master, true, row.returns, "Test fehlt").is_some();
         stages.push(refused);
@@ -2171,12 +2192,12 @@ fn wakes(database: &Database) -> Result<bool, String> {
         database,
         &implementation,
         &HashMap::new(),
-        &[("build", SessionStatus::Completed)],
+        &[("1-1", SessionStatus::Completed)],
     )?;
     all &= check(
         "Master: Zurückgeben bis zur Grenze, die vierte Rückgabe abgelehnt, die Station wartet auf dich",
         stages == [false, false, false, true]
-            && station(&exhausted, "build").is_some_and(|station| {
+            && station(&exhausted, "1-1").is_some_and(|station| {
                 (station.state, station.returns, station.returns_left)
                     == (StationState::WaitsForYou, 3, 0)
             })
@@ -2192,7 +2213,7 @@ fn wakes(database: &Database) -> Result<bool, String> {
         database,
         &implementation,
         &HashMap::new(),
-        &[("build", SessionStatus::Completed)],
+        &[("1-1", SessionStatus::Completed)],
     )?;
     let message = wake::new_master_message(
         &changed.name,
@@ -2202,7 +2223,7 @@ fn wakes(database: &Database) -> Result<bool, String> {
         "Master wechseln: Nachricht mit Umsetzung und offener Meldung, Station und anderes Vorhaben abgelehnt, Pause ist kein Ausfall",
         changed.master_session_id.as_deref() == Some("neu")
             && message.contains("Probe")
-            && message.contains("Lane 1 · Umsetzung")
+            && message.contains("1-1 · Umsetzung")
             && message.contains("PR offen")
             && master::set_master_refusal("probe", "probe", true).is_some()
             && master::set_master_refusal("other", "probe", false).is_some()
@@ -2278,18 +2299,18 @@ fn command_station(database: &Database) -> Result<bool, String> {
     let view = plan_view(database, &id)?;
     all &= check(
         "Befehls-Station: Art Befehl, bereit (▶), kein Countdown, Nachfolger wartet",
-        station(&view, "merge").is_some_and(|station: &StationView| {
+        station(&view, "1-1").is_some_and(|station: &StationView| {
             station.kind == verwalter_lib::implementation::model::StationKind::Command
                 && station.state == StationState::Ready
                 && station.resolved.as_deref() == Some(&["git --version".to_owned()][..])
-        }) && station(&view, "next")
+        }) && station(&view, "1-2")
             .is_some_and(|station: &StationView| station.state == StationState::Pending)
             && due(&view).is_empty(),
     );
     let rows = rows_of(database, &id)?;
     let row = rows
         .iter()
-        .find(|row: &&StationRow| row.plan_id == "merge")
+        .find(|row: &&StationRow| row.plan_id == "1-1")
         .ok_or("Station merge fehlt")?;
     let folder = env::temp_dir();
     let env_lookup = |name: &str| env::var(name).ok();
@@ -2334,12 +2355,12 @@ fn command_station(database: &Database) -> Result<bool, String> {
     all &= check(
         "Befehls-Station: wird fertig ohne Meldung, und ihr Nachfolger startet",
         accepted
-            && station(&after, "merge").is_some_and(|station: &StationView| {
+            && station(&after, "1-1").is_some_and(|station: &StationView| {
                 station.state == StationState::Done
                     && station.report.is_none()
                     && station.step.is_none()
             })
-            && due(&after) == ["next"],
+            && due(&after) == ["1-2"],
     );
     Ok(all)
 }

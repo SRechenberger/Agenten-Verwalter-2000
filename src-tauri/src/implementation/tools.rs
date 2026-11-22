@@ -15,8 +15,9 @@ use super::model::{
     Handoff, ImplementationChangedEvent, ImplementationView, MAX_BRIEF_CHARS,
     MAX_CANCEL_REASON_CHARS, MAX_DESCRIPTION_CHARS, MAX_NAME_CHARS, MAX_NOTE_CHARS,
     MAX_PLAN_ID_CHARS, MAX_PROMPT_CHARS, MAX_RETURN_CHARS, MAX_RETURNS, MAX_SOURCE_CHARS,
-    MAX_TITLE_CHARS, PhaseInput, PlanEdit, StationAddition, StationPatch, StoredReport,
-    check_length, refuse_max_parallel, refuse_user_options, stations_in, validate,
+    MAX_TITLE_CHARS, PhaseInput, PhaseView, PlanEdit, StationAddition, StationPatch, StationView,
+    StoredReport, check_length, refuse_max_parallel, refuse_user_options, station_label,
+    stations_in, validate,
 };
 use super::{
     IMPLEMENTATION_CHANGED_EVENT, REPORTED_ANSWER, accept_station, changes, edit, release_station,
@@ -111,7 +112,8 @@ impl ToolSet for ImplementationTools {
                 name: SET_PHASES,
                 description: "Schlägt die vollständige Liste der kommenden Phasen vor (alle \
                               Phasen ohne gestartete Station); der Benutzer übernimmt oder \
-                              verwirft sie.",
+                              verwirft sie. Eine `id` an einer Station ist ein \
+                              Alias nur für diesen Aufruf; die Kennung `<Lane>-<n>` vergibt der Verwalter. Die Antwort nennt je neue Station Alias und Kennung.",
                 input_schema: json!({
                     "type": "object",
                     "properties": { "phases": phases_schema(false) },
@@ -133,7 +135,9 @@ impl ToolSet for ImplementationTools {
                               `wave`; eine Station ohne `after` ist eine Startstation und startet \
                               sofort, auch neben der Station davor in ihrer Lane. Typ, Modell, Denkaufwand \
                               und Zusatztext änderst du nur, wenn der Benutzer es will. Gestartete \
-                              und fertige Stationen bleiben, wie sie sind.",
+                              und fertige Stationen bleiben, wie sie sind. Eine `id` an einer neuen \
+                              Station ist ein Alias nur für diesen Aufruf; die Kennung `<Lane>-<n>` vergibt der Verwalter. Bestehende Stationen nennst du mit \
+                              ihrer Kennung, etwa „C-5“.",
                 input_schema: json!({
                     "type": "object",
                     "properties": {
@@ -154,7 +158,7 @@ impl ToolSet for ImplementationTools {
                             "items": {
                                 "type": "object",
                                 "properties": {
-                                    "id": { "type": "string", "minLength": 1, "description": "Kennung der Station" },
+                                    "id": { "type": "string", "minLength": 1, "description": "Kennung der Station, etwa „C-5“" },
                                     "stage": { "type": "string" },
                                     "brief": { "type": "string" },
                                     "after": { "type": "array", "items": { "type": "string" } },
@@ -171,7 +175,7 @@ impl ToolSet for ImplementationTools {
                                 "additionalProperties": false,
                             },
                         },
-                        "remove": { "type": "array", "items": { "type": "string" }, "description": "Kennungen der Stationen" },
+                        "remove": { "type": "array", "items": { "type": "string" }, "description": "Kennungen der Stationen, etwa „C-5“" },
                     },
                     "additionalProperties": false,
                 }),
@@ -252,7 +256,7 @@ impl ToolSet for ImplementationTools {
                 input_schema: json!({
                     "type": "object",
                     "properties": {
-                        "station_id": { "type": "string", "minLength": 1, "description": "Kennung der Station (`id` im Lagebericht)" },
+                        "station_id": { "type": "string", "minLength": 1, "description": "Kennung der Station, etwa „C-5“, oder ihre `id`" },
                         "answer": { "type": "string", "enum": ["accept", "return", "release"] },
                         "subject": { "type": "string", "minLength": 1, "maxLength": MAX_SUBJECT_CHARS, "description": "Nur bei `return`, Pflicht: Betreff in einer Zeile, worum es geht" },
                         "message": { "type": "string", "minLength": 1, "maxLength": MAX_RETURN_CHARS, "description": "Nur bei `return`, Pflicht: was die Station ändern oder nachholen soll" },
@@ -355,14 +359,15 @@ const CREATE_DESCRIPTION: &str = "Legt nach der Freigabe eines Plans die Umsetzu
      Vorhaben an: Lanes (`phases`, gleichwertig `lanes`) in Plan-Reihenfolge, je Lane Stationen (z. B. \
      Test, Umsetzung, Review), die der Verwalter als frische Sessions startet, sobald der Benutzer die \
      Umsetzung gestartet hat (mit „Umsetzung starten“ oder ▶ an einer Station). Die Reihenfolge kommt aus \
-     Kanten: Eine Station hat eine Kennung `id` (ohne Angabe `<Lane-Schlüssel>-<Nummer>`, die Nummer \
-     1-basiert in der Lane) und nennt in `after` die Kennungen der Stationen, auf die sie wartet; ohne \
+     Kanten: Eine Station kann einen Alias `id` tragen (ohne Angabe gilt im Aufruf \
+     `<Lane-Schlüssel>-<Nummer>`, die Nummer 1-basiert in der Lane) und nennt in `after` die Aliasse der \
+     Stationen, auf die sie wartet. Alias nur für diesen Aufruf; die Kennung `<Lane>-<n>` vergibt der Verwalter. Ohne \
      `after` ist sie eine Startstation und darf sofort und parallel zu anderen starten. Unter bereiten \
      Stationen startet höhere `priority` zuerst; wie viele Agenten gleichzeitig laufen, begrenzt der \
      Benutzer app-weit. Nennt keine Station `after`, gilt das alte Schema: Stationen einer Lane nacheinander, \
      aufeinanderfolgende Lanes mit derselben `wave` gleichzeitig, sonst eine nach der anderen. Zyklen, \
      unbekannte Kennungen und Selbstverweise lehnt der Verwalter mit einem Satz ab, der die Stationen \
-     nennt. Liefert den Lagebericht samt Startstationen.";
+     nennt. Liefert die vergebenen Kennungen und den Lagebericht samt Startstationen.";
 
 /// `is_delta`: die neuen Lanes von `implementation_edit`. Dort gilt nur das Kanten-Schema (ADR 061): Es gibt
 /// keine `wave`, und eine Station ohne `after` startet sofort, auch neben der Station davor.
@@ -372,7 +377,7 @@ fn phases_schema(is_delta: bool) -> Value {
     if is_delta {
         lane.as_object_mut().expect("Objekt").remove("wave");
         lane["stations"]["items"]["properties"]["after"]["description"] = json!(
-            "Kennungen der Stationen, auf die diese wartet; ohne das Feld ist sie eine Startstation und startet sofort, auch neben der Station davor in ihrer Lane: nenne die davor, wenn sie warten soll"
+            "Kennungen bestehender Stationen oder Aliasse aus diesem Aufruf, auf die diese wartet; ohne das Feld ist sie eine Startstation und startet sofort, auch neben der Station davor in ihrer Lane: nenne die davor, wenn sie warten soll. Alias nur für diesen Aufruf; die Kennung `<Lane>-<n>` vergibt der Verwalter."
         );
     }
     schema
@@ -405,8 +410,8 @@ fn phases_schema_with_wave() -> Value {
                             "cwd": { "type": "string", "description": "Nur bei by \"command\": absoluter Ordner (Ordner des Vorhabens, ein Repository oder <repo>-wt-*); ohne Angabe der Ordner des Vorhabens" },
                             "skill": { "type": "string", "minLength": 1, "maxLength": 40, "description": "Skill ohne \"/\", mit dem die Session beginnt; abweichend vom ersten Skill des Typs" },
                             "brief": { "type": "string", "maxLength": 1000, "description": "Auftrag an die Session" },
-                            "id": { "type": "string", "minLength": 1, "maxLength": MAX_PLAN_ID_CHARS, "description": "Kennung der Station, im Plan eindeutig; ohne Angabe <Lane-Schlüssel>-<Nummer>" },
-                            "after": { "type": "array", "items": { "type": "string" }, "description": "Kennungen der Stationen, auf die diese wartet; leer oder ohne das Feld: Startstation" },
+                            "id": { "type": "string", "minLength": 1, "maxLength": MAX_PLAN_ID_CHARS, "description": "Alias nur für diesen Aufruf; die Kennung `<Lane>-<n>` vergibt der Verwalter. Im Aufruf eindeutig und keiner Kennung im Plan gleich; ohne Angabe gilt im Aufruf <Lane-Schlüssel>-<Nummer>" },
+                            "after": { "type": "array", "items": { "type": "string" }, "description": "Kennungen bestehender Stationen oder Aliasse aus diesem Aufruf, auf die diese wartet; leer oder ohne das Feld: Startstation. Alias nur für diesen Aufruf; die Kennung `<Lane>-<n>` vergibt der Verwalter." },
                             "priority": { "type": "integer", "description": "Vorrang unter bereiten Stationen, höher zuerst; Standard 0" },
                         },
                         "required": ["stage"],
@@ -526,7 +531,45 @@ fn create(call: &ToolCall, registry: &SessionRegistry) -> Result<ToolResult, Str
     announce(call, &view);
     // Die Startstationen stehen bereit: wann die Umsetzung beginnt, entscheidet der Benutzer
     // („Umsetzung starten“ oder ▶). Die Automatik, die danach die Folgestationen startet, ist an.
-    Ok(answer(registry, &view))
+    Ok(ToolResult::Ok {
+        text: format!(
+            "Kennungen: {}.\n{}",
+            created_names(&arguments.phases, &view),
+            registry.report_text(&view, false, super::now_ms())
+        ),
+        structured: serde_json::to_value(&view).ok(),
+    })
+}
+
+/// Je neue Station Alias und Kennung (ADR 061, Nachtrag 2026-11-22): `create` speichert Lanes und
+/// Stationen in der Reihenfolge der Eingabe.
+fn created_names(inputs: &[PhaseInput], view: &ImplementationView) -> String {
+    let aliases: Vec<String> = inputs
+        .iter()
+        .flat_map(|input: &PhaseInput| {
+            input
+                .stations
+                .iter()
+                .enumerate()
+                .map(|(index, station)| station.plan_id(&input.key, index + 1))
+        })
+        .collect();
+    super::assigned_text(
+        aliases
+            .iter()
+            .zip(
+                view.phases
+                    .iter()
+                    .flat_map(|phase: &PhaseView| phase.stations.iter()),
+            )
+            .map(|(alias, station): (&String, &StationView)| {
+                (
+                    alias.as_str(),
+                    station.plan_id.as_str(),
+                    station.stage.as_str(),
+                )
+            }),
+    )
 }
 
 fn get(call: &ToolCall, registry: &SessionRegistry) -> Result<ToolResult, String> {
@@ -687,10 +730,9 @@ fn review_station(call: &ToolCall, registry: &SessionRegistry) -> Result<ToolRes
     if !master::is_master(view.master_session_id.as_deref(), call.session_id) {
         return Err(master::ONLY_THE_MASTER.to_owned());
     }
-    let station_id = arguments.station_id.trim();
-    let (phase, station) =
-        super::station_in(&view, station_id).map_err(|error| error.to_string())?;
-    let label = format!("Lane {} · {}", phase.key, station.stage);
+    let (_, station) = super::station_by_reference(&view, &arguments.station_id)?;
+    let station_id = station.id.as_str();
+    let label = station_label(&station.plan_id, &station.stage);
     let text = match arguments.answer.as_str() {
         "accept" => accept_station(call.app, &view.id, station_id, Decider::Master)
             .map_err(|error| error.to_string())?

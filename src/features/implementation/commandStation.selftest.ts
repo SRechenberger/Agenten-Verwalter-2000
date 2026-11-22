@@ -8,6 +8,7 @@ import {
   programNameProblem,
   shortStep,
   stageText,
+  stationDisplay,
   stepPrograms,
   stepProgress,
   stepsSummary,
@@ -65,6 +66,19 @@ const cases: [string, boolean][] = [
   ],
   ['Stufe eines Agenten bleibt', stageText({ kind: 'agent', stage: 'Review' }) === 'Review'],
   ['Stufe „durch dich“ bleibt', stageText({ kind: 'user', stage: 'Abnahme' }) === 'Abnahme'],
+  [
+    'Station heißt Kennung · Stufe',
+    stationDisplay({ kind: 'agent', planId: 'C-5', stage: 'Review' }) === 'C-5 · Review',
+  ],
+  [
+    'Station einer älteren Umsetzung mit ihrer gespeicherten Kennung',
+    stationDisplay({ kind: 'agent', planId: 'a-umsetzung', stage: 'Umsetzung' }) ===
+      'a-umsetzung · Umsetzung',
+  ],
+  [
+    'Befehls-Station mit Kennung und Marke',
+    stationDisplay({ kind: 'command', planId: 'C-9', stage: 'Merge' }) === 'C-9 · Merge · Befehl',
+  ],
   ['kurzer Schritt bleibt ganz', shortStep('gh pr view 5') === 'gh pr view 5'],
   [
     'Platzhalter bleiben im kurzen Schritt',

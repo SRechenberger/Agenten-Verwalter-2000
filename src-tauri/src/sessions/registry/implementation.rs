@@ -32,7 +32,7 @@ use crate::implementation::master::{self, MasterRef};
 use crate::implementation::model::{
     BriefChange, ImplementationView, InquiryCreated, PendingCancel, PendingChange, PhaseInput,
     PhaseView, StationInput, StationOptions, StationPatch, StationSettings, StoredReport,
-    check_agents, stations_in,
+    check_agents, station_label, stations_in,
 };
 use crate::implementation::report::{self, Extras};
 use crate::implementation::wake::{self, WakeEvent, WakeFacts};
@@ -814,13 +814,12 @@ impl SessionRegistry {
     /// geleert. Eine arbeitende Station sperrt, dann ändert sich nichts.
     pub fn delete_implementation(&self, app: &AppHandle, id: &str) -> Result<(), CommandError> {
         let view = self.implementation_view(id)?;
-        if let Some((key, stage)) =
-            implementation_changes::working_station(&view, |station_id: &str| {
-                self.is_busy(&view, station_id)
-            })
-        {
+        if let Some((_, station)) = implementation_changes::working(&view, |station_id: &str| {
+            self.is_busy(&view, station_id)
+        }) {
             return Err(CommandError::Implementation(format!(
-                "Station „{stage}“ in Lane {key} läuft noch. Erst stoppen oder abwarten, dann löschen."
+                "Station „{}“ läuft noch. Erst stoppen oder abwarten, dann löschen.",
+                station_label(&station.plan_id, &station.stage)
             )));
         }
         if !implementation_changes::may_delete(&view) {

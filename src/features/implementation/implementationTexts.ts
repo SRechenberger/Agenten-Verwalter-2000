@@ -1,4 +1,4 @@
-import { isStartFailure, stageText } from '@/features/implementation/commandStation';
+import { isStartFailure, stationDisplay } from '@/features/implementation/commandStation';
 import type { StationRef } from '@/features/implementation/implementationOrder';
 import { clockText, liveText } from '@/features/implementation/stationLive';
 import { stationLabel as stateNameOf } from '@/features/implementation/stationState';
@@ -158,8 +158,8 @@ export function cancelledText(at: number): string {
 }
 
 /** Warum „Löschen…“ gesperrt ist, solange eine Station arbeitet (wie im Core, ADR 066). */
-export function deleteBlockedText(laneKey: string, stage: string): string {
-  return `Station „${stage}“ in Lane ${laneKey} läuft noch. Erst stoppen oder abwarten, dann löschen.`;
+export function deleteBlockedText(station: StationView): string {
+  return `Station „${stationDisplay(station)}“ läuft noch. Erst stoppen oder abwarten, dann löschen.`;
 }
 
 export const CANCEL_REQUEST_TITLE = 'Umsetzung abbrechen?';
@@ -303,15 +303,9 @@ export function durationText(milliseconds: number): string {
   return rest === 0 ? `${hours} h` : `${hours} h ${String(rest)} min`;
 }
 
-/** „Review #7“; solange die Station keine Session hat, nur die Stufe. */
-export function stationLabel(station: StationView): string {
-  const number: number | null = station.sessionNumber;
-  return number === null ? stageText(station) : `${stageText(station)} #${String(number)}`;
-}
-
 export const TRAIL_BACK_TITLE = 'Zurück zur Umsetzung';
 
-/** „Vorige aktive Station: Review #7 · läuft“ am ‹ bzw. › der Rückweg-Leiste; ohne Ziel „Keine vorige aktive Station“. */
+/** „Vorige aktive Station: C-5 · Review · läuft“ am ‹ bzw. › der Rückweg-Leiste; ohne Ziel „Keine vorige aktive Station“. */
 export function trailTargetTitle(
   direction: 'previous' | 'next',
   target: StationRef | undefined,
@@ -321,7 +315,7 @@ export function trailTargetTitle(
     return `Keine ${noun} aktive Station`;
   }
   const lead: string = direction === 'previous' ? 'Vorige' : 'Nächste';
-  return `${lead} aktive Station: ${stationLabel(target.station)} · ${stateNameOf(target.station)}`;
+  return `${lead} aktive Station: ${stationDisplay(target.station)} · ${stateNameOf(target.station)}`;
 }
 
 /** Zustand der Station als Satz für die große Karte („läuft seit 12 min“, „fertig · 24 min“). */
@@ -427,12 +421,6 @@ export function shortModel(model: ModelId): string {
 /** „hoch“ für die Zeile. */
 export function shortEffort(effort: Effort): string {
   return effortLabel(effort).toLowerCase();
-}
-
-/** „Lane 2 · Review Core #6“; ohne Session ohne Nummer. */
-export function rowTitle(laneKey: string, station: StationView): string {
-  const number: string = station.sessionNumber === null ? '' : ` #${String(station.sessionNumber)}`;
-  return `Lane ${laneKey} · ${stageText(station)}${number}`;
 }
 
 /** „Modell: Opus 5.5 (Typ) · Denkaufwand: hoch (Station)“, nach dem Start mit „– Werte der Session“. */
@@ -801,7 +789,7 @@ export function proposalLead(sessionNumber: number): string {
   return `Session #${String(sessionNumber)} schlägt vor:`;
 }
 
-/** „Neue Station Doku in Lane 4“. */
+/** Eine neue Station eines Vorschlags, noch ohne Kennung: „Doku · Lane 4“. */
 export function proposedStationHead(stage: string, lane: string): string {
   return `${stage} · Lane ${lane}`;
 }

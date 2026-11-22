@@ -5,6 +5,7 @@
 //! `registry/implementation.rs`.
 use std::collections::HashSet;
 
+use super::model::station_label;
 use crate::agents::event::SessionRef;
 
 /// Der Wortlaut ist an Haiku gemessen (ADR 070); eine Änderung braucht eine neue Messung. Er nennt die
@@ -126,6 +127,7 @@ impl WakeEvent {
 #[derive(Debug, Clone)]
 pub struct WakeFacts {
     pub implementation: String,
+    /// Die Kennung der Station (ADR 061, Nachtrag 2026-11-22), nicht mehr der Lane-Schlüssel.
     pub lane: String,
     pub stage: String,
     pub text: String,
@@ -263,8 +265,8 @@ pub fn events_after_marking(station_id: &str, is_finished: bool) -> Vec<WakeEven
     events
 }
 
-/// Die Nachricht an einen neuen Master (ADR 070, D11): die Umsetzung und ihre offenen Meldungen (Lane,
-/// Stufe, Betreff). Keine Ereignisse: Der Benutzer hat ihn bestimmt, nichts ist neu geschehen.
+/// Die Nachricht an einen neuen Master (ADR 070, D11): die Umsetzung und ihre offenen Meldungen (`id`,
+/// Kennung, Stufe, Betreff). Keine Ereignisse: Der Benutzer hat ihn bestimmt, nichts ist neu geschehen.
 pub fn new_master_message(
     implementation: &str,
     reports: &[(String, String, String, String)],
@@ -275,9 +277,10 @@ pub fn new_master_message(
         let lines: Vec<String> = reports
             .iter()
             .map(
-                |(id, lane, stage, subject): &(String, String, String, String)| {
+                |(id, plan_id, stage, subject): &(String, String, String, String)| {
                     format!(
-                        "Lane {lane} · {stage} (station_id: {id}): „{}“",
+                        "{} (station_id: {id}): „{}“",
+                        station_label(plan_id, stage),
                         shorten(subject)
                     )
                 },
@@ -320,12 +323,8 @@ pub fn note_fragment(note: &str) -> String {
 }
 
 fn message(event: &WakeEvent, facts: &WakeFacts) -> String {
-    let WakeFacts {
-        implementation,
-        lane,
-        stage,
-        ..
-    } = facts;
+    let implementation = &facts.implementation;
+    let label = station_label(&facts.lane, &facts.stage);
     let text = shorten(&facts.text);
     let note = shorten_to(&facts.note, MAX_NOTE_CHARS);
     // Die Kennung braucht der Master für `implementation_review_station { station_id }`.
@@ -333,19 +332,19 @@ fn message(event: &WakeEvent, facts: &WakeFacts) -> String {
     match event {
         WakeEvent::Finished { .. } => format!(
             "{SOURCE}: Die Umsetzung „{implementation}“, die du leitest, ist fertig; der Benutzer \
-             hat die letzte Station angenommen. Letzte Station: Lane {lane} · {stage}. \
+             hat die letzte Station angenommen. Letzte Station: {label}. \
              Ergebnis: {text}"
         ),
         WakeEvent::MarkedDone { .. } => format!(
             "{SOURCE}: In der Umsetzung „{implementation}“, die du leitest, hat der Benutzer \
-             Lane {lane} · {stage} (station_id: {id}) als fertig markiert. Ergebnis: „{text}“. \
+             {label} (station_id: {id}) als fertig markiert. Ergebnis: „{text}“. \
              Damit gilt sie als angenommen; es gibt nichts zu entscheiden."
         ),
         WakeEvent::Reported {
             fix_needed: false, ..
         } => format!(
             "{SOURCE}: In der Umsetzung „{implementation}“, die du leitest, hat sich \
-             Lane {lane} · {stage} (station_id: {id}) gemeldet; ihr Zug ist beendet. Betreff: „{text}“ · Notiz: „{note}“. \
+             {label} (station_id: {id}) gemeldet; ihr Zug ist beendet. Betreff: „{text}“ · Notiz: „{note}“. \
              Du kannst die Meldung mit dem Werkzeug implementation_review_station annehmen oder \
              zurückgeben."
         ),
@@ -353,13 +352,13 @@ fn message(event: &WakeEvent, facts: &WakeFacts) -> String {
             fix_needed: true, ..
         } => format!(
             "{SOURCE}: In der Umsetzung „{implementation}“, die du leitest, meldet \
-             Lane {lane} · {stage} (station_id: {id}) einen Befund und braucht eine Fix-Runde; ihr Zug ist beendet. \
+             {label} (station_id: {id}) einen Befund und braucht eine Fix-Runde; ihr Zug ist beendet. \
              Betreff: „{text}“ · Notiz: „{note}“. Du kannst die Meldung mit dem Werkzeug \
              implementation_review_station annehmen oder zurückgeben."
         ),
         WakeEvent::Interrupted { session, .. } => format!(
             "{SOURCE}: In der Umsetzung „{implementation}“, die du leitest, ist der Zug von \
-             Lane {lane} · {stage} (station_id: {id}, {session}) unterbrochen (Neustart der App oder Pause); \
+             {label} (station_id: {id}, {session}) unterbrochen (Neustart der App oder Pause); \
              die Station hatte sich gemeldet, Betreff: „{text}“. Sie setzt mit der nächsten Nachricht \
              fort, und angenommen werden kann sie erst nach ihrem Zugende. Du kannst ihr mit \
              verwalter_send_message_to schreiben (das zählt keine Rückgabe) oder sie mit dem Werkzeug \
@@ -367,20 +366,20 @@ fn message(event: &WakeEvent, facts: &WakeFacts) -> String {
         ),
         WakeEvent::Unreported { .. } => format!(
             "{SOURCE}: In der Umsetzung „{implementation}“, die du leitest, hat \
-             Lane {lane} · {stage} (station_id: {id}) ihren Zug beendet, ohne sich zu melden. Schluss ihrer \
+             {label} (station_id: {id}) ihren Zug beendet, ohne sich zu melden. Schluss ihrer \
              Antwort: „{text}“"
         ),
         WakeEvent::Failed { stopped: false, .. } => format!(
             "{SOURCE}: In der Umsetzung „{implementation}“, die du leitest, endet der Zug von \
-             Lane {lane} · {stage} (station_id: {id}) mit einem Fehler."
+             {label} (station_id: {id}) mit einem Fehler."
         ),
         WakeEvent::Failed { stopped: true, .. } => format!(
             "{SOURCE}: In der Umsetzung „{implementation}“, die du leitest, ist der Zug von \
-             Lane {lane} · {stage} (station_id: {id}) gestoppt worden."
+             {label} (station_id: {id}) gestoppt worden."
         ),
         WakeEvent::Asking { .. } => format!(
             "{SOURCE}: In der Umsetzung „{implementation}“, die du leitest, fragt \
-             Lane {lane} · {stage} den Benutzer und wartet auf die Antwort. Frage: {text}"
+             {label} den Benutzer und wartet auf die Antwort. Frage: {text}"
         ),
     }
 }
@@ -557,7 +556,7 @@ mod tests {
             assert!(text.starts_with("Meldung des Verwalters:"), "{text}");
             for part in [
                 "Constraint-Abläufe",
-                "Lane 76.3",
+                "76.3 · Review",
                 "Review",
                 "die du leitest",
             ] {
@@ -865,7 +864,7 @@ mod tests {
         assert_eq!(
             text,
             "Meldung des Verwalters: In der Umsetzung „Constraint-Abläufe“, die du leitest, hat der Benutzer \
-             Lane 76.3 · Review (station_id: s1) als fertig markiert. Ergebnis: „vom Benutzer als fertig markiert“. \
+             76.3 · Review (station_id: s1) als fertig markiert. Ergebnis: „vom Benutzer als fertig markiert“. \
              Damit gilt sie als angenommen; es gibt nichts zu entscheiden."
         );
         assert!(
@@ -899,7 +898,7 @@ mod tests {
         assert!(with.starts_with("Meldung des Verwalters:"), "{with}");
         for part in [
             "Master-Session",
-            "Lane 99.1 · Umsetzung",
+            "99.1 · Umsetzung",
             "station_id: st-7",
             "PR offen",
         ] {

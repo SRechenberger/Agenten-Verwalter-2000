@@ -4,7 +4,9 @@ use std::fs;
 use chrono::{DateTime, Local, TimeZone};
 
 use super::changes::describe;
-use super::model::{ChangeView, ImplementationView, PhaseView, StationState, StationView};
+use super::model::{
+    ChangeView, ImplementationView, PhaseView, StationState, StationView, station_label,
+};
 use crate::file_links::{self, LinkRoots};
 
 const INQUIRY_LINE: &str =
@@ -13,7 +15,8 @@ const INQUIRY_LINE: &str =
 const NOT_BEGUN: &str = "nichts läuft; die Stationen startet der Verwalter, sobald der Benutzer die \
      Umsetzung gestartet hat (mit „Umsetzung starten“ oder ▶ an einer Station)";
 const INDENT: &str = "  ";
-const SEPARATOR: &str = " · ";
+// Nicht „ · “: Das steht schon in der Anzeige einer Station („C-5 · Review“).
+const SEPARATOR: &str = "; ";
 const GOAL_FILE: &str = "README.md";
 const MAX_GOAL_CHARS: usize = 300;
 const PLAN_CHANGED: &str = "Plan geändert";
@@ -215,7 +218,7 @@ fn change_lines(view: &ImplementationView) -> Vec<String> {
     entries
 }
 
-/// Je Station: Kennung, Lane, Stufe, Zustand (mit Platz in der Warteschlange), Vorgänger und Nachfolger
+/// Je Station: Anzeige („C-5 · Review“), Lane, Stufe im Ablauf, Zustand (mit Platz in der Warteschlange), Vorgänger und Nachfolger
 /// als Kennungen (ADR 061).
 fn plan_lines(view: &ImplementationView) -> Vec<String> {
     let plan_id_of = |id: &String| -> Option<&str> {
@@ -232,10 +235,9 @@ fn plan_lines(view: &ImplementationView) -> Vec<String> {
                 None => state_label(station.state).to_owned(),
             };
             format!(
-                "{} — Lane {} · {} · Stufe {} · {state} · wartet auf: {} · danach: {}",
-                station.plan_id,
+                "{} — Lane {} · Stufe {} · {state} · wartet auf: {} · danach: {}",
+                station_label(&station.plan_id, &station.stage),
                 phase.key,
-                station.stage,
                 station.level,
                 list_or_none(&after),
                 list_or_none(&next)
@@ -283,7 +285,7 @@ fn push_section(lines: &mut Vec<String>, title: &str, entries: Vec<String>, empt
 /// Stationen mit Session, die noch nicht angenommen sind.
 fn now_lines(view: &ImplementationView) -> Vec<String> {
     let mut entries: Vec<String> = Vec::new();
-    for (phase, station) in stations(view) {
+    for (_, station) in stations(view) {
         let label = match station.state {
             StationState::Starting | StationState::Running => "läuft",
             StationState::WaitsForScript => "wartet auf einen Hintergrund-Befehl",
@@ -295,9 +297,8 @@ fn now_lines(view: &ImplementationView) -> Vec<String> {
             _ => continue,
         };
         entries.push(format!(
-            "Lane {} · {}{} {label}",
-            phase.key,
-            station.stage,
+            "{}{} {label}",
+            station_label(&station.plan_id, &station.stage),
             number_in_brackets(station)
         ));
         if let Some(question) = &station.question {
@@ -310,18 +311,21 @@ fn now_lines(view: &ImplementationView) -> Vec<String> {
 fn done_lines(view: &ImplementationView) -> Vec<String> {
     stations(view)
         .filter(|(_, station): &(&PhaseView, &StationView)| station.state == StationState::Done)
-        .map(|(phase, station): (&PhaseView, &StationView)| {
+        .map(|(_, station): (&PhaseView, &StationView)| {
             let number = station
                 .session_number
                 .map(|number: u32| format!(" #{number}"))
                 .unwrap_or_default();
             let result = station.result.as_deref().unwrap_or("ohne Ergebnis");
-            format!("Lane {} · {}{number} — {result}", phase.key, station.stage)
+            format!(
+                "{}{number} — {result}",
+                station_label(&station.plan_id, &station.stage)
+            )
         })
         .collect()
 }
 
-/// Kommende Stationen gruppiert: „Lane 2 Review · Lane 3–5 · Abschluss“. Ganz offene Lanes mit
+/// Kommende Stationen gruppiert: „2-3 · Review; Lane 3–5; Abschluss“. Ganz offene Lanes mit
 /// Nummer in Folge werden zusammengezogen, teils offene nennen ihre offenen Stationen.
 pub fn open_summary(view: &ImplementationView) -> String {
     let mut parts: Vec<String> = Vec::new();
@@ -343,11 +347,11 @@ pub fn open_summary(view: &ImplementationView) -> String {
             continue;
         }
         if !open.is_empty() {
-            let stages: Vec<&str> = open
+            let labels: Vec<String> = open
                 .iter()
-                .map(|station: &&StationView| station.stage.as_str())
+                .map(|station: &&StationView| station_label(&station.plan_id, &station.stage))
                 .collect();
-            parts.push(format!("{} {}", phase_label(&phase.key), stages.join(", ")));
+            parts.push(labels.join(", "));
         }
     }
     flush_run(&mut parts, &mut run);

@@ -87,7 +87,7 @@ export const QUEUE_LIST_LABEL = 'Warteschlange';
 export const QUEUE_ORDER_NOTE =
   'Reihenfolge: Stufe des Vorhabens, dann Priorität der Station, dann wer früher wartet. Eine Nachricht an den Master einer Umsetzung steht vor den Wartenden ihres Vorhabens.';
 
-/** Spalte „Was“: „Station · Lane 1 · Umsetzung“. */
+/** Spalte „Was“: „Station · Umsetzung · C-5 · Review“. */
 export function entryWhat(entry: QueueEntry): string {
   return `${KIND_LABEL[entry.kind]} · ${entry.title}`;
 }

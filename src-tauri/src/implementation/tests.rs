@@ -982,7 +982,7 @@ fn first_message_has_the_station_skill_on_line_one_and_the_type_skills_as_instru
         [
             "/vault:role-code-reviewer",
             "Lade außerdem diese Skills: review-checkliste, rust-fallen.",
-            "Station: Phase 1 „Phase“ · Review",
+            "Station:  · Review in Lane 1 „Phase“",
         ]
     );
     // Steht der Skill der Station auch am Typ, nennt die Anweisung ihn nicht noch einmal.
@@ -1007,13 +1007,13 @@ fn type_skill_becomes_line_one_when_the_station_has_none() {
         [
             "/review-checkliste",
             "Lade außerdem diese Skills: rust-fallen.",
-            "Station: Phase 1 „Phase“ · Review",
+            "Station:  · Review in Lane 1 „Phase“",
         ]
     );
     let single = first_message_with(None, &["review-checkliste"]);
     assert_eq!(
         first_lines(&single, 2),
-        ["/review-checkliste", "Station: Phase 1 „Phase“ · Review"]
+        ["/review-checkliste", "Station:  · Review in Lane 1 „Phase“"]
     );
 }
 
@@ -1022,12 +1022,12 @@ fn first_message_without_type_skills_is_unchanged() {
     let with_skill = first_message_with(Some("implement"), &[]);
     assert_eq!(
         first_lines(&with_skill, 2),
-        ["/implement", "Station: Phase 1 „Phase“ · Review"]
+        ["/implement", "Station:  · Review in Lane 1 „Phase“"]
     );
     let without = first_message_with(None, &[]);
     assert_eq!(
         first_lines(&without, 1),
-        ["Station: Phase 1 „Phase“ · Review"]
+        ["Station:  · Review in Lane 1 „Phase“"]
     );
     assert!(!with_skill.contains("Lade außerdem") && !without.contains("Lade außerdem"));
 }
@@ -2199,11 +2199,7 @@ fn in_a_plan_with_after_a_station_without_after_is_a_start_station() {
     .expect("gültiger Plan");
     assert_eq!(
         edges(&stations),
-        [
-            edge("test", &[]),
-            edge("build", &["test"]),
-            edge("2-1", &[])
-        ]
+        [edge("1-1", &[]), edge("1-2", &["1-1"]), edge("2-1", &[])]
     );
     assert_eq!(stations[1].priority, 2);
 }
@@ -2499,14 +2495,14 @@ fn fix_round_hangs_behind_the_review_and_its_successors_wait_for_the_second_revi
     let second = &followups[1];
     assert_eq!(
         (fix.plan_id.as_str(), &fix.after),
-        ("1-5", &vec!["review".to_owned()])
+        ("1-1", &vec!["review".to_owned()])
     );
     assert_eq!(
         (second.plan_id.as_str(), &second.after),
-        ("1-6", &vec!["1-5".to_owned()])
+        ("1-2", &vec!["1-1".to_owned()])
     );
-    assert_eq!(after_of("pr"), ["1-6"]);
-    assert_eq!(after_of("docs"), ["1-6", "build"]);
+    assert_eq!(after_of("pr"), ["1-2"]);
+    assert_eq!(after_of("docs"), ["1-2", "build"]);
     assert_eq!(after_of("build"), Vec::<String>::new());
 }
 
@@ -2520,7 +2516,7 @@ fn first_message_names_only_the_results_of_its_predecessors() {
     let phase = &view.phases[0];
     let message = start::first_message(&view, phase, shown(&view, "c"), &[], None);
     assert!(
-        message.contains("Vorgänger:\n- Phase 1 · Umsetzung: Ergebnis b"),
+        message.contains("Vorgänger:\n- b · Umsetzung: Ergebnis b"),
         "{message}"
     );
     assert!(!message.contains("Ergebnis a"), "{message}");
@@ -3881,9 +3877,9 @@ fn report_names_lanes_start_stations_limit_and_edges() {
         "Stand: Lane 1 von 1",
         "Warteschlange (app-weit): 1",
         "Startstationen: a",
-        "Lane 1 · Umsetzung — Ergebnis a",
-        "  a — Lane 1 · Umsetzung · Stufe 1 · fertig · wartet auf: – · danach: b, c",
-        "  c — Lane 1 · Umsetzung · Stufe 2 · Warteschlange 1 · wartet auf: a · danach: –",
+        "a · Umsetzung — Ergebnis a",
+        "  a · Umsetzung — Lane 1 · Stufe 1 · fertig · wartet auf: – · danach: b, c",
+        "  c · Umsetzung — Lane 1 · Stufe 2 · Warteschlange 1 · wartet auf: a · danach: –",
     ] {
         assert!(text.contains(expected), "{expected}\n{text}");
     }
@@ -3906,7 +3902,7 @@ fn first_message_explains_the_handoff_and_names_its_sources() {
         "{message}"
     );
     assert!(
-        message.contains("Der Auftrag enthält Übergabenotizen von: Phase 1 · Umsetzung."),
+        message.contains("Der Auftrag enthält Übergabenotizen von: a · Umsetzung."),
         "{message}"
     );
     assert!(message.contains("als Übergabenotiz mit"), "{message}");
@@ -4180,7 +4176,7 @@ fn report_names_a_station_that_resumes_automatically() {
     );
     let text = report::text(&view, 0.0, false);
     assert!(
-        text.contains("Lane 1 · Umsetzung (#1) setzt automatisch fort"),
+        text.contains("waiting · Umsetzung (#1) setzt automatisch fort"),
         "Abschnitt „Jetzt“: {text}"
     );
 }
@@ -5335,16 +5331,8 @@ fn waiting_sources_are_merged_into_one_order() {
         order,
         [
             ("resume", slots::QueueKind::Resume, 1),
-            (
-                "Umsetzung · Lane 1 · Umsetzung",
-                slots::QueueKind::Station,
-                2
-            ),
-            (
-                "Umsetzung · Lane 1 · Umsetzung",
-                slots::QueueKind::Station,
-                3
-            ),
+            ("Umsetzung · a · Umsetzung", slots::QueueKind::Station, 2),
+            ("Umsetzung · b · Umsetzung", slots::QueueKind::Station, 3),
         ]
     );
     assert_eq!((queue.limit, queue.used), (Some(1), 1));
@@ -6630,7 +6618,7 @@ fn the_accept_answer_says_accepted_and_names_the_started_successors() {
     let text = outcome.text();
     assert!(text.starts_with("Angenommen:"), "{text}");
     assert!(
-        text.contains("Als Nächstes startet: Lane 99.1 · Review."),
+        text.contains("Als Nächstes startet: 99.1 · Review."),
         "{text}"
     );
     assert!(
@@ -8404,7 +8392,7 @@ fn acceptance_names_the_stations_by_you_that_are_due_with_id_and_stage() {
         "der bisherige Text bleibt: {text}"
     );
     assert!(
-        text.contains("Lane 1 · Abnahme (id yours)") && text.contains("`release`"),
+        text.contains("yours · Abnahme (id yours)") && text.contains("`release`"),
         "{text}"
     );
     assert!(
@@ -8799,5 +8787,394 @@ fn refresh_is_not_due_without_threshold_outside_claude_or_without_a_station() {
             ..refresh_input()
         }),
         "keine Station wartet oder bekommt einen Platz"
+    );
+}
+
+// Kennungen vom Verwalter (ADR 061, Nachtrag 2026-11-22, Taiga-Story 192): `<Lane>-<n>`, nie zweimal,
+// Alias nur im Aufruf, dieselbe Anzeige „C-5 · Review“ überall, der Master nennt die Kennung.
+
+fn plan_ids_of(rows: &[StationRow]) -> Vec<&str> {
+    rows.iter()
+        .map(|row: &StationRow| row.plan_id.as_str())
+        .collect()
+}
+
+/// Eine übernommene Änderung, die diese Kennungen entfernt hat.
+fn removing(removed: &[&str]) -> ChangeView {
+    ChangeView {
+        id: "change".to_owned(),
+        at: 1.0,
+        session_id: "session".to_owned(),
+        session_number: 1,
+        summary: ChangeSummary {
+            removed: removed.iter().map(|id: &&str| (*id).to_owned()).collect(),
+            ..ChangeSummary::default()
+        },
+        after_station_id: None,
+        stations_before: 0,
+        stations_after: 0,
+    }
+}
+
+fn edited_after(
+    rows: &[StationRow],
+    changes: &[ChangeView],
+    edit: Value,
+) -> Result<edit::EditedPlan, String> {
+    let view = graph(rows.to_vec());
+    edit::edited_plan_after(
+        "implementation",
+        &view.phases,
+        rows,
+        changes,
+        &delta(edit),
+        &[],
+    )
+}
+
+#[test]
+fn create_numbers_each_lane_from_one_and_after_follows_the_alias_to_the_kennung() {
+    let stations = created(json!([
+        { "key": "A", "title": "A", "stations": [
+            { "stage": "Umsetzung", "id": "a-build", "after": [] },
+            { "stage": "Review", "after": ["a-build"] },
+        ] },
+        { "key": "B", "title": "B", "stations": [
+            { "stage": "Umsetzung", "id": "b-build", "after": ["a-build"] },
+            { "stage": "Review", "id": "b-review", "after": ["b-build", "A-2"] },
+        ] },
+    ]))
+    .expect("gültiger Plan");
+    assert_eq!(
+        edges(&stations),
+        [
+            edge("A-1", &[]),
+            edge("A-2", &["A-1"]),
+            edge("B-1", &["A-1"]),
+            edge("B-2", &["B-1", "A-2"]),
+        ]
+    );
+    let without_alias = created(json!([
+        { "key": "Q", "title": "Q", "stations": [{ "stage": "Umsetzung" }, { "stage": "Review" }] },
+    ]))
+    .expect("gültiger Plan");
+    assert_eq!(plan_ids_of(&without_alias), ["Q-1", "Q-2"]);
+}
+
+#[test]
+fn the_answer_names_alias_and_kennung_of_each_new_station() {
+    assert_eq!(
+        assigned_text(
+            [
+                ("q-umsetzung", "Q-1", "Umsetzung"),
+                ("Q-2", "Q-2", "Review"),
+            ]
+            .into_iter()
+        ),
+        "q-umsetzung → Q-1 · Umsetzung, Q-2 · Review"
+    );
+}
+
+#[test]
+fn set_phases_keeps_begun_kennungen_and_numbers_new_stations_after_every_used_number() {
+    let mut begun = in_phase(finished(node("1-1", &[])), "1");
+    begun.session_id = Some("session".to_owned());
+    let stations = vec![
+        begun,
+        in_phase(node("2-1", &["1-1"]), "2"),
+        in_phase(node("2-2", &["2-1"]), "2"),
+    ];
+    let phases = ["1", "2"]
+        .into_iter()
+        .zip(0..)
+        .map(|(key, position): (&str, u32)| PhaseRow {
+            id: format!("phase-{key}"),
+            key: key.to_owned(),
+            position,
+            ..phase_row()
+        })
+        .collect();
+    let stored = StoredImplementation {
+        row: implementation_row(),
+        phases,
+        stations,
+        changes: Vec::new(),
+    };
+    let view = build_view(
+        &stored,
+        &HashMap::new(),
+        &HashMap::new(),
+        &HashMap::new(),
+        &[],
+    );
+    let inputs = inputs(json!([
+        { "key": "2", "title": "Zwei", "stations": [
+            { "stage": "Umsetzung", "id": "neu", "after": ["1-1"] },
+            { "stage": "Review", "after": ["neu"] },
+        ] },
+        { "key": "3", "title": "Drei", "stations": [{ "stage": "Doku", "after": ["neu"] }] },
+    ]));
+    let (_, replaced, named) =
+        changes::replanned(&view, &inputs, &stored.stations).expect("gültige Änderung");
+    assert_eq!(
+        edges(&replaced),
+        [
+            edge("2-3", &["1-1"]),
+            edge("2-4", &["2-3"]),
+            edge("3-1", &["2-3"]),
+        ],
+        "die begonnene 1-1 bleibt, die ersetzten 2-1 und 2-2 kommen nicht wieder"
+    );
+    assert!(named.starts_with("neu → 2-3 · Umsetzung"), "{named}");
+}
+
+#[test]
+fn set_phases_refuses_when_a_begun_lane_waits_on_a_station_it_would_replace() {
+    let mut begun = in_phase(finished(node("1-1", &[])), "1");
+    begun.session_id = Some("session".to_owned());
+    let mut merge = node("2-1", &[]);
+    merge.stage = "Merge".to_owned();
+    let stations = vec![
+        begun,
+        in_phase(node("1-2", &["1-1", "2-1"]), "1"),
+        in_phase(merge, "2"),
+    ];
+    let phases = ["1", "2"]
+        .into_iter()
+        .zip(0..)
+        .map(|(key, position): (&str, u32)| PhaseRow {
+            id: format!("phase-{key}"),
+            key: key.to_owned(),
+            position,
+            ..phase_row()
+        })
+        .collect();
+    let stored = StoredImplementation {
+        row: implementation_row(),
+        phases,
+        stations,
+        changes: Vec::new(),
+    };
+    let view = build_view(
+        &stored,
+        &HashMap::new(),
+        &HashMap::new(),
+        &HashMap::new(),
+        &[],
+    );
+    let inputs = inputs(json!([
+        { "key": "2", "title": "Zwei", "stations": [{ "stage": "Merge", "after": [] }] },
+    ]));
+    let error = changes::replanned(&view, &inputs, &stored.stations)
+        .expect_err("die Kante 1-2 → 2-1 zeigte danach ins Leere");
+    assert!(
+        error.contains("„1-2 · Umsetzung“") && error.contains("„2-1 · Merge“"),
+        "{error}"
+    );
+    assert!(error.contains("implementation_edit"), "{error}");
+}
+
+#[test]
+fn edit_with_add_and_lanes_numbers_new_stations_and_renames_aliases_everywhere() {
+    let rows = vec![node("1-1", &[]), node("1-2", &["1-1"])];
+    let edited = edited_after(
+        &rows,
+        &[],
+        json!({
+            "add": [{ "lane": "1", "stage": "Doku", "id": "doku", "after": ["n-build"] }, { "lane": "1", "stage": "PR" }],
+            "lanes": [{ "key": "N", "title": "Neu", "stations": [
+                { "stage": "Umsetzung", "id": "n-build", "after": [] },
+                { "stage": "Review", "after": ["n-build"] },
+            ] }],
+            "change": [{ "id": "1-2", "after": ["1-1", "doku"] }],
+        }),
+    )
+    .expect("gültige Änderung");
+    assert_eq!(
+        edges(&edited.inserted),
+        [
+            edge("1-3", &["N-1"]),
+            edge("1-4", &[]),
+            edge("N-1", &[]),
+            edge("N-2", &["N-1"]),
+        ]
+    );
+    assert_eq!(after_in(&edited.updated, "1-2"), ["1-1", "1-3"]);
+    assert_eq!(
+        edited.named,
+        "doku → 1-3 · Doku, 1-4 · PR, n-build → N-1 · Umsetzung, N-2 · Review"
+    );
+    assert_eq!(edited.summary.added, ["1-3", "1-4", "N"]);
+}
+
+#[test]
+fn an_alias_equal_to_a_kennung_in_the_plan_is_refused() {
+    let rows = vec![node("1-1", &[]), node("1-2", &["1-1"])];
+    let error = edited_after(
+        &rows,
+        &[],
+        json!({ "add": [{ "lane": "1", "stage": "Doku", "id": "1-1" }] }),
+    )
+    .expect_err("abgelehnt");
+    assert!(
+        error.starts_with("add[0].id: „1-1“ ist schon die Kennung einer Station im Plan."),
+        "{error}"
+    );
+    let inputs = inputs(json!([
+        { "key": "2", "title": "Zwei", "stations": [{ "stage": "Umsetzung", "id": " 1-2 " }] },
+    ]));
+    let error =
+        model::refuse_taken_aliases(&model::stations_in("phases", &inputs), &["1-1", "1-2"])
+            .expect_err("abgelehnt");
+    assert!(
+        error.starts_with("phases[0].stations[0].id: „1-2“"),
+        "{error}"
+    );
+}
+
+#[test]
+fn a_number_removed_by_an_accepted_change_never_comes_back() {
+    let rows = vec![
+        node("1-1", &[]),
+        node("1-2", &["1-1"]),
+        node("1-3", &["1-2"]),
+    ];
+    let removed = edited_after(&rows, &[], json!({ "remove": ["1-3"] })).expect("gültig");
+    assert_eq!(removed.summary.removed, ["1-3"]);
+    let after_removal = vec![node("1-1", &[]), node("1-2", &["1-1"])];
+    let added = edited_after(
+        &after_removal,
+        &[removing(&["1-3"])],
+        json!({ "add": [{ "lane": "1", "stage": "Review" }] }),
+    )
+    .expect("gültig");
+    assert_eq!(plan_ids_of(&added.inserted), ["1-4"], "nicht wieder 1-3");
+    // Auch eine Lücke wird nicht gefüllt: die höchste Nummer plus 1, nicht die kleinste freie.
+    let with_gap = vec![node("1-1", &[]), node("1-3", &["1-1"])];
+    let added = edited_after(
+        &with_gap,
+        &[],
+        json!({ "add": [{ "lane": "1", "stage": "Review" }] }),
+    )
+    .expect("gültig");
+    assert_eq!(plan_ids_of(&added.inserted), ["1-4"]);
+}
+
+#[test]
+fn kennungen_of_another_form_do_not_count_for_the_next_number() {
+    assert_eq!(
+        schedule::next_ids(&["a", "a", "C"], &["a-umsetzung", "C-3.1", "C-2", "CX-9"]),
+        ["a-1", "a-2", "C-3"]
+    );
+}
+
+/// Eine Lane „C“ mit fünf Stationen, deren letzte (C-5, Review) gerade meldet; davor `before`.
+fn lane_c(before: Vec<StationRow>, reporting: StationRow) -> ImplementationView {
+    let mut rows = before;
+    rows.push(reporting);
+    let mut view = graph(rows);
+    view.phases[0].key = "C".to_owned();
+    view
+}
+
+#[test]
+fn fix_round_and_second_review_take_the_next_two_numbers_of_the_lane() {
+    let before: Vec<StationRow> = (1..=4)
+        .map(|number: u32| finished(node(&format!("C-{number}"), &[])))
+        .collect();
+    let mut review = node("C-5", &["C-4"]);
+    review.stage = "Review".to_owned();
+    let view = lane_c(before.clone(), review.clone());
+    let (followups, _) = plan_completion(&view, "C-5", true).expect("Fertigmeldung gültig");
+    assert_eq!(
+        followups
+            .iter()
+            .map(|row: &StationRow| station_label(&row.plan_id, &row.stage))
+            .collect::<Vec<String>>(),
+        ["C-6 · Fix-Runde", "C-7 · Review"]
+    );
+    // Die zweite Fix-Runde nimmt die nächsten Nummern.
+    let mut rows = before;
+    rows.push(finished(review));
+    let mut fix = finished(node("C-6", &["C-5"]));
+    fix.stage = "Fix-Runde".to_owned();
+    rows.push(fix);
+    let mut second = node("C-7", &["C-6"]);
+    second.stage = "Review".to_owned();
+    let view = lane_c(rows, second);
+    let (followups, _) = plan_completion(&view, "C-7", true).expect("Fertigmeldung gültig");
+    assert_eq!(plan_ids_of(&followups), ["C-8", "C-9"]);
+}
+
+#[test]
+fn the_master_names_a_station_by_kennung_or_id_and_an_unknown_one_is_refused() {
+    let mut station = node("C-5", &[]);
+    station.id = "uuid-5".to_owned();
+    let view = graph(vec![node("C-4", &[]), station]);
+    let by_kennung = station_by_reference(&view, " C-5 ").expect("Kennung");
+    let by_id = station_by_reference(&view, "uuid-5").expect("id");
+    assert_eq!(
+        (by_kennung.1.id.as_str(), by_id.1.id.as_str()),
+        ("uuid-5", "uuid-5")
+    );
+    let error = station_by_reference(&view, "C-9").expect_err("unbekannt");
+    assert!(
+        error.contains("„C-9“") && error.contains("Kennung, etwa „C-5“") && error.contains("`id`"),
+        "{error}"
+    );
+}
+
+#[test]
+fn a_station_is_shown_as_kennung_and_stage_also_with_an_old_kennung() {
+    assert_eq!(station_label("C-5", "Review"), "C-5 · Review");
+    assert_eq!(
+        station_label("a-umsetzung", "Umsetzung"),
+        "a-umsetzung · Umsetzung"
+    );
+}
+
+#[test]
+fn the_wake_text_names_kennung_and_stage_before_the_station_id_and_still_drops() {
+    let database = database_with(&[reported_row(0)]);
+    let facts = wake::WakeFacts {
+        implementation: "Umsetzung".to_owned(),
+        lane: "C-5".to_owned(),
+        stage: "Review".to_owned(),
+        text: "PR offen".to_owned(),
+        note: "Notiz".to_owned(),
+    };
+    let text = wake::decide(&reported_event("s"), &facts, true, &mut HashSet::new())
+        .expect("eine Nachricht");
+    assert!(
+        text.contains("hat sich C-5 · Review (station_id: s) gemeldet"),
+        "{text}"
+    );
+    database
+        .with(|connection| {
+            implementation_rows::set_master(connection, "implementation", "session")?;
+            session_inbox::insert(connection, "session", &wake::sender(), &text, 0, 10.0)?;
+            session_inbox::delete_wakes_of_station(connection, "s")
+        })
+        .expect("schreibbar");
+    assert!(waiting_texts(&database).is_empty());
+}
+
+#[test]
+fn a_new_master_hears_of_open_reports_by_kennung_and_stage() {
+    let mut reported = reported_row(0);
+    reported.plan_id = "C-5".to_owned();
+    let view = graph(vec![reported]);
+    let reports = open_reports(&view);
+    assert_eq!(
+        reports
+            .iter()
+            .map(|(id, plan_id, stage, _)| (id.as_str(), plan_id.as_str(), stage.as_str()))
+            .collect::<Vec<_>>(),
+        [("s", "C-5", "Umsetzung")]
+    );
+    let message = wake::new_master_message("Umsetzung", &reports);
+    assert!(
+        message.contains("C-5 · Umsetzung (station_id: s)"),
+        "{message}"
     );
 }

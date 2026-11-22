@@ -1,5 +1,6 @@
 import {
   isCommandStation,
+  stationDisplay,
   stepsSummary,
   stepsTitle,
 } from '@/features/implementation/commandStation';
@@ -8,7 +9,6 @@ import {
   changeFocusId,
   flatStations,
   isBegun,
-  stationName,
   type StationRef,
 } from '@/features/implementation/implementationOrder';
 import {
@@ -40,7 +40,6 @@ import {
   ROW_TITLE,
   rowResumeTitle,
   rowStateText,
-  rowTitle,
   shortEffort,
   shortModel,
   stageTitle,
@@ -173,7 +172,7 @@ export function Timeline({
           onFocus(target.station.id);
         }}
       >
-        {stationName(target, refs)}
+        {stationDisplay(target.station)}
         {isDone && ' ✓'}
       </button>
     );
@@ -421,7 +420,7 @@ export function Timeline({
             onOpenChat(station.id);
           }}
         >
-          <span className="timeline__name">{rowTitle(phase.key, station)}</span>
+          <span className="timeline__name">{stationDisplay(station)}</span>
           {phase.mark !== null && (
             <span className="timeline__new" title={PHASE_MARK_TITLE[phase.mark]}>
               {PHASE_MARK_LABEL[phase.mark]}

@@ -4,6 +4,7 @@ import { CardSection } from '@/features/implementation/CardSection';
 import { DoneConfirm } from '@/features/implementation/DoneConfirm';
 import { patchEdit } from '@/features/implementation/implementationGraph';
 import { isBegun, type StationRef } from '@/features/implementation/implementationOrder';
+import { stationDisplay } from '@/features/implementation/commandStation';
 import {
   BRIEF_CHANGE_BEFORE,
   BRIEF_EDIT_DROPS_CHANGES,
@@ -124,8 +125,7 @@ export function StationBriefSection({
     if (source === undefined) {
       return change.sourceStationId;
     }
-    const number: number | null = source.station.sessionNumber;
-    return number === null ? source.station.stage : `${source.station.stage} #${String(number)}`;
+    return stationDisplay(source.station);
   }
 
   function saveBrief(brief: string): void {

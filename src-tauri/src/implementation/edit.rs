@@ -8,12 +8,13 @@ use tauri::{AppHandle, Manager};
 
 use super::changes::describe;
 use super::model::{
-    ChangeSummary, ImplementationView, PendingChange, PhaseMark, PhaseView, PlanEdit, StationInput,
-    StationKind, StationPatch, StationState, StationView, check_agent, stations_in, validate_in,
-    validate_station,
+    ChangeSummary, ChangeView, ImplementationView, PendingChange, PhaseMark, PhaseView, PlanEdit,
+    StationAddition, StationInput, StationKind, StationPatch, StationState, StationView,
+    check_agent, refuse_taken_aliases, stations_in, validate_in, validate_station,
 };
 use super::{
-    announce, now_ms, phase_rows, replans_after_plan_change, schedule, start, station_row,
+    announce, assigned_text, lane_keys, now_ms, number_stations, phase_rows, rename_after,
+    replans_after_plan_change, schedule, start, station_row, used_ids,
 };
 use crate::agent_types::model::AgentType;
 use crate::db::implementations::{ChangeRow, CommandRow, PhaseRow, StationRow};
@@ -28,11 +29,12 @@ pub const BEGUN_MEANWHILE: &str =
 /// Was ein Delta an den gespeicherten Zeilen ändert. `phases` sind die neuen Lanes (Positionen ab 0,
 /// der Speicher setzt sie hinter die bestehenden), `inserted` alle neuen Stationen, `updated` die
 /// geänderten als ganze Zeile, `removed` und `removed_phases` die `id` der entfernten Stationen und der
-/// Lanes, die danach leer sind.
+/// Lanes, die danach leer sind. `named` nennt die neuen Stationen für den Planer (`assigned_text`).
 #[derive(Debug, Clone)]
 pub struct EditedPlan {
     pub phases: Vec<PhaseRow>,
     pub inserted: Vec<StationRow>,
+    pub named: String,
     pub updated: Vec<StationRow>,
     pub removed: Vec<String>,
     pub removed_phases: Vec<String>,
@@ -41,7 +43,7 @@ pub struct EditedPlan {
 
 /// Delta → neuer Plan, geprüft. `phases` und `rows` sind der heutige Stand (Ansicht und gespeicherte
 /// Zeilen), `types` die Agententypen für das Feld `agent`. Der Fehler ist ein Satz mit dem Feld; der
-/// Zyklussatz nennt die Stationen.
+/// Zyklussatz nennt die Stationen. Ohne übernommene Änderungen; mit ihnen `edited_plan_after`.
 pub fn edited_plan(
     implementation_id: &str,
     phases: &[PhaseView],
@@ -49,9 +51,29 @@ pub fn edited_plan(
     edit: &PlanEdit,
     types: &[AgentType],
 ) -> Result<EditedPlan, String> {
+    edited_plan_after(implementation_id, phases, rows, &[], edit, types)
+}
+
+/// Wie `edited_plan`; `changes` sind die übernommenen Änderungen. Neue Stationen bekommen ihre
+/// Kennung `<Lane>-<n>` gegen diesen Stand (ADR 061, Nachtrag 2026-11-22): Auch die Nummern, die eine
+/// Änderung entfernt hat, kommen nicht wieder.
+pub fn edited_plan_after(
+    implementation_id: &str,
+    phases: &[PhaseView],
+    rows: &[StationRow],
+    changes: &[ChangeView],
+    edit: &PlanEdit,
+    types: &[AgentType],
+) -> Result<EditedPlan, String> {
     if edit.is_empty() {
         return Err(EMPTY_EDIT.to_owned());
     }
+    let existing: Vec<&str> = rows
+        .iter()
+        .map(|row: &StationRow| row.plan_id.as_str())
+        .collect();
+    refuse_taken_aliases(&edit.new_stations(), &existing)?;
+    let used = used_ids(existing.iter().copied(), changes);
     let mut plan: Vec<StationRow> = rows.to_vec();
     let mut summary = ChangeSummary::default();
     let mut touched: HashSet<String> = HashSet::new();
@@ -78,7 +100,14 @@ pub fn edited_plan(
         summary.changed.push(plan[position].plan_id.clone());
     }
     let mut inserted: Vec<StationRow> = Vec::new();
+    let add_keys: Vec<&str> = edit
+        .add
+        .iter()
+        .map(|addition: &StationAddition| addition.lane.trim())
+        .collect();
+    let mut add_ids = schedule::next_ids(&add_keys, &as_strs(&used)).into_iter();
     for (index, addition) in edit.add.iter().enumerate() {
+        let add_id = add_ids.next().unwrap_or_default();
         let field = format!("add[{index}]");
         checked_station(&field, &addition.station, types)?;
         let key = addition.lane.trim();
@@ -91,12 +120,12 @@ pub fn edited_plan(
             .map(|row: &StationRow| row.position + 1)
             .max()
             .unwrap_or(0);
+        // Ohne Alias gleich die Kennung, die die Station bekommt: Sie steht so in Fehlersätzen.
         let plan_id = match addition.station.id.as_deref() {
             Some(id) => id.trim().to_owned(),
-            None => free_plan_id(key, rows, &plan),
+            None => add_id,
         };
         let row = station_row(&phase.id, position, plan_id, &addition.station);
-        summary.added.push(row.plan_id.clone());
         plan.push(row.clone());
         inserted.push(row);
     }
@@ -113,10 +142,6 @@ pub fn edited_plan(
         }
     }
     let (mut new_phases, lane_rows) = phase_rows(implementation_id, &edit.lanes, 0);
-    for phase in &mut new_phases {
-        phase.mark = Some(PhaseMark::New);
-        summary.added.push(phase.key.clone());
-    }
     plan.extend(lane_rows.iter().cloned());
     inserted.extend(lane_rows);
     let edges: Vec<(&str, &[String])> = plan
@@ -124,6 +149,34 @@ pub fn edited_plan(
         .map(|row: &StationRow| (row.plan_id.as_str(), row.after.as_slice()))
         .collect();
     schedule::check_plan(&edges)?;
+    let lanes = lane_keys(
+        phases
+            .iter()
+            .map(|phase: &PhaseView| (phase.id.as_str(), phase.key.as_str()))
+            .chain(
+                new_phases
+                    .iter()
+                    .map(|phase: &PhaseRow| (phase.id.as_str(), phase.key.as_str())),
+            ),
+    );
+    let renames = number_stations(&mut inserted, &lanes, &used);
+    // Eine geänderte Station kann in `after` den Alias einer neuen nennen.
+    rename_after(&mut plan, &renames);
+    let named = assigned_text(renames.iter().zip(&inserted).map(
+        |((alias, id), station): (&(String, String), &StationRow)| {
+            (alias.as_str(), id.as_str(), station.stage.as_str())
+        },
+    ));
+    summary.added.extend(
+        inserted
+            .iter()
+            .take(edit.add.len())
+            .map(|station: &StationRow| station.plan_id.clone()),
+    );
+    for phase in &mut new_phases {
+        phase.mark = Some(PhaseMark::New);
+        summary.added.push(phase.key.clone());
+    }
     let removed_phases: Vec<String> = phases
         .iter()
         .filter(|phase: &&PhaseView| {
@@ -140,6 +193,7 @@ pub fn edited_plan(
     Ok(EditedPlan {
         phases: new_phases,
         inserted,
+        named,
         updated,
         removed,
         removed_phases,
@@ -185,17 +239,8 @@ fn inherited(after: &[String], gone: &StationRow) -> Vec<String> {
     result
 }
 
-/// `<Lane>-<n>` mit dem kleinsten `n`, das weder vorher noch jetzt im Plan steht.
-fn free_plan_id(key: &str, rows: &[StationRow], plan: &[StationRow]) -> String {
-    (1..)
-        .map(|number: usize| format!("{key}-{number}"))
-        .find(|candidate: &String| {
-            !rows
-                .iter()
-                .chain(plan)
-                .any(|row: &StationRow| row.plan_id == *candidate)
-        })
-        .unwrap_or_default()
+fn as_strs(texts: &[String]) -> Vec<&str> {
+    texts.iter().map(String::as_str).collect()
 }
 
 fn checked_station(field: &str, station: &StationInput, types: &[AgentType]) -> Result<(), String> {
@@ -294,7 +339,8 @@ pub(super) fn plan_of(
     registry
         .check_commands(&view.project_id, &edit.new_stations(), &edit.change)
         .map_err(CommandError::Implementation)?;
-    edited_plan(&view.id, &view.phases, &rows, edit, &types).map_err(CommandError::Implementation)
+    edited_plan_after(&view.id, &view.phases, &rows, &view.changes, edit, &types)
+        .map_err(CommandError::Implementation)
 }
 
 /// `implementation_edit`: prüft das Delta gegen den heutigen Plan und legt es als Vorschlag ab; es
@@ -322,8 +368,16 @@ pub fn propose(app: &AppHandle, session_id: &str, edit: &PlanEdit) -> Result<Str
         .and_then(|()| registry.implementation_view(&view.id))
         .map(|fresh: ImplementationView| announce(app, &fresh))
         .map_err(|error: CommandError| error.to_string())?;
+    let named = if edited.named.is_empty() {
+        String::new()
+    } else {
+        format!(
+            " Die neuen Stationen bekämen nach heutigem Stand: {}.",
+            edited.named
+        )
+    };
     Ok(format!(
-        "Vorgeschlagen: {}; wartet auf Übernehmen.",
+        "Vorgeschlagen: {}; wartet auf Übernehmen.{named}",
         describe(&edited.summary)
     ))
 }

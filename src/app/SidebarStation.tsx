@@ -2,11 +2,8 @@ import type { ReactElement } from 'react';
 import { StatusIcon } from '@/components/StatusIcon';
 import { useNow } from '@/features/background/useNow';
 import type { StationRef } from '@/features/implementation/implementationOrder';
-import {
-  rowStateText,
-  stationLabel,
-  stationMeta,
-} from '@/features/implementation/implementationTexts';
+import { rowStateText, stationMeta } from '@/features/implementation/implementationTexts';
+import { stationDisplay } from '@/features/implementation/commandStation';
 import { RELEASED_CHIP, RELEASED_TITLE } from '@/features/implementation/masterTexts';
 import { liveText, pauseChip, stationIcon } from '@/features/implementation/stationLive';
 import { stateLabel, stationTone, type StationTone } from '@/features/implementation/stationState';
@@ -46,7 +43,7 @@ export function SidebarStation({
 }: SidebarStationProps): ReactElement {
   const { station, phase } = entry;
   const now: number = useNow(TICKING_STATES.includes(station.state));
-  const label: string = stationLabel(station);
+  const label: string = stationDisplay(station);
   const messageWait: number | null = useMessageWait(station.sessionId);
   const quotaHeld: boolean = useQuotaHeld(station.id);
   const meta: string =

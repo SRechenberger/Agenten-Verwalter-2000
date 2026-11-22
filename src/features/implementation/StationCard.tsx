@@ -2,7 +2,7 @@ import { useState } from 'react';
 import type { ReactElement } from 'react';
 import { AgentTypeDialog } from '@/features/agenttypes/AgentTypeDialog';
 import { useAgentTypes } from '@/features/agenttypes/useAgentTypes';
-import { isCommandStation, stageText } from '@/features/implementation/commandStation';
+import { isCommandStation, stationDisplay } from '@/features/implementation/commandStation';
 import { StationCommandSection } from '@/features/implementation/StationCommandSection';
 import { isBegun, type StationRef } from '@/features/implementation/implementationOrder';
 import {
@@ -273,7 +273,7 @@ export function StationCard({
           <MarkDoneButton
             implementationId={implementationId}
             stationId={station.id}
-            label={`Lane ${phase.key} · ${stageText(station)}`}
+            label={stationDisplay(station)}
             className="station-card__button"
             isCommand={isCommand}
             isLocked={isLocked}
@@ -298,12 +298,10 @@ export function StationCard({
   return (
     <article
       className={`station-card station-card--${stationTone(station)}`}
-      aria-label={`Lane ${phase.key} · ${stageText(station)}`}
+      aria-label={stationDisplay(station)}
     >
       <div className="station-card__head">
-        <b className="station-card__title">
-          Lane {phase.key} · {stageText(station)}
-        </b>
+        <b className="station-card__title">{stationDisplay(station)}</b>
         <span className="station-card__number">{number}</span>
       </div>
       <p className="station-card__phase">{phase.title}</p>
@@ -335,7 +333,7 @@ export function StationCard({
           station={station}
           predecessors={refs
             .filter((ref: StationRef) => station.after.includes(ref.station.planId))
-            .map((ref: StationRef) => `${ref.phase.key} · ${ref.station.stage}`)}
+            .map((ref: StationRef) => stationDisplay(ref.station))}
           isLocked={isLocked}
           run={run}
         />
