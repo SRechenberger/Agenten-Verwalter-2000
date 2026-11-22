@@ -147,7 +147,15 @@ pub fn take_for_workspace(
     ids: &[String],
     workspace: &Path,
 ) -> Result<Vec<Attachment>, CommandError> {
-    let staging = staging_dir(app)?;
+    take_from(&staging_dir(app)?, ids, workspace)
+}
+
+/// `take_for_workspace` aus dem Zwischenordner `staging`.
+pub fn take_from(
+    staging: &Path,
+    ids: &[String],
+    workspace: &Path,
+) -> Result<Vec<Attachment>, CommandError> {
     let mut sources: Vec<(String, PathBuf)> = Vec::with_capacity(ids.len());
     for raw_id in ids {
         let id = parse_id(raw_id)?;

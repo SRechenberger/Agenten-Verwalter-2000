@@ -135,6 +135,15 @@ pub struct AwaitedScript {
     pub count: u32,
 }
 
+/// Was `chat_send` mit einer eigenen Nachricht getan hat (Taiga-Story 190): an den Agenten gesendet oder
+/// eingereiht, bis ein Platz frei ist.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub enum SendOutcome {
+    Sent,
+    Queued,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct ChatPage {

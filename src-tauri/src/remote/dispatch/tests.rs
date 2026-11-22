@@ -504,6 +504,7 @@ fn queue_of_two_projects() -> AgentQueue {
         priority: ProjectPriority::Normal,
         station_priority: 0,
         since_ms: 0.0,
+        from_user: false,
     };
     AgentQueue {
         limit: Some(4),

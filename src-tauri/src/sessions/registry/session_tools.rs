@@ -16,8 +16,8 @@ use super::{
 use crate::agent_types::model::{AgentType, AgentTypeInput};
 use crate::agent_types::tools as agent_type_tools;
 use crate::agents::event::{
-    Effort, Mode, ModelId, Question, QuestionAnswer, QuestionKind, QuestionOption, SessionRef,
-    ToolRequest,
+    ChatEntry, Effort, Mode, ModelId, Question, QuestionAnswer, QuestionKind, QuestionOption,
+    SessionRef, ToolRequest,
 };
 use crate::db::projects as project_rows;
 use crate::db::session_inbox::{self, InboxRow, Reference};
@@ -27,6 +27,7 @@ use crate::implementation::master::{self, MasterRef};
 use crate::implementation::slots;
 use crate::mcp_access::tools::ToolCall;
 use crate::projects::model::ProjectSummary;
+use crate::review::model::ReviewComment;
 use crate::session_tools::model::SelfRelease;
 use crate::session_tools::reference as message_text;
 use crate::session_tools::tools::ToolReply;
@@ -724,6 +725,10 @@ impl SessionRegistry {
         else {
             return true;
         };
+        // Eine eigene Nachricht geht ihren eigenen Weg, mit dem Eintrag im Chat (Taiga-Story 190).
+        if row.entry_seq.is_some() {
+            return self.deliver_user_messages(app, session).is_ok();
+        }
         let input = self.prepare_turn(session, &row.text);
         // Vor der Session-Sperre: erst die Session kurz, dann die Datenbank.
         let master_waits = self.master_message_waits(session);
@@ -781,6 +786,115 @@ impl SessionRegistry {
         }
         !has_failed
     }
+}
+
+impl SessionRegistry {
+    /// Gibt die wartenden eigenen Nachrichten der Session in ihrer Reihenfolge frei (Taiga-Story 190):
+    /// Die erste startet den Zug, die übrigen gehen hinterher wie an eine laufende Session. Mit einem
+    /// Platz vom Tor (der Durchgang hält ihn) oder ohne („Jetzt senden“). Unter der Session-Sperre
+    /// entscheidet der Eintrag: Trägt er `queued` nicht mehr, hat ein anderer Weg ihn schon gesendet, und
+    /// nur seine Zeile geht. Nie unter einer Sperre aufrufen. Ein Fehler beendet die Freigabe; die
+    /// Nachricht bleibt und wartet weiter.
+    pub(super) fn deliver_user_messages(
+        &self,
+        app: &AppHandle,
+        session: &Arc<Session>,
+    ) -> Result<(), CommandError> {
+        loop {
+            let Some(row) = session
+                .database
+                .with(|connection| session_inbox::oldest_from_user(connection, &session.id))?
+            else {
+                return Ok(());
+            };
+            let Some(seq) = row.entry_seq else {
+                return Ok(());
+            };
+            // Vor `update`: Ordner der Kommentare und die Abfrage bei LM Studio lesen Dateien.
+            let comments: Vec<ReviewComment> = match session.lock().entries.get(seq as usize) {
+                Some(ChatEntry::User { comments, .. }) => comments.clone(),
+                _ => Vec::new(),
+            };
+            let folders = self.comment_folders(&session.id, &comments);
+            let input = self.prepare_turn(session, &row.text);
+            let released = update(
+                app,
+                session,
+                |state: &mut SessionState, outbox: &mut Outbox| {
+                    let release = user_release(state, seq);
+                    if release != UserRelease::Sent {
+                        return Ok(release);
+                    }
+                    start_turn(
+                        app,
+                        session,
+                        state,
+                        outbox,
+                        input,
+                        &row.text,
+                        TurnOrigin::Queued {
+                            seq,
+                            folders: &folders,
+                        },
+                    )?;
+                    Ok(UserRelease::Sent)
+                },
+            )?;
+            if released == UserRelease::Later {
+                return Ok(());
+            }
+            // Ohne Löschen käme dieselbe Zeile wieder: Ein Fehler beendet die Freigabe.
+            session
+                .database
+                .with(|connection| session_inbox::delete(connection, row.id))?;
+        }
+    }
+}
+
+/// Was die Freigabe mit der eigenen Nachricht im Eintrag `seq` tut, unter der Session-Sperre.
+pub(super) fn user_release(state: &SessionState, seq: u32) -> UserRelease {
+    if !state.is_queued(seq) {
+        UserRelease::Stale
+    } else if releases_user_message(state.status, !state.pending.is_empty()) {
+        UserRelease::Sent
+    } else {
+        UserRelease::Later
+    }
+}
+
+/// Was die Freigabe mit einer eigenen Nachricht tut.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum UserRelease {
+    /// Senden.
+    Sent,
+    /// Der Eintrag ist schon gesendet; nur die Zeile war übrig.
+    Stale,
+    /// Die Session nimmt gerade nichts an; die Nachricht wartet weiter.
+    Later,
+}
+
+/// Nimmt eine Session ihre wartende eigene Nachricht jetzt an (Taiga-Story 190): ohne offene Rückfrage
+/// und weder neu, abgebrochen noch gescheitert. Ruht sie, startet die Nachricht den Zug; läuft sie, geht
+/// sie hinterher wie jede Nachricht an eine laufende Session.
+pub(super) fn releases_user_message(status: SessionStatus, has_pending: bool) -> bool {
+    !has_pending
+        && !matches!(
+            status,
+            SessionStatus::New | SessionStatus::Cancelled | SessionStatus::Error
+        )
+}
+
+/// Holt der Durchgang die wartenden eigenen Nachrichten der Session ab (Taiga-Story 190): Sie ist
+/// abgeschlossen oder pausiert, ohne offene Rückfrage, und belegt keinen Platz. Eine Session, die
+/// arbeitet, bekommt sie nach ihrem Zug.
+pub(super) fn takes_user_messages(
+    status: SessionStatus,
+    has_pending: bool,
+    holds_slot: bool,
+) -> bool {
+    !has_pending
+        && !holds_slot
+        && matches!(status, SessionStatus::Completed | SessionStatus::Paused)
 }
 
 /// Beantwortet einen Kasten über den Kanal; an den Agenten geht keine Zeile. `position` ist gültig.

@@ -143,6 +143,7 @@ mod tests {
             skill: None,
             comments: Vec::new(),
             origin: None,
+            queued: false,
         }
     }
 

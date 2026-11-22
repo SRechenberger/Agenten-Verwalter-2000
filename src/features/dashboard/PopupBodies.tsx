@@ -554,7 +554,9 @@ function OpenAnswerBody({
             disabled={isLocked || isEmpty}
             title={isEmpty ? 'Leere Nachricht: erst Text eingeben' : undefined}
             onClick={(): void => {
-              run(() => sendMessage(sessionId, text.trim(), [], []), 'Senden fehlgeschlagen');
+              run(async () => {
+                await sendMessage(sessionId, text.trim(), [], []);
+              }, 'Senden fehlgeschlagen');
             }}
           >
             Senden

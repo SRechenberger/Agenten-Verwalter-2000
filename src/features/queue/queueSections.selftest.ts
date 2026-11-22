@@ -24,6 +24,7 @@ function entry(fields: Partial<QueueEntry>): QueueEntry {
     priority: 'normal',
     stationPriority: 0,
     sinceMs: 0,
+    fromUser: false,
     ...fields,
   };
 }

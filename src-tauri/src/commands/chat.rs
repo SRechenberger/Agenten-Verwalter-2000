@@ -1,7 +1,7 @@
 use crate::agents::event::QuestionAnswer;
 use crate::error::CommandError;
 use crate::review::model::ReviewComment;
-use crate::sessions::model::ChatPage;
+use crate::sessions::model::{ChatPage, SendOutcome};
 use crate::sessions::registry::SessionRegistry;
 
 #[tauri::command]
@@ -15,7 +15,8 @@ pub async fn chat_history(
 }
 
 /// `origin` trägt nur der Server des Hosts ein (Name des Geräts eines Gastes); die eigene Oberfläche
-/// sendet es nicht (ADR 059).
+/// sendet es nicht (ADR 059). Ohne freien Platz wartet eine Nachricht an eine ruhende Session
+/// (`queued`, Taiga-Story 190); das Ergebnis geht auch an den Gast.
 #[tauri::command]
 pub async fn chat_send(
     app: tauri::AppHandle,
@@ -25,8 +26,8 @@ pub async fn chat_send(
     attachment_ids: Vec<String>,
     comments: Vec<ReviewComment>,
     origin: Option<String>,
-) -> Result<(), CommandError> {
-    registry.send(
+) -> Result<SendOutcome, CommandError> {
+    registry.send_from_user(
         &app,
         &session_id,
         &text,
@@ -34,6 +35,17 @@ pub async fn chat_send(
         &comments,
         origin.as_deref(),
     )
+}
+
+/// „Jetzt senden“ (Taiga-Story 190): schickt die wartenden eigenen Nachrichten der Session sofort ab,
+/// auch über der Grenze.
+#[tauri::command]
+pub async fn chat_send_now(
+    app: tauri::AppHandle,
+    registry: tauri::State<'_, SessionRegistry>,
+    session_id: String,
+) -> Result<(), CommandError> {
+    registry.send_queued_now(&app, &session_id)
 }
 
 /// `origin`: wie bei `chat_send`.

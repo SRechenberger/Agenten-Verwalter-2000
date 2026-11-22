@@ -33,6 +33,9 @@ pub struct QueueEntry {
     pub station_priority: i32,
     #[ts(type = "number")]
     pub since_ms: f64,
+    /// Eine eigene Nachricht des Benutzers (Taiga-Story 190), keine Nachricht einer Session: Nur sie
+    /// lässt sich mit „Jetzt senden“ freigeben, und `rank` rückt sie vor wie eine Master-Nachricht.
+    pub from_user: bool,
 }
 
 /// Art eines Wartenden; in den Bindings steht sie als Vereinigung der drei Texte an `QueueEntry`.
@@ -82,10 +85,19 @@ pub struct Waiter {
     pub master_message: bool,
 }
 
+impl Waiter {
+    /// Rückt in `rank` vor die übrigen Wartenden seines Vorhabens: eine Nachricht an einen Master oder
+    /// eine eigene Nachricht des Benutzers (Taiga-Story 190).
+    fn advances(&self) -> bool {
+        self.master_message || self.entry.from_user
+    }
+}
+
 /// Reihenfolge (Regel c): Stufe des Vorhabens (hoch vor normal vor niedrig), dann der Vorrang der
 /// Station (höher zuerst; Nachrichten und Fortsetzen 0), dann wer früher wartet. Stabil: Gleiche
 /// behalten die Reihenfolge, in der sie gesammelt wurden (nach dem App-Start die Planreihenfolge).
-/// Kein Altern. Danach rückt jede Nachricht an einen Master (`master_message`) direkt vor den besten
+/// Kein Altern. Danach rückt jede Nachricht an einen Master (`master_message`) und jede eigene Nachricht
+/// des Benutzers (`QueueEntry::from_user`, Taiga-Story 190; `Waiter::advances`) direkt vor den besten
 /// Wartenden, der in ihrem Vorhaben vor ihr liegt und keine solche Nachricht ist; mehrere behalten ihre
 /// Reihenfolge. Die Vorhaben behalten ihre Reihenfolge, gemessen an ihrem besten Wartenden: Die Nachricht
 /// nimmt den Platz des besten Wartenden ihres Vorhabens ein, der keine Master-Nachricht ist, und überholt
@@ -117,7 +129,7 @@ pub fn rank(waiters: &mut Vec<Waiter>) {
 /// dieses Vorhabens in ihrer bisherigen Reihenfolge; die übrigen Wartenden behalten ihre Reihenfolge
 /// zueinander (sie rücken nur nach hinten, wo Nachrichten vor sie treten).
 fn advance_master_messages(waiters: &mut Vec<Waiter>) {
-    if !waiters.iter().any(|waiter: &Waiter| waiter.master_message) {
+    if !waiters.iter().any(Waiter::advances) {
         return;
     }
     let mut slots: Vec<Option<Waiter>> = std::mem::take(waiters).into_iter().map(Some).collect();
@@ -126,7 +138,7 @@ fn advance_master_messages(waiters: &mut Vec<Waiter>) {
         let Some(current) = slots[index].as_ref() else {
             continue;
         };
-        if current.master_message {
+        if current.advances() {
             waiters.extend(slots[index].take());
             continue;
         }
@@ -134,7 +146,7 @@ fn advance_master_messages(waiters: &mut Vec<Waiter>) {
         if seen_projects.insert(project_id.clone()) {
             for later in &mut slots[index + 1..] {
                 if later.as_ref().is_some_and(|waiter: &Waiter| {
-                    waiter.master_message && waiter.entry.project_id == project_id
+                    waiter.advances() && waiter.entry.project_id == project_id
                 }) {
                     waiters.extend(later.take());
                 }
@@ -455,6 +467,7 @@ pub fn station_waiters(
             priority,
             station_priority: station.priority,
             since_ms: 0.0,
+            from_user: false,
         },
         key: station.id.clone(),
         start,

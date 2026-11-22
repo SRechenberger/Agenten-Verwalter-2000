@@ -1,4 +1,5 @@
-//! Tabelle `session_inbox`: Nachrichten anderer Sessions, die auf ein ruhendes Ziel warten.
+//! Tabelle `session_inbox`: Nachrichten anderer Sessions, die auf ein ruhendes Ziel warten, und eigene
+//! Nachrichten des Benutzers, die auf einen freien Platz warten (Taiga-Story 190).
 use rusqlite::{Connection, OptionalExtension, params};
 
 use crate::agents::event::SessionRef;
@@ -17,6 +18,31 @@ pub struct InboxRow {
     pub subject: Option<String>,
     /// Bei „Gemeldet“ der Inhalt der Referenz; `None`: der ganze Text.
     pub note: Option<String>,
+    /// Eine eigene Nachricht (Absender `USER_SENDER`): der Eintrag im Chat, den die Freigabe sendet.
+    pub entry_seq: Option<u32>,
+}
+
+/// Absender einer eigenen Nachricht des Benutzers im Posteingang.
+pub const USER_SENDER: &str = "user";
+
+const COLUMNS: &str =
+    "id, sender_id, sender_number, sender_title, text, chain, created_at, subject, note, entry_seq";
+
+fn row_of(row: &rusqlite::Row<'_>) -> rusqlite::Result<InboxRow> {
+    Ok(InboxRow {
+        id: row.get(0)?,
+        sender: SessionRef {
+            id: row.get(1)?,
+            number: row.get(2)?,
+            title: row.get(3)?,
+        },
+        text: row.get(4)?,
+        chain: row.get(5)?,
+        created_at: row.get(6)?,
+        subject: row.get(7)?,
+        note: row.get(8)?,
+        entry_seq: row.get(9)?,
+    })
 }
 
 /// Wie eine wartende Nachricht zugestellt wird, wenn der Empfänger `verwalter_read_message` hat.
@@ -72,25 +98,46 @@ pub fn insert_referenced(
 pub fn oldest(connection: &Connection, session_id: &str) -> Result<Option<InboxRow>, CommandError> {
     let row = connection
         .query_row(
-            "SELECT id, sender_id, sender_number, sender_title, text, chain, created_at, subject, note \
-             FROM session_inbox \
-             WHERE session_id = ?1 ORDER BY id LIMIT 1",
+            &format!(
+                "SELECT {COLUMNS} FROM session_inbox WHERE session_id = ?1 ORDER BY id LIMIT 1"
+            ),
             params![session_id],
-            |row| {
-                Ok(InboxRow {
-                    id: row.get(0)?,
-                    sender: SessionRef {
-                        id: row.get(1)?,
-                        number: row.get(2)?,
-                        title: row.get(3)?,
-                    },
-                    text: row.get(4)?,
-                    chain: row.get(5)?,
-                    created_at: row.get(6)?,
-                    subject: row.get(7)?,
-                    note: row.get(8)?,
-                })
-            },
+            row_of,
+        )
+        .optional()?;
+    Ok(row)
+}
+
+/// Reiht eine eigene Nachricht ein: `entry_seq` ist ihr Eintrag im Chat.
+pub fn insert_user(
+    connection: &Connection,
+    session_id: &str,
+    text: &str,
+    entry_seq: u32,
+    created_at: f64,
+) -> Result<(), CommandError> {
+    connection.execute(
+        "INSERT INTO session_inbox \
+         (session_id, sender_id, sender_number, sender_title, text, chain, created_at, entry_seq) \
+         VALUES (?1, ?2, 0, '', ?3, 0, ?4, ?5)",
+        params![session_id, USER_SENDER, text, created_at, entry_seq],
+    )?;
+    Ok(())
+}
+
+/// Die älteste wartende eigene Nachricht der Session.
+pub fn oldest_from_user(
+    connection: &Connection,
+    session_id: &str,
+) -> Result<Option<InboxRow>, CommandError> {
+    let row = connection
+        .query_row(
+            &format!(
+                "SELECT {COLUMNS} FROM session_inbox \
+                 WHERE session_id = ?1 AND entry_seq IS NOT NULL ORDER BY id LIMIT 1"
+            ),
+            params![session_id],
+            row_of,
         )
         .optional()?;
     Ok(row)

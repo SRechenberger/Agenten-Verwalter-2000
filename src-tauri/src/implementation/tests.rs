@@ -5013,6 +5013,7 @@ fn session_waiter(
             priority,
             station_priority: 0,
             since_ms,
+            from_user: false,
         },
         key: key.to_owned(),
         start: slots::Start::Session,
@@ -9176,5 +9177,77 @@ fn a_new_master_hears_of_open_reports_by_kennung_and_stage() {
     assert!(
         message.contains("C-5 · Umsetzung (station_id: s)"),
         "{message}"
+    );
+}
+
+// Taiga-Story 190: eigene Nachrichten in der Warteschlange.
+
+/// Eine wartende eigene Nachricht der Session `key` im Vorhaben `project`.
+fn own_message_in(
+    project: &str,
+    key: &str,
+    priority: ProjectPriority,
+    since_ms: f64,
+) -> slots::Waiter {
+    let mut waiter = waiter_in(
+        project,
+        key,
+        slots::QueueKind::Message,
+        priority,
+        since_ms,
+        false,
+    );
+    waiter.entry.from_user = true;
+    waiter
+}
+
+#[test]
+fn an_own_message_goes_before_the_waiters_of_its_own_project_but_not_before_another_project() {
+    let mut waiters = vec![
+        own_message_in("a", "own-a", ProjectPriority::Normal, -60_000.0),
+        station_in("a", "station-a", ProjectPriority::Normal, -300_000.0),
+        station_in("b", "station-b", ProjectPriority::Normal, -600_000.0),
+    ];
+    slots::rank(&mut waiters);
+    assert_eq!(keys(&waiters), ["station-b", "own-a", "station-a"]);
+}
+
+#[test]
+fn an_own_message_and_a_master_message_of_one_project_keep_their_order() {
+    let mut waiters = vec![
+        station_in("a", "station-a", ProjectPriority::Normal, -600_000.0),
+        own_message_in("a", "own-a", ProjectPriority::Normal, -60_000.0),
+        message_in("a", "master-a", ProjectPriority::Normal, -30_000.0),
+    ];
+    slots::rank(&mut waiters);
+    assert_eq!(keys(&waiters), ["own-a", "master-a", "station-a"]);
+}
+
+#[test]
+fn a_failed_release_of_an_own_message_skips_it_once_and_starts_no_loop() {
+    fn pass_own(countdowns: &mut Countdowns) -> Vec<String> {
+        let waiters = vec![
+            own_message_in("a", "failing", ProjectPriority::Normal, 1.0),
+            session_waiter(
+                "behind",
+                slots::QueueKind::Message,
+                ProjectPriority::Normal,
+                2.0,
+            ),
+        ];
+        let seen = countdowns.releases();
+        claimed_keys(
+            countdowns
+                .pass(seen, Some(1), &[], waiters, 3.0, 4.0)
+                .expect("frische Zählung"),
+        )
+    }
+    let mut countdowns = Countdowns::default();
+    assert_eq!(pass_own(&mut countdowns), ["failing"]);
+    countdowns.start_failed("failing");
+    assert_eq!(
+        pass_own(&mut countdowns),
+        ["behind"],
+        "der nächste Durchgang überspringt sie"
     );
 }

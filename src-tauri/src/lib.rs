@@ -228,6 +228,7 @@ pub fn run() {
             commands::sessions::session_log,
             commands::chat::chat_history,
             commands::chat::chat_send,
+            commands::chat::chat_send_now,
             commands::chat::chat_answer,
             commands::context::context_load,
             commands::context::context_refresh,

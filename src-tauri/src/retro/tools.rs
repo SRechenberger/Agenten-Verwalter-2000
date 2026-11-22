@@ -926,6 +926,7 @@ mod tests {
             skill: None,
             comments: Vec::new(),
             origin: None,
+            queued: false,
         };
         let message = ChatEntry::SessionMessage {
             seq: 3,
