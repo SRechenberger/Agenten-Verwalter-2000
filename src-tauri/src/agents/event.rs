@@ -255,6 +255,10 @@ pub enum ChatEntry {
         /// Oberfläche. Der Agent bekommt es nie zu sehen.
         #[serde(default)]
         origin: Option<String>,
+        /// Wartet auf einen freien Platz (Taiga-Story 190): steht schon im Chat, ist aber noch nicht beim
+        /// Agenten. Die Freigabe setzt es zurück; Einträge von vorher haben das Feld nicht.
+        #[serde(default)]
+        queued: bool,
     },
     Text {
         seq: u32,

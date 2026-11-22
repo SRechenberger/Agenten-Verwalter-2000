@@ -17,6 +17,11 @@ import {
   quotaHoldText,
   readyStationText,
   priorityMark,
+  queuedHintText,
+  queuedMarkText,
+  SEND_NOW_LABEL,
+  SEND_NOW_TITLE,
+  SLOTS_TITLE,
   slotCells,
   slotsBarLabel,
   slotsShort,
@@ -39,6 +44,7 @@ function entry(fields: Partial<QueueEntry>): QueueEntry {
     priority: 'normal',
     stationPriority: 0,
     sinceMs: 0,
+    fromUser: false,
     ...fields,
   };
 }
@@ -57,6 +63,67 @@ const ENTRIES: QueueEntry[] = [
 const HELD: AgentQueue = { ...queue(4, 1, 1), quotaUntil: '2026-11-22T14:30:00Z' };
 
 const CASES: { name: string; actual: () => unknown; expected: unknown }[] = [
+  // Taiga-Story 190: eigene Nachrichten warten auf einen Platz.
+  {
+    name: 'queued_mark_names_the_place',
+    actual: () => queuedMarkText(2),
+    expected: 'wartet · Platz 2',
+  },
+  {
+    name: 'queued_mark_without_queue_says_waits',
+    actual: () => queuedMarkText(null),
+    expected: 'wartet',
+  },
+  {
+    name: 'queued_hint_one_message',
+    actual: () => queuedHintText(1, 2),
+    expected: 'Deine Nachricht wartet auf einen freien Platz (Platz 2).',
+  },
+  {
+    name: 'queued_hint_names_both_messages_with_their_shared_place',
+    actual: () => queuedHintText(2, 3),
+    expected: 'Deine 2 Nachrichten warten auf einen freien Platz (Platz 3).',
+  },
+  {
+    name: 'queued_hint_without_place',
+    actual: () => queuedHintText(1, null),
+    expected: 'Deine Nachricht wartet auf einen freien Platz.',
+  },
+  { name: 'send_now_label', actual: () => SEND_NOW_LABEL, expected: 'Jetzt senden' },
+  {
+    name: 'send_now_title',
+    actual: () => SEND_NOW_TITLE,
+    expected: 'Schickt die wartenden Nachrichten dieser Session sofort ab, auch über der Grenze.',
+  },
+  {
+    name: 'own_message_entry_is_named_own',
+    actual: () => entryWhat(entry({ kind: 'message', title: 'Mockup-Gedanken', fromUser: true })),
+    expected: 'Eigene Nachricht · Mockup-Gedanken',
+  },
+  {
+    name: 'session_message_entry_stays_message',
+    actual: () => entryWhat(entry({ kind: 'message', title: 'Mockup-Gedanken' })),
+    expected: 'Nachricht · Mockup-Gedanken',
+  },
+  {
+    name: 'own_message_position_is_the_message_place_of_its_session',
+    actual: () =>
+      messageWaitPosition(
+        [entry({ position: 4, kind: 'message', sessionId: 's', stationId: null, fromUser: true })],
+        's',
+      ),
+    expected: 4,
+  },
+  {
+    name: 'slots_title_names_the_new_rule',
+    actual: () =>
+      SLOTS_TITLE.includes(
+        'Eigene Nachrichten an ruhende Sessions warten, wenn die Grenze erreicht ist',
+      ) &&
+      SLOTS_TITLE.includes('Jetzt senden') &&
+      !SLOTS_TITLE.includes('Eigene Nachrichten starten sofort'),
+    expected: true,
+  },
   {
     name: 'quota_hold_text_drops_um_before_the_clock',
     actual: () => quotaHoldText('um 15:30 Uhr'),

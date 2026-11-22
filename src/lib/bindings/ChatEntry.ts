@@ -32,7 +32,12 @@ comments: Array<ReviewComment>,
  * Name des Geräts, von dem ein Gast die Nachricht schickte (ADR 059); `None`: die eigene
  * Oberfläche. Der Agent bekommt es nie zu sehen.
  */
-origin: string | null, } | { "kind": "text", seq: number, text: string, 
+origin: string | null, 
+/**
+ * Wartet auf einen freien Platz (Taiga-Story 190): steht schon im Chat, ist aber noch nicht beim
+ * Agenten. Die Freigabe setzt es zurück; Einträge von vorher haben das Feld nicht.
+ */
+queued: boolean, } | { "kind": "text", seq: number, text: string, 
 /**
  * Pfade, Datei:Zeile-Angaben und Zahlen des Textes ohne Fundstelle (ADR 036), so
  * geschrieben wie im Text; Einträge von vorher haben das Feld nicht.

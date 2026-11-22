@@ -50,7 +50,7 @@ use crate::context::model::{ContextBreakdown, ContextChangedEvent, SessionContex
 use crate::db::implementations as implementation_rows;
 use crate::db::project_groups as group_rows;
 use crate::db::projects::{self as project_rows, ProjectRow};
-use crate::db::session_inbox::Reference;
+use crate::db::session_inbox::{self, Reference};
 use crate::db::sessions::{self as session_rows, SessionRow};
 use crate::db::{
     Database, background as background_rows, chat_entries, repositories as repository_rows,
@@ -78,7 +78,7 @@ use crate::review::{
 use crate::session_tools::model::SelfRelease;
 use crate::sessions::auto_resume::{self, ArmedResume};
 use crate::sessions::model::{
-    AwaitedScript, ChatEntryEvent, ChatPage, HandoffLine, PauseReason, SessionOverlap,
+    AwaitedScript, ChatEntryEvent, ChatPage, HandoffLine, PauseReason, SendOutcome, SessionOverlap,
     SessionStatus, SessionSummary,
 };
 use crate::sessions::{MAX_NAME_CHARS, handoff, name_from_task};
@@ -142,6 +142,10 @@ const PLAN_NEEDS_CLAUDE: &str = "„Plane Vorhaben“ gibt es nur in der Betrieb
 const PLAN_ANSWER_FIRST: &str = "Beantworte zuerst die Rückfrage des Agenten; „Plane Vorhaben“ \
      beginnt einen neuen Zug.";
 const PLAN_NOTICE_GONE: &str = "Dieser Hinweis „Kein Plan im Umsetzungstool“ ist nicht mehr da.";
+/// Die Freigabe fand den Eintrag einer eingereihten Nachricht nicht mehr wartend (Taiga-Story 190).
+const QUEUED_ENTRY_GONE: &str = "Die wartende Nachricht steht nicht mehr im Chat.";
+/// „Jetzt senden“ bei offener Rückfrage (Taiga-Story 190).
+const QUEUED_ANSWER_FIRST: &str = "Beantworte zuerst die Rückfrage des Agenten.";
 /// Satz an den Agenten, wenn eine andere Session im selben Schreib-Ordner arbeitet (ADR 037).
 const OVERLAP_HINT: &str = "Hinweis des Verwalters: Eine andere Session arbeitet gerade im selben Ordner ({folder}, Session „{name}“). Ihre uncommitteten Änderungen dort sind nicht deine.";
 const ANSWER_SEPARATOR: &str = " · ";
@@ -481,6 +485,12 @@ enum TurnOrigin<'a> {
     },
     /// `/compact` durch den Verwalter (ADR 070): keine Eingabe, kein Eintrag, keine Antwort.
     Compact,
+    /// Eine eingereihte eigene Nachricht (Taiga-Story 190): Text, Anhänge, Kommentare und Skill stehen
+    /// schon im Eintrag `seq`, der Zug legt keinen zweiten an und nimmt dem Eintrag nur `queued`.
+    Queued {
+        seq: u32,
+        folders: &'a [Option<PathBuf>],
+    },
     Session {
         sender: &'a SessionRef,
         /// Mit Betreff geht der Text über eine Referenz an den Agenten (ADR 072), wenn er sie lesen kann.
@@ -1358,7 +1368,58 @@ impl SessionRegistry {
             device,
             PlanTurn::No,
             None,
+            None,
         )
+        .map(|_sent: SendOutcome| ())
+    }
+
+    /// `chat_send` (Taiga-Story 190): wie `send`, aber eine eigene Nachricht an eine ruhende Session
+    /// wartet, wenn kein Platz frei ist (`queues_user_message`). Sie steht dann sofort im Chat, ihre
+    /// Anhänge liegen schon im Workspace, und ein Durchgang gibt sie frei (`deliver_user_messages`).
+    /// Der Platz wird wie bei `deliver` vor der Session-Sperre beansprucht und danach freigegeben;
+    /// entschieden wird unter der Sperre. Die automatischen Wege über `send` reihen nie ein.
+    pub fn send_from_user(
+        &self,
+        app: &AppHandle,
+        session_id: &str,
+        text: &str,
+        attachment_ids: &[String],
+        comments: &[ReviewComment],
+        device: Option<&str>,
+    ) -> Result<SendOutcome, CommandError> {
+        refuse_empty_message(text, attachment_ids, comments)?;
+        let claimed = self.claim_session_slot(session_id);
+        let sent = self.send_turn(
+            app,
+            session_id,
+            text,
+            attachment_ids,
+            comments,
+            device,
+            PlanTurn::No,
+            None,
+            Some(claimed),
+        );
+        if claimed {
+            self.release_session_slot(session_id);
+        }
+        if sent
+            .as_ref()
+            .is_ok_and(|outcome: &SendOutcome| *outcome == SendOutcome::Queued)
+        {
+            schedule_pass(app);
+        }
+        sent
+    }
+
+    /// „Jetzt senden“ (Taiga-Story 190): schickt die wartenden eigenen Nachrichten der Session sofort
+    /// ab, in ihrer Reihenfolge und auch über der Grenze, wie ein Start des Benutzers.
+    pub fn send_queued_now(&self, app: &AppHandle, session_id: &str) -> Result<(), CommandError> {
+        let session = self.get(session_id)?;
+        let sent = self.deliver_user_messages(app, &session, true);
+        // Die Warteschlange verliert den Eintrag: Ein Durchgang meldet sie neu.
+        schedule_pass(app);
+        sent
     }
 
     /// Wie `send` ohne Anhänge, aber mit Betreff: In der Betriebsart Claude geht nur `/<skill>` und die
@@ -1382,7 +1443,9 @@ impl SessionRegistry {
             None,
             PlanTurn::No,
             Some((subject, sender)),
+            None,
         )
+        .map(|_sent: SendOutcome| ())
     }
 
     /// „Plane Vorhaben“ (ADR 062): setzt `plan_prompt(task)` als Nachricht ab und merkt den Zug als
@@ -1411,7 +1474,9 @@ impl SessionRegistry {
             device,
             PlanTurn::Start,
             None,
+            None,
         )
+        .map(|_sent: SendOutcome| ())
     }
 
     /// Ob der laufende Zug der Session ein Planungszug ist (ADR 062).
@@ -1525,7 +1590,8 @@ impl SessionRegistry {
         device: Option<&str>,
         planning: PlanTurn,
         station_subject: Option<(&str, &SessionRef)>,
-    ) -> Result<(), CommandError> {
+        claimed: Option<bool>,
+    ) -> Result<SendOutcome, CommandError> {
         let session = self.get(session_id)?;
         review::validate(comments)?;
         let input = self.prepare_turn(&session, text);
@@ -1549,6 +1615,7 @@ impl SessionRegistry {
         }
         // Gesetzt, wenn dieses Senden der Session ihren ersten Namen gibt.
         let mut titled = false;
+        let mut outcome = SendOutcome::Sent;
         let sent = update(
             app,
             &session,
@@ -1558,7 +1625,8 @@ impl SessionRegistry {
                     SessionStatus::Error => return Err(CommandError::AgentStopped),
                     _ => {}
                 }
-                if !state.pending.is_empty() {
+                let route = route_input(&session, state, claimed)?;
+                if route == InputRoute::Answer {
                     // Der Planungs-Prompt wäre hier nur der Text einer Antwort.
                     if planning != PlanTurn::No {
                         return Err(CommandError::Implementation(PLAN_ANSWER_FIRST.to_owned()));
@@ -1575,6 +1643,22 @@ impl SessionRegistry {
                     // Die Antwort läuft weiter: der Text des Users ist eine Quelle mehr.
                     state.turn_sources.push_text(text);
                     state.push_user(outbox, text, Vec::new(), skill, Vec::new(), device);
+                    return Ok(());
+                }
+                if route == InputRoute::Queue {
+                    queue_user_turn(
+                        &attachments::staging_dir(app)?,
+                        &session,
+                        state,
+                        outbox,
+                        text,
+                        &all_attachment_ids,
+                        comments,
+                        skill,
+                        report_update.as_ref(),
+                        device,
+                    )?;
+                    outcome = SendOutcome::Queued;
                     return Ok(());
                 }
                 titled = start_turn(
@@ -1601,7 +1685,7 @@ impl SessionRegistry {
         if titled && sent.is_ok() {
             self.start_auto_title(app, session_id, text);
         }
-        sent
+        sent.map(|()| outcome)
     }
 
     /// Alles für `start_turn`, was nicht unter die Session-Sperre gehört: die Abfrage bei LM Studio,
@@ -3232,6 +3316,7 @@ impl SessionState {
             skill,
             comments,
             origin: device.map(str::to_owned),
+            queued: false,
         });
         self.note_input(outbox);
         self.auto_chain = 0;
@@ -3267,6 +3352,47 @@ impl SessionState {
             ) = kept;
         }
         by_hand
+    }
+
+    /// `push_user_turn` für eine eingereihte eigene Nachricht (Taiga-Story 190): Der Eintrag steht
+    /// sofort im Chat und trägt `queued`.
+    fn push_queued_user(
+        &mut self,
+        outbox: &mut Outbox,
+        text: &str,
+        attachments: Vec<Attachment>,
+        skill: Option<SkillRef>,
+        comments: Vec<ReviewComment>,
+        device: Option<&str>,
+    ) {
+        self.push_user_turn(outbox, text, attachments, skill, comments, device);
+        for entry in [self.entries.last_mut(), outbox.entries.last_mut()]
+            .into_iter()
+            .flatten()
+        {
+            if let ChatEntry::User { queued, .. } = entry {
+                *queued = true;
+            }
+        }
+    }
+
+    /// Wartet der Eintrag `seq` als eigene Nachricht auf einen Platz (Taiga-Story 190).
+    pub(super) fn is_queued(&self, seq: u32) -> bool {
+        matches!(
+            self.entries.get(seq as usize),
+            Some(ChatEntry::User { queued: true, .. })
+        )
+    }
+
+    fn set_queued(&mut self, outbox: &mut Outbox, seq: u32, value: bool) {
+        let Some(entry) = self.entries.get_mut(seq as usize) else {
+            return;
+        };
+        let ChatEntry::User { queued, .. } = entry else {
+            return;
+        };
+        *queued = value;
+        outbox.entries.push(entry.clone());
     }
 
     /// Ohne die Folgen für `seen_at` und `auto_chain`: Das Ziel bleibt ungelesen, die Kettenbremse
@@ -4664,7 +4790,7 @@ fn start_turn(
     };
     let plan_turn: PlanTurn = match origin {
         TurnOrigin::User { planning, .. } => planning,
-        TurnOrigin::Session { .. } => PlanTurn::No,
+        TurnOrigin::Session { .. } | TurnOrigin::Queued { .. } => PlanTurn::No,
         // Ein Wächter bleibt, wie er ist.
         TurnOrigin::Compact => PlanTurn::Reminder,
     };
@@ -4685,35 +4811,12 @@ fn start_turn(
             let sent_attachments =
                 attachments::take_for_workspace(app, attachment_ids, &session.workspace)?;
             let mut comments = comments.to_vec();
-            let mut extra_attachments: Vec<Attachment> = Vec::new();
-            for comment in &mut comments {
-                let CommentTarget::Image {
-                    attachment_id,
-                    path,
-                    ..
-                } = &mut comment.target
-                else {
-                    continue;
-                };
-                if let Some(attachment) = sent_attachments
-                    .iter()
-                    .find(|attachment: &&Attachment| attachment.id == *attachment_id)
-                {
-                    *path = attachment.path.clone();
-                    continue;
-                }
-                let attachment = attachments::reattach(Path::new(path), &session.workspace)?;
-                *path = attachment.path.clone();
-                if !sent_attachments
-                    .iter()
-                    .chain(extra_attachments.iter())
-                    .any(|existing: &Attachment| existing.path == attachment.path)
-                {
-                    extra_attachments.push(attachment);
-                }
-            }
             let mut agent_attachments = sent_attachments.clone();
-            agent_attachments.extend(extra_attachments);
+            agent_attachments.extend(attach_comment_images(
+                session,
+                &sent_attachments,
+                &mut comments,
+            )?);
             let for_agent: Cow<str> = if planning == PlanTurn::Start {
                 Cow::Owned(plan_prompt(sent_text))
             } else {
@@ -4759,6 +4862,12 @@ fn start_turn(
             (titled, line)
         }
         TurnOrigin::Compact => (false, user_message(text)),
+        TurnOrigin::Queued { seq, folders } => {
+            let released =
+                release_queued(session, state, outbox, seq, folders, input.overlap.as_ref())?;
+            by_hand = released.by_hand;
+            (released.titled, released.line)
+        }
     };
     state.last_overlap_key = input
         .overlap
@@ -4774,6 +4883,187 @@ fn start_turn(
     state.enter_running(outbox, is_compact, by_hand);
     outbox.write(state, line)?;
     Ok(titled)
+}
+
+/// Was `release_queued` für `start_turn` liefert.
+struct QueuedTurn {
+    titled: bool,
+    by_hand: bool,
+    line: String,
+}
+
+/// Der Zug einer eingereihten eigenen Nachricht (Taiga-Story 190), ohne Prozess und Pipe: Text, Anhänge,
+/// Kommentare und Skill kommen aus dem Eintrag `seq`, ein zweiter Eintrag entsteht nicht, und der Eintrag
+/// verliert `queued`. Ein Eintrag, der nicht mehr wartet, ist ein Fehler.
+fn release_queued(
+    session: &Session,
+    state: &mut SessionState,
+    outbox: &mut Outbox,
+    seq: u32,
+    folders: &[Option<PathBuf>],
+    overlap: Option<&SessionOverlap>,
+) -> Result<QueuedTurn, CommandError> {
+    let Some(ChatEntry::User {
+        text,
+        attachments: sent_attachments,
+        mut comments,
+        queued: true,
+        ..
+    }) = state.entries.get(seq as usize).cloned()
+    else {
+        return Err(CommandError::Internal(QUEUED_ENTRY_GONE.to_owned()));
+    };
+    let mut agent_attachments = sent_attachments.clone();
+    agent_attachments.extend(attach_comment_images(
+        session,
+        &sent_attachments,
+        &mut comments,
+    )?);
+    let agent_text = with_overlap_hint(
+        review::agent_text(&text, &comments, folders),
+        state,
+        overlap,
+    );
+    let line = message_line(&agent_text, &agent_attachments)?;
+    let titled = state.begin_turn(outbox, session, &text, &agent_text);
+    state.set_queued(outbox, seq, false);
+    Ok(QueuedTurn {
+        titled,
+        by_hand: text.trim() == compact::COMPACT_TEXT,
+        line,
+    })
+}
+
+/// Die Bilder der Review-Kommentare: Ein Kommentar auf einem Anhang dieser Nachricht zeigt danach auf
+/// dessen Pfad im Workspace; ein Bild einer älteren Nachricht geht noch einmal als Anhang an den Agenten.
+/// Liefert diese zusätzlichen Anhänge. Wiederholbar: Die Freigabe einer eingereihten Nachricht rechnet
+/// sie aus dem Eintrag nach (Taiga-Story 190).
+fn attach_comment_images(
+    session: &Session,
+    sent_attachments: &[Attachment],
+    comments: &mut [ReviewComment],
+) -> Result<Vec<Attachment>, CommandError> {
+    let mut extra_attachments: Vec<Attachment> = Vec::new();
+    for comment in comments {
+        let CommentTarget::Image {
+            attachment_id,
+            path,
+            ..
+        } = &mut comment.target
+        else {
+            continue;
+        };
+        if let Some(attachment) = sent_attachments
+            .iter()
+            .find(|attachment: &&Attachment| attachment.id == *attachment_id)
+        {
+            *path = attachment.path.clone();
+            continue;
+        }
+        let attachment = attachments::reattach(Path::new(path), &session.workspace)?;
+        *path = attachment.path.clone();
+        if !sent_attachments
+            .iter()
+            .chain(extra_attachments.iter())
+            .any(|existing: &Attachment| existing.path == attachment.path)
+        {
+            extra_attachments.push(attachment);
+        }
+    }
+    Ok(extra_attachments)
+}
+
+/// Wohin eine Eingabe in `send_turn` unter der Session-Sperre geht.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum InputRoute {
+    /// Eine Rückfrage ist offen: Der Text beantwortet die älteste.
+    Answer,
+    /// Eine eigene Nachricht wartet auf einen Platz (Taiga-Story 190).
+    Queue,
+    Start,
+}
+
+/// Die Entscheidung von `send_turn` unter der Session-Sperre, danach erst die Datenbank. `claimed` gibt
+/// nur `chat_send` mit (der Anspruch am Tor); die übrigen Wege reihen nie ein. Die offene Rückfrage geht
+/// vor: Eine Antwort wartet nie.
+fn route_input(
+    session: &Session,
+    state: &SessionState,
+    claimed: Option<bool>,
+) -> Result<InputRoute, CommandError> {
+    if !state.pending.is_empty() {
+        return Ok(InputRoute::Answer);
+    }
+    let Some(claimed) = claimed else {
+        return Ok(InputRoute::Start);
+    };
+    let has_waiting = session
+        .database
+        .with(|connection| session_inbox::oldest_from_user(connection, &session.id))?
+        .is_some();
+    Ok(
+        if queues_user_message(
+            state.status,
+            state.holds_slot_at(now_ms()),
+            claimed,
+            has_waiting,
+        ) {
+            InputRoute::Queue
+        } else {
+            InputRoute::Start
+        },
+    )
+}
+
+/// Wartet eine eigene Nachricht auf einen Platz (Taiga-Story 190): Die Session ist nicht neu, belegt
+/// keinen Platz, und keiner ist frei (`claimed` gescheitert) oder eigene Nachrichten warten schon vor
+/// ihr, die sie nicht überholt. Offene Rückfragen beantwortet `send_turn` vorher.
+pub(super) fn queues_user_message(
+    status: SessionStatus,
+    holds_slot: bool,
+    claimed: bool,
+    has_waiting: bool,
+) -> bool {
+    status != SessionStatus::New && !holds_slot && (!claimed || has_waiting)
+}
+
+/// Reiht eine eigene Nachricht ein (Taiga-Story 190), unter der Session-Sperre: Die Anhänge wandern
+/// sofort in den Workspace (den Zwischenordner leert jeder App-Start), der Eintrag steht genau einmal im
+/// Chat und trägt `queued`, und eine Zeile im Posteingang verweist auf ihn. Erst die Zeile, dann der
+/// Eintrag: Scheitert die Datenbank, steht keine Nachricht im Chat, die nie hinausginge.
+#[allow(clippy::too_many_arguments)]
+fn queue_user_turn(
+    staging: &Path,
+    session: &Session,
+    state: &mut SessionState,
+    outbox: &mut Outbox,
+    text: &str,
+    attachment_ids: &[String],
+    comments: &[ReviewComment],
+    skill: Option<SkillRef>,
+    report_update: Option<&ReportUpdate>,
+    device: Option<&str>,
+) -> Result<(), CommandError> {
+    let sent_attachments = attachments::take_from(staging, attachment_ids, &session.workspace)?;
+    let mut comments = comments.to_vec();
+    attach_comment_images(session, &sent_attachments, &mut comments)?;
+    let seq = u32::try_from(state.entries.len()).unwrap_or(u32::MAX);
+    session.database.with(|connection| {
+        session_inbox::insert_user(connection, &session.id, text, seq, now_ms())
+    })?;
+    state.push_queued_user(outbox, text, sent_attachments, skill, comments, device);
+    if let Some(found) = report_update {
+        state.last_report = Some(found.stripped.clone());
+        state.push_entry(outbox, |seq: u32| ChatEntry::Notice {
+            seq,
+            notice: Notice::ReportUpdated {
+                at: found.at,
+                summary: found.summary.clone(),
+            },
+            at: None,
+        });
+    }
+    Ok(())
 }
 
 /// Der Satz geht nur an den Agenten, nicht in den Chat, und nur bei neuer Lage.
@@ -5979,6 +6269,7 @@ mod tests {
             skill: None,
             comments: Vec::new(),
             origin: None,
+            queued: false,
         });
         say(&mut state, &mut outbox, "Geprüft.");
         (state, outbox)
@@ -7066,7 +7357,7 @@ mod tests {
         let version: u32 = connection
             .query_row("PRAGMA user_version", [], |row| row.get(0))
             .expect("Version");
-        assert_eq!(version, 33);
+        assert_eq!(version, 34);
         let (text, subject): (String, Option<String>) = connection
             .query_row("SELECT text, subject FROM session_inbox", [], |row| {
                 Ok((row.get(0)?, row.get(1)?))
@@ -7558,5 +7849,503 @@ mod tests {
             }
             assert!(kept, "der Agent wurde trotz Hintergrundarbeit beendet");
         }
+    }
+
+    // Ab hier Taiga-Story 190: eigene Nachrichten warten auf einen Platz.
+
+    /// Eine Registry mit einem Platz, den `anderer` belegt, und der ruhenden Session `q` mit eigenem
+    /// Workspace und Zwischenordner unter `base`.
+    fn registry_with_full_limit(base: &Path) -> (SessionRegistry, Arc<Session>) {
+        let registry = registry_with_one_slot();
+        registry.add_session_for_test("anderer", "p", SessionStatus::Running);
+        let workspace = base.join("workspace");
+        fs::create_dir_all(&workspace).expect("Workspace");
+        let mut state = SessionState::new(
+            "Session 2".to_owned(),
+            ModelId::Sonnet,
+            Effort::High,
+            Mode::Auto,
+        );
+        state.status = SessionStatus::Completed;
+        let session = Arc::new(Session {
+            id: "q".to_owned(),
+            project_id: "p".to_owned(),
+            number: 2,
+            workspace,
+            repositories: RwLock::new(Vec::new()),
+            database: Arc::clone(&registry.database),
+            state: Mutex::new(state),
+            deleted: AtomicBool::new(false),
+        });
+        registry
+            .database
+            .with(|connection| {
+                connection.execute_batch("PRAGMA foreign_keys = OFF")?;
+                Ok(())
+            })
+            .expect("ohne Fremdschlüssel");
+        registry
+            .lock_sessions()
+            .insert("q".to_owned(), Arc::clone(&session));
+        (registry, session)
+    }
+
+    /// Legt einen Anhang in den Zwischenordner, wie der Upload der Oberfläche; liefert seine ID.
+    fn staged(staging: &Path, name: &str) -> String {
+        let id = uuid::Uuid::new_v4().to_string();
+        fs::create_dir_all(staging.join(&id)).expect("Ordner");
+        fs::write(staging.join(&id).join(name), "Inhalt").expect("Datei");
+        id
+    }
+
+    fn temp_base(name: &str) -> PathBuf {
+        std::env::temp_dir().join(format!("verwalter-190-{name}-{}", uuid::Uuid::new_v4()))
+    }
+
+    fn queue_text(session: &Session, staging: &Path, text: &str, attachment_ids: &[String]) {
+        let mut state = session.lock();
+        let mut outbox = Outbox::default();
+        queue_user_turn(
+            staging,
+            session,
+            &mut state,
+            &mut outbox,
+            text,
+            attachment_ids,
+            &[],
+            None,
+            None,
+            None,
+        )
+        .expect("eingereiht");
+    }
+
+    fn user_rows(session: &Session) -> Vec<(u32, String)> {
+        let mut rows = Vec::new();
+        session
+            .database
+            .with(|connection| {
+                let mut statement = connection.prepare(
+                    "SELECT entry_seq, text FROM session_inbox \
+                     WHERE session_id = ?1 AND entry_seq IS NOT NULL ORDER BY id",
+                )?;
+                let found = statement
+                    .query_map([&session.id], |row| Ok((row.get(0)?, row.get(1)?)))?
+                    .collect::<rusqlite::Result<Vec<(u32, String)>>>()?;
+                rows = found;
+                Ok(())
+            })
+            .expect("lesen");
+        rows
+    }
+
+    #[test]
+    fn a_message_to_a_resting_session_at_a_full_limit_waits_once_with_its_attachments_moved() {
+        let base = temp_base("queue");
+        let (registry, session) = registry_with_full_limit(&base);
+        let staging = base.join("staging");
+        let id = staged(&staging, "fehler.log");
+        let claimed = registry.claim_session_slot("q");
+        assert!(!claimed, "der einzige Platz ist belegt");
+        let route = route_input(&session, &session.lock(), Some(claimed)).expect("Weg");
+        assert_eq!(route, InputRoute::Queue);
+        let mut outbox = Outbox::default();
+        {
+            let mut state = session.lock();
+            queue_user_turn(
+                &staging,
+                &session,
+                &mut state,
+                &mut outbox,
+                "Hier ist das Protokoll",
+                std::slice::from_ref(&id),
+                &[],
+                None,
+                None,
+                None,
+            )
+            .expect("eingereiht");
+        }
+        let state = session.lock();
+        assert_eq!(state.entries.len(), 1, "genau ein Eintrag im Chat");
+        assert_eq!(
+            outbox.entries.len(),
+            1,
+            "genau ein Ereignis an die Oberfläche"
+        );
+        let Some(ChatEntry::User {
+            queued: true,
+            attachments,
+            text,
+            ..
+        }) = state.entries.first()
+        else {
+            panic!("kein wartender Eintrag");
+        };
+        assert_eq!(text, "Hier ist das Protokoll");
+        assert!(matches!(
+            outbox.entries.first(),
+            Some(ChatEntry::User { queued: true, .. })
+        ));
+        let moved = Path::new(&attachments[0].path);
+        assert!(
+            moved.starts_with(&session.workspace),
+            "im Workspace: {moved:?}"
+        );
+        assert!(moved.is_file());
+        assert!(!staging.join(&id).exists(), "der Zwischenordner ist leer");
+        assert_eq!(
+            user_rows(&session),
+            [(0, "Hier ist das Protokoll".to_owned())]
+        );
+        assert_eq!(state.status, SessionStatus::Completed, "kein Start");
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn a_message_goes_now_with_a_free_slot_to_a_running_or_new_session_and_as_an_answer() {
+        let base = temp_base("now");
+        let (registry, session) = registry_with_full_limit(&base);
+        // Freier Platz, nichts wartet: sofort.
+        assert_eq!(
+            route_input(&session, &session.lock(), Some(true)).expect("Weg"),
+            InputRoute::Start
+        );
+        // Eine laufende Session belegt schon einen Platz.
+        session.lock().status = SessionStatus::Running;
+        assert_eq!(
+            route_input(&session, &session.lock(), Some(false)).expect("Weg"),
+            InputRoute::Start
+        );
+        // Die erste Nachricht einer neuen Session.
+        session.lock().status = SessionStatus::New;
+        assert_eq!(
+            route_input(&session, &session.lock(), Some(false)).expect("Weg"),
+            InputRoute::Start
+        );
+        // Freitext zu einer offenen Rückfrage beantwortet sie, auch ohne Platz.
+        {
+            let mut state = session.lock();
+            state.status = SessionStatus::Completed;
+            state.ask(
+                &mut Outbox::default(),
+                "r".to_owned(),
+                QuestionKind::AskUser,
+                Vec::new(),
+                Value::Null,
+                None,
+            );
+        }
+        assert_eq!(
+            route_input(&session, &session.lock(), Some(false)).expect("Weg"),
+            InputRoute::Answer
+        );
+        // Die automatischen Wege über `send` reihen nie ein.
+        session.lock().pending.clear();
+        session.lock().status = SessionStatus::Completed;
+        assert_eq!(
+            route_input(&session, &session.lock(), None).expect("Weg"),
+            InputRoute::Start
+        );
+        drop(registry);
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn a_new_message_queues_behind_own_waiting_messages_even_with_a_free_slot() {
+        let base = temp_base("behind");
+        let (_registry, session) = registry_with_full_limit(&base);
+        queue_text(&session, &base.join("staging"), "erste", &[]);
+        assert_eq!(
+            route_input(&session, &session.lock(), Some(true)).expect("Weg"),
+            InputRoute::Queue
+        );
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn the_release_sends_the_stored_entry_without_a_second_one() {
+        let base = temp_base("release");
+        let (_registry, session) = registry_with_full_limit(&base);
+        let staging = base.join("staging");
+        let id = staged(&staging, "notiz.txt");
+        queue_text(&session, &staging, "Bitte prüfen", &[id]);
+        let mut state = session.lock();
+        assert_eq!(
+            session_tools::user_release(&state, 0),
+            session_tools::UserRelease::Sent
+        );
+        let mut outbox = Outbox::default();
+        let released =
+            release_queued(&session, &mut state, &mut outbox, 0, &[], None).expect("freigegeben");
+        assert_eq!(state.entries.len(), 1, "kein zweiter Eintrag");
+        assert!(!state.is_queued(0), "die Marke ist weg");
+        assert!(matches!(
+            outbox.entries.as_slice(),
+            [ChatEntry::User { queued: false, .. }]
+        ));
+        assert!(released.line.contains("Bitte prüfen"));
+        assert!(released.line.contains("notiz.txt"), "der Anhang geht mit");
+        assert!(!released.by_hand);
+        // Ein zweiter Versuch findet den Eintrag gesendet: nur die Zeile geht, nichts doppelt.
+        assert_eq!(
+            session_tools::user_release(&state, 0),
+            session_tools::UserRelease::Stale
+        );
+        assert!(release_queued(&session, &mut state, &mut outbox, 0, &[], None).is_err());
+        drop(state);
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn a_queued_compact_is_released_as_compact() {
+        let base = temp_base("compact");
+        let (_registry, session) = registry_with_full_limit(&base);
+        queue_text(&session, &base.join("staging"), compact::COMPACT_TEXT, &[]);
+        let mut state = session.lock();
+        let released = release_queued(&session, &mut state, &mut Outbox::default(), 0, &[], None)
+            .expect("freigegeben");
+        assert!(released.by_hand);
+        drop(state);
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn two_queued_messages_go_out_in_their_order_and_none_is_left() {
+        let base = temp_base("order");
+        let (_registry, session) = registry_with_full_limit(&base);
+        let staging = base.join("staging");
+        queue_text(&session, &staging, "erste", &[]);
+        // Eine Session-Nachricht dazwischen hält die eigenen nicht auf.
+        session
+            .database
+            .with(|connection| {
+                let sender = SessionRef {
+                    id: "x".to_owned(),
+                    number: 3,
+                    title: "X".to_owned(),
+                };
+                session_inbox::insert(connection, "q", &sender, "fremd", 0, now_ms())
+            })
+            .expect("Session-Nachricht");
+        queue_text(&session, &staging, "zweite", &[]);
+        let mut sent: Vec<String> = Vec::new();
+        while let Some(row) = session
+            .database
+            .with(|connection| session_inbox::oldest_from_user(connection, "q"))
+            .expect("lesen")
+        {
+            let seq = row.entry_seq.expect("eigene Nachricht");
+            let mut state = session.lock();
+            assert_eq!(
+                session_tools::user_release(&state, seq),
+                session_tools::UserRelease::Sent
+            );
+            release_queued(&session, &mut state, &mut Outbox::default(), seq, &[], None)
+                .expect("freigegeben");
+            // Hat die erste ihren Platz, folgen die übrigen wie an eine laufende Session.
+            state.status = SessionStatus::Running;
+            drop(state);
+            sent.push(row.text);
+            session
+                .database
+                .with(|connection| session_inbox::delete(connection, row.id))
+                .expect("löschen");
+        }
+        assert_eq!(sent, ["erste", "zweite"]);
+        assert!(user_rows(&session).is_empty(), "keine bleibt liegen");
+        let state = session.lock();
+        assert!(!state.is_queued(0) && !state.is_queued(1));
+        drop(state);
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn a_session_that_cannot_take_its_message_keeps_it_waiting() {
+        let base = temp_base("later");
+        let (_registry, session) = registry_with_full_limit(&base);
+        queue_text(&session, &base.join("staging"), "später", &[]);
+        for status in [SessionStatus::Cancelled, SessionStatus::Error] {
+            session.lock().status = status;
+            assert_eq!(
+                session_tools::user_release(&session.lock(), 0),
+                session_tools::UserRelease::Later
+            );
+        }
+        session.lock().status = SessionStatus::Completed;
+        session.lock().ask(
+            &mut Outbox::default(),
+            "r".to_owned(),
+            QuestionKind::AskUser,
+            Vec::new(),
+            Value::Null,
+            None,
+        );
+        assert_eq!(
+            session_tools::user_release(&session.lock(), 0),
+            session_tools::UserRelease::Later
+        );
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn send_now_releases_over_the_limit() {
+        // „Jetzt senden“ fragt das Tor nicht: Die Freigabe entscheidet allein am Eintrag und am Status.
+        let base = temp_base("now-over");
+        let (registry, session) = registry_with_full_limit(&base);
+        queue_text(&session, &base.join("staging"), "jetzt", &[]);
+        assert!(!registry.claim_session_slot("q"), "die Grenze ist erreicht");
+        assert_eq!(
+            session_tools::user_release(&session.lock(), 0),
+            session_tools::UserRelease::Sent
+        );
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn the_release_reads_the_comments_of_a_queued_message_after_a_restart() {
+        // Nach einem Neustart steht der Eintrag nur in der Datenbank; `lock` sähe ihn nicht.
+        let base = temp_base("restart-comments");
+        let (_registry, session) = registry_with_full_limit(&base);
+        let comment = ReviewComment {
+            target: crate::review::model::CommentTarget::Diff,
+            repository_key: "0".to_owned(),
+            repository_name: "repo".to_owned(),
+            path: "a.rs".to_owned(),
+            kind: crate::changes::model::DiffLineKind::Added,
+            line: 1,
+            code: "x".to_owned(),
+            text: "Kommentar".to_owned(),
+        };
+        let mut outbox = Outbox::default();
+        {
+            let mut state = session.lock();
+            queue_user_turn(
+                &base.join("staging"),
+                &session,
+                &mut state,
+                &mut outbox,
+                "mit Kommentar",
+                &[],
+                std::slice::from_ref(&comment),
+                None,
+                None,
+                None,
+            )
+            .expect("eingereiht");
+        }
+        session
+            .database
+            .with(|connection| chat_entries::upsert_all(connection, "q", &outbox.entries))
+            .expect("gespeichert");
+        {
+            let mut state = session.lock();
+            state.entries.clear();
+            state.entries_loaded = false;
+        }
+        let comments = session_tools::queued_comments(&session, 0).expect("gelesen");
+        assert_eq!(comments.len(), 1);
+        assert_eq!(comments[0].text, "Kommentar");
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn send_now_reports_why_a_session_does_not_take_its_message() {
+        assert!(matches!(
+            session_tools::refuses_now(SessionStatus::Cancelled, true),
+            CommandError::SessionClosed
+        ));
+        assert!(matches!(
+            session_tools::refuses_now(SessionStatus::Error, true),
+            CommandError::AgentStopped
+        ));
+        assert!(matches!(
+            session_tools::refuses_now(SessionStatus::Completed, true),
+            CommandError::Implementation(text) if text == QUEUED_ANSWER_FIRST
+        ));
+    }
+
+    #[test]
+    fn the_pass_collects_own_messages_of_a_resting_session_as_one_entry() {
+        let base = temp_base("pass");
+        let (registry, session) = registry_with_full_limit(&base);
+        let staging = base.join("staging");
+        queue_text(&session, &staging, "erste", &[]);
+        queue_text(&session, &staging, "zweite", &[]);
+        let own: Vec<slots::Waiter> = registry
+            .waiters(now_ms())
+            .into_iter()
+            .filter(|waiter: &slots::Waiter| waiter.key == "q")
+            .collect();
+        assert_eq!(own.len(), 1, "ein Eintrag je Session");
+        assert!(own[0].entry.from_user);
+        assert_eq!(own[0].entry.kind, slots::QueueKind::Message);
+        // Arbeitet die Session, holt sie der Durchgang erst nach ihrem Zug ab.
+        session.lock().status = SessionStatus::Running;
+        assert!(
+            registry
+                .waiters(now_ms())
+                .iter()
+                .all(|waiter: &slots::Waiter| waiter.key != "q")
+        );
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn after_a_restart_a_station_with_an_own_message_waits_for_a_slot_and_one_without_does_not() {
+        let base = temp_base("restart");
+        let (registry, session) = registry_with_full_limit(&base);
+        // Nach dem Neustart: Station ohne Markierung der Umsetzung (Critical Rule 4).
+        session.lock().station_of = Some("i".to_owned());
+        registry.add_station_session_for_test("ohne", "p", "i", SessionStatus::Completed);
+        queue_text(&session, &base.join("staging"), "weiter", &[]);
+        let waiters = registry.waiters(now_ms());
+        assert!(
+            waiters
+                .iter()
+                .any(|waiter: &slots::Waiter| waiter.key == "q" && waiter.entry.from_user),
+            "die eigene Nachricht wartet auf ihren Platz"
+        );
+        assert!(
+            waiters
+                .iter()
+                .all(|waiter: &slots::Waiter| waiter.key != "ohne"),
+            "eine Station ohne Nachricht startet nicht"
+        );
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn migration_34_adds_entry_seq_to_a_database_with_rows_from_33() {
+        let mut connection = rusqlite::Connection::open_in_memory().expect("Datenbank");
+        for script in crate::db::migrations::first(33) {
+            connection.execute_batch(script).expect("alte Migration");
+        }
+        connection
+            .execute_batch(
+                "PRAGMA user_version = 33; \
+                 INSERT INTO projects (id, name, created_at) VALUES ('p', 'V', 1.0); \
+                 INSERT INTO sessions (id, project_id, name, status, model, effort, mode, created_at, \
+                     running_ms, context_used, context_window, has_agent_history) \
+                 VALUES ('s', 'p', 'S', 'completed', 'opus', 'high', 'auto', 1.0, 0, 0, 0, 0); \
+                 INSERT INTO session_inbox (session_id, sender_id, sender_number, sender_title, text, \
+                     chain, created_at, subject) VALUES ('s', 'm', 1, 'M', 'wartet', 0, 1.0, 'B');",
+            )
+            .expect("Bestand");
+        crate::db::migrations::run(&mut connection).expect("wandert");
+        let version: u32 = connection
+            .query_row("PRAGMA user_version", [], |row| row.get(0))
+            .expect("Version");
+        assert_eq!(version, 34);
+        let row = session_inbox::oldest(&connection, "s")
+            .expect("lesen")
+            .expect("Zeile bleibt");
+        assert_eq!((row.text.as_str(), row.entry_seq), ("wartet", None));
+        assert!(
+            session_inbox::oldest_from_user(&connection, "s")
+                .expect("lesen")
+                .is_none(),
+            "eine Session-Nachricht ist keine eigene"
+        );
     }
 }

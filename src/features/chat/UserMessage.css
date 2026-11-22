@@ -14,6 +14,27 @@
     background: var(--color-bg-surface);
   }
 
+  /* Wartet auf einen freien Platz (Taiga-Story 190, Marke B): ohne Farbe lesbar an Wort, Uhr und Strichen. */
+  &__box--queued {
+    border-style: dashed;
+    border-color: var(--color-status-waiting);
+  }
+
+  &__queued {
+    display: inline-flex;
+    align-self: flex-start;
+    align-items: center;
+    gap: var(--space-xs);
+    padding: 0 var(--space-md);
+    border: 1px solid var(--color-status-waiting);
+    border-radius: var(--radius-full);
+    background: var(--color-status-waiting-subtle);
+    color: var(--color-status-waiting);
+    font-size: var(--font-size-2xs);
+    line-height: 16px;
+    white-space: nowrap;
+  }
+
   &__box--with-comments {
     width: min(560px, 100%);
     box-sizing: border-box;

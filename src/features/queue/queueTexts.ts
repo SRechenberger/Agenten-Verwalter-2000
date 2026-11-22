@@ -85,12 +85,15 @@ export function waitingChipText(count: number): string {
 export const WAITING_CHIP_TITLE = 'Liste der Warteschlange';
 export const QUEUE_LIST_LABEL = 'Warteschlange';
 export const QUEUE_ORDER_NOTE =
-  'Reihenfolge: Stufe des Vorhabens, dann Priorität der Station, dann wer früher wartet. Eine Nachricht an den Master einer Umsetzung steht vor den Wartenden ihres Vorhabens.';
+  'Reihenfolge: Stufe des Vorhabens, dann Priorität der Station, dann wer früher wartet. Eine Nachricht an den Master einer Umsetzung und eine eigene Nachricht stehen vor den Wartenden ihres Vorhabens.';
 
-/** Spalte „Was“: „Station · Umsetzung · C-5 · Review“. */
+/** Spalte „Was“: „Station · Umsetzung · C-5 · Review“; eine eigene Nachricht „Eigene Nachricht · <Session>“
+ *  (Taiga-Story 190), die einer Session bleibt „Nachricht · <Session>“. */
 export function entryWhat(entry: QueueEntry): string {
-  return `${KIND_LABEL[entry.kind]} · ${entry.title}`;
+  return `${entry.fromUser ? OWN_MESSAGE_LABEL : KIND_LABEL[entry.kind]} · ${entry.title}`;
 }
+
+const OWN_MESSAGE_LABEL = 'Eigene Nachricht';
 
 /** Spalte „Stufe“: „normal“, mit Vorrang der Station „normal · Station +1“. */
 export function entryStage(entry: QueueEntry): string {
@@ -149,6 +152,25 @@ export function sessionWaitPosition(
 export function messageWaitText(position: number): string {
   return `Nachricht wartet · Platz ${String(position)}`;
 }
+
+/** Marke an der Blase einer eigenen Nachricht, die auf einen Platz wartet (Taiga-Story 190): „wartet · Platz 2“;
+ *  ohne Platz (Warteschlange noch nicht gelesen) nur „wartet“. */
+export function queuedMarkText(position: number | null): string {
+  return position === null ? 'wartet' : `wartet · Platz ${String(position)}`;
+}
+
+/** Hinweis über dem Eingabefeld (Taiga-Story 190): „Deine Nachricht wartet auf einen freien Platz (Platz 2).“,
+ *  bei mehreren „Deine 2 Nachrichten warten …“. Alle gehen zusammen hinaus, sie teilen den Platz. */
+export function queuedHintText(count: number, position: number | null): string {
+  const subject: string =
+    count === 1 ? 'Deine Nachricht wartet' : `Deine ${String(count)} Nachrichten warten`;
+  const place: string = position === null ? '' : ` (Platz ${String(position)})`;
+  return `${subject} auf einen freien Platz${place}.`;
+}
+
+export const SEND_NOW_LABEL = 'Jetzt senden';
+export const SEND_NOW_TITLE =
+  'Schickt die wartenden Nachrichten dieser Session sofort ab, auch über der Grenze.';
 
 /** Dasselbe kurz für die schmalen Zeilen der Sidebar: „✉ Platz 2“. */
 export function messageWaitShort(position: number): string {
@@ -255,7 +277,7 @@ export function waitingCount(sections: readonly QueueSection[]): number {
 export const QUEUE_NOTHING_WAITING = 'Nichts wartet.';
 
 export const SLOTS_TITLE =
-  'Agenten, die gerade einen Platz belegen, über alle Vorhaben. Eigene Nachrichten starten sofort, auch über der Grenze; was der Verwalter von selbst startet, wartet. Über der Grenze liegt die Zahl nach einem eigenen Start oder nach dem Senken der Grenze. Ist das Kontingent knapp („Stationen anhalten ab“), startet der Verwalter keine Station von selbst, bis das Fenster zurückgesetzt ist.';
+  'Agenten, die gerade einen Platz belegen, über alle Vorhaben. Eigene Nachrichten an ruhende Sessions warten, wenn die Grenze erreicht ist; mit ‚Jetzt senden‘ gehen sie trotzdem sofort hinaus. Antworten auf Rückfragen, laufende Sessions und erste Nachrichten starten sofort und zählen mit. Was der Verwalter von selbst startet, wartet. Über der Grenze liegt die Zahl nach einem eigenen Start oder nach dem Senken der Grenze. Ist das Kontingent knapp („Stationen anhalten ab“), startet der Verwalter keine Station von selbst, bis das Fenster zurückgesetzt ist.';
 export const SLOTS_SETTINGS_LINK = 'Grenze in den Einstellungen';
 
 export function isOverLimit(queue: AgentQueue): boolean {

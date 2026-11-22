@@ -236,6 +236,9 @@ export function ChatView({
         <Composer
           session={session}
           onSessionCreated={onSessionCreated}
+          queuedCount={
+            entries.filter((entry: ChatEntry) => entry.kind === 'user' && entry.queued).length
+          }
           taskHint={
             tasks.hint === null ? null : (
               <ChatTaskRow

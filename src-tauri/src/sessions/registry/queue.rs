@@ -10,7 +10,7 @@ use std::thread;
 
 use tauri::{AppHandle, Emitter, Manager};
 
-use super::session_tools::takes_oldest;
+use super::session_tools::{takes_oldest, takes_user_messages};
 use super::{Session, SessionRegistry, now_ms};
 use crate::db::session_inbox;
 use crate::implementation::model::ImplementationView;
@@ -260,7 +260,8 @@ impl SessionRegistry {
     }
 
     /// Alle Wartenden: bereite Stationen markierter Umsetzungen, Stationen vor dem Neustart nach „Bei
-    /// Fehler“, die älteste Nachricht jeder ruhenden Session (auch einer geöffneten, die noch nie lief)
+    /// Fehler“, die wartenden eigenen Nachrichten einer ruhenden oder pausierten Session als ein Eintrag
+    /// (`takes_user_messages`, Taiga-Story 190), sonst die älteste Nachricht jeder ruhenden Session (auch einer geöffneten, die noch nie lief)
     /// und fällige Fortsetzungen; dazu die pausierte Station ohne scharfen Zeitgeber, in deren Posteingang
     /// eine Nachricht ihres Masters seit Beginn der Pause liegt (`takes_oldest`). In der Reihenfolge des Sammelns; ordnen tut das Tor.
     pub(super) fn waiters(&self, now: f64) -> Vec<Waiter> {
@@ -297,10 +298,16 @@ impl SessionRegistry {
             let has_message = with_messages.contains(&session.id);
             // Vor der Session-Sperre: erst die Session kurz, dann die Datenbank.
             let master_waits = has_message && self.master_message_waits(&session);
-            let (title, takes_message, resume_due_at) = {
+            let (title, takes_user, takes_message, resume_due_at) = {
                 let state = session.lock();
                 (
                     state.name.clone(),
+                    has_message
+                        && takes_user_messages(
+                            state.status,
+                            !state.pending.is_empty(),
+                            state.holds_slot_at(now),
+                        ),
                     has_message
                         && takes_oldest(
                             state.status,
@@ -323,8 +330,30 @@ impl SessionRegistry {
                 priority: priority_of(&session.project_id),
                 station_priority: 0,
                 since_ms,
+                from_user: false,
             };
-            if takes_message {
+            // Eigene Nachrichten (Taiga-Story 190) gehen vor den Nachrichten anderer Sessions an dieselbe
+            // Session: Ein Eintrag je Session, die Freigabe schickt alle in ihrer Reihenfolge.
+            let oldest_from_user = if takes_user {
+                session
+                    .database
+                    .with(|connection| session_inbox::oldest_from_user(connection, &session.id))
+                    .ok()
+                    .flatten()
+            } else {
+                None
+            };
+            if let Some(row) = oldest_from_user {
+                waiters.push(Waiter {
+                    entry: QueueEntry {
+                        from_user: true,
+                        ..entry(QueueKind::Message, row.created_at)
+                    },
+                    key: session.id.clone(),
+                    start: Start::Session,
+                    master_message: false,
+                });
+            } else if takes_message {
                 let oldest = session
                     .database
                     .with(|connection| session_inbox::oldest(connection, &session.id));
@@ -369,12 +398,19 @@ fn start_waiter(app: &AppHandle, waiter: &Waiter, token: u64) {
         (Start::Session, _, Some(session_id)) => {
             let session_id = session_id.clone();
             let kind = entry.kind;
+            let from_user = entry.from_user;
             spawn_start(app, waiter, move |thread_app: &AppHandle| {
                 let registry = thread_app.state::<SessionRegistry>();
                 if kind == QueueKind::Resume {
                     registry.resume_claimed(thread_app, &session_id);
                 } else if let Ok(session) = registry.get(&session_id)
-                    && !registry.deliver_oldest(thread_app, &session)
+                    && !(if from_user {
+                        registry
+                            .deliver_user_messages(thread_app, &session, false)
+                            .is_ok()
+                    } else {
+                        registry.deliver_oldest(thread_app, &session)
+                    })
                 {
                     // Die Wartenden dahinter rücken jetzt nach (`slots::Countdowns::start_failed`).
                     registry.lock_countdowns().start_failed(&session_id);

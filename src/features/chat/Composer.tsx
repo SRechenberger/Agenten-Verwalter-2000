@@ -6,6 +6,7 @@ import { AttachMenu } from '@/features/attachments/AttachMenu';
 import { AttachmentRow } from '@/features/attachments/AttachmentRow';
 import { useAttachmentInput } from '@/features/attachments/useAttachmentInput';
 import { CommandMenu } from '@/features/chat/CommandMenu';
+import { QueuedHint } from '@/features/chat/QueuedHint';
 import { applySkillToDraft } from '@/features/chat/commandMenuRows';
 import type { CommandRow, SessionCommand } from '@/features/chat/commandMenuRows';
 import { useCommandMenu } from '@/features/chat/useCommandMenu';
@@ -105,6 +106,8 @@ interface ComposerProps {
   onSessionCreated: (created: SessionSummary) => void;
   /** Hinweis auf die erste Aufforderung der Session (#128), über den Hinweisen des Feldes; `null` ohne. */
   taskHint?: ReactElement | null;
+  /** Eigene Nachrichten, die auf einen freien Platz warten (Taiga-Story 190): Hinweis mit „Jetzt senden“. */
+  queuedCount?: number;
 }
 
 /** Die Eingabeleiste; solange das Vorhaben gesperrt ist (ein Gast steuert, der Host fehlt), steht an ihrer
@@ -113,15 +116,28 @@ export function Composer({
   session,
   onSessionCreated,
   taskHint = null,
+  queuedCount = 0,
 }: ComposerProps): ReactElement {
   const lock = useProjectLock(session.projectId);
   if (lock !== null) {
     return <LockedComposer session={session} lock={lock} />;
   }
-  return <ComposerForm session={session} onSessionCreated={onSessionCreated} taskHint={taskHint} />;
+  return (
+    <ComposerForm
+      session={session}
+      onSessionCreated={onSessionCreated}
+      taskHint={taskHint}
+      queuedCount={queuedCount}
+    />
+  );
 }
 
-function ComposerForm({ session, onSessionCreated, taskHint = null }: ComposerProps): ReactElement {
+function ComposerForm({
+  session,
+  onSessionCreated,
+  taskHint = null,
+  queuedCount = 0,
+}: ComposerProps): ReactElement {
   const [openMenu, setOpenMenu] = useState<OpenMenu>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isSending, setIsSending] = useState<boolean>(false);
@@ -405,6 +421,7 @@ function ComposerForm({ session, onSessionCreated, taskHint = null }: ComposerPr
       <SideWindow session={session} />
       <div className={boxClass}>
         {taskHint}
+        <QueuedHint sessionId={session.id} count={queuedCount} />
         <CacheColdHint session={session} onSessionCreated={onSessionCreated} />
         <ReviewCommentList sessionId={session.id} />
         {pending.length > 0 && (

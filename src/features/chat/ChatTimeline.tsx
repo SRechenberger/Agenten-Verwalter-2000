@@ -373,6 +373,7 @@ export function ChatTimeline({
             skill={entry.skill}
             comments={entry.comments}
             origin={entry.origin}
+            queued={entry.queued}
           />
         );
       case 'text': {
