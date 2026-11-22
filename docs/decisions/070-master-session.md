@@ -76,6 +76,25 @@ Nachtrag **Unterbrochen** (Fix round 3, Wortlaut `wake.rs`, `--wake-texts`, Haik
 
 0 von 24 Läufen verweigerten; es war keine Umformulierung nötig. Eine erste Fassung ohne Kennung der Station wurde in der Fix-Runde ergänzt: Die Meldungen „Gemeldet“, „Ohne Meldung“, „Fehler“ und „Gestoppt“ sowie die Nachricht an einen neuen Master nennen jetzt `(station_id: …)`, die der Master für `implementation_review_station` braucht; die Messung der Tabelle wurde mit dieser Fassung wiederholt (CLI 2.1.296, je Ereignis drei Läufe, 0 Verweigerungen). Ein zweiter Lauf mit dem Schema von `implementation_review_station` als Text im Prompt (fünf Ereignisse, je drei Läufe) führte 15 von 15 Mal zu einem Aufruf mit der richtigen `station_id` (`s1`, bei der Nachricht an den neuen Master `st-7`). Mehrere Antworten sind durch die fehlenden Werkzeuge der Messung nicht verwertbar (erfundene Aufrufe, „Werkzeug nicht geladen“); die Messung belegt nur, dass der Master den Text annimmt, nicht, dass er richtig entscheidet. Die rohen Ausgaben liegen im Scratchpad der Umsetzungs-Session. Ein anderer Wortlaut braucht eine neue Messung. Nicht gemessen: der geänderte Satz zum Master im Planer-Prompt (`plan_prompt`) und in `session_tools_prompt`; die Messung des Planers (`plan-guard-probe`, [ADR 062](062-plane-vorhaben.md)) kostet Kontingent und folgt mit der Abnahme.
 
+**Nachtrag 2026-11-22: Kennung statt Lane (Taiga-Story 192, [ADR 061](061-constraint-ablaeufe.md), Nachtrag 2026-11-22).** Die Weck-Texte und die Nachricht an einen neuen Master nennen die Station mit ihrer Anzeige `<Kennung> · <Stufe>` statt „Lane k · Stufe“, vor der `station_id`, etwa „… hat sich C-5 · Review (station_id: <uuid>) gemeldet …“ (`model::station_label`; `WakeFacts.lane` trägt jetzt die Kennung). `STATION_WAKE_START` und das Format „(station_id: …)“ bleiben, `delete_wakes_of_station` greift unverändert. `implementation_review_station` nimmt in `station_id` die `id` oder die Kennung einer Station der eigenen Umsetzung, etwa „C-5“ (Leerraum am Rand zählt nicht, `implementation::station_by_reference`); ist sie unbekannt, nennt der Fehler beide Formen. Die Antworten nennen die Station ebenso („Als Nächstes startet: C-6 · Fix-Runde.“).
+
+Messung wie oben: 2026-11-22, `claude -p --model haiku` (Version 2.1.296), `--tools ""`, `--setting-sources ""`, `--no-session-persistence`, Wegwerf-`HOME` mit verlinktem `.claude`, ohne `CLAUDE*`-Variablen, Systemprompt `prompt.txt` als `--append-system-prompt`, Texte aus `implementation-probe --wake-texts` (Kennung „C-5“). Je geändertem Ereignis drei Läufe:
+
+| Ereignis | Läufe | verweigert | Verhalten |
+| :- | :- | :- | :- |
+| Gemeldet, ohne Befund | 3 | 0 | zweimal erst prüfen (einmal ein erfundener Aufruf von `implementation_review_station` mit `station_id` s1), einmal „zurückgeben“ empfohlen |
+| Gemeldet, mit Befund (`fix_needed`) | 3 | 0 | zweimal zurückgeben (erfundener Aufruf mit `station_id` s1), einmal erst prüfen |
+| Ohne Meldung | 3 | 0 | einmal Stand prüfen wollen (erfundene Aufrufe), zweimal ohne Werkzeuge nichts entschieden |
+| Fehler | 3 | 0 | dreimal Stand prüfen wollen; einmal erfundene Aufrufe |
+| Gestoppt | 3 | 0 | dreimal zur Kenntnis genommen, Stand prüfen wollen |
+| Fertig | 3 | 0 | dreimal zur Kenntnis genommen, ohne Aktion |
+| Von Hand fertig | 3 | 0 | dreimal „gilt als angenommen“, kein Werkzeug |
+| Rückfrage | 3 | 0 | dreimal nicht selbst entschieden, die Entscheidung liegt beim Benutzer |
+| Unterbrochen | 3 | 0 | dreimal wartet auf das Zugende, nimmt nicht an |
+| Nachricht an einen neuen Master | 3 | 0 | dreimal als Übernahme gelesen, die offene Meldung wollte er erst prüfen; zweimal erfundene Aufrufe |
+
+0 von 30 Läufen verweigerten; der Wortlaut bleibt. Wie bisher belegt die Messung nur, dass der Master den Text annimmt; Werkzeuge fehlten. Nicht gemessen: die Fassung mit Referenz („Gemeldet“ mit `msg-<id>`, [ADR 072](072-nachrichten-ueber-referenzen.md)), die dafür eine Attrappe von `verwalter_read_message` braucht; ihr Satz um die Kennung ist derselbe. Die Rohdaten liegen im Scratchpad der Umsetzungs-Session.
+
 ## Oberfläche
 
 Gebaut in Phase 99.2 nach dem Entwurf [`docs/design/2026-11-17_master-session/`](../design/2026-11-17_master-session/README.md); die Abweichungen stehen dort. Die Oberfläche zeigt, was der Core liefert (`state`, `report`, `returnsLeft`, `released`, `masterSessionId`, `masterMissing`), und rechnet keine Regel des Kerns nach.
