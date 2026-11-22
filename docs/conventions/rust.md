@@ -7,7 +7,7 @@
 > | Desktop | Tauri 2 |
 > | Datenbank | SQLite über rusqlite |
 > | Git | native `git`-Kommandozeile |
-> | Lint | `cargo clippy -- -D warnings`, `cargo fmt --check` |
+> | Lint | `cargo clippy --all-targets -- -D warnings`, `cargo fmt --check` |
 >
 > Projektentscheidungen in dieser Datei haben Vorrang vor allgemeinen Gewohnheiten.
 
@@ -42,7 +42,7 @@ src-tauri/src/
 ## Prozesse
 
 - Sessions überleben die UI (Datenbank, `--resume`); der Agent-Prozess endet mit der App und wird bei Bedarf neu gestartet — nicht der Prozess, sondern die Session ist die Einheit, die einen Absturz überlebt.
-- Windows zuerst: Beenden ohne POSIX-Signale, Pfade mit Laufwerksbuchstaben, Pfadlänge beachten. Plattformunterschiede gekapselt in `processes/` und `filesystem/`.
+- Windows zuerst: Beenden unter Windows ohne POSIX-Signale (`taskkill /T /F`), unter Unix über `processes::signal_group` ([ADR 074](../decisions/074-agentenprozesse-beenden.md)), Pfade mit Laufwerksbuchstaben, Pfadlänge beachten. Plattformunterschiede gekapselt in `processes/` und `filesystem/`.
 - Kindprozesse starten nur über `processes::command` (das Pseudo-Terminal über `processes::pty_command`), nie mit `Command::new` oder `CommandBuilder::new`; Clippy sperrt beide (`src-tauri/clippy.toml`). Der Helfer nimmt im AppImage alle Einträge unter `$APPDIR` aus den Umgebungsvariablen des Kindprozesses (siehe „Umgebung des AppImage“ im [Glossar](../glossary.md)), sonst laden `node`, `python3`, `curl` und `git` die älteren Bibliotheken des Bündels und scheitern. Er ändert nur die betroffenen Variablen, nie mit `env_clear`: der Schlüssel des MCP-Zugangs und die Variablen der Betriebsarten stehen nur in der Umgebung; ein späteres `.env(…)` des Aufrufers gewinnt. Ein Programm aus dem Bündel selbst (die eigene Exe in den Betriebsarten Autark und Codex) behält die Umgebung. Ein Agentenprozess (Kommandozeile, Codex, Shell-Aufgaben und MCP-Clients des eigenen Agenten) bekommt dazu `processes::own_group`, eine eigene Prozessgruppe unter Unix; beendet wird er mit `processes::signal_group`, nur solange sein Anführer nicht eingesammelt ist ([ADR 074](../decisions/074-agentenprozesse-beenden.md)).
 - Ein Pfad, der mit `/` aus Git-Ausgabe oder URL kommt, wird mit `filesystem::native_path` zum Dateisystempfad — nie mit einem eigenen `replace('/', "\\")`. Unter Linux und macOS ist `\` ein gültiges Zeichen im Dateinamen. Reine Vergleichsschlüssel (`normalized_dir`, `attribution::normalize_path`) bleiben davon ausgenommen: sie werden nie geöffnet.
 
@@ -55,7 +55,7 @@ src-tauri/src/
 
 ## Typen für die UI
 
-Typen, die über die Tauri-Grenze gehen, werden im Core definiert und nach `src/lib/bindings/` generiert — mit `ts-rs`, ausgelöst über `pnpm bindings`. Der Export läuft über das Hilfsprogramm `src-tauri/examples/gen-bindings.rs` (neuer Typ → `derive(TS)` und Eintrag dort), nicht über `#[ts(export)]`, weil das an `cargo test` hängt und `pnpm check` keinen Testlauf fährt (Tests gibt es nur in `implementation/tests.rs`, `dashboard/tests.rs`, `agent_types/tests.rs`, unter `remote/` (dazu die vier in `sessions/registry/remote.rs`, deren Pfad `remote::` enthält), der eine in `sessions/registry/session_tools/agent_types.rs`, dessen Pfad `agent_types::` enthält, unter `processes/`, in `agents/event.rs`, in `terminal/mod.rs` (`mod tests`) und in `sessions/registry.rs` (`mod tests`); alle laufen mit `cargo test --lib` und in CI: die vier Schritte von `check.yml` treffen mit ihren Filtern jeden Test der Bibliothek genau einmal, nachzählen mit `cargo test --lib -- --list`). `[profile.dev]` setzt `debug = "line-tables-only"`: Backtraces behalten Datei und Zeile, aber die Debug-Info schrumpft, und das Linken braucht weniger Speicher (Taiga-Issue 74). Ob die Beispiele kompilieren, prüft `cargo check --manifest-path src-tauri/Cargo.toml --all-targets`. Weil `examples/` ein zweites Programm neben der App ist, steht in `Cargo.toml` `default-run = "verwalter"`. Begründung: [ADR 002](../decisions/002-typgenerierung-und-listen.md).
+Typen, die über die Tauri-Grenze gehen, werden im Core definiert und nach `src/lib/bindings/` generiert — mit `ts-rs`, ausgelöst über `pnpm bindings`. Der Export läuft über das Hilfsprogramm `src-tauri/examples/gen-bindings.rs` (neuer Typ → `derive(TS)` und Eintrag dort), nicht über `#[ts(export)]`, weil das an `cargo test` hängt und `pnpm check` keinen Testlauf fährt (Tests laufen mit `cargo test --lib`; `check.yml` hat dafür einen Schritt ohne Filter, danach die Prüfung der Bindings, und `cargo check --all-targets` läuft nur im Job `compile` auf macOS und Ubuntu, der scheitern darf, nachzählen mit `cargo test --lib -- --list`). `[profile.dev]` setzt `debug = "line-tables-only"`: Backtraces behalten Datei und Zeile, aber die Debug-Info schrumpft, und das Linken braucht weniger Speicher (Taiga-Issue 74). Ob die Beispiele kompilieren, prüft `cargo check --manifest-path src-tauri/Cargo.toml --all-targets`. Weil `examples/` ein zweites Programm neben der App ist, steht in `Cargo.toml` `default-run = "verwalter"`. Begründung: [ADR 002](../decisions/002-typgenerierung-und-listen.md).
 
 ## Critical Rules
 
