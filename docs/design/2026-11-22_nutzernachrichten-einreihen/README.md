@@ -35,4 +35,4 @@
 
 Empfehlung: Marke **A**, Hinweis **A**, Liste **B**.
 
-Es gilt: (die Wahl trägt der Master nach dem Gespräch mit dem Benutzer ein)
+Es gilt: Marke B, Hinweis A, Liste B (Wahl des Benutzers, 2026-11-22).
