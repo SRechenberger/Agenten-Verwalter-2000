@@ -241,22 +241,6 @@ pub enum StationPauseReason {
 }
 
 impl StationView {
-    /// Belegt einen Platz der globalen Warteschlange (ADR 068, Regel a): Countdown, Start, ein Agent
-    /// mit Zug, das Warten auf ein Skript und eine Station, die auf das Kontingent wartet (ADR 064).
-    /// Eine Rückfrage und ein Fehler (auch vor dem Neustart nach „Bei Fehler“) belegen keinen.
-    /// Gezählt wird nach `slots::holds_slot` und im Tor; außerhalb der Tests ruft `is_active` niemand
-    /// mehr auf, beide Fassungen müssen deshalb von Hand gleich bleiben.
-    pub fn is_active(&self) -> bool {
-        matches!(
-            self.state,
-            StationState::Countdown
-                | StationState::Starting
-                | StationState::Running
-                | StationState::WaitsForScript
-                | StationState::WaitsForQuota
-        )
-    }
-
     /// Der Auftrag samt Änderungen durch Vorgänger, wie die erste Nachricht ihn sendet.
     pub fn effective_brief(&self) -> String {
         effective_brief(&self.brief, &self.brief_changes)
