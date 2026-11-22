@@ -8,16 +8,19 @@ use tauri::{AppHandle, Manager};
 
 use super::model::{
     ChangeSummary, ImplementationView, OnError, PendingChange, PhaseInput, PhaseMark, PhaseView,
-    PredecessorsMay, StationState, StationView, check_agents, stations_in, validate,
+    PredecessorsMay, StationState, StationView, check_agents, refuse_taken_aliases, stations_in,
+    validate,
 };
-use super::{announce, kept_phases, link, now_ms, phase_rows, replans_after_plan_change, start};
+use super::{
+    announce, assigned_text, kept_phases, lane_keys, link, now_ms, number_stations, phase_rows,
+    replans_after_plan_change, start, used_ids,
+};
 use crate::db::implementations::{ChangeRow, PhaseRow, StationRow};
 use crate::error::CommandError;
 use crate::sessions::registry::SessionRegistry;
 
 const NO_PROPOSAL: &str = "Es liegt kein Vorschlag vor.";
 const IS_FINISHED: &str = "Die Umsetzung ist fertig; es gibt nichts mehr zu ändern.";
-const APPLIED: &str = "Übernommen.";
 
 /// Eine Station hat begonnen, sobald sie eine Session hat, gestartet oder angenommen ist; das gilt
 /// auch für eine Station „durch dich“ und eine Befehls-Station, die nie eine Session bekommen.
@@ -37,6 +40,16 @@ pub fn working_station(
     view: &ImplementationView,
     is_starting: impl Fn(&str) -> bool,
 ) -> Option<(String, String)> {
+    working(view, is_starting).map(|(phase, station): (&PhaseView, &StationView)| {
+        (phase.key.clone(), station.stage.clone())
+    })
+}
+
+/// Wie `working_station`, mit Phase und Station.
+pub fn working(
+    view: &ImplementationView,
+    is_starting: impl Fn(&str) -> bool,
+) -> Option<(&PhaseView, &StationView)> {
     view.phases.iter().find_map(|phase: &PhaseView| {
         phase
             .stations
@@ -50,7 +63,7 @@ pub fn working_station(
                         | StationState::WaitsForQuota
                 ) || is_starting(&station.id)
             })
-            .map(|station: &StationView| (phase.key.clone(), station.stage.clone()))
+            .map(|station: &StationView| (phase, station))
     })
 }
 
@@ -167,7 +180,52 @@ pub(super) fn checked_view(
         .require_implementation_of_session(session_id)
         .map_err(|error: CommandError| error.to_string())?;
     registry.check_commands(&view.project_id, &stations_in("phases", inputs), &[])?;
+    refuse_taken_aliases(&stations_in("phases", inputs), &plan_ids(&view))?;
     Ok(view)
+}
+
+/// Die Kennungen aller Stationen der Umsetzung.
+fn plan_ids(view: &ImplementationView) -> Vec<&str> {
+    view.phases
+        .iter()
+        .flat_map(|phase: &PhaseView| phase.stations.iter())
+        .map(|station: &StationView| station.plan_id.as_str())
+        .collect()
+}
+
+/// Die Zeilen der kommenden Phasen nach der Plan-Änderung gegen den Stand `view` und die gespeicherten
+/// Zeilen `rows` (`replacement_rows`), mit Kanten (`link`, geprüft) und Kennungen `<Lane>-<n>` gegen
+/// alle Kennungen von jetzt, auch die der ersetzten Stationen: Keine Nummer kommt wieder (ADR 061,
+/// Nachtrag 2026-11-22). Dazu die neuen Stationen für den Planer (`assigned_text`).
+pub fn replanned(
+    view: &ImplementationView,
+    inputs: &[PhaseInput],
+    rows: &[StationRow],
+) -> Result<(Vec<PhaseRow>, Vec<StationRow>, String), String> {
+    let removed = upcoming(view);
+    let (phases, mut stations) = replacement_rows(&view.id, inputs, &removed, rows);
+    link(&kept_phases(view), inputs, &mut stations)?;
+    let lanes = lane_keys(
+        phases
+            .iter()
+            .map(|phase: &PhaseRow| (phase.id.as_str(), phase.key.as_str())),
+    );
+    let used = used_ids(plan_ids(view).into_iter(), &view.changes);
+    let renames = number_stations(&mut stations, &lanes, &used);
+    let named = assigned_text(renames.iter().zip(&stations).map(
+        |((alias, id), station): (&(String, String), &StationRow)| {
+            (alias.as_str(), id.as_str(), station.stage.as_str())
+        },
+    ));
+    Ok((phases, stations, named))
+}
+
+/// Die Phasen ohne begonnene Station: Sie ersetzt eine Plan-Änderung.
+fn upcoming(view: &ImplementationView) -> Vec<&PhaseView> {
+    view.phases
+        .iter()
+        .filter(|phase: &&PhaseView| !is_begun(phase))
+        .collect()
 }
 
 /// `implementation_set_phases`: gilt sofort, solange keine Station je gestartet ist, sonst liegt
@@ -179,14 +237,17 @@ pub fn propose(app: &AppHandle, session_id: &str, inputs: &[PhaseInput]) -> Resu
         return Err(IS_FINISHED.to_owned());
     }
     let summary = diff(&view, inputs)?;
-    // Kanten und Prüfung wie beim Übernehmen, damit ein Zyklus schon hier abgelehnt wird (ADR 061).
-    let (_, mut stations) = phase_rows(&view.id, inputs, 0);
-    link(&kept_phases(&view), inputs, &mut stations)?;
     if !view.phases.iter().any(is_begun) {
-        apply(app, &registry, &view, inputs, None)
+        let named = apply(app, &registry, &view, inputs, None)
             .map_err(|error: CommandError| error.to_string())?;
-        return Ok(APPLIED.to_owned());
+        return Ok(format!("Übernommen. Neue Stationen: {named}."));
     }
+    // Kanten, Prüfung und Kennungen wie beim Übernehmen, damit ein Zyklus schon hier abgelehnt wird
+    // (ADR 061).
+    let rows = registry
+        .station_rows(&view.id)
+        .map_err(|error: CommandError| error.to_string())?;
+    let (_, _, named) = replanned(&view, inputs, &rows)?;
     let pending = PendingChange {
         session_id: session_id.to_owned(),
         session_number: registry.session_number(session_id),
@@ -203,7 +264,8 @@ pub fn propose(app: &AppHandle, session_id: &str, inputs: &[PhaseInput]) -> Resu
         .map_err(|error: CommandError| error.to_string())?;
     announce(app, &fresh);
     Ok(format!(
-        "Vorgeschlagen: {}; wartet auf Übernehmen.",
+        "Vorgeschlagen: {}; wartet auf Übernehmen. Die neuen Stationen bekämen nach heutigem Stand: \
+         {named}.",
         describe(&summary)
     ))
 }
@@ -226,11 +288,13 @@ pub fn decide(app: &AppHandle, implementation_id: &str, accept: bool) -> Result<
     }
     // Seit dem Vorschlag kann eine Phase begonnen haben: gegen den heutigen Stand neu rechnen.
     let summary = diff(&view, &pending.phases).map_err(CommandError::Implementation)?;
+    refuse_taken_aliases(&stations_in("phases", &pending.phases), &plan_ids(&view))
+        .map_err(CommandError::Implementation)?;
     let record = Record {
         session_id: pending.session_id,
         summary,
     };
-    apply(app, &registry, &view, &pending.phases, Some(record))
+    apply(app, &registry, &view, &pending.phases, Some(record)).map(|_| ())
 }
 
 /// Wer die Änderung vorschlug und was sie bewirkt; fehlt er, wird nichts vermerkt.
@@ -240,24 +304,20 @@ struct Record {
 }
 
 /// Ersetzt die kommenden Phasen, vermerkt die Änderung (mit `record`) und plant die Stationen, die
-/// danach starten dürfen.
+/// danach starten dürfen. Gibt die neuen Stationen für den Planer zurück (`assigned_text`).
 fn apply(
     app: &AppHandle,
     registry: &SessionRegistry,
     view: &ImplementationView,
     inputs: &[PhaseInput],
     record: Option<Record>,
-) -> Result<(), CommandError> {
-    let removed: Vec<&PhaseView> = view
-        .phases
-        .iter()
-        .filter(|phase: &&PhaseView| !is_begun(phase))
-        .collect();
+) -> Result<String, CommandError> {
+    let removed = upcoming(view);
     // Die gespeicherten Zeilen von jetzt: Was der Benutzer seit dem Vorschlag auf der Karte gesetzt
     // hat, zählt mit.
     let rows = registry.station_rows(&view.id)?;
-    let (mut phases, mut stations) = replacement_rows(&view.id, inputs, &removed, &rows);
-    link(&kept_phases(view), inputs, &mut stations).map_err(CommandError::Implementation)?;
+    let (mut phases, stations, named) =
+        replanned(view, inputs, &rows).map_err(CommandError::Implementation)?;
     // Erst nach der Prüfung: Eine abgelehnte Änderung lässt die Countdowns stehen.
     for station in removed
         .iter()
@@ -289,7 +349,7 @@ fn apply(
         // Beendete Countdowns geben ihre Plätze frei (ADR 068).
         start::refill(app);
     }
-    Ok(())
+    Ok(named)
 }
 
 /// Die kommenden Phasen nach der Plan-Änderung, neu aus `inputs`: Eine Phase mit bekanntem Schlüssel

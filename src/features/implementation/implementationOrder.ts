@@ -66,16 +66,6 @@ export function isBegun(station: StationView): boolean {
   return station.sessionId !== null || station.startedAt !== null || station.completedAt !== null;
 }
 
-/** Name einer Station in Chips und Sätzen: die Stufe, bei gleichen Namen in mehreren Lanes mit Lane
- *  („Review · Lane 2“). */
-export function stationName(ref: StationRef, refs: readonly StationRef[]): string {
-  const isShared: boolean = refs.some(
-    (other: StationRef) =>
-      other.station.id !== ref.station.id && other.station.stage === ref.station.stage,
-  );
-  return isShared ? `${ref.station.stage} · Lane ${ref.phase.key}` : ref.station.stage;
-}
-
 export function changeIdOf(focusId: string): string | null {
   return focusId.startsWith(CHANGE_PREFIX) ? focusId.slice(CHANGE_PREFIX.length) : null;
 }

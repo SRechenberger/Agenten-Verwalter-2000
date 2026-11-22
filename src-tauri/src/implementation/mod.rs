@@ -36,7 +36,7 @@ use model::{
     MAX_RETURN_CHARS, MAX_SKILL_CHARS, MAX_STATION_RESULT_CHARS, OnError, PendingCancel,
     PendingChange, PhaseInput, PhaseView, PredecessorsMay, StationInput, StationKind,
     StationOptions, StationPause, StationPauseReason, StationReport, StationSettings, StationState,
-    StationView, StoredReport, check_length,
+    StationView, StoredReport, check_length, station_label,
 };
 
 pub const IMPLEMENTATION_CHANGED_EVENT: &str = "implementation://changed";
@@ -185,9 +185,10 @@ impl Countdowns {
     }
 }
 
-/// Eine Station mit Phase, wie Meldungen an den Agenten sie nennen.
+/// Eine Station, wie Meldungen an den Agenten sie nennen: `<Kennung> · <Stufe>` (`station_label`).
 #[derive(Debug, Clone)]
 pub struct StationRef {
+    /// Die Kennung der Station (ADR 061, Nachtrag 2026-11-22), nicht mehr der Lane-Schlüssel.
     pub phase_key: String,
     pub stage: String,
 }
@@ -228,7 +229,7 @@ impl CompleteOutcome {
             let names: Vec<String> = self
                 .next
                 .iter()
-                .map(|next: &StationRef| format!("Lane {} · {}", next.phase_key, next.stage))
+                .map(|next: &StationRef| station_label(&next.phase_key, &next.stage))
                 .collect();
             text.push_str(&format!(" Als Nächstes startet: {}.", names.join(", ")));
         }
@@ -237,7 +238,10 @@ impl CompleteOutcome {
                 .for_user
                 .iter()
                 .map(|(id, station): &(String, StationRef)| {
-                    format!("Lane {} · {} (id {id})", station.phase_key, station.stage)
+                    format!(
+                        "{} (id {id})",
+                        station_label(&station.phase_key, &station.stage)
+                    )
                 })
                 .collect();
             text.push_str(&format!(
@@ -732,7 +736,7 @@ pub fn set_master(
     Ok(view)
 }
 
-/// Die offenen Meldungen (Lane, Stufe, Betreff) für die Nachricht an einen neuen Master.
+/// Die offenen Meldungen (`id`, Kennung, Stufe, Betreff) für die Nachricht an einen neuen Master.
 pub fn open_reports(view: &ImplementationView) -> Vec<(String, String, String, String)> {
     view.phases
         .iter()
@@ -740,7 +744,7 @@ pub fn open_reports(view: &ImplementationView) -> Vec<(String, String, String, S
         .filter(|(_, station): &(&PhaseView, &StationView)| {
             station.completed_at.is_none() && station.report.is_some()
         })
-        .map(|(phase, station): (&PhaseView, &StationView)| {
+        .map(|(_, station): (&PhaseView, &StationView)| {
             let subject = station
                 .report
                 .as_ref()
@@ -748,7 +752,7 @@ pub fn open_reports(view: &ImplementationView) -> Vec<(String, String, String, S
                 .unwrap_or_default();
             (
                 station.id.clone(),
-                phase.key.clone(),
+                station.plan_id.clone(),
                 station.stage.clone(),
                 subject,
             )
@@ -933,7 +937,7 @@ fn wake_master_after_acceptance(
     outcome: &CompleteOutcome,
 ) {
     let events = finish.wake_events(station_id, outcome.is_finished);
-    let Some((phase, station)) = find_station(view, station_id) else {
+    let Some((_, station)) = find_station(view, station_id) else {
         return;
     };
     if events.is_empty() {
@@ -941,7 +945,7 @@ fn wake_master_after_acceptance(
     }
     let facts = wake::WakeFacts {
         implementation: view.name.clone(),
-        lane: phase.key.clone(),
+        lane: station.plan_id.clone(),
         stage: station.stage.clone(),
         text: finish.result.clone(),
         note: String::new(),
@@ -989,7 +993,7 @@ pub fn wake_master_of_question(
             station.session_id.as_deref() == Some(session_id)
         })
         .filter(|(_, station): &(&PhaseView, &StationView)| station.state == StationState::Asking);
-    let Some((phase, station)) = asking else {
+    let Some((_, station)) = asking else {
         return Ok(());
     };
     registry.wake_master(
@@ -1001,7 +1005,7 @@ pub fn wake_master_of_question(
         },
         &wake::WakeFacts {
             implementation: view.name.clone(),
-            lane: phase.key.clone(),
+            lane: station.plan_id.clone(),
             stage: station.stage.clone(),
             text: station.question.clone().unwrap_or_default(),
             note: String::new(),
@@ -1030,7 +1034,7 @@ fn wake_master_after_turn(
         .find(|(_, station): &(&PhaseView, &StationView)| {
             station.session_id.as_deref() == Some(session_id)
         });
-    let (Some((phase, station)), Some(turn)) = (found, registry.station_turn(session_id)) else {
+    let (Some((_, station)), Some(turn)) = (found, registry.station_turn(session_id)) else {
         return Ok(());
     };
     let outcome = match (&station.report, turn.status) {
@@ -1074,7 +1078,7 @@ fn wake_master_after_turn(
     };
     let facts = wake::WakeFacts {
         implementation: view.name.clone(),
-        lane: phase.key.clone(),
+        lane: station.plan_id.clone(),
         stage: station.stage.clone(),
         text,
         note: station
@@ -1428,11 +1432,11 @@ pub fn due_for_user(view: &ImplementationView) -> Vec<(String, StationRef)> {
         .filter(|(_, station): &(&PhaseView, &StationView)| {
             master::release_refusal(station.by_user, station.state).is_none()
         })
-        .map(|(phase, station): (&PhaseView, &StationView)| {
+        .map(|(_, station): (&PhaseView, &StationView)| {
             (
                 station.id.clone(),
                 StationRef {
-                    phase_key: phase.key.clone(),
+                    phase_key: station.plan_id.clone(),
                     stage: station.stage.clone(),
                 },
             )
@@ -1461,6 +1465,31 @@ fn find_station<'a>(
             .find(|station: &&StationView| station.id == station_id)
             .map(|station: &StationView| (phase, station))
     })
+}
+
+/// Die Station dieser Umsetzung, die der Master nennt (ADR 070, Nachtrag 2026-11-22): ihre `id` oder ihre
+/// Kennung, etwa „C-5“; Leerraum am Rand zählt nicht. Eine Station einer anderen Umsetzung ist unbekannt.
+pub fn station_by_reference<'a>(
+    view: &'a ImplementationView,
+    reference: &str,
+) -> Result<(&'a PhaseView, &'a StationView), String> {
+    let reference = reference.trim();
+    find_station(view, reference)
+        .or_else(|| {
+            view.phases.iter().find_map(|phase: &PhaseView| {
+                phase
+                    .stations
+                    .iter()
+                    .find(|station: &&StationView| station.plan_id == reference)
+                    .map(|station: &StationView| (phase, station))
+            })
+        })
+        .ok_or_else(|| {
+            format!(
+                "station_id: Keine Station dieser Umsetzung heißt „{reference}“. Nenne ihre \
+                 Kennung, etwa „C-5“, oder ihre `id` aus dem Lagebericht."
+            )
+        })
 }
 
 /// Phase und Station aus dieser Umsetzung, sonst ein Fehler. Das Steuerrecht prüft nur `id` (ADR 059):
@@ -1740,30 +1769,27 @@ pub fn remove_brief_change(
 }
 
 /// Fix-Runde nach der meldenden Station, das zweite Review nach der Fix-Runde (ADR 061), beide mit
-/// ihrem Vorrang; Kennungen `<Phasenschlüssel>-<n>` mit dem nächsten freien `n`. Wer die meldende
-/// Station in `after` führt, wartet danach auf das zweite Review (`complete_station_with_followups`).
+/// ihrem Vorrang; Kennungen `<Lane>-<n>` mit den nächsten Nummern der Lane (`schedule::next_ids`), etwa
+/// „C-6 · Fix-Runde“ und „C-7 · Review“ nach „C-5 · Review“. Wer die meldende Station in `after`
+/// führt, wartet danach auf das zweite Review (`complete_station_with_followups`).
 fn chain_followups(
     view: &ImplementationView,
     phase: &PhaseView,
     reporting: &StationView,
     rows: &mut [StationRow],
 ) {
-    let taken: HashSet<&str> = view
-        .phases
-        .iter()
-        .flat_map(|phase: &PhaseView| phase.stations.iter())
-        .map(|station: &StationView| station.plan_id.as_str())
-        .collect();
-    let mut number: usize = phase.stations.len();
+    let used = used_ids(
+        view.phases
+            .iter()
+            .flat_map(|phase: &PhaseView| phase.stations.iter())
+            .map(|station: &StationView| station.plan_id.as_str()),
+        &view.changes,
+    );
+    let used: Vec<&str> = used.iter().map(String::as_str).collect();
+    let keys: Vec<&str> = rows.iter().map(|_| phase.key.as_str()).collect();
     let mut previous: String = reporting.plan_id.clone();
-    for row in rows {
-        row.plan_id = loop {
-            number += 1;
-            let candidate = format!("{}-{number}", phase.key);
-            if !taken.contains(candidate.as_str()) {
-                break candidate;
-            }
-        };
+    for (row, id) in rows.iter_mut().zip(schedule::next_ids(&keys, &used)) {
+        row.plan_id = id;
         row.after = vec![previous];
         row.priority = reporting.priority;
         previous = row.plan_id.clone();
@@ -2373,6 +2399,12 @@ pub fn new_rows(
     };
     let (phases, mut stations) = phase_rows(&id, inputs, 0);
     link(&[], inputs, &mut stations)?;
+    let lanes = lane_keys(
+        phases
+            .iter()
+            .map(|phase: &PhaseRow| (phase.id.as_str(), phase.key.as_str())),
+    );
+    number_stations(&mut stations, &lanes, &[]);
     Ok((row, phases, stations))
 }
 
@@ -2485,6 +2517,93 @@ pub fn phase_rows(
         });
     }
     (phases, stations)
+}
+
+/// Alle Kennungen, die in der Umsetzung je vergeben wurden (ADR 061, Nachtrag 2026-11-22): die der
+/// Stationen `plan_ids` und die, die übernommene Änderungen entfernt haben (`implementation_changes`,
+/// `summary.removed`). Daraus zählt `schedule::next_ids` weiter, ohne Migration.
+pub fn used_ids<'a>(
+    plan_ids: impl Iterator<Item = &'a str>,
+    changes: &[ChangeView],
+) -> Vec<String> {
+    plan_ids
+        .map(str::to_owned)
+        .chain(
+            changes
+                .iter()
+                .flat_map(|change: &ChangeView| change.summary.removed.iter().cloned()),
+        )
+        .collect()
+}
+
+/// Lane-Schlüssel je `phase_id`.
+pub fn lane_keys<'a>(phases: impl Iterator<Item = (&'a str, &'a str)>) -> HashMap<String, String> {
+    phases
+        .map(|(id, key): (&str, &str)| (id.to_owned(), key.to_owned()))
+        .collect()
+}
+
+/// Gibt den neuen Stationen ihre Kennungen `<Lane>-<n>` (`schedule::next_ids`, in Planreihenfolge) und
+/// schreibt ihre vorläufigen Kennungen (Alias oder `<Lane>-<Nummer>` der Eingabe) in ihrem `after` um.
+/// Erst nach der Prüfung des Plans aufrufen: Dann sind die vorläufigen Kennungen eindeutig. `lanes`
+/// ordnet `phase_id` den Lane-Schlüssel zu, `used` sind alle je vergebenen Kennungen. Gibt je Station
+/// (vorläufige Kennung, Kennung) zurück; andere Zeilen zieht `rename_after` nach.
+pub fn number_stations(
+    stations: &mut [StationRow],
+    lanes: &HashMap<String, String>,
+    used: &[String],
+) -> Vec<(String, String)> {
+    let keys: Vec<&str> = stations
+        .iter()
+        .map(|station: &StationRow| {
+            lanes
+                .get(&station.phase_id)
+                .map_or("", |key: &String| key.as_str())
+        })
+        .collect();
+    let used: Vec<&str> = used.iter().map(String::as_str).collect();
+    let ids = schedule::next_ids(&keys, &used);
+    let renames: Vec<(String, String)> = stations
+        .iter_mut()
+        .zip(ids)
+        .map(|(station, id): (&mut StationRow, String)| {
+            (std::mem::replace(&mut station.plan_id, id.clone()), id)
+        })
+        .collect();
+    rename_after(stations, &renames);
+    renames
+}
+
+/// Ersetzt in `after` jede vorläufige Kennung aus `renames` durch die vergebene.
+pub fn rename_after(rows: &mut [StationRow], renames: &[(String, String)]) {
+    let renamed: HashMap<&str, &str> = renames
+        .iter()
+        .map(|(old, new): &(String, String)| (old.as_str(), new.as_str()))
+        .collect();
+    for row in rows {
+        for before in &mut row.after {
+            if let Some(&id) = renamed.get(before.as_str()) {
+                *before = id.to_owned();
+            }
+        }
+    }
+}
+
+/// Die neuen Stationen für die Antwort an den Planer (ADR 061, Nachtrag 2026-11-22): je Station
+/// „Alias → Kennung · Stufe“, ohne abweichenden Alias nur „Kennung · Stufe“. `named` sind je Station
+/// (vorläufige Kennung, Kennung, Stufe).
+pub fn assigned_text<'a>(named: impl Iterator<Item = (&'a str, &'a str, &'a str)>) -> String {
+    named
+        .map(|(alias, id, stage): (&str, &str, &str)| {
+            let label = model::station_label(id, stage);
+            if alias == id {
+                label
+            } else {
+                format!("{alias} → {label}")
+            }
+        })
+        .collect::<Vec<String>>()
+        .join(", ")
 }
 
 /// Die Zeile einer neuen Station aus einer geprüften Eingabe.

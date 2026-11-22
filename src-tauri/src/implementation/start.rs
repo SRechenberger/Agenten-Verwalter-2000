@@ -8,6 +8,7 @@ use tauri::{AppHandle, Manager};
 use super::master::MasterRef;
 use super::model::{
     BriefChange, ImplementationView, PhaseView, StationKind, StationState, StationView,
+    station_label,
 };
 use super::slots::{Claimed, Start};
 use super::{IS_CANCELLED, START_DELAY, StationRef, announce, schedule, station_in};
@@ -68,8 +69,10 @@ pub fn first_message(
         }
     }
     lines.push(format!(
-        "Station: Phase {} „{}“ · {}",
-        phase.key, phase.title, station.stage
+        "Station: {} in Lane {} „{}“",
+        station_label(&station.plan_id, &station.stage),
+        phase.key,
+        phase.title
     ));
     if view.source.is_empty() {
         lines.push(format!("Umsetzung: {}", view.name));
@@ -106,8 +109,8 @@ pub fn first_message(
                 .iter()
                 .any(|change: &BriefChange| change.source_station_id == source.id)
         })
-        .map(|(candidate, source): (&PhaseView, &StationView)| {
-            format!("Phase {} · {}", candidate.key, source.stage)
+        .map(|(_, source): (&PhaseView, &StationView)| {
+            station_label(&source.plan_id, &source.stage)
         })
         .collect();
     if !sources.is_empty() {
@@ -129,15 +132,15 @@ pub fn first_message(
         .filter(|(_, done): &(&PhaseView, &StationView)| {
             done.state == StationState::Done && station.after.contains(&done.plan_id)
         })
-        .map(|(candidate, done): (&PhaseView, &StationView)| {
+        .map(|(_, done): (&PhaseView, &StationView)| {
             let number = done
                 .session_number
                 .map(|number: u32| format!(" (#{number})"))
                 .unwrap_or_default();
             let result = done.result.as_deref().unwrap_or("ohne Ergebnis");
             format!(
-                "- Phase {} · {}{number}: {result}",
-                candidate.key, done.stage
+                "- {}{number}: {result}",
+                station_label(&done.plan_id, &done.stage)
             )
         })
         .collect();
@@ -150,15 +153,12 @@ pub fn first_message(
     lines.join("\n")
 }
 
-/// Der Betreff der ersten Nachricht: Lane, Stufe und Umsetzung, höchstens so lang wie jeder Betreff.
-fn first_message_subject(
-    view: &ImplementationView,
-    phase: &PhaseView,
-    station: &StationView,
-) -> String {
+/// Der Betreff der ersten Nachricht: Station und Umsetzung, höchstens so lang wie jeder Betreff.
+fn first_message_subject(view: &ImplementationView, station: &StationView) -> String {
     let subject = format!(
-        "Auftrag: Lane {} · {} in „{}“",
-        phase.key, station.stage, view.name
+        "Auftrag: {} in „{}“",
+        station_label(&station.plan_id, &station.stage),
+        view.name
     );
     if subject.chars().count() <= MAX_SUBJECT_CHARS {
         return subject;
@@ -228,8 +228,8 @@ pub fn schedule_ready(
                 && waiter.entry.implementation_id.as_deref() == Some(implementation_id)
         })
         .filter_map(|(waiter, _): &Claimed| super::find_station(&view, &waiter.key))
-        .map(|(phase, station): (&PhaseView, &StationView)| StationRef {
-            phase_key: phase.key.clone(),
+        .map(|(_, station): (&PhaseView, &StationView)| StationRef {
+            phase_key: station.plan_id.clone(),
             stage: station.stage.clone(),
         })
         .collect();
@@ -574,7 +574,7 @@ fn start_claimed(
     registry.rename(
         app,
         &created.id,
-        &format!("Phase {} · {}", phase.key, station.stage),
+        &station_label(&station.plan_id, &station.stage),
     )?;
     if let Some(model) = plan.model
         && model != created.model
@@ -599,7 +599,7 @@ fn start_claimed(
     let message: String = first_message(&view, phase, station, type_skills, master.as_ref());
     stop_if_cancelled(app, registry, implementation_id, &created.id)?;
     // Der Chat zeigt den ganzen Text; an den Agenten geht `/<skill>` und die Referenz (ADR 072).
-    let subject = first_message_subject(&view, phase, station);
+    let subject = first_message_subject(&view, station);
     if let Err(error) =
         registry.send_by_reference(app, &created.id, &super::wake::sender(), &message, &subject)
     {

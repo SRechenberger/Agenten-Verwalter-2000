@@ -9,7 +9,7 @@ use std::collections::HashSet;
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
-use super::model::{ImplementationView, PhaseView, StationView};
+use super::model::{ImplementationView, PhaseView, StationView, station_label};
 use super::{Countdowns, schedule, start};
 use crate::projects::model::ProjectPriority;
 use crate::sessions::model::SessionStatus;
@@ -439,7 +439,7 @@ pub fn station_waiters(
     if start::is_held(view).is_some() {
         return waiters;
     }
-    let waiter = |phase: &PhaseView, station: &StationView, start: Start| Waiter {
+    let waiter = |_: &PhaseView, station: &StationView, start: Start| Waiter {
         entry: QueueEntry {
             position: 0,
             kind: QueueKind::Station,
@@ -447,7 +447,11 @@ pub fn station_waiters(
             session_id: station.session_id.clone(),
             implementation_id: Some(view.id.clone()),
             station_id: Some(station.id.clone()),
-            title: format!("{} · Lane {} · {}", view.name, phase.key, station.stage),
+            title: format!(
+                "{} · {}",
+                view.name,
+                station_label(&station.plan_id, &station.stage)
+            ),
             priority,
             station_priority: station.priority,
             since_ms: 0.0,

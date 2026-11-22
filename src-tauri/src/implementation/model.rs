@@ -611,8 +611,9 @@ pub struct StationInput {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub prompt: Option<String>,
-    // Ab hier ADR 061. `id`: Plan-Kennung, fehlt sie, gilt `<Phasenschlüssel>-<Nummer>`. `after`:
-    // Plan-Kennungen der Vorgänger, leer = Startstation; nennt keine Station des Plans `after`, gelten
+    // Ab hier ADR 061. `id`: Alias nur für diesen Aufruf, fehlt er, gilt `<Phasenschlüssel>-<Nummer>`;
+    // die Kennung `<Lane>-<n>` vergibt der Verwalter (Nachtrag 2026-11-22). `after`: Kennungen oder
+    // Aliasse der Vorgänger, leer = Startstation; nennt keine Station des Plans `after`, gelten
     // Position und Welle (Regel R1). `priority`: höher zuerst unter bereiten Stationen, Standard 0.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
@@ -707,7 +708,8 @@ impl StationInput {
         }
     }
 
-    /// Die Plan-Kennung, getrimmt; ohne Angabe `<Phasenschlüssel>-<Nummer>` (1-basiert).
+    /// Die vorläufige Kennung im Aufruf: der Alias, getrimmt; ohne Angabe `<Phasenschlüssel>-<Nummer>`
+    /// (1-basiert). Gespeichert wird die Kennung, die `number_stations` vergibt.
     pub fn plan_id(&self, phase_key: &str, number: usize) -> String {
         self.id
             .as_deref()
@@ -939,6 +941,33 @@ pub fn refuse_user_options(stations: &[(String, &StationInput)]) -> Result<(), S
         }
     }
     Ok(())
+}
+
+/// Ein Alias darf keine Station des Plans verdecken (ADR 061, Nachtrag 2026-11-22): Gleicht er der
+/// Kennung einer Station in `plan`, lehnt das Werkzeug den Aufruf ab. `stations` sind (Feldname, Station).
+pub fn refuse_taken_aliases(
+    stations: &[(String, &StationInput)],
+    plan: &[&str],
+) -> Result<(), String> {
+    for (field, station) in stations {
+        let Some(alias) = station.id.as_deref().map(str::trim) else {
+            continue;
+        };
+        if plan.contains(&alias) {
+            return Err(format!(
+                "{field}.id: „{alias}“ ist schon die Kennung einer Station im Plan. Ein Alias gilt nur \
+                 in diesem Aufruf, die Kennung `<Lane>-<n>` vergibt der Verwalter: wähle einen \
+                 anderen Alias und nenne bestehende Stationen mit ihrer Kennung."
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// Wie eine Station überall heißt (ADR 061, Nachtrag 2026-11-22): `<Kennung> · <Stufe>`, etwa
+/// „C-5 · Review“; ältere Umsetzungen mit ihrer gespeicherten Kennung („a-umsetzung · Umsetzung“).
+pub fn station_label(plan_id: &str, stage: &str) -> String {
+    format!("{plan_id} · {stage}")
 }
 
 /// Die Stationen aller Phasen mit ihrem Feldnamen unter `root`.

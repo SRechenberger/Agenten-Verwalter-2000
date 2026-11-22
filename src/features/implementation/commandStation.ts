@@ -1,4 +1,5 @@
-// Befehls-Stationen (ADR 073) in der Oberfläche: Beschriftung und Kürzen der Schritte. Reine Regeln, nur
+// Befehls-Stationen (ADR 073) in der Oberfläche: Beschriftung und Kürzen der Schritte, dazu die Anzeige jeder
+// Station (ADR 061, Nachtrag 2026-11-22). Reine Regeln, nur
 // Typ-Importe (Selbsttest ohne Build). Die Oberfläche zeigt, was der Kern liefert; sie setzt nichts ein.
 import type { StationView } from '../../lib/bindings/StationView.ts';
 
@@ -21,6 +22,13 @@ export function isStartFailure(
 /** „Merge · Befehl“ bei einer Befehls-Station, sonst die Stufe. */
 export function stageText(station: Pick<StationView, 'kind' | 'stage'>): string {
   return isCommandStation(station) ? `${station.stage} · Befehl` : station.stage;
+}
+
+/** Wie eine Station überall heißt (ADR 061, Nachtrag 2026-11-22), wie `station_label` im Core: „C-5 · Review“,
+ *  eine ältere Umsetzung mit ihrer gespeicherten Kennung („a-umsetzung · Umsetzung“); eine Befehls-Station
+ *  trägt dazu „· Befehl“ (`stageText`). Die Kennung vergibt der Core; die Oberfläche rechnet sie nicht nach. */
+export function stationDisplay(station: Pick<StationView, 'kind' | 'planId' | 'stage'>): string {
+  return `${station.planId} · ${stageText(station)}`;
 }
 
 /** Ein Schritt auf eine Zeile gekürzt; `{{…}}` und `{{env:…}}` bleiben, wie sie stehen. */

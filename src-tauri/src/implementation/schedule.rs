@@ -39,6 +39,35 @@ pub fn legacy_after(phases: &[(Option<u32>, Vec<String>)]) -> Vec<Vec<Vec<String
     derived
 }
 
+/// Die Nummer `n` einer Kennung `<key>-<n>`; Kennungen in anderer Form („a-umsetzung“) zählen nicht.
+fn number_in_lane(key: &str, plan_id: &str) -> Option<u64> {
+    let digits = plan_id.strip_prefix(key)?.strip_prefix('-')?;
+    if digits.is_empty() || !digits.bytes().all(|byte: u8| byte.is_ascii_digit()) {
+        return None;
+    }
+    digits.parse().ok()
+}
+
+/// Die Kennungen neuer Stationen (ADR 061, Nachtrag 2026-11-22): `lanes` nennt je neue Station in
+/// Planreihenfolge ihren Lane-Schlüssel, `used` alle Kennungen, die je vergeben wurden. Je Lane gilt
+/// die höchste Nummer aus `used` plus 1, danach aufsteigend: Eine Nummer kommt nie zweimal.
+pub fn next_ids(lanes: &[&str], used: &[&str]) -> Vec<String> {
+    let mut highest: HashMap<&str, u64> = HashMap::new();
+    lanes
+        .iter()
+        .map(|&key| {
+            let number = highest.entry(key).or_insert_with(|| {
+                used.iter()
+                    .filter_map(|plan_id: &&str| number_in_lane(key, plan_id))
+                    .max()
+                    .unwrap_or(0)
+            });
+            *number += 1;
+            format!("{key}-{number}")
+        })
+        .collect()
+}
+
 /// Prüft einen Plan als Ganzes: (Plan-Kennung, Vorgänger) je Station in Planreihenfolge. Der Satz
 /// nennt die Stationen.
 pub fn check_plan(stations: &[(&str, &[String])]) -> Result<(), String> {

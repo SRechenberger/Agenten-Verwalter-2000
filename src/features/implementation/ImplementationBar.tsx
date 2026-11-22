@@ -100,7 +100,7 @@ export function ImplementationBar({
   const isOpen: boolean = implementation.finishedAt === null;
   const working: StationRef | undefined = workingStation(implementation);
   const deleteBlocked: string | undefined =
-    working === undefined ? undefined : deleteBlockedText(working.phase.key, working.station.stage);
+    working === undefined ? undefined : deleteBlockedText(working.station);
   const canDelete: boolean = mayDelete(implementation);
   // Eine Rückfrage, die nicht mehr gilt (Umsetzung abgeschlossen, Station arbeitet inzwischen), fällt weg.
   const shownConfirm: Confirm | null = isLocked

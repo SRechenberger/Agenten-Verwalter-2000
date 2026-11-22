@@ -9,7 +9,7 @@ mod tests;
 use std::collections::{HashMap, HashSet};
 
 use crate::agents::event::QuestionKind;
-use crate::implementation::model::{ImplementationView, StationState};
+use crate::implementation::model::{ImplementationView, StationState, station_label};
 use crate::sessions::model::{PauseReason, SessionStatus};
 use model::{
     AnswerKind, DashboardFlow, DashboardFlowState, DashboardSession, DashboardSessionState,
@@ -667,7 +667,7 @@ pub fn flow_facts(view: &ImplementationView) -> FlowFacts {
             .flat_map(|phase| {
                 phase.stations.iter().map(move |station| StationFacts {
                     id: station.id.clone(),
-                    label: format!("{} · {}", phase.title, station.stage),
+                    label: station_label(&station.plan_id, &station.stage),
                     by_user: station.by_user,
                     state: station.state,
                     live: station.live,

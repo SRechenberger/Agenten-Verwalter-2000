@@ -369,13 +369,13 @@ fn finish_failure(
         announce(app, &fresh);
     }
     let Some(view) = view else { return };
-    let Some((phase, station)) = find_station(&view, station_id) else {
+    let Some((_, station)) = find_station(&view, station_id) else {
         return;
     };
     let event = failure_event(station_id, station.returns, station.started_at, reason);
     let facts = WakeFacts {
         implementation: view.name.clone(),
-        lane: phase.key.clone(),
+        lane: station.plan_id.clone(),
         stage: station.stage.clone(),
         text: String::new(),
         note: String::new(),
