@@ -8929,6 +8929,52 @@ fn set_phases_keeps_begun_kennungen_and_numbers_new_stations_after_every_used_nu
 }
 
 #[test]
+fn set_phases_refuses_when_a_begun_lane_waits_on_a_station_it_would_replace() {
+    let mut begun = in_phase(finished(node("1-1", &[])), "1");
+    begun.session_id = Some("session".to_owned());
+    let mut merge = node("2-1", &[]);
+    merge.stage = "Merge".to_owned();
+    let stations = vec![
+        begun,
+        in_phase(node("1-2", &["1-1", "2-1"]), "1"),
+        in_phase(merge, "2"),
+    ];
+    let phases = ["1", "2"]
+        .into_iter()
+        .zip(0..)
+        .map(|(key, position): (&str, u32)| PhaseRow {
+            id: format!("phase-{key}"),
+            key: key.to_owned(),
+            position,
+            ..phase_row()
+        })
+        .collect();
+    let stored = StoredImplementation {
+        row: implementation_row(),
+        phases,
+        stations,
+        changes: Vec::new(),
+    };
+    let view = build_view(
+        &stored,
+        &HashMap::new(),
+        &HashMap::new(),
+        &HashMap::new(),
+        &[],
+    );
+    let inputs = inputs(json!([
+        { "key": "2", "title": "Zwei", "stations": [{ "stage": "Merge", "after": [] }] },
+    ]));
+    let error = changes::replanned(&view, &inputs, &stored.stations)
+        .expect_err("die Kante 1-2 → 2-1 zeigte danach ins Leere");
+    assert!(
+        error.contains("„1-2 · Umsetzung“") && error.contains("„2-1 · Merge“"),
+        "{error}"
+    );
+    assert!(error.contains("implementation_edit"), "{error}");
+}
+
+#[test]
 fn edit_with_add_and_lanes_numbers_new_stations_and_renames_aliases_everywhere() {
     let rows = vec![node("1-1", &[]), node("1-2", &["1-1"])];
     let edited = edited_after(

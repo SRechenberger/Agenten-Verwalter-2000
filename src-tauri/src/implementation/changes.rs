@@ -8,8 +8,8 @@ use tauri::{AppHandle, Manager};
 
 use super::model::{
     ChangeSummary, ImplementationView, OnError, PendingChange, PhaseInput, PhaseMark, PhaseView,
-    PredecessorsMay, StationState, StationView, check_agents, refuse_taken_aliases, stations_in,
-    validate,
+    PredecessorsMay, StationState, StationView, check_agents, refuse_taken_aliases, station_label,
+    stations_in, validate,
 };
 use super::{
     announce, assigned_text, kept_phases, lane_keys, link, now_ms, number_stations, phase_rows,
@@ -203,6 +203,7 @@ pub fn replanned(
     rows: &[StationRow],
 ) -> Result<(Vec<PhaseRow>, Vec<StationRow>, String), String> {
     let removed = upcoming(view);
+    refuse_edges_into_upcoming(view, &removed)?;
     let (phases, mut stations) = replacement_rows(&view.id, inputs, &removed, rows);
     link(&kept_phases(view), inputs, &mut stations)?;
     let lanes = lane_keys(
@@ -218,6 +219,41 @@ pub fn replanned(
         },
     ));
     Ok((phases, stations, named))
+}
+
+/// Lehnt ab, wenn eine Station einer begonnenen Lane auf eine Station einer kommenden Lane wartet:
+/// `set_phases` gäbe dieser eine neue Kennung, und die Kante zeigte ins Leere (ADR 061, Nachtrag
+/// 2026-11-22). Der Zustand der wartenden Station zählt nicht.
+fn refuse_edges_into_upcoming(
+    view: &ImplementationView,
+    upcoming: &[&PhaseView],
+) -> Result<(), String> {
+    let replaced: HashMap<&str, &str> = upcoming
+        .iter()
+        .flat_map(|phase: &&PhaseView| phase.stations.iter())
+        .map(|station: &StationView| (station.plan_id.as_str(), station.stage.as_str()))
+        .collect();
+    for station in view
+        .phases
+        .iter()
+        .filter(|phase: &&PhaseView| is_begun(phase))
+        .flat_map(|phase: &PhaseView| phase.stations.iter())
+    {
+        for before in &station.after {
+            if let Some(stage) = replaced.get(before.as_str()) {
+                return Err(format!(
+                    "Station „{}“ einer begonnenen Lane wartet auf „{}“. \
+                     `implementation_set_phases` ersetzt alle kommenden Lanes, „{before}“ bekäme \
+                     eine neue Kennung. Ändere die kommende Lane mit `implementation_edit` \
+                     (`change`, `add`, `remove`), dann behält „{before}“ ihre Kennung, oder nimm \
+                     die Kante vorher mit `implementation_edit` heraus.",
+                    station_label(&station.plan_id, &station.stage),
+                    station_label(before, stage),
+                ));
+            }
+        }
+    }
+    Ok(())
 }
 
 /// Die Phasen ohne begonnene Station: Sie ersetzt eine Plan-Änderung.

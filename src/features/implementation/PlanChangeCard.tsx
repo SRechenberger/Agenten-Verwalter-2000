@@ -36,6 +36,7 @@ import {
 import {
   isCommandStation,
   stageText,
+  stationDisplay,
   stepPrograms,
   stepsTitle,
 } from '@/features/implementation/commandStation';
@@ -281,7 +282,18 @@ export function PlanChangeCard({
       station.command === null
         ? station.stage
         : stageText({ kind: 'command', stage: station.stage });
-    const head: ReactElement = <b>{proposedStationHead(stage, station.lane)}</b>;
+    // Eine bestehende Station heißt wie überall („2-3 · Review“); eine neue hat noch keine Kennung.
+    const head: ReactElement = (
+      <b>
+        {station.patch === null
+          ? proposedStationHead(stage, station.lane)
+          : stationDisplay({
+              kind: station.command === null ? 'agent' : 'command',
+              planId: station.patch.id,
+              stage: station.stage,
+            })}
+      </b>
+    );
     const sets: ReactElement | null =
       station.patch === null ? (
         <p className="station-card__hint">{proposedWaitsText(station.after ?? [])}</p>

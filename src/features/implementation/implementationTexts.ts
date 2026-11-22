@@ -789,7 +789,7 @@ export function proposalLead(sessionNumber: number): string {
   return `Session #${String(sessionNumber)} schlägt vor:`;
 }
 
-/** „Neue Station Doku in Lane 4“. */
+/** Eine neue Station eines Vorschlags, noch ohne Kennung: „Doku · Lane 4“. */
 export function proposedStationHead(stage: string, lane: string): string {
   return `${stage} · Lane ${lane}`;
 }
