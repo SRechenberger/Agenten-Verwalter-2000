@@ -405,7 +405,9 @@ fn start_waiter(app: &AppHandle, waiter: &Waiter, token: u64) {
                     registry.resume_claimed(thread_app, &session_id);
                 } else if let Ok(session) = registry.get(&session_id)
                     && !(if from_user {
-                        registry.deliver_user_messages(thread_app, &session).is_ok()
+                        registry
+                            .deliver_user_messages(thread_app, &session, false)
+                            .is_ok()
                     } else {
                         registry.deliver_oldest(thread_app, &session)
                     })

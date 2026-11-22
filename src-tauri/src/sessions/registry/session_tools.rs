@@ -10,8 +10,8 @@ use serde_json::{Value, json};
 use tauri::{AppHandle, Emitter};
 
 use super::{
-    Outbox, PROJECT_CHANGED_EVENT, PendingRequest, Session, SessionRegistry, SessionState,
-    TurnOrigin, now_ms, project_not_found, schedule_pass, start_turn, update,
+    Outbox, PROJECT_CHANGED_EVENT, PendingRequest, QUEUED_ANSWER_FIRST, Session, SessionRegistry,
+    SessionState, TurnOrigin, now_ms, project_not_found, schedule_pass, start_turn, update,
 };
 use crate::agent_types::model::{AgentType, AgentTypeInput};
 use crate::agent_types::tools as agent_type_tools;
@@ -727,7 +727,7 @@ impl SessionRegistry {
         };
         // Eine eigene Nachricht geht ihren eigenen Weg, mit dem Eintrag im Chat (Taiga-Story 190).
         if row.entry_seq.is_some() {
-            return self.deliver_user_messages(app, session).is_ok();
+            return self.deliver_user_messages(app, session, false).is_ok();
         }
         let input = self.prepare_turn(session, &row.text);
         // Vor der Session-Sperre: erst die Session kurz, dann die Datenbank.
@@ -794,11 +794,13 @@ impl SessionRegistry {
     /// Platz vom Tor (der Durchgang hält ihn) oder ohne („Jetzt senden“). Unter der Session-Sperre
     /// entscheidet der Eintrag: Trägt er `queued` nicht mehr, hat ein anderer Weg ihn schon gesendet, und
     /// nur seine Zeile geht. Nie unter einer Sperre aufrufen. Ein Fehler beendet die Freigabe; die
-    /// Nachricht bleibt und wartet weiter.
+    /// Nachricht bleibt und wartet weiter. Nimmt die Session sie gerade nicht an, wartet sie im Durchgang
+    /// still weiter; mit `now` („Jetzt senden“) ist das ein Fehler (`refuses_now`).
     pub(super) fn deliver_user_messages(
         &self,
         app: &AppHandle,
         session: &Arc<Session>,
+        now: bool,
     ) -> Result<(), CommandError> {
         loop {
             let Some(row) = session
@@ -811,10 +813,7 @@ impl SessionRegistry {
                 return Ok(());
             };
             // Vor `update`: Ordner der Kommentare und die Abfrage bei LM Studio lesen Dateien.
-            let comments: Vec<ReviewComment> = match session.lock().entries.get(seq as usize) {
-                Some(ChatEntry::User { comments, .. }) => comments.clone(),
-                _ => Vec::new(),
-            };
+            let comments = queued_comments(session, seq)?;
             let folders = self.comment_folders(&session.id, &comments);
             let input = self.prepare_turn(session, &row.text);
             let released = update(
@@ -822,6 +821,9 @@ impl SessionRegistry {
                 session,
                 |state: &mut SessionState, outbox: &mut Outbox| {
                     let release = user_release(state, seq);
+                    if now && release == UserRelease::Later {
+                        return Err(refuses_now(state.status, !state.pending.is_empty()));
+                    }
                     if release != UserRelease::Sent {
                         return Ok(release);
                     }
@@ -848,6 +850,30 @@ impl SessionRegistry {
                 .database
                 .with(|connection| session_inbox::delete(connection, row.id))?;
         }
+    }
+}
+
+/// Die Kommentare der wartenden eigenen Nachricht im Eintrag `seq`. Über `lock_loaded`: Nach einem
+/// Neustart ist der Verlauf noch nicht geladen, und `lock` sähe keinen Eintrag.
+pub(super) fn queued_comments(
+    session: &Session,
+    seq: u32,
+) -> Result<Vec<ReviewComment>, CommandError> {
+    Ok(match session.lock_loaded()?.entries.get(seq as usize) {
+        Some(ChatEntry::User { comments, .. }) => comments.clone(),
+        _ => Vec::new(),
+    })
+}
+
+/// Warum „Jetzt senden“ eine wartende eigene Nachricht nicht abschickt, in der Reihenfolge von
+/// `send_turn`: erst der Status, dann die Rückfrage. Nur für `UserRelease::Later`; an eine neue
+/// Session wird nie eingereiht.
+pub(super) fn refuses_now(status: SessionStatus, has_pending: bool) -> CommandError {
+    match status {
+        SessionStatus::Cancelled => CommandError::SessionClosed,
+        SessionStatus::Error => CommandError::AgentStopped,
+        _ if has_pending => CommandError::Implementation(QUEUED_ANSWER_FIRST.to_owned()),
+        _ => CommandError::AgentStopped,
     }
 }
 

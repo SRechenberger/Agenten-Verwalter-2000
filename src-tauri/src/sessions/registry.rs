@@ -144,6 +144,8 @@ const PLAN_ANSWER_FIRST: &str = "Beantworte zuerst die Rückfrage des Agenten; �
 const PLAN_NOTICE_GONE: &str = "Dieser Hinweis „Kein Plan im Umsetzungstool“ ist nicht mehr da.";
 /// Die Freigabe fand den Eintrag einer eingereihten Nachricht nicht mehr wartend (Taiga-Story 190).
 const QUEUED_ENTRY_GONE: &str = "Die wartende Nachricht steht nicht mehr im Chat.";
+/// „Jetzt senden“ bei offener Rückfrage (Taiga-Story 190).
+const QUEUED_ANSWER_FIRST: &str = "Beantworte zuerst die Rückfrage des Agenten.";
 /// Satz an den Agenten, wenn eine andere Session im selben Schreib-Ordner arbeitet (ADR 037).
 const OVERLAP_HINT: &str = "Hinweis des Verwalters: Eine andere Session arbeitet gerade im selben Ordner ({folder}, Session „{name}“). Ihre uncommitteten Änderungen dort sind nicht deine.";
 const ANSWER_SEPARATOR: &str = " · ";
@@ -1414,7 +1416,7 @@ impl SessionRegistry {
     /// ab, in ihrer Reihenfolge und auch über der Grenze, wie ein Start des Benutzers.
     pub fn send_queued_now(&self, app: &AppHandle, session_id: &str) -> Result<(), CommandError> {
         let session = self.get(session_id)?;
-        let sent = self.deliver_user_messages(app, &session);
+        let sent = self.deliver_user_messages(app, &session, true);
         // Die Warteschlange verliert den Eintrag: Ein Durchgang meldet sie neu.
         schedule_pass(app);
         sent
@@ -8198,6 +8200,69 @@ mod tests {
             session_tools::UserRelease::Sent
         );
         let _ = fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn the_release_reads_the_comments_of_a_queued_message_after_a_restart() {
+        // Nach einem Neustart steht der Eintrag nur in der Datenbank; `lock` sähe ihn nicht.
+        let base = temp_base("restart-comments");
+        let (_registry, session) = registry_with_full_limit(&base);
+        let comment = ReviewComment {
+            target: crate::review::model::CommentTarget::Diff,
+            repository_key: "0".to_owned(),
+            repository_name: "repo".to_owned(),
+            path: "a.rs".to_owned(),
+            kind: crate::changes::model::DiffLineKind::Added,
+            line: 1,
+            code: "x".to_owned(),
+            text: "Kommentar".to_owned(),
+        };
+        let mut outbox = Outbox::default();
+        {
+            let mut state = session.lock();
+            queue_user_turn(
+                &base.join("staging"),
+                &session,
+                &mut state,
+                &mut outbox,
+                "mit Kommentar",
+                &[],
+                std::slice::from_ref(&comment),
+                None,
+                None,
+                None,
+            )
+            .expect("eingereiht");
+        }
+        session
+            .database
+            .with(|connection| chat_entries::upsert_all(connection, "q", &outbox.entries))
+            .expect("gespeichert");
+        {
+            let mut state = session.lock();
+            state.entries.clear();
+            state.entries_loaded = false;
+        }
+        let comments = session_tools::queued_comments(&session, 0).expect("gelesen");
+        assert_eq!(comments.len(), 1);
+        assert_eq!(comments[0].text, "Kommentar");
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn send_now_reports_why_a_session_does_not_take_its_message() {
+        assert!(matches!(
+            session_tools::refuses_now(SessionStatus::Cancelled, true),
+            CommandError::SessionClosed
+        ));
+        assert!(matches!(
+            session_tools::refuses_now(SessionStatus::Error, true),
+            CommandError::AgentStopped
+        ));
+        assert!(matches!(
+            session_tools::refuses_now(SessionStatus::Completed, true),
+            CommandError::Implementation(text) if text == QUEUED_ANSWER_FIRST
+        ));
     }
 
     #[test]

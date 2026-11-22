@@ -35,8 +35,9 @@ export async function sendMessage(
 }
 
 /** „Jetzt senden“: schickt die wartenden eigenen Nachrichten der Session sofort ab, auch über der Grenze.
- *  @throws {import('@/lib/bindings/CommandError').CommandError} `sessionNotFound`, `sessionClosed`,
- *    `agentStopped` und die Fehler eines Starts */
+ *  @throws {import('@/lib/bindings/CommandError').CommandError} `sessionNotFound`, `sessionClosed` (Session
+ *    abgebrochen), `agentStopped` (Session gescheitert), `implementation` (Rückfrage offen) und die Fehler
+ *    eines Starts */
 export async function sendQueuedNow(sessionId: string): Promise<void> {
   await invoke('chat_send_now', { sessionId });
 }
