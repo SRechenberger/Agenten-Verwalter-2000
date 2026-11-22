@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Entwurf: Eigene Nachrichten einreihen (#190)</title>
+<style>
+/* Tokens aus src/styles/theme.css, je Bild in einem eigenen Geltungsbereich, damit Hell und Dunkel nebeneinander stehen. */
+.t-dark{color-scheme:dark;--base:#1f1f1f;--surf:#252526;--side:#181818;--pop:#252526;--sel:#37373d;--bds:#2b2b2b;--bd:#3c3c3c;--fg:#d4d4d4;--fg2:#b0b0b0;--fgm:#8f8f8f;--acc:#e0825c;--acct:#eea283;--accs:rgba(224,130,92,.16);--onacc:#1d130e;--wait:#f2b33d;--waitsub:rgba(242,179,61,.11);--shadow:0 10px 30px rgb(0 0 0/.45)}
+.t-light{color-scheme:light;--base:#fff;--surf:#fff;--side:#f8f8f8;--pop:#fff;--sel:#e4e6f1;--bds:#e5e5e5;--bd:#cecece;--fg:#3c3c3c;--fg2:#555;--fgm:#6e6e6e;--acc:#c4572f;--acct:#a8461f;--accs:rgba(196,87,47,.10);--onacc:#fff;--wait:#a86a00;--waitsub:rgba(168,106,0,.10);--shadow:0 10px 30px rgb(0 0 0/.14)}
+:root{--font:'Segoe UI Variable Text','Segoe UI',system-ui,sans-serif;--mono:ui-monospace,Consolas,monospace}
+*{box-sizing:border-box}
+body{margin:0;background:#1a1a1a;color:#d4d4d4;font:13px/1.45 var(--font)}
+main{max-width:1240px;margin:0 auto;padding:16px}
+h1{font-size:15px;margin:0 0 4px}h2{font-size:14px;margin:34px 0 4px}h2 small{color:#8f8f8f;font-weight:400}
+h3{font-size:12px;margin:14px 0 6px;color:#e0825c;font-weight:600}
+.lead,.why{color:#b0b0b0;margin:0 0 10px;max-width:90ch}.why{font-size:12px;margin:2px 0 8px}
+code{font:12px var(--mono)}
+.pair{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:20px;align-items:start}
+.lbl{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:#8f8f8f;margin:0 0 4px}
+@media(max-width:1000px){.pair{grid-template-columns:1fr}}
+/* Chatfläche */
+.chat{background:var(--base);color:var(--fg);border:1px solid var(--bd);border-radius:10px;font:13px/1.45 var(--font);padding:16px 20px 0;overflow:hidden}
+.chat.has-composer{padding-bottom:0}
+.who{color:var(--fgm);font-size:11px;margin:0 0 4px}
+.reply{margin:0 0 14px;font-size:13.5px;line-height:1.6}
+.idle{display:flex;align-items:center;gap:8px;color:var(--fgm);font-size:12px;margin:0 0 12px}
+.idle i{width:8px;height:8px;border-radius:50%;background:var(--fgm)}
+/* Blase wie UserMessage.css */
+.um{display:flex;flex-direction:column;margin-top:6px;margin-bottom:12px}
+.entry-time{color:var(--fgm);font-size:11px;font-variant-numeric:tabular-nums;margin:0 0 4px;line-height:14px;display:flex;align-items:center;gap:8px}
+.um .box{display:flex;flex-direction:column;gap:8px;padding:10px 12px;border:1px solid var(--bd);border-radius:8px;background:var(--surf)}
+.um .txt{margin:0;font-size:13.5px;line-height:1.6;overflow-wrap:anywhere}
+.um .mark{display:inline-block;margin-right:6px;padding:0 6px;border-radius:4px;background:var(--accs);color:var(--acct);font:12.5px var(--mono)}
+.att{display:inline-flex;align-items:center;gap:6px;align-self:flex-start;padding:2px 8px;border:1px solid var(--bd);border-radius:6px;color:var(--fg2);font-size:12px}
+/* wartend: Rahmen in der Wartefarbe, gestrichelt, damit er sich von gesendet unterscheidet */
+.um.waiting .box{border-style:dashed;border-color:var(--wait)}
+/* A: Marke klein unter der Blase */
+.below{margin:4px 2px 0;color:var(--wait);font-size:11px;display:flex;align-items:center;gap:6px}
+/* B: Chip im Kopf der Blase */
+.chipw{display:inline-flex;align-items:center;gap:5px;padding:0 8px;border:1px solid var(--wait);border-radius:999px;background:var(--waitsub);color:var(--wait);font-size:11px;line-height:16px;white-space:nowrap}
+.um .head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:-2px 0 -2px}
+.um .head .t{color:var(--fgm);font-size:11px}
+/* Composer wie Composer.css */
+.cmp{margin:0 -20px;padding:6px 32px 18px}
+.cbox{display:flex;flex-direction:column;border:1px solid var(--bd);border-radius:10px;background:var(--surf)}
+.cin{padding:11px 14px 4px;min-height:52px;font-size:13.5px;line-height:1.55;color:var(--fgm)}
+.cbar{display:flex;align-items:center;gap:4px;padding:4px 6px 6px}
+.cbar .ib{width:30px;height:30px;border-radius:6px;display:flex;align-items:center;justify-content:center;color:var(--fg2)}
+.cbar .md{color:var(--fg2);font-size:12px;padding:0 8px}
+.cbar .sp{margin-left:auto}
+.send{width:30px;height:30px;border-radius:6px;background:var(--acc);color:var(--onacc);display:flex;align-items:center;justify-content:center;flex:none}
+/* Hinweis A: Leiste wie CacheColdHint */
+.hint{display:flex;align-items:center;gap:10px;padding:8px 10px;border-bottom:1px solid var(--bds);border-radius:9px 9px 0 0;background:var(--waitsub);font-size:12px;color:var(--fg2)}
+.hint .ic{color:var(--wait);display:flex;flex:none}
+.hint p{flex:1;min-width:0;margin:0}.hint strong{font-weight:600;color:var(--fg)}
+.btn{flex:none;padding:4px 10px;border:1px solid var(--wait);border-radius:6px;background:transparent;color:var(--wait);font:inherit;font-size:12px;cursor:pointer}
+/* Hinweis B: knapp neben dem Senden-Knopf */
+.nowb{display:inline-flex;align-items:center;gap:6px;margin-right:4px;padding:0 4px 0 10px;height:30px;border:1px solid var(--wait);border-radius:6px;color:var(--wait);font-size:12px;white-space:nowrap}
+.nowb b{font-weight:600}
+.nowb .btn{border:0;border-left:1px solid var(--wait);border-radius:0 5px 5px 0;height:28px;padding:0 10px;margin-left:2px}
+.pick{outline:1px dashed var(--acc);outline-offset:3px}
+/* Leiste und Liste wie Sidebar.css / QueueChip.css */
+.sb{width:256px;background:var(--side);color:var(--fg);border:1px solid var(--bds);border-radius:10px;font:13px/1.45 var(--font);padding:8px 10px}
+.sbrow{display:flex;align-items:center;gap:8px;height:30px;padding:0 8px;border-radius:6px;color:var(--fg2);white-space:nowrap;overflow:hidden}
+.sbrow.sel{background:var(--sel);color:var(--fg)}
+.sbrow .dot{width:8px;height:8px;border-radius:50%;flex:none;background:var(--fgm)}
+.sbrow .dot.run{background:var(--acc)}
+.sbrow .m{margin-left:auto;color:var(--wait);font-size:11.5px;flex:none}
+.sbh{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--fgm);padding:6px 8px 2px}
+.pop{width:540px;max-width:100%;background:var(--pop);border:1px solid var(--bd);border-radius:10px;box-shadow:var(--shadow);padding:4px;color:var(--fg)}
+.pop .ph{display:flex;align-items:center;gap:8px;padding:6px 6px 8px;border-bottom:1px solid var(--bds);margin-bottom:2px;white-space:nowrap}
+.pop table{width:100%;border-collapse:collapse;font-size:12.5px}
+.pop th{padding:3px 6px;border-bottom:1px solid var(--bds);color:var(--fgm);font-weight:400;text-align:left}
+.pop td{padding:4px 6px;border-bottom:1px solid var(--bds)}
+.pop td.r{color:var(--acct);font-weight:600}.pop td.s{white-space:nowrap}
+.pop .own td:nth-child(2){font-weight:600}
+.pop .note{margin:8px 6px 4px;color:var(--fgm);font-size:12px}
+.cells{display:inline-flex;gap:2px}.cells i{width:10px;height:10px;border:1px solid var(--bd);border-radius:2px}.cells i.on{background:var(--acc);border-color:var(--acc)}
+.stack{display:flex;flex-direction:column;gap:14px;align-items:flex-start}
+.bar{width:256px;display:flex;align-items:center;gap:8px;color:var(--fg2);font-size:11px;margin:0 0 4px}
+.bar .segs{flex:1;display:flex;gap:2px;height:4px}.bar .segs i{flex:1;border-radius:2px;background:var(--bds)}.bar .segs i.on{background:var(--acc)}.bar .segs i.over{background:var(--wait)}
+</style>
+</head>
+<body>
+<main>
+<h1>Entwurf: Eigene Nachrichten einreihen (Taiga #190)</h1>
+<p class="lead">Mockup vor der Umsetzung, Stand 2026-11-22. Gezeigt wird der Chat einer ruhenden Session bei voller Grenze („Gleichzeitige Agenten max.“ erreicht), jeweils Hell und Dunkel nebeneinander. Namen, Zahlen und Texte sind Beispieldaten; Farben, Abstände und Schriften stammen aus <code>theme.css</code>, <code>UserMessage.css</code>, <code>Composer.css</code>, <code>CacheColdHint.css</code>, <code>QueueChip.css</code> und <code>Sidebar.css</code>. Gestrichelt umrandet ist, was neu ist. Der Platz kommt aus der Warteschlange; die Oberfläche rechnet nichts.</p>
+<div id="out"></div>
+</main>
+<script>
+const svgWait='<svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="7" cy="7" r="5.5"/><path d="M7 4v3.2l2 1.3"/></svg>';
+const svgSend='<svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M7 11.5V3M3.5 6.5 7 3l3.5 3.5"/></svg>';
+const svgClip='<svg width="12" height="12" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M11.5 6.5 7 11a2.5 2.5 0 0 1-3.5-3.5l5-5a1.7 1.7 0 0 1 2.4 2.4L6 10"/></svg>';
+const both=(f,note)=>`<div class="pair"><div><p class="lbl">Hell</p><div class="t-light">${f}</div></div><div><p class="lbl">Dunkel</p><div class="t-dark">${f}</div></div></div>`;
+const sec=(t,why,body)=>`<h2>${t}</h2><p class="why">${why}</p>${body}`;
+// Blase. v: 'A' (Marke unter der Blase) | 'B' (Chip im Kopf) | null (gesendet). n: Platz.
+const bubble=({txt,time='14:32',n=null,v='A',att=null,mark=null,pick=true})=>{
+ const w=n!==null;
+ const chip=w&&v==='B'?`<span class="chipw ${pick?'pick':''}">${svgWait}wartet · Platz ${n}</span>`:'';
+ const below=w&&v==='A'?`<div class="below ${pick?'pick':''}" style="align-self:flex-start">${svgWait}wartet · Platz ${n}</div>`:'';
+ return `<div class="um${w?' waiting':''}"><div class="entry-time">${time}</div><div class="box">${chip?`<div class="head">${chip}</div>`:''}<p class="txt">${mark?`<span class="mark">${mark}</span>`:''}${txt}</p>${att?`<span class="att">${svgClip}${att}</span>`:''}</div>${below}</div>`};
+const head=`<p class="who">Session „Mockup-Gedanken“</p><p class="reply">Ich habe die Tests ergänzt und warte auf deine Rückmeldung.</p><div class="idle"><i></i>ruhend · 4 von 4 Plätzen belegt</div>`;
+const input=txt=>`<div class="cin">${txt||'Nachricht an die Session …'}</div>`;
+const bar=(extra='')=>`<div class="cbar"><span class="ib">＋</span><span class="md">Sonnet</span><span class="sp"></span>${extra}<span class="send">${svgSend}</span></div>`;
+const hintA=(n,more)=>`<div class="hint ${more===undefined?'pick':''}"><span class="ic">${svgWait}</span><p><strong>${n===1?'Deine Nachricht wartet':'Deine '+n+' Nachrichten warten'}</strong> auf einen freien Platz (Platz ${n===1?'2':'2 und 3'}).</p><button class="btn" title="Schickt sie sofort ab, auch über der Grenze">Jetzt senden</button></div>`;
+const nowB=n=>`<span class="nowb pick"><span>${n===1?'wartet':'<b>'+n+'</b> warten'} · Platz 2${n>1?'–3':''}</span><button class="btn" title="Schickt sie sofort ab, auch über der Grenze">Jetzt senden</button></span>`;
+const composer=(top,extra,txt)=>`<div class="cmp"><div class="cbox">${top||''}${input(txt)}${bar(extra||'')}</div></div>`;
+const chat=(inner,cmp)=>`<div class="chat">${inner}${cmp||'<div style="height:16px"></div>'}</div>`;
+let h='';
+// 1
+for(const v of ['A','B']){
+ h+=sec(`1${v} · Wartende Nachricht im Chat, Variante ${v}`,v==='A'
+  ?'Die Marke steht klein unter der Blase, in der Wartefarbe, so wie sonst die Zeit steht. Die Blase hat einen gestrichelten Rahmen in der Wartefarbe; ohne die Farbe erkennt man sie an Rahmen und Wort.'
+  :'Die Marke ist ein Chip im Kopf der Blase, in der Form der Marke „n warten“ der Leiste. Gleicher gestrichelter Rahmen. Der Chip steht innerhalb der Blase und verschiebt den Text um eine Zeile nach unten.',
+  both(chat(head+bubble({txt:'Kannst du den zweiten Fall noch als Test hinzufügen?',n:2,v}))));
+}
+// 2
+h+=sec('2A · Hinweis über dem Eingabefeld, Variante A (Leiste)','Eine Leiste im Kopf des Eingabefelds, wie <code>CacheColdHint</code>: Symbol, Text mit Platz, Knopf „Jetzt senden“. Sie steht nur, solange eine eigene Nachricht dieser Session wartet. Der Tooltip des Knopfs steht in der README.',
+ both(chat(head+bubble({txt:'Kannst du den zweiten Fall noch als Test hinzufügen?',n:2,v:'A'}),composer(hintA(1)))));
+h+=sec('2B · Hinweis über dem Eingabefeld, Variante B (neben dem Senden-Knopf)','Keine zusätzliche Zeile: ein Knopf aus Text und „Jetzt senden“ sitzt in der Leiste des Eingabefelds links vom Senden-Knopf. Spart Höhe, ist aber in schmalen Fenstern enger (die Modusknöpfe links rücken).',
+ both(chat(head+bubble({txt:'Kannst du den zweiten Fall noch als Test hinzufügen?',n:2,v:'B'}),composer('',nowB(1)))));
+// 3
+h+=sec('3 · Zwei wartende Nachrichten, eine mit Anhang','Beide stehen in der Reihenfolge des Sendens im Chat, Platz 2 und 3. „Jetzt senden“ schickt beide, die erste zuerst. Der Anhang steht in der wartenden Blase wie in jeder anderen; er ist schon verschoben und geht mit. Gezeigt mit Marke A und Hinweis A (rechts davon wäre B der Knopf neben dem Senden-Knopf).',
+ both(chat(head+bubble({txt:'Hier ist das Protokoll des Fehlers.',n:2,v:'A',att:'fehler.log · 12 KB',time:'14:32'})+bubble({txt:'Und bitte danach die Doku anpassen.',n:3,v:'A',time:'14:33',pick:false}),composer(hintA(2,0)))));
+// 4
+h+=sec('4 · „/compact“ wartet','Der Befehl steht wie jede eigene Nachricht im Chat, mit dem Befehlszeichen der Blase und derselben Marke. Der Hinweis nennt ihn nicht gesondert; er zählt als Nachricht.',
+ both(chat(head+bubble({txt:'compact',mark:'/',n:2,v:'A',time:'14:35'}),composer(hintA(1)))));
+// 5
+h+=sec('5 · Nach dem Senden','Die Marke und der Hinweis sind weg, der gestrichelte Rahmen wird ein normaler. Die Blase unterscheidet sich nicht von einer Nachricht, die gleich gesendet wurde. Der Agent arbeitet.',
+ both(chat(`<p class="who">Session „Mockup-Gedanken“</p><p class="reply">Ich habe die Tests ergänzt und warte auf deine Rückmeldung.</p>`+bubble({txt:'Kannst du den zweiten Fall noch als Test hinzufügen?',n:null})+`<div class="idle"><i style="background:var(--acc)"></i>arbeitet …</div>`,composer('',''))));
+// 6
+const sbrows=(own)=>`<div class="sb"><div class="sbh">Mockup</div><div class="sbrow"><span class="dot run"></span>Lane H · Umsetzung</div><div class="sbrow sel"><span class="dot"></span>Mockup-Gedanken<span class="m">${own?'✉ Platz 2':''}</span></div><div class="sbrow"><span class="dot"></span>Archiv-Notizen</div></div>`;
+const pop=(tr)=>`<div class="pop"><div class="ph"><span class="cells"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i></span><span>Plätze 4 von 4 (App)</span></div><table><thead><tr><th>Rang</th><th>Was</th><th>Vorhaben</th><th>Stufe</th><th>wartet</th></tr></thead><tbody>${tr}</tbody></table><p class="note">Reihenfolge: Stufe des Vorhabens, dann Priorität der Station, dann wer früher wartet. Eine eigene Nachricht steht, wie eine Nachricht an den Master, vor den Wartenden ihres Vorhabens.</p></div>`;
+const rowsA=`<tr><td class="r">1</td><td>Nachricht · Mockup-Gedanken</td><td>Welle 5</td><td>normal</td><td class="s">vor 1 min</td></tr><tr><td class="r">2</td><td>Station · Lane H · Umsetzung</td><td>Welle 5</td><td>normal</td><td class="s">vor 4 min</td></tr><tr><td class="r">3</td><td>Fortsetzen · Station 109.3</td><td>Agententypen</td><td>niedrig</td><td class="s">vor 1 h</td></tr>`;
+const rowsB=rowsA.replace('Nachricht · Mockup-Gedanken','Eigene Nachricht · Mockup-Gedanken').replace('<tr>','<tr class="own">');
+h+=sec('6 · Liste der Warteschlange und Leiste','Links die Leiste: die Zeile der Session zeigt „✉ Platz 2“ wie heute bei einer Session-Nachricht. Rechts die Liste. Variante A lässt den Eintrag wie heute „Nachricht · &lt;Session&gt;“ heißen. Variante B nennt ihn „Eigene Nachricht · &lt;Session&gt;“ (fett, damit man sie findet). Empfehlung: B, weil sonst eine Nachricht einer anderen Session und eine eigene gleich heißen, aber verschieden zu behandeln sind (die eigene lässt sich mit „Jetzt senden“ freigeben, die andere nicht).',
+ `<h3>Leiste (für A und B gleich)</h3>${both(`<div class="stack">${sbrows(true)}</div>`)}<h3>Liste, Variante A: „Nachricht · &lt;Session&gt;“</h3>${both(`<div class="stack">${pop(rowsA)}</div>`)}<h3>Liste, Variante B: „Eigene Nachricht · &lt;Session&gt;“</h3>${both(`<div class="stack">${pop(rowsB)}</div>`)}`);
+document.getElementById('out').innerHTML=h;
+</script>
+</body>
+</html>
