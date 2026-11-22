@@ -38,3 +38,10 @@ Probelauf vom 11.11.2026, von Hand mit einem Python-Skript auf den Transkripten 
 - Ändert Claude Code das Präfix der Hook-Ausgabe (`PreToolUse:… hook error: …`, ADR 053), erscheinen Sperren in der Spur als Fehler statt als `SPERRE`.
 - Die Normalisierung macht Pfade, IDs, Hashes und Zahlen unkenntlich; gleiche Aufrufe verschiedener Sessions werden dadurch zählbar, einzelne Zahlen in Fehlertexten gehen verloren.
 - Laufzeit je Session steigt um den Haiku-Aufruf (Probelauf 36–130 s).
+
+## Nachtrag 2026-11-22 (Taiga 127)
+
+- Die Markdown-Dateien eines Retro-Ordners enthalten keinen Benutzerordner: `session-<N>.md`, `befunde.md`, `werkzeuge.md` und `spur-<N>.md`. Die Skripte unter `skripte/` bleiben wörtlich. Ihr Hash läuft wie bisher über `Normalizer::full` und damit über das erweiterte Muster; bei einem Skript mit fremdem Ordner unter `/home` ändert er sich. Über `Normalizer::full` wirkt das erweiterte Muster auch auf die Spur, die an Haiku geht (`haiku_input`): Ordner unter `/home` stehen dort jetzt wie die unter `Users` als `~`. Im Transkript für die Befunde (`retro_transcript`) ersetzt nichts die Pfade; die neuen Aufrufe von `replace_paths` wirken nur auf die Dateien.
+- Ersetzt werden der Workspace (`<WS>`), der eigene Benutzerordner und jeder Ordner unter `Users` oder `/home` (`~`), auch gekürzt (`/home/ali…`) und in der kodierten Schreibweise des Claude-Projektordners (`C--Users-…`, `-home-…`). Workspace und eigener Benutzerordner gehen vor. Die Dateien werden zeilenweise erhalten: `Normalizer::replace_paths` lässt Zeilenumbrüche und Einrückung stehen.
+- Gekürzt wird weiter vor dem Normalisieren (Ziele 120, Sperrgründe 200 Zeichen); gekürzte Pfade deckt das Muster ab.
+- Grenzen: `/users/…` hat keine Grenze davor und wird in jeder URL ersetzt. `/home/…` braucht davor eine Grenze (kein Wortzeichen, `.` oder `-`): `file:///home/x` wird ersetzt, `example.com/home/x`, `src/home/x` und `go-home-button` bleiben. Der Name unter `/home/` endet am ersten Zeichen außer Buchstabe, Ziffer, `_`, `.`, `$` und `-`; so wird `/home/a:/home/b` zu `~:~`.

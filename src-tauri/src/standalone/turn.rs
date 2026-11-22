@@ -424,7 +424,11 @@ fn run_tool(job: &TurnJob, call: &ParsedCall) -> ToolOutput {
         .hooks
         .pre_tool_use(&hook_call(job, call, mode), &job.cancel)
     {
-        HookVerdict::Deny(reason) => return refused(&reason),
+        HookVerdict::Deny(reason) => {
+            return refused(&crate::retro::traces::hook_block_output(
+                &call.name, &reason,
+            ));
+        }
         // Eine Auswahlfrage braucht die Antwort des Benutzers, egal was ein Hook sagt.
         HookVerdict::Allow if call.name != ASK_USER_TOOL => Decision::Allow,
         HookVerdict::Ask => Decision::Ask,
