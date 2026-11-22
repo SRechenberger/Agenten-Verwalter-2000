@@ -103,11 +103,13 @@ static WHITESPACE_PATTERN: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\s+").expect("Muster ist ein Literal"));
 static SEGMENT_SPLIT: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"&&|\|\||;|\||\r?\n").expect("Muster ist ein Literal"));
-/// Jedes Benutzerverzeichnis unter `Users`, auch gekürzt (`C:\Users\s…`, wie es `target` liefert,
-/// wenn ein Muster lang ist) und in der kodierten Schreibweise des Claude-Projektordners.
+/// Jedes Benutzerverzeichnis unter `Users` und `/home`, auch gekürzt (`C:\Users\s…`, `/home/s…`,
+/// wie es `target` liefert, wenn ein Muster lang ist) und in der kodierten Schreibweise des
+/// Claude-Projektordners. Die Linux-Formen brauchen eine Grenze davor (Gruppe 1 und 2, bleibt
+/// stehen), damit `src/home/x` und `go-home-button` unberührt bleiben.
 static USER_DIR_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(
-        r#"(?i)(?:[a-z]:[\\/]+|/[a-z]/|[\\/]+)users\b(?:[\\/]+[^\\/\s"'`…]*)?|\b[a-z]--users-[^\\/\s"'`…]*"#,
+        r#"(?im)(?:[a-z]:[\\/]+|/[a-z]/|[\\/]+)users\b(?:[\\/]+[^\\/\s"'`…]*)?|\b[a-z]--users-[^\\/\s"'`…]*|(^|[^\w.-])/home/[^\\/\s"'`…]*|(^|[^\w-])-home-[^\\/\s"'`…]*"#,
     )
     .expect("Muster ist ein Literal")
 });
@@ -201,7 +203,9 @@ impl Normalizer {
         collapse_whitespace(&replaced)
     }
 
-    fn replace_paths(&self, text: &str) -> String {
+    /// Nur die Pfade ersetzt wie in `paths`, Zeilenumbrüche und Einrückung bleiben (für ganze
+    /// Markdown-Dateien).
+    pub fn replace_paths(&self, text: &str) -> String {
         let mut result = text.to_owned();
         if let Some(pattern) = &self.workspace {
             result = pattern.replace_all(&result, "<WS>").into_owned();
@@ -209,7 +213,9 @@ impl Normalizer {
         if let Some(pattern) = &self.home {
             result = pattern.replace_all(&result, "~").into_owned();
         }
-        USER_DIR_PATTERN.replace_all(&result, "~").into_owned()
+        USER_DIR_PATTERN
+            .replace_all(&result, "${1}${2}~")
+            .into_owned()
     }
 }
 
@@ -901,7 +907,7 @@ mod tests {
     use std::collections::{BTreeMap, HashMap};
     use std::path::Path;
 
-    use super::{SessionIdentity, build_trace, unique_labels};
+    use super::{Normalizer, SessionIdentity, build_trace, unique_labels};
     use crate::agents::event::{ChatEntry, SessionRef, ToolState};
     use crate::retro::traces::RuleTraces;
 
@@ -977,6 +983,52 @@ mod tests {
                 (1, "Starte", 1),
                 (2, "Session 4 „Review“: Lane gemeldet", 2)
             ]
+        );
+    }
+
+    #[test]
+    fn linux_and_encoded_user_dirs_become_tilde() {
+        let normalizer = Normalizer::new(Path::new("/srv/work"), None);
+        for text in [
+            "/home/alice/x",
+            "/home/ali…",
+            "-home-alice-Coding-x",
+            "C:\\Users\\alice\\x",
+            "/Users/alice/x",
+        ] {
+            let result = normalizer.replace_paths(text);
+            assert!(result.starts_with('~'), "{text} → {result}");
+            assert!(
+                !result.contains("alice") && !result.contains("ali…"),
+                "{result}"
+            );
+        }
+        assert_eq!(normalizer.replace_paths("cat /home/alice/x"), "cat ~/x");
+    }
+
+    #[test]
+    fn linux_pattern_leaves_ordinary_words() {
+        let normalizer = Normalizer::new(Path::new("/srv/work"), None);
+        let text = "go-home-button homepage src/home/x";
+        assert_eq!(normalizer.replace_paths(text), text);
+    }
+
+    #[test]
+    fn replace_paths_keeps_line_breaks_and_indentation() {
+        let normalizer = Normalizer::new(Path::new("/srv/work"), None);
+        let result = normalizer.replace_paths("a /home/alice/x\n    b  /srv/work/y\n");
+        assert_eq!(result, "a ~/x\n    b  <WS>/y\n");
+    }
+
+    #[test]
+    fn workspace_wins_over_user_dir() {
+        let normalizer = Normalizer::new(
+            Path::new("/home/alice/proj"),
+            Some(Path::new("/home/alice")),
+        );
+        assert_eq!(
+            normalizer.replace_paths("/home/alice/proj/a /home/alice/b"),
+            "<WS>/a ~/b"
         );
     }
 }

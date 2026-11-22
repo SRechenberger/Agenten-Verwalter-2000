@@ -189,15 +189,17 @@ impl SessionRegistry {
                 "Keine Mini-Retro gelungen: {first}"
             )));
         }
+        let report_paths =
+            tools::Normalizer::new(&workspace, crate::standalone::home_dir().as_deref());
         fs::write(
             folder.join(FINDINGS_FILE),
-            findings::render(project_name, &results),
+            report_paths.replace_paths(&findings::render(project_name, &results)),
         )
         .map_err(write_error)?;
         // Ein Fehlschlag der Werkzeug-Retro steht nur in Teil B und zählt nicht in `failed_count`.
         fs::write(
             folder.join(TOOLS_FILE),
-            tools_report::render(project_name, &traces, &tool_retros),
+            report_paths.replace_paths(&tools_report::render(project_name, &traces, &tool_retros)),
         )
         .map_err(write_error)?;
 
@@ -278,6 +280,7 @@ fn prepare_session(session: &Session) -> Option<PreparedSession> {
         &session.workspace,
         home.as_deref(),
     );
+    let file_normalizer = tools::Normalizer::new(&session.workspace, home.as_deref());
     let (transcript, truncated) = retro_transcript(&state.entries, &traces);
     let file = session_file(
         session.number,
@@ -287,6 +290,7 @@ fn prepare_session(session: &Session) -> Option<PreparedSession> {
         &state.entries,
         &traces,
     );
+    let file = file_normalizer.replace_paths(&file);
     Some(PreparedSession {
         number: session.number,
         id: session.id.clone(),
