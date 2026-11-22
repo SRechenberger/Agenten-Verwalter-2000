@@ -25,4 +25,10 @@ Die Vorhaben-Retro ([ADR 028](028-vorhaben-retro.md)) zeigte bisher nur, was sch
 - Aufrufe vor [ADR 042](042-werkzeug-details.md) haben keine Ausgabe; ihre Sperren bleiben unerkannt.
 - Ändert Claude Code das Präfix, fällt die Erkennung still auf „Werkzeug fehlgeschlagen“ zurück; `retro-probe` zeigt es. Die Erkennung steht in genau einer Funktion (`parse_hook_block`).
 - Einwürfe von Hooks ohne Sperre (`additionalContext`) bleiben unsichtbar.
-- Codex und Autark liefern leere Spuren.
+- Codex liefert keine Spuren. Autark schreibt Hook-Sperren im selben Wortlaut (siehe Nachtrag).
+
+## Nachtrag 2026-11-22 (Taiga 54)
+
+- Autark gibt bei einer Hook-Sperre (`HookVerdict::Deny`) als Ausgabe `PreToolUse:<Werkzeug> hook error: <Grund>` aus, im Wortlaut von Claude Code. Das Modell sieht denselben Text wie dort, die Retro zählt die Sperre.
+- Den Text baut `hook_block_output` in `retro/traces.rs`, neben `parse_hook_block`: Das Format steht weiter nur dort. Andere Ablehnungen (Abbruch, Argumentfehler, Rechte) bleiben ohne Präfix und sind keine Sperren.
+- `parse_hook_block` und `hook_block_output` haben Tests, auch dafür, dass die eine liest, was die andere schreibt.
