@@ -68,6 +68,43 @@ pub fn hold_until(
         .max_by(|left: &QuotaHold, right: &QuotaHold| left.until_ms.total_cmp(&right.until_ms))
 }
 
+/// So alt darf der Stand sein, solange eine Station wartet oder gerade einen Platz bekommt; so selten
+/// ruft das Backend nach einem gescheiterten Abruf wieder ab (Taiga-Story 130).
+pub const QUOTA_STALE: Duration = Duration::from_secs(5 * 60);
+
+/// Was `refresh_due` über den Halt und den Stand wissen muss.
+#[derive(Debug, Clone, Copy)]
+pub struct RefreshInput {
+    /// Eine Station (Countdown, Neustart) wartet in der Warteschlange.
+    pub station_waits: bool,
+    /// Eine Station hat in diesem Durchgang einen Platz bekommen.
+    pub station_claimed: bool,
+    /// Die Zeit des Halts ist erreicht.
+    pub hold_reached: bool,
+    pub operating_mode: OperatingMode,
+    pub threshold: Option<u32>,
+    /// `fetched_at` des Stands; `None` ohne Stand.
+    pub fetched_at: Option<f64>,
+    /// In den letzten `QUOTA_STALE` begann ein Abruf, auch ein gescheiterter.
+    pub started_recently: bool,
+}
+
+/// Rein: ob das Backend den Stand jetzt abruft. Nur wenn eine Station wartet oder gerade einen Platz
+/// bekommt und die Schwelle in der Betriebsart Claude gilt; dann bei erreichtem Halt, oder wenn der
+/// Stand fehlt oder älter als `QUOTA_STALE` ist und kein Abruf in den letzten `QUOTA_STALE` begann.
+pub fn refresh_due(input: &RefreshInput, now: f64) -> bool {
+    if !(input.station_waits || input.station_claimed)
+        || input.threshold.is_none()
+        || input.operating_mode != OperatingMode::Claude
+    {
+        return false;
+    }
+    let stale = input
+        .fetched_at
+        .is_none_or(|fetched_at: f64| now - fetched_at > QUOTA_STALE.as_secs_f64() * 1000.0);
+    input.hold_reached || (stale && !input.started_recently)
+}
+
 fn iso_ms(text: &str) -> Option<f64> {
     let timestamp: jiff::Timestamp = text.parse().ok()?;
     Some(timestamp.as_millisecond() as f64)

@@ -8706,3 +8706,98 @@ fn quota_hold_percent_defaults_to_90_empty_is_off_and_0_or_101_are_refused() {
         assert_eq!(percent(&database), Some(accepted));
     }
 }
+
+/// Eine Station bekommt einen Platz, Schwelle 90 in Claude, Stand 10 Minuten alt, kein Abruf begonnen.
+fn refresh_input() -> crate::usage::RefreshInput {
+    crate::usage::RefreshInput {
+        station_waits: false,
+        station_claimed: true,
+        hold_reached: false,
+        operating_mode: OperatingMode::Claude,
+        threshold: Some(90),
+        fetched_at: Some(epoch_ms(HOLD_NOW) - 10.0 * 60_000.0),
+        started_recently: false,
+    }
+}
+
+fn refresh_due(input: crate::usage::RefreshInput) -> bool {
+    crate::usage::refresh_due(&input, epoch_ms(HOLD_NOW))
+}
+
+#[test]
+fn refresh_is_due_when_a_station_gets_a_slot_with_an_old_or_missing_stand() {
+    assert!(refresh_due(refresh_input()), "Stand alt");
+    assert!(
+        refresh_due(crate::usage::RefreshInput {
+            fetched_at: None,
+            ..refresh_input()
+        }),
+        "Stand fehlt"
+    );
+    assert!(
+        refresh_due(crate::usage::RefreshInput {
+            station_waits: true,
+            station_claimed: false,
+            ..refresh_input()
+        }),
+        "eine Station wartet"
+    );
+}
+
+#[test]
+fn refresh_is_not_due_with_a_fresh_stand_or_a_recent_attempt() {
+    assert!(
+        !refresh_due(crate::usage::RefreshInput {
+            fetched_at: Some(epoch_ms(HOLD_NOW) - 60_000.0),
+            ..refresh_input()
+        }),
+        "Stand frisch"
+    );
+    assert!(
+        !refresh_due(crate::usage::RefreshInput {
+            started_recently: true,
+            ..refresh_input()
+        }),
+        "Abruf in den letzten 5 Minuten begonnen, auch ein gescheiterter"
+    );
+    assert!(
+        refresh_due(crate::usage::RefreshInput {
+            fetched_at: Some(epoch_ms(HOLD_NOW) - 60_000.0),
+            started_recently: true,
+            station_waits: true,
+            hold_reached: true,
+            ..refresh_input()
+        }),
+        "der erreichte Halt ruft trotzdem ab (Drossel von refresh)"
+    );
+}
+
+#[test]
+fn refresh_is_not_due_without_threshold_outside_claude_or_without_a_station() {
+    assert!(!refresh_due(crate::usage::RefreshInput {
+        threshold: None,
+        ..refresh_input()
+    }));
+    for mode in [
+        OperatingMode::Standalone,
+        OperatingMode::Codex,
+        OperatingMode::ClaudeCodeLocal,
+    ] {
+        assert!(
+            !refresh_due(crate::usage::RefreshInput {
+                operating_mode: mode,
+                ..refresh_input()
+            }),
+            "{mode:?}"
+        );
+    }
+    assert!(
+        !refresh_due(crate::usage::RefreshInput {
+            station_claimed: false,
+            hold_reached: true,
+            fetched_at: None,
+            ..refresh_input()
+        }),
+        "keine Station wartet oder bekommt einen Platz"
+    );
+}

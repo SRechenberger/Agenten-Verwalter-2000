@@ -7,7 +7,6 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::thread;
-use std::time::Duration;
 
 use tauri::{AppHandle, Emitter, Manager};
 
@@ -21,13 +20,11 @@ use crate::implementation::slots::{
 use crate::implementation::{IS_CANCELLED, START_DELAY, announce, command_run, start};
 use crate::projects::model::ProjectPriority;
 use crate::sessions::auto_resume::RESUME_TEXT;
-use crate::settings::{self, model::OperatingMode};
-use crate::usage::{self, QuotaHold, UsageService};
+use crate::settings;
+use crate::usage::{self, QUOTA_STALE, QuotaHold, RefreshInput, UsageService};
 
 /// Die Liste der Wartenden oder die Zahl der belegten Plätze hat sich geändert; ohne Nutzlast.
 pub const AGENT_QUEUE_CHANGED_EVENT: &str = "agent_queue://changed";
-/// So alt darf der Stand des Kontingents sein, solange eine Station wartet und die Schwelle gilt.
-const QUOTA_STALE: Duration = Duration::from_secs(5 * 60);
 
 impl SessionRegistry {
     /// Sessions, die zur Zeit `now` einen Platz belegen (Regel a; `SessionState::holds_slot_at`), jede
@@ -62,10 +59,40 @@ impl SessionRegistry {
         )
     }
 
+    /// Ruft den Stand ab, wenn `usage::refresh_due` es verlangt. Nie unter einer Sperre aufrufen.
+    fn refresh_quota_if_due(
+        &self,
+        app: &AppHandle,
+        station_waits: bool,
+        station_claimed: bool,
+        hold_reached: bool,
+        now: f64,
+    ) {
+        // Spart das Lesen von Einstellung und Stand in jedem Durchgang ohne Station.
+        if !(station_waits || station_claimed) {
+            return;
+        }
+        let loaded = settings::load(&self.database).unwrap_or(settings::DEFAULT_SETTINGS);
+        let usage = app.state::<UsageService>();
+        let input = RefreshInput {
+            station_waits,
+            station_claimed,
+            hold_reached,
+            operating_mode: loaded.operating_mode,
+            threshold: loaded.quota_hold_percent,
+            fetched_at: usage
+                .status()
+                .snapshot
+                .map(|snapshot: usage::model::UsageSnapshot| snapshot.fetched_at),
+            started_recently: usage.started_within(QUOTA_STALE),
+        };
+        if usage::refresh_due(&input, now) {
+            usage.refresh(app, false);
+        }
+    }
+
     /// Vom Reaper bei jedem Tick (Taiga-Story 130): Ist der Halt erreicht, folgt ein Durchgang. Wartet
-    /// eine Station und gilt die Schwelle in der Betriebsart Claude, hält es den Stand aktuell: ein
-    /// Abruf, wenn der Halt erreicht ist oder der Stand fehlt oder älter als `QUOTA_STALE` ist, ein
-    /// gescheiterter Abruf höchstens einmal je `QUOTA_STALE`. Ohne wartende Station kein Abruf.
+    /// eine Station, hält es den Stand aktuell (`usage::refresh_due`).
     pub(crate) fn quota_tick(&self, app: &AppHandle) {
         let now = now_ms();
         let (reached, station_waits) = {
@@ -84,21 +111,7 @@ impl SessionRegistry {
         if reached {
             schedule_pass(app);
         }
-        if !station_waits {
-            return;
-        }
-        let loaded = settings::load(&self.database).unwrap_or(settings::DEFAULT_SETTINGS);
-        if loaded.quota_hold_percent.is_none() || loaded.operating_mode != OperatingMode::Claude {
-            return;
-        }
-        let usage = app.state::<UsageService>();
-        let stale =
-            usage.status().snapshot.is_none_or(|snapshot| {
-                now - snapshot.fetched_at > QUOTA_STALE.as_secs_f64() * 1000.0
-            }) && !usage.started_within(QUOTA_STALE);
-        if reached || stale {
-            usage.refresh(app, false);
-        }
+        self.refresh_quota_if_due(app, station_waits, false, reached, now);
     }
 
     /// Ab jetzt warten die bereiten Stationen dieser Umsetzung in der globalen Warteschlange.
@@ -132,6 +145,12 @@ impl SessionRegistry {
             }
         };
         let current: AgentQueue = self.lock_countdowns().queue().clone();
+        // Bekommt eine Station einen Platz, soll der Stand für die nächste aktuell sein: Ein Fenster,
+        // dessen Reset seit dem letzten Abruf verstrich, hält sonst nie (Taiga-Story 130).
+        let station_claimed = claimed
+            .iter()
+            .any(|(waiter, _): &Claimed| waiter.start != Start::Session);
+        self.refresh_quota_if_due(app, false, station_claimed, false, now_ms());
         // Befehls-Stationen brauchen keinen Platz (ADR 073): Sie starten gleich, ohne das Tor.
         let armed: HashSet<String> = self.lock_countdowns().armed();
         for view in self.implementation_views().unwrap_or_default() {
