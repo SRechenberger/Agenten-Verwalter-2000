@@ -34,11 +34,16 @@ export const useAgentQueueStore = create<AgentQueueState>((set) => ({
     });
   },
   keepHosts: (hostIds: readonly string[]): void => {
-    set((state) => ({
-      hostQueues: Object.fromEntries(
-        Object.entries(state.hostQueues).filter(([hostId]) => hostIds.includes(hostId)),
-      ),
-    }));
+    set((state) => {
+      const kept: [string, AgentQueue][] = Object.entries(state.hostQueues).filter(([hostId]) =>
+        hostIds.includes(hostId),
+      );
+      // Fällt kein Host heraus, bleibt der Zustand derselbe: zustand benachrichtigt dann niemanden.
+      if (kept.length === Object.keys(state.hostQueues).length) {
+        return state;
+      }
+      return { hostQueues: Object.fromEntries(kept) };
+    });
   },
 }));
 
