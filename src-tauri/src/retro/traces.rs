@@ -94,6 +94,11 @@ pub fn collect(
     Ok(traces)
 }
 
+/// Die Ausgabe einer Hook-Sperre im Wortlaut von Claude Code; `parse_hook_block` liest sie zurück.
+pub fn hook_block_output(tool: &str, reason: &str) -> String {
+    format!("{HOOK_PREFIX}{tool}{HOOK_MARKER}{reason}")
+}
+
 /// Der Sperrgrund, wenn die Ausgabe von einem Hook stammt, sonst `None`. Die einzige Stelle, die
 /// das Präfix kennt: ändert Claude Code es, fällt die Erkennung hier aus.
 pub fn parse_hook_block(output: &str) -> Option<String> {
@@ -139,4 +144,37 @@ pub fn skills_line(traces: &RuleTraces) -> String {
         })
         .collect();
     parts.join(", ")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{hook_block_output, parse_hook_block};
+
+    #[test]
+    fn claude_wording_yields_the_reason() {
+        let output = "PreToolUse:Bash hook error: [cmd]: Sperre zum Test";
+        assert_eq!(
+            parse_hook_block(output).as_deref(),
+            Some("[cmd]: Sperre zum Test")
+        );
+    }
+
+    #[test]
+    fn text_without_prefix_or_marker_is_no_block() {
+        assert_eq!(parse_hook_block("Von einem Hook blockiert."), None);
+        assert_eq!(parse_hook_block("PreToolUse:Bash failed"), None);
+    }
+
+    #[test]
+    fn written_block_reads_back_as_its_reason() {
+        let output = hook_block_output("Bash", "Von einem Hook blockiert.");
+        assert_eq!(
+            output,
+            "PreToolUse:Bash hook error: Von einem Hook blockiert."
+        );
+        assert_eq!(
+            parse_hook_block(&output).as_deref(),
+            Some("Von einem Hook blockiert.")
+        );
+    }
 }
