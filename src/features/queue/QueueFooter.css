@@ -26,6 +26,13 @@
     }
   }
 
+  &__host {
+    max-width: 45%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
   &__segs {
     display: flex;
     flex: 1;

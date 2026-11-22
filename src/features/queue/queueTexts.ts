@@ -113,6 +113,22 @@ export function messageWaitPosition(
   return entry === undefined ? null : entry.position;
 }
 
+/** Platz der wartenden Nachricht einer Session in der Warteschlange, die sie führt: der eigenen oder der eines
+ *  Hosts (Session-IDs sind über Geräte eindeutig); der Rang ist der dieser Warteschlange. */
+export function sessionWaitPosition(
+  queues: readonly (AgentQueue | null)[],
+  sessionId: string,
+): number | null {
+  for (const queue of queues) {
+    const position: number | null =
+      queue === null ? null : messageWaitPosition(queue.entries, sessionId);
+    if (position !== null) {
+      return position;
+    }
+  }
+  return null;
+}
+
 /** Zeile einer Session oder Station: „Nachricht wartet · Platz 2“. */
 export function messageWaitText(position: number): string {
   return `Nachricht wartet · Platz ${String(position)}`;
@@ -123,10 +139,11 @@ export function messageWaitShort(position: number): string {
   return `✉ Platz ${String(position)}`;
 }
 
-/** Leiste der Umsetzung: „Plätze 3 von 4 (App)“, über der Grenze mit „· über der Grenze“. */
-export function slotsText(queue: AgentQueue): string {
+/** Leiste der Umsetzung: „Plätze 3 von 4 (App)“, über der Grenze mit „· über der Grenze“; die eines Hosts
+ *  mit seinem Namen statt „App“. */
+export function slotsText(queue: AgentQueue, hostName: string | null = null): string {
   const limit: string = queue.limit === null ? '∞' : String(queue.limit);
-  const base = `Plätze ${String(queue.used)} von ${limit} (App)`;
+  const base = `Plätze ${String(queue.used)} von ${limit} (${hostName ?? 'App'})`;
   return isOverLimit(queue) ? `${base} · über der Grenze` : base;
 }
 
@@ -140,11 +157,47 @@ export function isSlotsBarShown(queue: AgentQueue | null): boolean {
   return queue !== null && (queue.used > 0 || queue.entries.length > 0);
 }
 
-/** Name und Titel der Balkenzeile: die lange Belegung samt Wartenden, „Plätze 4 von 4 (App) · 3 warten“. */
-export function slotsBarLabel(queue: AgentQueue): string {
+/** Name und Titel der Balkenzeile: die lange Belegung samt Wartenden, „Plätze 4 von 4 (App) · 3 warten“; bei
+ *  einem Host mit seinem Namen. */
+export function slotsBarLabel(queue: AgentQueue, hostName: string | null = null): string {
   const waiting: string =
     queue.entries.length === 0 ? 'nichts wartet' : waitingChipText(queue.entries.length);
-  return `${slotsText(queue)} · ${waiting}`;
+  return `${slotsText(queue, hostName)} · ${waiting}`;
+}
+
+/** Ein Abschnitt der Liste: die Warteschlange dieses Geräts (`hostId` `null`) oder die eines Hosts. */
+export interface QueueSection {
+  hostId: string | null;
+  hostName: string | null;
+  queue: AgentQueue;
+}
+
+/** Abschnitte der Liste (ADR 068, Nachtrag Story 188): zuerst dieses Gerät, dann die Hosts nach Namen. Ein Host
+ *  steht nur nach der Regel seiner Balkenzeile da (`isSlotsBarShown`); ein Host ohne gelesene Warteschlange nie. */
+export function queueSections(
+  own: AgentQueue | null,
+  hosts: readonly { hostId: string; hostName: string }[],
+  hostQueues: Readonly<Record<string, AgentQueue>>,
+): QueueSection[] {
+  const remote: QueueSection[] = hosts
+    .flatMap((host: { hostId: string; hostName: string }): QueueSection[] => {
+      const queue: AgentQueue | undefined = hostQueues[host.hostId];
+      return queue !== undefined && isSlotsBarShown(queue)
+        ? [{ hostId: host.hostId, hostName: host.hostName, queue }]
+        : [];
+    })
+    .sort((a: QueueSection, b: QueueSection) =>
+      (a.hostName ?? '').localeCompare(b.hostName ?? '', 'de'),
+    );
+  return own === null ? remote : [{ hostId: null, hostName: null, queue: own }, ...remote];
+}
+
+/** Zahl der Marke „n warten“: die Wartenden aller sichtbaren Warteschlangen. */
+export function waitingCount(sections: readonly QueueSection[]): number {
+  return sections.reduce(
+    (sum: number, section: QueueSection) => sum + section.queue.entries.length,
+    0,
+  );
 }
 
 export const QUEUE_NOTHING_WAITING = 'Nichts wartet.';

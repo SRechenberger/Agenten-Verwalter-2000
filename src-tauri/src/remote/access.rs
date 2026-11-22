@@ -222,13 +222,13 @@ const TABLE: &[(Class, Option<IdKind>, &[&str])] = &[
             "implementation_list",
             "session_overlaps",
             "dashboard_get",
+            "agent_queue",
         ],
     ),
     (
         Class::LocalOnly,
         None,
         &[
-            "agent_queue",
             "app_info",
             "account_load",
             "account_login",
@@ -280,6 +280,7 @@ const TABLE: &[(Class, Option<IdKind>, &[&str])] = &[
             "remote_host_profile",
             "remote_usage_load",
             "remote_usage_refresh",
+            "remote_agent_queue",
             "remote_asset_base",
         ],
     ),

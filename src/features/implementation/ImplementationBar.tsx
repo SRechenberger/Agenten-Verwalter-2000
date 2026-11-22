@@ -35,7 +35,12 @@ import {
   STOP_AFTER_TITLE,
 } from '@/features/implementation/implementationTexts';
 import { SlotsMeter } from '@/features/queue/SlotsMeter';
+import { isRemote } from '@/features/remote/projectAccess';
+import { useProjectAccess } from '@/features/remote/useProjectAccess';
+import type { AgentQueue } from '@/lib/bindings/AgentQueue';
 import type { ImplementationView } from '@/lib/bindings/ImplementationView';
+import type { ProjectAccess } from '@/lib/bindings/ProjectAccess';
+import { useAgentQueueStore } from '@/stores/agentQueue';
 import './ImplementationBar.css';
 
 interface ImplementationBarProps {
@@ -85,6 +90,12 @@ export function ImplementationBar({
   onDelete,
 }: ImplementationBarProps): ReactElement {
   const [confirm, setConfirm] = useState<Confirm | null>(null);
+  const access: ProjectAccess = useProjectAccess(implementation.projectId);
+  // Eine Umsetzung eines Hosts zeigt seine Plätze, nie die dieses Geräts (ADR 068, Nachtrag Story 188).
+  const hostName: string | null = isRemote(access) ? access.hostName : null;
+  const queue: AgentQueue | null = useAgentQueueStore((state) =>
+    isRemote(access) ? (state.hostQueues[access.hostId] ?? null) : state.queue,
+  );
   const cancelledAt: number | null = implementation.cancelledAt;
   const isOpen: boolean = implementation.finishedAt === null;
   const working: StationRef | undefined = workingStation(implementation);
@@ -191,7 +202,7 @@ export function ImplementationBar({
       ) : (
         renderAutomation()
       )}
-      {isOpen && cancelledAt === null && <SlotsMeter />}
+      {isOpen && cancelledAt === null && <SlotsMeter queue={queue} hostName={hostName} />}
       <span className="implementation-bar__spacer" />
       <span className="implementation-bar__actions">
         {cancelledAt === null && (

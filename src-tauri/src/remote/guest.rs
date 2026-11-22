@@ -25,6 +25,7 @@ use crate::dashboard::{
 };
 use crate::db::{Database, remote as remote_rows};
 use crate::error::CommandError;
+use crate::implementation::slots::AgentQueue;
 use crate::projects::model::{ProjectGroup, ProjectSummary};
 use crate::usage::model::UsageStatus;
 
@@ -318,6 +319,15 @@ pub async fn usage_load(
     host_id: String,
 ) -> Result<UsageStatus, CommandError> {
     let value = blocking(move || clients.call(&host_id, "usage_load", Value::Null)).await??;
+    serde_json::from_value(value).map_err(|error| CommandError::Internal(error.to_string()))
+}
+
+/// Die Warteschlange des Hosts: seine Plätze und die Wartenden der Vorhaben, die dieses Gerät hält.
+pub async fn agent_queue(
+    clients: Arc<RemoteClients>,
+    host_id: String,
+) -> Result<AgentQueue, CommandError> {
+    let value = blocking(move || clients.call(&host_id, "agent_queue", Value::Null)).await??;
     serde_json::from_value(value).map_err(|error| CommandError::Internal(error.to_string()))
 }
 

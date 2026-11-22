@@ -10,10 +10,10 @@ import {
 import { RELEASED_CHIP, RELEASED_TITLE } from '@/features/implementation/masterTexts';
 import { liveText, pauseChip, stationIcon } from '@/features/implementation/stationLive';
 import { stateLabel, stationTone, type StationTone } from '@/features/implementation/stationState';
-import { messageWaitPosition, messageWaitShort } from '@/features/queue/queueTexts';
+import { messageWaitShort } from '@/features/queue/queueTexts';
 import { WAITING_JUMP_HINT } from '@/features/waiting/waitingTexts';
 import type { StationState } from '@/lib/bindings/StationState';
-import { useAgentQueueStore } from '@/stores/agentQueue';
+import { useMessageWait } from '@/stores/agentQueue';
 import './SidebarStation.css';
 
 /** Zustände, in denen der Zustandstext eine Laufzeit oder einen Countdown zeigt. */
@@ -47,11 +47,7 @@ export function SidebarStation({
   const { station, phase } = entry;
   const now: number = useNow(TICKING_STATES.includes(station.state));
   const label: string = stationLabel(station);
-  const messageWait: number | null = useAgentQueueStore((state) =>
-    station.sessionId === null || state.queue === null
-      ? null
-      : messageWaitPosition(state.queue.entries, station.sessionId),
-  );
+  const messageWait: number | null = useMessageWait(station.sessionId);
   const meta: string =
     messageWait === null
       ? stationMeta(station, now) || stateLabel(station.state)

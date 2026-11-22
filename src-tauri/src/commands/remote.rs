@@ -3,6 +3,7 @@ use std::sync::Arc;
 use crate::artifacts::server::ArtifactServer;
 use crate::db::Database;
 use crate::error::CommandError;
+use crate::implementation::slots::AgentQueue;
 use crate::projects::model::ProjectSummary;
 use crate::remote::client::RemoteClients;
 use crate::remote::guest;
@@ -179,6 +180,16 @@ pub async fn remote_usage_load(
     host_id: String,
 ) -> Result<UsageStatus, CommandError> {
     guest::usage_load(Arc::clone(&clients), host_id).await
+}
+
+/// Am Gast: die Warteschlange des Hosts mit seinen Plätzen und den Wartenden der Vorhaben, die dieses
+/// Gerät hält; Änderungen meldet `remote://agent-queue-changed`.
+#[tauri::command]
+pub async fn remote_agent_queue(
+    clients: tauri::State<'_, Arc<RemoteClients>>,
+    host_id: String,
+) -> Result<AgentQueue, CommandError> {
+    guest::agent_queue(Arc::clone(&clients), host_id).await
 }
 
 /// Am Gast: lässt den Host sein Kontingent abrufen; das Ergebnis meldet `remote://usage-changed`.

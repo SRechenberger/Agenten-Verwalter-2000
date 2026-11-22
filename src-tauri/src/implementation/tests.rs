@@ -6005,7 +6005,7 @@ fn migration_029_sets_existing_projects_to_normal() {
 fn new_commands_are_classified_in_the_access_table() {
     use crate::remote::access::{Class, class_of};
     assert_eq!(class_of("project_set_priority"), Some(Class::HostWrite));
-    assert_eq!(class_of("agent_queue"), Some(Class::LocalOnly));
+    assert_eq!(class_of("agent_queue"), Some(Class::Reachable));
     assert_eq!(class_of("implementation_set_max_parallel"), None);
 }
 

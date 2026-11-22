@@ -456,3 +456,17 @@ fn a_removed_implementation_reaches_only_the_guest_that_holds_its_project() {
     assert_eq!(reaches("unknown"), None, "nicht freigegeben");
     assert_eq!(project_in(owner, &json!({ "id": "impl" })), None);
 }
+
+#[test]
+fn a_change_of_the_agent_queue_reaches_every_connected_device_without_content() {
+    use super::forward::{FORWARDED, Owner};
+    assert!(
+        FORWARDED.contains(&("agent_queue://changed", Owner::EveryDevice)),
+        "{FORWARDED:?}"
+    );
+    assert_ne!(
+        super::AGENT_QUEUE_CHANGED_EVENT,
+        "agent_queue://changed",
+        "am Gast nie unter dem eigenen Namen"
+    );
+}

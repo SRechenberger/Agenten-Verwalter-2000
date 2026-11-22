@@ -5,6 +5,8 @@ use std::sync::Mutex;
 
 use super::*;
 use crate::dashboard::model::DashboardView;
+use crate::implementation::slots::QueueKind;
+use crate::projects::model::ProjectPriority;
 use crate::remote::model::HostProfile;
 
 const PROJECT: &str = "project";
@@ -69,6 +71,10 @@ impl Host for Stub {
 
     fn dashboard_snapshot(&self) -> Result<Snapshot, CommandError> {
         Ok(two_projects())
+    }
+
+    fn agent_queue(&self) -> AgentQueue {
+        queue_of_two_projects()
     }
 
     fn invoke(&self, command: &str, args: Value) -> Result<Value, CommandError> {
@@ -482,5 +488,78 @@ fn dashboard_get_is_reachable_for_guests_without_an_id() {
     assert_eq!(
         access::class_of("dashboard_get"),
         Some(access::Class::Reachable)
+    );
+}
+
+/// Vier Plätze, drei belegt; Wartende auf den Rängen 1 und 3 in `PROJECT`, auf 2 im fremden Vorhaben.
+fn queue_of_two_projects() -> AgentQueue {
+    let entry = |position: u32, project_id: &str| QueueEntry {
+        position,
+        kind: QueueKind::Station,
+        project_id: project_id.to_owned(),
+        session_id: None,
+        implementation_id: Some(format!("{project_id}-impl")),
+        station_id: Some(format!("{project_id}-{position}")),
+        title: format!("{project_id} · Lane {position}"),
+        priority: ProjectPriority::Normal,
+        station_priority: 0,
+        since_ms: 0.0,
+    };
+    AgentQueue {
+        limit: Some(4),
+        used: 3,
+        entries: vec![
+            entry(1, PROJECT),
+            entry(2, "foreign-project"),
+            entry(3, PROJECT),
+        ],
+    }
+}
+
+fn queue_of(device_id: &str) -> (AgentQueue, Value, Vec<(String, Value)>) {
+    let host = Stub::new(&Scratch::new());
+    let value =
+        call(&host, &held_by_a(), device_id, "agent_queue", Value::Null).expect("Warteschlange");
+    let queue: AgentQueue = serde_json::from_value(value.clone()).expect("AgentQueue");
+    (queue, value, host.invoked())
+}
+
+#[test]
+fn agent_queue_gives_a_guest_only_the_waiters_of_projects_it_holds_with_the_ranks_of_the_host() {
+    let (queue, value, invoked) = queue_of("a");
+    assert_eq!((queue.limit, queue.used), (Some(4), 3), "Plätze des Hosts");
+    let ranks: Vec<(u32, &str)> = queue
+        .entries
+        .iter()
+        .map(|entry| (entry.position, entry.project_id.as_str()))
+        .collect();
+    assert_eq!(
+        ranks,
+        vec![(1, PROJECT), (3, PROJECT)],
+        "nicht neu nummeriert"
+    );
+    // Auch kein Titel und keine ID des fremden Vorhabens.
+    assert!(!value.to_string().contains("foreign"), "{value}");
+    // Aus der Registry, nie über den Befehl: kein ungefilterter Weg und kein Kreis.
+    assert!(invoked.is_empty(), "{invoked:?}");
+}
+
+#[test]
+fn agent_queue_gives_a_guest_that_holds_nothing_the_slots_but_no_waiters() {
+    let (queue, _, invoked) = queue_of("b");
+    assert_eq!((queue.limit, queue.used), (Some(4), 3));
+    assert!(queue.entries.is_empty(), "{:?}", queue.entries);
+    assert!(invoked.is_empty(), "{invoked:?}");
+}
+
+#[test]
+fn agent_queue_is_reachable_for_guests_and_remote_agent_queue_stays_local() {
+    assert_eq!(
+        access::class_of("agent_queue"),
+        Some(access::Class::Reachable)
+    );
+    assert_eq!(
+        access::class_of("remote_agent_queue"),
+        Some(access::Class::LocalOnly)
     );
 }
