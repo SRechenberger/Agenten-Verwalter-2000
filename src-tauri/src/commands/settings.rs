@@ -28,9 +28,16 @@ pub async fn settings_update(
     change: SettingsChange,
 ) -> Result<Settings, CommandError> {
     let changes_operating_mode = matches!(change, SettingsChange::OperatingMode { .. });
-    let changes_limit = matches!(change, SettingsChange::MaxAgents { .. });
+    // Die Betriebsart zählt mit: Der Halt bei knappem Kontingent gilt nur in Claude.
+    let changes_limit = matches!(
+        change,
+        SettingsChange::MaxAgents { .. }
+            | SettingsChange::QuotaHoldPercent { .. }
+            | SettingsChange::OperatingMode { .. }
+    );
     let updated = settings::update(&database, change)?;
-    // Eine höhere Grenze lässt sofort nachrücken, eine niedrigere beendet nichts (ADR 068).
+    // Eine höhere Grenze oder ein aufgehobener Halt lässt sofort nachrücken, eine niedrigere Grenze
+    // beendet nichts (ADR 068).
     if changes_limit {
         schedule_pass(&app);
     }

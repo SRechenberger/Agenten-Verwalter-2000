@@ -7,6 +7,7 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::thread;
+use std::time::Duration;
 
 use tauri::{AppHandle, Emitter, Manager};
 
@@ -20,10 +21,13 @@ use crate::implementation::slots::{
 use crate::implementation::{IS_CANCELLED, START_DELAY, announce, command_run, start};
 use crate::projects::model::ProjectPriority;
 use crate::sessions::auto_resume::RESUME_TEXT;
-use crate::settings;
+use crate::settings::{self, model::OperatingMode};
+use crate::usage::{self, QuotaHold, UsageService};
 
 /// Die Liste der Wartenden oder die Zahl der belegten Plätze hat sich geändert; ohne Nutzlast.
 pub const AGENT_QUEUE_CHANGED_EVENT: &str = "agent_queue://changed";
+/// So alt darf der Stand des Kontingents sein, solange eine Station wartet und die Schwelle gilt.
+const QUOTA_STALE: Duration = Duration::from_secs(5 * 60);
 
 impl SessionRegistry {
     /// Sessions, die zur Zeit `now` einen Platz belegen (Regel a; `SessionState::holds_slot_at`), jede
@@ -43,6 +47,58 @@ impl SessionRegistry {
             settings::DEFAULT_SETTINGS.max_agents,
             |loaded: settings::model::Settings| loaded.max_agents,
         )
+    }
+
+    /// Der Halt bei knappem Kontingent jetzt (`usage::hold_until`): Stand, Schwelle und Betriebsart.
+    /// Eine unlesbare Einstellung gilt als Standard.
+    fn quota_hold(&self, app: &AppHandle, now: f64) -> Option<QuotaHold> {
+        let loaded = settings::load(&self.database).unwrap_or(settings::DEFAULT_SETTINGS);
+        let snapshot = app.state::<UsageService>().status().snapshot?;
+        usage::hold_until(
+            loaded.operating_mode,
+            &snapshot.limits,
+            loaded.quota_hold_percent,
+            now,
+        )
+    }
+
+    /// Vom Reaper bei jedem Tick (Taiga-Story 130): Ist der Halt erreicht, folgt ein Durchgang. Wartet
+    /// eine Station und gilt die Schwelle in der Betriebsart Claude, hält es den Stand aktuell: ein
+    /// Abruf, wenn der Halt erreicht ist oder der Stand fehlt oder älter als `QUOTA_STALE` ist, ein
+    /// gescheiterter Abruf höchstens einmal je `QUOTA_STALE`. Ohne wartende Station kein Abruf.
+    pub(crate) fn quota_tick(&self, app: &AppHandle) {
+        let now = now_ms();
+        let (reached, station_waits) = {
+            let countdowns = self.lock_countdowns();
+            let reached = countdowns.queue().quota_until.is_some()
+                && countdowns
+                    .quota_hold()
+                    .is_some_and(|hold: &QuotaHold| hold.until_ms <= now);
+            let station_waits = countdowns
+                .queue()
+                .entries
+                .iter()
+                .any(|entry: &QueueEntry| entry.kind == QueueKind::Station);
+            (reached, station_waits)
+        };
+        if reached {
+            schedule_pass(app);
+        }
+        if !station_waits {
+            return;
+        }
+        let loaded = settings::load(&self.database).unwrap_or(settings::DEFAULT_SETTINGS);
+        if loaded.quota_hold_percent.is_none() || loaded.operating_mode != OperatingMode::Claude {
+            return;
+        }
+        let usage = app.state::<UsageService>();
+        let stale =
+            usage.status().snapshot.is_none_or(|snapshot| {
+                now - snapshot.fetched_at > QUOTA_STALE.as_secs_f64() * 1000.0
+            }) && !usage.started_within(QUOTA_STALE);
+        if reached || stale {
+            usage.refresh(app, false);
+        }
     }
 
     /// Ab jetzt warten die bereiten Stationen dieser Umsetzung in der globalen Warteschlange.
@@ -68,10 +124,10 @@ impl SessionRegistry {
             let busy = self.busy_sessions(now);
             let waiters = slots::without_held_resumes(self.waiters(now), &busy);
             let ends_at = now + START_DELAY.as_secs_f64() * 1000.0;
-            if let Some(claimed) = self
-                .lock_countdowns()
-                .pass(seen, limit, &busy, waiters, now, ends_at)
-            {
+            let hold = self.quota_hold(app, now);
+            let mut countdowns = self.lock_countdowns();
+            countdowns.set_quota_hold(hold);
+            if let Some(claimed) = countdowns.pass(seen, limit, &busy, waiters, now, ends_at) {
                 break claimed;
             }
         };
@@ -113,6 +169,7 @@ impl SessionRegistry {
             limit,
             used: u32::try_from(countdowns.used(&busy)).unwrap_or(u32::MAX),
             entries: countdowns.queue().entries.clone(),
+            quota_until: countdowns.queue().quota_until.clone(),
         }
     }
 

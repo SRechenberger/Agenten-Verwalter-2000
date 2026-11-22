@@ -13,6 +13,7 @@ use super::model::{ImplementationView, PhaseView, StationView};
 use super::{Countdowns, schedule, start};
 use crate::projects::model::ProjectPriority;
 use crate::sessions::model::SessionStatus;
+use crate::usage::QuotaHold;
 
 // Ein Wartender, wie die Liste der Warteschlange ihn zeigt (ADR 068). `position` ist 1-basiert,
 // `since_ms` der Zeitpunkt, seit dem er wartet (eine Nachricht: ihr Eingang; ein Fortsetzen: seit es
@@ -44,19 +45,24 @@ pub enum QueueKind {
 }
 
 // Die Warteschlange über alle Vorhaben (`agent_queue`): Grenze (`None` = unbegrenzt), belegte Plätze
-// und die Wartenden in der Reihenfolge, in der sie nachrücken.
+// und die Wartenden in der Reihenfolge, in der sie nachrücken. `quota_until`: ISO-Zeit des Halts bei
+// knappem Kontingent, gesetzt, solange er gilt und mindestens eine Station deshalb wartet.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentQueue {
     pub limit: Option<u32>,
     pub used: u32,
     pub entries: Vec<QueueEntry>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub quota_until: Option<String>,
 }
 
 /// Wie ein Wartender startet, wenn er einen Platz bekommt.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Start {
-    /// Countdown einer bereiten Station; der Platz ist die Station.
+    /// Countdown einer bereiten Station; der Platz ist die Station. Wartet wie `Restart` bei knappem
+    /// Kontingent (`set_quota_hold`).
     Countdown,
     /// Neustart einer Station nach Fehler („Bei Fehler“); der Platz ist die Station.
     Restart,
@@ -230,7 +236,8 @@ impl Countdowns {
     /// `waiters` (`rank`), beansprucht der Reihe nach, solange Platz ist, und merkt sich die übrigen als
     /// Warteschlange. Ein Wartender, dessen Session schon zählt, braucht keinen weiteren Platz; ein
     /// fälliges Fortsetzen zählt nicht mehr (`holds_slot`) und braucht einen. Eine Station mit Countdown oder Start und eine
-    /// beanspruchte Session sind nicht wartend.
+    /// beanspruchte Session sind nicht wartend. Gilt ein Halt (`set_quota_hold`), bekommt keine Station
+    /// (Countdown, Neustart) einen Platz; sie wartet mit ihrem Rang, Sessions rücken an ihr vorbei.
     pub fn pass(
         &mut self,
         seen: u64,
@@ -267,9 +274,12 @@ impl Countdowns {
         let mut used = self.used(busy);
         let mut claimed: Vec<Claimed> = Vec::new();
         let mut waiting: Vec<QueueEntry> = Vec::new();
+        let mut quota_held = false;
         for waiter in waiters {
             let holds = busy.contains(&waiter.key);
-            if !holds && !has_room(limit, used) {
+            let station_held = self.quota_hold.is_some() && waiter.start != Start::Session;
+            if station_held || (!holds && !has_room(limit, used)) {
+                quota_held |= station_held;
                 waiting.push(waiter.entry);
                 continue;
             }
@@ -298,6 +308,11 @@ impl Countdowns {
             limit,
             used: u32::try_from(used).unwrap_or(u32::MAX),
             entries: waiting,
+            quota_until: self
+                .quota_hold
+                .as_ref()
+                .filter(|_| quota_held)
+                .map(|hold: &QuotaHold| hold.until.clone()),
         };
         Some(claimed)
     }
@@ -376,6 +391,16 @@ impl Countdowns {
     /// Die Warteschlange des letzten Durchgangs.
     pub fn queue(&self) -> &AgentQueue {
         &self.queue
+    }
+
+    /// Halt bei knappem Kontingent für die folgenden Durchgänge (`usage::hold_until`); `None` hebt ihn
+    /// auf. Er hält nur zurück, er startet und beendet nichts.
+    pub fn set_quota_hold(&mut self, hold: Option<QuotaHold>) {
+        self.quota_hold = hold;
+    }
+
+    pub fn quota_hold(&self) -> Option<&QuotaHold> {
+        self.quota_hold.as_ref()
     }
 
     fn is_claimed(&self, key: &str) -> bool {

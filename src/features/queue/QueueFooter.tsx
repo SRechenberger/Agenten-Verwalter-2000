@@ -1,6 +1,7 @@
 import { Fragment, useState } from 'react';
 import type { PointerEvent, ReactElement, ReactNode } from 'react';
 import { Popover } from '@/components/Popover';
+import { useNow } from '@/features/background/useNow';
 import { QueueChip, QueueList } from '@/features/queue/QueueChip';
 import {
   isOverLimit,
@@ -15,6 +16,7 @@ import {
   type SlotCell,
 } from '@/features/queue/queueTexts';
 import { refreshHostQueues } from '@/features/queue/useAgentQueueSync';
+import { formatResetAt } from '@/features/usage/usageTexts';
 import type { AgentQueue } from '@/lib/bindings/AgentQueue';
 import type { ProjectSummary } from '@/lib/bindings/ProjectSummary';
 import type { RemoteHostStatus } from '@/lib/bindings/RemoteHostStatus';
@@ -46,6 +48,9 @@ export function QueueFooter({ projects, children }: QueueFooterProps): ReactElem
     (section: QueueSection) => section.hostId !== null,
   );
   const waiting: number = waitingCount(sections);
+  const now: number = useNow(
+    sections.some((section: QueueSection) => section.queue.quotaUntil !== undefined),
+  );
   const isOwnBarShown: boolean = queue !== null && isSlotsBarShown(queue);
   const isBarShown: boolean = isOwnBarShown || hostSections.length > 0;
   // Verschwindet die Balkenzeile, hat die Liste keinen Auslöser mehr: Sie darf beim nächsten belegten Platz
@@ -62,13 +67,18 @@ export function QueueFooter({ projects, children }: QueueFooterProps): ReactElem
   }
 
   function renderBar(shown: AgentQueue, hostName: string | null): ReactElement {
+    const label: string = slotsBarLabel(
+      shown,
+      hostName,
+      shown.quotaUntil === undefined ? null : formatResetAt(shown.quotaUntil, now),
+    );
     return (
       <button
         type="button"
         className={`queue-footer__bar${isOverLimit(shown) ? ' queue-footer__bar--over' : ''}`}
         aria-expanded={isOpen}
-        aria-label={slotsBarLabel(shown, hostName)}
-        title={slotsBarLabel(shown, hostName)}
+        aria-label={label}
+        title={label}
         onClick={toggle}
       >
         {hostName !== null && <span className="queue-footer__host">{hostName}</span>}

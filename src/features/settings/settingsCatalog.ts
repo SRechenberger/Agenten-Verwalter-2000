@@ -156,6 +156,12 @@ const ENTRY_DATA = {
     label: 'Gleichzeitige Agenten max.',
     info: 'Was der Verwalter von selbst startet (Stationen, zugestellte Nachrichten, Fortsetzen nach Kontingent), wartet, wenn so viele Agenten laufen, und rückt in der Reihenfolge der Warteschlange nach: Priorität des Vorhabens, Vorrang der Station, Wartezeit; eine Nachricht an den Master einer Umsetzung rückt vor die Wartenden ihres eigenen Vorhabens. Eigene Nachrichten starten sofort und zählen mit. Leer = unbegrenzt, Standard 4. Eine höhere Zahl lässt sofort nachrücken, eine niedrigere beendet nichts. Gilt für die ganze App.',
   },
+  quotaHoldPercent: {
+    category: 'agent',
+    section: 'Agent',
+    label: 'Stationen anhalten ab … % Kontingent',
+    info: 'Erreicht das 5-Stunden- oder das Wochenfenster des Kontingents diesen Anteil, startet der Verwalter keine Station von selbst, weder nach dem Countdown noch neu nach einem Fehler. Sie wartet bis zum Zurücksetzen des Fensters, bei der Woche also bis zu deren Reset, und rückt danach von selbst nach. „Jetzt starten“ startet trotzdem; Nachrichten zwischen Sessions, das Wecken des Masters, „Automatisch fortsetzen“ und eigene Nachrichten laufen weiter. Eine laufende Session hält er nicht an. Gilt nur in der Betriebsart Claude. Leer = aus, Standard 90.',
+  },
   agentTypes: {
     category: 'agent',
     section: 'Agententypen',

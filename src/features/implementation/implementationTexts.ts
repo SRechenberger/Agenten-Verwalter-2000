@@ -12,6 +12,7 @@ import type { PredecessorsMay } from '@/lib/bindings/PredecessorsMay';
 import type { StationPatch } from '@/lib/bindings/StationPatch';
 import type { StationView } from '@/lib/bindings/StationView';
 import { effortLabel, modelName } from '@/lib/labels';
+import { QUOTA_WAIT_TEXT, readyStationText } from '@/features/queue/queueTexts';
 import type { QuotaWaiting } from '@/features/implementation/quotaWaiting';
 import type { ValueSource } from '@/features/implementation/stationAgent';
 import type { ImplementationViewKind } from '@/stores/sessions';
@@ -492,8 +493,9 @@ export function resumesAtChip(at: number): string {
   return `ab ${clockText(at)}`;
 }
 
-/** Zustand rechts in der Zeile: „läuft · 12 min“, „bereit · Warteschlange 1“, „startet in 7 s“. */
-export function rowStateText(station: StationView, now: number): string {
+/** Zustand rechts in der Zeile: „läuft · 12 min“, „bereit · Warteschlange 1“, „startet in 7 s“; `isQuotaHeld`:
+ *  Die Station wartet wegen des Kontingents („wartet auf Kontingent“). */
+export function rowStateText(station: StationView, now: number, isQuotaHeld = false): string {
   if (isStartFailure(station)) {
     return START_FAILED_LABEL;
   }
@@ -518,13 +520,14 @@ export function rowStateText(station: StationView, now: number): string {
     case 'reported':
       return 'gemeldet';
     case 'error':
-      return station.restarting ? 'Fehler · startet neu' : 'Fehler';
+      if (!station.restarting) {
+        return 'Fehler';
+      }
+      return isQuotaHeld ? `Fehler · ${QUOTA_WAIT_TEXT}` : 'Fehler · startet neu';
     case 'countdown':
       return countdownText(station, now);
     case 'ready':
-      return station.queuePosition === null
-        ? 'bereit'
-        : `bereit · Warteschlange ${String(station.queuePosition)}`;
+      return readyStationText(station.queuePosition, isQuotaHeld);
     case 'pending':
       return 'wartet';
   }

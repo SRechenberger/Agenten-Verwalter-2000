@@ -2436,6 +2436,8 @@ impl SessionRegistry {
                     thread::sleep(IDLE_CHECK_INTERVAL);
                     let registry = app.state::<SessionRegistry>();
                     registry.reap_idle(&app, idle_ms);
+                    // Halt bei knappem Kontingent: wieder anlaufen, Stand aktuell halten.
+                    registry.quota_tick(&app);
                 }
             });
         // Ohne den Reaper laufen ruhende Agenten nur länger — kein Grund, die App zu beenden.

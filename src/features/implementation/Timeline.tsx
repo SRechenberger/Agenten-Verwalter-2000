@@ -62,7 +62,7 @@ import { DoneConfirm } from '@/features/implementation/DoneConfirm';
 import { asksBeforeDone, isDoneByYou } from '@/features/implementation/stationControls';
 import { StationDot } from '@/features/implementation/StationDot';
 import { pauseChip } from '@/features/implementation/stationLive';
-import { messageWaitText, sessionWaitPosition } from '@/features/queue/queueTexts';
+import { isQuotaHeld, messageWaitText, sessionWaitPosition } from '@/features/queue/queueTexts';
 import { useOperatingMode } from '@/features/remote/useOperatingMode';
 import type { ChangeView } from '@/lib/bindings/ChangeView';
 import type { ImplementationView } from '@/lib/bindings/ImplementationView';
@@ -146,7 +146,9 @@ export function Timeline({
   function rowText(station: StationView): string {
     const position: number | null =
       station.sessionId === null ? null : sessionWaitPosition(waitQueues, station.sessionId);
-    return position === null ? rowStateText(station, now) : messageWaitText(position);
+    return position === null
+      ? rowStateText(station, now, isQuotaHeld(waitQueues, station.id))
+      : messageWaitText(position);
   }
 
   function sessionOf(station: StationView): SessionSummary | null {

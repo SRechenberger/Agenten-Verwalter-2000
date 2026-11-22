@@ -11,6 +11,11 @@ import {
   messageWaitShort,
   messageWaitText,
   isSlotsBarShown,
+  isQuotaHeld,
+  parseQuotaHoldPercent,
+  QUOTA_HOLD_INVALID_TEXT,
+  quotaHoldText,
+  readyStationText,
   priorityMark,
   slotCells,
   slotsBarLabel,
@@ -49,7 +54,92 @@ const ENTRIES: QueueEntry[] = [
   entry({ position: 3, kind: 'resume', sessionId: 'b' }),
 ];
 
+const HELD: AgentQueue = { ...queue(4, 1, 1), quotaUntil: '2026-11-22T14:30:00Z' };
+
 const CASES: { name: string; actual: () => unknown; expected: unknown }[] = [
+  {
+    name: 'quota_hold_text_drops_um_before_the_clock',
+    actual: () => quotaHoldText('um 15:30 Uhr'),
+    expected: 'Kontingent: Stationen ab 15:30 Uhr',
+  },
+  {
+    name: 'quota_hold_text_keeps_day_and_um',
+    actual: () => quotaHoldText('Fr. um 15:30 Uhr'),
+    expected: 'Kontingent: Stationen ab Fr. um 15:30 Uhr',
+  },
+  {
+    name: 'slots_text_appends_quota_hold',
+    actual: () => slotsText(HELD, null, 'um 15:30 Uhr'),
+    expected: 'Plätze 1 von 4 (App) · Kontingent: Stationen ab 15:30 Uhr',
+  },
+  {
+    name: 'slots_text_quota_hold_after_over_limit_and_host',
+    actual: () => slotsText({ ...HELD, used: 5 }, 'Werkstatt', 'morgen um 08:00 Uhr'),
+    expected:
+      'Plätze 5 von 4 (Werkstatt) · über der Grenze · Kontingent: Stationen ab morgen um 08:00 Uhr',
+  },
+  {
+    name: 'slots_text_without_reset_has_no_quota_hold',
+    actual: () => slotsText(HELD),
+    expected: 'Plätze 1 von 4 (App)',
+  },
+  {
+    name: 'slots_bar_label_names_quota_hold_before_waiting',
+    actual: () => slotsBarLabel(HELD, null, 'um 15:30 Uhr'),
+    expected: 'Plätze 1 von 4 (App) · Kontingent: Stationen ab 15:30 Uhr · 1 wartet',
+  },
+  {
+    name: 'ready_station_held_says_waits_for_quota',
+    actual: () => readyStationText(2, true),
+    expected: 'wartet auf Kontingent',
+  },
+  {
+    name: 'ready_station_without_hold_keeps_queue_place',
+    actual: () => readyStationText(2, false),
+    expected: 'bereit · Warteschlange 2',
+  },
+  {
+    name: 'ready_station_outside_queue',
+    actual: () => readyStationText(null, true),
+    expected: 'bereit',
+  },
+  {
+    name: 'quota_held_only_in_a_queue_with_hold',
+    actual: () =>
+      [
+        isQuotaHeld([queue(4, 1, 1), HELD], 's'),
+        isQuotaHeld([queue(4, 1, 1)], 's'),
+        isQuotaHeld([HELD, null], 'other'),
+      ].join(),
+    expected: 'true,false,false',
+  },
+  { name: 'quota_hold_empty_is_off', actual: () => parseQuotaHoldPercent(' '), expected: null },
+  { name: 'quota_hold_number', actual: () => parseQuotaHoldPercent(' 90 '), expected: 90 },
+  {
+    name: 'quota_hold_bounds',
+    actual: () => [parseQuotaHoldPercent('1'), parseQuotaHoldPercent('100')].join(),
+    expected: '1,100',
+  },
+  {
+    name: 'quota_hold_zero_is_invalid',
+    actual: () => parseQuotaHoldPercent('0'),
+    expected: undefined,
+  },
+  {
+    name: 'quota_hold_101_is_invalid',
+    actual: () => parseQuotaHoldPercent('101'),
+    expected: undefined,
+  },
+  {
+    name: 'quota_hold_fraction_is_invalid',
+    actual: () => parseQuotaHoldPercent('9.5'),
+    expected: undefined,
+  },
+  {
+    name: 'quota_hold_invalid_text_names_range',
+    actual: () => QUOTA_HOLD_INVALID_TEXT,
+    expected: 'Eine ganze Zahl von 1 bis 100; leer = aus.',
+  },
   {
     name: 'what_names_kind_and_title',
     actual: () => ENTRIES.map((e) => entryWhat(e).split(' · ')[0]).join(),

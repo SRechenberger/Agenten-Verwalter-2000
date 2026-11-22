@@ -13,7 +13,7 @@ import { stateLabel, stationTone, type StationTone } from '@/features/implementa
 import { messageWaitShort } from '@/features/queue/queueTexts';
 import { WAITING_JUMP_HINT } from '@/features/waiting/waitingTexts';
 import type { StationState } from '@/lib/bindings/StationState';
-import { useMessageWait } from '@/stores/agentQueue';
+import { useMessageWait, useQuotaHeld } from '@/stores/agentQueue';
 import './SidebarStation.css';
 
 /** Zustände, in denen der Zustandstext eine Laufzeit oder einen Countdown zeigt. */
@@ -48,6 +48,7 @@ export function SidebarStation({
   const now: number = useNow(TICKING_STATES.includes(station.state));
   const label: string = stationLabel(station);
   const messageWait: number | null = useMessageWait(station.sessionId);
+  const quotaHeld: boolean = useQuotaHeld(station.id);
   const meta: string =
     messageWait === null
       ? stationMeta(station, now) || stateLabel(station.state)
@@ -65,7 +66,7 @@ export function SidebarStation({
         type="button"
         className={`sidebar-station__button${isActive ? ' sidebar-station__button--active' : ''}${isStacked ? ' sidebar-station__button--stacked' : ''}`}
         aria-current={isActive ? 'page' : undefined}
-        title={`${label} · Lane ${phase.key} ${phase.title} · ${rowStateText(station, now)} · ${opening}${WAITING_JUMP_HINT}`}
+        title={`${label} · Lane ${phase.key} ${phase.title} · ${rowStateText(station, now, quotaHeld)} · ${opening}${WAITING_JUMP_HINT}`}
         onClick={onSelect}
       >
         <span className="sidebar-station__status">

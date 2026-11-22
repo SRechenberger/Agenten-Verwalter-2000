@@ -35,6 +35,8 @@ const KEY_DEFAULT_AUTO_RESUME: &str = "default_auto_resume";
 const KEY_ANSWER_MODEL: &str = "answer_model";
 /// Leer = unbegrenzt; fehlt der Schlüssel, gilt der Standard (ADR 068).
 const KEY_MAX_AGENTS: &str = "max_agents";
+/// Leer = aus; fehlt der Schlüssel, gilt der Standard (ADR 068, Taiga-Story 130).
+const KEY_QUOTA_HOLD_PERCENT: &str = "quota_hold_percent";
 /// Leer = aus; fehlt der Schlüssel, gilt der Standard (ADR 070).
 const KEY_MASTER_COMPACT_TOKENS: &str = "master_compact_tokens";
 /// JSON-Liste; fehlt der Schlüssel, gilt `DEFAULT_COMMAND_PROGRAMS` (ADR 073).
@@ -47,6 +49,9 @@ const KEY_DASHBOARD: &str = "dashboard";
 const KEY_REMOTE_ENABLED: &str = "remote_enabled";
 const KEY_REMOTE_PORT: &str = "remote_port";
 const KEY_REMOTE_HOST_ID: &str = "remote_host_id";
+
+/// Erlaubte Werte von „Stationen anhalten ab … %“.
+pub const QUOTA_HOLD_RANGE: std::ops::RangeInclusive<u32> = 1..=100;
 
 /// Erlaubte Grenzen von „Master zusammenfassen ab … Tokens“.
 pub const MASTER_COMPACT_RANGE: std::ops::RangeInclusive<u32> = 50_000..=2_000_000;
@@ -88,6 +93,7 @@ pub const DEFAULT_SETTINGS: Settings = Settings {
     default_auto_resume: false,
     answer_model: Some(ModelId::Haiku),
     max_agents: Some(4),
+    quota_hold_percent: Some(90),
     master_compact_tokens: Some(150_000),
     // ponytail: eine `const` hält keine Zeichenketten; `load` setzt `DEFAULT_COMMAND_PROGRAMS` ein.
     command_programs: Vec::new(),
@@ -154,6 +160,11 @@ pub fn load(database: &Database) -> Result<Settings, CommandError> {
             .map_or(DEFAULT_SETTINGS.max_agents, |text: &String| {
                 stored_max_agents(text)
             }),
+        quota_hold_percent: stored
+            .get(KEY_QUOTA_HOLD_PERCENT)
+            .map_or(DEFAULT_SETTINGS.quota_hold_percent, |text: &String| {
+                stored_quota_hold_percent(text)
+            }),
         master_compact_tokens: stored
             .get(KEY_MASTER_COMPACT_TOKENS)
             .map_or(DEFAULT_SETTINGS.master_compact_tokens, |text: &String| {
@@ -207,6 +218,15 @@ pub fn update(database: &Database, change: SettingsChange) -> Result<Settings, C
     if let SettingsChange::MaxAgents { value: Some(0) } = &change {
         return Err(CommandError::Internal(
             "Gleichzeitige Agenten: mindestens 1 oder leer".to_owned(),
+        ));
+    }
+    if let SettingsChange::QuotaHoldPercent {
+        value: Some(percent),
+    } = &change
+        && !QUOTA_HOLD_RANGE.contains(percent)
+    {
+        return Err(CommandError::Internal(
+            "Stationen anhalten ab: 1 bis 100 % oder leer".to_owned(),
         ));
     }
     if let SettingsChange::MasterCompactTokens {
@@ -275,6 +295,12 @@ pub fn update(database: &Database, change: SettingsChange) -> Result<Settings, C
                     .map(|limit: u32| limit.to_string())
                     .unwrap_or_default();
                 setting_rows::write(&transaction, KEY_MAX_AGENTS, &text)?;
+            }
+            SettingsChange::QuotaHoldPercent { value } => {
+                let text = value
+                    .map(|percent: u32| percent.to_string())
+                    .unwrap_or_default();
+                setting_rows::write(&transaction, KEY_QUOTA_HOLD_PERCENT, &text)?;
             }
             SettingsChange::MasterCompactTokens { value } => {
                 let text = value
@@ -447,6 +473,19 @@ fn stored_max_agents(text: &str) -> Option<u32> {
         .ok()
         .filter(|limit: &u32| *limit >= 1)
         .or(DEFAULT_SETTINGS.max_agents)
+}
+
+/// Gespeicherter Wert von „Stationen anhalten ab“: leer = aus, ein unlesbarer oder unzulässiger Wert =
+/// der Standard.
+fn stored_quota_hold_percent(text: &str) -> Option<u32> {
+    let text = text.trim();
+    if text.is_empty() {
+        return None;
+    }
+    text.parse::<u32>()
+        .ok()
+        .filter(|percent: &u32| QUOTA_HOLD_RANGE.contains(percent))
+        .or(DEFAULT_SETTINGS.quota_hold_percent)
 }
 
 /// Gespeicherter Wert von „Master zusammenfassen ab“: leer = aus, ein unlesbarer oder unzulässiger Wert

@@ -106,6 +106,10 @@ pub struct Settings {
     // „Gleichzeitige Agenten max.“ (ADR 068): so viele Agenten startet der Verwalter höchstens von
     // selbst; `None` = unbegrenzt, sonst mindestens 1.
     pub max_agents: Option<u32>,
+    // „Stationen anhalten ab … %“ (ADR 068, Taiga-Story 130): erreicht das 5-Stunden- oder das
+    // Wochenfenster diesen Anteil, startet der Verwalter keine Station von selbst; `None` = aus, sonst
+    // 1 bis 100. Gilt nur in der Betriebsart Claude.
+    pub quota_hold_percent: Option<u32>,
     // „Master zusammenfassen ab … Tokens“ (ADR 070): eine ruhende Master-Session über dieser Grenze
     // bekommt `/compact`; `None` = aus. Gilt für die ganze App.
     pub master_compact_tokens: Option<u32>,
@@ -188,6 +192,10 @@ pub enum SettingsChange {
     },
     // `None` = unbegrenzt (ADR 068).
     MaxAgents {
+        value: Option<u32>,
+    },
+    // `None` = aus; sonst 1 bis 100 (ADR 068).
+    QuotaHoldPercent {
         value: Option<u32>,
     },
     /// Die Freigabeliste der Befehls-Stationen (ADR 073), ersetzt die ganze Liste.

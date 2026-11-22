@@ -25,6 +25,22 @@ export function parseMaxAgents(text: string): number | null | undefined {
 
 export const MAX_AGENTS_INVALID_TEXT = 'Eine ganze Zahl von 1 bis 9999; leer = unbegrenzt.';
 
+/** Eingabe von „Stationen anhalten ab … %“: leer = aus (`null`), sonst eine ganze Zahl von 1 bis 100; `undefined` =
+ *  ungültig. */
+export function parseQuotaHoldPercent(text: string): number | null | undefined {
+  const trimmed: string = text.trim();
+  if (trimmed === '') {
+    return null;
+  }
+  if (!/^\d{1,3}$/.test(trimmed)) {
+    return undefined;
+  }
+  const value: number = Number(trimmed);
+  return value >= 1 && value <= 100 ? value : undefined;
+}
+
+export const QUOTA_HOLD_INVALID_TEXT = 'Eine ganze Zahl von 1 bis 100; leer = aus.';
+
 export const PRIORITY_LABEL: Record<ProjectPriority, string> = {
   high: 'hoch',
   normal: 'normal',
@@ -139,12 +155,44 @@ export function messageWaitShort(position: number): string {
   return `✉ Platz ${String(position)}`;
 }
 
+/** Zeile einer bereiten Station: „bereit“, in der Warteschlange „bereit · Warteschlange 2“, beim Halt wegen des
+ *  Kontingents „wartet auf Kontingent“. */
+export function readyStationText(position: number | null, isQuotaHeld: boolean): string {
+  if (position === null) {
+    return 'bereit';
+  }
+  return isQuotaHeld ? QUOTA_WAIT_TEXT : `bereit · Warteschlange ${String(position)}`;
+}
+
+export const QUOTA_WAIT_TEXT = 'wartet auf Kontingent';
+
+/** Wartet die Station wegen des Kontingents: Sie steht in einer Warteschlange mit Halt (`quotaUntil`), der eigenen
+ *  oder der eines Hosts (Stations-IDs sind über Geräte eindeutig). */
+export function isQuotaHeld(queues: readonly (AgentQueue | null)[], stationId: string): boolean {
+  return queues.some(
+    (queue: AgentQueue | null) =>
+      queue?.quotaUntil !== undefined &&
+      queue.entries.some((entry: QueueEntry) => entry.stationId === stationId),
+  );
+}
+
+/** Zusatz beim Halt wegen des Kontingents: „Kontingent: Stationen ab 15:30 Uhr“. `resetAt` ist `formatResetAt` von
+ *  `quotaUntil` („um 15:30 Uhr“, „morgen um 15:30 Uhr“, „Fr. um 15:30 Uhr“). */
+export function quotaHoldText(resetAt: string): string {
+  return `Kontingent: Stationen ab ${resetAt.replace(/^um /, '')}`;
+}
+
 /** Leiste der Umsetzung: „Plätze 3 von 4 (App)“, über der Grenze mit „· über der Grenze“; die eines Hosts
- *  mit seinem Namen statt „App“. */
-export function slotsText(queue: AgentQueue, hostName: string | null = null): string {
+ *  mit seinem Namen statt „App“. Mit `resetAt` (siehe `quotaHoldText`) folgt der Halt wegen des Kontingents. */
+export function slotsText(
+  queue: AgentQueue,
+  hostName: string | null = null,
+  resetAt: string | null = null,
+): string {
   const limit: string = queue.limit === null ? '∞' : String(queue.limit);
   const base = `Plätze ${String(queue.used)} von ${limit} (${hostName ?? 'App'})`;
-  return isOverLimit(queue) ? `${base} · über der Grenze` : base;
+  const occupied: string = isOverLimit(queue) ? `${base} · über der Grenze` : base;
+  return resetAt === null ? occupied : `${occupied} · ${quotaHoldText(resetAt)}`;
 }
 
 /** Kurzform der Balkenzeile im Fuß der Sidebar: „2/4“, „5/4“, „3/∞“. */
@@ -158,11 +206,15 @@ export function isSlotsBarShown(queue: AgentQueue | null): boolean {
 }
 
 /** Name und Titel der Balkenzeile: die lange Belegung samt Wartenden, „Plätze 4 von 4 (App) · 3 warten“; bei
- *  einem Host mit seinem Namen. */
-export function slotsBarLabel(queue: AgentQueue, hostName: string | null = null): string {
+ *  einem Host mit seinem Namen; mit `resetAt` samt Halt wegen des Kontingents. */
+export function slotsBarLabel(
+  queue: AgentQueue,
+  hostName: string | null = null,
+  resetAt: string | null = null,
+): string {
   const waiting: string =
     queue.entries.length === 0 ? 'nichts wartet' : waitingChipText(queue.entries.length);
-  return `${slotsText(queue, hostName)} · ${waiting}`;
+  return `${slotsText(queue, hostName, resetAt)} · ${waiting}`;
 }
 
 /** Ein Abschnitt der Liste: die Warteschlange dieses Geräts (`hostId` `null`) oder die eines Hosts. */
@@ -203,7 +255,7 @@ export function waitingCount(sections: readonly QueueSection[]): number {
 export const QUEUE_NOTHING_WAITING = 'Nichts wartet.';
 
 export const SLOTS_TITLE =
-  'Agenten, die gerade einen Platz belegen, über alle Vorhaben. Eigene Nachrichten starten sofort, auch über der Grenze; was der Verwalter von selbst startet, wartet. Über der Grenze liegt die Zahl nach einem eigenen Start oder nach dem Senken der Grenze.';
+  'Agenten, die gerade einen Platz belegen, über alle Vorhaben. Eigene Nachrichten starten sofort, auch über der Grenze; was der Verwalter von selbst startet, wartet. Über der Grenze liegt die Zahl nach einem eigenen Start oder nach dem Senken der Grenze. Ist das Kontingent knapp („Stationen anhalten ab“), startet der Verwalter keine Station von selbst, bis das Fenster zurückgesetzt ist.';
 export const SLOTS_SETTINGS_LINK = 'Grenze in den Einstellungen';
 
 export function isOverLimit(queue: AgentQueue): boolean {
