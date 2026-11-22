@@ -513,6 +513,7 @@ fn queue_of_two_projects() -> AgentQueue {
             entry(2, "foreign-project"),
             entry(3, PROJECT),
         ],
+        quota_until: None,
     }
 }
 

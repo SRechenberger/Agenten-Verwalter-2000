@@ -8446,3 +8446,358 @@ fn report_after_start_with_a_station_counting_down_or_queued_says_nothing_runs()
         "eingereiht: {text}"
     );
 }
+
+// Ab hier Taiga-Story 130: Halt bei knappem Kontingent („Stationen anhalten ab“, ADR 068).
+
+fn usage_limit(
+    kind: &str,
+    percent: u32,
+    resets_at: Option<&str>,
+) -> crate::usage::model::UsageLimit {
+    crate::usage::model::UsageLimit {
+        kind: kind.to_owned(),
+        percent,
+        severity: "normal".to_owned(),
+        resets_at: resets_at.map(str::to_owned),
+        window_minutes: None,
+    }
+}
+
+fn epoch_ms(iso: &str) -> f64 {
+    iso.parse::<jiff::Timestamp>()
+        .expect("ISO-Zeit")
+        .as_millisecond() as f64
+}
+
+const HOLD_NOW: &str = "2026-11-22T12:00:00Z";
+const SESSION_RESET: &str = "2026-11-22T15:30:00Z";
+const WEEKLY_RESET: &str = "2026-11-25T08:00:00Z";
+
+fn hold_at(limits: &[crate::usage::model::UsageLimit], threshold: Option<u32>) -> Option<String> {
+    crate::usage::hold_until(OperatingMode::Claude, limits, threshold, epoch_ms(HOLD_NOW))
+        .map(|hold: crate::usage::QuotaHold| hold.until)
+}
+
+#[test]
+fn hold_until_is_none_below_the_threshold() {
+    let limits = [
+        usage_limit("session", 89, Some(SESSION_RESET)),
+        usage_limit("weekly_all", 40, Some(WEEKLY_RESET)),
+    ];
+    assert_eq!(hold_at(&limits, Some(90)), None);
+}
+
+#[test]
+fn hold_until_takes_the_reset_of_a_window_at_the_threshold_and_the_later_of_both() {
+    let session_only = [
+        usage_limit("session", 90, Some(SESSION_RESET)),
+        usage_limit("weekly_all", 40, Some(WEEKLY_RESET)),
+    ];
+    assert_eq!(
+        hold_at(&session_only, Some(90)),
+        Some(SESSION_RESET.to_owned()),
+        "genau an der Schwelle hält es"
+    );
+    let hold = crate::usage::hold_until(
+        OperatingMode::Claude,
+        &session_only,
+        Some(90),
+        epoch_ms(HOLD_NOW),
+    )
+    .expect("Halt");
+    assert_eq!(hold.until_ms, epoch_ms(SESSION_RESET));
+    let weekly_only = [
+        usage_limit("session", 10, Some(SESSION_RESET)),
+        usage_limit("weekly_all", 95, Some(WEEKLY_RESET)),
+    ];
+    assert_eq!(
+        hold_at(&weekly_only, Some(90)),
+        Some(WEEKLY_RESET.to_owned())
+    );
+    let both = [
+        usage_limit("weekly_all", 91, Some(WEEKLY_RESET)),
+        usage_limit("session", 99, Some(SESSION_RESET)),
+    ];
+    assert_eq!(
+        hold_at(&both, Some(90)),
+        Some(WEEKLY_RESET.to_owned()),
+        "beide: der spätere Reset"
+    );
+    let other_window = [usage_limit("weekly_opus", 100, Some(WEEKLY_RESET))];
+    assert_eq!(hold_at(&other_window, Some(90)), None, "nur 5 h und Woche");
+}
+
+#[test]
+fn hold_until_is_none_for_a_past_reset_a_missing_reset_or_no_threshold() {
+    let past = [usage_limit("session", 100, Some("2026-11-22T11:59:00Z"))];
+    assert_eq!(hold_at(&past, Some(90)), None, "Reset vorbei");
+    let missing = [usage_limit("session", 100, None)];
+    assert_eq!(hold_at(&missing, Some(90)), None, "ohne resets_at");
+    let unreadable = [usage_limit("session", 100, Some("bald"))];
+    assert_eq!(hold_at(&unreadable, Some(90)), None, "unlesbares resets_at");
+    let full = [usage_limit("session", 100, Some(SESSION_RESET))];
+    assert_eq!(hold_at(&full, None), None, "Schwelle leer = aus");
+    assert_eq!(hold_at(&[], Some(90)), None, "ohne Stand");
+}
+
+#[test]
+fn hold_until_is_none_outside_the_claude_mode_even_with_an_old_stand() {
+    let full = [
+        usage_limit("session", 100, Some(SESSION_RESET)),
+        usage_limit("weekly_all", 100, Some(WEEKLY_RESET)),
+    ];
+    for mode in [
+        OperatingMode::Standalone,
+        OperatingMode::Codex,
+        OperatingMode::ClaudeCodeLocal,
+    ] {
+        assert_eq!(
+            crate::usage::hold_until(mode, &full, Some(90), epoch_ms(HOLD_NOW)),
+            None,
+            "{mode:?}"
+        );
+    }
+}
+
+fn quota_hold() -> Option<crate::usage::QuotaHold> {
+    Some(crate::usage::QuotaHold {
+        until: SESSION_RESET.to_owned(),
+        until_ms: epoch_ms(SESSION_RESET),
+    })
+}
+
+/// Countdown, Neustart, Nachricht und Fortsetzen, alle im selben Vorhaben und gleich gereiht.
+fn quota_waiters() -> Vec<slots::Waiter> {
+    let mut restart = station_waiter("restart", ProjectPriority::Normal, 0);
+    restart.start = slots::Start::Restart;
+    vec![
+        station_waiter("countdown", ProjectPriority::Normal, 2),
+        restart,
+        session_waiter(
+            "message",
+            slots::QueueKind::Message,
+            ProjectPriority::Normal,
+            0.5,
+        ),
+        session_waiter(
+            "resume",
+            slots::QueueKind::Resume,
+            ProjectPriority::Normal,
+            0.5,
+        ),
+    ]
+}
+
+fn quota_pass(countdowns: &mut Countdowns, hold: Option<crate::usage::QuotaHold>) -> Vec<String> {
+    countdowns.set_quota_hold(hold);
+    let seen = countdowns.releases();
+    let claimed = countdowns
+        .pass(seen, Some(10), &[], quota_waiters(), 1.0, 2.0)
+        .expect("frische Zählung");
+    let mut keys = claimed_keys(claimed);
+    keys.sort();
+    keys
+}
+
+#[test]
+fn a_quota_hold_keeps_countdown_and_restart_waiting_with_free_room_but_lets_sessions_pass() {
+    let mut countdowns = Countdowns::default();
+    assert_eq!(
+        quota_pass(&mut countdowns, quota_hold()),
+        ["message", "resume"],
+        "Nachricht und Fortsetzen rücken an den gehaltenen Stationen vorbei"
+    );
+    let queue = countdowns.queue();
+    assert_eq!(queue.used, 2, "gehaltene Stationen belegen keinen Platz");
+    assert_eq!(queue.quota_until.as_deref(), Some(SESSION_RESET));
+    assert_eq!(
+        queue
+            .entries
+            .iter()
+            .map(|entry: &slots::QueueEntry| (entry.station_id.as_deref(), entry.position))
+            .collect::<Vec<_>>(),
+        [(Some("countdown"), 1), (Some("restart"), 2)],
+        "die gehaltenen Stationen bleiben mit ihrem Rang in der Liste"
+    );
+    assert!(!countdowns.is_starting("restart"));
+}
+
+#[test]
+fn without_a_quota_hold_the_gate_passes_everything_as_before() {
+    let mut countdowns = Countdowns::default();
+    assert_eq!(
+        quota_pass(&mut countdowns, None),
+        ["countdown", "message", "restart", "resume"]
+    );
+    assert!(countdowns.queue().entries.is_empty());
+    assert_eq!(countdowns.queue().quota_until, None);
+}
+
+#[test]
+fn quota_until_is_set_only_while_a_station_waits_for_the_hold() {
+    let mut countdowns = Countdowns::default();
+    countdowns.set_quota_hold(quota_hold());
+    let seen = countdowns.releases();
+    let only_sessions = vec![session_waiter(
+        "message",
+        slots::QueueKind::Message,
+        ProjectPriority::Normal,
+        0.5,
+    )];
+    countdowns
+        .pass(seen, Some(10), &[], only_sessions, 1.0, 2.0)
+        .expect("frische Zählung");
+    assert_eq!(
+        countdowns.queue().quota_until,
+        None,
+        "keine Station wartet deshalb"
+    );
+    quota_pass(&mut countdowns, quota_hold());
+    let held: slots::AgentQueue = countdowns.queue().clone();
+    quota_pass(&mut countdowns, None);
+    assert_ne!(
+        countdowns.queue(),
+        &held,
+        "das Ende des Halts ändert die Momentaufnahme, das Ereignis geht hinaus"
+    );
+}
+
+#[test]
+fn quota_hold_percent_defaults_to_90_empty_is_off_and_0_or_101_are_refused() {
+    use crate::settings::model::SettingsChange;
+    assert_eq!(
+        serde_json::to_value(SettingsChange::QuotaHoldPercent { value: Some(80) }).expect("JSON"),
+        json!({ "kind": "quotaHoldPercent", "value": 80 })
+    );
+    let database = Database::open(Path::new(":memory:")).expect("Datenbank im Speicher");
+    let percent = |database: &Database| {
+        crate::settings::load(database)
+            .expect("lesbar")
+            .quota_hold_percent
+    };
+    assert_eq!(
+        percent(&database),
+        Some(90),
+        "Standard 90 ohne gespeicherten Wert"
+    );
+    for refused in [0, 101] {
+        assert!(
+            crate::settings::update(
+                &database,
+                SettingsChange::QuotaHoldPercent {
+                    value: Some(refused)
+                }
+            )
+            .is_err(),
+            "{refused} abgelehnt"
+        );
+    }
+    crate::settings::update(&database, SettingsChange::QuotaHoldPercent { value: None })
+        .expect("leer");
+    assert_eq!(percent(&database), None, "leer = aus");
+    for accepted in [1, 100] {
+        crate::settings::update(
+            &database,
+            SettingsChange::QuotaHoldPercent {
+                value: Some(accepted),
+            },
+        )
+        .expect("gesetzt");
+        assert_eq!(percent(&database), Some(accepted));
+    }
+}
+
+/// Eine Station bekommt einen Platz, Schwelle 90 in Claude, Stand 10 Minuten alt, kein Abruf begonnen.
+fn refresh_input() -> crate::usage::RefreshInput {
+    crate::usage::RefreshInput {
+        station_waits: false,
+        station_claimed: true,
+        hold_reached: false,
+        operating_mode: OperatingMode::Claude,
+        threshold: Some(90),
+        fetched_at: Some(epoch_ms(HOLD_NOW) - 10.0 * 60_000.0),
+        started_recently: false,
+    }
+}
+
+fn refresh_due(input: crate::usage::RefreshInput) -> bool {
+    crate::usage::refresh_due(&input, epoch_ms(HOLD_NOW))
+}
+
+#[test]
+fn refresh_is_due_when_a_station_gets_a_slot_with_an_old_or_missing_stand() {
+    assert!(refresh_due(refresh_input()), "Stand alt");
+    assert!(
+        refresh_due(crate::usage::RefreshInput {
+            fetched_at: None,
+            ..refresh_input()
+        }),
+        "Stand fehlt"
+    );
+    assert!(
+        refresh_due(crate::usage::RefreshInput {
+            station_waits: true,
+            station_claimed: false,
+            ..refresh_input()
+        }),
+        "eine Station wartet"
+    );
+}
+
+#[test]
+fn refresh_is_not_due_with_a_fresh_stand_or_a_recent_attempt() {
+    assert!(
+        !refresh_due(crate::usage::RefreshInput {
+            fetched_at: Some(epoch_ms(HOLD_NOW) - 60_000.0),
+            ..refresh_input()
+        }),
+        "Stand frisch"
+    );
+    assert!(
+        !refresh_due(crate::usage::RefreshInput {
+            started_recently: true,
+            ..refresh_input()
+        }),
+        "Abruf in den letzten 5 Minuten begonnen, auch ein gescheiterter"
+    );
+    assert!(
+        refresh_due(crate::usage::RefreshInput {
+            fetched_at: Some(epoch_ms(HOLD_NOW) - 60_000.0),
+            started_recently: true,
+            station_waits: true,
+            hold_reached: true,
+            ..refresh_input()
+        }),
+        "der erreichte Halt ruft trotzdem ab (Drossel von refresh)"
+    );
+}
+
+#[test]
+fn refresh_is_not_due_without_threshold_outside_claude_or_without_a_station() {
+    assert!(!refresh_due(crate::usage::RefreshInput {
+        threshold: None,
+        ..refresh_input()
+    }));
+    for mode in [
+        OperatingMode::Standalone,
+        OperatingMode::Codex,
+        OperatingMode::ClaudeCodeLocal,
+    ] {
+        assert!(
+            !refresh_due(crate::usage::RefreshInput {
+                operating_mode: mode,
+                ..refresh_input()
+            }),
+            "{mode:?}"
+        );
+    }
+    assert!(
+        !refresh_due(crate::usage::RefreshInput {
+            station_claimed: false,
+            hold_reached: true,
+            fetched_at: None,
+            ..refresh_input()
+        }),
+        "keine Station wartet oder bekommt einen Platz"
+    );
+}

@@ -7,6 +7,8 @@ import {
   slotsText,
   type SlotCell,
 } from '@/features/queue/queueTexts';
+import { useNow } from '@/features/background/useNow';
+import { formatResetAt } from '@/features/usage/usageTexts';
 import type { AgentQueue } from '@/lib/bindings/AgentQueue';
 import { useSessionsStore } from '@/stores/sessions';
 import { useSettingsNavStore } from '@/stores/settingsNav';
@@ -28,6 +30,8 @@ export function SlotsMeter({
   hostName = null,
   onNavigate,
 }: SlotsMeterProps): ReactElement | null {
+  // Die Uhrzeit des Halts sagt „morgen“ oder den Wochentag relativ zu jetzt.
+  const now: number = useNow(queue?.quotaUntil !== undefined);
   if (queue === null) {
     return null;
   }
@@ -40,7 +44,11 @@ export function SlotsMeter({
           ))}
         </span>
         <span className={isOverLimit(queue) ? 'slots-meter__text--over' : undefined}>
-          {slotsText(queue, hostName)}
+          {slotsText(
+            queue,
+            hostName,
+            queue.quotaUntil === undefined ? null : formatResetAt(queue.quotaUntil, now),
+          )}
         </span>
       </span>
       {hostName === null && (

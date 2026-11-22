@@ -485,6 +485,10 @@ export function SettingsView({
         return <CommandProgramsRow value={current.commandPrograms} save={save} />;
       case 'maxAgents':
         return <MaxAgentsRow value={current.maxAgents} save={save} />;
+      case 'quotaHoldPercent':
+        return (
+          <MaxAgentsRow field="quotaHoldPercent" value={current.quotaHoldPercent} save={save} />
+        );
       case 'agentTypes':
         return <AgentTypesRow operatingMode={current.operatingMode} />;
       case 'cliVersion':

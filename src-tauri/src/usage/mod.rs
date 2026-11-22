@@ -17,8 +17,9 @@ use crate::agents::event::RateLimitInfo;
 use crate::codex::rate_limits;
 use crate::db::Database;
 use crate::filesystem::workspace::data_dir;
+use crate::sessions::registry::schedule_pass;
 use crate::settings::{self, model::OperatingMode};
-use model::{UsageAlert, UsageSnapshot, UsageStatus};
+use model::{UsageAlert, UsageLimit, UsageSnapshot, UsageStatus};
 
 const MIN_REFRESH_INTERVAL: Duration = Duration::from_secs(30);
 const HELPER_TIMEOUT: Duration = Duration::from_secs(20);
@@ -29,6 +30,85 @@ const WINDOW_FIVE_HOUR: &str = "five_hour";
 const WINDOW_SEVEN_DAY: &str = "seven_day";
 const PERCENT_PER_SHARE: f64 = 100.0;
 pub const USAGE_CHANGED_EVENT: &str = "usage://changed";
+
+/// Halt bei knappem Kontingent (ADR 068, Taiga-Story 130): bis `until` startet der Verwalter keine
+/// Station von selbst.
+#[derive(Debug, Clone, PartialEq)]
+pub struct QuotaHold {
+    /// ISO-8601 wie `UsageLimit::resets_at`.
+    pub until: String,
+    /// Dieselbe Zeit in Millisekunden seit 1970.
+    pub until_ms: f64,
+}
+
+/// Rein: der Halt aus dem Stand `limits` bei der Schwelle `threshold` (Prozent) zur Zeit `now` (ms).
+/// Das späteste `resets_at` der Fenster `session` und `weekly_all`, die die Schwelle erreichen und deren
+/// Reset in der Zukunft liegt. Ohne Schwelle, außerhalb der Betriebsart Claude (ein alter Stand bleibt
+/// nach einem Wechsel stehen) und ohne lesbares `resets_at` gibt es keinen.
+pub fn hold_until(
+    operating_mode: OperatingMode,
+    limits: &[UsageLimit],
+    threshold: Option<u32>,
+    now: f64,
+) -> Option<QuotaHold> {
+    let threshold = threshold?;
+    if operating_mode != OperatingMode::Claude {
+        return None;
+    }
+    limits
+        .iter()
+        .filter(|limit: &&UsageLimit| {
+            (limit.kind == KIND_SESSION || limit.kind == KIND_WEEKLY) && limit.percent >= threshold
+        })
+        .filter_map(|limit: &UsageLimit| {
+            let until = limit.resets_at.clone()?;
+            let until_ms = iso_ms(&until)?;
+            (until_ms > now).then_some(QuotaHold { until, until_ms })
+        })
+        .max_by(|left: &QuotaHold, right: &QuotaHold| left.until_ms.total_cmp(&right.until_ms))
+}
+
+/// So alt darf der Stand sein, solange eine Station wartet oder gerade einen Platz bekommt; so selten
+/// ruft das Backend nach einem gescheiterten Abruf wieder ab (Taiga-Story 130).
+pub const QUOTA_STALE: Duration = Duration::from_secs(5 * 60);
+
+/// Was `refresh_due` über den Halt und den Stand wissen muss.
+#[derive(Debug, Clone, Copy)]
+pub struct RefreshInput {
+    /// Eine Station (Countdown, Neustart) wartet in der Warteschlange.
+    pub station_waits: bool,
+    /// Eine Station hat in diesem Durchgang einen Platz bekommen.
+    pub station_claimed: bool,
+    /// Die Zeit des Halts ist erreicht.
+    pub hold_reached: bool,
+    pub operating_mode: OperatingMode,
+    pub threshold: Option<u32>,
+    /// `fetched_at` des Stands; `None` ohne Stand.
+    pub fetched_at: Option<f64>,
+    /// In den letzten `QUOTA_STALE` begann ein Abruf, auch ein gescheiterter.
+    pub started_recently: bool,
+}
+
+/// Rein: ob das Backend den Stand jetzt abruft. Nur wenn eine Station wartet oder gerade einen Platz
+/// bekommt und die Schwelle in der Betriebsart Claude gilt; dann bei erreichtem Halt, oder wenn der
+/// Stand fehlt oder älter als `QUOTA_STALE` ist und kein Abruf in den letzten `QUOTA_STALE` begann.
+pub fn refresh_due(input: &RefreshInput, now: f64) -> bool {
+    if !(input.station_waits || input.station_claimed)
+        || input.threshold.is_none()
+        || input.operating_mode != OperatingMode::Claude
+    {
+        return false;
+    }
+    let stale = input
+        .fetched_at
+        .is_none_or(|fetched_at: f64| now - fetched_at > QUOTA_STALE.as_secs_f64() * 1000.0);
+    input.hold_reached || (stale && !input.started_recently)
+}
+
+fn iso_ms(text: &str) -> Option<f64> {
+    let timestamp: jiff::Timestamp = text.parse().ok()?;
+    Some(timestamp.as_millisecond() as f64)
+}
 
 /// Das Kontingent kommt von einem eigenen kurzlebigen `claude.exe`, nicht vom Agenten einer
 /// Session: ohne laufenden Agenten gäbe es sonst gar keine Zahl, und dieselbe Zahl bräuchte zwei
@@ -124,7 +204,15 @@ impl UsageService {
         }
     }
 
+    /// Ob in den letzten `window` ein Abruf begann, auch ein gescheiterter.
+    pub fn started_within(&self, window: Duration) -> bool {
+        self.lock()
+            .last_started
+            .is_some_and(|started: Instant| started.elapsed() < window)
+    }
+
     fn finish(&self, app: &AppHandle, epoch: u64, result: Result<UsageSnapshot, String>) {
+        let mut fetched = false;
         {
             let mut cache = self.lock();
             if cache.epoch != epoch {
@@ -134,12 +222,17 @@ impl UsageService {
                 Ok(snapshot) => {
                     cache.snapshot = Some(snapshot);
                     cache.error = None;
+                    fetched = true;
                 }
                 Err(error) => cache.error = Some(error),
             }
             cache.is_loading = false;
         }
         emit_changed(app);
+        // Der neue Stand kann einen Halt setzen oder aufheben (ADR 068, Taiga-Story 130).
+        if fetched {
+            schedule_pass(app);
+        }
     }
 
     /// Das Kontingent gehört zur Betriebsart: beim Wechsel fällt der Stand der alten weg und ein

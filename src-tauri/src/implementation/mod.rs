@@ -118,6 +118,8 @@ pub struct Countdowns {
     waiting_since: HashMap<String, f64>,
     /// Die Warteschlange des letzten Durchgangs.
     queue: slots::AgentQueue,
+    /// Halt bei knappem Kontingent, gesetzt von `run_pass` vor jedem Durchgang (Taiga-Story 130).
+    quota_hold: Option<crate::usage::QuotaHold>,
 }
 
 impl Countdowns {
