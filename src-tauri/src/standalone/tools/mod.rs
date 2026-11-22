@@ -163,8 +163,23 @@ pub fn definitions() -> Vec<Value> {
     definitions
 }
 
+/// Der Rumpf von `Bash`: Git Bash gibt es nur unter Windows.
+fn bash_description() -> &'static str {
+    if cfg!(windows) {
+        "Runs a command in Git Bash on Windows (bash -c) in the working directory and returns \
+         stdout and stderr. Use Unix syntax and forward slashes. timeout in milliseconds \
+         (default 120000, max 600000). Set run_in_background for servers and long builds; \
+         read the output file with Read; stop with TaskStop."
+    } else {
+        "Runs a command in bash (bash -c) in the working directory and returns stdout and \
+         stderr. Use Unix syntax. timeout in milliseconds (default 120000, max 600000). Set \
+         run_in_background for servers and long builds; read the output file with Read; stop \
+         with TaskStop."
+    }
+}
+
 fn base_definitions() -> Vec<Value> {
-    vec![
+    let mut definitions = vec![
         function(
             READ_TOOL,
             "Reads a text file and returns its lines with line numbers (\"     1\\tline\"). \
@@ -247,10 +262,7 @@ fn base_definitions() -> Vec<Value> {
         ),
         function(
             BASH_TOOL,
-            "Runs a command in Git Bash on Windows (bash -c) in the working directory and returns \
-             stdout and stderr. Use Unix syntax and forward slashes. timeout in milliseconds \
-             (default 120000, max 600000). Set run_in_background for servers and long builds; \
-             read the output file with Read; stop with TaskStop.",
+            bash_description(),
             shell_properties(),
             &["command"],
         ),
@@ -313,7 +325,14 @@ fn base_definitions() -> Vec<Value> {
             }),
             &["task_id"],
         ),
-    ]
+    ];
+    // PowerShell gibt es nur unter Windows, auch nicht als `pwsh`.
+    if !cfg!(windows) {
+        definitions.retain(|definition: &Value| {
+            definition.pointer("/function/name").and_then(Value::as_str) != Some(POWERSHELL_TOOL)
+        });
+    }
+    definitions
 }
 
 fn shell_properties() -> Value {
@@ -470,4 +489,32 @@ fn shortened_line(line: &str) -> String {
 /// Null-Byte in den ersten 8 KB — dieselbe Faustregel wie bei Git.
 fn is_binary(bytes: &[u8]) -> bool {
     bytes.iter().take(SNIFF_BYTES).any(|byte: &u8| *byte == 0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn description_of(name: &str) -> Option<String> {
+        definitions()
+            .iter()
+            .find(|definition: &&Value| {
+                definition.pointer("/function/name").and_then(Value::as_str) == Some(name)
+            })
+            .and_then(|definition: &Value| definition.pointer("/function/description"))
+            .and_then(Value::as_str)
+            .map(str::to_owned)
+    }
+
+    #[test]
+    fn powershell_is_offered_exactly_on_windows() {
+        assert_eq!(description_of(POWERSHELL_TOOL).is_some(), cfg!(windows));
+    }
+
+    #[test]
+    fn bash_description_names_windows_only_on_windows() {
+        let text = description_of(BASH_TOOL).expect("Bash ist immer da");
+        assert_eq!(text.contains("Git Bash on Windows"), cfg!(windows));
+        assert_eq!(text.contains("Windows"), cfg!(windows));
+    }
 }

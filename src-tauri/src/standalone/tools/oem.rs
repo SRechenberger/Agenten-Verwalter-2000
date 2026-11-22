@@ -1,4 +1,4 @@
-//! Ausgaben von Shell-Befehlen als Text. Git Bash und PowerShell (mit UTF-8 als Ausgabe) liefern
+//! Ausgaben von Shell-Befehlen als Text. Bash (unter Windows Git Bash) und PowerShell (mit UTF-8 als Ausgabe) liefern
 //! UTF-8, Windows-Programme wie `ping` aber ihre OEM-Codepage — auch durch beide Shells hindurch
 //! (`ausgef\x81hrt`). Gültiges UTF-8 bleibt deshalb, wie es ist; nur Bytes, die kein gültiges UTF-8
 //! sind, werden als Codepage 850 (Westeuropa, die OEM-Codepage eines deutschen Windows) gelesen.
