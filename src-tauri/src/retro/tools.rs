@@ -106,10 +106,11 @@ static SEGMENT_SPLIT: LazyLock<Regex> =
 /// Jedes Benutzerverzeichnis unter `Users` und `/home`, auch gekürzt (`C:\Users\s…`, `/home/s…`,
 /// wie es `target` liefert, wenn ein Muster lang ist) und in der kodierten Schreibweise des
 /// Claude-Projektordners. Die Linux-Formen brauchen eine Grenze davor (Gruppe 1 und 2, bleibt
-/// stehen), damit `src/home/x` und `go-home-button` unberührt bleiben.
+/// stehen), damit `src/home/x` und `go-home-button` unberührt bleiben. Der Name unter `/home/`
+/// endet am ersten Zeichen, das in keinem Benutzernamen vorkommt.
 static USER_DIR_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(
-        r#"(?im)(?:[a-z]:[\\/]+|/[a-z]/|[\\/]+)users\b(?:[\\/]+[^\\/\s"'`…]*)?|\b[a-z]--users-[^\\/\s"'`…]*|(^|[^\w.-])/home/[^\\/\s"'`…]*|(^|[^\w-])-home-[^\\/\s"'`…]*"#,
+        r#"(?im)(?:[a-z]:[\\/]+|/[a-z]/|[\\/]+)users\b(?:[\\/]+[^\\/\s"'`…]*)?|\b[a-z]--users-[^\\/\s"'`…]*|(^|[^\w.-])/home/[\w.$-]*|(^|[^\w-])-home-[^\\/\s"'`…]*"#,
     )
     .expect("Muster ist ein Literal")
 });
@@ -1004,6 +1005,20 @@ mod tests {
             );
         }
         assert_eq!(normalizer.replace_paths("cat /home/alice/x"), "cat ~/x");
+    }
+
+    #[test]
+    fn separated_linux_user_dirs_keep_their_separator() {
+        let normalizer = Normalizer::new(Path::new("/srv/work"), None);
+        for (text, expected) in [
+            ("/home/a:/home/b", "~:~"),
+            ("/home/a,/home/b", "~,~"),
+            ("/home/a;/home/b", "~;~"),
+            ("/home/a|/home/b", "~|~"),
+            ("(/home/alice)", "(~)"),
+        ] {
+            assert_eq!(normalizer.replace_paths(text), expected, "{text}");
+        }
     }
 
     #[test]
