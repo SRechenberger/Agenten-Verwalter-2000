@@ -79,7 +79,7 @@ Das AppImage enthält das App-Icon. Ob ein Dateimanager es an der Datei anzeigt,
 |---|---|
 | `VERWALTER_IDLE_SECONDS` | Sekunden, nach denen der Agent einer ruhenden Session beendet wird (Standard 1800); der nächste Klick auf Senden startet ihn neu |
 | `VERWALTER_LMSTUDIO_URL` | Adresse des LM-Studio-Servers (Standard `http://localhost:1234`) |
-| `VERWALTER_BASH_PATH` | Pfad zu `bash.exe` von Git für die Betriebsart „Autark“, falls Git nicht unter `C:\Program Files\Git` liegt |
+| `VERWALTER_BASH_PATH` | Pfad zu einer Bash für die Betriebsart „Autark“: unter Windows `bash.exe` von Git, falls Git nicht unter `C:\Program Files\Git` liegt; unter Linux und macOS nur nötig, wenn weder `/bin/bash` noch eine `bash` im `PATH` passt |
 | `VERWALTER_BRAVE_API_KEY` | Schlüssel der Brave Search API für die Websuche in der Betriebsart „Autark“; ohne ihn sucht der Agent nicht im Web |
 
 Die Daten liegen unter `%USERPROFILE%\.verwalter\` (Datenbank `verwalter.db`, Workspaces der Vorhaben).

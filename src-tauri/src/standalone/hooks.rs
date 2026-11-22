@@ -168,6 +168,17 @@ impl Hooks {
     /// Alle passenden Hooks der Reihe nach; das erste Blockieren gewinnt sofort, sonst `Ask` vor
     /// `Allow` vor `None`.
     pub fn pre_tool_use(&self, call: &HookCall, cancel: &AtomicBool) -> HookVerdict {
+        self.pre_tool_use_with(call, cancel, shell::bash_path)
+    }
+
+    /// `find_bash` wird nur gerufen, wenn ein Hook passt. Ohne Bash wird der Aufruf gesperrt: Ein
+    /// Hook, der nicht laufen kann, darf nicht heißen „erlaubt“ (ADR 017).
+    fn pre_tool_use_with(
+        &self,
+        call: &HookCall,
+        cancel: &AtomicBool,
+        find_bash: impl FnOnce() -> Result<PathBuf, String>,
+    ) -> HookVerdict {
         let matching: Vec<&HookEntry> = self
             .entries
             .iter()
@@ -176,11 +187,13 @@ impl Hooks {
         if matching.is_empty() {
             return HookVerdict::None;
         }
-        let bash = match shell::bash_path() {
+        let bash = match find_bash() {
             Ok(bash) => bash,
             Err(error) => {
-                eprintln!("Hooks übersprungen: {error}");
-                return HookVerdict::None;
+                return HookVerdict::Deny(format!(
+                    "Hook nicht ausgeführt, keine Bash: {error} ({})",
+                    shell::BASH_PATH_VARIABLE
+                ));
             }
         };
         let stdin = json!({
@@ -229,8 +242,7 @@ fn run_hook(
     let mut child = match command.spawn() {
         Ok(child) => child,
         Err(error) => {
-            eprintln!("Hook startet nicht ({error}): {}", entry.command);
-            return HookVerdict::None;
+            return HookVerdict::Deny(format!("Hook startet nicht ({error}): {}", entry.command));
         }
     };
     // Eigener Thread fürs Schreiben: ein Hook, der stdin nicht liest, darf uns nicht blockieren.
@@ -355,6 +367,47 @@ fn parsed_output(stdout: &str) -> Option<Value> {
         return None;
     }
     serde_json::from_str(trimmed).ok()
+}
+
+#[cfg(test)]
+mod tests_any_platform {
+    use super::*;
+
+    fn hooks() -> Hooks {
+        Hooks {
+            entries: vec![HookEntry {
+                matcher: Matcher::Names(vec!["Bash".to_owned()]),
+                command: "true".to_owned(),
+                timeout: DEFAULT_TIMEOUT,
+            }],
+        }
+    }
+
+    fn verdict(hooks: &Hooks, tool: &str) -> HookVerdict {
+        let call = HookCall {
+            session_id: "s",
+            transcript_path: Path::new("t"),
+            cwd: Path::new("."),
+            permission_mode: "default",
+            tool_use_id: "u",
+            tool,
+            input: &Value::Null,
+        };
+        hooks.pre_tool_use_with(&call, &AtomicBool::new(false), || Err("keine".to_owned()))
+    }
+
+    #[test]
+    fn matching_hook_without_a_shell_denies_and_names_the_variable() {
+        let HookVerdict::Deny(reason) = verdict(&hooks(), "Bash") else {
+            panic!("kein Deny");
+        };
+        assert!(reason.contains("keine") && reason.contains(shell::BASH_PATH_VARIABLE));
+    }
+
+    #[test]
+    fn no_matching_hook_needs_no_shell() {
+        assert_eq!(verdict(&hooks(), "Read"), HookVerdict::None);
+    }
 }
 
 /// Hooks in eigener Gruppe (ADR 074): nur eigene Wegwerf-Prozesse `sh` und `sleep`, nur ihre Gruppe
@@ -512,5 +565,26 @@ mod tests {
             "ein reguläres Ende beendete das Kind des Hooks"
         );
         assert!(shell_gone, "bash lebt nach dem regulären Ende");
+    }
+
+    #[test]
+    fn hook_with_exit_2_blocks_through_pre_tool_use() {
+        let hooks = Hooks {
+            entries: vec![entry("echo nein >&2; exit 2".to_owned(), LIMIT)],
+        };
+        let call = HookCall {
+            session_id: "s",
+            transcript_path: Path::new("t"),
+            cwd: &std::env::temp_dir(),
+            permission_mode: "default",
+            tool_use_id: "u",
+            tool: "Bash",
+            input: &Value::Null,
+        };
+        // Der Hook läuft mit der Bash, die `bash_path` ohne Zutun findet.
+        let verdict = hooks.pre_tool_use_with(&call, &AtomicBool::new(false), || {
+            shell::unix_bash(None, Path::new("/bin/bash"), std::env::var_os("PATH"))
+        });
+        assert_eq!(verdict, HookVerdict::Deny("nein".to_owned()));
     }
 }
