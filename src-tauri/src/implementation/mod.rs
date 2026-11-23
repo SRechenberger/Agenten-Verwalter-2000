@@ -2404,7 +2404,7 @@ pub fn new_rows(
             .iter()
             .map(|phase: &PhaseRow| (phase.id.as_str(), phase.key.as_str())),
     );
-    number_stations(&mut stations, &lanes, &[]);
+    number_stations(&mut stations, &lanes, &[], &[]);
     Ok((row, phases, stations))
 }
 
@@ -2546,15 +2546,20 @@ pub fn lane_keys<'a>(phases: impl Iterator<Item = (&'a str, &'a str)>) -> HashMa
 /// Gibt den neuen Stationen ihre Kennungen `<Lane>-<n>` (`schedule::next_ids`, in Planreihenfolge) und
 /// schreibt ihre vorläufigen Kennungen (Alias oder `<Lane>-<Nummer>` der Eingabe) in ihrem `after` um.
 /// Erst nach der Prüfung des Plans aufrufen: Dann sind die vorläufigen Kennungen eindeutig. `lanes`
-/// ordnet `phase_id` den Lane-Schlüssel zu, `used` sind alle je vergebenen Kennungen. Gibt je Station
-/// (vorläufige Kennung, Kennung) zurück; andere Zeilen zieht `rename_after` nach.
+/// ordnet `phase_id` den Lane-Schlüssel zu, `used` sind alle je vergebenen Kennungen. Eine Station,
+/// deren vorläufige Kennung in `keep` steht, behält sie (`implementation_set_phases`, ADR 061, Nachtrag
+/// 2026-11-23). Gibt je Station (vorläufige Kennung, Kennung) zurück; andere Zeilen zieht
+/// `rename_after` nach.
 pub fn number_stations(
     stations: &mut [StationRow],
     lanes: &HashMap<String, String>,
     used: &[String],
+    keep: &[&str],
 ) -> Vec<(String, String)> {
+    let is_kept = |station: &StationRow| keep.contains(&station.plan_id.as_str());
     let keys: Vec<&str> = stations
         .iter()
+        .filter(|station: &&StationRow| !is_kept(station))
         .map(|station: &StationRow| {
             lanes
                 .get(&station.phase_id)
@@ -2562,11 +2567,15 @@ pub fn number_stations(
         })
         .collect();
     let used: Vec<&str> = used.iter().map(String::as_str).collect();
-    let ids = schedule::next_ids(&keys, &used);
+    let mut ids = schedule::next_ids(&keys, &used).into_iter();
     let renames: Vec<(String, String)> = stations
         .iter_mut()
-        .zip(ids)
-        .map(|(station, id): (&mut StationRow, String)| {
+        .map(|station: &mut StationRow| {
+            let id = if is_kept(station) {
+                station.plan_id.clone()
+            } else {
+                ids.next().unwrap_or_default()
+            };
             (std::mem::replace(&mut station.plan_id, id.clone()), id)
         })
         .collect();

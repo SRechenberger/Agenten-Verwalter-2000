@@ -159,7 +159,7 @@ pub fn edited_plan_after(
                     .map(|phase: &PhaseRow| (phase.id.as_str(), phase.key.as_str())),
             ),
     );
-    let renames = number_stations(&mut inserted, &lanes, &used);
+    let renames = number_stations(&mut inserted, &lanes, &used, &[]);
     // Eine geänderte Station kann in `after` den Alias einer neuen nennen.
     rename_after(&mut plan, &renames);
     let named = assigned_text(renames.iter().zip(&inserted).map(
