@@ -349,6 +349,10 @@ pub fn propose(app: &AppHandle, session_id: &str, inputs: &[PhaseInput]) -> Resu
     if !view.phases.iter().any(is_begun) {
         let named = apply(app, &registry, &view, inputs, None)
             .map_err(|error: CommandError| error.to_string())?;
+        // Nennt die Eingabe nur behaltene Stationen, entfällt der Teilsatz.
+        if named.is_empty() {
+            return Ok("Übernommen.".to_owned());
+        }
         return Ok(format!("Übernommen. Neue Stationen: {named}."));
     }
     // Kanten, Prüfung und Kennungen wie beim Übernehmen, damit ein Zyklus schon hier abgelehnt wird
@@ -372,9 +376,13 @@ pub fn propose(app: &AppHandle, session_id: &str, inputs: &[PhaseInput]) -> Resu
         .implementation_view(&view.id)
         .map_err(|error: CommandError| error.to_string())?;
     announce(app, &fresh);
+    let named = if named.is_empty() {
+        String::new()
+    } else {
+        format!(" Die neuen Stationen bekämen nach heutigem Stand: {named}.")
+    };
     Ok(format!(
-        "Vorgeschlagen: {}; wartet auf Übernehmen. Die neuen Stationen bekämen nach heutigem Stand: \
-         {named}.",
+        "Vorgeschlagen: {}; wartet auf Übernehmen.{named}",
         describe(&summary)
     ))
 }
