@@ -222,6 +222,28 @@ fn named_upcoming<'a>(view: &'a ImplementationView, inputs: &[PhaseInput]) -> Ve
         .collect()
 }
 
+/// Die Zusammenfassung für die Änderungszeile (ADR 061, Nachtrag 2026-11-23): dazu die Kennungen
+/// aller Stationen, die die Änderung ersetzt, ohne die genannten, die bleiben (`new_stations` führt
+/// sie weiter). `used_ids` zählt sie mit, damit keine wiederkommt.
+pub fn recorded_summary(
+    view: &ImplementationView,
+    summary: &ChangeSummary,
+    new_stations: &[StationRow],
+) -> ChangeSummary {
+    let mut recorded = summary.clone();
+    recorded.replaced = upcoming(view)
+        .into_iter()
+        .flat_map(|phase: &PhaseView| phase.stations.iter())
+        .map(|station: &StationView| station.plan_id.clone())
+        .filter(|id: &String| {
+            !new_stations
+                .iter()
+                .any(|station: &StationRow| station.plan_id == *id)
+        })
+        .collect();
+    recorded
+}
+
 /// Die Kennungen aller Stationen der Umsetzung.
 fn plan_ids(view: &ImplementationView) -> Vec<&str> {
     view.phases
@@ -581,7 +603,8 @@ fn change_row(
         implementation_id: view.id.clone(),
         session_id: Some(record.session_id.clone()),
         at: now_ms(),
-        summary: serde_json::to_string(&record.summary).unwrap_or_default(),
+        summary: serde_json::to_string(&recorded_summary(view, &record.summary, new_stations))
+            .unwrap_or_default(),
         after_station_id,
         stations_before: view.stations_total,
         stations_after: u32::try_from(total - removed_count + new_stations.len())

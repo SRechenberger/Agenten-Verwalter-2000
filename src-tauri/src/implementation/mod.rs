@@ -2519,20 +2519,25 @@ pub fn phase_rows(
     (phases, stations)
 }
 
-/// Alle Kennungen, die in der Umsetzung je vergeben wurden (ADR 061, Nachtrag 2026-11-22): die der
-/// Stationen `plan_ids` und die, die übernommene Änderungen entfernt haben (`implementation_changes`,
-/// `summary.removed`). Daraus zählt `schedule::next_ids` weiter, ohne Migration.
+/// Alle Kennungen, die in der Umsetzung je vergeben wurden (ADR 061, Nachträge 2026-11-22 und
+/// 2026-11-23): die der Stationen `plan_ids` und die, die übernommene Änderungen entfernt
+/// (`implementation_edit`, `summary.removed`) oder ersetzt haben (`implementation_set_phases`,
+/// `summary.replaced`), aus `implementation_changes`. Daraus zählt `schedule::next_ids` weiter, ohne
+/// Migration.
 pub fn used_ids<'a>(
     plan_ids: impl Iterator<Item = &'a str>,
     changes: &[ChangeView],
 ) -> Vec<String> {
     plan_ids
         .map(str::to_owned)
-        .chain(
-            changes
+        .chain(changes.iter().flat_map(|change: &ChangeView| {
+            change
+                .summary
+                .removed
                 .iter()
-                .flat_map(|change: &ChangeView| change.summary.removed.iter().cloned()),
-        )
+                .chain(&change.summary.replaced)
+                .cloned()
+        }))
         .collect()
 }
 

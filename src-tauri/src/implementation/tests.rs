@@ -9287,6 +9287,11 @@ fn set_phases_keeps_the_kennung_of_an_upcoming_station_named_by_it() {
         "2-1 bleibt; der stille Alias 2-2 ist keine Nennung, die neuen Nummern liegen über 2-2"
     );
     assert_eq!(named, "2-2 → 2-3 · Doku, review → 2-4 · Review");
+    assert_eq!(
+        changes::recorded_summary(&view, &ChangeSummary::default(), &replaced).replaced,
+        ["2-2"],
+        "die behaltene 2-1 gilt nicht als ersetzt"
+    );
 }
 
 #[test]
@@ -9364,4 +9369,73 @@ fn without_naming_the_refusal_names_the_way_over_id_first_then_implementation_ed
     let by_id = error.find("`id: \"2-1\"`").unwrap_or(usize::MAX);
     let by_edit = error.find("implementation_edit").unwrap_or(0);
     assert!(by_id < by_edit, "{error}");
+}
+
+#[test]
+fn a_lane_removed_by_an_accepted_set_phases_never_gives_its_numbers_back() {
+    let (stored, view) = begun_lane_and(
+        vec![
+            in_phase(node("1-2", &["1-1"]), "1"),
+            in_phase(node("2-1", &["1-1"]), "2"),
+            in_phase(node("2-2", &["2-1"]), "2"),
+        ],
+        &["1", "2"],
+        Vec::new(),
+    );
+    let without_lane_2 = inputs(json!([
+        { "key": "3", "title": "Drei", "stations": [{ "stage": "Doku", "after": ["1-1"] }] },
+    ]));
+    let (_, replaced, _) =
+        changes::replanned(&view, &without_lane_2, &stored.stations).expect("gültige Änderung");
+    let summary = changes::diff(&view, &without_lane_2).expect("gültig");
+    let change = ChangeRow {
+        id: "change".to_owned(),
+        implementation_id: "implementation".to_owned(),
+        session_id: Some("session".to_owned()),
+        at: 2.0,
+        summary: serde_json::to_string(&changes::recorded_summary(&view, &summary, &replaced))
+            .expect("JSON"),
+        after_station_id: None,
+        stations_before: 4,
+        stations_after: 3,
+    };
+    let (stored, view) = begun_lane_and(
+        vec![
+            in_phase(node("1-2", &["1-1"]), "1"),
+            in_phase(node("3-1", &["1-1"]), "3"),
+        ],
+        &["1", "3"],
+        vec![change],
+    );
+    let new_lane_2 = inputs(json!([
+        { "key": "2", "title": "Zwei neu", "stations": [{ "stage": "Umsetzung" }, { "stage": "Review" }] },
+    ]));
+    let (_, replaced, _) =
+        changes::replanned(&view, &new_lane_2, &stored.stations).expect("gültige Änderung");
+    assert_eq!(
+        plan_ids_of(&replaced),
+        ["2-3", "2-4"],
+        "nicht wieder 2-1 oder 2-2"
+    );
+}
+
+#[test]
+fn an_old_change_row_without_replaced_kennungen_stays_readable() {
+    let old = ChangeRow {
+        id: "change".to_owned(),
+        implementation_id: "implementation".to_owned(),
+        session_id: Some("session".to_owned()),
+        at: 2.0,
+        summary: r#"{"added":["3"],"moved":[],"removed":["2"]}"#.to_owned(),
+        after_station_id: None,
+        stations_before: 3,
+        stations_after: 2,
+    };
+    let (_, view) = begun_lane_and(Vec::new(), &["1"], vec![old]);
+    assert_eq!(
+        view.changes[0].summary.removed,
+        ["2"],
+        "gelesen, nicht leer"
+    );
+    assert!(view.changes[0].summary.replaced.is_empty());
 }
