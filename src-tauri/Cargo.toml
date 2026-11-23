@@ -1,6 +1,6 @@
 [package]
 name = "verwalter"
-version = "0.75.0"
+version = "0.76.0"
 description = "A Tauri App"
 authors = ["you"]
 edition = "2024"
@@ -44,6 +44,10 @@ portable-pty = "0.9.0"
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 rcgen = { version = "0.14", default-features = false, features = ["crypto", "pem", "ring"] }
 
+[target.'cfg(unix)'.dependencies]
+# Prozessgruppen der Agenten beenden (`processes::signal_group`, ADR 074).
+libc = "0.2.189"
+
 [dev-dependencies]
 hound = "3"
 
@@ -57,3 +61,6 @@ lto = true
 opt-level = 3
 panic = "abort"
 strip = true
+
+[profile.dev]
+debug = "line-tables-only"

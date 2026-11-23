@@ -24,6 +24,9 @@ import {
   PAIR_LABEL,
   PAIR_SET,
   PROMPT_HINT,
+  PROPOSAL_ACCEPT,
+  PROPOSAL_ACCEPTING,
+  PROPOSAL_DIALOG_TITLE,
   PROMPT_LABEL,
   PROMPT_PLACEHOLDER,
   REQUIRED_LABEL,
@@ -39,6 +42,7 @@ import {
   STAGES_HINT,
   STAGES_LABEL,
   STAGES_PLACEHOLDER,
+  proposalDialogSubtitle,
   removeSkillLabel,
   removeStageLabel,
   saveBlockedText,
@@ -100,7 +104,7 @@ interface Pending {
 
 const NO_PENDING: Pending = { stage: '', skill: '', file: '' };
 
-function draftOf(agentType: AgentType | null): Draft {
+function draftOf(agentType: AgentTypeInput | null): Draft {
   if (agentType === null) {
     return {
       name: '',
@@ -222,17 +226,34 @@ function DialogField({
   );
 }
 
+/** Der Vorschlag eines Agenten, den der Dialog vorbefüllt und über den Kasten beantwortet (ADR 063). */
+export interface ProposalEdit {
+  initial: AgentTypeInput;
+  /** Die Session, aus der der Vorschlag kommt; der Untertitel nennt sie. */
+  sessionNumber: number;
+  /** Vorhaben eines Hosts: Der Typ wird dort gespeichert, der Dateidialog dieses Rechners hilft dann nicht. */
+  isRemote: boolean;
+  /** Speichert statt `createAgentType`/`updateAgentType`; der Kasten ist danach beantwortet. */
+  onSave: (input: AgentTypeInput) => Promise<AgentTypeSaved>;
+}
+
 interface AgentTypeDialogProps {
-  /** Der Typ, der bearbeitet wird; `null` legt einen neuen an. */
+  /** Der Typ, der bearbeitet wird; `null` legt einen neuen an. Mit `proposal` ohne Bedeutung. */
   agentType: AgentType | null;
+  proposal?: ProposalEdit;
   onClose: () => void;
 }
 
 /** Ein Formular für Anlegen und Bearbeiten. Die Prüfung liegt im Core: Der Dialog schickt die Eingabe und zeigt
  *  die Meldungen am Feld; nur die Zähler an Beschreibung und Text rechnet er selbst. */
-export function AgentTypeDialog({ agentType, onClose }: AgentTypeDialogProps): ReactElement {
-  const [draft, setDraft] = useState<Draft>(() => draftOf(agentType));
-  const [initialKey] = useState<string>(() => JSON.stringify(toInput(draftOf(agentType))));
+export function AgentTypeDialog({
+  agentType,
+  proposal,
+  onClose,
+}: AgentTypeDialogProps): ReactElement {
+  const initial: AgentTypeInput | null = proposal?.initial ?? agentType;
+  const [draft, setDraft] = useState<Draft>(() => draftOf(initial));
+  const [initialKey] = useState<string>(() => JSON.stringify(toInput(draftOf(initial))));
   const [pending, setPending] = useState<Pending>(NO_PENDING);
   const [errors, setErrors] = useState<FieldError[]>([]);
   const [errorRevision, setErrorRevision] = useState<number>(0);
@@ -279,7 +300,14 @@ export function AgentTypeDialog({ agentType, onClose }: AgentTypeDialogProps): R
   const invalidFieldCount: number = new Set(errors.map((error: FieldError) => error.field)).size;
   const typedSkill: string = skillName(pending.skill).toLowerCase();
   const skillSuggestions: string[] = Array.from(
-    new Set(knownSkills.map((skill: SkillInfo) => skill.name)),
+    new Set(
+      // Mitgelieferte Befehle (`/compact`, `/usage` …) bleiben draußen: die erste Nachricht soll einen Skill rufen (ADR 034).
+      // Plugin-Skills (`plugin:skill`) kommen im Fork nur über dieselbe Liste und tragen daher auch `builtin`; sie erkennt das `:`.
+      // ponytail: Namensregel statt eigener Herkunft `Plugin`; Ausbau, falls ein mitgelieferter Befehl je einen `:` trägt.
+      knownSkills
+        .filter((skill: SkillInfo) => skill.origin.kind !== 'builtin' || skill.name.includes(':'))
+        .map((skill: SkillInfo) => skill.name),
+    ),
   ).filter(
     (name: string) => !draft.skills.includes(name) && name.toLowerCase().includes(typedSkill),
   );
@@ -371,8 +399,7 @@ export function AgentTypeDialog({ agentType, onClose }: AgentTypeDialogProps): R
     setIsConfirming(false);
     setSaveError(null);
     setIsSaving(true);
-    const request: Promise<AgentTypeSaved> =
-      agentType === null ? createAgentType(input) : updateAgentType(agentType.id, input);
+    const request: Promise<AgentTypeSaved> = saveInput(input);
     request
       .then((saved: AgentTypeSaved) => {
         if (saved.errors.length === 0) {
@@ -388,6 +415,27 @@ export function AgentTypeDialog({ agentType, onClose }: AgentTypeDialogProps): R
         setSaveError(saveFailedText(commandErrorText(reason)));
         setIsSaving(false);
       });
+  }
+
+  function saveInput(input: AgentTypeInput): Promise<AgentTypeSaved> {
+    if (proposal !== undefined) {
+      return proposal.onSave(input);
+    }
+    return agentType === null ? createAgentType(input) : updateAgentType(agentType.id, input);
+  }
+
+  function title(): string {
+    if (proposal !== undefined) {
+      return PROPOSAL_DIALOG_TITLE;
+    }
+    return agentType === null ? DIALOG_CREATE_TITLE : DIALOG_EDIT_TITLE;
+  }
+
+  function saveLabel(): string {
+    if (proposal !== undefined) {
+      return isSaving ? PROPOSAL_ACCEPTING : PROPOSAL_ACCEPT;
+    }
+    return isSaving ? SAVING_LABEL : SAVE_LABEL;
   }
 
   function renderPair(): ReactElement {
@@ -473,7 +521,7 @@ export function AgentTypeDialog({ agentType, onClose }: AgentTypeDialogProps): R
           onClick={save}
           disabled={isSaving}
         >
-          {isSaving ? SAVING_LABEL : SAVE_LABEL}
+          {saveLabel()}
         </button>
       </div>
     );
@@ -483,9 +531,13 @@ export function AgentTypeDialog({ agentType, onClose }: AgentTypeDialogProps): R
     <Dialog labelledBy={TITLE_ID} className="agent-type-dialog" onClose={requestClose}>
       <div className="agent-type-dialog__header">
         <h3 id={TITLE_ID} className="agent-type-dialog__title">
-          {agentType === null ? DIALOG_CREATE_TITLE : DIALOG_EDIT_TITLE}
+          {title()}
         </h3>
-        <p className="agent-type-dialog__subtitle">{DIALOG_SUBTITLE}</p>
+        <p className="agent-type-dialog__subtitle">
+          {proposal === undefined
+            ? DIALOG_SUBTITLE
+            : proposalDialogSubtitle(proposal.sessionNumber)}
+        </p>
       </div>
       <div ref={bodyRef} className="agent-type-dialog__body">
         <DialogField
@@ -581,6 +633,7 @@ export function AgentTypeDialog({ agentType, onClose }: AgentTypeDialogProps): R
               change('files', { files: without(draft.files, index) });
             }}
             isInvalid={messagesOf('files').length > 0}
+            canPick={proposal?.isRemote !== true}
           />
         </DialogField>
         <DialogField label={SKILLS_LABEL} messages={messagesOf('skills')} hint={SKILLS_HINT}>

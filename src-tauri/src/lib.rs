@@ -12,6 +12,7 @@ pub mod codex;
 pub mod codex_account;
 pub mod commands;
 pub mod context;
+pub mod dashboard;
 pub mod db;
 pub mod environment;
 pub mod error;
@@ -164,14 +165,22 @@ pub fn run() {
                 Err(error) => eprintln!("MCP-Zugang nicht gestartet: {error}"),
             }
             SessionRegistry::deliver_inbox_on_start(app.handle().clone());
+            // Eine Befehls-Station, die beim Ende der App lief, ist „unterbrochen“ und startet nicht von selbst.
+            if let Err(error) = app.state::<SessionRegistry>().interrupt_commands() {
+                eprintln!("Befehls-Stationen nicht als unterbrochen vermerkt: {error}");
+            }
+            implementation::wake_reported_on_start(app.handle().clone());
             Ok(())
         })
         .invoke_handler(remote::intercept::guarded(tauri::generate_handler![
             commands::app::app_info,
             commands::projects::project_list,
+            commands::dashboard::dashboard_get,
+            commands::dashboard::dashboard_dismiss,
             commands::projects::project_create,
             commands::projects::project_rename,
             commands::projects::project_set_self_release,
+            commands::projects::project_set_priority,
             commands::projects::project_add_repository,
             commands::projects::project_archive,
             commands::projects::project_group_list,
@@ -193,6 +202,7 @@ pub fn run() {
             commands::remote::remote_give_back,
             commands::remote::remote_host_profile,
             commands::remote::remote_usage_load,
+            commands::remote::remote_agent_queue,
             commands::remote::remote_usage_refresh,
             commands::remote::remote_asset_base,
             commands::archive::archive_search,
@@ -218,6 +228,7 @@ pub fn run() {
             commands::sessions::session_log,
             commands::chat::chat_history,
             commands::chat::chat_send,
+            commands::chat::chat_send_now,
             commands::chat::chat_answer,
             commands::context::context_load,
             commands::context::context_refresh,
@@ -291,16 +302,28 @@ pub fn run() {
             commands::implementation::implementation_new_inquiry,
             commands::implementation::implementation_rename,
             commands::implementation::implementation_set_auto_start,
+            commands::implementation::implementation_start,
             commands::implementation::implementation_set_stop_after_current,
-            commands::implementation::implementation_set_max_parallel,
+            commands::implementation::implementation_set_auto_resume,
+            commands::implementation::implementation_set_station_auto_resume,
+            commands::implementation::agent_queue,
             commands::implementation::implementation_start_station,
+            commands::implementation::implementation_stop_command,
             commands::implementation::implementation_set_station_agent,
             commands::implementation::implementation_set_station_options,
             commands::implementation::implementation_remove_brief_change,
             commands::implementation::implementation_cancel_countdown,
             commands::implementation::implementation_apply_change,
+            commands::implementation::implementation_cancel,
+            commands::implementation::implementation_delete,
+            commands::implementation::implementation_apply_cancel,
+            commands::implementation::implementation_discard_cancel,
             commands::implementation::implementation_edit_plan,
             commands::implementation::implementation_complete_station,
+            commands::implementation::implementation_set_master,
+            commands::implementation::implementation_accept_station,
+            commands::implementation::implementation_mark_station_done,
+            commands::implementation::implementation_return_station,
             commands::terminal::terminal_list,
             commands::terminal::terminal_open,
             commands::terminal::terminal_attach,
@@ -315,6 +338,7 @@ pub fn run() {
             commands::agent_types::agent_type_create,
             commands::agent_types::agent_type_update,
             commands::agent_types::agent_type_delete,
+            commands::agent_types::agent_type_proposal_answer,
             commands::environment::environment_status,
             commands::environment::environment_mirror,
             commands::codex::codex_models,
@@ -330,11 +354,13 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("Tauri-Laufzeit konnte nicht starten")
         .run(|app: &tauri::AppHandle, event: tauri::RunEvent| {
-            // Kein Shell-Prozess überlebt die App.
-            if let tauri::RunEvent::Exit = event
-                && let Some(terminals) = app.try_state::<TerminalService>()
-            {
-                terminals.close_all();
+            // Kein Agent und kein Shell-Prozess überlebt die App (ADR 074).
+            if let tauri::RunEvent::Exit = event {
+                agents::claude::process::stop_all(std::time::Duration::from_secs(2));
+                if let Some(terminals) = app.try_state::<TerminalService>() {
+                    terminals.close_all();
+                }
+                implementation::command_run::stop_all(std::time::Duration::from_secs(3));
             }
         });
 }

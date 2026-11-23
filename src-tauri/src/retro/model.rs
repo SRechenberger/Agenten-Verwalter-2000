@@ -62,3 +62,46 @@ pub struct Fact {
     pub fact: String,
     pub quote: String,
 }
+
+/// Die Antwort der Werkzeug-Retro einer Session (ADR 067), Felder wie in `prompt::TOOLS_SCHEMA`.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ToolFindings {
+    pub steps: Vec<StepSummary>,
+    pub routines: Vec<Routine>,
+    pub friction: Vec<Friction>,
+    pub scripts: Vec<ScriptPurpose>,
+}
+
+/// Ziel und Weg eines Nutzer-Auftrags.
+#[derive(Debug, Clone, Deserialize)]
+pub struct StepSummary {
+    pub step: u32,
+    pub goal: String,
+    pub path: String,
+}
+
+/// Ein fester Handgriff: zusammenhängende Aufrufe, die immer gleich ablaufen.
+#[derive(Debug, Clone, Deserialize)]
+pub struct Routine {
+    /// Aufruf-Nummern als `<Schritt>.<Nr>`.
+    pub calls: Vec<String>,
+    pub recipe: String,
+    pub inputs: String,
+    pub proposal: String,
+    /// `skript`, `werkzeug` oder `umgebung`.
+    pub kind: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct Friction {
+    pub calls: Vec<String>,
+    pub cause: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct ScriptPurpose {
+    pub hash: String,
+    pub purpose: String,
+    pub reusable: bool,
+}

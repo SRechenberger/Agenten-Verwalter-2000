@@ -1,41 +1,53 @@
 //! Stationen starten (ADR 048): Countdown, frische Session, erste Nachricht; dazu Typ, Modell,
 //! Denkaufwand, Systemprompt und Skills aus den Agententypen (ADR 060). Alles hier läuft ohne
 //! gehaltene Sperre; die Registry nimmt ihre Sperren selbst, nacheinander.
-use std::fs;
-use std::path::Path;
 use std::thread;
 
 use tauri::{AppHandle, Manager};
 
-use super::model::{BriefChange, ImplementationView, PhaseView, StationState, StationView};
-use super::{START_DELAY, StationRef, announce, now_ms, schedule, station_in};
+use super::master::MasterRef;
+use super::model::{
+    BriefChange, ImplementationView, PhaseView, StationKind, StationState, StationView,
+    station_label,
+};
+use super::slots::{Claimed, Start};
+use super::{IS_CANCELLED, START_DELAY, StationRef, announce, schedule, station_in};
 use crate::agent_types::model::{AgentType, AgentValueSource};
 use crate::agent_types::prompt::{Folders, PromptError};
 use crate::agent_types::{self, StationValues, UnknownAgent};
 use crate::agents::event::{Effort, ModelId};
 use crate::error::CommandError;
 use crate::filesystem::workspace::home_dir;
+use crate::session_tools::tools::MAX_SUBJECT_CHARS;
 use crate::sessions::model::SessionSummary;
 use crate::sessions::registry::SessionRegistry;
 use crate::settings::model::OperatingMode;
 
-// Wie man fertig meldet, samt Übergabenotiz (ADR 061, Werkzeuge); die Felder nennt die Beschreibung
-// des Werkzeugs, nicht dieser Text.
+const HELD_BY_CANCEL: &str =
+    "Eine Anfrage zum Abbrechen liegt vor; erst bestätigen oder verwerfen.";
+const HELD_BY_HALT: &str =
+    "Die Umsetzung hält nach dieser Session an; erst „Anhalten nach dieser Session“ ausschalten.";
+
+// Wie man meldet, samt Übergabenotiz (ADR 061, 070); die Felder nennt die Beschreibung des Werkzeugs,
+// nicht dieser Text.
 const FIRST_MESSAGE_FOOTER: &str = "Melde diese Station mit dem Werkzeug \
-    implementation_complete_station fertig, mit einer Zeile Ergebnis. Was ein wartender Nachfolger \
-    darüber hinaus wissen muss, gibst du dort als Übergabenotiz mit; wie, steht in der Beschreibung \
-    des Werkzeugs. Endet deine Antwort ohne diese Meldung, wartet die Umsetzung auf den Benutzer. Gib \
-    keine Einstiegszeile aus.";
+    implementation_complete_station an deinen Master: mit einem Betreff in einer Zeile und einer \
+    Notiz als Bericht. Die Meldung mit Notiz ist dein Bericht an ihn; er entscheidet, sobald dein Zug \
+    beendet ist, und kann sie zurückgeben. Was ein wartender Nachfolger darüber hinaus wissen muss, \
+    gibst du dort als Übergabenotiz mit; wie, steht in der Beschreibung des Werkzeugs. Endet deine \
+    Antwort ohne diese Meldung, geht sie an deinen Master. Gib keine Einstiegszeile aus.";
 
 /// Die erste Nachricht der Session einer Station. `/<skill>` steht allein in der ersten Zeile,
 /// weil die Kommandozeile einen Befehl nur am Anfang erkennt: der Skill der Station, sonst der erste
-/// ihres Typs. Die übrigen Skills des Typs nennt die Zeile darunter als Anweisung (ADR 060); ob es
-/// sie gibt, prüft niemand.
+/// ihres Typs. Die übrigen Skills des Typs nennen die Zeile darunter als Anweisung (ADR 060); ob es
+/// sie gibt, prüft niemand. Der Master steht mit Nummer, Titel und ID da, denn `verwalter_send_message_to`
+/// braucht die ID (ADR 070).
 pub fn first_message(
     view: &ImplementationView,
     phase: &PhaseView,
     station: &StationView,
     type_skills: &[String],
+    master: Option<&MasterRef>,
 ) -> String {
     let mut lines: Vec<String> = Vec::new();
     let first_skill: Option<&str> = station
@@ -57,8 +69,10 @@ pub fn first_message(
         }
     }
     lines.push(format!(
-        "Station: Phase {} „{}“ · {}",
-        phase.key, phase.title, station.stage
+        "Station: {} in Lane {} „{}“",
+        station_label(&station.plan_id, &station.stage),
+        phase.key,
+        phase.title
     ));
     if view.source.is_empty() {
         lines.push(format!("Umsetzung: {}", view.name));
@@ -67,6 +81,9 @@ pub fn first_message(
             "Umsetzung: {} — Quelle: {}",
             view.name, view.source
         ));
+    }
+    if let Some(master) = master {
+        lines.push(format!("Master: {}", master.describe()));
     }
     if !phase.description.is_empty() {
         lines.push(format!("Phase: {}", phase.description));
@@ -92,8 +109,8 @@ pub fn first_message(
                 .iter()
                 .any(|change: &BriefChange| change.source_station_id == source.id)
         })
-        .map(|(candidate, source): (&PhaseView, &StationView)| {
-            format!("Phase {} · {}", candidate.key, source.stage)
+        .map(|(_, source): (&PhaseView, &StationView)| {
+            station_label(&source.plan_id, &source.stage)
         })
         .collect();
     if !sources.is_empty() {
@@ -115,15 +132,15 @@ pub fn first_message(
         .filter(|(_, done): &(&PhaseView, &StationView)| {
             done.state == StationState::Done && station.after.contains(&done.plan_id)
         })
-        .map(|(candidate, done): (&PhaseView, &StationView)| {
+        .map(|(_, done): (&PhaseView, &StationView)| {
             let number = done
                 .session_number
                 .map(|number: u32| format!(" (#{number})"))
                 .unwrap_or_default();
             let result = done.result.as_deref().unwrap_or("ohne Ergebnis");
             format!(
-                "- Phase {} · {}{number}: {result}",
-                candidate.key, done.stage
+                "- {}{number}: {result}",
+                station_label(&done.plan_id, &done.stage)
             )
         })
         .collect();
@@ -134,6 +151,20 @@ pub fn first_message(
     lines.push(String::new());
     lines.push(FIRST_MESSAGE_FOOTER.to_owned());
     lines.join("\n")
+}
+
+/// Der Betreff der ersten Nachricht: Station und Umsetzung, höchstens so lang wie jeder Betreff.
+fn first_message_subject(view: &ImplementationView, station: &StationView) -> String {
+    let subject = format!(
+        "Auftrag: {} in „{}“",
+        station_label(&station.plan_id, &station.stage),
+        view.name
+    );
+    if subject.chars().count() <= MAX_SUBJECT_CHARS {
+        return subject;
+    }
+    let cut: String = subject.chars().take(MAX_SUBJECT_CHARS - 1).collect();
+    format!("{cut}…")
 }
 
 /// Was der Start einer Station setzt (ADR 060): Typ, Modell und Denkaufwand.
@@ -176,55 +207,44 @@ pub fn start_plan(
     })
 }
 
-/// Plant für Stationen, die jetzt starten dürfen, einen Countdown, nach Vorrang und Planreihenfolge
-/// und höchstens bis `max_parallel` aktive Stationen; gibt die geplanten zurück. Die übrigen bleiben
-/// in der Warteschlange (ADR 061). Stationen des Benutzers, solche mit laufendem Countdown und solche
-/// mit Startfehler bleiben außen vor.
+/// Nimmt die bereiten Stationen der Umsetzung in die globale Warteschlange (ADR 068) und lässt einen
+/// Durchgang laufen: Er plant Countdowns nach Stufe des Vorhabens, Vorrang und Wartezeit, höchstens bis
+/// zur Grenze „Gleichzeitige Agenten max.“; die übrigen warten. Stationen des Benutzers, solche mit
+/// laufendem Countdown und solche mit Startfehler bleiben außen vor; abgebrochen oder mit offener
+/// Anfrage zum Abbrechen plant er nichts (ADR 066). Gibt die Stationen dieser Umsetzung zurück, deren
+/// Countdown begann.
 pub fn schedule_ready(
     app: &AppHandle,
     implementation_id: &str,
 ) -> Result<Vec<StationRef>, CommandError> {
     let registry = app.state::<SessionRegistry>();
-    // Endet dazwischen ein Start, ist die Ansicht veraltet: neu lesen (ADR 061).
-    let (view, begun) = loop {
-        let seen: u64 = registry.start_releases();
-        let view = registry.implementation_view(implementation_id)?;
-        let stations: Vec<&StationView> = view
-            .phases
-            .iter()
-            .flat_map(|phase: &PhaseView| phase.stations.iter())
-            .collect();
-        let candidates: Vec<&str> = schedule::due_for_countdown(&view.phases)
-            .into_iter()
-            .map(|(_, station): (&PhaseView, &StationView)| station.id.as_str())
-            .collect();
-        let ends_at: f64 = now_ms() + START_DELAY.as_secs_f64() * 1000.0;
-        if let Some(begun) =
-            registry.begin_countdowns(seen, &stations, &candidates, view.max_parallel, ends_at)
-        {
-            break (view, begun);
-        }
-    };
-    let due = schedule::due_for_countdown(&view.phases);
-    let mut scheduled: Vec<StationRef> = Vec::new();
-    for (station_id, token) in begun {
-        run_timer(app, implementation_id, &station_id, token)?;
-        if let Some((phase, station)) = due
-            .iter()
-            .find(|(_, station): &&(&PhaseView, &StationView)| station.id == station_id)
-        {
-            scheduled.push(StationRef {
-                phase_key: phase.key.clone(),
-                stage: station.stage.clone(),
-            });
-        }
-    }
-    announce(app, &registry.implementation_view(implementation_id)?);
+    registry.arm_implementation(implementation_id);
+    let claimed: Vec<Claimed> = registry.run_pass(app);
+    let view = registry.implementation_view(implementation_id)?;
+    let scheduled: Vec<StationRef> = claimed
+        .iter()
+        .filter(|(waiter, _): &&Claimed| {
+            waiter.start == Start::Countdown
+                && waiter.entry.implementation_id.as_deref() == Some(implementation_id)
+        })
+        .filter_map(|(waiter, _): &Claimed| super::find_station(&view, &waiter.key))
+        .map(|(_, station): (&PhaseView, &StationView)| StationRef {
+            phase_key: station.plan_id.clone(),
+            stage: station.stage.clone(),
+        })
+        .collect();
+    announce(app, &view);
     Ok(scheduled)
 }
 
+/// Ein Platz ist frei geworden, ohne dass eine Umsetzung neu plant (ADR 068): ein Durchgang, der auch
+/// Stationen nach „Bei Fehler“ neu startet. Nie unter einer Sperre aufrufen.
+pub fn refill(app: &AppHandle) {
+    app.state::<SessionRegistry>().run_pass(app);
+}
+
 /// Startet den Zeitgeber eines schon begonnenen Countdowns.
-fn run_timer(
+pub(crate) fn run_timer(
     app: &AppHandle,
     implementation_id: &str,
     station_id: &str,
@@ -286,60 +306,63 @@ fn fire(app: &AppHandle, implementation_id: &str, station_id: &str, token: u64) 
     }
     // Nicht gestartet: die Station steht wieder bereit (▶), die Oberfläche zeigt das.
     if let Ok(fresh) = registry.implementation_view(implementation_id) {
+        announce(app, &fresh);
         if super::resumes_queue_after_start_error(&fresh, station_id) {
-            // Der Platz ist frei: die Warteschlange rückt nach; `schedule_ready` meldet die Ansicht.
-            if let Err(error) = schedule_ready(app, implementation_id) {
-                eprintln!("Warteschlange nach Startfehler nicht neu geplant: {error}");
-            }
-        } else {
-            announce(app, &fresh);
+            // Der Platz ist frei: die globale Warteschlange rückt nach.
+            refill(app);
         }
     }
 }
 
-/// „Bei Fehler“ (ADR 061): Startet jede Station neu, deren Session in diesem Lauf der App mit Fehler
-/// endete und die noch Neustarts übrig hat (`StationView::restarting`). Neu starten heißt: dieselbe
-/// Session, ihr Agent wird neu gestartet (`SessionRegistry::restart`) und bekommt `RESTART_MESSAGE`;
-/// die Bindung Station–Session und die Momentaufnahme des Starts bleiben. Der Startanspruch hält ihren
-/// Platz unter `max_parallel` bis zur Nachricht, der Zähler `restarts` steigt vor dem Versuch, damit
-/// zwei Aufrufer nicht zweimal neu starten und ein scheiternder Versuch die Neustarts verbraucht.
-pub fn restart_failed(app: &AppHandle, implementation_id: &str) -> Result<(), CommandError> {
+/// „Bei Fehler“ (ADR 061) für eine Station, der ein Durchgang der globalen Warteschlange einen Platz
+/// gegeben hat (ADR 068; der Durchgang sammelt jede Station, deren Session in diesem Lauf der App mit
+/// Fehler endete und die noch Neustarts übrig hat, `StationView::restarting`). Neu starten heißt:
+/// dieselbe Session, ihr Agent wird neu gestartet (`SessionRegistry::restart`) und bekommt
+/// `RESTART_MESSAGE`; die Bindung Station–Session und die Momentaufnahme des Starts bleiben. Der
+/// Startanspruch hält ihren Platz bis zur Nachricht und endet hier; der Zähler `restarts` steigt vor dem
+/// Versuch, damit ein scheiternder Versuch die Neustarts verbraucht.
+pub fn restart_station(app: &AppHandle, implementation_id: &str, station_id: &str) {
     let registry = app.state::<SessionRegistry>();
-    loop {
-        let view = registry.implementation_view(implementation_id)?;
-        let Some(station) = view
-            .phases
-            .iter()
-            .flat_map(|phase: &PhaseView| phase.stations.iter())
-            .find(|station: &&StationView| station.restarting)
-        else {
-            return Ok(());
-        };
-        let Some(session_id) = station.session_id.as_deref() else {
-            return Ok(());
-        };
-        // Ein anderer Aufrufer startet sie schon.
-        if registry
-            .claim_start(implementation_id, &station.id)
-            .is_err()
-        {
-            return Ok(());
-        }
-        let restarted = restart_claimed(app, &registry, &station.id, session_id, station.restarts);
-        registry.release_start(&station.id);
-        if let Err(error) = restarted {
-            registry.log_session_line(
-                session_id,
-                format!("Neustart nach Fehler gescheitert: {error}"),
-            );
-        }
-        announce(app, &registry.implementation_view(implementation_id)?);
+    let restarted =
+        registry
+            .implementation_view(implementation_id)
+            .and_then(|view: ImplementationView| {
+                let (_, station) = station_in(&view, station_id)?;
+                match (&station.session_id, station.restarting) {
+                    (Some(session_id), true) => {
+                        let session_id = session_id.clone();
+                        restart_claimed(
+                            app,
+                            &registry,
+                            implementation_id,
+                            station_id,
+                            &session_id,
+                            station.restarts,
+                        )
+                        .map_err(|error: CommandError| {
+                            registry.log_session_line(
+                                &session_id,
+                                format!("Neustart nach Fehler gescheitert: {error}"),
+                            );
+                            error
+                        })
+                    }
+                    _ => Ok(()),
+                }
+            });
+    registry.release_start(station_id);
+    if let Err(error) = restarted {
+        eprintln!("Neustart nach Fehler gescheitert: {error}");
+    }
+    if let Ok(view) = registry.implementation_view(implementation_id) {
+        announce(app, &view);
     }
 }
 
 fn restart_claimed(
     app: &AppHandle,
     registry: &SessionRegistry,
+    implementation_id: &str,
     station_id: &str,
     session_id: &str,
     seen: u32,
@@ -348,7 +371,64 @@ fn restart_claimed(
         return Ok(());
     }
     registry.restart(app, session_id)?;
+    stop_if_cancelled(app, registry, implementation_id, session_id)?;
     registry.send(app, session_id, super::RESTART_MESSAGE, &[], &[], None)
+}
+
+/// Warum die Umsetzung gerade nichts startet (ADR 066): abgebrochen oder eine Anfrage zum Abbrechen
+/// liegt vor; `None`, wenn sie starten darf.
+pub fn is_held(view: &ImplementationView) -> Option<&'static str> {
+    if view.cancelled_at.is_some() {
+        Some(IS_CANCELLED)
+    } else if view.pending_cancel.is_some() {
+        Some(HELD_BY_CANCEL)
+    } else {
+        None
+    }
+}
+
+/// Warum „Umsetzung starten“ (#135) ablehnt: wie `is_held`, dazu „Anhalten nach dieser Session“, unter
+/// dem nichts zugelassen würde; `None`, wenn er starten darf.
+pub fn start_refusal(view: &ImplementationView) -> Option<&'static str> {
+    is_held(view).or_else(|| view.stop_after_current.then_some(HELD_BY_HALT))
+}
+
+/// „Umsetzung starten“ (#135): schaltet „Automatisch starten“ ein und nimmt die bereiten Stationen in die
+/// globale Warteschlange. Bis zur Grenze „Gleichzeitige Agenten max.“ beginnen Countdowns, der Rest
+/// wartet; Befehls-Stationen starten ohne Platz; Stationen mit eigenem „Automatisch starten“ aus bleiben
+/// bei ▶.
+pub fn start_implementation(app: &AppHandle, implementation_id: &str) -> Result<(), CommandError> {
+    switch_on_for_start(&app.state::<SessionRegistry>(), implementation_id)?;
+    schedule_ready(app, implementation_id).map(|_scheduled: Vec<StationRef>| ())
+}
+
+/// Der Teil von „Umsetzung starten“ ohne Tauri: prüft die Sperre und schaltet „Automatisch starten“ ein.
+pub(crate) fn switch_on_for_start(
+    registry: &SessionRegistry,
+    implementation_id: &str,
+) -> Result<(), CommandError> {
+    let view = registry.implementation_view(implementation_id)?;
+    if let Some(reason) = start_refusal(&view) {
+        return Err(CommandError::Implementation(reason.to_owned()));
+    }
+    registry.store_implementation_flags(implementation_id, true, false, view.finished_at)
+}
+
+/// Vor der Nachricht, die den Agenten einer Station arbeiten lässt (ADR 066): Wurde die Umsetzung
+/// abgebrochen, seit der Start die Ansicht las, stoppt er die schon gebundene Session selbst. Der
+/// Abbruch schreibt zuerst und liest danach die Stationen, der Start bindet zuerst und liest danach:
+/// Unter der einen Datenbank-Sperre sieht mindestens einer von beiden den anderen.
+fn stop_if_cancelled(
+    app: &AppHandle,
+    registry: &SessionRegistry,
+    implementation_id: &str,
+    session_id: &str,
+) -> Result<(), CommandError> {
+    if !registry.is_implementation_cancelled(implementation_id)? {
+        return Ok(());
+    }
+    let _ = registry.cancel(app, session_id);
+    Err(CommandError::Implementation(IS_CANCELLED.to_owned()))
 }
 
 /// Wer den Start auslöst: ▶ versucht eine Station mit Startfehler erneut, der Countdown nicht.
@@ -368,16 +448,33 @@ pub(super) fn is_allowed(trigger: Trigger, phases: &[PhaseView], station_id: &st
     }
 }
 
-/// ▶: Startet die Station sofort, auch nach einem Startfehler und über `max_parallel` hinaus:
-/// frische Session, Name, Modell und Denkaufwand, Bindung, Systemprompt, erste Nachricht. Ein
-/// laufender Countdown wird beendet. Mit Grenze setzt ▶ danach die Warteschlange fort, etwa nach
-/// einem Neustart (ADR 061).
+/// ▶: Startet die Station sofort, auch nach einem Startfehler und über die Grenze „Gleichzeitige
+/// Agenten max.“ hinaus, zählt aber als belegter Platz (ADR 068): frische Session, Name, Modell und
+/// Denkaufwand, Bindung, Systemprompt, erste Nachricht. Ein laufender Countdown wird beendet. Danach
+/// nimmt ▶ die Umsetzung in die globale Warteschlange, etwa nach einem Neustart.
 pub fn start_now(
     app: &AppHandle,
     implementation_id: &str,
     station_id: &str,
 ) -> Result<(), CommandError> {
-    start(app, implementation_id, station_id, Trigger::User)?;
+    // Eine Befehls-Station läuft ohne Session und ohne Platz am Tor (ADR 073).
+    if super::command_run::is_command_station(
+        &app.state::<SessionRegistry>(),
+        implementation_id,
+        station_id,
+    ) {
+        return super::command_run::start_command(
+            app,
+            implementation_id,
+            station_id,
+            Trigger::User,
+        );
+    }
+    if let Err(error) = start(app, implementation_id, station_id, Trigger::User) {
+        // Ein beendeter Countdown gibt seinen Platz frei (ADR 068).
+        refill(app);
+        return Err(error);
+    }
     let registry = app.state::<SessionRegistry>();
     if super::resumes_queue(&registry.implementation_view(implementation_id)?) {
         schedule_ready(app, implementation_id)?;
@@ -409,6 +506,10 @@ fn start_claimed(
 ) -> Result<(), CommandError> {
     let _ = registry.cancel_countdown(station_id);
     let view = registry.implementation_view(implementation_id)?;
+    // Deckt auch den Zeitgeber ab: `fire` startet nur über `start_claimed`.
+    if let Some(reason) = is_held(&view) {
+        return Err(CommandError::Implementation(reason.to_owned()));
+    }
     let (phase, station) = station_in(&view, station_id)?;
     if station.session_id.is_some() || station.state == StationState::Done {
         return Err(CommandError::Implementation(
@@ -418,6 +519,11 @@ fn start_claimed(
     if station.by_user {
         return Err(CommandError::Implementation(
             "Diese Station erledigst du selbst.".to_owned(),
+        ));
+    }
+    if station.kind == StationKind::Command {
+        return Err(CommandError::Implementation(
+            "Eine Befehls-Station führt der Verwalter selbst aus.".to_owned(),
         ));
     }
     if !is_allowed(trigger, &view.phases, station_id) {
@@ -444,7 +550,7 @@ fn start_claimed(
                 agent_type,
                 station.prompt.as_deref(),
                 folders,
-                |path: &Path| fs::read_to_string(path),
+                agent_types::prompt::read_bounded,
             )
             .map_err(|error: PromptError| error.to_string())?;
             Ok((plan, agent_type, agent_prompt))
@@ -460,13 +566,15 @@ fn start_claimed(
     };
     let created: SessionSummary = registry.create_fresh_in_project(&view.project_id)?;
     registry.bind_station(app, implementation_id, station_id, &created.id)?;
+    // Ab jetzt zählt der Start, nicht die Session (ADR 068).
+    registry.note_station_session(station_id, &created.id);
     if phase.mark.is_some() {
         registry.clear_phase_mark(&phase.id)?;
     }
     registry.rename(
         app,
         &created.id,
-        &format!("Phase {} · {}", phase.key, station.stage),
+        &station_label(&station.plan_id, &station.stage),
     )?;
     if let Some(model) = plan.model
         && model != created.model
@@ -487,8 +595,14 @@ fn start_claimed(
     let type_skills: &[String] = agent_type
         .map(|agent_type: &AgentType| agent_type.skills.as_slice())
         .unwrap_or_default();
-    let message: String = first_message(&view, phase, station, type_skills);
-    if let Err(error) = registry.send(app, &created.id, &message, &[], &[], None) {
+    let master = registry.master_ref(view.master_session_id.as_deref());
+    let message: String = first_message(&view, phase, station, type_skills, master.as_ref());
+    stop_if_cancelled(app, registry, implementation_id, &created.id)?;
+    // Der Chat zeigt den ganzen Text; an den Agenten geht `/<skill>` und die Referenz (ADR 072).
+    let subject = first_message_subject(&view, station);
+    if let Err(error) =
+        registry.send_by_reference(app, &created.id, &super::wake::sender(), &message, &subject)
+    {
         registry.log_session_line(
             &created.id,
             format!("Erste Nachricht nicht gesendet: {error}"),

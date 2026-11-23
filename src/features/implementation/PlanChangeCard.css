@@ -1,8 +1,19 @@
 .plan-change-card {
   border-left-color: var(--color-accent);
 
-  &--proposal {
-    border-color: var(--color-accent);
+  &__icon {
+    margin-right: var(--space-sm);
+  }
+
+  &__badge {
+    align-self: center;
+    padding: 0 var(--space-md);
+    border-radius: var(--radius-full);
+    background: var(--color-accent);
+    color: var(--color-fg-on-accent);
+    font-size: var(--font-size-2xs);
+    font-weight: 600;
+    white-space: nowrap;
   }
 
   &__list {
@@ -32,5 +43,44 @@
     border-radius: var(--radius-lg);
     background: var(--color-bg-base);
     font-size: var(--font-size-xs);
+  }
+}
+
+/* Schritte einer Befehls-Station im Vorschlag (ADR 073). */
+.plan-change-card__steps {
+  display: grid;
+  gap: var(--space-xs);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.plan-change-card__step {
+  box-sizing: border-box;
+  padding: var(--space-md) var(--space-lg);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-surface);
+  color: var(--color-fg-secondary);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+/* Der Vorschlag hebt sich ab (#132): getönter Grund, kräftiger Rahmen und, weil er nur als Karte vorn
+   steht, ein Fokusring. Zwei Klassen, denn `.station-card` setzt Rand und Grund sonst bei gleicher
+   Spezifität zurück, je nach Reihenfolge der Stylesheets im Bundle. */
+.station-card.plan-change-card--proposal {
+  border: 1.5px solid var(--color-accent);
+  border-left-width: 5px;
+  background:
+    linear-gradient(var(--color-accent-subtle), var(--color-accent-subtle)), var(--color-bg-surface);
+  box-shadow: 0 0 0 3px var(--color-accent-subtle);
+  outline: 2px solid var(--color-accent);
+  outline-offset: 3px;
+
+  & .station-card__title {
+    color: var(--color-accent-text);
   }
 }

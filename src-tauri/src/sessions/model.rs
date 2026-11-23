@@ -80,7 +80,8 @@ pub struct SessionSummary {
 )]
 pub enum PauseReason {
     /// Die letzte Antwort endete am aufgebrauchten Kontingent. `resets_at` in Millisekunden seit
-    /// Epoche, `None` wenn unbekannt. `auto_resume` beginnt immer `false`.
+    /// Epoche, `None` wenn unbekannt. `auto_resume` beginnt `false`; bei einer Station schaltet die
+    /// Umsetzung danach nach ihrem gespeicherten Wert ein (ADR 064).
     Quota {
         resets_at: Option<f64>,
         auto_resume: bool,
@@ -132,6 +133,15 @@ pub struct AwaitedScript {
     pub started_at: f64,
     /// Zahl der laufenden Einträge, ab 1.
     pub count: u32,
+}
+
+/// Was `chat_send` mit einer eigenen Nachricht getan hat (Taiga-Story 190): an den Agenten gesendet oder
+/// eingereiht, bis ein Platz frei ist.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub enum SendOutcome {
+    Sent,
+    Queued,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]

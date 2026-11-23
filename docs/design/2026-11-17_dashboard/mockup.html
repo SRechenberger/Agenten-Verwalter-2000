@@ -1,0 +1,399 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Entwurf: Dashboard (Story 102)</title>
+<style>
+:root{color-scheme:dark;--bg:#1f1f1f;--side:#181818;--surf:#252526;--hover:#2e2e30;--sel:#37373d;--bds:#2b2b2b;--bd:#3c3c3c;--fg:#d4d4d4;--fg2:#b0b0b0;--fgm:#8f8f8f;--acc:#e0825c;--onacc:#1d130e;--acct:#eea283;--run:#5b9dff;--wait:#f2b33d;--err:#f47067;--ok:#4cc38a;--pause:#8f8f8f;--master:#8ab8ea;--scrim:rgba(0,0,0,.55);--shadow:0 10px 30px rgb(0 0 0/.45);--font:'Segoe UI Variable Text','Segoe UI',system-ui,sans-serif;--mono:'Cascadia Code',Consolas,ui-monospace,monospace}
+:root[data-theme=light]{color-scheme:light;--bg:#fff;--side:#f3f3f3;--surf:#f7f7f7;--hover:#ececec;--sel:#e6e8f0;--bds:#ebebeb;--bd:#d4d4d4;--fg:#3c3c3c;--fg2:#5f5f5f;--fgm:#85858a;--acc:#c4572f;--onacc:#fff;--acct:#b04a26;--run:#2563eb;--wait:#a86a00;--err:#d23b33;--ok:#16803c;--pause:#85858a;--master:#3d6fa8;--scrim:rgba(0,0,0,.3);--shadow:0 10px 30px rgb(0 0 0/.14)}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+body{margin:0;background:var(--side);color:var(--fg);font:13px/1.45 var(--font)}
+main{max-width:1280px;margin:0 auto;padding:16px}
+h1{font-size:15px;margin:0 0 4px}.lead{margin:0 0 10px;color:var(--fg2)}
+button,textarea,input,select{font:inherit;color:inherit}
+button:focus-visible,textarea:focus-visible,input:focus-visible{outline:2px solid var(--acc);outline-offset:1px}
+/* Simulation (nicht Teil der App) */
+#sim{display:flex;flex-wrap:wrap;gap:8px 20px;align-items:center;margin:0 0 12px;padding:8px 10px;border:1px dashed var(--bd);border-radius:6px}
+.g{display:flex;align-items:center;gap:8px}.g>span{color:var(--fgm);font-size:12px}
+.seg{display:inline-flex;border:1px solid var(--bd);border-radius:6px;overflow:hidden}
+.seg button{border:0;border-left:1px solid var(--bd);background:transparent;padding:3px 9px;font-size:12px;color:var(--fg2);cursor:pointer;white-space:nowrap}
+.seg button:first-child{border-left:0}.seg button[aria-pressed=true]{background:var(--sel);color:var(--fg)}
+/* Fenster */
+.win{display:grid;grid-template-columns:230px 1fr 330px;min-height:640px;background:var(--bg);border:1px solid var(--bd);border-radius:10px;overflow:hidden}
+nav{background:var(--side);border-right:1px solid var(--bds);padding:10px 8px;display:flex;flex-direction:column;gap:2px}
+.brand{display:flex;align-items:center;gap:8px;font-weight:600;padding:2px 6px 10px}
+.new{display:flex;align-items:center;gap:6px;border:1px solid var(--bd);border-radius:6px;background:transparent;padding:4px 8px;margin:0 2px 8px;color:var(--fg2);cursor:pointer}
+.navitem{display:flex;align-items:center;gap:8px;padding:4px 8px;border-radius:6px;color:var(--fg2);cursor:pointer;border:0;background:transparent;text-align:left;width:100%}
+.navitem.on{background:var(--sel);color:var(--fg)}
+.badge{margin-left:auto;min-width:18px;padding:0 5px;border-radius:99px;background:var(--wait);color:var(--onacc);font-size:11px;font-weight:600;text-align:center}
+.grp{font-size:11px;color:var(--fgm);text-transform:uppercase;letter-spacing:.04em;padding:10px 8px 2px}
+.proj{padding:3px 8px;color:var(--fg);display:flex;align-items:center;gap:6px}
+.sess{padding:2px 8px 2px 22px;color:var(--fg2);display:flex;align-items:center;gap:7px;font-size:12.5px}
+.sess.unread{color:var(--fg);font-weight:600}
+.dot{width:7px;height:7px;border-radius:50%;flex:none;background:var(--pause)}
+.planicon{color:var(--wait);font-size:11px;margin-left:auto}
+.center{display:flex;flex-direction:column;min-width:0}
+.head{display:flex;align-items:center;gap:12px;padding:9px 14px;border-bottom:1px solid var(--bds)}
+.head h2{margin:0;font-size:13px;font-weight:600}
+.cols{display:contents}
+.tasks{padding:12px 14px;overflow:auto}
+.tbar{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:12px}
+.tbar h3,.flows h3{margin:0;font-size:13px;font-weight:600}
+.cnt{color:var(--fgm);font-weight:400}
+.chk{display:inline-flex;align-items:center;gap:6px;color:var(--fg2);font-size:12px;cursor:pointer}
+.group h4{margin:14px 0 6px;font-size:12px;color:var(--fg2);font-weight:600}
+.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(205px,1fr));gap:8px}
+.card{position:relative;text-align:left;border:1px solid var(--bd);border-left:3px solid var(--k);border-radius:8px;background:var(--surf);padding:8px 10px;cursor:pointer;display:flex;flex-direction:column;gap:4px;min-height:96px}
+.card:hover{background:var(--hover)}
+.card .top{display:flex;align-items:center;gap:6px;font-size:11px}
+.kind{font-weight:600;color:var(--k)}
+.since{margin-left:auto;color:var(--fgm)}
+.card .t{font-size:12.5px;color:var(--fg)}
+.card .src{margin-top:auto;font-size:11px;color:var(--fgm);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ai{font-size:10.5px;color:var(--fgm);border:1px solid var(--bd);border-radius:99px;padding:0 6px}
+.future{border-style:dashed}
+.later{font-size:10.5px;color:var(--fgm)}
+.empty{color:var(--fgm);padding:20px 0}
+.flows{border-left:1px solid var(--bds);padding:12px 14px;display:flex;flex-direction:column;gap:6px;overflow:auto}
+.flow{display:block;width:100%;text-align:left;border:0;background:transparent;border-radius:6px;padding:6px 6px;cursor:pointer}
+.flow:hover{background:var(--hover)}
+.fl1{display:flex;align-items:center;gap:8px}
+.gl{flex:none;display:block}
+.fname{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.st{font-size:11.5px;color:var(--c);white-space:nowrap}
+.fl2{display:flex;align-items:center;gap:8px;margin-top:4px}
+.prog{flex:1;height:6px;border-radius:99px;background:var(--hover);overflow:hidden}
+.prog i{display:block;height:100%;background:var(--c);border-radius:99px}
+.frac{font-size:11.5px;color:var(--fgm);font-variant-numeric:tabular-nums;width:38px;text-align:right}
+.open{font-size:11px;color:var(--wait);width:44px;white-space:nowrap}
+.sub{margin:12px 0 2px;font-size:12px;color:var(--fg2);font-weight:600}
+.srow{display:flex;align-items:center;gap:8px;padding:3px 6px;font-size:12.5px}
+.srow .st{margin-left:auto}
+/* Popup */
+.scrim{position:fixed;inset:0;background:var(--scrim);display:none;align-items:center;justify-content:center;padding:16px;z-index:40}
+.scrim.on{display:flex}
+.dlg{width:min(560px,100%);max-height:90vh;overflow:auto;background:var(--surf);border:1px solid var(--bd);border-radius:10px;box-shadow:var(--shadow)}
+.dh{display:flex;align-items:flex-start;gap:10px;padding:12px 14px;border-bottom:1px solid var(--bds)}
+.dh .kind{font-size:12px}.dh .meta{color:var(--fgm);font-size:12px}
+.x{margin-left:auto;border:0;background:transparent;color:var(--fgm);cursor:pointer;font-size:16px;line-height:1}
+.db{padding:12px 14px;display:flex;flex-direction:column;gap:10px}
+.df{display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;padding:10px 14px;border-top:1px solid var(--bds)}
+.btn{border:1px solid var(--bd);border-radius:6px;background:transparent;padding:4px 12px;cursor:pointer}
+.btn.pri{background:var(--acc);border-color:var(--acc);color:var(--onacc)}
+.btn.ghost{color:var(--fg2);margin-right:auto}
+.btn:disabled{opacity:.45;cursor:default}
+.msg{background:var(--bg);border:1px solid var(--bds);border-radius:8px;padding:8px 10px;white-space:pre-wrap}
+.code{font-family:var(--mono);font-size:12px;background:var(--bg);border:1px solid var(--bds);border-radius:6px;padding:6px 8px;white-space:pre-wrap}
+.opt{display:flex;gap:8px;align-items:flex-start;border:1px solid var(--bds);border-radius:6px;padding:6px 8px;cursor:pointer}
+.opt small{display:block;color:var(--fgm)}
+textarea,input[type=text]{width:100%;background:var(--bg);border:1px solid var(--bd);border-radius:6px;padding:6px 8px;resize:vertical}
+ul.steps{margin:0;padding-left:0;list-style:none;display:flex;flex-direction:column;gap:4px}
+ul.steps label{display:flex;gap:8px}
+.chg{font-family:var(--mono);font-size:12px}.chg .a{color:var(--ok)}.chg .r{color:var(--err)}.chg .m{color:var(--wait)}
+.approve{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--ok);border:1px solid var(--ok);border-radius:99px;padding:1px 8px;align-self:flex-start}
+.note{font-size:12px;color:var(--fgm)}
+.toast{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);background:var(--surf);border:1px solid var(--bd);border-radius:8px;padding:6px 14px;box-shadow:var(--shadow);display:none;z-index:50}
+.toast.on{display:block}
+section.doc{margin-top:16px;color:var(--fg2);max-width:900px}
+section.doc h2{font-size:13px;color:var(--fg)}
+section.doc li{margin:2px 0}
+@media (max-width:1000px){.win{grid-template-columns:1fr}nav{display:none}.flows{border-left:0;border-top:1px solid var(--bds)}}
+</style>
+</head>
+<body>
+<main>
+<h1>Entwurf: Dashboard (Story Taiga #102)</h1>
+<p class="lead">Nach der Skizze vom 2026-11-16 und den Entscheidungen vom 2026-11-17. Die gestrichelte Leiste ist Simulation und gehört nicht zur App; alle Namen und Zahlen sind Beispieldaten. Stand: entschieden am 2026-11-17 (Nachtrag in #102). Sprungmarken: <code>#theme=light&amp;model=off&amp;popup=4</code>.</p>
+
+<div id="sim" aria-label="Simulation">
+  <div class="g"><span>Farbschema</span><div class="seg" data-k="theme"><button data-v="dark">Dunkel</button><button data-v="light">Hell</button></div></div>
+  <div class="g"><span>Einordnung durch Modell</span><div class="seg" data-k="model"><button data-v="on">an</button><button data-v="off">aus / gescheitert</button></div></div>
+  <button class="btn" id="reset" style="border-style:dashed;font-size:12px;padding:3px 9px">Karten zurücksetzen</button>
+</div>
+
+<div class="win">
+  <nav aria-label="Vorhaben">
+    <div class="brand"><svg width="16" height="16" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="1.5" y="1.5" width="7" height="7" rx="2"/><rect x="5.5" y="5.5" width="7" height="7" rx="2"/></svg>Agenten Verwalter 2000</div>
+    <button class="new" type="button">＋ Neues Vorhaben</button>
+    <button class="navitem on" type="button" aria-current="page">▦ Dashboard <span class="badge" id="navBadge" title="Aufgaben, die auf dich warten"></span></button>
+    <div id="navTree"></div>
+  </nav>
+
+  <div class="center">
+    <div class="head"><h2>Dashboard</h2></div>
+    <div class="tasks">
+      <div class="tbar">
+        <h3>Aufgaben <span class="cnt" id="taskCount"></span></h3>
+        <label class="chk"><input type="checkbox" id="grouped"> Gruppiert</label>
+        <div class="seg" id="groupBy" data-k="groupBy" hidden><button data-v="project">nach Vorhaben</button><button data-v="kind">nach Art</button><button data-v="group">nach Gruppe</button></div>
+        <label class="chk"><input type="checkbox" id="blocking"> Nur, was einen Agenten anhält</label>
+      </div>
+      <div id="taskList"></div>
+    </div>
+  </div>
+
+  <aside class="flows" aria-label="Abläufe">
+    <h3>Abläufe</h3>
+    <div id="flowList"></div>
+    <div id="sessList"></div>
+  </aside>
+</div>
+
+<section class="doc">
+  <h2>Was der Entwurf zeigt</h2>
+  <ul>
+    <li><b>Aufgaben</b>: eine Karte je Sache, die auf dich wartet. Der Verwalter erzeugt sie selbst aus seinen Zuständen, kein Agent ruft dafür ein Werkzeug auf. Sortiert: erst was einen laufenden Agenten anhält (Rückfrage, Rechte, Kasten), dann was sonst auf dich wartet, dann bereite Stationen, zuletzt fertige Antworten; innerhalb davon die am längsten wartende zuerst.</li>
+    <li><b>✦ eingeordnet</b>: Karten aus Antworten, die nur als Text kamen. Ein kleines Modell hat die letzte Antwort gelesen und „fragt“, „bittet“ oder „fertig“ samt Einzeiler geliefert. Mit „Einordnung aus“ erscheint dieselbe Antwort als „Antwort liegt vor“ ohne Einzeiler.</li>
+    <li><b>Klick auf eine Karte</b> öffnet das Popup: Fragebogen (Rückfrage), Erlauben/Ablehnen (Rechte, Kasten), Änderungsliste (Plan ändern?), Anweisungsliste mit „Erledigt“ (durch dich), Chatfenster (Antworten aus Text). Auflösen entfernt die Karte. Eine leere Nachricht geht nie an einen Agenten: „Senden“ und im Kasten „Erlauben“ bleiben gesperrt, solange das Feld leer ist oder nur Leerzeichen enthält.</li>
+    <li><b>Abläufe</b>: eine Zeile je Umsetzung mit eckigem Zustandssymbol (wie in der Leiste, #99), Zustand und Balken fertig/alle, farbig nach Zustand; „wartet auf Master“ (#99) hat eine eigene Farbe. „N offen“ hinter dem Balken nennt die offenen Karten dieses Ablaufs.</li>
+    <li><b>Leiste</b>: Eintrag „Dashboard“ mit Zahl der offenen Karten; ◆ am Vorhaben zeigt eine ausstehende Plan-Änderung (#132).</li>
+    <li>Aus #99: „Master ausgefallen“ (Master-Session gelöscht oder auf Fehler, du bestimmst einen neuen) und „Zurückgeben ausgeschöpft“ (du nimmst an oder gibst ein weiteres Mal zurück). Stationen bekommen keine eingeordneten Karten; was sie ohne Meldung abgeben, geht an ihren Master, der Ablauf steht dann auf „wartet auf Master“.</li>
+    <li>Entschieden: Fertig-Karten ganz unten, bereite Stationen als Karte nur bei „Automatisch starten“ aus, rechts nur aktive Sessions, Einstieg über Leiste und als Startansicht, „Gruppiert“ nach Vorhaben, Art oder Gruppe (#11).</li>
+    <li>Gestrichelte Karten (Merge) setzen eine andere Story voraus (#134).</li>
+  </ul>
+</section>
+</main>
+
+<div class="scrim" id="scrim"><div class="dlg" role="dialog" aria-modal="true" aria-labelledby="dlgTitle" id="dlg"></div></div>
+<div class="toast" id="toast" role="status"></div>
+
+<script>
+// Kreis-Familie wie StatusIcon der App (Session, Station); Quadrat-Familie für Umsetzungen, gleiche Bedeutung der Formen.
+function glyph(shape, kind, color) {
+  const sq = shape === 'square';
+  const frame = (w, extra = '') => sq ? `<rect x="1.6" y="1.6" width="8.8" height="8.8" rx="2" fill="none" stroke="currentColor" stroke-width="${w}" ${extra}/>` : `<circle cx="6" cy="6" r="4.5" fill="none" stroke="currentColor" stroke-width="${w}" ${extra}/>`;
+  const core = (r) => sq ? `<rect x="${6 - r}" y="${6 - r}" width="${2 * r}" height="${2 * r}" rx="${r / 3}" fill="currentColor"/>` : `<circle cx="6" cy="6" r="${r}" fill="currentColor"/>`;
+  const halo = sq ? '<rect x="0.5" y="0.5" width="11" height="11" rx="2.6" fill="currentColor" opacity="0.22"/>' : '<circle cx="6" cy="6" r="5.5" fill="currentColor" opacity="0.22"/>';
+  const inner = {
+    running: halo + core(sq ? 2.8 : 3),
+    waiting: frame(1.7) + core(1.6),
+    error: frame(1.4) + '<path d="M6 3.6v3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><circle cx="6" cy="8.5" r="0.8" fill="currentColor"/>',
+    paused: '<rect x="3" y="2.4" width="2.1" height="7.2" rx="0.6" fill="currentColor"/><rect x="6.9" y="2.4" width="2.1" height="7.2" rx="0.6" fill="currentColor"/>' + (sq ? frame(1, 'opacity="0.5"') : ''),
+    done: frame(1.3) + '<path d="M3.9 6.2l1.5 1.5 2.8-3" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>',
+    new: frame(1.2, 'stroke-dasharray="2 1.6"'),
+  }[kind];
+  return `<svg class="gl" width="12" height="12" viewBox="0 0 12 12" style="color:${color}" aria-hidden="true">${inner}</svg>`;
+}
+const FLOW_KIND = { 'läuft': 'running', 'wartet auf dich': 'waiting', 'wartet auf Master': 'waiting', 'Fehler': 'error', 'fertig': 'done' };
+const S = { theme: 'dark', done: 'card', ready: 'show', model: 'on', sess: 'active', groupBy: 'project' };
+const KINDS = {
+  frage:   { label: 'Rückfrage', c: 'var(--wait)', block: true, rank: 0 },
+  rechte:  { label: 'Rechte-Abfrage', c: 'var(--wait)', block: true, rank: 0 },
+  kasten:  { label: 'Freigabe Nachricht', c: 'var(--wait)', block: true, rank: 0 },
+  fragt:   { label: 'Fragt', c: 'var(--wait)', ai: true, rank: 1 },
+  bittet:  { label: 'Bittet', c: 'var(--wait)', ai: true, rank: 1 },
+  plan:    { label: 'Plan ändern?', c: 'var(--acc)', rank: 1 },
+  durch:   { label: 'Durch dich', c: 'var(--acc)', rank: 1 },
+  merge:   { label: 'Merge', c: 'var(--acc)', future: '#134', rank: 1 },
+  fehler:  { label: 'Fehler', c: 'var(--err)', rank: 1 },
+  master:  { label: 'Master ausgefallen', c: 'var(--err)', rank: 1 },
+  grenze:  { label: 'Zurückgeben ausgeschöpft', c: 'var(--acc)', rank: 1 },
+  bereit:  { label: 'Bereit', c: 'var(--run)', rank: 2 },
+  fertig:  { label: 'Fertig', c: 'var(--ok)', ai: true, rank: 3 },
+  antwort: { label: 'Antwort liegt vor', c: 'var(--pause)', rank: 1 },
+};
+const TASKS = [
+  { id: 1, kind: 'frage', p: 'Globale Warteschlange (#103)', src: '#3 Architekt', min: 4,
+    t: 'Soll „Parallel max.“ je Umsetzung entfallen?',
+    q: { text: '„Parallel max.“ je Umsetzung wird durch die globale Grenze ersetzt. Soll der Schalter ganz entfallen?',
+         opts: [['Entfällt (Empfohlen)', 'Die globale Grenze gilt allein.'], ['Bleibt als Obergrenze', 'Je Umsetzung zusätzlich begrenzbar.']] } },
+  { id: 2, kind: 'rechte', p: 'Agententypen per MCP (#109)', src: 'Station 109.3 · Review', min: 2,
+    t: 'Bash: git push -u origin feat/agententypen-mcp-kasten', code: 'git push -u origin feat/agententypen-mcp-kasten' },
+  { id: 3, kind: 'kasten', p: 'Globale Warteschlange (#103)', src: '#3 Architekt → #5 Review 103.1', min: 9,
+    t: 'Nachricht an #5 „Review 103.1“', msg: 'Fix-Runde 1 ist fertig. Bitte prüfe den Brief plans/2026-11-16-globale-warteschlange-1-kern.md, Abschnitt „Fix-Runde 1“, und berichte dort.' },
+  { id: 4, kind: 'fragt', p: 'agda-mcp-server', src: '#4 Beweis-Entwicklung', min: 15, session: true,
+    t: 'Induktion über n oder über die Liste?', fallback: 'Lemma `length-map` steht bis auf ein Loch …',
+    last: 'Das Lemma `length-map` steht bis auf ein Loch. Ich kann es per Induktion über `n` schließen, dann brauche ich ein Hilfslemma zu `replicate`, oder direkt über die Liste, dann ist es kürzer, weicht aber vom Schema der Nachbarlemmas ab.\n\nWelche Variante willst du?' },
+  { id: 5, kind: 'bittet', p: 'LM-Studio-Anbindung', src: '#2 Entwicklung', min: 31, session: true,
+    t: 'LM Studio starten, Modell qwen3 laden, dann melden', fallback: 'Die Tests gegen den lokalen Server brauchen …',
+    last: 'Die Tests gegen den lokalen Server brauchen ein laufendes LM Studio. Bitte starte LM Studio, lade das Modell `qwen3-coder-30b` und gib mir kurz Bescheid; dann lasse ich die Suite laufen.' },
+  { id: 6, kind: 'plan', p: 'Agententypen per MCP (#109)', src: 'Vorschlag von #1 Architekt', min: 22,
+    t: '1 Station neu, 1 Kante geändert',
+    chg: [['a', '+ 109.4 · Fix-Runde 2 (nach 109.3)'], ['m', '~ 109.A · Abnahme: Vorgänger 109.3 → 109.4']] },
+  { id: 7, kind: 'durch', p: 'Zeitstempel im Chat (#106)', src: 'Station 106.H · Handprüfung', min: 48, approved: true,
+    t: 'Handprüfung unter Windows',
+    steps: ['AppImage-Build v0.71 auf dem Windows-Rechner installieren', 'Chat öffnen, Zeitstempel bei Tageswechsel prüfen', 'Ergebnis unten eintragen'] },
+  { id: 8, kind: 'merge', p: 'Globale Warteschlange (#103)', src: 'Station k0 · Merge PR 63', min: 60,
+    t: 'PR 63 nach dev mergen (Checks grün, Review ohne Befund)' },
+  { id: 9, kind: 'fehler', p: 'Upstream-Features (#104)', src: 'Station 104.3 · Messung', min: 12,
+    t: 'Prozess beendet (Exit 1)', code: 'error: test failed, to rerun pass `--lib`\nCaused by: process didn’t exit successfully (exit status: 101)' },
+  { id: 12, kind: 'master', p: 'Zeitstempel im Chat (#106)', src: 'Master #2 Architekt', min: 6,
+    t: 'Master-Session steht auf Fehler', candidates: ['#5 Architekt (neu geöffnet)', '#2 Architekt'] },
+  { id: 13, kind: 'grenze', p: 'Agententypen per MCP (#109)', src: 'Station 109.2 · Werkzeuge', min: 18,
+    t: '3-mal zurückgegeben, Master darf nicht mehr', report: 'Werkzeug implementation_agent_types liefert jetzt die Typen aus den Einstellungen; Tests grün, Clippy sauber.' },
+  { id: 10, kind: 'bereit', p: 'Upstream-Features (#104)', src: 'Station 104.4 · Release', min: 12, readyOnly: true,
+    t: 'Kann starten, „Automatisch starten“ ist aus' },
+  { id: 11, kind: 'fertig', p: 'Vault-Pflege', src: '#1 Destillieren', min: 70, session: true, doneOnly: true,
+    t: '6 Notizen destilliert, 2 Learnings angelegt', fallback: 'Fertig. Ich habe sechs Session-Notizen …',
+    last: 'Fertig. Ich habe sechs Session-Notizen destilliert und zwei Learnings angelegt. Offene Punkte stehen im Index.' },
+];
+const FLOWS = [
+  { name: 'Globale Warteschlange (#103)', st: 'läuft', c: 'var(--run)', done: 7, all: 11 },
+  { name: 'Agententypen per MCP (#109)', st: 'wartet auf dich', c: 'var(--wait)', done: 9, all: 10 },
+  { name: 'Zeitstempel im Chat (#106)', st: 'wartet auf Master', c: 'var(--master)', done: 4, all: 6, note: '#99' },
+  { name: 'Upstream-Features (#104)', st: 'Fehler', c: 'var(--err)', done: 2, all: 5 },
+  { name: 'Automatisch fortsetzen (#56)', st: 'fertig', c: 'var(--ok)', done: 8, all: 8 },
+];
+const SESSIONS = [
+  { name: 'Dashboard-Ticket · #1 Architekt', st: 'läuft', c: 'var(--run)', active: true },
+  { name: 'agda-mcp-server · #4', st: 'fragt', c: 'var(--wait)', active: true },
+  { name: 'LM-Studio-Anbindung · #2', st: 'wartet auf dich', c: 'var(--wait)', active: true },
+  { name: 'Vault-Pflege · #1', st: 'ruht', c: 'var(--pause)', active: false },
+  { name: 'Retro #104 · #7', st: 'ruht', c: 'var(--pause)', active: false },
+];
+const NAV = [
+  ['Verwalter', [['Dashboard-Ticket', [['#1 Architekt', 'var(--run)']]], ['Globale Warteschlange', [['#3 Architekt', 'var(--wait)', 1]]], ['Agententypen per MCP', [['#1 Architekt', 'var(--pause)']], true], ['Upstream-Features', [['#2 Architekt', 'var(--err)']]]]],
+  ['Sonstiges', [['agda-mcp-server', [['#4 Beweis-Entwicklung', 'var(--pause)', 1]]], ['LM-Studio-Anbindung', [['#2 Entwicklung', 'var(--pause)', 1]]], ['Vault-Pflege', [['#1 Destillieren', 'var(--pause)', 1]]]]],
+];
+const GROUP_OF = {
+  'Globale Warteschlange (#103)': 'Verwalter', 'Agententypen per MCP (#109)': 'Verwalter', 'Zeitstempel im Chat (#106)': 'Verwalter',
+  'Upstream-Features (#104)': 'Verwalter', 'agda-mcp-server': 'Sonstiges', 'LM-Studio-Anbindung': 'Sonstiges', 'Vault-Pflege': 'Sonstiges',
+};
+let resolved = new Set();
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s).replace(/[&<>"]/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[ch]));
+const ago = (m) => (m < 60 ? `${m} min` : `${Math.floor(m / 60)} h ${m % 60} min`);
+
+function effectiveKind(task) {
+  return KINDS[task.kind].ai && S.model === 'off' ? 'antwort' : task.kind;
+}
+function visibleTasks() {
+  return TASKS.filter((task) => !resolved.has(task.id))
+    .filter((task) => !task.readyOnly || S.ready === 'show')
+    .filter((task) => !task.doneOnly || S.done === 'card')
+    .filter((task) => !$('#blocking').checked || KINDS[task.kind].block)
+    .sort((a, b) => KINDS[effectiveKind(a)].rank - KINDS[effectiveKind(b)].rank || b.min - a.min);
+}
+function cardHtml(task) {
+  const kind = effectiveKind(task); const k = KINDS[kind];
+  const title = kind === 'antwort' ? task.fallback : task.t;
+  const ai = KINDS[task.kind].ai && kind !== 'antwort' ? '<span class="ai" title="Eingeordnet von einem kleinen Modell aus der letzten Antwort">✦ eingeordnet</span>' : '';
+  const later = k.future ? `<span class="later">kommt mit ${k.future}</span>` : '';
+  return `<button type="button" class="card${k.future ? ' future' : ''}" style="--k:${k.c}" data-id="${task.id}">
+    <span class="top"><span class="kind">${k.label}</span>${ai}${later}<span class="since">${ago(task.min)}</span></span>
+    <span class="t">${esc(title)}</span>
+    <span class="src">${esc(task.p)} · ${esc(task.src)}</span></button>`;
+}
+function render() {
+  document.documentElement.dataset.theme = S.theme;
+  document.querySelectorAll('.seg').forEach((seg) => seg.querySelectorAll('button').forEach((b) => b.setAttribute('aria-pressed', String(S[seg.dataset.k] === b.dataset.v))));
+  const tasks = visibleTasks();
+  $('#taskCount').textContent = tasks.length;
+  $('#navBadge').textContent = tasks.length;
+  $('#navBadge').hidden = tasks.length === 0;
+  $('#groupBy').hidden = !$('#grouped').checked;
+  let html;
+  if (tasks.length === 0) html = '<p class="empty">Gerade wartet niemand auf dich.</p>';
+  else if (!$('#grouped').checked) html = `<div class="cards">${tasks.map(cardHtml).join('')}</div>`;
+  else {
+    const key = (task) => (S.groupBy === 'project' ? task.p : S.groupBy === 'group' ? GROUP_OF[task.p] ?? 'Ohne Gruppe' : KINDS[effectiveKind(task)].label);
+    const groups = [...new Set(tasks.map(key))];
+    html = groups.map((g) => `<div class="group"><h4>${esc(g)} <span class="cnt">${tasks.filter((t) => key(t) === g).length}</span></h4><div class="cards">${tasks.filter((t) => key(t) === g).map(cardHtml).join('')}</div></div>`).join('');
+  }
+  $('#taskList').innerHTML = html;
+  $('#flowList').innerHTML = FLOWS.map((f) => {
+    const open = tasks.filter((t) => t.p === f.name).length;
+    return `<button type="button" class="flow" style="--c:${f.c}" title="Öffnet die Umsetzung">
+      <span class="fl1">${glyph('square', FLOW_KIND[f.st], f.c)}<span class="fname">${esc(f.name)}</span><span class="st"${f.note ? ` title="setzt ${f.note} voraus"` : ''}>${f.st}</span></span>
+      <span class="fl2"><span class="prog" role="progressbar" aria-valuemin="0" aria-valuemax="${f.all}" aria-valuenow="${f.done}"><i style="width:${(100 * f.done) / f.all}%"></i></span><span class="frac">${f.done}/${f.all}</span><span class="open">${open ? `${open} offen` : ''}</span></span></button>`;
+  }).join('');
+  const sess = SESSIONS.filter((s) => S.sess === 'all' || (S.sess === 'active' && s.active));
+  $('#sessList').innerHTML = S.sess === 'none' ? '' : `<div class="sub">Sessions ohne Ablauf</div>${sess.map((s) => `<div class="srow" style="--c:${s.c}"><span class="dot" style="background:${s.c}"></span>${esc(s.name)}<span class="st">${s.st}</span></div>`).join('')}`;
+  $('#navTree').innerHTML = NAV.map(([grp, projects]) => `<div class="grp">${grp}</div>${projects.map(([name, sessions, plan]) => `<div class="proj">${esc(name)}${plan ? '<span class="planicon" title="Plan-Änderung wartet auf dich (#132)">◆</span>' : ''}</div>${sessions.map(([s, c, unread]) => `<div class="sess${unread ? ' unread' : ''}"><span class="dot" style="background:${c}"></span>${esc(s)}</div>`).join('')}`).join('')}`).join('');
+}
+
+function chatBody(task) {
+  return `<div class="msg">${esc(task.last)}</div>
+    <textarea rows="3" placeholder="Antwort an ${esc(task.src)} …" aria-label="Antwort"></textarea>`;
+}
+function popup(task) {
+  const kind = effectiveKind(task); const k = KINDS[kind];
+  let body = ''; let foot = '';
+  const open = `<button class="btn ghost" data-act="open">${task.session || ['frage', 'rechte', 'kasten'].includes(task.kind) ? 'Session öffnen' : 'Umsetzung öffnen'}</button>`;
+  switch (task.kind) {
+    case 'frage':
+      body = `<div>${esc(task.q.text)}</div>${task.q.opts.map(([l, d], i) => `<label class="opt"><input type="radio" name="o" ${i ? '' : 'checked'}><span>${esc(l)}<small>${esc(d)}</small></span></label>`).join('')}<input type="text" placeholder="Andere Antwort …" aria-label="Andere Antwort">`;
+      foot = `${open}<button class="btn pri" data-act="ok">Antworten</button>`; break;
+    case 'rechte':
+      body = `<div>Die Station möchte diesen Befehl ausführen:</div><div class="code">${esc(task.code)}</div><input type="text" placeholder="Grund bei Ablehnung (optional)" aria-label="Grund">`;
+      foot = `${open}<button class="btn" data-act="ok">Ablehnen</button><button class="btn pri" data-act="ok">Erlauben</button>`; break;
+    case 'kasten':
+      body = `<div class="note">Nachricht an eine andere Session, wartet auf deine Freigabe:</div><textarea rows="4" aria-label="Nachricht">${esc(task.msg)}</textarea>`;
+      foot = `${open}<button class="btn" data-act="ok">Ablehnen</button><button class="btn pri" data-act="ok" data-needs-text>Erlauben</button>`; break;
+    case 'plan':
+      body = `<div class="note">Vorschlag zur Änderung des Plans:</div><div class="chg">${task.chg.map(([c, l]) => `<div class="${c}">${esc(l)}</div>`).join('')}</div>`;
+      foot = `${open}<button class="btn" data-act="ok">Verwerfen</button><button class="btn pri" data-act="ok">Übernehmen</button>`; break;
+    case 'durch':
+      body = `${task.approved ? '<span class="approve">✓ vom Master freigegeben (#136)</span>' : ''}<ul class="steps">${task.steps.map((s) => `<li><label><input type="checkbox"> ${esc(s)}</label></li>`).join('')}</ul><textarea rows="2" placeholder="Ergebnis (optional, sonst „vom Benutzer erledigt“)" aria-label="Ergebnis"></textarea>`;
+      foot = `${open}<button class="btn pri" data-act="ok">Erledigt</button>`; break;
+    case 'merge':
+      body = `<div>${esc(task.t)}</div><div class="note">Manuelle Merge-Station; setzt #134 voraus.</div>`;
+      foot = `${open}<button class="btn" data-act="none">PR öffnen</button><button class="btn pri" data-act="ok">Erledigt</button>`; break;
+    case 'fehler':
+      body = `<div class="code">${esc(task.code)}</div>`;
+      foot = `${open}<button class="btn" data-act="ok">Als fertig markieren</button><button class="btn pri" data-act="ok">Neu starten</button>`; break;
+    case 'master':
+      body = `<div>Die Master-Session dieses Ablaufs steht auf Fehler. Bestimme einen neuen Master; der Verwalter schickt ihm die Umsetzung und die offenen Meldungen.</div>${task.candidates.map((c, i) => `<label class="opt"><input type="radio" name="m" ${i ? '' : 'checked'}><span>${esc(c)}</span></label>`).join('')}<div class="note">Stationen kommen nicht in Frage. Den Master kannst du auch jederzeit im Kopf der Umsetzung wechseln.</div>`;
+      foot = `${open}<button class="btn pri" data-act="ok">Zum Master machen</button>`; break;
+    case 'grenze':
+      body = `<div>Der Master hat diese Station so oft zurückgegeben wie erlaubt (3). Ihre letzte Meldung:</div><div class="msg">${esc(task.report)}</div>`;
+      foot = `${open}<button class="btn" data-act="ok">Zurückgeben</button><button class="btn pri" data-act="ok">Annehmen</button>`; break;
+    case 'bereit':
+      body = `<div>${esc(task.src)} hat keine offenen Vorgänger.</div>`;
+      foot = `${open}<button class="btn pri" data-act="ok">▶ Jetzt starten</button>`; break;
+    default: {
+      const chip = kind === 'antwort'
+        ? '<div class="note">Nicht eingeordnet (Modell aus oder Einordnung gescheitert).</div>'
+        : `<div class="note">✦ Eingeordnet als „${k.label.toLowerCase()}“ aus der letzten Antwort: ${esc(task.t)}</div>`;
+      body = chip + chatBody(task);
+      foot = `${open}<button class="btn" data-act="ok">Gelesen</button><button class="btn pri" data-act="ok" data-needs-text>Senden</button>`;
+    }
+  }
+  $('#dlg').innerHTML = `<div class="dh" style="--k:${k.c}"><div><div class="kind" id="dlgTitle">${k.label}</div><div class="meta">${esc(task.p)} · ${esc(task.src)} · seit ${ago(task.min)}</div></div><button class="x" data-act="close" aria-label="Schließen">✕</button></div>
+    <div class="db">${body}</div><div class="df">${foot}</div>`;
+  $('#dlg').dataset.id = task.id;
+  guardEmpty();
+  $('#scrim').classList.add('on');
+  ($('#dlg').querySelector('textarea, input, .btn.pri') || $('#dlg').querySelector('.x')).focus();
+}
+// Leere Nachrichten gehen nicht an Agenten: Senden bleibt gesperrt, solange das Feld nur Leerzeichen hat.
+function guardEmpty() {
+  const field = $('#dlg textarea');
+  const empty = field === null || field.value.trim() === '';
+  $('#dlg').querySelectorAll('[data-needs-text]').forEach((b) => {
+    b.disabled = empty;
+    b.title = empty ? 'Leere Nachricht – erst Text eingeben' : '';
+  });
+}
+function closePopup() { $('#scrim').classList.remove('on'); }
+function toast(text) { const t = $('#toast'); t.textContent = text; t.classList.add('on'); clearTimeout(toast.h); toast.h = setTimeout(() => t.classList.remove('on'), 1800); }
+
+document.addEventListener('click', (e) => {
+  const seg = e.target.closest('.seg button');
+  if (seg) { S[seg.parentElement.dataset.k] = seg.dataset.v; render(); return; }
+  const card = e.target.closest('.card');
+  if (card) { popup(TASKS.find((t) => t.id === Number(card.dataset.id))); return; }
+  const act = e.target.closest('[data-act]');
+  if (act) {
+    const a = act.dataset.act;
+    if (a === 'close') closePopup();
+    else if (a === 'open') { closePopup(); toast('Öffnet die Session bzw. Umsetzung (nicht simuliert)'); }
+    else if (a === 'ok') { resolved.add(Number($('#dlg').dataset.id)); closePopup(); render(); toast(`${act.textContent.trim()} – Karte erledigt`); }
+    return;
+  }
+  if (e.target === $('#scrim')) closePopup();
+});
+$('#dlg').addEventListener('input', guardEmpty);
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closePopup(); });
+$('#grouped').addEventListener('change', render);
+$('#blocking').addEventListener('change', render);
+$('#reset').addEventListener('click', () => { resolved = new Set(); render(); });
+const hash = new URLSearchParams(location.hash.slice(1));
+for (const k of Object.keys(S)) if (hash.has(k)) S[k] = hash.get(k);
+render();
+if (hash.has('popup')) popup(TASKS.find((t) => t.id === Number(hash.get('popup'))));
+</script>
+</body>
+</html>

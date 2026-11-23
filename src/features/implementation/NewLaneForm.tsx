@@ -10,9 +10,9 @@ import {
 import {
   flatStations,
   isBegun,
-  stationName,
   type StationRef,
 } from '@/features/implementation/implementationOrder';
+import { stationDisplay } from '@/features/implementation/commandStation';
 import {
   ADD_STATION_LABEL,
   BRIEF_LABEL,
@@ -228,7 +228,7 @@ export function NewLaneForm({
 
   function nameOf(planId: string): string {
     const ref: StationRef | undefined = byPlanId.get(planId);
-    return ref === undefined ? planId : stationName(ref, refs);
+    return ref === undefined ? planId : stationDisplay(ref.station);
   }
 
   function afterOf(index: number): string[] {
@@ -303,7 +303,7 @@ export function NewLaneForm({
     }));
     const moved = refs
       .map((ref: StationRef) => ({
-        name: stationName(ref, refs),
+        name: stationDisplay(ref.station),
         from: now.get(ref.station.planId) ?? 1,
         to: after.get(ref.station.planId) ?? 1,
       }))
@@ -534,7 +534,7 @@ export function NewLaneForm({
         title={reason ?? undefined}
         onClick={onToggle}
       >
-        {stationName(ref, refs)}
+        {stationDisplay(ref.station)}
       </button>
     );
   }

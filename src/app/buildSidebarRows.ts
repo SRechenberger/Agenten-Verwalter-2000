@@ -1,3 +1,14 @@
+import {
+  isBelowImplementation,
+  placeImplementations,
+  shownSessions,
+  type Placement,
+} from '@/app/sidebarPlacement';
+import {
+  flatStations,
+  needsUser,
+  type StationRef,
+} from '@/features/implementation/implementationOrder';
 import { mostUrgent, URGENCY, visibleSessions } from '@/features/projects/projectStatus';
 import { displayStatus, type DisplayStatus } from '@/features/sessions/sessionStatus';
 import type { ImplementationView } from '@/lib/bindings/ImplementationView';
@@ -30,8 +41,33 @@ export type SidebarRow = (
       sessions: readonly SessionSummary[];
       isExpanded: boolean;
     }
-  | { kind: 'implementation'; key: string; implementation: ImplementationView; isLast: boolean }
-  | { kind: 'session'; key: string; session: SessionSummary; isLast: boolean }
+  | {
+      kind: 'implementation';
+      key: string;
+      implementation: ImplementationView;
+      /** `true`: eine Ebene unter der Master-Session, die sie leitet (ADR 070). */
+      underMaster: boolean;
+      isLast: boolean;
+    }
+  | {
+      kind: 'station';
+      key: string;
+      implementationId: string;
+      entry: StationRef;
+      /** `true`: eine Ebene unter der Umsetzung; `false`: auf Höhe der Umsetzungen (zugeklapptes Vorhaben). */
+      isNested: boolean;
+      /** `true`: ihre Umsetzung steht unter einem Master, die Station eine Ebene tiefer. */
+      underMaster: boolean;
+      isLast: boolean;
+    }
+  | {
+      kind: 'session';
+      key: string;
+      session: SessionSummary;
+      /** `true`: die Session leitet eine Umsetzung, die unter ihr steht (ADR 070). */
+      isMaster: boolean;
+      isLast: boolean;
+    }
   | {
       kind: 'more';
       key: string;
@@ -47,7 +83,8 @@ export type SidebarRow = (
 
 export interface SidebarProjectEntry {
   project: ProjectSummary;
-  /** Sessions des Vorhabens samt Stationen, zuletzt aktive zuerst; Stationen bekommen keine Zeile. */
+  /** Sessions des Vorhabens samt Stationen, zuletzt aktive zuerst; Stationen bekommen keine Session-Zeile,
+   *  aktive erscheinen als Stationszeile (ADR 065). */
   sessions: readonly SessionSummary[];
   /** Umsetzungen des Vorhabens, neueste zuerst (ADR 048). */
   implementations: readonly ImplementationView[];
@@ -66,7 +103,8 @@ export interface SidebarGroupEntry {
 
 /** Die flache Zeilenliste der Sidebar: erst die Vorhaben ohne Gruppe, dann je Gruppe ihr Kopf und, solange er
  *  nicht eingeklappt ist, ihre Vorhaben. Je Vorhaben seine Zeile, bei aufgeklappten darunter ihre Umsetzungen
- *  und Sessions. Mit `showDropNone` (während des Ziehens) steht die Ablegefläche „Ohne Gruppe“ ganz oben. */
+ *  samt aktiven Stationen und Sessions, bei zugeklappten die Stationen, die auf den Benutzer warten. Mit
+ *  `showDropNone` (während des Ziehens) steht die Ablegefläche „Ohne Gruppe“ ganz oben. */
 export function buildSidebarRows(
   ungrouped: readonly SidebarProjectEntry[],
   groups: readonly SidebarGroupEntry[],
@@ -112,11 +150,8 @@ function mostUrgentStatus(projects: readonly SidebarProjectEntry[]): DisplayStat
   return best;
 }
 
-function pushProjectRows(
-  rows: SidebarRow[],
-  { project, sessions, implementations, isExpanded, showAll, pinnedIds }: SidebarProjectEntry,
-  dropGroup: string,
-): void {
+function pushProjectRows(rows: SidebarRow[], entry: SidebarProjectEntry, dropGroup: string): void {
+  const { project, sessions, isExpanded } = entry;
   rows.push({
     kind: 'project',
     key: `project:${project.id}`,
@@ -125,40 +160,49 @@ function pushProjectRows(
     isExpanded,
     dropGroup,
   });
-  if (!isExpanded) {
-    return;
-  }
+  const children: SidebarRow[] = isExpanded
+    ? expandedChildren(entry, dropGroup)
+    : waitingChildren(entry, dropGroup);
+  rows.push(...markLast(children));
+}
+
+function expandedChildren(
+  { project, sessions, implementations, showAll, pinnedIds }: SidebarProjectEntry,
+  dropGroup: string,
+): SidebarRow[] {
+  const children: SidebarRow[] = [];
   const ownSessions: SessionSummary[] = visibleSessions(sessions);
-  implementations.forEach((implementation: ImplementationView, index: number) => {
-    rows.push({
-      kind: 'implementation',
-      key: `implementation:${implementation.id}`,
-      implementation,
-      isLast: ownSessions.length === 0 && index === implementations.length - 1,
-      dropGroup,
-    });
-  });
   const isLong: boolean = ownSessions.length >= COLLAPSE_FROM;
-  const shown: SessionSummary[] =
-    isLong && !showAll
-      ? ownSessions.filter(
-          (session: SessionSummary, index: number) =>
-            index < VISIBLE_COUNT || pinnedIds.has(session.id),
-        )
-      : ownSessions;
+  const placement: Placement<ImplementationView> = placeImplementations(
+    implementations,
+    new Set<string>(ownSessions.map((session: SessionSummary) => session.id)),
+  );
+  const shown: SessionSummary[] = shownSessions(ownSessions, {
+    collapseFrom: COLLAPSE_FROM,
+    visibleCount: VISIBLE_COUNT,
+    showAll,
+    pinnedIds,
+    masterIds: new Set<string>(placement.under.keys()),
+  });
   const hiddenCount: number = ownSessions.length - shown.length;
-  const hasMoreRow: boolean = isLong && (showAll || hiddenCount > 0);
-  shown.forEach((session: SessionSummary, index: number) => {
-    rows.push({
+  for (const implementation of placement.inProject) {
+    children.push(...implementationRows(implementation, false, dropGroup));
+  }
+  for (const session of shown) {
+    children.push({
       kind: 'session',
       key: `session:${session.id}`,
       session,
-      isLast: !hasMoreRow && index === shown.length - 1,
+      isMaster: placement.under.has(session.id),
+      isLast: false,
       dropGroup,
     });
-  });
-  if (hasMoreRow) {
-    rows.push({
+    for (const implementation of placement.under.get(session.id) ?? []) {
+      children.push(...implementationRows(implementation, true, dropGroup));
+    }
+  }
+  if (isLong && (showAll || hiddenCount > 0)) {
+    children.push({
       kind: 'more',
       key: `more:${project.id}`,
       projectId: project.id,
@@ -167,4 +211,73 @@ function pushProjectRows(
       dropGroup,
     });
   }
+  return children;
+}
+
+/** Zugeklappt bleiben nur die Stationen sichtbar, die auf den Benutzer warten. */
+function waitingChildren(
+  { implementations }: SidebarProjectEntry,
+  dropGroup: string,
+): SidebarRow[] {
+  const children: SidebarRow[] = [];
+  for (const implementation of implementations) {
+    for (const entry of flatStations(implementation)) {
+      if (needsUser(entry.station)) {
+        children.push(stationRow(implementation.id, entry, false, false, dropGroup));
+      }
+    }
+  }
+  return children;
+}
+
+/** Die Zeile einer Umsetzung, darunter nur ihre Stationen, die den Benutzer brauchen (ADR 070, Variante A). */
+function implementationRows(
+  implementation: ImplementationView,
+  underMaster: boolean,
+  dropGroup: string,
+): SidebarRow[] {
+  const rows: SidebarRow[] = [
+    {
+      kind: 'implementation',
+      key: `implementation:${implementation.id}`,
+      implementation,
+      underMaster,
+      isLast: false,
+      dropGroup,
+    },
+  ];
+  for (const entry of flatStations(implementation)) {
+    if (isBelowImplementation(entry.station)) {
+      rows.push(stationRow(implementation.id, entry, true, underMaster, dropGroup));
+    }
+  }
+  return rows;
+}
+
+function stationRow(
+  implementationId: string,
+  entry: StationRef,
+  isNested: boolean,
+  underMaster: boolean,
+  dropGroup: string,
+): SidebarRow {
+  return {
+    kind: 'station',
+    key: `station:${entry.station.id}`,
+    implementationId,
+    entry,
+    isNested,
+    underMaster,
+    isLast: false,
+    dropGroup,
+  };
+}
+
+/** Die letzte Kindzeile schließt die Baumlinie ab; `more` kennt keine Linie und bleibt unberührt. */
+function markLast(children: SidebarRow[]): SidebarRow[] {
+  const last: SidebarRow | undefined = children[children.length - 1];
+  if (last === undefined || !('isLast' in last)) {
+    return children;
+  }
+  return [...children.slice(0, -1), { ...last, isLast: true }];
 }

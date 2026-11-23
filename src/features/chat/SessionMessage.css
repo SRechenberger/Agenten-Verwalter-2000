@@ -30,4 +30,12 @@
       }
     }
   }
+
+  &__subject {
+    align-self: flex-start;
+    color: var(--color-fg);
+    font-size: var(--font-size-sm);
+    font-weight: 600;
+    overflow-wrap: anywhere;
+  }
 }

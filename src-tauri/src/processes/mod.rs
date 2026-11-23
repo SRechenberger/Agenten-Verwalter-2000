@@ -10,13 +10,12 @@
 //! des AppImage) ändern sie nichts.
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
 
 use std::env;
 use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
 use std::process::Command;
-#[cfg(not(windows))]
 use std::process::Stdio;
 
 use portable_pty::CommandBuilder;
@@ -146,6 +145,164 @@ pub fn pty_command(program: impl AsRef<OsStr>) -> CommandBuilder {
     let mut builder = CommandBuilder::new(program);
     apply_to_pty(&mut builder, &current_changes(program));
     builder
+}
+
+/// Unter Unix startet der Kindprozess in einer eigenen Prozessgruppe, deren Nummer seine PID ist
+/// (`process_group(0)`); was er startet, erbt sie, und `signal_group` beendet alles zusammen (ADR 074).
+/// Für Agentenprozesse, nie für kurze Befehle wie `git`. Unter Windows ändert der Helfer nichts.
+pub fn own_group(command: &mut Command) -> &mut Command {
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        command.process_group(0);
+    }
+    command
+}
+
+/// Das Signal an eine Prozessgruppe: `Terminate` lässt ihr Zeit zum Aufräumen, `Kill` nicht.
+#[cfg(unix)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GroupSignal {
+    Terminate,
+    Kill,
+}
+
+/// Schickt der Prozessgruppe `pgid` ein Signal (`kill(-pgid, …)`). Eine Gruppe, die es nicht mehr
+/// gibt (`ESRCH`), ist kein Fehler. `0`, `1` und die eigene Gruppe des Verwalters lehnt der Helfer
+/// ab, ohne zu signalisieren (`group_target`).
+///
+/// Pflicht des Aufrufers: Der Anführer der Gruppe (der Prozess mit der PID `pgid`) ist noch nicht
+/// eingesammelt (`wait`, `try_wait` mit Ergebnis). Danach kann die Nummer frei sein und zu einem
+/// fremden Prozess gehören.
+#[cfg(unix)]
+pub fn signal_group(pgid: u32, signal: GroupSignal) -> std::io::Result<()> {
+    let target = group_target(pgid)?;
+    let number = match signal {
+        GroupSignal::Terminate => libc::SIGTERM,
+        GroupSignal::Kill => libc::SIGKILL,
+    };
+    // SAFETY: `kill` liest und schreibt keinen Speicher des Prozesses. `target` ist negativ und nie
+    // `-1` oder die eigene Gruppe (`group_target`), trifft also genau die Gruppe `pgid`.
+    if unsafe { libc::kill(target, number) } == 0 {
+        return Ok(());
+    }
+    let error = std::io::Error::last_os_error();
+    if error.raw_os_error() == Some(libc::ESRCH) {
+        return Ok(());
+    }
+    Err(error)
+}
+
+/// Fängt SIGTERM für Übersetzer und eigenen Agenten, damit sie vor dem Ende ihre Kinder in eigenen
+/// Gruppen abräumen (ADR 074): blockiert das Signal für diesen und jeden später gestarteten Thread
+/// und ruft `handler` auf einem eigenen Thread, sobald es kommt (`sigwait`). Vor dem ersten
+/// weiteren Thread aufrufen; ein Thread ohne Sperre nähme das Signal an, und der Prozess endet
+/// ohne Aufräumen. Kindprozesse erben die Sperre nicht: `Command` setzt ihre Signalmaske zurück.
+/// Nie im Testprozess aufrufen.
+#[cfg(unix)]
+pub fn on_terminate(handler: impl FnOnce() + Send + 'static) -> std::io::Result<()> {
+    // SAFETY: `sigset_t` ist ein C-Struct ohne Zeiger; `sigemptyset` füllt es gleich danach.
+    let mut set: libc::sigset_t = unsafe { std::mem::zeroed() };
+    // SAFETY: `set` ist ein gültiger, beschreibbarer `sigset_t`, SIGTERM eine gültige Nummer.
+    unsafe {
+        libc::sigemptyset(&raw mut set);
+        libc::sigaddset(&raw mut set, libc::SIGTERM);
+    }
+    let change_mask = |how: libc::c_int| -> std::io::Result<()> {
+        // SAFETY: `set` ist gefüllt; die alte Maske wird nicht gebraucht (Nullzeiger erlaubt).
+        match unsafe { libc::pthread_sigmask(how, &raw const set, std::ptr::null_mut()) } {
+            0 => Ok(()),
+            error => Err(std::io::Error::from_raw_os_error(error)),
+        }
+    };
+    change_mask(libc::SIG_BLOCK)?;
+    let spawned = std::thread::Builder::new()
+        .name("sigterm".to_owned())
+        .spawn(move || {
+            let mut signal: libc::c_int = 0;
+            // SAFETY: `set` und `signal` sind gültig und gehören diesem Thread; `sigwait` nimmt
+            // nur SIGTERM an, das alle Threads des Prozesses gesperrt haben.
+            while unsafe { libc::sigwait(&raw const set, &raw mut signal) } != 0 {}
+            handler();
+        });
+    if let Err(error) = spawned {
+        // Sonst bliebe SIGTERM gesperrt, und nur SIGKILL beendete den Prozess.
+        let _ = change_mask(libc::SIG_UNBLOCK);
+        return Err(error);
+    }
+    Ok(())
+}
+
+/// Beendet den Prozess `pid` samt Kindern. Unter Unix SIGKILL an seine Gruppe (er startete mit
+/// `own_group`), unter Windows `taskkill /PID <pid> /T /F` für den ganzen Baum; Kinder, deren
+/// Elternprozess schon beendet ist, erreicht `/T` nicht. Pflicht des Aufrufers wie bei
+/// `signal_group`: Der Prozess ist noch nicht eingesammelt (ADR 074).
+#[cfg(unix)]
+pub fn kill_process_tree(pid: u32) {
+    let _ = signal_group(pid, GroupSignal::Kill);
+}
+
+/// Siehe die Fassung für Unix.
+#[cfg(not(unix))]
+pub fn kill_process_tree(pid: u32) {
+    let mut taskkill = command("taskkill");
+    taskkill
+        .args(["/PID", &pid.to_string(), "/T", "/F"])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+    hide_console(&mut taskkill);
+    let _ = taskkill.status();
+}
+
+/// Das Ziel für `kill` zur Gruppe `pgid`, also `-pgid`. Abgelehnt: `0` (die eigene Gruppe), `1`
+/// (`kill(-1, …)` träfe jeden Prozess des Benutzers), eine Nummer über `i32::MAX` und die eigene
+/// Gruppe des Verwalters (`getpgrp()`).
+#[cfg(unix)]
+fn group_target(pgid: u32) -> std::io::Result<libc::pid_t> {
+    let refuse = |reason: &str| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            format!("Prozessgruppe {pgid} {reason}"),
+        )
+    };
+    let Ok(pgid) = libc::pid_t::try_from(pgid) else {
+        return Err(refuse("gibt es nicht"));
+    };
+    if pgid <= 1 {
+        return Err(refuse("ist keine Gruppe eines Agenten"));
+    }
+    // SAFETY: `getpgrp` hat keine Vorbedingungen und kann nicht scheitern.
+    if pgid == unsafe { libc::getpgrp() } {
+        return Err(refuse("ist die Gruppe des Verwalters"));
+    }
+    Ok(-pgid)
+}
+
+/// Ob das Kind `pid` beendet ist, ohne es einzusammeln (`waitid` mit `WNOWAIT`): Solange es nicht
+/// eingesammelt ist, gehört die Nummer seiner Gruppe noch ihm, und `signal_group` darf sie treffen.
+/// Ein Fehler (etwa `ECHILD`: kein Kind des Verwalters) kommt zurück.
+#[cfg(unix)]
+pub fn has_exited(pid: u32) -> std::io::Result<bool> {
+    let pid = libc::id_t::from(pid);
+    // SAFETY: `siginfo_t` ist ein C-Struct ohne Zeiger; Nullen sind ein gültiger Wert.
+    let mut info: libc::siginfo_t = unsafe { std::mem::zeroed() };
+    // SAFETY: `info` ist ein gültiger, beschreibbarer `siginfo_t`. `WNOHANG` kehrt sofort zurück,
+    // `WNOWAIT` lässt das Kind uneingesammelt.
+    let result = unsafe {
+        libc::waitid(
+            libc::P_PID,
+            pid,
+            &raw mut info,
+            libc::WEXITED | libc::WNOHANG | libc::WNOWAIT,
+        )
+    };
+    if result != 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    // SAFETY: `waitid` hat `info` gefüllt oder gelassen, wie es war (genullt); `si_pid` liest nur.
+    // Ohne beendetes Kind bleibt `si_pid` 0 (der portable Weg laut `waitid(2)`).
+    Ok(unsafe { info.si_pid() } != 0)
 }
 
 /// Unterdrückt das Konsolenfenster, das Windows für jeden Kindprozess einer GUI-App öffnet.

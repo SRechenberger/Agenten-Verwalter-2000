@@ -32,12 +32,17 @@ comments: Array<ReviewComment>,
  * Name des Geräts, von dem ein Gast die Nachricht schickte (ADR 059); `None`: die eigene
  * Oberfläche. Der Agent bekommt es nie zu sehen.
  */
-origin: string | null, } | { "kind": "text", seq: number, text: string, 
+origin: string | null, 
+/**
+ * Wartet auf einen freien Platz (Taiga-Story 190): steht schon im Chat, ist aber noch nicht beim
+ * Agenten. Die Freigabe setzt es zurück; Einträge von vorher haben das Feld nicht.
+ */
+queued: boolean, } | { "kind": "text", seq: number, text: string, 
 /**
  * Pfade, Datei:Zeile-Angaben und Zahlen des Textes ohne Fundstelle (ADR 036), so
  * geschrieben wie im Text; Einträge von vorher haben das Feld nicht.
  */
-unsourced: Array<string>, } | { "kind": "thinking", seq: number, text: string, seconds: number, } | { "kind": "tool", seq: number, toolUseId: string, tool: string, target: string, state: ToolState, } | { "kind": "todos", seq: number, items: Array<TodoItem>, } | { "kind": "artifact", seq: number, 
+unsourced: Array<string>, at: number | null, } | { "kind": "thinking", seq: number, text: string, seconds: number, at: number | null, } | { "kind": "tool", seq: number, toolUseId: string, tool: string, target: string, state: ToolState, at: number | null, } | { "kind": "todos", seq: number, items: Array<TodoItem>, at: number | null, } | { "kind": "artifact", seq: number, 
 /**
  * Ungekürzt, wie das Werkzeug ihn nannte.
  */
@@ -49,7 +54,7 @@ file: string,
 /**
  * Einträge von vorher haben das Feld nicht; sie waren alle HTML.
  */
-artifactKind: ArtifactKind, } | { "kind": "question", seq: number, requestId: string, questionKind: QuestionKind, questions: Array<Question>, answer: string | null, 
+artifactKind: ArtifactKind, at: number | null, } | { "kind": "question", seq: number, requestId: string, questionKind: QuestionKind, questions: Array<Question>, answer: string | null, 
 /**
  * Nur bei `QuestionKind::SessionTool`; Einträge von vorher haben das Feld nicht.
  */
@@ -62,4 +67,9 @@ chainLimited: boolean,
  * Name des Geräts, von dem ein Gast geantwortet hat (ADR 059); `None`: die eigene
  * Oberfläche oder niemand. Der Agent bekommt es nie zu sehen.
  */
-origin: string | null, } | { "kind": "sessionMessage", seq: number, text: string, sentAt: number, sender: SessionRef, } | { "kind": "error", seq: number, title: string, text: string, } | { "kind": "notice", seq: number, notice: Notice, };
+origin: string | null, at: number | null, } | { "kind": "sessionMessage", seq: number, text: string, sentAt: number, sender: SessionRef, 
+/**
+ * Der Betreff, mit dem die Nachricht beim Agenten ankam (ADR 072); Einträge von vorher
+ * haben ihn nicht.
+ */
+subject: string | null, } | { "kind": "error", seq: number, title: string, text: string, at: number | null, } | { "kind": "notice", seq: number, notice: Notice, at: number | null, };

@@ -2,7 +2,8 @@
 //! zu einem Text gefügt. Rein, ohne Tauri; das Lesen der Dateien kommt als Funktion herein, damit die
 //! Tests das Dateisystem nicht berühren.
 use std::fmt;
-use std::io;
+use std::fs::{self, File};
+use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 
 use super::model::AgentType;
@@ -13,6 +14,9 @@ use crate::skills::frontmatter;
 const SEPARATOR: &str = "\n\n";
 /// Ein Pfad mit diesem Anfang gilt im Benutzerordner.
 const HOME_PREFIX: &str = "~/";
+/// Mehr Bytes liest `read_bounded` nie ein: Eine UTF-16-Einheit braucht in UTF-8 höchstens 3 Bytes, mehr
+/// als diese Zahl sind also sicher mehr als `MAX_PROMPT_UNITS` Zeichen.
+const MAX_FILE_BYTES: usize = 3 * MAX_PROMPT_UNITS;
 
 /// Wo die Dateien eines Typs liegen.
 #[derive(Debug, Clone, Copy)]
@@ -36,6 +40,11 @@ pub enum PromptError {
         path: String,
         agent_type: String,
     },
+    /// Die Datei allein hat mehr als 16 000 Zeichen.
+    FileTooLong {
+        path: String,
+        agent_type: String,
+    },
     /// Länge des ganzen Texts in UTF-16-Einheiten.
     TooLong {
         units: usize,
@@ -52,6 +61,10 @@ impl fmt::Display for PromptError {
             PromptError::Unreadable { path, agent_type } => write!(
                 formatter,
                 "Die Datei „{path}“ aus dem Typ „{agent_type}“ ist nicht lesbar."
+            ),
+            PromptError::FileTooLong { path, agent_type } => write!(
+                formatter,
+                "Die Datei „{path}“ aus dem Typ „{agent_type}“ ist länger als 16 000 Zeichen."
             ),
             PromptError::TooLong { units } => write!(
                 formatter,
@@ -96,6 +109,27 @@ pub fn compose(
     Ok((!text.is_empty()).then_some(text))
 }
 
+/// Liest eine Datei des Typs ganz als Text, aber nur eine reguläre Datei (`metadata` folgt Verweisen;
+/// Ordner, FIFO, Gerät und Socket werden nie geöffnet, ein Fehler der Art `InvalidInput`) und höchstens
+/// `MAX_FILE_BYTES` Bytes (sonst `FileTooLarge`). Fehlt der Pfad, ist der Fehler `NotFound`; kein UTF-8
+/// ist `InvalidData`.
+pub fn read_bounded(path: &Path) -> io::Result<String> {
+    if !fs::metadata(path)?.is_file() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "keine reguläre Datei",
+        ));
+    }
+    let mut bytes: Vec<u8> = Vec::new();
+    File::open(path)?
+        .take(MAX_FILE_BYTES as u64 + 1)
+        .read_to_end(&mut bytes)?;
+    if bytes.len() > MAX_FILE_BYTES {
+        return Err(io::Error::from(io::ErrorKind::FileTooLarge));
+    }
+    String::from_utf8(bytes).map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))
+}
+
 /// Absolut, `~/…` im Benutzerordner, sonst relativ: im ersten Repository, in dem die Datei liegt.
 /// Liegt sie dort, ist aber nicht lesbar, gilt kein späteres.
 fn read_file(
@@ -117,6 +151,12 @@ fn read_file(
         match read(candidate) {
             Ok(text) => return Ok(text),
             Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+            Err(error) if error.kind() == io::ErrorKind::FileTooLarge => {
+                return Err(PromptError::FileTooLong {
+                    path: path.to_owned(),
+                    agent_type: agent_type.to_owned(),
+                });
+            }
             Err(_) => {
                 return Err(PromptError::Unreadable {
                     path: path.to_owned(),

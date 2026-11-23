@@ -1,0 +1,244 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Entwurf: Automatisch fortsetzen nach Kontingent (Story 56)</title>
+<style>
+:root{color-scheme:dark;--bg:#1f1f1f;--side:#181818;--surf:#252526;--hover:#2e2e30;--sel:#37373d;--bds:#2b2b2b;--bd:#3c3c3c;--fg:#d4d4d4;--fg2:#b0b0b0;--fgm:#8f8f8f;--acc:#e0825c;--onacc:#1d130e;--acct:#eea283;--run:#5b9dff;--wait:#f2b33d;--ok:#4cc38a;--pause:#8f8f8f;--waits:rgba(242,179,61,.12);--accs:rgba(224,130,92,.14);--font:'Segoe UI Variable Text','Segoe UI',system-ui,sans-serif}
+:root[data-theme=light]{color-scheme:light;--bg:#fff;--side:#f3f3f3;--surf:#f7f7f7;--hover:#ececec;--sel:#e6e8f0;--bds:#ebebeb;--bd:#d4d4d4;--fg:#3c3c3c;--fg2:#5f5f5f;--fgm:#85858a;--acc:#c4572f;--onacc:#fff;--acct:#b04a26;--run:#2563eb;--wait:#a86a00;--ok:#16803c;--pause:#85858a;--waits:rgba(168,106,0,.10);--accs:rgba(196,87,47,.10)}
+*{box-sizing:border-box}
+body{margin:0;background:var(--side);color:var(--fg);font:13px/1.45 var(--font)}
+main{max-width:1160px;margin:0 auto;padding:16px}
+.lead{margin:0 0 10px;color:var(--fg2)}
+button{font:inherit;color:inherit}
+button:focus-visible{outline:2px solid var(--acc);outline-offset:1px}
+#sim{display:flex;flex-wrap:wrap;gap:8px 20px;align-items:center;margin:0 0 12px;padding:8px 10px;border:1px dashed var(--bd);border-radius:6px}
+.g{display:flex;align-items:center;gap:8px}.g>span{color:var(--fgm);font-size:12px}
+.seg{display:inline-flex;border:1px solid var(--bd);border-radius:6px;overflow:hidden}
+.seg button{border:0;border-left:1px solid var(--bd);background:transparent;padding:3px 9px;font-size:12px;color:var(--fg2);cursor:pointer;white-space:nowrap}
+.seg button:first-child{border-left:0}
+.seg button[aria-pressed=true]{background:var(--sel);color:var(--fg)}
+.seg button:disabled{opacity:.45;cursor:default}
+.mini{border:1px solid var(--bd);border-radius:6px;background:transparent;padding:3px 9px;font-size:12px;cursor:pointer;color:var(--fg2)}
+.mini.dash{border-style:dashed}.mini:disabled{opacity:.45;cursor:default}
+.win{background:var(--bg);border:1px solid var(--bd);border-radius:10px;overflow:hidden}
+.head{display:flex;align-items:center;gap:12px;padding:9px 14px;border-bottom:1px solid var(--bds)}
+.head h2{margin:0;font-size:13px;font-weight:600}
+.tabs{display:flex;gap:2px;margin-left:8px}.tabs span{padding:2px 10px;border-radius:6px;color:var(--fgm)}.tabs .on{background:var(--sel);color:var(--fg)}
+.pill{margin-left:auto;font-size:12px;padding:1px 9px;border-radius:99px;border:1px solid var(--bd);color:var(--fg2)}
+.bar{display:flex;flex-wrap:wrap;align-items:center;gap:6px 18px;padding:7px 14px;border-bottom:1px solid var(--bds);min-height:38px}
+.bar .sp{flex:1}
+.swl{display:inline-flex;align-items:center;gap:7px;color:var(--fg2);font-size:12px}
+.rr{color:var(--acct)}
+.tg{width:28px;height:16px;border-radius:99px;border:1px solid var(--bd);background:var(--hover);position:relative;padding:0;cursor:pointer;flex:none}
+.tg::after{content:'';position:absolute;top:1px;left:1px;width:12px;height:12px;border-radius:50%;background:var(--fgm);transition:left .12s}
+.tg[aria-checked=true]{background:var(--acc);border-color:var(--acc)}
+.tg[aria-checked=true]::after{left:13px;background:var(--onacc)}
+.tg:disabled{opacity:.55;cursor:default}
+.qbar{display:flex;align-items:center;gap:10px;padding:8px 14px;border-bottom:1px solid var(--bds);background:var(--waits);font-size:12px}
+.qbar.info{background:var(--accs)}
+.qbar svg{flex:none;color:var(--wait)}.qbar.info svg{color:var(--acct)}
+.qbar p{margin:0;flex:1}.qbar strong{color:var(--fg)}
+.grid{display:grid;grid-template-columns:minmax(0,1fr) 310px}
+@media(max-width:820px){.grid{grid-template-columns:1fr}}
+.lv{padding:5px 14px;font-size:11px;color:var(--fgm);background:var(--side);border-bottom:1px solid var(--bds);letter-spacing:.02em}
+.row{display:grid;grid-template-columns:18px minmax(0,1fr) auto;gap:10px;align-items:center;height:36px;padding:0 14px;border-bottom:1px solid var(--bds);cursor:pointer}
+.row:hover{background:var(--hover)}.row.sel{background:var(--sel)}
+.ttl{display:flex;align-items:center;gap:8px;min-width:0;white-space:nowrap}
+.meta{color:var(--fgm);font-size:12px}
+.hand{color:var(--wait)}
+.dot{width:16px;height:16px;border-radius:50%;display:grid;place-items:center;font-size:10px;line-height:1;border:1.5px solid currentColor}
+.state{font-size:12px;display:flex;align-items:center;gap:8px;white-space:nowrap}
+.chip{font-size:11px;padding:0 7px;border-radius:99px;border:1px solid var(--bd);color:var(--fg2)}
+.chip.warn{border-color:var(--wait);color:var(--wait)}
+.t-done{color:var(--ok)}.t-run{color:var(--run)}.t-wq,.t-resume{color:var(--fg2)}.t-wy{color:var(--wait)}.t-ready,.t-queue{color:var(--acct)}.t-pend{color:var(--fgm)}
+.dot.t-wq,.dot.t-resume{color:var(--pause)}
+.sw{position:relative;width:22px;height:18px;border-radius:99px;border:1px solid var(--bd);background:transparent;color:var(--fgm);font-size:12px;line-height:1;padding:0;cursor:pointer}
+.sw.on{border-color:var(--acc);color:var(--acct);background:var(--accs)}
+.sw.dev::after{content:'';position:absolute;top:-3px;right:-3px;width:6px;height:6px;border-radius:50%;background:var(--acc)}
+.sw:disabled{opacity:.4;cursor:default}
+.card{border-left:1px solid var(--bds);padding:12px 14px;background:var(--surf);font-size:12px}
+@media(max-width:820px){.card{border-left:0;border-top:1px solid var(--bds)}}
+.card h3{margin:0 0 2px;font-size:13px}.card h3 small{display:block;color:var(--fgm);font-weight:400;margin-top:1px}
+.sec{margin-top:12px}.sec h5{margin:0 0 6px;font-size:11px;letter-spacing:.04em;text-transform:uppercase;color:var(--fgm)}
+.ln{display:flex;flex-direction:column;align-items:flex-start;gap:4px;padding:5px 0}.ln .lbl{color:var(--fg2)}
+.new{font-size:10px;padding:0 5px;border-radius:4px;background:var(--acc);color:var(--onacc);margin-left:6px}
+.hint{color:var(--fgm);margin:2px 0 4px}
+.static{opacity:.55;pointer-events:none}
+.muted{color:var(--fgm)}
+.two{display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:12px;margin-top:12px}
+.panel{background:var(--bg);border:1px solid var(--bd);border-radius:10px;padding:12px 14px}
+.panel h4{margin:0 0 8px;font-size:13px}
+.srow{display:flex;gap:14px;align-items:flex-start;justify-content:space-between}
+.sl{font-weight:600}.sd{color:var(--fgm);font-size:12px;margin-top:2px}
+.info{color:var(--fgm);cursor:help;font-weight:400}
+.cap{margin:10px 0 0;color:var(--fgm);font-size:12px}
+.notice{display:flex;gap:10px;padding:9px 11px;border:1px solid var(--bd);border-radius:6px;background:var(--surf)}
+.notice .wi{color:var(--wait)}
+.how{margin-top:14px;color:var(--fg2)}.how summary{cursor:pointer;color:var(--fg)}.how li{margin:3px 0}
+</style>
+</head>
+<body>
+<main>
+<p class="lead"><b>Entwurf zu Taiga-Story 56.</b> Baut auf dem Entwurf 1 (Zeitleiste mit Kanten-Chips) auf und zeigt nur, was neu ist: Schalter in Leiste, Zeile und Kartei, Warnleiste, Zustand „setzt automatisch fort“, Zeile in den Einstellungen und die Kontingent-Karte. Alle Namen, Zeiten und Zahlen sind Beispieldaten; gestrichelt umrandete Knöpfe und die Leiste darüber sind Simulation und gehören nicht zur App.</p>
+<div id="sim"></div>
+<div id="app"></div>
+<div class="two" id="two"></div>
+<details class="how" open>
+<summary>Was du hier prüfen kannst</summary>
+<ol>
+<li><b>Leiste:</b> der neue Schalter steht neben „Automatisch starten“ und schaltet alle Stationen, die noch nicht fertig sind. ↻ in der Zeile, die Kartei und die Karte im Chat schalten nur eine Station; die letzte Aktion gewinnt. Ein Punkt am ↻ zeigt eine Abweichung von der Umsetzung.</li>
+<li><b>Warnleiste:</b> steht nur, solange mindestens eine Station am Kontingent wartet, in beiden Reitern. Sie nennt, wie viele fortsetzen, wie viele auf dich warten und wie viele keine Rücksetzzeit kennen. Nach dem Zurücksetzen sagt sie, wer noch auf dich wartet.</li>
+<li><b>Zustand „setzt automatisch fort“:</b> grauer Ton mit ↻, nicht Bernstein; Bernstein bleibt „wartet auf dich“. Die Station liegt nicht vorn.</li>
+<li><b>Plätze:</b> eine Station, die auf das automatische Fortsetzen wartet, hält ihren Platz unter „Parallel max.“; die bereite Station bleibt in der Warteschlange (Szenario „Kontingent leer · Schalter an“).</li>
+<li><b>Kartei:</b> im Abschnitt „Automatik“ die Wahl „wie Umsetzung · an · aus“, änderbar bis die Station fertig ist.</li>
+<li><b>Einstellungen:</b> eine Zeile in der Kategorie „Agent“, ausgeliefert mit „aus“, gilt nur für neue Umsetzungen (Szenario „Frisch angelegt“).</li>
+<li><b>Beschriftung:</b> „Automatisch fortsetzen“ überall (deine Entscheidung vom 2026-11-15). „Automatisch weiter“, wie im Entwurf 1, lässt sich oben nur noch zum Vergleich umschalten.</li>
+</ol>
+</details>
+</main>
+<script>
+(() => {
+  const $ = (s) => document.querySelector(s);
+  const RESET = '17:04', MAXP = 3;
+  const NAMES = { weiter: 'Automatisch weiter', fortsetzen: 'Automatisch fortsetzen' };
+  const S = { name: 'fortsetzen', theme: 'system', scen: 'qon', on: true, dflt: false, sel: 'c', reset: false, st: [] };
+  const L = () => NAMES[S.name];
+  const ICON = '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2 14.5 13.5h-13z"/><path d="M8 6.5v3.2M8 11.6v.1"/></svg>';
+
+  const base = () => [
+    { id: 'a', t: 'Lane 1 · Kern', m: 'Opus · hoch', lv: 1, ph: 'done' },
+    { id: 'b', t: 'Lane 1 · Review Kern', m: 'Opus · max', lv: 2, ph: 'done' },
+    { id: 'c', t: 'Lane 2 · Oberfläche', m: 'Opus · hoch', lv: 3, ph: 'run' },
+    { id: 'd', t: 'Lane 3 · Doku', m: 'Sonnet · mittel', lv: 3, ph: 'run' },
+    { id: 'e', t: 'Lane 4 · Probelauf', m: 'Opus · hoch', lv: 3, ph: 'run' },
+    { id: 'f', t: 'Lane 5 · Messung', m: 'Haiku · niedrig', lv: 3, ph: 'ready' },
+    { id: 'g', t: 'Abnahme', m: '', lv: 4, ph: 'pend', user: true },
+  ].map((s) => ({ ov: null, known: true, cd: 0, ...s }));
+  const mk = (ph, x = {}) => base().map((s) => ({ ...s, ph: ph[s.id] ?? s.ph, ...(x[s.id] ?? {}) }));
+  const SC = {
+    fresh: { n: 'Frisch angelegt', f() { S.on = S.dflt; S.st = mk({ a: 'ready', b: 'pend', c: 'pend', d: 'pend', e: 'pend', f: 'pend' }); } },
+    run: { n: 'Läuft', f() { S.on = true; S.st = mk({}); } },
+    qon: { n: 'Kontingent leer · Schalter an', f() { S.on = true; S.st = mk({ c: 'quota', d: 'quota', e: 'quota' }); } },
+    qoff: { n: 'Kontingent leer · Schalter aus', f() { S.on = false; S.st = mk({ c: 'quota', d: 'quota', e: 'quota' }); } },
+    qmix: { n: 'Kontingent leer · gemischt', f() { S.on = true; S.st = mk({ c: 'quota', d: 'quota', e: 'quota' }, { d: { ov: false }, e: { known: false } }); } },
+  };
+
+  const eff = (s) => s.ov ?? S.on;
+  const core = (s) => (s.ph === 'quota' ? (eff(s) && s.known ? 'wq' : 'wy') : s.ph);
+  const holds = (s) => ['run', 'wq', 'resume'].includes(core(s));
+  const view = (s) => (core(s) === 'ready' && S.st.filter(holds).length >= MAXP ? 'queue' : core(s));
+  const find = (id) => S.st.find((s) => s.id === id);
+  const TXT = { done: 'fertig', run: 'läuft', wq: 'setzt automatisch fort', wy: 'wartet auf dich', ready: 'bereit', queue: 'bereit · Warteschlange 1', pend: 'wartet auf Vorgänger' };
+  const GL = { done: '✓', run: '●', wq: '↻', resume: '↻', wy: '!', ready: '▶', queue: '▶', pend: '' };
+  const stText = (s, v) => (v === 'resume' ? `setzt fort in ${s.cd} s` : TXT[v]);
+  const tip = (s) => (s.ph === 'done' ? 'Fertig: nur Ansicht.' : `${L()}: ${eff(s) ? 'an' : 'aus'} (${s.ov === null ? 'wie die Umsetzung' : 'nur diese Station'}). Ein Klick schaltet nur diese Station.`);
+
+  function row(s) {
+    const v = view(s);
+    let chip = '';
+    if (v === 'wq') chip = `<span class="chip">ab ${RESET}</span>`;
+    if (v === 'wy') chip = `<span class="chip warn">${s.known ? 'Kontingent' : 'Rücksetzzeit unbekannt'}</span>`;
+    const dev = s.ov !== null && s.ov !== S.on ? ' dev' : '';
+    const sw = s.user ? '' : `<button class="sw${eff(s) ? ' on' : ''}${dev}" data-act="row" data-id="${s.id}" aria-pressed="${eff(s)}" title="${tip(s)}"${v === 'done' ? ' disabled' : ''}>↻</button>`;
+    return `<div class="row${s.id === S.sel ? ' sel' : ''}" data-act="sel" data-id="${s.id}"><span class="dot t-${v}">${GL[v]}</span><span class="ttl">${s.user ? '<span class="hand">✋</span>' : ''}${s.t}<span class="meta">${s.m}</span>${sw}</span><span class="state t-${v}">${stText(s, v)}${chip}</span></div>`;
+  }
+  function rows() {
+    const out = [];
+    let lv = 0;
+    for (const s of S.st) {
+      if (s.lv !== lv) { lv = s.lv; out.push(`<div class="lv">Stufe ${lv}${S.st.filter((x) => x.lv === lv).length > 1 ? ' · parallel möglich' : ''}</div>`); }
+      out.push(row(s));
+    }
+    return out.join('');
+  }
+  const head = () => `<div class="head"><h2>Umsetzung · Constraint-Abläufe (Beispiel)</h2><div class="tabs"><span class="on">Ablauf</span><span>Changes</span></div><span class="pill">${S.st.filter((s) => view(s) === 'done').length} von ${S.st.length} fertig</span></div>`;
+  function bar() {
+    const q = S.st.filter((s) => view(s) === 'queue').length;
+    return `<div class="bar"><span class="swl"><button class="tg" role="switch" aria-checked="true" tabindex="-1" style="pointer-events:none" aria-label="Automatisch starten"></button>Automatisch starten</span><span class="swl" title="Setzt jede Station nach leerem Kontingent selbst fort. Schaltet alle Stationen, die noch nicht fertig sind; ↻ in der Zeile oder die Kartei schalten nur eine (letzte Aktion gewinnt)."><button class="tg" role="switch" aria-checked="${S.on}" data-act="impl" aria-label="${L()}"></button><b class="rr">↻</b>${L()}</span><span class="swl">Parallel max. <b>${MAXP}</b></span>${q ? `<span class="swl">Warteschlange ${q}</span>` : ''}<span class="sp"></span><button class="mini" disabled>+ Lane</button></div>`;
+  }
+  function qbar() {
+    const w = S.st.filter((s) => s.ph === 'quota'), r = S.st.filter((s) => s.ph === 'resume');
+    if (!w.length && !r.length) return '';
+    const sw = `<span class="swl"><button class="tg" role="switch" aria-checked="${S.on}" data-act="impl" aria-label="${L()}"></button><b class="rr">↻</b>${L()}</span>`;
+    let t;
+    if (S.reset) {
+      t = `<strong>Kontingent zurückgesetzt.</strong>${r.length ? ` ${r.length} ${r.length === 1 ? 'Station setzt' : 'Stationen setzen'} gleich fort` : ''}${w.length ? `${r.length ? ' ·' : ''} ${w.length} ${w.length === 1 ? 'wartet' : 'warten'} noch auf dich` : ''}.`;
+    } else {
+      const n = w.length, fort = w.filter((s) => core(s) === 'wq').length, aus = w.filter((s) => s.known && core(s) === 'wy').length, ohne = w.filter((s) => !s.known).length;
+      t = `<strong>Kontingent aufgebraucht.</strong> ${n} ${n === 1 ? 'Station wartet' : 'Stationen warten'}`;
+      if (fort) t += ` · ${fort} ${fort === 1 ? 'setzt' : 'setzen'} um ${RESET} automatisch fort`;
+      if (aus) t += ` · ${aus} ${aus === 1 ? 'wartet' : 'warten'} auf dich (Schalter aus)`;
+      if (ohne) t += ` · ${ohne} ohne bekannte Rücksetzzeit (${ohne === 1 ? 'setzt' : 'setzen'} nicht fort)`;
+      t += '.';
+    }
+    return `<div class="qbar${S.reset ? ' info' : ''}" role="status">${ICON}<p>${t}</p>${sw}</div>`;
+  }
+  const segc = (names, on, act, dis) => `<div class="seg">${names.map((n, i) => `<button ${act ? `data-act="${act}" data-v="${i}"` : ''} aria-pressed="${i === on}"${dis ? ' disabled' : ''}>${n}</button>`).join('')}</div>`;
+  function card() {
+    const s = find(S.sel), v = view(s);
+    if (s.user) return `<aside class="card"><h3>${s.t}<small>durch dich</small></h3><p class="hint">Eine Station durch dich hat keinen Agenten und kein Kontingent: ${L()} gilt hier nicht.</p></aside>`;
+    const done = v === 'done', idx = s.ov === null ? 0 : s.ov ? 1 : 2;
+    return `<aside class="card"><h3>${s.t}<small>${stText(s, v)} · ${s.m}</small></h3><div class="sec"><h5>Automatik</h5>
+<div class="ln static"><span class="lbl">Automatisch starten</span>${segc(['wie Umsetzung', 'an', 'aus'], 0, '', true)}</div>
+<div class="ln"><span class="lbl">${L()}<span class="new">neu</span></span>${segc(['wie Umsetzung', 'an', 'aus'], idx, 'seg', done)}</div>
+<p class="hint">Läuft mit: ${eff(s) ? 'an' : 'aus'} (${s.ov === null ? 'von der Umsetzung' : 'nur diese Station'}). ${done ? 'Fertig: nur Ansicht.' : 'Änderbar, bis die Station fertig ist, auch während sie läuft.'}</p>
+<div class="ln static"><span class="lbl">Bei Fehler</span>${segc(['anhalten', '1× neu', 'bis 3× neu'], 0, '', true)}</div></div></aside>`;
+  }
+  const settings = () => `<section class="panel"><h4>Einstellungen · Agent</h4><div class="srow"><div><div class="sl">${L()} <span class="info" title="Wenn das Kontingent aufgebraucht ist, setzt eine Station 30 Sekunden nach dem Zurücksetzen von selbst fort. Der Wert gilt für neue Umsetzungen; bestehende behalten ihren. Sessions außerhalb einer Umsetzung beginnen jede Pause weiter mit „aus“.">ⓘ</span></div><div class="sd">Standard für neue Umsetzungen, ausgeliefert mit „aus“. Eine neue Umsetzung übernimmt den Wert beim Anlegen; bestehende Umsetzungen bleiben unberührt.</div></div><button class="tg" role="switch" aria-checked="${S.dflt}" data-act="dflt" aria-label="${L()}"></button></div><p class="cap">Im Mock übernimmt das Szenario „Frisch angelegt“ den Wert.</p></section>`;
+  function quotaCard() {
+    const q = S.st.find((s) => s.id === S.sel && s.ph === 'quota') ?? S.st.find((s) => s.ph === 'quota');
+    if (!q) return '<section class="panel"><h4>Chat einer Station</h4><p class="muted">Keine Station wartet am Kontingent. Wähle das Szenario „Kontingent leer“.</p></section>';
+    const sw = q.known ? `<label class="swl" style="margin-top:6px"><button class="tg" role="switch" aria-checked="${eff(q)}" data-act="row" data-id="${q.id}" aria-label="${L()}"></button>${L()}</label>` : '<div class="muted" style="margin-top:6px">Keine Rücksetzzeit bekannt, darum kein Schalter.</div>';
+    return `<section class="panel"><h4>Chat der Station „${q.t}“</h4><div class="notice"><span class="wi">${ICON}</span><div><b>Kontingent aufgebraucht.</b> Es setzt sich um ${RESET} zurück.${sw}</div></div><p class="cap">Für eine Station schreibt der Schalter der Karte denselben Wert wie ↻ in der Zeile und die Kartei: nur diese Station, die letzte Aktion gewinnt. Außerhalb einer Umsetzung gilt er nur für diese Pause, wie heute.</p></section>`;
+  }
+  function sim() {
+    const segb = (items, cur, act) => `<div class="seg">${items.map(([k, n]) => `<button data-act="${act}" data-k="${k}" aria-pressed="${k === cur}">${n}</button>`).join('')}</div>`;
+    const can = S.st.some((s) => s.ph === 'quota') && !S.reset;
+    return `<div class="g"><span>Szenario</span>${segb(Object.entries(SC).map(([k, v]) => [k, v.n]), S.scen, 'scen')}</div><div class="g"><button class="mini dash" data-act="reset"${can ? '' : ' disabled'}>Kontingent wird zurückgesetzt</button><span>(im Mock 6 s statt 30 s)</span></div><div class="g"><span>Beschriftung</span>${segb([['fortsetzen', 'Automatisch fortsetzen'], ['weiter', 'Automatisch weiter']], S.name, 'name')}</div><div class="g"><span>Farbschema</span>${segb([['system', 'System'], ['light', 'Hell'], ['dark', 'Dunkel']], S.theme, 'theme')}</div>`;
+  }
+  const theme = () => (S.theme === 'system' ? (matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark') : S.theme);
+  function fix() {
+    for (const s of S.st) {
+      if (s.ph === 'resume' && !eff(s)) s.ph = 'quota';
+      else if (S.reset && s.ph === 'quota' && eff(s) && s.known) { s.ph = 'resume'; s.cd = 6; }
+    }
+  }
+  function render() {
+    fix();
+    document.documentElement.dataset.theme = theme();
+    $('#sim').innerHTML = sim();
+    $('#app').innerHTML = `<div class="win">${head()}${bar()}${qbar()}<div class="grid"><div>${rows()}</div>${card()}</div></div>`;
+    $('#two').innerHTML = settings() + quotaCard();
+  }
+  document.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-act]');
+    if (!b || b.disabled) return;
+    const a = b.dataset.act;
+    if (a === 'sel') S.sel = b.dataset.id;
+    else if (a === 'row') { const s = find(b.dataset.id); if (s && s.ph !== 'done') s.ov = !eff(s); }
+    else if (a === 'impl') { S.on = !S.on; S.st.forEach((s) => { if (s.ph !== 'done') s.ov = null; }); }
+    else if (a === 'seg') { const s = find(S.sel); if (s && s.ph !== 'done') s.ov = [null, true, false][+b.dataset.v]; }
+    else if (a === 'dflt') S.dflt = !S.dflt;
+    else if (a === 'scen') { S.scen = b.dataset.k; S.reset = false; SC[S.scen].f(); }
+    else if (a === 'reset') { S.reset = true; S.st.forEach((s) => { if (s.ph === 'quota' && eff(s) && s.known) { s.ph = 'resume'; s.cd = 6; } }); }
+    else if (a === 'name') S.name = b.dataset.k;
+    else if (a === 'theme') S.theme = b.dataset.k;
+    render();
+  });
+  setInterval(() => {
+    let ch = false;
+    for (const s of S.st) if (s.ph === 'resume') { ch = true; if (--s.cd <= 0) s.ph = 'run'; }
+    if (ch) render();
+  }, 1000);
+  const q = new URLSearchParams(location.hash.slice(1));
+  if (NAMES[q.get('name')]) S.name = q.get('name');
+  if (['light', 'dark'].includes(q.get('theme'))) S.theme = q.get('theme');
+  S.scen = SC[q.get('scen')] ? q.get('scen') : 'qon';
+  SC[S.scen].f();
+  render();
+})();
+</script>
+</body>
+</html>

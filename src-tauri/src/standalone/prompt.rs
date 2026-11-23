@@ -10,10 +10,10 @@ use crate::skills::model::{SkillInfo, SkillKind};
 const SECONDS_PER_DAY: u64 = 86_400;
 
 const BASE_PROMPT: &str = "\
-You are a coding agent running inside Agenten Verwalter 2000, a desktop app for working on one task across several Git repositories. You work on Windows with the tools offered to you in this conversation.
+You are a coding agent running inside Agenten Verwalter 2000, a desktop app for working on one task across several Git repositories. You work with the tools offered to you in this conversation.
 
 # How to work
-- Use the file tools (Read, Glob, Grep, Edit, Write) for files instead of shell commands. Use Bash or PowerShell for everything else: Git, builds, tests, scripts.
+- Use the file tools (Read, Glob, Grep, Edit, Write) for files instead of shell commands. Use the shell tool (Bash, or PowerShell where it is listed) for everything else: Git, builds, tests, scripts.
 - Read a file before you change it. Prefer Edit over Write for existing files. Use absolute paths.
 - Search before you guess: Glob finds files by name, Grep finds text.
 - Web: WebFetch reads a page at a known address. You can search the web only if WebSearch is in your tool list; otherwise say that you cannot search.
@@ -114,11 +114,24 @@ fn environment(context: &PromptContext) -> String {
             .collect();
         lines.push(format!("- Additional directories: {}", folders.join(", ")));
     }
-    lines.push("- Platform: Windows".to_owned());
-    lines.push("- Shells: Git Bash (Bash tool) and PowerShell 5.1 (PowerShell tool)".to_owned());
+    lines.push(format!("- Platform: {}", platform_name()));
+    lines.push(if cfg!(windows) {
+        "- Shells: Git Bash (Bash tool) and PowerShell 5.1 (PowerShell tool)".to_owned()
+    } else {
+        "- Shells: bash (Bash tool)".to_owned()
+    });
     lines.push(format!("- Today's date: {}", today()));
     lines.push(format!("- Model: {}", context.model));
     lines.join("\n")
+}
+
+fn platform_name() -> &'static str {
+    match std::env::consts::OS {
+        "windows" => "Windows",
+        "linux" => "Linux",
+        "macos" => "macOS",
+        other => other,
+    }
 }
 
 /// Nur Skills; Befehle ruft der Benutzer mit `/name` auf.
@@ -164,4 +177,27 @@ pub(crate) fn civil_from_days(days: u64) -> (u64, u64, u64) {
     };
     let year = year_of_era + era * 400 + u64::from(month <= 2);
     (year, month, day)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn environment_names_the_real_platform_and_windows_shells_only_on_windows() {
+        let context = PromptContext {
+            cwd: Path::new("."),
+            add_dirs: &[],
+            home: Path::new("."),
+            model: "m",
+            skill_roots: &[],
+            appendix: None,
+        };
+        let text = environment(&context);
+        assert!(text.contains(&format!("- Platform: {}", platform_name())));
+        for word in ["Windows", "PowerShell"] {
+            assert_eq!(text.contains(word), cfg!(windows), "{word}: {text}");
+        }
+        assert!(!BASE_PROMPT.contains("Windows"));
+    }
 }

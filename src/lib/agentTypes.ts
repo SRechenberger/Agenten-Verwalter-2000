@@ -3,6 +3,7 @@ import { listen, type Event, type UnlistenFn } from '@tauri-apps/api/event';
 import type { AgentType } from '@/lib/bindings/AgentType';
 import type { AgentTypeInput } from '@/lib/bindings/AgentTypeInput';
 import type { AgentTypeSaved } from '@/lib/bindings/AgentTypeSaved';
+import type { ProposalDecision } from '@/lib/bindings/ProposalDecision';
 
 const AGENT_TYPES_CHANGED_EVENT = 'agent-types://changed';
 
@@ -56,6 +57,18 @@ export function updateAgentType(id: string, input: AgentTypeInput): Promise<Agen
  *  @throws {import('@/lib/bindings/CommandError').CommandError} `internal` (unbekannter Typ), `database` */
 export async function deleteAgentType(id: string): Promise<void> {
   await invoke('agent_type_delete', { id });
+}
+
+/** Beantwortet den Vorschlag eines Agenten im Kasten (ADR 063). Übernehmen speichert wie der Dialog;
+ *  meldet die Prüfung etwas (auch „veraltet“), bleibt der Kasten offen und `agentType` ist `null`.
+ *  @throws {import('@/lib/bindings/CommandError').CommandError} `internal` (Kasten nicht offen oder
+ *  kein Vorschlag), `database` */
+export function answerAgentTypeProposal(
+  sessionId: string,
+  requestId: string,
+  decision: ProposalDecision,
+): Promise<AgentTypeSaved> {
+  return invoke<AgentTypeSaved>('agent_type_proposal_answer', { sessionId, requestId, decision });
 }
 
 /** Meldet nach jeder Änderung die ganze Liste. */

@@ -15,7 +15,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender, TryRecvError};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
 
@@ -44,6 +44,9 @@ const INTERRUPTED_MARKER: &str = "[Request interrupted by user]";
 const BYTE_ORDER_MARK: char = '\u{feff}';
 /// Unterordner des Scratchpads für die Ausgaben der Hintergrundprozesse.
 const TASKS_DIR: &str = "tasks";
+/// So lange wartet das Prozessende auf den abgebrochenen Zug; das App-Ende gibt dem Agenten
+/// höchstens 2 s (ADR 074).
+const TURN_GRACE: Duration = Duration::from_secs(1);
 
 pub enum Input {
     Line(String),
@@ -84,6 +87,18 @@ struct Session {
 }
 
 pub fn run(args: AgentArgs) -> i32 {
+    let (input_sender, input_receiver) = mpsc::channel::<Input>();
+    // SIGTERM des Verwalters nimmt denselben Weg wie das Ende von stdin: `clean_up` räumt die
+    // Kinder in eigenen Gruppen ab, die das Signal nicht erreicht (ADR 074).
+    #[cfg(unix)]
+    {
+        let closer = input_sender.clone();
+        if let Err(error) = crate::processes::on_terminate(move || {
+            let _ = closer.send(Input::Closed);
+        }) {
+            eprintln!("SIGTERM wird nicht abgefangen: {error}");
+        }
+    }
     let environment = match Environment::read() {
         Ok(environment) => environment,
         Err(error) => {
@@ -151,7 +166,6 @@ pub fn run(args: AgentArgs) -> i32 {
         &scratchpad,
     ));
     let tasks = Arc::new(Tasks::new(Arc::clone(&output), scratchpad.join(TASKS_DIR)));
-    let (input_sender, input_receiver) = mpsc::channel::<Input>();
     if let Err(error) = spawn_stdin_reader(input_sender.clone()) {
         eprintln!("Lese-Thread startet nicht: {error}");
         return EXIT_START_FAILED;
@@ -219,10 +233,29 @@ pub fn run(args: AgentArgs) -> i32 {
         turn: None,
     };
     session.run_loop(&input_receiver);
-    // Ohne Agent hätte niemand mehr ihre Ausgabe gelesen oder sie gestoppt.
-    session.shared.tasks.stop_all();
-    session.shared.mcp.close_all();
+    clean_up(
+        session.turn.take(),
+        &session.shared.tasks,
+        &session.shared.mcp,
+    );
     0
+}
+
+/// Vor dem Prozessende, nach dem Ende von stdin oder SIGTERM (ADR 074): bricht den laufenden Zug
+/// ab und wartet höchstens `TURN_GRACE` auf ihn (eine Vordergrund-Shell beendet er dabei samt
+/// Gruppe, `shell::wait_for`), dann beendet es die Aufgaben und die MCP-Server. Ohne Agent hätte
+/// niemand mehr ihre Ausgabe gelesen oder sie gestoppt.
+fn clean_up(turn: Option<ActiveTurn>, tasks: &Tasks, mcp: &McpServers) {
+    if let Some(turn) = turn {
+        turn.cancel.store(true, Ordering::SeqCst);
+        // Nur der Arbeits-Thread hält den Sender; sein Ende trennt den Kanal.
+        let deadline = Instant::now() + TURN_GRACE;
+        while let Some(remaining) = deadline.checked_duration_since(Instant::now())
+            && turn.events.recv_timeout(remaining).is_ok()
+        {}
+    }
+    tasks.stop_all();
+    mcp.close_all();
 }
 
 /// Der Ordner, den der Verwalter vorgibt, sonst der Ersatz unter `.verwalter\agent`; samt
@@ -638,5 +671,114 @@ impl Session {
             ),
         };
         self.shared.output.line(&line);
+    }
+}
+
+/// Aufräumen vor dem Prozessende (ADR 074): nur eigene Wegwerf-Prozesse `sh` und `sleep`, nur ihre
+/// Gruppen werden signalisiert.
+#[cfg(all(test, unix))]
+mod tests {
+    use super::super::mcp::config::{ServerConfig, Transport};
+    use super::super::tasks::NewProcess;
+    use super::super::tools::shell;
+    use super::*;
+    use crate::processes::tests::groups::{clean_up as end_pid, gone, spawn_tree};
+
+    /// Ein MCP-Server aus `sh`: startet `sleep 300` in seiner Gruppe, schreibt dessen PID in die
+    /// Datei `$0` und beantwortet Handschlag und Werkzeugliste.
+    const MCP_SERVER: &str = r#"sleep 300 >/dev/null 2>&1 & echo $! > "$0"
+while read -r line; do
+  case "$line" in
+    *'"initialize"'*) echo '{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2025-11-25","capabilities":{},"serverInfo":{"name":"probe","version":"1"}}}' ;;
+    *'"tools/list"'*) echo '{"jsonrpc":"2.0","id":2,"result":{"tools":[]}}' ;;
+  esac
+done"#;
+
+    /// Verbindet den Wegwerf-Server; Rückgabe die PID seines Kindes.
+    fn connected_mcp_server(dir: &Path) -> (Arc<McpServers>, u32) {
+        let pid_file = dir.join("mcp.pid");
+        let config = ServerConfig {
+            name: "probe".to_owned(),
+            scope: "test",
+            transport: Transport::Stdio {
+                command: "sh".to_owned(),
+                args: vec![
+                    "-c".to_owned(),
+                    MCP_SERVER.to_owned(),
+                    pid_file.to_string_lossy().into_owned(),
+                ],
+                env: Vec::new(),
+            },
+            type_name: "stdio".to_owned(),
+        };
+        let mcp = McpServers::start(vec![config], dir);
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while mcp.status()[0]["status"] != "connected" {
+            assert!(Instant::now() < deadline, "MCP-Server: {}", mcp.status());
+            thread::sleep(Duration::from_millis(20));
+        }
+        let pid = fs::read_to_string(&pid_file)
+            .ok()
+            .and_then(|text: String| text.trim().parse().ok())
+            .expect("PID des Kindes steht in der Datei");
+        (mcp, pid)
+    }
+
+    #[test]
+    fn clean_up_ends_turn_shell_task_and_mcp_server_with_their_groups() {
+        let dir = env::temp_dir().join(format!("verwalter-v195-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&dir).expect("Ordner anlegbar");
+        // Hintergrund-Aufgabe: ein Baum in eigener Gruppe unter dem Überwacher von `Tasks`.
+        let tasks = Arc::new(Tasks::new(Arc::new(Output::default()), dir.join(TASKS_DIR)));
+        let (task, task_child) = spawn_tree(true);
+        let (task_id, output_file) = tasks.new_process_slot();
+        let (_, readers) = mpsc::channel::<()>();
+        tasks
+            .watch_process(NewProcess {
+                task_id,
+                tool_use_id: "toolu_probe".to_owned(),
+                description: "probe".to_owned(),
+                output_file,
+                child: task,
+                readers,
+            })
+            .expect("Überwacher startet");
+        let (mcp, mcp_child) = connected_mcp_server(&dir);
+        // Laufender Zug mit einer Vordergrund-Shell, die er erst beim Abbruch beendet; danach braucht
+        // er noch eine Weile (Ergebnisse, Transkript), aber weniger als `TURN_GRACE`.
+        let cancel = Arc::new(AtomicBool::new(false));
+        let finished = Arc::new(AtomicBool::new(false));
+        let (events, event_receiver) = mpsc::channel::<TurnEvent>();
+        let (mut foreground, foreground_child) = spawn_tree(true);
+        let turn_cancel = Arc::clone(&cancel);
+        let turn_finished = Arc::clone(&finished);
+        let worker = thread::spawn(move || {
+            let _events = events;
+            shell::wait_for(&mut foreground, Duration::from_secs(300), &turn_cancel);
+            thread::sleep(Duration::from_millis(300));
+            turn_finished.store(true, Ordering::SeqCst);
+        });
+        let turn = ActiveTurn {
+            cancel,
+            events: event_receiver,
+            is_aborted: false,
+            transcript_error: None,
+        };
+        clean_up(Some(turn), &tasks, &mcp);
+        let turn_awaited = finished.load(Ordering::SeqCst);
+        let mut all_gone = true;
+        for pid in [foreground_child, task_child, mcp_child] {
+            if !gone(pid) {
+                all_gone = false;
+                end_pid(pid);
+            }
+        }
+        let _ = worker.join();
+        let _ = fs::remove_dir_all(&dir);
+        assert!(
+            turn_awaited,
+            "der Zug war beim Prozessende noch nicht zurück"
+        );
+        assert!(all_gone, "ein Kind lebt nach dem Aufräumen noch");
     }
 }

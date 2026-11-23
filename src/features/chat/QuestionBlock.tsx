@@ -25,6 +25,8 @@ import './QuestionBlock.css';
 
 interface QuestionBlockProps {
   entry: QuestionEntry;
+  /** Name des Agenten nach der Betriebsart des Vorhabens („Claude“, „Autark“, …). */
+  agentName: string;
   draft: QuestionDraft;
   isSending: boolean;
   /** Warum die Frage gerade niemand beantworten kann (ein Gast steuert, der Host fehlt); `null` sonst. */
@@ -37,6 +39,7 @@ interface QuestionBlockProps {
 
 export function QuestionBlock({
   entry,
+  agentName,
   draft,
   isSending,
   lockNote,
@@ -112,7 +115,9 @@ export function QuestionBlock({
       <div className="question-block__head">
         <StatusIcon status={isAnsweredEntry ? 'completed' : 'waiting'} size={12} />
         <span>
-          {isAnsweredEntry ? 'Claude hat gefragt' : 'Claude wartet auf deine Entscheidung'}
+          {isAnsweredEntry
+            ? `${agentName} hat gefragt`
+            : `${agentName} wartet auf deine Entscheidung`}
         </span>
         {showsCount && <span className="question-block__count">{questionCount} Fragen</span>}
       </div>
@@ -159,6 +164,7 @@ export function QuestionBlock({
         isActive
         isLocked={isSending}
         extras={{
+          agentName,
           notes: draft.notes[questionIndex] ?? {},
           custom: draft.custom[questionIndex] ?? null,
           onToggleNote: (name: string): void => {

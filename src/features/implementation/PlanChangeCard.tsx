@@ -12,14 +12,13 @@ import {
   EFFORT_LABEL,
   keysText,
   MAX_BRIEF_CHARS,
-  MAX_PARALLEL_CHANGE_LABEL,
-  MAX_PARALLEL_UNLIMITED,
   MODEL_LABEL,
   NO_TYPE_LABEL,
   OPEN_CHAT_LABEL,
   OPEN_CHAT_TITLE,
   patchSetsText,
   PLAN_CHANGED_TITLE,
+  PLAN_PROPOSAL_BADGE,
   PLAN_PROPOSAL_TITLE,
   PROPOSAL_EMPTY_BRIEF,
   PROPOSAL_HINT,
@@ -34,6 +33,13 @@ import {
   standardOption,
   TYPE_LABEL,
 } from '@/features/implementation/implementationTexts';
+import {
+  isCommandStation,
+  stageText,
+  stationDisplay,
+  stepPrograms,
+  stepsTitle,
+} from '@/features/implementation/commandStation';
 import type { StationRef } from '@/features/implementation/implementationOrder';
 import { SegmentGroup, type SegmentOption } from '@/features/implementation/SegmentGroup';
 import {
@@ -90,6 +96,8 @@ interface ProposedStation {
   /** Änderbar: alle vier Werte; bei einer Station durch dich nur der Auftrag (sie hat keinen Typ, kein
    *  Modell, keinen Denkaufwand); keiner, wenn die geänderte Station im Plan fehlt. */
   fields: 'all' | 'brief' | 'none';
+  /** Die Schritte einer Befehls-Station (ADR 073); sonst `null`. Wird nur gezeigt, nicht geändert. */
+  command: readonly string[] | null;
 }
 
 interface PlanChangeCardProps {
@@ -130,7 +138,8 @@ function newStation(lane: string, input: StationInput | StationAddition): Propos
       brief: input.brief ?? '',
     },
     patch: null,
-    fields: 'all',
+    fields: input.by === 'command' ? 'none' : 'all',
+    command: input.by === 'command' ? (input.command ?? []) : null,
   };
 }
 
@@ -139,6 +148,7 @@ function patchedStation(patch: StationPatch, stations: readonly StationRef[]): P
   const ref: StationRef | undefined = stations.find(
     (candidate: StationRef) => candidate.station.planId === patch.id,
   );
+  const isCommand: boolean = ref !== undefined && isCommandStation(ref.station);
   return {
     lane: ref?.phase.key ?? '?',
     stage: patch.stage ?? ref?.station.stage ?? patch.id,
@@ -151,7 +161,8 @@ function patchedStation(patch: StationPatch, stations: readonly StationRef[]): P
       brief: patch.brief ?? ref?.station.brief ?? '',
     },
     patch,
-    fields: ref === undefined ? 'none' : ref.station.byUser ? 'brief' : 'all',
+    fields: ref === undefined || isCommand ? 'none' : ref.station.byUser ? 'brief' : 'all',
+    command: isCommand ? (patch.command ?? ref?.station.command ?? []) : null,
   };
 }
 
@@ -267,7 +278,22 @@ export function PlanChangeCard({
       return null;
     }
     const key = `${station.lane}-${station.stage}-${String(index)}`;
-    const head: ReactElement = <b>{proposedStationHead(station.stage, station.lane)}</b>;
+    const stage: string =
+      station.command === null
+        ? station.stage
+        : stageText({ kind: 'command', stage: station.stage });
+    // Eine bestehende Station heißt wie überall („2-3 · Review“); eine neue hat noch keine Kennung.
+    const head: ReactElement = (
+      <b>
+        {station.patch === null
+          ? proposedStationHead(stage, station.lane)
+          : stationDisplay({
+              kind: station.command === null ? 'agent' : 'command',
+              planId: station.patch.id,
+              stage: station.stage,
+            })}
+      </b>
+    );
     const sets: ReactElement | null =
       station.patch === null ? (
         <p className="station-card__hint">{proposedWaitsText(station.after ?? [])}</p>
@@ -300,6 +326,20 @@ export function PlanChangeCard({
         <div key={key} className="plan-change-card__station">
           {head}
           {sets}
+          {station.command !== null && (
+            <ol className="plan-change-card__steps" title={stepsTitle(station.command)}>
+              {station.command.map((step: string, position: number) => (
+                <li key={`${String(position)}-${step}`} className="plan-change-card__step">
+                  {step}
+                </li>
+              ))}
+            </ol>
+          )}
+          {station.command !== null && (
+            <p className="station-card__hint">
+              Programme: {stepPrograms(station.command).join(', ')}
+            </p>
+          )}
           {station.fields === 'brief' && brief}
         </div>
       );
@@ -455,7 +495,15 @@ export function PlanChangeCard({
       aria-label={title}
     >
       <div className="station-card__head">
-        <b className="station-card__title">{title}</b>
+        <b className="station-card__title">
+          {isProposal && (
+            <span className="plan-change-card__icon" aria-hidden="true">
+              ✎
+            </span>
+          )}
+          {title}
+        </b>
+        {isProposal && <span className="plan-change-card__badge">{PLAN_PROPOSAL_BADGE}</span>}
         <span className="station-card__number">{changeOrigin(sessionNumber, at)}</span>
       </div>
       {isProposal && <p className="station-card__phase">{proposalLead(sessionNumber)}</p>}
@@ -468,14 +516,6 @@ export function PlanChangeCard({
         <dd>{keysText(summary.moved)}</dd>
         <dt>Entfallen</dt>
         <dd>{keysText(summary.removed)}</dd>
-        {summary.maxParallel !== undefined && (
-          <>
-            <dt>{MAX_PARALLEL_CHANGE_LABEL}</dt>
-            <dd>
-              {summary.maxParallel === 0 ? MAX_PARALLEL_UNLIMITED : String(summary.maxParallel)}
-            </dd>
-          </>
-        )}
       </dl>
       <p className="station-card__state">
         Stationen {String(stationsBefore)} → {String(stationsAfter)}

@@ -3,6 +3,7 @@ import { Markdown } from '@/components/Markdown';
 import { CompactIcon } from '@/features/notices/NoticeIcons';
 import {
   COMPACT_CACHE_REBUILD,
+  COMPACT_BY_VERWALTER,
   COMPACT_LEAD,
   SUMMARY_HIDE,
   SUMMARY_SHOW,
@@ -32,7 +33,10 @@ export function CompactDivider({
   isClaude,
 }: CompactDividerProps): ReactElement {
   const parts: string[] = [];
-  const triggerText: string | null = compactTriggerText(notice.trigger);
+  // Der Verwalter schickt `/compact` selbst; die Kommandozeile meldet es trotzdem als „manual“.
+  const triggerText: string | null = notice.byVerwalter
+    ? COMPACT_BY_VERWALTER
+    : compactTriggerText(notice.trigger);
   if (triggerText !== null) {
     parts.push(triggerText);
   }

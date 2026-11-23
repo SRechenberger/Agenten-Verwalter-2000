@@ -1,0 +1,3 @@
+Richte die Anbindung an den Zahlungsanbieter ein.
+=====
+Die Anbindung ist implementiert und gegen die Sandbox getestet. Für den Betrieb fehlt der Live-Schlüssel, den nur du im Dashboard des Anbieters erzeugen kannst. Bitte erzeuge ihn und trage ihn in `.env.production` unter `PAYMENT_KEY` ein. Danach ist nichts mehr zu tun.

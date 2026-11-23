@@ -6,7 +6,7 @@ use std::time::Duration;
 use serde_json::Value;
 
 use crate::agents::claude::print::exchange;
-use crate::agents::claude::process::{SpawnOptions, common_args};
+use crate::agents::claude::process::{ChildGroup, SpawnOptions, common_args};
 use crate::processes::{self, hide_console};
 
 /// Lehnt ab, was `--allowedTools` nicht freigibt, ohne die Werkzeugliste zu ändern — eine andere
@@ -31,14 +31,14 @@ pub struct SideAnswer {
 }
 
 /// Startet die Kommandozeile, schickt die Frage über die Standardeingabe und liefert die Antwort.
-/// Der Prozess wird in jedem Fall beendet, auch nach Zeitlimit oder Fehler.
+/// Der Prozess wird in jedem Fall samt seiner Gruppe beendet, auch nach Zeitlimit oder Fehler, und
+/// bis dahin beendet ihn auch das App-Ende (`ChildGroup`).
 pub fn run_side(request: &SideRequest) -> Result<SideAnswer, String> {
-    let mut child = side_command(&request.options)
-        .spawn()
+    let call = ChildGroup::spawn(side_command(&request.options))
         .map_err(|error| format!("Claude-Kommandozeile startet nicht: {error}"))?;
-    let output = exchange(&mut child, &request.prompt, request.timeout);
-    let _ = child.kill();
-    let _ = child.wait();
+    let (stdin, stdout, _) = call.take_pipes();
+    let output = exchange(stdin, stdout, &request.prompt, request.timeout);
+    call.end();
     side_answer(&output?)
 }
 

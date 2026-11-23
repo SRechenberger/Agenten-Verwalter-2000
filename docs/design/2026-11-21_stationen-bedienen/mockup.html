@@ -1,0 +1,268 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Entwurf: Stationen bedienen (#135, #136, #132)</title>
+<style>
+:root{color-scheme:dark;--bg:#1f1f1f;--side:#181818;--surf:#252526;--hover:#2e2e30;--sel:#37373d;--bds:#2b2b2b;--bd:#3c3c3c;--fg:#d4d4d4;--fg2:#b0b0b0;--fgm:#8f8f8f;--acc:#e0825c;--acct:#f0a688;--accs:rgba(224,130,92,.16);--onacc:#1d130e;--run:#5b9dff;--rep:#8ab8ea;--wait:#f2b33d;--waitsub:rgba(242,179,61,.11);--err:#f47067;--ok:#4cc38a;--pause:#8f8f8f;--shadow:0 10px 30px rgb(0 0 0/.45);--font:'Segoe UI Variable Text','Segoe UI',system-ui,sans-serif;--mono:'Cascadia Code',Consolas,ui-monospace,monospace}
+:root[data-theme=light]{color-scheme:light;--bg:#fff;--side:#f3f3f3;--surf:#f7f7f7;--hover:#ececec;--sel:#e6e8f0;--bds:#ebebeb;--bd:#d4d4d4;--fg:#3c3c3c;--fg2:#5f5f5f;--fgm:#85858a;--acc:#c4572f;--acct:#a8431f;--accs:rgba(196,87,47,.1);--onacc:#fff;--run:#2563eb;--rep:#3d6fa8;--wait:#a86a00;--waitsub:rgba(168,106,0,.1);--err:#d23b33;--ok:#16803c;--pause:#85858a;--shadow:0 10px 30px rgb(0 0 0/.14)}
+*{box-sizing:border-box}
+body{margin:0;background:var(--side);color:var(--fg);font:13px/1.45 var(--font)}
+main{max-width:1000px;margin:0 auto;padding:16px}
+h1{font-size:15px;margin:0 0 4px}h2{font-size:14px;margin:34px 0 4px}h2 small{color:var(--fgm);font-weight:400}
+h3{font-size:12.5px;margin:20px 0 6px}
+.lead,.cap{color:var(--fg2);margin:0 0 10px}.cap{font-size:12px;color:var(--fgm);margin:4px 0 0}
+button{font:inherit;color:inherit}
+code{font:12px var(--mono)}
+#sim{display:flex;gap:10px;align-items:center;margin:0 0 8px;padding:8px 10px;border:1px dashed var(--bd);border-radius:6px;color:var(--fgm);font-size:12px}
+#sim button{border:1px solid var(--bd);background:transparent;border-radius:6px;padding:3px 10px;cursor:pointer}
+#sim button[aria-pressed=true]{background:var(--sel);color:var(--fg)}
+.lbl{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--fgm);margin:14px 0 4px}
+.lbl b{color:var(--acc)}
+.why{color:var(--fg2);font-size:12px;margin:4px 0 0}
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:start}
+.row3{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;align-items:start}
+@media (max-width:900px){.row2,.row3{grid-template-columns:1fr}}
+.pane{background:var(--bg);border:1px solid var(--bd);border-radius:10px;overflow:hidden}
+.pane+.pane{margin-top:8px}
+/* Leiste der Umsetzung (ImplementationBar.css) */
+.ibar{display:flex;flex-wrap:wrap;gap:12px 14px;align-items:center;padding:8px 18px;border-bottom:1px solid var(--bds);color:var(--fg2);font-size:12.5px}
+.ibar .prog{flex:100 1 60px;max-width:160px;height:6px;border-radius:99px;background:var(--hover);overflow:hidden}
+.ibar .prog i{display:block;height:100%;background:var(--ok)}
+.ibar .sp{flex:1}
+.sw{display:inline-flex;gap:7px;align-items:center}
+.tog{width:26px;height:14px;border-radius:99px;background:var(--hover);border:1px solid var(--bd);position:relative;flex:none}
+.tog::after{content:'';position:absolute;top:1px;left:1px;width:10px;height:10px;border-radius:50%;background:var(--fgm)}
+.tog.on{background:var(--acc);border-color:var(--acc)}.tog.on::after{left:13px;background:var(--onacc)}
+.slots{color:var(--fgm);font-size:11px;white-space:nowrap}
+.bb{box-sizing:border-box;height:24px;padding:0 8px;border:1px solid var(--bd);border-radius:6px;background:transparent;color:var(--fg2);font-size:11.5px;white-space:nowrap;display:inline-flex;align-items:center;gap:5px}
+.bb.go{border-color:var(--acc);background:var(--acc);color:var(--onacc);font-weight:600}
+.bb.go2{border-color:var(--acc);background:var(--accs);color:var(--acct);font-weight:600}
+.bb.danger{border-color:var(--err)}
+.acts{display:inline-flex;gap:8px;flex-wrap:wrap}
+.pick{outline:2px solid var(--acc);outline-offset:2px;border-radius:6px}
+.strip{display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:6px 18px;background:var(--waitsub);border-bottom:1px solid var(--bds);color:var(--fg);font-size:12px}
+/* Zeitleiste (Timeline.css) */
+.tl{padding:6px 12px 10px}
+.stage{display:flex;gap:8px;align-items:center;margin:8px 0 2px;color:var(--fgm);font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase}
+.stage::after{content:'';flex:1;height:1px;background:var(--bds)}
+.tr{display:grid;grid-template-columns:14px minmax(0,1fr) auto;gap:1px 10px;align-items:center;padding:5px 8px;border-radius:8px}
+.tr:hover{background:var(--hover)}
+.tr.foc{background:var(--sel);outline:1px solid var(--acc)}
+.tr .nm{display:flex;gap:6px;align-items:baseline;min-width:0;color:var(--fg);font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.meta{padding:0 7px;border:1px solid var(--bd);border-radius:99px;background:var(--bg);color:var(--fgm);font-size:11px;white-space:nowrap}
+.st{color:var(--fgm);font-size:11px;text-align:right;white-space:nowrap;display:flex;align-items:center;justify-content:flex-end;gap:6px}
+.st.you{color:var(--wait);font-weight:600}.st.cd{color:var(--acc)}.st.rd{color:var(--acc)}.st.q{color:var(--fg2)}.st.done{color:var(--ok)}
+.sub{grid-column:2/4;color:var(--fgm);font-size:11px}
+.dotx{width:9px;height:9px;border-radius:50%;background:var(--pause);justify-self:center}
+.dotx.you{background:var(--wait)}.dotx.rd{background:transparent;border:1.5px solid var(--acc)}.dotx.done{background:var(--ok)}.dotx.cd{background:var(--acc)}
+.mini{padding:0 7px;border:1px solid var(--bd);border-radius:4px;background:var(--bg);color:var(--fg);font-size:11px;line-height:1.5;font-weight:400;white-space:nowrap}
+.mini.pri{border-color:var(--acc);background:var(--acc);color:var(--onacc);font-weight:600}
+.mini.soft{border-color:var(--acc);background:var(--accs);color:var(--acct);font-weight:600}
+.chip{padding:0 7px;border:1px solid var(--bd);border-radius:99px;color:var(--fgm);font-size:11px;line-height:1.5;white-space:nowrap;font-weight:400}
+.chip.rel{border-color:var(--rep);color:var(--rep);font-weight:600}
+.chip.acc{border-color:var(--acc);color:var(--acct);background:var(--accs);font-weight:600}
+.confirm{grid-column:2/4;display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:4px;padding:5px 8px;border:1px solid var(--wait);border-radius:6px;background:var(--waitsub);color:var(--fg);font-size:12px}
+/* Dashboard */
+.flows{display:flex;flex-direction:column;gap:6px;padding:10px 12px}
+.flow{display:grid;grid-template-columns:minmax(0,1fr) 80px auto;gap:10px;align-items:center;padding:6px 10px;border:1px solid var(--bd);border-radius:8px;background:var(--surf);font-size:12px}
+.flow .prog{height:6px;border-radius:99px;background:var(--hover);overflow:hidden}.flow .prog i{display:block;height:100%;background:var(--ok)}
+.dcard{display:flex;flex-direction:column;gap:4px;min-height:96px;padding:8px 10px;border:1px solid var(--bd);border-left:3px solid var(--tone);border-radius:8px;background:var(--surf)}
+.dcard .top{display:flex;align-items:center;gap:6px;font-size:11px}.dcard .k{color:var(--tone);font-weight:600}.dcard .since{margin-left:auto;color:var(--fgm)}
+.dcard .t{font-size:12.5px}.dcard .src{margin-top:auto;font-size:11px;color:var(--fgm)}
+/* Leiste (Sidebar*.css) */
+.side{background:var(--side);border:1px solid var(--bd);border-radius:10px;padding:8px;width:100%;max-width:300px}
+.srow{display:flex;align-items:center;gap:8px;height:26px;padding:0 8px;border-radius:5px;color:var(--fg2);font-size:12.5px}
+.srow.act{background:var(--sel);color:var(--fg)}
+.srow .nm{overflow:hidden;white-space:nowrap;text-overflow:ellipsis;min-width:0}
+.srow .pg{margin-left:auto;flex:none;font:11px var(--mono);color:var(--fgm)}
+.srow .un{width:6px;height:6px;border-radius:50%;background:var(--acc);flex:none}
+.srow .mst{color:var(--rep);font-size:11px;flex:none}
+.sdot{width:10px;display:flex;justify-content:center;flex:none}
+.nest{margin-left:14px;padding-left:6px;border-left:1px solid var(--bds)}
+.sgrp{font-size:11px;color:var(--fgm);text-transform:uppercase;letter-spacing:.04em;padding:6px 8px 2px}
+.sst{display:flex;align-items:center;flex-wrap:wrap;gap:2px 8px;padding:3px 8px;border-radius:5px;color:var(--fg2);font-size:12.5px;min-height:26px}
+.sst .ph{font:11px var(--mono);color:var(--fgm)}
+.sst .tail{flex-basis:100%;padding-left:18px;display:flex;gap:6px;align-items:center;font-size:11px}
+.sst .w{color:var(--wait)}
+.pmark{flex:none;display:inline-flex;align-items:center;gap:3px;height:16px;padding:0 6px;border:1px solid var(--acc);border-radius:99px;background:var(--accs);color:var(--acct);font-size:10.5px;font-weight:600;line-height:1}
+.pmark.sq{padding:0;width:16px;justify-content:center}
+/* Karte im Chat (PlanChangeCard) */
+.chat{padding:14px 16px;display:flex;flex-direction:column;gap:10px;max-width:620px}
+.msg{background:var(--surf);border:1px solid var(--bds);border-radius:8px;padding:8px 10px;color:var(--fg2)}
+.pcard{border:1px solid var(--bd);border-left:3px solid var(--acc);border-radius:8px;background:var(--surf);padding:10px 12px;display:flex;flex-direction:column;gap:8px}
+.pcard.now.pend{border-color:var(--acc)}
+.pcard.new{border:1.5px solid var(--acc);border-left-width:5px;background:linear-gradient(var(--accs),var(--accs)),var(--surf);box-shadow:0 0 0 3px var(--accs)}
+.pcard .hd{display:flex;align-items:center;gap:8px;font-weight:600}
+.pcard.new .hd{color:var(--acct)}
+.pcard .hd .badge{margin-left:auto;font-weight:600;font-size:11px;color:var(--onacc);background:var(--acc);border-radius:99px;padding:0 8px}
+.pcard dl{display:grid;grid-template-columns:auto 1fr;gap:3px 12px;margin:0;font-size:12px}.pcard dt{color:var(--fgm)}.pcard dd{margin:0}
+.pcard .ft{display:flex;gap:8px;justify-content:flex-end}
+.btn{border:1px solid var(--bd);border-radius:6px;background:transparent;padding:3px 12px;font-size:12px}.btn.pri{background:var(--acc);border-color:var(--acc);color:var(--onacc);font-weight:600}
+.flash{outline:2px solid var(--acc);outline-offset:3px;border-radius:8px}
+.dlg{background:var(--surf);border:1px solid var(--bd);border-radius:10px;box-shadow:var(--shadow);overflow:hidden}
+.dlg .dh{padding:10px 14px;border-bottom:1px solid var(--bds);border-left:3px solid var(--tone)}
+.dlg .dh .k{font-weight:600;color:var(--tone);font-size:12px}.dlg .dh .m{color:var(--fgm);font-size:12px}
+.dlg .db{padding:12px 14px;display:flex;flex-direction:column;gap:8px}
+.dlg .df{display:flex;gap:8px;justify-content:flex-end;padding:10px 14px;border-top:1px solid var(--bds);align-items:center}
+.dlg .df .ghost{margin-right:auto;color:var(--fg2)}
+section.doc{margin-top:28px;color:var(--fg2);max-width:900px}
+</style>
+</head>
+<body>
+<main>
+<h1>Entwurf: Stationen bedienen (Taiga #135 mit #51 und #53, #136, #132)</h1>
+<p class="lead">Mockup vor der Umsetzung, Stand 2026-11-21. Alle Namen und Zahlen sind Beispieldaten. Farben und Abstände sind aus den Dateien der Oberfläche übernommen. Der Schalter wirkt auf alle Bilder; Sprungmarke <code>#theme=light|dark</code>.</p>
+<div id="sim"><span>Farbschema</span><button data-v="dark">Dunkel</button><button data-v="light">Hell</button></div>
+
+<!-- ============ 1 · #135 ============ -->
+<h2 id="b1">1 · #135 „Umsetzung starten“ <small>drei Zustände je Variante</small></h2>
+<p class="lead">Zustände: <b>①</b> noch nicht begonnen · <b>②</b> nach dem Klick, Grenze 2, drei Startstationen: zwei im Countdown, eine eingereiht (Schalter „Automatisch starten“ ist jetzt an) · <b>③</b> begonnen, Automatik aus, zwei Stationen bereit. Der Knopf steht, solange eine Station bereit ist, die nicht von selbst startet; bei gesperrter Umsetzung fehlt er. Eine Befehls-Station startet ohne Platz; eine Station mit eigenem „Automatisch starten“ aus bleibt bei ▶.</p>
+<div id="s1"></div>
+
+<!-- ============ 2 · #136 ============ -->
+<h2 id="b2">2 · #136 „Erledigt“ und die Freigabe des Masters</h2>
+<h3>Zeile in der Zeitleiste: Station „durch dich“ an der Reihe</h3>
+<div class="row2">
+  <div><p class="lbl">Freigegeben: ein Klick schließt ab</p><div class="pane" id="r-rel"></div></div>
+  <div><p class="lbl">Nicht freigegeben: dieselbe Zeile, ohne Marke</p><div class="pane" id="r-not"></div></div>
+</div>
+<p class="cap">„Erledigt“ steht vor „Öffnen“ und trägt den Standardtext „vom Benutzer erledigt“. Freigegeben: „Erledigt“ ist hervorgehoben (Akzent) und die Zeile trägt in ihrer zweiten Zeile die blaue Marke „✓ freigegeben“. Nicht freigegeben: „Erledigt“ bleibt neutral, die Marke fehlt, die Zeile ist sofort zu unterscheiden.</p>
+
+<h3>Rückfrage ohne Freigabe (nur in Umsetzungen mit Master)</h3>
+<div class="row2">
+  <div><p class="lbl">Zeile: Klick auf „Erledigt“ klappt die Rückfrage auf</p><div class="pane" id="r-ask"></div></div>
+  <div><p class="lbl">Popup des Dashboards (und Kartei): dieselbe Frage im Fuß</p><div id="r-pop"></div></div>
+</div>
+<p class="cap">Der Satz ist derselbe auf allen drei Wegen (Zeile, Kartei, Popup). „Zurück“ schließt die Frage ohne Wirkung. Ohne Master gibt es keine Frage.</p>
+
+<h3>Marke der Freigabe in Leiste und Dashboard-Karte</h3>
+<div class="row3">
+  <div>
+    <p class="lbl"><b>A</b> · Leiste: Zeile der Station</p>
+    <div class="side" id="sb-a"></div>
+    <p class="why">Zweite Zeile unter dem Namen, wie der Chip der Kontingent-Pause: „✓ freigegeben“ in Blau neben „wartet auf dich“ in Bernstein. Die nicht freigegebene Station hat keine Marke.</p>
+  </div>
+  <div>
+    <p class="lbl"><b>B</b> · Leiste: nur ein Häkchen</p>
+    <div class="side" id="sb-b"></div>
+    <p class="why">Ein blaues ✓ hinter dem Namen, einzeilig. Spart Höhe, ist aber ohne Hinweisschrift schwerer zu deuten (<code>title</code> trägt den Satz).</p>
+  </div>
+  <div>
+    <p class="lbl">Karte im Dashboard</p>
+    <div id="dc"></div>
+    <p class="why">Freigegeben: Marke „✓ vom Master freigegeben“ in der Kopfzeile der Karte. Der Rand bleibt bernsteinfarben, die Karte bleibt ein „Wartet auf dich“. Darunter die Karte ohne Freigabe.</p>
+  </div>
+</div>
+
+<!-- ============ 3 · #132 ============ -->
+<h2 id="b3">3 · #132 „Plan ändern?“ <small>Marke in der Leiste und die Karte im Chat</small></h2>
+<div class="row3">
+  <div><p class="lbl"><b>A</b> · an der Umsetzung</p><div class="side" id="pm-a"></div><p class="why">Marke vor dem Fortschritt der Umsetzung, statt des Punkts für Ungelesenes. Ist die Master-Session zugeklappt, sieht man sie nicht.</p></div>
+  <div><p class="lbl"><b>B</b> · an der Master-Session</p><div class="side" id="pm-b"></div><p class="why">Marke neben ◆. Auch bei zugeklappter Gruppe sichtbar, aber nicht bei einer Umsetzung ohne Master.</p></div>
+  <div><p class="lbl"><b>C</b> · an beiden</p><div class="side" id="pm-c"></div><p class="why">Am Master als Quadrat, an der Umsetzung mit Beschriftung. Sichtbar, wo man hinschaut; ein Klick auf eine der beiden Marken führt zur Karte.</p></div>
+</div>
+<p class="cap">Die Marke ist ein Knopf mit <code>aria-label</code> „Plan ändern? Vorschlag ansehen“ und <code>title</code>. Ein Klick öffnet die Umsetzung mit Fokus auf der Karte. Ist die Änderung entschieden, verschwindet sie.</p>
+
+<h3>Karte im Chat, auf die der Klick führt</h3>
+<div class="row2">
+  <div><p class="lbl">Heute</p><div class="pane"><div class="chat" id="c-now"></div></div></div>
+  <div><p class="lbl"><b>Vorschlag</b>: stärker abgehoben</p><div class="pane"><div class="chat" id="c-new"></div></div></div>
+</div>
+<p class="cap">Vorschlag: getönter Grund (Akzent, 10 % hell / 16 % dunkel), kräftigerer Rahmen und linke Kante (5 px), ein Ring, ein Kopf mit Symbol ✎ und der Marke „wartet auf dich“. Kein Blinken. Beim Sprung aus der Leiste trägt die Karte kurz den Fokusring (rechts unten).</p>
+<p class="lbl">Nach dem Klick auf die Marke: Karte mit Fokus</p>
+<div class="pane" style="max-width:620px"><div class="chat" id="c-focus"></div></div>
+
+<section class="doc">
+  <h2>Was der Entwurf zeigt</h2>
+  <ul>
+    <li><b>#135:</b> Varianten A bis D des Knopfs „Umsetzung starten“ in drei Zuständen. <b>D (Vorschlag):</b> ein Streifen unter der Leiste, der sagt, warum nichts startet („3 Stationen sind bereit und starten nicht von selbst“), mit dem Knopf darin. Er erklärt den Zustand, belegt keinen Platz in der Leiste und verschwindet von selbst.</li>
+    <li><b>#136:</b> „Erledigt“ in der Zeile, Rückfrage ohne Freigabe auf allen drei Wegen, Marke der Freigabe in Leiste (A oder B) und Karte.</li>
+    <li><b>#132:</b> Marke in der Leiste (A, B, C), die Karte „Plan ändern?“ heute und als Vorschlag.</li>
+    <li>Die Wahl trifft der Nutzer.</li>
+  </ul>
+</section>
+</main>
+
+<script>
+const root=document.documentElement;
+const hash=new URLSearchParams(location.hash.slice(1));
+function setTheme(t){root.dataset.theme=t;document.querySelectorAll('#sim button').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.v===t)))}
+setTheme(hash.get('theme')||'dark');
+document.querySelectorAll('#sim button').forEach(b=>b.onclick=()=>setTheme(b.dataset.v));
+const $=id=>document.getElementById(id);
+
+/* ---------- #135 ---------- */
+const GO='▶ Umsetzung starten';
+const tog=on=>`<span class="tog${on?' on':''}"></span>`;
+const sw=(label,on)=>`<span class="sw">${label}${tog(on)}</span>`;
+const resume=on=>`<span class="sw">↻ Automatisch fortsetzen${tog(on)}</span>`;
+const tail=`<span class="sp"></span><span class="acts"><span class="bb">+ Lane</span><span class="bb">Anhalten nach dieser Session</span><span class="bb">Neue Rückfrage</span><span class="bb">Lagebericht</span><span class="bb">Abbrechen…</span></span>`;
+const goBtn=(cls='go')=>`<span class="bb ${cls}">${GO}</span>`;
+const STATES=[
+  {n:'① Noch nicht begonnen',done:0,auto:false,slots:'Plätze 0 von 2',btn:true,rows:[['rd','Stufe 1 · Spezifikation','bereit',''],['rd','Stufe 1 · Mockup','bereit',''],['rd','Stufe 1 · Hooks','bereit','']]},
+  {n:'② Nach dem Klick (Grenze 2)',done:0,auto:true,slots:'Plätze 2 von 2',btn:false,rows:[['cd','Stufe 1 · Spezifikation','startet in 8 s','<span class="mini">Abbrechen</span>'],['cd','Stufe 1 · Mockup','startet in 8 s','<span class="mini">Abbrechen</span>'],['q','Stufe 1 · Hooks','eingereiht (wartet auf einen Platz)','']]},
+  {n:'③ Begonnen, Automatik aus',done:2,auto:false,slots:'Plätze 0 von 2',btn:true,rows:[['done','Stufe 1 · Spezifikation','fertig',''],['rd','Stufe 2 · Review','bereit','<span class="mini">▶</span>'],['rd','Stufe 2 · Umsetzung','bereit','<span class="mini">▶</span>']]}
+];
+function bar(s,v){
+  const prog=`<span>${s.done} von 6 fertig</span><span class="prog"><i style="width:${s.done/6*100}%"></i></span>`;
+  const auto=sw('Automatisch starten',s.auto);
+  let mid;
+  if(v==='A'||v==='C'||v==='D'){mid=(s.btn&&v!=='D'?goBtn():'')+auto+resume(false)}
+  else if(v==='B'){mid=(s.btn&&s.done===0?goBtn():auto)+(s.btn&&s.done>0?goBtn('go2'):'')+resume(false)}
+  return `<div class="ibar">${prog}${mid}<span class="slots">${s.slots}</span>${tail}</div>`;
+}
+function rows(s){return `<div class="tl"><div class="stage">Stufe ${s.done?'2':'1'}</div>${s.rows.map(r=>`<div class="tr"><span class="dotx ${r[0]}"></span><span class="nm">${r[1]}<span class="meta">opus</span></span><span class="st ${r[0]}">${r[2]}${r[3]}</span></div>`).join('')}</div>`}
+function strip(s){return s.btn?`<div class="strip"><span>${s.done?'2 Stationen sind bereit':'3 Stationen sind bereit'} und starten nicht von selbst.</span>${goBtn()}<span style="color:var(--fgm)">Schaltet „Automatisch starten“ ein, bis zur Grenze „Gleichzeitige Agenten max.“, der Rest wartet.</span></div>`:'';}
+function flowRow(s){
+  return `<div class="flow"><span><b>Welle 4</b> · ${s.done} von 6 fertig</span><span class="prog"><i style="width:${s.done/6*100}%"></i></span>${s.btn?goBtn():`<span style="color:var(--fgm)">läuft</span>`}</div>`;
+}
+const VAR=[
+ ['A','Ein Hauptknopf links vor den Schaltern','Steht in der Leiste dort, wo die Augen beginnen; der Knopf steht links von „Automatisch starten“. Zeilen und Leiste zeigen alle drei Zustände.'],
+ ['B','Der Knopf ersetzt den Schalter, solange nicht begonnen','① ersetzt der Knopf den Schalter. ③ (begonnen) steht der Schalter wieder da, der Knopf daneben in gedämpftem Akzent, damit die Regel „bereit und nicht automatisch“ bleibt. Spart eine Stelle, doch der Schalter fehlt im Zustand ①.'],
+ ['C','Wie A, dazu derselbe Knopf an der Zeile des Ablaufs im Dashboard','Die Zeile im Dashboard („Abläufe“) trägt denselben Knopf; er verschwindet in beiden Orten gleichzeitig.'],
+ ['D','Vorschlag: Streifen unter der Leiste, der den Grund nennt','Der Streifen sagt, <i>warum</i> nichts startet, und enthält den Knopf. Er braucht keinen Platz in der Leiste, verschwindet von selbst und ist auch bei schmaler Leiste eine eigene Zeile.']
+];
+$('s1').innerHTML=VAR.map(([v,t,why])=>`<p class="lbl"><b>${v}</b> · ${t}</p>`+STATES.map(s=>{
+  const showRows=v==='A';
+  return `<div class="pane"><div class="lbl" style="margin:6px 18px 0">${s.n}</div>${bar(s,v)}${v==='D'?strip(s):''}${showRows?rows(s):''}${v==='C'?`<div class="flows">${flowRow(s)}</div>`:''}</div>`;
+}).join('')+`<p class="why">${why}${v!=='A'?' Zeilen der Zeitleiste wie bei A.':''}</p>`).join('');
+
+/* ---------- #136 ---------- */
+const trow=(rel,ask)=>`<div class="tl"><div class="stage">Stufe 3</div>
+ <div class="tr foc"><span class="dotx you"></span><span class="nm">Stufe 3 · Abnahme<span class="meta">durch dich</span></span>
+  <span class="st you">wartet auf dich<span class="mini ${rel?'pri':''}" title="Meldet diese Station als fertig, damit die nächste starten darf">Erledigt</span><span class="mini">Öffnen</span></span>
+  ${rel?'<span class="sub"><span class="chip rel" title="Der Master hat diese Station „durch dich“ freigegeben; „Erledigt“ bleibt bei dir.">✓ freigegeben</span> Stufe 3 ist dran, der Master hat sie freigegeben.</span>':''}
+  ${ask?`<div class="confirm" role="group" aria-label="Rückfrage"><span>Der Master hat diese Station nicht freigegeben. Trotzdem erledigt?</span><span class="mini pri">Erledigt</span><span class="mini">Zurück</span></div>`:''}
+ </div>
+ <div class="tr"><span class="dotx"></span><span class="nm">Stufe 4 · Release<span class="meta">sonnet</span></span><span class="st">noch nicht an der Reihe</span></div></div>`;
+$('r-rel').innerHTML=trow(true,false);
+$('r-not').innerHTML=trow(false,false);
+$('r-ask').innerHTML=trow(false,true);
+$('r-pop').innerHTML=`<div class="dlg" style="--tone:var(--wait)"><div class="dh"><div class="k">Durch dich</div><div class="m">Welle 4 · Station 3.2 Abnahme · seit 6 min</div></div>
+ <div class="db"><div>Die Station wartet auf dich. Der Master hat sie nicht freigegeben.</div>
+  <div class="confirm" style="margin:0" role="group" aria-label="Rückfrage"><span>Der Master hat diese Station nicht freigegeben. Trotzdem erledigt?</span><span class="mini pri">Erledigt</span><span class="mini">Zurück</span></div></div>
+ <div class="df"><button class="btn ghost">Station öffnen</button><button class="btn pri">Erledigt</button></div></div>`;
+const sstation=(rel,mark)=>`<div class="sst srow" style="height:auto"><span class="sdot"><span class="dotx you"></span></span><span class="nm" style="flex:1 1 0;min-width:4ch">Abnahme</span><span class="ph">3.2</span>${mark==='b'&&rel?`<span style="color:var(--rep);font-weight:700" title="vom Master freigegeben">✓</span>`:''}<span class="tail"><span class="w">wartet auf dich</span>${mark==='a'&&rel?'<span class="chip rel">✓ freigegeben</span>':''}</span></div>`;
+const sbTree=(mark)=>`<div class="srow"><span class="sdot"><span class="dotx" style="background:var(--run)"></span></span><span class="nm">Welle 4</span><span class="pg">3/6</span></div><div class="nest">${sstation(true,mark)}${sstation(false,mark)}</div>`;
+$('sb-a').innerHTML=sbTree('a');$('sb-b').innerHTML=sbTree('b');
+$('dc').innerHTML=`<div style="display:flex;flex-direction:column;gap:8px">
+ <div class="dcard" style="--tone:var(--wait)"><span class="top"><span class="k">Durch dich</span><span class="chip rel">✓ vom Master freigegeben</span><span class="since">6 min</span></span><span class="t">Abnahme: „Umsetzung starten“ prüfen</span><span class="src">Welle 4 · 3.2 Abnahme</span></div>
+ <div class="dcard" style="--tone:var(--wait)"><span class="top"><span class="k">Durch dich</span><span class="since">11 min</span></span><span class="t">Abnahme: Chat-Sprung prüfen</span><span class="src">Welle 4 · 3.5 Abnahme</span></div></div>`;
+
+/* ---------- #132 ---------- */
+const pm=(rowMark,mstMark)=>`<div class="sgrp">Verwalter</div>
+ <div class="srow"><span class="sdot"><span class="dotx" style="background:var(--run)"></span></span><span class="nm">Wellen planen</span><span class="mst">◆</span>${mstMark}<span class="pg"></span></div>
+ <div class="nest"><div class="srow act"><span style="font-size:11px;width:10px;text-align:center">▤</span><span class="nm">Welle 4: Stationen</span>${rowMark}<span class="pg">3/6</span></div></div>`;
+const MK='<button class="pmark" aria-label="Plan ändern? Vorschlag ansehen" title="Plan ändern? Zeigt den Vorschlag">✎ Plan?</button>';
+const MQ='<button class="pmark sq" aria-label="Plan ändern? Vorschlag ansehen" title="Plan ändern? Zeigt den Vorschlag">✎</button>';
+$('pm-a').innerHTML=pm(MK,'');$('pm-b').innerHTML=pm('',MK);$('pm-c').innerHTML=pm(MK,MQ);
+const pbody=`<dl><dt>Neue Station</dt><dd>Stufe 2 · Hooks (Review)</dd><dt>Entfällt</dt><dd>Stufe 4 · Nachprüfung</dd></dl><div class="ft"><button class="btn">Verwerfen</button><button class="btn pri">Übernehmen</button></div>`;
+const chatWrap=(card)=>`<div class="msg">Der Master schlägt vor, den Plan zu ändern.</div>${card}<div class="msg">Weiter im Chat …</div>`;
+$('c-now').innerHTML=chatWrap(`<div class="pcard now pend"><div class="hd">Plan ändern?</div>${pbody}</div>`);
+$('c-new').innerHTML=chatWrap(`<div class="pcard new"><div class="hd"><span aria-hidden="true">✎</span>Plan ändern?<span class="badge">wartet auf dich</span></div>${pbody}</div>`);
+$('c-focus').innerHTML=`<div class="flash"><div class="pcard new"><div class="hd"><span aria-hidden="true">✎</span>Plan ändern?<span class="badge">wartet auf dich</span></div>${pbody}</div></div>`;
+</script>
+</body>
+</html>

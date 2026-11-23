@@ -2,9 +2,11 @@ import type { ReactElement } from 'react';
 import { CardSection } from '@/features/implementation/CardSection';
 import { isBegun } from '@/features/implementation/implementationOrder';
 import {
+  AUTO_RESUME_LABEL,
   AUTO_START_STATION_LABEL,
   AUTOMATION_SUMMARY_BY_USER,
   automationSummary,
+  autoResumeHint,
   autoStartHint,
   autoStartOptions,
   BY_USER_AUTOMATION_HINT,
@@ -18,7 +20,7 @@ import { SegmentGroup } from '@/features/implementation/SegmentGroup';
 import type { OnError } from '@/lib/bindings/OnError';
 import type { StationOptions } from '@/lib/bindings/StationOptions';
 import type { StationView } from '@/lib/bindings/StationView';
-import { setStationOptions } from '@/lib/implementation';
+import { setStationAutoResume, setStationOptions } from '@/lib/implementation';
 import type { ActionError } from '@/lib/useActionError';
 
 interface StationAutomationSectionProps {
@@ -26,17 +28,21 @@ interface StationAutomationSectionProps {
   station: StationView;
   /** Schalter „Automatisch starten“ der Leiste. */
   isImplementationAutomatic: boolean;
+  /** Schalter „Automatisch fortsetzen“ der Leiste. */
+  isImplementationResuming: boolean;
   isOpen: boolean;
   onToggle: () => void;
   isLocked: boolean;
   run: ActionError['run'];
 }
 
-/** „Automatik“ der Kartei: „Automatisch starten“ (bis zum Start) und „Bei Fehler“ (bis fertig). */
+/** „Automatik“ der Kartei: „Automatisch starten“ (bis zum Start), „Automatisch fortsetzen“ und „Bei
+ *  Fehler“ (beide bis fertig). */
 export function StationAutomationSection({
   implementationId,
   station,
   isImplementationAutomatic,
+  isImplementationResuming,
   isOpen,
   onToggle,
   isLocked,
@@ -71,7 +77,7 @@ export function StationAutomationSection({
   return (
     <CardSection
       title={SECTION_AUTOMATION}
-      summary={automationSummary(station.autoStart, station.onError)}
+      summary={automationSummary(station.autoStart, station.autoResume, station.onError)}
       isOpen={isOpen}
       onToggle={onToggle}
     >
@@ -88,6 +94,21 @@ export function StationAutomationSection({
         />
       </div>
       <p className="station-card__hint">{autoStartHint(station.startsAutomatically)}</p>
+      <div className="station-card__line">
+        <span className="station-card__label">{AUTO_RESUME_LABEL}</span>
+        <SegmentGroup<boolean | null>
+          label={AUTO_RESUME_LABEL}
+          options={autoStartOptions(isImplementationResuming)}
+          value={station.autoResume}
+          disabled={station.state === 'done' || isLocked}
+          onChange={(value: boolean | null): void => {
+            run(() => setStationAutoResume(implementationId, station.id, value), NOT_SAVED);
+          }}
+        />
+      </div>
+      <p className="station-card__hint">
+        {autoResumeHint(station.resumesAutomatically, station.autoResume !== null)}
+      </p>
       <div className="station-card__line">
         <span className="station-card__label">{ON_ERROR_LABEL}</span>
         <SegmentGroup<OnError>

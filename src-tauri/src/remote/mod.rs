@@ -27,6 +27,8 @@ use control::{Control, Refused};
 pub const CHANGED_EVENT: &str = "remote://changed";
 /// `{ hostId }`, am Gast: Das Kontingent eines Hosts hat sich geändert (`usage://changed` am Host).
 pub const USAGE_CHANGED_EVENT: &str = "remote://usage-changed";
+/// `{ hostId }`, am Gast: Die Warteschlange eines Hosts hat sich geändert (`agent_queue://changed` am Host).
+pub const AGENT_QUEUE_CHANGED_EVENT: &str = "remote://agent-queue-changed";
 /// Ordner unter `~/.verwalter` für Zertifikat und Hosts.
 pub const DIR_NAME: &str = "remote";
 pub const HOST_KEY_FILE: &str = "host-key.pem";
@@ -88,8 +90,12 @@ pub fn host_name() -> String {
 }
 
 /// Schreibt eine Datei mit Geheimnissen über eine Zwischendatei; unter Linux und macOS nur für den
-/// Besitzer lesbar (0600).
+/// Besitzer lesbar (0600). Eine prozessweite Sperre hält Zwischendatei und `rename` zusammen: Alle
+/// Aufrufe teilen sich `<name>.tmp`, und ohne die Sperre scheitert bei zwei gleichzeitigen Aufrufen
+/// das zweite `rename` mit „nicht gefunden“.
 pub(crate) fn write_private(path: &Path, bytes: &[u8]) -> io::Result<()> {
+    static WRITING: Mutex<()> = Mutex::new(());
+    let _writing = WRITING.lock().unwrap_or_else(PoisonError::into_inner);
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
     }

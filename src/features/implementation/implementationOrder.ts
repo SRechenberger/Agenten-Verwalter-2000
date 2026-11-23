@@ -1,4 +1,4 @@
-import { urgencyRank } from '@/features/implementation/stationState';
+import { stationUrgencyRank } from '@/features/implementation/stationState';
 import type { ChangeView } from '@/lib/bindings/ChangeView';
 import type { ImplementationView } from '@/lib/bindings/ImplementationView';
 import type { PhaseView } from '@/lib/bindings/PhaseView';
@@ -14,10 +14,34 @@ const ACTIVE_STATES: readonly StationState[] = [
   'running',
   'starting',
   'waitsForScript',
+  'waitsForQuota',
+  'reported',
   'asking',
   'waitsForYou',
 ];
-const NEEDS_USER_STATES: readonly StationState[] = ['asking', 'waitsForYou'];
+/** Zustände, in denen eine Station auf den Benutzer wartet. */
+export const NEEDS_USER_STATES: readonly StationState[] = ['asking', 'waitsForYou'];
+/** Wartet die Station auf den Benutzer, auch eine fertige oder gemeldete, deren Session fragt oder pausiert? */
+export function needsUser(station: StationView): boolean {
+  return (
+    NEEDS_USER_STATES.includes(station.state) ||
+    (station.live !== null && NEEDS_USER_STATES.includes(station.live))
+  );
+}
+
+/** Zustände einer aktiven Station: Sidebar, Rückweg-Leiste, Zeitleisten-Sprung (ADR 065). */
+export const LIVE_STATES: readonly StationState[] = [
+  'ready',
+  'countdown',
+  'starting',
+  'running',
+  'waitsForScript',
+  'waitsForQuota',
+  'reported',
+  'asking',
+  'waitsForYou',
+  'error',
+];
 
 export interface StationRef {
   station: StationView;
@@ -36,19 +60,10 @@ export function changeFocusId(change: ChangeView): string {
   return `${CHANGE_PREFIX}${change.id}`;
 }
 
-/** Hat die Station eine Session oder ist sie fertig? Dann sind Auftrag, Agent und Kanten fest (ADR 061). */
+/** Hat die Station eine Session, lief sie (`startedAt`) oder ist sie fertig? Dann sind Auftrag, Agent und
+ *  Kanten fest (ADR 061); dieselbe Regel wie `station_is_begun` im Core. */
 export function isBegun(station: StationView): boolean {
-  return station.sessionId !== null || station.completedAt !== null;
-}
-
-/** Name einer Station in Chips und Sätzen: die Stufe, bei gleichen Namen in mehreren Lanes mit Lane
- *  („Review · Lane 2“). */
-export function stationName(ref: StationRef, refs: readonly StationRef[]): string {
-  const isShared: boolean = refs.some(
-    (other: StationRef) =>
-      other.station.id !== ref.station.id && other.station.stage === ref.station.stage,
-  );
-  return isShared ? `${ref.station.stage} · Lane ${ref.phase.key}` : ref.station.stage;
+  return station.sessionId !== null || station.startedAt !== null || station.completedAt !== null;
 }
 
 export function changeIdOf(focusId: string): string | null {
@@ -73,6 +88,23 @@ export function flatStations(implementation: ImplementationView): StationRef[] {
     .map((ref: Omit<StationRef, 'index'>, index: number): StationRef => ({ ...ref, index }));
 }
 
+/** Aktive Stationen (ADR 065) in der Reihenfolge der Zeitleiste. */
+export function liveStations(implementation: ImplementationView): StationRef[] {
+  return flatStations(implementation).filter((ref: StationRef) =>
+    LIVE_STATES.includes(ref.station.state),
+  );
+}
+
+/** Stufe, bei der die Zeitleiste öffnet (ADR 065): die der ersten aktiven Station in der Reihenfolge der
+ *  Zeitleiste, sonst die der ersten nicht fertigen; `null`, wenn alles fertig ist. */
+export function openingLevel(implementation: ImplementationView): number | null {
+  const refs: StationRef[] = flatStations(implementation);
+  const target: StationRef | undefined =
+    refs.find((ref: StationRef) => LIVE_STATES.includes(ref.station.state)) ??
+    refs.find((ref: StationRef) => ref.station.state !== 'done');
+  return target === undefined ? null : target.station.level;
+}
+
 /** Die Station, die vorn liegt, solange niemand gewählt hat: die dringendste, bei Gleichstand die
  *  erste in Plan-Reihenfolge; ist alles fertig, die letzte. */
 function currentStationId(implementation: ImplementationView): string | null {
@@ -81,7 +113,7 @@ function currentStationId(implementation: ImplementationView): string | null {
   for (const candidate of refs) {
     if (
       best === undefined ||
-      urgencyRank(candidate.station.state) < urgencyRank(best.station.state)
+      stationUrgencyRank(candidate.station) < stationUrgencyRank(best.station)
     ) {
       best = candidate;
     }
@@ -140,6 +172,31 @@ function otherActive(refs: readonly StationRef[], focused: StationRef): StationR
       candidate.station.id !== focused.station.id &&
       candidate.phase.id !== focused.phase.id &&
       ACTIVE_STATES.includes(candidate.station.state),
+  );
+}
+
+/** Zustände, in denen die Session einer Station arbeitet oder nach dem Kontingent von selbst
+ *  weiterarbeitet; sie sperren das Löschen (ADR 066). */
+const WORKING_STATES: readonly StationState[] = [
+  'starting',
+  'running',
+  'waitsForScript',
+  'waitsForQuota',
+];
+
+/** Die erste Station mit arbeitender Session; `undefined`, wenn keine arbeitet (wie `working_station`
+ *  im Core, ohne die Starts, die nur der Core sieht). */
+export function workingStation(implementation: ImplementationView): StationRef | undefined {
+  return flatStations(implementation).find((ref: StationRef) =>
+    WORKING_STATES.includes(ref.station.state),
+  );
+}
+
+/** Löschen dürfen nur abgebrochene oder nie begonnene Umsetzungen (wie `may_delete` im Core). */
+export function mayDelete(implementation: ImplementationView): boolean {
+  return (
+    implementation.cancelledAt !== null ||
+    !implementation.phases.some((phase: PhaseView) => phase.stations.some(isBegun))
   );
 }
 

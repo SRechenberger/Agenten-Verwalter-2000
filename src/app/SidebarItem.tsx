@@ -6,6 +6,7 @@ import { StatusIcon } from '@/components/StatusIcon';
 import { TwinFoldersIcon } from '@/components/TwinFoldersIcon';
 import { formatDuration } from '@/features/background/backgroundLabels';
 import { useNow } from '@/features/background/useNow';
+import { messageWaitShort, messageWaitText } from '@/features/queue/queueTexts';
 import type { DisplayStatus } from '@/features/sessions/sessionStatus';
 import type { SessionSummary } from '@/lib/bindings/SessionSummary';
 import { useOverlapStore } from '@/stores/overlaps';
@@ -17,6 +18,10 @@ interface SidebarItemProps {
   session: SessionSummary;
   /** Symbol-Status; kann `handoff` sein, was der Core nicht kennt. */
   status: DisplayStatus;
+  /** Platz der zugestellten Nachricht, die auf einen Platz wartet (ADR 068); `null` ohne. */
+  messageWait: number | null;
+  /** Die Session leitet eine Umsetzung, die unter ihr steht (ADR 070). */
+  isMaster: boolean;
   isActive: boolean;
   isRenaming: boolean;
   onSelect: () => void;
@@ -35,6 +40,8 @@ interface SidebarItemProps {
 export function SidebarItem({
   session,
   status,
+  messageWait,
+  isMaster,
   isActive,
   isRenaming,
   onSelect,
@@ -85,9 +92,29 @@ export function SidebarItem({
         >
           {session.name}
         </span>
+        {isMaster && (
+          <span
+            className="sidebar-item__master"
+            role="img"
+            aria-label="Master einer Umsetzung"
+            title="Master: leitet die Umsetzung unter ihr"
+          >
+            ◆
+          </span>
+        )}
         {status === 'script' && session.awaitedScript !== null && (
           <span className="sidebar-item__clock" title={session.awaitedScript.title}>
             {formatDuration(now - session.awaitedScript.startedAt)}
+          </span>
+        )}
+        {messageWait !== null && (
+          <span
+            className="sidebar-item__queue"
+            role="img"
+            aria-label={messageWaitText(messageWait)}
+            title={messageWaitText(messageWait)}
+          >
+            {messageWaitShort(messageWait)}
           </span>
         )}
         {hasOverlap && (

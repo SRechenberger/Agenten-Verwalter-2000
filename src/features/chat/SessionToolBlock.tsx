@@ -4,7 +4,14 @@ import { EffortDots } from '@/components/EffortDots';
 import { ModelMenu } from '@/components/ModelMenu';
 import { StatusIcon } from '@/components/StatusIcon';
 import { Switch } from '@/components/Switch';
-import type { QuestionEntry, ToolDraft, ToolEdit } from '@/features/chat/questionDraft';
+import { AgentTypeProposalBlock } from '@/features/agenttypes/AgentTypeProposalBlock';
+import {
+  isAllowBlocked,
+  type QuestionEntry,
+  type ToolDraft,
+  type ToolEdit,
+} from '@/features/chat/questionDraft';
+import { SessionLink } from '@/features/chat/SessionLink';
 import { SelectButton } from '@/features/settings/SelectButton';
 import { useProjectLocked } from '@/features/remote/useProjectAccess';
 import type { Effort } from '@/lib/bindings/Effort';
@@ -13,6 +20,7 @@ import type { QuestionAnswer } from '@/lib/bindings/QuestionAnswer';
 import type { QuestionOption } from '@/lib/bindings/QuestionOption';
 import type { SelfRelease } from '@/lib/bindings/SelfRelease';
 import type { SessionRef } from '@/lib/bindings/SessionRef';
+import type { SessionSummary } from '@/lib/bindings/SessionSummary';
 import type { ToolRequest } from '@/lib/bindings/ToolRequest';
 import { commandErrorText } from '@/lib/errors';
 import { effortLabel, MODEL_OPTIONS, modelName } from '@/lib/labels';
@@ -21,6 +29,7 @@ import './QuestionBlock.css';
 import './SessionToolBlock.css';
 
 const QUESTION_INDEX = 0;
+const ALLOW_LABEL = 'Erlauben';
 const CHAIN_BRAKE_TEXT = '6 selbst freigegebene Aufrufe in Folge';
 /** Die Antworttexte des Core (`tool_answer_label`), als Knopf gelesen. */
 const ANSWER_OF_OPTION: Readonly<Record<string, string>> = {
@@ -28,10 +37,20 @@ const ANSWER_OF_OPTION: Readonly<Record<string, string>> = {
   Ablehnen: 'Abgelehnt',
 };
 
+/** Ein Aufruf eines Session-Werkzeugs; ein Vorschlag eines Agententyps hat seinen eigenen Kasten. */
+type SessionToolCall = Exclude<ToolRequest, { kind: 'agentType' }>;
+
 interface SessionToolBlockProps {
   entry: QuestionEntry;
   request: ToolRequest;
+  sessionId: string;
+  /** Nummer der Session; der Dialog „Vorschlag bearbeiten“ nennt sie. */
+  sessionNumber: number;
   projectId: string;
+  /** Name des Agenten nach der Betriebsart des Vorhabens („Claude“, „Autark“, …). */
+  agentName: string;
+  /** Liste der Sessions: Nur wer noch darin steht, ist ein Sprungziel. */
+  sessions: readonly SessionSummary[];
   /** Selbstfreigabe des Vorhabens; `null`, solange das Vorhaben nicht geladen ist. */
   selfRelease: SelfRelease | null;
   draft: ToolDraft;
@@ -41,18 +60,40 @@ interface SessionToolBlockProps {
   onDraft: (next: ToolDraft) => void;
 }
 
+/** Kasten eines Werkzeugs, das auf die Entscheidung wartet. */
+export function SessionToolBlock(props: SessionToolBlockProps): ReactElement {
+  const { request } = props;
+  if (request.kind === 'agentType') {
+    return (
+      <AgentTypeProposalBlock
+        entry={props.entry}
+        request={request}
+        sessionId={props.sessionId}
+        sessionNumber={props.sessionNumber}
+        projectId={props.projectId}
+        draft={props.draft}
+        isSending={props.isSending}
+        onDraft={props.onDraft}
+      />
+    );
+  }
+  return <SessionToolCallBlock {...props} request={request} />;
+}
+
 /** Kasten eines Session-Werkzeugs: zeigt den Aufruf und lässt ihn erlauben, ablehnen oder ändern. */
-export function SessionToolBlock({
+function SessionToolCallBlock({
   entry,
   request,
   projectId,
+  agentName,
+  sessions,
   selfRelease,
   draft,
   isSending,
   onPick,
   onSubmit,
   onDraft,
-}: SessionToolBlockProps): ReactElement {
+}: SessionToolBlockProps & { request: SessionToolCall }): ReactElement {
   const [isModelMenuOpen, setIsModelMenuOpen] = useState<boolean>(false);
   const [isSaving, setIsSaving] = useState<boolean>(false);
   const isProjectLocked: boolean = useProjectLocked(projectId);
@@ -64,6 +105,8 @@ export function SessionToolBlock({
   const isLocked: boolean = isAnswered || isSending;
   const options: readonly QuestionOption[] = entry.questions[QUESTION_INDEX]?.options ?? [];
   const edit: ToolEdit | null = isAnswered ? null : draft.edit;
+  // Eine leere Nachricht geht nie an eine Session (B13): „Erlauben“ bleibt gesperrt, „Ablehnen“ nicht.
+  const isMessageEmpty: boolean = isAllowBlocked(request);
 
   // Der Fokus wandert nur nach dem Klick, der ihn verlangt — nicht bei jedem Neuaufbau des Verlaufs.
   useEffect(() => {
@@ -103,8 +146,15 @@ export function SessionToolBlock({
   function renderSession(session: SessionRef): ReactElement {
     return (
       <li key={session.id} className="session-tool__session">
-        <span className="question-block__chip">Session {session.number}</span>
-        <span className="session-tool__title">{session.title}</span>
+        <SessionLink
+          id={session.id}
+          number={session.number}
+          title={session.title}
+          canJump={sessions.some((other: SessionSummary) => other.id === session.id)}
+        >
+          <span className="question-block__chip">Session {session.number}</span>
+          <span className="session-tool__title session-link__title">{session.title}</span>
+        </SessionLink>
       </li>
     );
   }
@@ -114,22 +164,28 @@ export function SessionToolBlock({
       case 'sendMessage':
         return (
           <>
-            <p className="question-block__text">Claude möchte eine Nachricht senden an:</p>
+            <p className="question-block__text">{agentName} möchte eine Nachricht senden an:</p>
             <ul className="session-tool__sessions">{request.recipients.map(renderSession)}</ul>
+            {request.subject !== null && (
+              <p className="session-tool__subject">Betreff: {request.subject}</p>
+            )}
             {edit === null && <p className="session-tool__message">{request.message}</p>}
           </>
         );
       case 'getTldr':
         return (
           <>
-            <p className="question-block__text">Claude möchte das TL;DR lesen von:</p>
+            <p className="question-block__text">{agentName} möchte das TL;DR lesen von:</p>
             <ul className="session-tool__sessions">{renderSession(request.target)}</ul>
           </>
         );
       case 'openSession':
         return (
           <>
-            <p className="question-block__text">Claude möchte eine neue Session öffnen:</p>
+            <p className="question-block__text">{agentName} möchte eine neue Session öffnen:</p>
+            {request.subject !== null && (
+              <p className="session-tool__subject">Betreff: {request.subject}</p>
+            )}
             {edit === null && (
               <>
                 <p className="session-tool__message">{request.message}</p>
@@ -154,7 +210,12 @@ export function SessionToolBlock({
             className={`question-block__option${
               isSelected(option.label) ? ' question-block__option--selected' : ''
             }`}
-            disabled={isLocked}
+            disabled={isLocked || (isMessageEmpty && option.label === ALLOW_LABEL)}
+            title={
+              isMessageEmpty && option.label === ALLOW_LABEL
+                ? 'Leere Nachricht: Text fehlt'
+                : undefined
+            }
             onClick={(): void => {
               onPick(optionIndex);
             }}
@@ -291,7 +352,9 @@ export function SessionToolBlock({
     >
       <div className="question-block__head">
         <StatusIcon status={isAnswered ? 'completed' : 'waiting'} size={12} />
-        <span>{isAnswered ? 'Claude hat gefragt' : 'Claude wartet auf deine Entscheidung'}</span>
+        <span>
+          {isAnswered ? `${agentName} hat gefragt` : `${agentName} wartet auf deine Entscheidung`}
+        </span>
       </div>
       <div className="question-block__question">{renderRequest()}</div>
       {edit === null ? renderOptions() : renderEdit(edit)}
@@ -309,7 +372,7 @@ export function SessionToolBlock({
 }
 
 /** `null`: Der Aufruf hat keinen Text zum Ändern; der Core würde es abweisen. */
-function startEdit(request: ToolRequest): ToolEdit | null {
+function startEdit(request: SessionToolCall): ToolEdit | null {
   switch (request.kind) {
     case 'sendMessage':
       return { kind: 'edit', message: request.message, model: null, effort: null };
@@ -325,7 +388,7 @@ function startEdit(request: ToolRequest): ToolEdit | null {
   }
 }
 
-function releaseKey(request: ToolRequest): 'messages' | 'tldr' | 'openSession' {
+function releaseKey(request: SessionToolCall): 'messages' | 'tldr' | 'openSession' {
   switch (request.kind) {
     case 'sendMessage':
       return 'messages';

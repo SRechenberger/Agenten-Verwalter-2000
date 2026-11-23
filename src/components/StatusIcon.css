@@ -34,4 +34,39 @@
   &--new {
     color: var(--color-fg-muted);
   }
+
+  /* Farbe eines anderen Zustands, nach den Zuständen, damit sie gewinnt. */
+  &--tint-starting,
+  &--tint-running {
+    color: var(--color-status-running);
+  }
+
+  &--tint-waiting {
+    color: var(--color-status-waiting);
+  }
+
+  &--tint-error {
+    color: var(--color-status-error);
+  }
+
+  &--tint-paused {
+    color: var(--color-status-paused);
+  }
+
+  &--tint-completed {
+    color: var(--color-status-completed);
+  }
+
+  &--tint-script {
+    color: var(--color-status-script);
+  }
+
+  &--tint-handoff {
+    color: var(--color-status-handoff);
+  }
+
+  &--tint-new,
+  &--tint-cancelled {
+    color: var(--color-fg-muted);
+  }
 }

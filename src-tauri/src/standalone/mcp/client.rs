@@ -17,8 +17,7 @@ use serde_json::{Value, json};
 use ureq::http::HeaderValue;
 
 use super::config::{ServerConfig, Transport};
-use crate::processes::{self, hide_console};
-use crate::standalone::tasks::kill_process_tree;
+use crate::processes::{self, hide_console, kill_process_tree};
 use crate::standalone::tools::INTERRUPTED;
 
 /// Letzte Fassung mit `initialize`-Handschlag (Spezifikation 2025-11-25).
@@ -385,6 +384,8 @@ fn spawn(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
     hide_console(&mut process);
+    // Eigene Gruppe: `kill_process_tree` beendet so auch den Server hinter `npx` (ADR 074).
+    processes::own_group(&mut process);
     process.spawn()
 }
 

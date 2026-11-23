@@ -419,6 +419,16 @@ impl RemoteClients {
             .collect()
     }
 
+    /// Der Host hat den Eintrag gelöscht (`implementation://removed`): Er fehlt in der Liste.
+    pub fn forget(&self, host_id: &str, command: &str, id: &str) {
+        let Some(slot) = lock(&self.shared.hosts).get(host_id).cloned() else {
+            return;
+        };
+        if let Some(items) = lock(&slot.cache).lists.get_mut(command) {
+            remove_by_id(items, id);
+        }
+    }
+
     /// Die Freigabe ist zu Ende (Rahmen `access`): Das Vorhaben und seine Sessions, Umsetzungen und
     /// Überschneidungen verschwinden aus dem Zwischenspeicher.
     pub fn drop_project(&self, host_id: &str, project_id: &str) {
@@ -473,6 +483,11 @@ impl RemoteClients {
             .cloned()
             .ok_or_else(|| unknown_host(host_id))
     }
+}
+
+/// Entfernt den Eintrag mit dieser `id`.
+fn remove_by_id(items: &mut Vec<Value>, id: &str) {
+    items.retain(|item: &Value| item.get("id").and_then(Value::as_str) != Some(id));
 }
 
 /// Ersetzt den Eintrag mit derselben `id` oder hängt `item` an; ohne `id` bleibt die Liste, wie sie

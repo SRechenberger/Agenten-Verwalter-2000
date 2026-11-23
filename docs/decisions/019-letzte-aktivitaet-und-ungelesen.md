@@ -25,5 +25,9 @@ Die Sidebar verteilte die Vorhaben auf drei Gruppen („Braucht dich“, „Läu
 
 - Die Liste bleibt während der Läufe ruhig; sie bewegt sich erst beim Senden, bei einer Rückfrage, beim Fertigwerden oder bei einem Fehler.
 - Nach dem Update leuchtet nichts auf.
-- Nach dem Start öffnet die App die zuletzt aktive Session automatisch; sie gilt damit als gesehen, ihr Punkt verschwindet beim Start.
+- Nach dem Start öffnet die App die zuletzt aktive Session automatisch; sie gilt damit als gesehen, ihr Punkt verschwindet beim Start (überholt: siehe Nachtrag unten).
 - Die Übersichtskarten eines Vorhabens bleiben nach Nummer sortiert.
+
+## Nachtrag (Dashboard, [ADR 071](071-dashboard.md))
+
+Die App startet auf dem Dashboard. Es zeigt keine Session und gilt wie die Übersicht, die Einstellungen und „Neues Vorhaben“ als Seite ohne Session; deshalb markiert der Start keine Session mehr als gelesen, und der Punkt der zuletzt aktiven Session bleibt bis zum ersten Öffnen stehen. Die Auswahl der neuesten Session (`holdSession`) bleibt im Hintergrund, bis der Benutzer eine Session wählt.

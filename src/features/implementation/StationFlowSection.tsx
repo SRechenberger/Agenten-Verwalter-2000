@@ -7,11 +7,8 @@ import {
   patchEdit,
   type PlanNode,
 } from '@/features/implementation/implementationGraph';
-import {
-  isBegun,
-  stationName,
-  type StationRef,
-} from '@/features/implementation/implementationOrder';
+import { isBegun, type StationRef } from '@/features/implementation/implementationOrder';
+import { stationDisplay } from '@/features/implementation/commandStation';
 import {
   ADD_PREDECESSOR_LABEL,
   ADD_SUCCESSOR_LABEL,
@@ -71,7 +68,7 @@ export function StationFlowSection({
 
   function nameOf(planId: string): string {
     const ref: StationRef | undefined = byPlanId.get(planId);
-    return ref === undefined ? planId : stationName(ref, refs);
+    return ref === undefined ? planId : stationDisplay(ref.station);
   }
 
   /** `waiter` wartet künftig auf `after`. */
@@ -104,7 +101,7 @@ export function StationFlowSection({
           className="station-card__chip station-card__chip--lock"
           title={LOCKED_EDGE_TITLE}
         >
-          {stationName(ref, refs)} 🔒
+          {stationDisplay(ref.station)} 🔒
         </span>
       );
     }
@@ -117,14 +114,14 @@ export function StationFlowSection({
             onFocus(ref.station.id);
           }}
         >
-          {stationName(ref, refs)}
+          {stationDisplay(ref.station)}
           {isDone && ' ✓'}
         </button>
         <button
           type="button"
           className="station-card__chip-remove"
           title={REMOVE_EDGE_TITLE}
-          aria-label={`${REMOVE_EDGE_TITLE}: ${stationName(ref, refs)}`}
+          aria-label={`${REMOVE_EDGE_TITLE}: ${stationDisplay(ref.station)}`}
           disabled={isLocked}
           onClick={onRemove}
         >
@@ -159,7 +156,7 @@ export function StationFlowSection({
               }
             }}
           >
-            {stationName(ref, refs)}
+            {stationDisplay(ref.station)}
             {reason !== null && <small>{reason}</small>}
           </button>
         );

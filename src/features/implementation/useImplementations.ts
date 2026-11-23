@@ -5,7 +5,11 @@ import type { ImplementationView } from '@/lib/bindings/ImplementationView';
 import type { SessionSummary } from '@/lib/bindings/SessionSummary';
 import { onAgentTypesChanged } from '@/lib/agentTypes';
 import { commandErrorText } from '@/lib/errors';
-import { listImplementations, onImplementationChanged } from '@/lib/implementation';
+import {
+  listImplementations,
+  onImplementationChanged,
+  onImplementationRemoved,
+} from '@/lib/implementation';
 import { onSessionChanged } from '@/lib/sessions';
 
 export interface Implementations {
@@ -65,6 +69,13 @@ export function useImplementations(): Implementations {
 
     onImplementationChanged((implementation: ImplementationView) => {
       setImplementations((current: ImplementationView[]) => upsert(current, implementation));
+    })
+      .then(keep)
+      .catch(reportSubscribeError);
+    onImplementationRemoved((id: string) => {
+      setImplementations((current: ImplementationView[]) =>
+        current.filter((candidate: ImplementationView) => candidate.id !== id),
+      );
     })
       .then(keep)
       .catch(reportSubscribeError);

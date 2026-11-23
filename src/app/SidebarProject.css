@@ -94,6 +94,17 @@
     min-width: 0;
   }
 
+  /* ▲ hoch, ▼ niedrig (ADR 068); normal zeigt nichts. */
+  &__priority {
+    flex-shrink: 0;
+    font-size: var(--font-size-2xs);
+    color: var(--color-accent-text);
+
+    &--low {
+      color: var(--color-fg-muted);
+    }
+  }
+
   &__mark {
     display: inline-flex;
     flex-shrink: 0;

@@ -15,8 +15,10 @@ use super::dispatch::project_of;
 use super::guest::{self, GuestTerminals};
 use super::server::RemoteServer;
 use super::wire::Frame;
-use super::{CHANGED_EVENT, RemoteControl, USAGE_CHANGED_EVENT};
+use super::{AGENT_QUEUE_CHANGED_EVENT, CHANGED_EVENT, RemoteControl, USAGE_CHANGED_EVENT};
 use crate::db::Database;
+use crate::implementation::IMPLEMENTATION_REMOVED_EVENT as REMOVED_EVENT;
+use crate::sessions::registry::AGENT_QUEUE_CHANGED_EVENT as HOST_QUEUE_EVENT;
 use crate::sessions::registry::{SessionRegistry, now_ms};
 use crate::usage::USAGE_CHANGED_EVENT as HOST_USAGE_EVENT;
 
@@ -25,7 +27,7 @@ const EXPIRY_TICK: Duration = Duration::from_secs(5);
 
 /// Woran ein weitergegebenes Ereignis sein Vorhaben erkennt.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Owner {
+pub(super) enum Owner {
     /// `sessionId` im Inhalt.
     Session,
     /// `projectId` im Inhalt.
@@ -39,7 +41,7 @@ enum Owner {
 }
 
 /// Was weitergegeben wird. Ein neues Ereignis geht erst über das Netz, wenn es hier steht.
-const FORWARDED: &[(&str, Owner)] = &[
+pub(super) const FORWARDED: &[(&str, Owner)] = &[
     ("chat://entry", Owner::Session),
     ("background://changed", Owner::Session),
     ("context://changed", Owner::Session),
@@ -51,8 +53,11 @@ const FORWARDED: &[(&str, Owner)] = &[
     ("artifacts://show", Owner::Project),
     ("terminal://changed", Owner::Project),
     ("implementation://changed", Owner::Implementation),
+    (REMOVED_EVENT, Owner::Project),
     (PROJECT_CHANGED_EVENT, Owner::AnyDevice),
     (HOST_USAGE_EVENT, Owner::EveryDevice),
+    // Ohne Inhalt: Was ein Gast davon sehen darf, filtert der Host bei `agent_queue`.
+    (HOST_QUEUE_EVENT, Owner::EveryDevice),
 ];
 
 /// Hört die Ereignisse mit und gibt sie über einen eigenen Thread weiter: Ein `emit` kann unter
@@ -108,12 +113,7 @@ fn forward(
                 },
             )
         }),
-        Owner::Project => text(&payload, "projectId"),
-        Owner::Implementation => payload
-            .get("implementation")
-            .and_then(|implementation: &Value| text(implementation, "projectId")),
-        Owner::AnyDevice => text(&payload, "id"),
-        Owner::EveryDevice => None,
+        _ => project_in(owner, &payload),
     };
     let Some(project_id) = project_id else {
         return;
@@ -128,15 +128,33 @@ fn forward(
         }
         return;
     }
-    let holder = control.with(|control| {
-        control
-            .holder(&project_id)
-            .filter(|holder| holder.link == HolderLink::Connected)
-            .map(|holder| holder.device.id.clone())
-    });
-    if let Some(device_id) = holder {
+    if let Some(device_id) = connected_holder(control, &project_id) {
         server.send_to(&device_id, &frame);
     }
+}
+
+/// Das Vorhaben, das ein Ereignis nennt, wenn der Inhalt es trägt (nicht bei `Session`).
+pub(super) fn project_in(owner: Owner, payload: &Value) -> Option<String> {
+    let text = |value: &Value, key: &str| value.get(key).and_then(Value::as_str).map(str::to_owned);
+    match owner {
+        Owner::Project => text(payload, "projectId"),
+        Owner::Implementation => payload
+            .get("implementation")
+            .and_then(|implementation: &Value| text(implementation, "projectId")),
+        Owner::AnyDevice => text(payload, "id"),
+        Owner::Session | Owner::EveryDevice => None,
+    }
+}
+
+/// Das Gerät, das das Vorhaben hält, solange seine Verbindung steht: An dieses allein geht ein
+/// Ereignis des Vorhabens.
+pub(super) fn connected_holder(control: &RemoteControl, project_id: &str) -> Option<String> {
+    control.with(|control| {
+        control
+            .holder(project_id)
+            .filter(|holder| holder.link == HolderLink::Connected)
+            .map(|holder| holder.device.id.clone())
+    })
 }
 
 /// Nach fünf Minuten ohne Verbindung fällt ein Vorhaben an den Host zurück; die Freigabe bleibt.
@@ -180,6 +198,11 @@ pub fn on_guest_frame(app: &AppHandle, host_id: &str, frame: Frame) {
                 let _ = app.emit(USAGE_CHANGED_EVENT, json!({ "hostId": host_id }));
                 return;
             }
+            // Nie unter dem eigenen Namen: Sonst läse der Gast seine eigene Warteschlange neu.
+            if name == HOST_QUEUE_EVENT {
+                let _ = app.emit(AGENT_QUEUE_CHANGED_EVENT, json!({ "hostId": host_id }));
+                return;
+            }
             clients.learn(host_id, &payload);
             remember(&clients, host_id, &name, &payload);
             if name == PROJECT_CHANGED_EVENT {
@@ -208,6 +231,12 @@ pub fn on_guest_frame(app: &AppHandle, host_id: &str, frame: Frame) {
 /// Die Oberfläche lädt Listen nur einmal und fügt danach Ereignisse ein; der Zwischenspeicher für
 /// einen Host, der gerade weg ist, folgt denselben Ereignissen.
 fn remember(clients: &RemoteClients, host_id: &str, name: &str, payload: &Value) {
+    if name == REMOVED_EVENT {
+        if let Some(id) = payload.get("id").and_then(Value::as_str) {
+            clients.forget(host_id, "implementation_list", id);
+        }
+        return;
+    }
     let (command, item) = match name {
         PROJECT_CHANGED_EVENT => ("project_list", Some(payload)),
         "session://changed" => ("session_list", Some(payload)),

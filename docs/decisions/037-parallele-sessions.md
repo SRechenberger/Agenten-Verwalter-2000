@@ -14,7 +14,7 @@ Zwei Agenten, die im selben Ordner schreiben, überschreiben einander Änderunge
 
 ## Entscheidung
 
-- **Schreib-Ordner einer Session:** jeder Ticket-Worktree, den sie benutzt hat, und der Haupt-Checkout (bzw. Ordner ohne Git) eines angehängten Repositorys — Letzterer nur, wenn unter den geschriebenen Dateien der Session (ADR 014) eine liegt, die in keinem ihrer Ticket-Worktrees liegt. App-Worktrees zählen nicht, sie gehören je einer Session.
+- **Schreib-Ordner einer Session:** ~~jeder Ticket-Worktree, den sie benutzt hat~~ (überholt, siehe Nachtrag 2026-11-21) und der Haupt-Checkout (bzw. Ordner ohne Git) eines angehängten Repositorys — Letzterer nur, wenn unter den geschriebenen Dateien der Session (ADR 014) eine liegt, die in keinem ihrer Ticket-Worktrees liegt. App-Worktrees zählen nicht, sie gehören je einer Session.
 - **Nur laufende Agenten:** `Starting`, `Running`, `Waiting`, dazu ein Hauptagent, der auf einen Subagenten wartet. Eine Session, die gleich sendet, zählt schon mit.
 - **Vergleich:** ganzer Ordner, über `attribution::normalize_path`.
 - **Hinweis an die Oberfläche:** Command `session_overlaps`; die Oberfläche fragt alle 5 s und nach jedem `session://changed`.
@@ -25,3 +25,7 @@ Zwei Agenten, die im selben Ordner schreiben, überschreiben einander Änderunge
 - Die Oberfläche fragt alle 5 s; es gibt kein Ereignis zwischen Sessions.
 - Dateien, die der Agent per Shell schreibt, zählen nur, soweit `session_files` sie kennt.
 - Der Haupt-Checkout wird erst erkannt, wenn ein Schreibzugriff darauf vermerkt ist; vorher bleibt es still.
+
+### Nachtrag 2026-11-21: Ticket-Worktree nur mit geschriebener Datei (Taiga #31)
+
+Ein Ticket-Worktree zählt nur dann als Schreib-Ordner einer Session, wenn unter ihren geschriebenen Dateien (ADR 014) eine in ihm liegt, dieselbe Regel wie für den Haupt-Checkout. Vorher zählte jeder Worktree, den ein Werkzeug berührt hatte, auch ein lesendes; eine Review, die nur las, löste die Warnung „Gleicher Ordner“ aus. `note_ticket_worktrees` und die Changes bleiben unverändert: Die Changes zeigen weiter jeden benutzten Ticket-Worktree. Test: `cargo test --manifest-path src-tauri/Cargo.toml --lib sessions::registry::overlaps::`.

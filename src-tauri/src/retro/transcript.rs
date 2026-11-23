@@ -56,8 +56,12 @@ fn retro_block(entry: &ChatEntry, traces: &RuleTraces) -> Option<Block> {
         ToolState::Interrupted => "Werkzeug abgebrochen",
         ToolState::Running | ToolState::Done => return None,
     };
+    let text = match traces.tool_errors.get(tool_use_id) {
+        Some(error) => format!("{label}: {tool} {target} — {error}"),
+        None => format!("{label}: {tool} {target}"),
+    };
     Some(Block {
-        text: format!("{label}: {tool} {target}"),
+        text,
         is_user: false,
     })
 }

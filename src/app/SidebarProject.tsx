@@ -4,7 +4,14 @@ import { Popover } from '@/components/Popover';
 import { StatusIcon } from '@/components/StatusIcon';
 import { RenameField } from '@/app/SidebarItem';
 import { useNow } from '@/features/background/useNow';
-import { hasUnread, mostUrgent, projectMetaLine } from '@/features/projects/projectStatus';
+import {
+  hasUnread,
+  metaSession,
+  mostUrgent,
+  projectMetaLine,
+  visibleSessions,
+} from '@/features/projects/projectStatus';
+import { priorityMark, type PriorityMark } from '@/features/queue/queueTexts';
 import {
   isOffered,
   LOCKED_TITLE,
@@ -79,7 +86,11 @@ export function SidebarProject({
   const urgent: SessionSummary | null = mostUrgent(sessions);
   const urgentStatus: DisplayStatus =
     urgent === null ? 'completed' : displayStatus(urgent, sessions);
-  const now: number = useNow(urgentStatus === 'script');
+  // Die Metazeile spricht von einer Session mit eigener Zeile: Farbe und Ticken folgen ihr, nicht dem Symbol.
+  const metaUrgent: SessionSummary | null = metaSession(sessions);
+  const now: number = useNow(
+    metaUrgent !== null && displayStatus(metaUrgent, visibleSessions(sessions)) === 'script',
+  );
   const lock = useProjectLock(project.id);
   const reservedLeft: number | null = useReservedLeft(lock);
   const { access } = project;
@@ -148,14 +159,15 @@ export function SidebarProject({
     );
     const meta: string | null = remote.text;
     const markTitle: string | null = markTitleOf();
+    const priority: PriorityMark | null = priorityMark(project.priority);
     const isDone: boolean =
       !isFree && (urgentStatus === 'completed' || urgentStatus === 'cancelled');
     const isUnread: boolean = hasUnread(sessions);
     const toneClass: string =
       remote.tone !== null
         ? ` sidebar-project__meta--${remote.tone}`
-        : urgent !== null && isMetaHighlighted(urgent.status)
-          ? ` sidebar-project__meta--${urgent.status}`
+        : metaUrgent !== null && isMetaHighlighted(metaUrgent.status)
+          ? ` sidebar-project__meta--${metaUrgent.status}`
           : '';
     const metaClass = `sidebar-project__meta${toneClass}`;
     // Ein freies Vorhaben eines Hosts hat noch keine Sessions: Es zeigt das Symbol „neu“.
@@ -215,6 +227,16 @@ export function SidebarProject({
               >
                 {project.name}
               </span>
+              {priority !== null && (
+                <span
+                  className={`sidebar-project__priority sidebar-project__priority--${project.priority}`}
+                  role="img"
+                  aria-label={priority.title}
+                  title={priority.title}
+                >
+                  {priority.glyph}
+                </span>
+              )}
               {markTitle !== null && (
                 <span className="sidebar-project__mark" title={markTitle}>
                   <RemoteMark />

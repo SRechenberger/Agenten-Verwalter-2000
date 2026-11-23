@@ -1,0 +1,102 @@
+.popup-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-lg);
+  padding: var(--space-xl) var(--space-2xl);
+  overflow: auto;
+
+  & > p {
+    margin: 0;
+  }
+}
+
+.popup-foot {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--space-md);
+  padding: var(--space-lg) var(--space-2xl);
+  border-top: 1px solid var(--color-border-subtle);
+}
+
+.popup-button {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: transparent;
+  padding: var(--space-xs) var(--space-xl);
+  color: var(--color-fg-primary);
+  cursor: pointer;
+
+  &--primary {
+    border-color: var(--color-accent);
+    background: var(--color-accent);
+    color: var(--color-fg-on-accent);
+  }
+
+  &--ghost {
+    margin-right: auto;
+    color: var(--color-fg-secondary);
+  }
+
+  &:disabled {
+    opacity: 0.45;
+    cursor: default;
+  }
+}
+
+.popup-message {
+  padding: var(--space-md) var(--space-lg);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-lg);
+  background: var(--color-bg-base);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+
+  &--before {
+    color: var(--color-fg-secondary);
+  }
+
+  /* Markdown bricht selbst um; der Umbruch des Rohtexts würde in Listen, Code und Tabellen mitvererbt. */
+  &--markdown {
+    white-space: normal;
+    overflow-wrap: normal;
+    min-width: 0;
+  }
+}
+
+.popup-code {
+  padding: var(--space-sm) var(--space-md);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-base);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.popup-note {
+  color: var(--color-fg-muted);
+  font-size: var(--font-size-xs);
+}
+
+.popup-input {
+  box-sizing: border-box;
+  width: 100%;
+  padding: var(--space-sm) var(--space-md);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-base);
+  color: inherit;
+  font: inherit;
+  resize: vertical;
+}
+
+.popup-approve {
+  align-self: flex-start;
+  padding: 1px var(--space-md);
+  border: 1px solid var(--color-status-completed);
+  border-radius: var(--radius-full);
+  color: var(--color-status-completed);
+  font-size: var(--font-size-xs);
+}

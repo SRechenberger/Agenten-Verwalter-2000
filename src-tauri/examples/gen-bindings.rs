@@ -25,9 +25,14 @@ use verwalter_lib::{
     },
     cli_update::model::{CliUpdateOutcome, CliVersionStatus},
     codex::models::{CodexModel, CodexModels},
+    commands::agent_types::ProposalDecision,
     commands::app::AppInfo,
     context::model::{
         ContextBreakdown, ContextCategory, ContextChangedEvent, ContextFile, SessionContext,
+    },
+    dashboard::model::{
+        DashboardFlow, DashboardFlowState, DashboardSession, DashboardSessionState, DashboardTask,
+        DashboardTaskKind, DashboardView,
     },
     environment::model::{
         BrokenLink, EnvironmentStatus, LinkCheck, MirrorDiff, MirrorKind, MirrorRun, MirrorState,
@@ -39,17 +44,18 @@ use verwalter_lib::{
     },
     implementation::model::{
         BriefChange, BriefChangeKind, ChangeSummary, ChangeView, ImplementationChangedEvent,
-        ImplementationView, InquiryCreated, OnError, PendingChange, PhaseInput, PhaseMark,
-        PhaseView, PlanEdit, PredecessorsMay, StationAddition, StationInput, StationOptions,
-        StationPatch, StationSettings, StationState, StationView,
+        ImplementationRemovedEvent, ImplementationView, InquiryCreated, OnError, PendingChange,
+        PhaseInput, PhaseMark, PhaseView, PlanEdit, PredecessorsMay, StationAddition, StationInput,
+        StationOptions, StationPatch, StationSettings, StationState, StationView,
     },
+    implementation::slots::{AgentQueue, QueueEntry},
     lmstudio::model::{LocalModel, LocalModelKind, LocalModels},
     mcp::model::{
         McpAction, McpActionError, McpAuthWait, McpChangedEvent, McpServer, McpServerStatus,
         SessionMcp,
     },
     notices::model::{Denial, Notice},
-    projects::model::{ProjectCreated, ProjectGroup, ProjectSummary},
+    projects::model::{ProjectCreated, ProjectGroup, ProjectPriority, ProjectSummary},
     prompt_cache::model::PromptCache,
     remote::model::{
         DeviceRef, HostProfile, ProjectAccess, RemoteDevice, RemoteHostStatus, RemoteInvitation,
@@ -60,11 +66,12 @@ use verwalter_lib::{
     review::model::{CommentTarget, ReviewComment},
     session_tools::model::SelfRelease,
     sessions::model::{
-        AwaitedScript, ChatEntryEvent, ChatPage, SessionOverlap, SessionStatus, SessionSummary,
+        AwaitedScript, ChatEntryEvent, ChatPage, SendOutcome, SessionOverlap, SessionStatus,
+        SessionSummary,
     },
     settings::model::{
-        ColorScheme, OperatingMode, PanelId, PanelWidths, Settings, SettingsChange,
-        SettingsOverview, TerminalPlacement,
+        ColorScheme, DashboardChoice, OperatingMode, PanelId, PanelWidths, Settings,
+        SettingsChange, SettingsOverview, TerminalPlacement,
     },
     side::model::{SideChangedEvent, SideQuestion, SideState, SideUsage},
     skills::model::{SkillInfo, SkillKind, SkillOrigin, SkillRef, SkillUse},
@@ -84,6 +91,13 @@ fn main() -> Result<(), ts_rs::ExportError> {
         Config::new().with_out_dir(concat!(env!("CARGO_MANIFEST_DIR"), "/../src/lib/bindings"));
     AppInfo::export_all(&cfg)?;
     CommandError::export_all(&cfg)?;
+    DashboardView::export_all(&cfg)?;
+    DashboardTask::export_all(&cfg)?;
+    DashboardTaskKind::export_all(&cfg)?;
+    DashboardFlow::export_all(&cfg)?;
+    DashboardFlowState::export_all(&cfg)?;
+    DashboardSession::export_all(&cfg)?;
+    DashboardSessionState::export_all(&cfg)?;
     ModelId::export_all(&cfg)?;
     Effort::export_all(&cfg)?;
     Mode::export_all(&cfg)?;
@@ -116,6 +130,7 @@ fn main() -> Result<(), ts_rs::ExportError> {
     SessionSummary::export_all(&cfg)?;
     SessionOverlap::export_all(&cfg)?;
     ChatPage::export_all(&cfg)?;
+    SendOutcome::export_all(&cfg)?;
     ChatEntryEvent::export_all(&cfg)?;
     DeviceRef::export_all(&cfg)?;
     HostProfile::export_all(&cfg)?;
@@ -125,6 +140,7 @@ fn main() -> Result<(), ts_rs::ExportError> {
     RemoteHostStatus::export_all(&cfg)?;
     RemoteInvitation::export_all(&cfg)?;
     ProjectSummary::export_all(&cfg)?;
+    ProjectPriority::export_all(&cfg)?;
     ProjectCreated::export_all(&cfg)?;
     ProjectGroup::export_all(&cfg)?;
     ArchiveSnippet::export_all(&cfg)?;
@@ -196,6 +212,7 @@ fn main() -> Result<(), ts_rs::ExportError> {
     TerminalPlacement::export_all(&cfg)?;
     PanelId::export_all(&cfg)?;
     PanelWidths::export_all(&cfg)?;
+    DashboardChoice::export_all(&cfg)?;
     LocalModelKind::export_all(&cfg)?;
     LocalModel::export_all(&cfg)?;
     LocalModels::export_all(&cfg)?;
@@ -244,7 +261,10 @@ fn main() -> Result<(), ts_rs::ExportError> {
     BriefChange::export_all(&cfg)?;
     BriefChangeKind::export_all(&cfg)?;
     ImplementationView::export_all(&cfg)?;
+    AgentQueue::export_all(&cfg)?;
+    QueueEntry::export_all(&cfg)?;
     ImplementationChangedEvent::export_all(&cfg)?;
+    ImplementationRemovedEvent::export_all(&cfg)?;
     InquiryCreated::export_all(&cfg)?;
     TerminalInfo::export_all(&cfg)?;
     TerminalOutput::export_all(&cfg)?;
@@ -262,5 +282,6 @@ fn main() -> Result<(), ts_rs::ExportError> {
     FieldError::export_all(&cfg)?;
     AgentTypeSaved::export_all(&cfg)?;
     AgentValueSource::export_all(&cfg)?;
+    ProposalDecision::export_all(&cfg)?;
     Ok(())
 }

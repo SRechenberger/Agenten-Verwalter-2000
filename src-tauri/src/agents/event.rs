@@ -2,6 +2,7 @@
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
+use crate::agent_types::model::{AgentType, AgentTypeInput};
 use crate::artifacts::model::ArtifactKind;
 use crate::context::model::ContextBreakdown;
 use crate::mcp::model::McpServer;
@@ -180,14 +181,29 @@ pub enum ToolRequest {
     SendMessage {
         recipients: Vec<SessionRef>,
         message: String,
+        /// Einträge von vorher haben den Betreff nicht (ADR 072).
+        #[serde(default)]
+        subject: Option<String>,
     },
     GetTldr {
         target: SessionRef,
     },
     OpenSession {
         message: String,
+        #[serde(default)]
+        subject: Option<String>,
         model: ModelId,
         effort: Effort,
+    },
+    // Vorschlag eines Agententyps (ADR 063): nie Selbstfreigabe, entschieden wird nur über
+    // `agent_type_proposal_answer`.
+    AgentType {
+        // Gespeicherter Stand beim Vorschlag; `None` bei einem neuen Typ. `Box` nur der Größe des
+        // Enums wegen; serde und ts-rs sehen den Typ selbst.
+        base: Option<Box<AgentType>>,
+        // Vollständige Eingabe des Vorschlags (bei einer Änderung: `base` plus Änderungen), so, wie
+        // `validate` sie zurückgibt (getrimmt, doppelte Stationsnamen entfernt).
+        proposal: Box<AgentTypeInput>,
     },
 }
 
@@ -239,6 +255,10 @@ pub enum ChatEntry {
         /// Oberfläche. Der Agent bekommt es nie zu sehen.
         #[serde(default)]
         origin: Option<String>,
+        /// Wartet auf einen freien Platz (Taiga-Story 190): steht schon im Chat, ist aber noch nicht beim
+        /// Agenten. Die Freigabe setzt es zurück; Einträge von vorher haben das Feld nicht.
+        #[serde(default)]
+        queued: bool,
     },
     Text {
         seq: u32,
@@ -247,11 +267,17 @@ pub enum ChatEntry {
         /// geschrieben wie im Text; Einträge von vorher haben das Feld nicht.
         #[serde(default)]
         unsourced: Vec<String>,
+        // Zeitpunkt der Anlage in ms seit 1970; Einträge von vorher haben das Feld nicht.
+        #[serde(default)]
+        at: Option<f64>,
     },
     Thinking {
         seq: u32,
         text: String,
         seconds: u32,
+        // Zeitpunkt der Anlage in ms seit 1970; Einträge von vorher haben das Feld nicht.
+        #[serde(default)]
+        at: Option<f64>,
     },
     Tool {
         seq: u32,
@@ -259,10 +285,16 @@ pub enum ChatEntry {
         tool: String,
         target: String,
         state: ToolState,
+        // Zeitpunkt der Anlage in ms seit 1970; Einträge von vorher haben das Feld nicht.
+        #[serde(default)]
+        at: Option<f64>,
     },
     Todos {
         seq: u32,
         items: Vec<TodoItem>,
+        // Zeitpunkt der Anlage in ms seit 1970; Einträge von vorher haben das Feld nicht.
+        #[serde(default)]
+        at: Option<f64>,
     },
     /// Der Hauptagent hat mit `Write` ein Artefakt geschrieben (ADR 026, 047).
     Artifact {
@@ -274,6 +306,9 @@ pub enum ChatEntry {
         /// Einträge von vorher haben das Feld nicht; sie waren alle HTML.
         #[serde(default = "ArtifactKind::legacy_card")]
         artifact_kind: ArtifactKind,
+        // Zeitpunkt der Anlage in ms seit 1970; Einträge von vorher haben das Feld nicht.
+        #[serde(default)]
+        at: Option<f64>,
     },
     Question {
         seq: u32,
@@ -291,6 +326,9 @@ pub enum ChatEntry {
         /// Oberfläche oder niemand. Der Agent bekommt es nie zu sehen.
         #[serde(default)]
         origin: Option<String>,
+        // Zeitpunkt der Anlage in ms seit 1970; Einträge von vorher haben das Feld nicht.
+        #[serde(default)]
+        at: Option<f64>,
     },
     /// Nachricht einer anderen Session; löst eine Antwort des Agenten aus wie eine Nutzernachricht.
     SessionMessage {
@@ -298,16 +336,26 @@ pub enum ChatEntry {
         text: String,
         sent_at: f64,
         sender: SessionRef,
+        /// Der Betreff, mit dem die Nachricht beim Agenten ankam (ADR 072); Einträge von vorher
+        /// haben ihn nicht.
+        #[serde(default)]
+        subject: Option<String>,
     },
     Error {
         seq: u32,
         title: String,
         text: String,
+        // Zeitpunkt der Anlage in ms seit 1970; Einträge von vorher haben das Feld nicht.
+        #[serde(default)]
+        at: Option<f64>,
     },
     /// Hinweis im Verlauf, ADR 033.
     Notice {
         seq: u32,
         notice: Notice,
+        // Zeitpunkt der Anlage in ms seit 1970; Einträge von vorher haben das Feld nicht.
+        #[serde(default)]
+        at: Option<f64>,
     },
 }
 
@@ -324,6 +372,55 @@ impl ChatEntry {
             | ChatEntry::SessionMessage { seq, .. }
             | ChatEntry::Error { seq, .. }
             | ChatEntry::Notice { seq, .. } => *seq,
+        }
+    }
+
+    /// Zeitpunkt der Anlage in ms seit 1970: `sent_at` bei Nachrichten, sonst `at`; `None` bei
+    /// Einträgen aus der Zeit vor der Änderung.
+    pub fn at(&self) -> Option<f64> {
+        match self {
+            ChatEntry::User { sent_at, .. } | ChatEntry::SessionMessage { sent_at, .. } => {
+                Some(*sent_at)
+            }
+            ChatEntry::Text { at, .. }
+            | ChatEntry::Thinking { at, .. }
+            | ChatEntry::Tool { at, .. }
+            | ChatEntry::Todos { at, .. }
+            | ChatEntry::Artifact { at, .. }
+            | ChatEntry::Question { at, .. }
+            | ChatEntry::Error { at, .. }
+            | ChatEntry::Notice { at, .. } => *at,
+        }
+    }
+
+    /// Setzt `at` auf `now`, wenn der Eintrag keinen Zeitpunkt trägt. Nachrichten haben ihr
+    /// `sent_at` und bleiben unberührt.
+    pub fn stamp(&mut self, now: f64) {
+        if let Some(at) = self.at_slot().filter(|at| at.is_none()) {
+            *at = Some(now);
+        }
+    }
+
+    /// Übernimmt den Zeitpunkt des ersetzten Eintrags, wenn dieser keinen trägt. Hatte der alte
+    /// keinen, bleibt es dabei: Ein Eintrag bekommt nicht die Zeit seiner Änderung.
+    pub fn keep_time_of(&mut self, old: &ChatEntry) {
+        if let Some(at) = self.at_slot().filter(|at| at.is_none()) {
+            *at = old.at();
+        }
+    }
+
+    /// Das Feld `at`; `None` bei Nachrichten, deren Zeit `sent_at` ist.
+    fn at_slot(&mut self) -> Option<&mut Option<f64>> {
+        match self {
+            ChatEntry::User { .. } | ChatEntry::SessionMessage { .. } => None,
+            ChatEntry::Text { at, .. }
+            | ChatEntry::Thinking { at, .. }
+            | ChatEntry::Tool { at, .. }
+            | ChatEntry::Todos { at, .. }
+            | ChatEntry::Artifact { at, .. }
+            | ChatEntry::Question { at, .. }
+            | ChatEntry::Error { at, .. }
+            | ChatEntry::Notice { at, .. } => Some(at),
         }
     }
 }
@@ -413,6 +510,8 @@ pub enum TaskEnd {
 pub enum AgentEvent {
     Ready {
         model: String,
+        /// Liste der Kommandozeile; Autark und Codex schicken keine.
+        slash_commands: Option<Vec<String>>,
     },
     Text(String),
     Thinking {
@@ -570,4 +669,151 @@ pub enum AgentEvent {
         model: String,
     },
     Unknown(String),
+}
+
+#[cfg(test)]
+pub(crate) mod tests {
+    use super::*;
+
+    /// Ein Payload je Variante, wie ihn `chat_entries` vor der Änderung hielt: ohne `at`.
+    pub(crate) fn old_payloads() -> Vec<&'static str> {
+        vec![
+            r#"{"kind":"user","seq":0,"text":"Hallo","sentAt":1000.0}"#,
+            r#"{"kind":"text","seq":1,"text":"Antwort"}"#,
+            r#"{"kind":"thinking","seq":2,"text":"Hmm","seconds":3}"#,
+            r#"{"kind":"tool","seq":3,"toolUseId":"t1","tool":"Read","target":"a.rs","state":"done"}"#,
+            r#"{"kind":"todos","seq":4,"items":[{"label":"Eins","state":"done"}]}"#,
+            r#"{"kind":"artifact","seq":5,"path":"/x/a.html","file":"a.html"}"#,
+            r#"{"kind":"question","seq":6,"requestId":"r1","questionKind":"askUser","questions":[],"answer":null}"#,
+            r#"{"kind":"sessionMessage","seq":7,"text":"Von dort","sentAt":2000.0,"sender":{"id":"s","number":2,"title":"Zwei"}}"#,
+            r#"{"kind":"error","seq":8,"title":"Fehler","text":"kaputt"}"#,
+            r#"{"kind":"notice","seq":9,"notice":{"kind":"planMissing","task":"t","settled":false}}"#,
+        ]
+    }
+
+    fn parse(json: &str) -> ChatEntry {
+        serde_json::from_str(json).unwrap_or_else(|error| panic!("{json}: {error}"))
+    }
+
+    fn text(at: Option<f64>) -> ChatEntry {
+        ChatEntry::Text {
+            seq: 0,
+            text: "x".to_owned(),
+            unsourced: Vec::new(),
+            at,
+        }
+    }
+
+    #[test]
+    fn old_payload_without_at_parses_for_every_kind() {
+        let entries: Vec<ChatEntry> = old_payloads().into_iter().map(parse).collect();
+        assert_eq!(entries.len(), 10);
+        for entry in &entries {
+            match entry {
+                ChatEntry::User { sent_at, .. } | ChatEntry::SessionMessage { sent_at, .. } => {
+                    assert_eq!(entry.at(), Some(*sent_at));
+                }
+                _ => assert_eq!(entry.at(), None, "seq {}", entry.seq()),
+            }
+        }
+    }
+
+    #[test]
+    fn at_round_trips_through_json() {
+        for json in old_payloads() {
+            let mut entry = parse(json);
+            entry.stamp(1234.5);
+            let back: ChatEntry = parse(&serde_json::to_string(&entry).expect("serialisiert"));
+            assert_eq!(back.at(), entry.at(), "seq {}", entry.seq());
+        }
+        let json = serde_json::to_value(text(Some(7.0))).expect("serialisiert");
+        assert_eq!(json["at"], 7.0);
+    }
+
+    #[test]
+    fn stamp_sets_time_only_when_missing() {
+        let mut entry = text(None);
+        entry.stamp(10.0);
+        assert_eq!(entry.at(), Some(10.0));
+        entry.stamp(20.0);
+        assert_eq!(entry.at(), Some(10.0));
+    }
+
+    #[test]
+    fn stamp_leaves_message_time_alone() {
+        let mut entry = parse(old_payloads()[0]);
+        entry.stamp(99.0);
+        assert_eq!(entry.at(), Some(1000.0));
+    }
+
+    #[test]
+    fn keep_time_of_takes_the_old_time() {
+        let mut entry = text(None);
+        entry.keep_time_of(&text(Some(5.0)));
+        assert_eq!(entry.at(), Some(5.0));
+        let mut own = text(Some(6.0));
+        own.keep_time_of(&text(Some(5.0)));
+        assert_eq!(own.at(), Some(6.0));
+    }
+
+    #[test]
+    fn keep_time_of_does_not_invent_a_time() {
+        let mut entry = text(None);
+        entry.keep_time_of(&text(None));
+        assert_eq!(entry.at(), None);
+    }
+
+    #[test]
+    fn user_and_session_message_report_sent_at() {
+        let payloads = old_payloads();
+        assert_eq!(parse(payloads[0]).at(), Some(1000.0));
+        assert_eq!(parse(payloads[7]).at(), Some(2000.0));
+    }
+
+    #[test]
+    fn an_old_session_message_entry_without_subject_reads() {
+        let old = parse(old_payloads()[7]);
+        let ChatEntry::SessionMessage { text, subject, .. } = old else {
+            panic!("keine Nachricht einer Session");
+        };
+        assert_eq!(text, "Von dort");
+        assert_eq!(subject, None);
+        // Auch die Anfragen im Kasten: ein Eintrag von vorher hat den Betreff nicht.
+        let request: ToolRequest =
+            serde_json::from_str(r#"{"kind":"sendMessage","recipients":[],"message":"Hallo"}"#)
+                .expect("alter Kasten liest");
+        assert!(matches!(
+            request,
+            ToolRequest::SendMessage { subject: None, .. }
+        ));
+        let request: ToolRequest = serde_json::from_str(
+            r#"{"kind":"openSession","message":"Hallo","model":"sonnet","effort":"medium"}"#,
+        )
+        .expect("alter Kasten liest");
+        assert!(matches!(
+            request,
+            ToolRequest::OpenSession { subject: None, .. }
+        ));
+    }
+
+    #[test]
+    fn the_subject_of_a_session_message_survives_json() {
+        let entry = ChatEntry::SessionMessage {
+            seq: 1,
+            text: "Inhalt".to_owned(),
+            sent_at: 5.0,
+            sender: SessionRef {
+                id: "s".to_owned(),
+                number: 2,
+                title: "Zwei".to_owned(),
+            },
+            subject: Some("Betreff".to_owned()),
+        };
+        let json = serde_json::to_string(&entry).expect("schreibt");
+        assert!(json.contains(r#""subject":"Betreff""#), "{json}");
+        let ChatEntry::SessionMessage { subject, .. } = parse(&json) else {
+            panic!("keine Nachricht einer Session");
+        };
+        assert_eq!(subject.as_deref(), Some("Betreff"));
+    }
 }

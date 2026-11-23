@@ -1,5 +1,6 @@
 import type { ReactElement } from 'react';
-import { stationLabel, stationTone } from '@/features/implementation/stationState';
+import { shownState } from '@/features/implementation/stationLive';
+import { stationDot, stationLabel, stationTone } from '@/features/implementation/stationState';
 import type { StationState } from '@/lib/bindings/StationState';
 import type { StationView } from '@/lib/bindings/StationView';
 import './StationDot.css';
@@ -11,6 +12,8 @@ interface StationDotProps {
 const GLYPH: Partial<Record<StationState, string>> = {
   asking: '?',
   waitsForYou: '?',
+  waitsForQuota: '↻',
+  reported: '↑',
   error: '!',
 };
 
@@ -35,13 +38,15 @@ export function StationDot({ station }: StationDotProps): ReactElement {
       </svg>
     );
   }
+  const { tone, isChecked } = stationDot(station);
   return (
     <span
-      className={`station-dot station-dot--${stationTone(station)}`}
+      className={`station-dot station-dot--${isChecked ? `checked station-dot--checked-${tone}` : tone}`}
       role="img"
       aria-label={stationLabel(station)}
     >
-      {station.startError === null ? GLYPH[station.state] : GLYPH.error}
+      {station.startError === null && !isChecked ? GLYPH[shownState(station).state] : null}
+      {station.startError !== null && GLYPH.error}
     </span>
   );
 }

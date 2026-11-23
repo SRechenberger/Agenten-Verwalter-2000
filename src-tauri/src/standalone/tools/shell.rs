@@ -1,7 +1,8 @@
-//! `Bash` (Git Bash) und `PowerShell` (Windows PowerShell 5.1): ein Befehl im Arbeitsordner, mit
+//! `Bash` (unter Windows Git Bash) und `PowerShell` (nur Windows, PowerShell 5.1): ein Befehl im Arbeitsordner, mit
 //! Zeitlimit und Abbruch über Esc — oder mit `run_in_background` als Hintergrundaufgaben
 //! (`standalone::tasks`). Auch die Hooks laufen über `bash_path` und `wait_for`.
 use std::env;
+use std::ffi::OsString;
 use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
@@ -16,8 +17,8 @@ use serde_json::Value;
 
 use super::oem::OutputDecoder;
 use super::{ToolContext, optional_count, optional_flag, optional_string, required_string};
-use crate::processes::{self, hide_console};
-use crate::standalone::tasks::{NewProcess, kill_process_tree, wait_for_readers};
+use crate::processes::{self, hide_console, kill_process_tree};
+use crate::standalone::tasks::{NewProcess, wait_for_readers};
 
 /// Wohin die Lese-Threads die Ausgabe geben: Puffer im Vordergrund, Datei im Hintergrund.
 type OutputSink = Arc<dyn Fn(&[u8]) + Send + Sync>;
@@ -26,6 +27,8 @@ pub const BASH_PATH_VARIABLE: &str = "VERWALTER_BASH_PATH";
 const DEFAULT_GIT_BASH: &str = r"C:\Program Files\Git\bin\bash.exe";
 const BASH_NOT_FOUND: &str =
     "Git Bash nicht gefunden — Umgebungsvariable VERWALTER_BASH_PATH auf bash.exe setzen.";
+const SYSTEM_BASH: &str = "/bin/bash";
+const BASH_NOT_FOUND_UNIX: &str = "Bash nicht gefunden — weder /bin/bash noch eine bash im PATH; Umgebungsvariable VERWALTER_BASH_PATH auf den Pfad einer bash setzen.";
 
 const DEFAULT_TIMEOUT_MS: u64 = 120_000;
 const MAX_TIMEOUT_MS: u64 = 600_000;
@@ -50,9 +53,19 @@ pub enum Waited {
     Cancelled,
 }
 
-/// Git Bash, nie `bash.exe` aus dem `PATH` — das kann die Bash von WSL sein.
+/// Unter Windows Git Bash, nie `bash.exe` aus dem `PATH` — das kann die Bash von WSL sein. Sonst
+/// `VERWALTER_BASH_PATH`, `/bin/bash` oder die erste `bash` im `PATH`.
 pub fn bash_path() -> Result<PathBuf, String> {
-    if let Some(configured) = env::var_os(BASH_PATH_VARIABLE).map(PathBuf::from)
+    let configured = env::var_os(BASH_PATH_VARIABLE).map(PathBuf::from);
+    if cfg!(windows) {
+        windows_bash(configured)
+    } else {
+        unix_bash(configured, Path::new(SYSTEM_BASH), env::var_os("PATH"))
+    }
+}
+
+fn windows_bash(configured: Option<PathBuf>) -> Result<PathBuf, String> {
+    if let Some(configured) = configured
         && configured.is_file()
     {
         return Ok(configured);
@@ -62,6 +75,28 @@ pub fn bash_path() -> Result<PathBuf, String> {
         return Ok(default);
     }
     bash_next_to_git().ok_or_else(|| BASH_NOT_FOUND.to_owned())
+}
+
+/// Reine Auswahl außerhalb von Windows: gesetzte Datei, `system_bash`, erste `bash` im `path`.
+#[cfg_attr(windows, allow(dead_code))]
+pub(crate) fn unix_bash(
+    configured: Option<PathBuf>,
+    system_bash: &Path,
+    path: Option<OsString>,
+) -> Result<PathBuf, String> {
+    if let Some(configured) = configured
+        && configured.is_file()
+    {
+        return Ok(configured);
+    }
+    if system_bash.is_file() {
+        return Ok(system_bash.to_path_buf());
+    }
+    path.iter()
+        .flat_map(|path: &OsString| env::split_paths(path))
+        .map(|dir: PathBuf| dir.join("bash"))
+        .find(|bash: &PathBuf| bash.is_file())
+        .ok_or_else(|| BASH_NOT_FOUND_UNIX.to_owned())
 }
 
 /// `…\Git\cmd\git.exe` oder `…\Git\bin\git.exe` im `PATH` → `…\Git\bin\bash.exe`.
@@ -177,6 +212,8 @@ fn spawn_shell(
     context: &ToolContext,
 ) -> Result<Child, String> {
     let mut command = shell_command(kind, command_text)?;
+    // Eigene Gruppe: `kill_process_tree` beendet so auch, was `bash -c` startet (ADR 074).
+    processes::own_group(&mut command);
     command
         .current_dir(&context.cwd)
         .stdin(Stdio::null())
@@ -282,4 +319,72 @@ fn decoded(bytes: &[u8]) -> String {
         .trim_start_matches(BYTE_ORDER_MARK)
         .trim_end()
         .to_owned()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn folder() -> PathBuf {
+        let folder = env::temp_dir().join(format!("verwalter-bash-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&folder).expect("Ordner");
+        folder
+    }
+
+    fn file_in(folder: &Path, name: &str) -> PathBuf {
+        let file = folder.join(name);
+        fs::write(&file, "").expect("Datei");
+        file
+    }
+
+    #[test]
+    fn configured_file_wins_over_system_bash_and_path() {
+        let dir = folder();
+        let configured = file_in(&dir, "mine");
+        let system = file_in(&dir, "system");
+        let path = env::join_paths([&dir]).expect("PATH");
+        let found = unix_bash(Some(configured.clone()), &system, Some(path));
+        fs::remove_dir_all(&dir).expect("aufräumen");
+        assert_eq!(found, Ok(configured));
+    }
+
+    #[test]
+    fn system_bash_wins_over_path_without_a_configured_file() {
+        let dir = folder();
+        let system = file_in(&dir, "system");
+        file_in(&dir, "bash");
+        let path = env::join_paths([&dir]).expect("PATH");
+        // Die Variable zeigt auf nichts: wie nicht gesetzt.
+        let found = unix_bash(Some(dir.join("missing")), &system, Some(path));
+        fs::remove_dir_all(&dir).expect("aufräumen");
+        assert_eq!(found, Ok(system));
+    }
+
+    #[test]
+    fn first_bash_in_path_is_used_with_its_full_path() {
+        let dir = folder();
+        let empty = dir.join("empty");
+        let with_bash = dir.join("with");
+        fs::create_dir_all(&empty).expect("Ordner");
+        fs::create_dir_all(&with_bash).expect("Ordner");
+        let bash = file_in(&with_bash, "bash");
+        let path = env::join_paths([&empty, &with_bash]).expect("PATH");
+        let found = unix_bash(None, &dir.join("missing"), Some(path));
+        fs::remove_dir_all(&dir).expect("aufräumen");
+        assert_eq!(found, Ok(bash));
+    }
+
+    #[test]
+    fn no_bash_anywhere_gives_the_error_without_git_and_bash_exe() {
+        let dir = folder();
+        let path = env::join_paths([&dir]).expect("PATH");
+        let found = unix_bash(None, &dir.join("missing"), Some(path));
+        fs::remove_dir_all(&dir).expect("aufräumen");
+        let error = found.expect_err("müsste scheitern");
+        assert!(error.contains(BASH_PATH_VARIABLE), "{error}");
+        assert!(
+            !error.contains("Git") && !error.contains("bash.exe"),
+            "{error}"
+        );
+    }
 }

@@ -9,8 +9,11 @@
   color: var(--color-fg-secondary);
   font-size: var(--font-size-sm);
 
+  /* Wächst bis 160 px, bricht aber schon ab 60 px um: so passt ↻ Automatisch fortsetzen dazu,
+     ohne dass die Leiste früher zweizeilig wird. */
   &__progress {
-    width: 160px;
+    flex: 100 1 60px;
+    max-width: 160px;
     height: 6px;
     overflow: hidden;
     border-radius: var(--radius-full);
@@ -39,46 +42,19 @@
     align-items: center;
   }
 
-  /* „Parallel max.“ als Zähler (− n +) statt Auswahlliste. */
-  &__step {
-    display: inline-flex;
-    align-items: center;
-    overflow: hidden;
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius-md);
-    background: var(--color-bg-base);
-    color: var(--color-fg-primary);
-
-    & > button {
-      width: 22px;
-      padding: 0;
-      border: 0;
-      background: var(--color-bg-hover);
-      color: inherit;
-      font: inherit;
-      line-height: 20px;
-      cursor: pointer;
-
-      &:hover:not(:disabled) {
-        background: var(--color-bg-selected);
-      }
-
-      &:disabled {
-        cursor: not-allowed;
-        opacity: 0.5;
-      }
-    }
-
-    & > b {
-      min-width: 22px;
-      font-weight: 600;
-      text-align: center;
-    }
+  &__cancelled {
+    color: var(--color-fg-muted);
+    white-space: nowrap;
   }
 
-  &__queue {
-    color: var(--color-status-handoff);
-    white-space: nowrap;
+  /* Rückfrage vor Abbrechen und Löschen, über die ganze Breite der Leiste. */
+  &__confirm {
+    display: flex;
+    flex: 1 1 100%;
+    flex-wrap: wrap;
+    gap: var(--space-md);
+    align-items: center;
+    color: var(--color-fg-primary);
   }
 
   &__actions {
@@ -133,6 +109,24 @@
       background: var(--color-accent-subtle);
       color: var(--color-accent-text);
     }
+
+    &--danger {
+      border-color: var(--color-status-error);
+    }
+
+    /* „Umsetzung starten“: der eine Hauptknopf der Leiste. */
+    &--primary {
+      border-color: var(--color-accent);
+      background: var(--color-accent);
+      color: var(--color-fg-on-accent);
+      font-weight: 600;
+
+      &:hover:not(:disabled) {
+        border-color: var(--color-accent-text);
+        background: var(--color-accent-text);
+        color: var(--color-fg-on-accent);
+      }
+    }
   }
 }
 
@@ -151,6 +145,7 @@
     &__progress {
       flex: 1;
       min-width: 60px;
+      max-width: none;
     }
 
     &__spacer {

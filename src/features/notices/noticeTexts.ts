@@ -10,6 +10,7 @@ const DIRECTION_REVERT = 'revert';
 const MIN_SHOWN_COST_USD = 0.01;
 
 export const COMPACT_LEAD = 'Verlauf zusammengefasst';
+export const COMPACT_BY_VERWALTER = 'automatisch durch den Verwalter';
 export const COMPACT_CACHE_REBUILD = 'Cache wird neu aufgebaut';
 export const SUMMARY_SHOW = 'Zusammenfassung ansehen';
 export const SUMMARY_HIDE = 'Zusammenfassung ausblenden';

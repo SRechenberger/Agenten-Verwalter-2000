@@ -65,7 +65,7 @@ Eine Nachricht erreicht das Ziel als eigene Eintragsart `ChatEntry::SessionMessa
 - **Ruhendes Ziel** (`Completed`, keine offene Rückfrage, kein Subagent, kein Skript): sofort, sein Agent startet bei Bedarf neu.
 - **Arbeitendes oder wartendes Ziel:** eingereiht, das Ergebnis meldet `queued`. Eine offene Rückfrage bleibt offen; die Nachricht darf sie nie beantworten.
 - **Pausiertes Ziel:** eingereiht, erst nach einer weiteren vollständigen Antwort zugestellt. Pausiert hat der Nutzer bewusst, das darf eine Nachricht nicht aufheben.
-- **`new`, `cancelled`, `error`:** `undeliverable`, je Empfänger. So bleibt auch der Entwurf einer leeren Session unberührt.
+- **`new`, `cancelled`, `error`:** `undeliverable`, je Empfänger; eine neue Session mit wartender erster Nachricht ist bei vollem Tor erreichbar (`queued`) und in `verwalter_get_sessions` mit `waitsForSlot` sichtbar ([ADR 068](068-globale-warteschlange.md)). So bleibt auch der Entwurf einer leeren Session unberührt.
 
 „Eingereiht“ ist eine Zusage an die sendende Session, deshalb überlebt die Warteschlange einen Neustart (`session_inbox`, Migration 018). Beim Start wird an `Completed`-Sessions zugestellt, im Betrieb am Haken `turn_completed`.
 
@@ -105,7 +105,7 @@ Werkzeuge und Entfernen der Zeilen kamen in zwei getrennten Schritten, damit bei
 - **Kindprozesse** erben den Schlüssel. Ein Agent kann damit nur als er selbst sprechen, der Kasten bleibt. Bewusst hingenommen.
 - **Eingereihte Zeile an ein später abgebrochenes Ziel:** Sie bleibt liegen, der Absender erfährt das nicht.
 - **Vom Kontingent pausiertes Ziel:** Eine Nachricht wartet bis zur nächsten vollständigen Antwort ([ADR 051](051-kontingent-warnung.md)).
-- **„Automatisch fortsetzen“ ([ADR 051](051-kontingent-warnung.md)) setzt die Kettenbremse zurück:** Es geht über `send` und setzt `auto_chain` ohne Zutun des Nutzers auf 0. Je Kontingent-Grenze sind damit höchstens sechs weitere selbst freigegebene Aufrufe möglich, und die Grenze selbst bremst schon. Aus dem Code gelesen, nicht gefahren.
+- **„Automatisch fortsetzen“ ([ADR 051](051-kontingent-warnung.md)) setzt die Kettenbremse zurück:** Es geht über `send` und setzt `auto_chain` ohne Zutun des Nutzers auf 0. Je Kontingent-Grenze sind damit höchstens sechs weitere selbst freigegebene Aufrufe möglich, und die Grenze selbst bremst schon. Aus dem Code gelesen, nicht gefahren. Seit [ADR 064](064-automatisch-fortsetzen.md) setzt eine Station mit „Automatisch fortsetzen“ an jeder Grenze ohne Klick fort, die Bremse beginnt dann jedes Mal neu.
 - **Eingeschleuster Text:** Nach dem neuen Wortlaut bearbeitet ein Ziel eine Nachricht wie einen Auftrag. Eine Session mit eingeschleustem Text kann über eine Nachricht Aufträge weitergeben, im Kasten sichtbar, bei Selbstfreigabe ohne Blick des Nutzers.
 - **Format der Kommandozeile:** MCP ist dort nicht stabil dokumentiert, der Client spricht schon Protokoll `2025-11-25` und `2026-07-28`. Der Server echot die angebotene Fassung und antwortet auf Unbekanntes mit `-32601`.
 
@@ -119,3 +119,31 @@ Kasten aller drei Arten mit Ändern, Ablehnen und Freitext, Kettenbremse beim si
 - **Echte Dienste** für LM Studio, Autark und Codex.
 - **Lange offener Kasten auf dem neuen Weg:** auf dem neuen Weg mindestens 92 s gesehen; die 3000 s stammen aus einer Probe vor dem Umzug gegen eine Attrappe, und was länger offen bleibt, ist ungemessen.
 - **`SessionToolPermission` im Modus `plan`:** Der Agent rief das Werkzeug dort nicht auf, der Zweig ist nur gelesen.
+
+### Nachtrag: Betreff und `verwalter_read_message` ([ADR 072](072-nachrichten-ueber-referenzen.md))
+
+`verwalter_send_message_to` und `verwalter_open_session` verlangen ein Feld `subject` (Pflicht, eine Zeile, 1 bis 120 Zeichen; jede Regel hat ihren eigenen Fehlersatz). Der Empfänger bekommt den Betreff und eine Referenz `msg-<id>`; den Inhalt liest er mit dem neuen, lesenden Werkzeug `verwalter_read_message { reference }`, auch in Nebenfragen. Das Werkzeug liefert nur Referenzen, deren Empfänger die aufrufende Session ist, sonst „Unbekannte Referenz.“. Der Kasten und der Chat zeigen den Betreff.
+
+### Nachtrag 2026-11-20: Standardwerte für neue Sessions (Taiga 47)
+
+Entscheidung 1 oben (Werte kommen von der aufrufenden Session) und die Übernahme der Werte der letzten Session in `create_fresh_in_project` gelten nicht mehr. Der Nutzer wollte: Wenn eine Session eine neue startet, müssen Modell und Denkaufwand aus den Einstellungen kommen. Die Regeln (`new_session_defaults` in `sessions/registry.rs`):
+
+1. Alle Wege über `create_fresh_in_project` (neue Session, „In neuer Session weiter“, Retro, Station, Rückfrage zur Umsetzung) und `verwalter_open_session` nehmen die Einstellungen.
+2. Ein ausdrückliches Modell gewinnt: `model` im Werkzeug, das Modell der Station oder ihres Agententyps.
+3. Der Denkaufwand kommt auch bei einem ausdrücklichen Modell aus den Einstellungen; „Ändern“ im Kasten gewinnt über alles, und ein Denkaufwand der Station oder ihres Typs gewinnt (ADR 060).
+4. Der Modus bleibt geerbt: `default_mode` zu nehmen hieße, dass eine Session in `manual` eine in `auto` öffnen kann.
+5. Betriebsart Codex: `default_codex_model` statt des geerbten Modells; `NULL` heißt „Standard von Codex“.
+6. Bestehende Sessions bleiben unberührt; `create_in_project` gibt eine schon wartende leere Session unverändert zurück.
+
+Folge: „In neuer Session weiter“ läuft mit dem Standardmodell statt mit dem der alten Session.
+
+### Nachtrag 2026-11-21: Sprung in die Ziel-Session (Story Taiga 107)
+
+Wer eine Nachricht an eine andere Session schickt, kommt mit einem Klick in diese Session. Kein Eingriff in den Kern, keine Bindings: Die Oberfläche liest, was sie schon hat.
+
+1. **Kasten:** Empfänger (`sendMessage`) und Ziel (`getTldr`) sind Knöpfe mit `aria-label` („Zu Session 12 „Titel““), die `selectSession` aufrufen, im Chat wie im Popup des Dashboards (dort wie „Session öffnen“). Steht die Session nicht mehr in der Liste, bleibt es Text.
+2. **Werkzeugzeile:** Für `verwalter_send_message_to` und `verwalter_open_session` lädt die Zeile ihre Ausgabe, sobald der Aufruf fertig ist, ohne Aufklappen (`useToolLinks`: einmal, solange die Zeile gerendert ist; nach dem Zurückscrollen erneut, ohne Ablage, weil der UI-Speicher nur mit dem Sichtbaren wachsen soll, Critical Rule 3) und liest sie in `sessionLinks.ts`: bei der Sendung `recipients[]` mit Zustand (zugestellt, wartet, nicht zustellbar), bei `open_session` `sessionId`. Das `aria-label` des Links nennt den Zustand mit („Zu Session 3 „Titel“, nicht zustellbar“). Gelesen wird die Ausgabe, nicht die Eingabe: Die Eingabe ist auf 32 KiB gekürzt, und `session_ids` steht in ihr alphabetisch hinter einer langen Nachricht. Nummer und Titel kommen aus der Liste der Sessions, sonst der Titel der Ausgabe als Text. Abgelehnt, Fehler oder unlesbar: die Zeile bleibt, wie sie war, ohne Meldung.
+3. **Selbstfreigabe:** Der Weg über die Ausgabe gilt für freigegebene und selbst freigegebene Aufrufe gleich; bei Selbstfreigabe gibt es nur die Zeile.
+4. **Zeile:** Die Links stehen neben dem Knopf zum Aufklappen, nicht in ihm (ein Knopf in einem Knopf ist kein gültiges HTML). Eine Zeile ohne Links bleibt ein einziger Knopf.
+
+Der Name vor „möchte …“, „wartet auf deine Entscheidung“ und „hat gefragt“ ist der des Agenten der Betriebsart (siehe [ADR 069](069-zeitpunkt-im-chat.md), Nachtrag 2026-11-21). Entwurf: `docs/design/2026-11-21_chat-sprung/`.

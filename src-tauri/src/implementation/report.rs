@@ -4,13 +4,19 @@ use std::fs;
 use chrono::{DateTime, Local, TimeZone};
 
 use super::changes::describe;
-use super::model::{ChangeView, ImplementationView, PhaseView, StationState, StationView};
+use super::model::{
+    ChangeView, ImplementationView, PhaseView, StationState, StationView, station_label,
+};
 use crate::file_links::{self, LinkRoots};
 
 const INQUIRY_LINE: &str =
     "Diese Session ist eine Rückfrage: lesen, erklären, umplanen; keinen Code ändern.";
+// Die Zeile „Jetzt“ einer nicht begonnenen Umsetzung (#53): Ohne den Benutzer startet nichts.
+const NOT_BEGUN: &str = "nichts läuft; die Stationen startet der Verwalter, sobald der Benutzer die \
+     Umsetzung gestartet hat (mit „Umsetzung starten“ oder ▶ an einer Station)";
 const INDENT: &str = "  ";
-const SEPARATOR: &str = " · ";
+// Nicht „ · “: Das steht schon in der Anzeige einer Station („C-5 · Review“).
+const SEPARATOR: &str = "; ";
 const GOAL_FILE: &str = "README.md";
 const MAX_GOAL_CHARS: usize = 300;
 const PLAN_CHANGED: &str = "Plan geändert";
@@ -57,19 +63,40 @@ pub fn text_with(
         view.stations_done,
         view.stations_total
     ));
-    lines.push(match view.max_parallel {
-        Some(limit) => format!(
-            "Parallel: höchstens {limit} · Warteschlange: {}",
-            view.queued
-        ),
-        None => "Parallel: unbegrenzt".to_owned(),
-    });
+    // Die Grenze gilt app-weit (ADR 068); hier nur, wie viele Stationen dieser Umsetzung warten.
+    if view.queued > 0 {
+        lines.push(format!("Warteschlange (app-weit): {}", view.queued));
+    }
     let starts: Vec<&str> = stations(view)
         .filter(|(_, station): &(&PhaseView, &StationView)| station.after.is_empty())
         .map(|(_, station): (&PhaseView, &StationView)| station.plan_id.as_str())
         .collect();
     lines.push(format!("Startstationen: {}", list_or_none(&starts)));
-    push_section(&mut lines, "Jetzt", now_lines(view), "nichts läuft");
+    if let Some(cancelled_at) = view.cancelled_at {
+        lines.push(format!("Abgebrochen: {}", stamp(cancelled_at)));
+    }
+    if let Some(pending) = &view.pending_cancel {
+        let action = if pending.delete {
+            "abbrechen und löschen"
+        } else {
+            "abbrechen"
+        };
+        lines.push(format!(
+            "Anfrage aus #{} wartet auf Bestätigen: {action} — {}",
+            pending.session_number, pending.reason
+        ));
+    }
+    // Nach „Umsetzung starten“ stehen Stationen im Countdown oder in der Warteschlange, ohne dass
+    // die Umsetzung schon begonnen hat: Dann hat der Benutzer sie gestartet.
+    let started = stations(view).any(|(_, station): (&PhaseView, &StationView)| {
+        station.state == StationState::Countdown || station.queue_position.is_some()
+    });
+    let idle = if super::has_begun(view) || started {
+        "nichts läuft"
+    } else {
+        NOT_BEGUN
+    };
+    push_section(&mut lines, "Jetzt", now_lines(view), idle);
     push_section(&mut lines, "Fertig", done_lines(view), "noch nichts");
     let open = open_summary(view);
     if open.is_empty() {
@@ -191,7 +218,7 @@ fn change_lines(view: &ImplementationView) -> Vec<String> {
     entries
 }
 
-/// Je Station: Kennung, Lane, Stufe, Zustand (mit Platz in der Warteschlange), Vorgänger und Nachfolger
+/// Je Station: Anzeige („C-5 · Review“), Lane, Stufe im Ablauf, Zustand (mit Platz in der Warteschlange), Vorgänger und Nachfolger
 /// als Kennungen (ADR 061).
 fn plan_lines(view: &ImplementationView) -> Vec<String> {
     let plan_id_of = |id: &String| -> Option<&str> {
@@ -208,10 +235,9 @@ fn plan_lines(view: &ImplementationView) -> Vec<String> {
                 None => state_label(station.state).to_owned(),
             };
             format!(
-                "{} — Lane {} · {} · Stufe {} · {state} · wartet auf: {} · danach: {}",
-                station.plan_id,
+                "{} — Lane {} · Stufe {} · {state} · wartet auf: {} · danach: {}",
+                station_label(&station.plan_id, &station.stage),
                 phase.key,
-                station.stage,
                 station.level,
                 list_or_none(&after),
                 list_or_none(&next)
@@ -227,8 +253,10 @@ fn state_label(state: StationState) -> &'static str {
         StationState::Countdown => "Countdown",
         StationState::Starting | StationState::Running => "läuft",
         StationState::WaitsForScript => "wartet auf einen Hintergrund-Befehl",
+        StationState::WaitsForQuota => "setzt automatisch fort",
         StationState::Asking => "fragt",
         StationState::WaitsForYou => "wartet auf dich",
+        StationState::Reported => "gemeldet, der Master entscheidet",
         StationState::Done => "fertig",
         StationState::Error => "Fehler",
     }
@@ -254,22 +282,23 @@ fn push_section(lines: &mut Vec<String>, title: &str, entries: Vec<String>, empt
     );
 }
 
-/// Stationen mit Session, die noch nicht fertig gemeldet sind.
+/// Stationen mit Session, die noch nicht angenommen sind.
 fn now_lines(view: &ImplementationView) -> Vec<String> {
     let mut entries: Vec<String> = Vec::new();
-    for (phase, station) in stations(view) {
+    for (_, station) in stations(view) {
         let label = match station.state {
             StationState::Starting | StationState::Running => "läuft",
             StationState::WaitsForScript => "wartet auf einen Hintergrund-Befehl",
+            StationState::WaitsForQuota => "setzt automatisch fort",
             StationState::Asking => "fragt dich:",
             StationState::WaitsForYou => "wartet auf dich",
+            StationState::Reported => "gemeldet, der Master entscheidet",
             StationState::Error => "Fehler",
             _ => continue,
         };
         entries.push(format!(
-            "Lane {} · {}{} {label}",
-            phase.key,
-            station.stage,
+            "{}{} {label}",
+            station_label(&station.plan_id, &station.stage),
             number_in_brackets(station)
         ));
         if let Some(question) = &station.question {
@@ -282,18 +311,21 @@ fn now_lines(view: &ImplementationView) -> Vec<String> {
 fn done_lines(view: &ImplementationView) -> Vec<String> {
     stations(view)
         .filter(|(_, station): &(&PhaseView, &StationView)| station.state == StationState::Done)
-        .map(|(phase, station): (&PhaseView, &StationView)| {
+        .map(|(_, station): (&PhaseView, &StationView)| {
             let number = station
                 .session_number
                 .map(|number: u32| format!(" #{number}"))
                 .unwrap_or_default();
             let result = station.result.as_deref().unwrap_or("ohne Ergebnis");
-            format!("Lane {} · {}{number} — {result}", phase.key, station.stage)
+            format!(
+                "{}{number} — {result}",
+                station_label(&station.plan_id, &station.stage)
+            )
         })
         .collect()
 }
 
-/// Kommende Stationen gruppiert: „Lane 2 Review · Lane 3–5 · Abschluss“. Ganz offene Lanes mit
+/// Kommende Stationen gruppiert: „2-3 · Review; Lane 3–5; Abschluss“. Ganz offene Lanes mit
 /// Nummer in Folge werden zusammengezogen, teils offene nennen ihre offenen Stationen.
 pub fn open_summary(view: &ImplementationView) -> String {
     let mut parts: Vec<String> = Vec::new();
@@ -315,11 +347,11 @@ pub fn open_summary(view: &ImplementationView) -> String {
             continue;
         }
         if !open.is_empty() {
-            let stages: Vec<&str> = open
+            let labels: Vec<String> = open
                 .iter()
-                .map(|station: &&StationView| station.stage.as_str())
+                .map(|station: &&StationView| station_label(&station.plan_id, &station.stage))
                 .collect();
-            parts.push(format!("{} {}", phase_label(&phase.key), stages.join(", ")));
+            parts.push(labels.join(", "));
         }
     }
     flush_run(&mut parts, &mut run);

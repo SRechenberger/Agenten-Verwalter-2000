@@ -96,6 +96,27 @@
     }
   }
 
+  /* Zeile mit Links: Knopf der Zeile, Links, Knopf mit dem Pfeil; bricht bei schmaler Breite um. */
+  &__split {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: var(--space-xs) var(--space-md);
+    min-width: 0;
+  }
+
+  &__links {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-xs) var(--space-2xl);
+    min-width: 0;
+    font-size: var(--font-size-sm);
+  }
+
+  &__chevron-button {
+    margin-left: auto;
+  }
+
   &__branch {
     flex-shrink: 0;
     color: var(--color-fg-muted);

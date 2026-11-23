@@ -1,0 +1,13 @@
+.project-priority {
+  display: inline-flex;
+  gap: var(--space-md);
+  align-items: center;
+  white-space: nowrap;
+
+  &__error {
+    max-width: 220px;
+    overflow: hidden;
+    color: var(--color-status-error);
+    text-overflow: ellipsis;
+  }
+}

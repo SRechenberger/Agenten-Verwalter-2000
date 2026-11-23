@@ -1,6 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen, type Event, type UnlistenFn } from '@tauri-apps/api/event';
 import type { ImplementationChangedEvent } from '@/lib/bindings/ImplementationChangedEvent';
+import type { ImplementationRemovedEvent } from '@/lib/bindings/ImplementationRemovedEvent';
 import type { ImplementationView } from '@/lib/bindings/ImplementationView';
 import type { InquiryCreated } from '@/lib/bindings/InquiryCreated';
 import type { PlanEdit } from '@/lib/bindings/PlanEdit';
@@ -8,6 +9,7 @@ import type { StationOptions } from '@/lib/bindings/StationOptions';
 import type { StationSettings } from '@/lib/bindings/StationSettings';
 
 const IMPLEMENTATION_CHANGED_EVENT = 'implementation://changed';
+const IMPLEMENTATION_REMOVED_EVENT = 'implementation://removed';
 
 /** Alle Umsetzungen nicht archivierter Vorhaben, neueste zuerst (ADR 048).
  *  @throws {import('@/lib/bindings/CommandError').CommandError} `database` */
@@ -44,13 +46,31 @@ export async function renameImplementation(id: string, name: string): Promise<vo
   await invoke('implementation_rename', { id, name });
 }
 
-/** Schaltet „Automatisch starten“ (Feld `auto_start`); an: Stationen, die starten dürfen, bekommen einen Countdown.
+/** Schaltet „Automatisch starten“ (Feld `auto_start`); an: In einer begonnenen Umsetzung bekommen Stationen,
+ *  die starten dürfen, einen Countdown; eine nicht begonnene startet erst `startImplementation` oder ▶.
  *  @throws {import('@/lib/bindings/CommandError').CommandError} `implementation`, `database` */
 export async function setImplementationAutoStart(id: string, enabled: boolean): Promise<void> {
   await invoke('implementation_set_auto_start', { id, enabled });
 }
 
-/** „Anhalten nach dieser Session“: die nächste Fertigmeldung startet nichts mehr.
+/** Schaltet „Automatisch fortsetzen“ der Umsetzung (ADR 064); setzt alle nicht fertigen Stationen auf „wie
+ *  die Umsetzung“ und schaltet die Zeitgeber ihrer pausierten Sessions.
+ *  @throws {import('@/lib/bindings/CommandError').CommandError} `implementation`, `database` */
+export async function setImplementationAutoResume(id: string, enabled: boolean): Promise<void> {
+  await invoke('implementation_set_auto_resume', { id, enabled });
+}
+
+/** „Automatisch fortsetzen“ einer Station, `null` = wie die Umsetzung; bis die Station fertig ist (ADR 064).
+ *  @throws {import('@/lib/bindings/CommandError').CommandError} `implementation` (fertig, Station des Benutzers), `database` */
+export async function setStationAutoResume(
+  id: string,
+  stationId: string,
+  value: boolean | null,
+): Promise<void> {
+  await invoke('implementation_set_station_auto_resume', { id, stationId, value });
+}
+
+/** „Anhalten nach dieser Session“: die nächste Annahme startet nichts mehr.
  *  @throws {import('@/lib/bindings/CommandError').CommandError} `implementation`, `database` */
 export async function setImplementationStopAfterCurrent(
   id: string,
@@ -59,10 +79,27 @@ export async function setImplementationStopAfterCurrent(
   await invoke('implementation_set_stop_after_current', { id, enabled });
 }
 
+/** „Umsetzung starten“: schaltet „Automatisch starten“ ein und nimmt die bereiten Stationen in die Warteschlange;
+ *  bis zur Grenze beginnt ihr Countdown, der Rest wartet.
+ *  @throws {import('@/lib/bindings/CommandError').CommandError} `implementation` (abgebrochen, Anfrage zum Abbrechen, Halt), `database` */
+export async function startImplementation(id: string): Promise<void> {
+  await invoke('implementation_start', { id });
+}
+
 /** Startet die Station sofort, auch mit laufendem Countdown.
  *  @throws {import('@/lib/bindings/CommandError').CommandError} `implementation` (Station darf nicht starten), `sessionNotFound`, `database` */
 export async function startStation(id: string, stationId: string): Promise<void> {
   await invoke('implementation_start_station', { id, stationId });
+}
+
+/** „Abbrechen“ einer laufenden Befehls-Station: beendet den laufenden Schritt, die Station endet im Fehler
+ *  „abgebrochen“ (ADR 073).
+ *  @throws {import('@/lib/bindings/CommandError').CommandError} `implementation` (läuft nicht, keine Befehls-Station) */
+export async function stopStationCommand(
+  implementationId: string,
+  stationId: string,
+): Promise<void> {
+  await invoke('implementation_stop_command', { id: implementationId, stationId });
 }
 
 /** „Einstellungen“ einer Station ohne Session: ersetzt Typ, Modell, Denkaufwand, Zusatztext und Skill auf einmal,
@@ -92,16 +129,75 @@ export async function completeStationByUser(
   await invoke('implementation_complete_station', { id, stationId, result });
 }
 
+/** Markiert eine Station im Fehler oder in einer Pause ohne Zeitgeber von Hand als fertig (ADR 048); wirkt
+ *  wie eine Annahme ohne Fix-Runde.
+ *  @throws {import('@/lib/bindings/CommandError').CommandError} `implementation` (Zustand nicht erlaubt, Ergebnis leer oder zu lang), `database` */
+export async function markStationDone(
+  implementationId: string,
+  stationId: string,
+  result: string,
+): Promise<void> {
+  await invoke('implementation_mark_station_done', { implementationId, stationId, result });
+}
+
+/** Bestimmt eine andere Session des Vorhabens zum Master der Umsetzung; der neue Master bekommt die
+ *  Umsetzung und die offenen Meldungen (ADR 070).
+ *  @throws {import('@/lib/bindings/CommandError').CommandError} `implementation` (keine Session des Vorhabens, eine Station), `database` */
+export async function setMaster(id: string, masterSessionId: string): Promise<void> {
+  await invoke('implementation_set_master', { id, masterSessionId });
+}
+
+/** Der Benutzer nimmt eine gemeldete Station an, deren Rückgaben erschöpft sind.
+ *  @throws {import('@/lib/bindings/CommandError').CommandError} `implementation` (nicht gemeldet, Zug nicht beendet), `database` */
+export async function acceptStation(id: string, stationId: string): Promise<void> {
+  await invoke('implementation_accept_station', { id, stationId });
+}
+
+/** Der Benutzer gibt eine gemeldete Station mit einer Nachricht zurück.
+ *  @throws {import('@/lib/bindings/CommandError').CommandError} `implementation` (nicht gemeldet, leere Nachricht), `database` */
+export async function returnStation(id: string, stationId: string, message: string): Promise<void> {
+  await invoke('implementation_return_station', { id, stationId, message });
+}
+
+/** Meldet, dass eine Umsetzung gelöscht wurde (ADR 066); der Aufrufer nimmt sie aus seinen Listen. */
+export function onImplementationRemoved(callback: (id: string) => void): Promise<UnlistenFn> {
+  return listen<ImplementationRemovedEvent>(
+    IMPLEMENTATION_REMOVED_EVENT,
+    (event: Event<ImplementationRemovedEvent>) => {
+      callback(event.payload.id);
+    },
+  );
+}
+
+/** „Abbrechen…“: stoppt laufende Stationen, die Umsetzung gilt als abgeschlossen, ihre Sessions bleiben (ADR 066).
+ *  @throws {import('@/lib/bindings/CommandError').CommandError} `implementation` (schon abgeschlossen), `database` */
+export async function cancelImplementation(id: string): Promise<void> {
+  await invoke('implementation_cancel', { id });
+}
+
+/** „Löschen…“ einer abgebrochenen oder nie begonnenen Umsetzung (ADR 066).
+ *  @throws {import('@/lib/bindings/CommandError').CommandError} `implementation` (Station läuft noch, nicht löschbar), `database` */
+export async function deleteImplementation(id: string): Promise<void> {
+  await invoke('implementation_delete', { id });
+}
+
+/** „Bestätigen“ der Anfrage eines Agenten: abbrechen, bei `delete` danach löschen. Ein Grund statt
+ *  `null`: abgebrochen, aber noch nicht löschbar (ein Start hält seinen Anspruch noch).
+ *  @throws {import('@/lib/bindings/CommandError').CommandError} `implementation` (keine Anfrage, schon abgeschlossen), `database` */
+export function applyImplementationCancel(id: string): Promise<string | null> {
+  return invoke<string | null>('implementation_apply_cancel', { id });
+}
+
+/** „Verwerfen“ der Anfrage; die Stationen werden neu geplant.
+ *  @throws {import('@/lib/bindings/CommandError').CommandError} `implementation` (keine Anfrage), `database` */
+export async function discardImplementationCancel(id: string): Promise<void> {
+  await invoke('implementation_discard_cancel', { id });
+}
+
 /** „Übernehmen“ (`accept`) oder „Verwerfen“ des Vorschlags „Plan ändern?“.
  *  @throws {import('@/lib/bindings/CommandError').CommandError} `implementation` (kein Vorschlag, Phase hat schon begonnen), `database` */
 export async function applyImplementationChange(id: string, accept: boolean): Promise<void> {
   await invoke('implementation_apply_change', { id, accept });
-}
-
-/** „Parallel max.“: höchstens so viele Stationen zugleich; `null` hebt die Grenze auf (ADR 061).
- *  @throws {import('@/lib/bindings/CommandError').CommandError} `implementation` (0), `database` */
-export async function setMaxParallel(id: string, maxParallel: number | null): Promise<void> {
-  await invoke('implementation_set_max_parallel', { id, maxParallel });
 }
 
 /** Der Benutzer ändert den Plan direkt mit einem Delta (Kanten-Chips, Auftrag, „+ Lane“), ohne Karte.

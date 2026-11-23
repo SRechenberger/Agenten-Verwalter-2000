@@ -22,6 +22,9 @@ pub struct RuleTraces {
     pub skills: BTreeMap<String, (u32, u32)>,
     /// In der Reihenfolge des Verlaufs.
     pub hook_blocks: Vec<HookBlock>,
+    /// Aufruf-ID eines fehlgeschlagenen Aufrufs ohne Hook-Sperre → eine Zeile Fehlertext, höchstens
+    /// 200 Zeichen. Ohne ihn lässt sich nicht sagen, woran etwa eine Stationsmeldung scheiterte.
+    pub tool_errors: BTreeMap<String, String>,
 }
 
 pub struct HookBlock {
@@ -50,6 +53,7 @@ pub fn collect(
     let mut traces = RuleTraces {
         skills: BTreeMap::new(),
         hook_blocks: Vec::new(),
+        tool_errors: BTreeMap::new(),
     };
     for entry in entries {
         match entry {
@@ -80,12 +84,19 @@ pub fn collect(
                         target: target.clone(),
                         reason,
                     });
+                } else if let Some(text) = one_line(&detail.output) {
+                    traces.tool_errors.insert(tool_use_id.clone(), text);
                 }
             }
             _ => {}
         }
     }
     Ok(traces)
+}
+
+/// Die Ausgabe einer Hook-Sperre im Wortlaut von Claude Code; `parse_hook_block` liest sie zurück.
+pub fn hook_block_output(tool: &str, reason: &str) -> String {
+    format!("{HOOK_PREFIX}{tool}{HOOK_MARKER}{reason}")
 }
 
 /// Der Sperrgrund, wenn die Ausgabe von einem Hook stammt, sonst `None`. Die einzige Stelle, die
@@ -96,12 +107,20 @@ pub fn parse_hook_block(output: &str) -> Option<String> {
         return None;
     }
     let (_, reason) = trimmed.split_once(HOOK_MARKER)?;
-    let one_line = reason.replace(['\r', '\n'], " ");
-    let one_line = one_line.trim();
-    if one_line.chars().count() <= MAX_REASON_CHARS {
-        return Some(one_line.to_owned());
+    one_line(reason)
+}
+
+/// Der Text auf eine Zeile gebracht und auf `MAX_REASON_CHARS` gekürzt; `None`, wenn er leer ist.
+fn one_line(text: &str) -> Option<String> {
+    let joined = text.replace(['\r', '\n'], " ");
+    let joined = joined.trim();
+    if joined.is_empty() {
+        return None;
     }
-    let shortened: String = one_line.chars().take(MAX_REASON_CHARS).collect();
+    if joined.chars().count() <= MAX_REASON_CHARS {
+        return Some(joined.to_owned());
+    }
+    let shortened: String = joined.chars().take(MAX_REASON_CHARS).collect();
     Some(format!("{shortened}…"))
 }
 
@@ -125,4 +144,37 @@ pub fn skills_line(traces: &RuleTraces) -> String {
         })
         .collect();
     parts.join(", ")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{hook_block_output, parse_hook_block};
+
+    #[test]
+    fn claude_wording_yields_the_reason() {
+        let output = "PreToolUse:Bash hook error: [cmd]: Sperre zum Test";
+        assert_eq!(
+            parse_hook_block(output).as_deref(),
+            Some("[cmd]: Sperre zum Test")
+        );
+    }
+
+    #[test]
+    fn text_without_prefix_or_marker_is_no_block() {
+        assert_eq!(parse_hook_block("Von einem Hook blockiert."), None);
+        assert_eq!(parse_hook_block("PreToolUse:Bash failed"), None);
+    }
+
+    #[test]
+    fn written_block_reads_back_as_its_reason() {
+        let output = hook_block_output("Bash", "Von einem Hook blockiert.");
+        assert_eq!(
+            output,
+            "PreToolUse:Bash hook error: Von einem Hook blockiert."
+        );
+        assert_eq!(
+            parse_hook_block(&output).as_deref(),
+            Some("Von einem Hook blockiert.")
+        );
+    }
 }

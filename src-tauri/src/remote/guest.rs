@@ -1,5 +1,6 @@
 //! Der Gast (ADR 059): Listen der Hosts an die eigenen anfügen, Vorhaben eines Hosts als `remote`
-//! zeigen, ihre Gruppe nur lokal führen, übernehmen und zurückgeben, Terminals des Hosts anzeigen.
+//! zeigen, ihre Gruppe nur lokal führen, übernehmen und zurückgeben, Terminals des Hosts anzeigen,
+//! ihre Dashboards an das eigene anfügen.
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
@@ -18,9 +19,14 @@ use super::model::{HostProfile, ProjectAccess};
 use crate::agents::event::Attachment;
 use crate::artifacts::server::ArtifactServer;
 use crate::attachments;
+use crate::dashboard::{
+    self,
+    model::{DashboardTask, DashboardView},
+};
 use crate::db::{Database, remote as remote_rows};
 use crate::error::CommandError;
-use crate::projects::model::ProjectSummary;
+use crate::implementation::slots::AgentQueue;
+use crate::projects::model::{ProjectGroup, ProjectSummary};
 use crate::usage::model::UsageStatus;
 
 /// So lange wartet eine Liste auf einen Host, danach gilt, was er zuletzt geschickt hat.
@@ -32,6 +38,23 @@ pub fn groups(database: &Database) -> Result<HashMap<String, String>, CommandErr
     Ok(database
         .with(|connection| remote_rows::project_groups(connection))?
         .into_iter()
+        .collect())
+}
+
+/// Der Name der lokalen Gruppe je entferntem Vorhaben; `groups` sind die eigenen Gruppen.
+pub fn group_names(
+    database: &Database,
+    groups: Vec<ProjectGroup>,
+) -> Result<HashMap<String, String>, CommandError> {
+    let names: HashMap<String, String> = groups
+        .into_iter()
+        .map(|group: ProjectGroup| (group.id, group.name))
+        .collect();
+    Ok(self::groups(database)?
+        .into_iter()
+        .filter_map(|(project_id, group_id): (String, String)| {
+            Some((project_id, names.get(&group_id)?.clone()))
+        })
         .collect())
 }
 
@@ -86,6 +109,67 @@ pub async fn entries<T: DeserializeOwned + Send + 'static>(
         .into_iter()
         .flat_map(|(_, items): (HostInfo, Vec<Value>)| parsed::<T>(items))
         .collect())
+}
+
+/// `dashboard_get` an jedem verbundenen Host, je Host ein Aufruf in einem eigenen Thread mit
+/// `LIST_TIMEOUT`; gefiltert hat der Host.
+pub async fn dashboards(
+    clients: Arc<RemoteClients>,
+) -> Result<Vec<Result<Value, CommandError>>, CommandError> {
+    blocking(move || {
+        let host_ids = clients.online_host_ids();
+        std::thread::scope(|scope| {
+            let running: Vec<_> = host_ids
+                .iter()
+                .map(|host_id: &String| {
+                    let clients = &clients;
+                    scope.spawn(move || {
+                        clients.call_within(
+                            host_id,
+                            "dashboard_get",
+                            Value::Null,
+                            Some(LIST_TIMEOUT),
+                        )
+                    })
+                })
+                .collect();
+            running
+                .into_iter()
+                .filter_map(|handle| handle.join().ok())
+                .collect()
+        })
+    })
+    .await
+}
+
+/// Das Dashboard am Gast (ADR 071): an die eigene Ansicht kommen Karten, Abläufe und Sessions aus
+/// den Antworten der Hosts. Die Gruppe einer Karte ist die lokale (`group_names`); Karten, Abläufe und
+/// Sessions stehen eigene und entfernte gemeinsam nach der Regel von `build`. Ein Host ohne Antwort
+/// trägt nichts bei.
+pub fn merge_dashboards(
+    mut view: DashboardView,
+    answers: Vec<Result<Value, CommandError>>,
+    group_names: &HashMap<String, String>,
+) -> DashboardView {
+    for answer in answers {
+        let Some(remote) = answer
+            .ok()
+            .and_then(|value: Value| serde_json::from_value::<DashboardView>(value).ok())
+        else {
+            continue;
+        };
+        view.tasks
+            .extend(remote.tasks.into_iter().map(|mut task: DashboardTask| {
+                task.group_name = group_names.get(&task.project_id).cloned();
+                task
+            }));
+        view.flows.extend(remote.flows);
+        view.sessions.extend(remote.sessions);
+    }
+    dashboard::sort_tasks(&mut view.tasks);
+    dashboard::sort_flows(&mut view.flows);
+    dashboard::sort_sessions(&mut view.sessions);
+    view
 }
 
 /// `remote_take` oder `remote_give_back` am Host des Vorhabens. Danach laden Listen und Verlauf
@@ -235,6 +319,15 @@ pub async fn usage_load(
     host_id: String,
 ) -> Result<UsageStatus, CommandError> {
     let value = blocking(move || clients.call(&host_id, "usage_load", Value::Null)).await??;
+    serde_json::from_value(value).map_err(|error| CommandError::Internal(error.to_string()))
+}
+
+/// Die Warteschlange des Hosts: seine Plätze und die Wartenden der Vorhaben, die dieses Gerät hält.
+pub async fn agent_queue(
+    clients: Arc<RemoteClients>,
+    host_id: String,
+) -> Result<AgentQueue, CommandError> {
+    let value = blocking(move || clients.call(&host_id, "agent_queue", Value::Null)).await??;
     serde_json::from_value(value).map_err(|error| CommandError::Internal(error.to_string()))
 }
 

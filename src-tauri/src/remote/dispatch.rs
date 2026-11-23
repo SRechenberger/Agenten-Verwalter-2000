@@ -1,8 +1,9 @@
 //! Was der Host einem angemeldeten Gast antwortet (ADR 059): `remote_take` und `remote_give_back`
-//! hier, die Listen aus Klasse F gefiltert nach Freigabe und Inhaber, jeder andere Befehl erst nach
-//! `access::check` und dann wie von der Oberfläche. Wie er den Befehl ausführt, sagt `Host`: in der
-//! App über `Webview::on_message`, in der Probe ein Stub. `terminal_attach` und `terminal_detach`
-//! beantwortet `answer_on` über `TerminalHost`, denn ihr Kanal führt in die Verbindung.
+//! hier, die Listen aus Klasse F, das Dashboard und die Warteschlange gefiltert nach Freigabe und Inhaber, jeder
+//! andere Befehl erst nach `access::check` und dann wie von der Oberfläche. Wie er den Befehl
+//! ausführt, sagt `Host`: in der App über `Webview::on_message`, in der Probe ein Stub.
+//! `terminal_attach` und `terminal_detach` beantwortet `answer_on` über `TerminalHost`, denn ihr
+//! Kanal führt in die Verbindung.
 use std::collections::HashSet;
 use std::io;
 use std::path::PathBuf;
@@ -24,8 +25,13 @@ use super::intercept::{REMOTE_HEADER, remote_pass};
 use super::model::DeviceRef;
 use super::wire::{Frame, Link, SendError};
 use super::{CHANGED_EVENT, RemoteControl};
+use crate::dashboard::{
+    self,
+    model::{FlowFacts, ProjectFacts, SessionFacts, Snapshot},
+};
 use crate::error::CommandError;
-use crate::sessions::registry::SessionRegistry;
+use crate::implementation::slots::{AgentQueue, QueueEntry};
+use crate::sessions::registry::{SessionRegistry, now_ms};
 use crate::terminal::model::TerminalOutput;
 use crate::terminal::{TerminalService, Viewer};
 
@@ -47,6 +53,10 @@ pub trait Host: Send + Sync {
     fn projects_changed(&self, project_ids: &[String]);
     /// Alle Einträge eines Commands aus `MERGED_LISTS`, ungefiltert und nur die eigenen.
     fn list(&self, command: &str) -> Result<Vec<Value>, CommandError>;
+    /// Die Momentaufnahme des Dashboards aus der Registry, ungefiltert; nie über `dashboard_get`.
+    fn dashboard_snapshot(&self) -> Result<Snapshot, CommandError>;
+    /// Die Warteschlange aus der Registry, ungefiltert; nie über `agent_queue`.
+    fn agent_queue(&self) -> AgentQueue;
     /// Führt den Command aus wie die eigene Oberfläche, mit der Kopfzeile des Servers.
     fn invoke(&self, command: &str, args: Value) -> Result<Value, CommandError>;
     /// Der Ordner `.artefakte` im Workspace der Session.
@@ -97,6 +107,8 @@ pub fn answer(
         "terminal_attach" | "terminal_detach" => Err(CommandError::Terminal(
             "Terminals eines Hosts gehen nur über die Verbindung des Geräts.".to_owned(),
         )),
+        "dashboard_get" => dashboard_for(host, control, device),
+        "agent_queue" => queue_for(host, control, device),
         list if MERGED_LISTS.contains(&list) => {
             let items = host.list(list)?;
             Ok(Value::Array(filter_list(
@@ -212,14 +224,16 @@ fn check_guest(
 }
 
 /// Was der Server selbst einträgt und damit überschreibt (Vertrag): die Oberfläche des Geräts bei
-/// `session_set_viewed` und der Name des Geräts als Herkunft von `chat_send`, `chat_answer` und
-/// `session_plan_vorhaben` und `session_plan_settle`.
+/// `session_set_viewed` und der Name des Geräts als Herkunft von `chat_send`, `chat_answer`,
+/// `agent_type_proposal_answer`, `session_plan_vorhaben` und `session_plan_settle`.
 fn surface_of(command: &str, mut args: Value, device: &DeviceRef) -> Value {
     let (key, value) = match command {
         "session_set_viewed" => ("viewer", device.id.as_str()),
-        "chat_send" | "chat_answer" | "session_plan_vorhaben" | "session_plan_settle" => {
-            ("origin", device.name.as_str())
-        }
+        "chat_send"
+        | "chat_answer"
+        | "agent_type_proposal_answer"
+        | "session_plan_vorhaben"
+        | "session_plan_settle" => ("origin", device.name.as_str()),
         _ => return args,
     };
     if !args.is_object() {
@@ -310,6 +324,47 @@ fn filter_list(
         .collect()
 }
 
+/// Das Dashboard für einen Gast (ADR 071): Karten, Abläufe und Sessions nur der Vorhaben, die das
+/// Gerät hält, wie bei den Listen. Gebaut aus der Registry, nicht über `dashboard_get`: Zwei
+/// Instanzen, die gegenseitig Gast sind, rufen einander so nicht im Kreis. Die Gruppe führt der Gast.
+fn dashboard_for(
+    host: &dyn Host,
+    control: &RemoteControl,
+    device: &DeviceRef,
+) -> Result<Value, CommandError> {
+    let held: HashSet<String> = control.with(|control| control.held_by(&device.id));
+    let mut snapshot = host.dashboard_snapshot()?;
+    snapshot
+        .projects
+        .retain(|project: &ProjectFacts| held.contains(&project.id));
+    for project in &mut snapshot.projects {
+        project.group_name = None;
+    }
+    snapshot
+        .sessions
+        .retain(|session: &SessionFacts| held.contains(&session.project_id));
+    snapshot
+        .flows
+        .retain(|flow: &FlowFacts| held.contains(&flow.project_id));
+    to_json(&dashboard::build(&snapshot, now_ms()))
+}
+
+/// Die Warteschlange für einen Gast (ADR 068, Nachtrag Story 188): Grenze und belegte Plätze des Hosts,
+/// Wartende nur der Vorhaben, die das Gerät hält, mit ihrem Rang beim Host. Aus der Registry wie das
+/// Dashboard, nicht über `agent_queue`.
+fn queue_for(
+    host: &dyn Host,
+    control: &RemoteControl,
+    device: &DeviceRef,
+) -> Result<Value, CommandError> {
+    let held: HashSet<String> = control.with(|control| control.held_by(&device.id));
+    let mut queue = host.agent_queue();
+    queue
+        .entries
+        .retain(|entry: &QueueEntry| held.contains(&entry.project_id));
+    to_json(&queue)
+}
+
 /// Der Host in der App: Befehle laufen über `Webview::on_message` auf dem Fenster `main`, also
 /// durch dieselben Commands und Antworten wie für die eigene Oberfläche. `invoke_key` bleibt hier.
 pub struct AppHost {
@@ -353,6 +408,14 @@ impl Host for AppHost {
             Value::Array(items) => Ok(items),
             _ => Ok(Vec::new()),
         }
+    }
+
+    fn dashboard_snapshot(&self) -> Result<Snapshot, CommandError> {
+        self.app.state::<SessionRegistry>().dashboard_snapshot()
+    }
+
+    fn agent_queue(&self) -> AgentQueue {
+        self.app.state::<SessionRegistry>().agent_queue()
     }
 
     fn invoke(&self, command: &str, args: Value) -> Result<Value, CommandError> {

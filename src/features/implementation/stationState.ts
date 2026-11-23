@@ -1,5 +1,7 @@
+import { isStartFailure } from '@/features/implementation/commandStation';
 import type { DisplayStatus } from '@/features/sessions/sessionStatus';
 import { START_FAILED_LABEL } from '@/features/implementation/implementationTexts';
+import { ICON, liveText, shownState } from '@/features/implementation/stationLive';
 import type { StationState } from '@/lib/bindings/StationState';
 import type { StationView } from '@/lib/bindings/StationView';
 
@@ -10,28 +12,16 @@ const LABEL: Record<StationState, string> = {
   starting: 'startet',
   running: 'läuft',
   waitsForScript: 'wartet auf Skript',
+  waitsForQuota: 'setzt automatisch fort',
   asking: 'fragt dich',
   waitsForYou: 'wartet auf dich',
+  reported: 'gemeldet',
   done: 'fertig',
   error: 'Fehler',
 };
 
-/** Symbol der Sessions, damit Umsetzung und Session-Zeilen gleich aussehen. */
-const ICON: Record<StationState, DisplayStatus> = {
-  pending: 'new',
-  ready: 'new',
-  countdown: 'handoff',
-  starting: 'starting',
-  running: 'running',
-  waitsForScript: 'script',
-  asking: 'waiting',
-  waitsForYou: 'waiting',
-  done: 'completed',
-  error: 'error',
-};
-
 /** Farbfamilie eines Zustands für Punkt, Linie und Kartenrand. */
-export type StationTone = 'done' | 'run' | 'wait' | 'error' | 'todo';
+export type StationTone = 'done' | 'run' | 'reported' | 'wait' | 'error' | 'todo';
 
 const TONE: Record<StationState, StationTone> = {
   pending: 'todo',
@@ -40,8 +30,12 @@ const TONE: Record<StationState, StationTone> = {
   starting: 'run',
   running: 'run',
   waitsForScript: 'run',
+  // Neutral mit ↻ (ADR 064): Bernstein bleibt „wartet auf dich“.
+  waitsForQuota: 'todo',
   asking: 'wait',
   waitsForYou: 'wait',
+  // Eigene Farbe, in der Dringlichkeit wie „läuft“: Der Master entscheidet, nicht du (ADR 070).
+  reported: 'reported',
   done: 'done',
   error: 'error',
 };
@@ -55,6 +49,8 @@ const URGENCY_RANK: Record<StationState, number> = {
   running: 4,
   starting: 4,
   waitsForScript: 4,
+  waitsForQuota: 4,
+  reported: 4,
   ready: 5,
   pending: 6,
   done: 7,
@@ -66,16 +62,28 @@ export function stateTone(state: StationState): StationTone {
 
 /** Ton einer Station: Ein Startfehler färbt sie wie einen Fehler, obwohl ihr Zustand „bereit“ bleibt (ADR 060). */
 export function stationTone(station: StationView): StationTone {
-  return station.startError === null ? TONE[station.state] : 'error';
+  return station.startError === null ? TONE[shownState(station).state] : 'error';
+}
+
+/** Punkt einer Station: Farbe und ob der Haken der fertigen Station bleibt, solange ihre Session läuft. */
+export function stationDot(station: StationView): { tone: StationTone; isChecked: boolean } {
+  const { state, isChecked } = shownState(station);
+  return { tone: station.startError === null ? TONE[state] : 'error', isChecked };
 }
 
 /** Name des Zustands für Screenreader; ein Startfehler geht vor „bereit“. */
 export function stationLabel(station: StationView): string {
-  return station.startError === null ? LABEL[station.state] : START_FAILED_LABEL;
+  return !isStartFailure(station)
+    ? (liveText(station) ?? LABEL[station.state])
+    : START_FAILED_LABEL;
 }
 
-export function urgencyRank(state: StationState): number {
-  return URGENCY_RANK[state];
+/** Rang einer Station für die Fokus-Automatik: der dringendere von `state` und `live`. */
+export function stationUrgencyRank(station: StationView): number {
+  return Math.min(
+    URGENCY_RANK[station.state],
+    station.live === null ? Infinity : URGENCY_RANK[station.live],
+  );
 }
 
 export function stateLabel(state: StationState): string {
