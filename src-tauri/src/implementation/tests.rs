@@ -8213,7 +8213,7 @@ fn a_database_of_version_32_keeps_the_session_message_tables() {
     let version: u32 = connection
         .query_row("PRAGMA user_version", [], |row| row.get(0))
         .expect("Version");
-    assert_eq!(version, 35);
+    assert_eq!(version, crate::db::migrations::LATEST);
     connection
         .execute("SELECT subject FROM session_inbox", [])
         .ok();

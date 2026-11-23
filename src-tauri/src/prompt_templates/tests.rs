@@ -324,7 +324,7 @@ fn migration_35_adds_the_empty_template_table_to_a_database_of_version_34() {
     let version: u32 = connection
         .query_row("PRAGMA user_version", [], |row| row.get(0))
         .expect("Version");
-    assert_eq!(version, 35);
+    assert_eq!(version, crate::db::migrations::LATEST);
     assert!(
         crate::db::prompt_templates::list(&connection)
             .expect("Tabelle da")
