@@ -19,10 +19,13 @@ export function listProjects(): Promise<ProjectSummary[]> {
 /** Legt ein Vorhaben mit seiner Session #1 an — liest die Basis jedes Repositorys, legt keine Worktrees an —,
  *  startet den Agenten und schickt die Aufgabe samt Anhängen als erste Nachricht. Scheitert ein Schritt,
  *  bleibt nichts zurück. `groupId` ist die Gruppe, in der das Vorhaben startet; `null` startet ohne Gruppe.
+ *  `name` ist der Name aus der Namensvorlage (ADR 075): von Hand gesetzt, Haiku ersetzt ihn nicht; `null` oder
+ *  leer nimmt wie bisher den ersten Satz des Auftrags.
  *  @throws {import('@/lib/bindings/CommandError').CommandError} `claudeNotFound`, `io`,
  *    `repositoryMissing`, `git`, `gitNotFound`, `internal` (unbekannte Gruppe) */
 export function createProject(
   task: string,
+  name: string | null,
   attachmentIds: string[],
   repositoryIds: string[],
   model: ModelId,
@@ -33,6 +36,7 @@ export function createProject(
 ): Promise<ProjectCreated> {
   return invoke<ProjectCreated>('project_create', {
     task,
+    name,
     attachmentIds,
     repositoryIds,
     model,

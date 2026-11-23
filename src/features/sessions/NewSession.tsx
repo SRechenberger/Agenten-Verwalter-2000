@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react';
 import type { ChangeEvent, KeyboardEvent, ReactElement, SubmitEvent } from 'react';
+import { Dialog } from '@/components/Dialog';
 import { ModeMenu } from '@/components/ModeMenu';
 import { ModelMenu } from '@/components/ModelMenu';
 import { AttachMenu } from '@/features/attachments/AttachMenu';
@@ -18,6 +19,26 @@ import {
   selectedCodexModel,
 } from '@/features/codex/codexModels';
 import { useCodexModels } from '@/features/codex/useCodexModels';
+import { parseTemplate, renderTemplate } from '@/features/prompttemplates/mustache';
+import type { Parsed, TemplateField } from '@/features/prompttemplates/mustache';
+import {
+  BAR_HINT,
+  CANCEL_LABEL,
+  LOCK_LINE,
+  NAME_CHIP_MANUAL,
+  NAME_CHIP_TEMPLATE,
+  NAME_FIELD_LABEL,
+  NAME_NOTE,
+  PICK_TITLE,
+  REPLACE_LABEL,
+  REPLACE_TITLE,
+  START_HINT,
+  replaceText,
+} from '@/features/prompttemplates/promptTemplateTexts';
+import { TemplateForm } from '@/features/prompttemplates/TemplateForm';
+import type { TemplateValues } from '@/features/prompttemplates/TemplateFields';
+import { TemplateMenu } from '@/features/prompttemplates/TemplateMenu';
+import { usePromptTemplates } from '@/features/prompttemplates/usePromptTemplates';
 import { RepositoryPicker } from '@/features/repositories/RepositoryPicker';
 import { VoiceButton } from '@/features/voice/VoiceButton';
 import type { Attachment } from '@/lib/bindings/Attachment';
@@ -28,6 +49,7 @@ import type { Mode } from '@/lib/bindings/Mode';
 import type { ProjectGroup } from '@/lib/bindings/ProjectGroup';
 import type { ModelId } from '@/lib/bindings/ModelId';
 import type { ProjectCreated } from '@/lib/bindings/ProjectCreated';
+import type { PromptTemplate } from '@/lib/bindings/PromptTemplate';
 import { discardAttachment } from '@/lib/attachments';
 import {
   CODEX_NOT_FOUND_MESSAGE,
@@ -56,7 +78,20 @@ const GIT_NOT_FOUND_MESSAGE =
 const NO_ATTACHMENTS: Attachment[] = [];
 const NO_CODEX_MODELS: readonly CodexModel[] = [];
 
-type OpenMenu = 'model' | 'mode' | 'group' | 'plus' | 'command' | null;
+type OpenMenu = 'model' | 'mode' | 'group' | 'plus' | 'command' | 'template' | null;
+
+const REPLACE_TITLE_ID = 'new-session-replace-title';
+
+/** Das offene Formular einer Vorlage (ADR 075). `template` ist der Stand bei der Wahl (A9), `before` der Text
+ *  von vor der ersten Wahl, den „Verwerfen“ zurückholt. */
+interface OpenForm {
+  template: PromptTemplate;
+  fields: TemplateField[];
+  values: TemplateValues;
+  before: string;
+  /** Neu bei jeder Wahl: Das Formular baut sich neu auf und setzt den Fokus ins erste Feld. */
+  key: number;
+}
 
 interface NewSessionProps {
   /** Dieselben Gruppen wie die Leiste; ohne Gruppe erscheint kein Auswahlfeld. */
@@ -92,6 +127,15 @@ export function NewSession({ groups, onCreated, onCancel }: NewSessionProps): Re
   const [isStarting, setIsStarting] = useState<boolean>(false);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const groupButtonRef = useRef<HTMLButtonElement>(null);
+  const { promptTemplates } = usePromptTemplates();
+  const [form, setForm] = useState<OpenForm | null>(null);
+  // Das Namensfeld unter dem Auftrag (E8): `null` = keins, wie ohne Namensvorlage.
+  const [projectName, setProjectName] = useState<string | null>(null);
+  const [isNameManual, setIsNameManual] = useState<boolean>(false);
+  // Der Auftrag, wie ihn die Vorlage zuletzt gefüllt hat: Steht er unverändert da, fragt eine neue Wahl nicht.
+  const [templateText, setTemplateText] = useState<string | null>(null);
+  // Die Wahl, die auf „Text ersetzen?“ wartet (Bild 3).
+  const [pendingTemplate, setPendingTemplate] = useState<PromptTemplate | null>(null);
   const pending: Attachment[] = useAttachmentsStore(
     (state) => state.pending[NEW_SESSION_KEY] ?? NO_ATTACHMENTS,
   );
@@ -116,7 +160,9 @@ export function NewSession({ groups, onCreated, onCancel }: NewSessionProps): Re
   const isDictating: boolean = useVoiceStore(
     (state) => state.owner === NEW_SESSION_OWNER && state.phase !== 'idle',
   );
-  const canStart: boolean = text.trim() !== '' && !isStarting && !isDictating;
+  const isFormOpen: boolean = form !== null;
+  const canStart: boolean = text.trim() !== '' && !isStarting && !isDictating && !isFormOpen;
+  const hasTemplates: boolean = promptTemplates !== null && promptTemplates.length > 0;
   const currentMode = modeOption(mode);
   // Eine inzwischen gelöschte Gruppe zählt nicht mehr: das Vorhaben startet dann ohne Gruppe.
   const group: ProjectGroup | null = groups.find((g: ProjectGroup) => g.id === groupId) ?? null;
@@ -130,7 +176,7 @@ export function NewSession({ groups, onCreated, onCancel }: NewSessionProps): Re
   const commandMenu = useCommandMenu({
     draft: text,
     isButtonOpen: openMenu === 'command',
-    isSuppressed: isStarting || openMenu !== null,
+    isSuppressed: isStarting || openMenu !== null || isFormOpen,
     buttonScope: 'skills',
     slashScope: 'skills',
     skillSource: { repositoryIds },
@@ -163,6 +209,75 @@ export function NewSession({ groups, onCreated, onCancel }: NewSessionProps): Re
     }
   }
 
+  /** Fragt vor dem Ersetzen, wenn Text im Feld steht, den nicht die Vorlage so hineingeschrieben hat (E5). */
+  function chooseTemplate(template: PromptTemplate): void {
+    closeMenu();
+    if (text.trim() !== '' && text !== templateText) {
+      setPendingTemplate(template);
+      return;
+    }
+    applyTemplate(template);
+  }
+
+  /** Eine neue Wahl ersetzt Formular, Auftrag und Namensfeld (A7); alle Checkboxen starten aus (A6). */
+  function applyTemplate(template: PromptTemplate): void {
+    setPendingTemplate(null);
+    const parsed: Parsed = parseTemplate(template.text, template.nameTemplate);
+    if (!parsed.ok) {
+      // Der Core speichert keine Vorlage mit Syntaxfehler; das hier hieße, beide Fassungen sind uneins.
+      setErrorMessage(`Vorlage „${template.name}“ ist fehlerhaft: ${parsed.error.message}`);
+      return;
+    }
+    const values: TemplateValues = {};
+    const filled: string = renderTemplate(template.text, values);
+    setForm({
+      template,
+      fields: parsed.fields,
+      values,
+      before: form?.before ?? text,
+      key: (form?.key ?? 0) + 1,
+    });
+    setText(filled);
+    setTemplateText(filled);
+    setProjectName(
+      template.nameTemplate === '' ? null : renderTemplate(template.nameTemplate, values),
+    );
+    setIsNameManual(false);
+  }
+
+  /** Jeder Tastendruck und Klick im Formular füllt Auftrag und Namen sofort; einen Namen von Hand lässt er stehen. */
+  function changeField(name: string, value: string | boolean): void {
+    if (form === null) {
+      return;
+    }
+    const values: TemplateValues = { ...form.values, [name]: value };
+    setForm({ ...form, values });
+    const filled: string = renderTemplate(form.template.text, values);
+    setText(filled);
+    setTemplateText(filled);
+    if (projectName !== null && !isNameManual) {
+      setProjectName(renderTemplate(form.template.nameTemplate, values));
+    }
+  }
+
+  /** „OK“: Der Auftrag ist wieder normaler Text, das Namensfeld bleibt (A7). */
+  function confirmForm(): void {
+    setForm(null);
+    inputRef.current?.focus();
+  }
+
+  /** „Verwerfen“: der Text von vor der Wahl, ohne Namensfeld. */
+  function discardForm(): void {
+    if (form !== null) {
+      setText(form.before);
+    }
+    setForm(null);
+    setProjectName(null);
+    setIsNameManual(false);
+    setTemplateText(null);
+    inputRef.current?.focus();
+  }
+
   function pickFromPlusMenu(): void {
     closeMenu();
     openPicker();
@@ -175,8 +290,11 @@ export function NewSession({ groups, onCreated, onCancel }: NewSessionProps): Re
     setIsStarting(true);
     setErrorMessage(null);
     const attachmentIds: string[] = pending.map((attachment: Attachment) => attachment.id);
+    const name: string | null =
+      projectName === null || projectName.trim() === '' ? null : projectName;
     createProject(
       text.trim(),
+      name,
       attachmentIds,
       repositoryIds,
       model,
@@ -235,7 +353,24 @@ export function NewSession({ groups, onCreated, onCancel }: NewSessionProps): Re
             <span className="new-session__step">1</span>
             Was soll erledigt werden?
           </label>
+          {form !== null && (
+            <TemplateForm
+              key={form.key}
+              templateName={form.template.name}
+              fields={form.fields}
+              values={form.values}
+              onChange={changeField}
+              onConfirm={confirmForm}
+              onDiscard={discardForm}
+            />
+          )}
           <div className={`new-session__box${isDragging ? ' new-session__box--dragging' : ''}`}>
+            {isFormOpen && (
+              <div className="new-session__lock" role="note">
+                <LockIcon />
+                {LOCK_LINE}
+              </div>
+            )}
             {pending.length > 0 && (
               <AttachmentRow
                 attachments={pending}
@@ -252,7 +387,7 @@ export function NewSession({ groups, onCreated, onCancel }: NewSessionProps): Re
                 className="new-session__task"
                 rows={4}
                 autoFocus
-                readOnly={isDictating}
+                readOnly={isDictating || isFormOpen}
                 placeholder="z. B. OAuth Login für Backend und Frontend implementieren. Den bestehenden Session-Mechanismus weiterverwenden."
                 value={text}
                 onChange={(event: ChangeEvent<HTMLTextAreaElement>): void => {
@@ -268,7 +403,7 @@ export function NewSession({ groups, onCreated, onCancel }: NewSessionProps): Re
                 setValue={setText}
                 onError={setErrorMessage}
                 setupPlacement="below"
-                disabled={isStarting}
+                disabled={isStarting || isFormOpen}
               />
             </div>
             <div className="new-session__bar">
@@ -298,16 +433,46 @@ export function NewSession({ groups, onCreated, onCancel }: NewSessionProps): Re
                 aria-expanded={openMenu === 'command'}
                 aria-label="Befehle und Skills"
                 title="Befehle und Skills"
-                disabled={isStarting}
+                disabled={isStarting || isFormOpen}
                 onClick={(): void => {
                   toggleMenu('command');
                 }}
               >
                 <SlashIcon />
               </button>
+              {hasTemplates && promptTemplates !== null && (
+                <div className="new-session__anchor">
+                  <button
+                    type="button"
+                    className="new-session__icon-button new-session__template-button"
+                    aria-haspopup="dialog"
+                    aria-expanded={openMenu === 'template'}
+                    aria-label={PICK_TITLE}
+                    title={PICK_TITLE}
+                    disabled={isStarting}
+                    onClick={(): void => {
+                      toggleMenu('template');
+                    }}
+                  >
+                    ▤
+                  </button>
+                  {openMenu === 'template' && (
+                    <TemplateMenu
+                      promptTemplates={promptTemplates}
+                      onPick={chooseTemplate}
+                      onOpenSettings={(): void => {
+                        closeMenu();
+                        useSessionsStore.getState().openSettings();
+                      }}
+                      onClose={closeMenu}
+                    />
+                  )}
+                </div>
+              )}
               <span className="new-session__hint">
-                Bilder und Dateien hineinziehen oder einfügen. Mit / startest du direkt mit einem
-                Skill.
+                {hasTemplates
+                  ? BAR_HINT
+                  : 'Bilder und Dateien hineinziehen oder einfügen. Mit / startest du direkt mit einem Skill.'}
               </span>
             </div>
             {commandMenu.isOpen && (
@@ -332,9 +497,39 @@ export function NewSession({ groups, onCreated, onCancel }: NewSessionProps): Re
               />
             )}
           </div>
+          {projectName !== null && (
+            <div className="new-session__name-row">
+              <label className="new-session__name-label" htmlFor="new-session-name">
+                {NAME_FIELD_LABEL}
+              </label>
+              <input
+                id="new-session-name"
+                type="text"
+                className="new-session__name"
+                autoComplete="off"
+                value={projectName}
+                onChange={(event: ChangeEvent<HTMLInputElement>): void => {
+                  setProjectName(event.target.value);
+                  setIsNameManual(true);
+                }}
+                onKeyDown={(event: KeyboardEvent<HTMLInputElement>): void => {
+                  // Die Seite ist ein `<form>`: Enter würde sonst das Vorhaben starten.
+                  if (event.key === 'Enter') {
+                    event.preventDefault();
+                  }
+                }}
+              />
+              <span
+                className={`new-session__name-chip${isNameManual ? ' new-session__name-chip--manual' : ''}`}
+              >
+                {isNameManual ? NAME_CHIP_MANUAL : NAME_CHIP_TEMPLATE}
+              </span>
+            </div>
+          )}
           <p className="new-session__note">
-            Der erste Satz wird zum Namen des Vorhabens und seiner ersten Session (später per
-            Rechtsklick änderbar), der ganze Text samt Anhängen zur ersten Nachricht an den Agenten.
+            {projectName !== null
+              ? NAME_NOTE
+              : 'Der erste Satz wird zum Namen des Vorhabens und seiner ersten Session (später per Rechtsklick änderbar), der ganze Text samt Anhängen zur ersten Nachricht an den Agenten.'}
           </p>
         </section>
         <RepositoryPicker selectedIds={repositoryIds} onChange={setRepositoryIds} />
@@ -470,12 +665,51 @@ export function NewSession({ groups, onCreated, onCancel }: NewSessionProps): Re
               : `${repositoryCountLabel(repositoryIds.length)} · ${isLocal ? localModelLabel(localModel) : modelText} · ${currentMode.label}${group === null ? '' : ` · ${group.name}`}`}
           </span>
         </div>
+        {isFormOpen && (
+          <p className="new-session__start-hint" role="note">
+            {START_HINT}
+          </p>
+        )}
         {errorMessage !== null && (
           <p className="new-session__error" role="alert">
             {errorMessage}
           </p>
         )}
       </form>
+      {pendingTemplate !== null && (
+        <Dialog
+          labelledBy={REPLACE_TITLE_ID}
+          className="new-session__replace"
+          onClose={(): void => {
+            setPendingTemplate(null);
+          }}
+        >
+          <h3 id={REPLACE_TITLE_ID} className="new-session__replace-title">
+            {REPLACE_TITLE}
+          </h3>
+          <p className="new-session__replace-text">{replaceText(pendingTemplate.name)}</p>
+          <div className="new-session__replace-actions">
+            <button
+              type="button"
+              className="new-session__cancel"
+              onClick={(): void => {
+                setPendingTemplate(null);
+              }}
+            >
+              {CANCEL_LABEL}
+            </button>
+            <button
+              type="button"
+              className="new-session__start"
+              onClick={(): void => {
+                applyTemplate(pendingTemplate);
+              }}
+            >
+              {REPLACE_LABEL}
+            </button>
+          </div>
+        </Dialog>
+      )}
     </div>
   );
 }
@@ -520,6 +754,23 @@ function PlusIcon(): ReactElement {
       aria-hidden="true"
     >
       <path d="M7 2v10M2 7h10" />
+    </svg>
+  );
+}
+
+function LockIcon(): ReactElement {
+  return (
+    <svg
+      width="12"
+      height="12"
+      viewBox="0 0 12 12"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.2"
+      aria-hidden="true"
+    >
+      <rect x="2" y="5.5" width="8" height="5" rx="1" />
+      <path d="M4 5.5V4a2 2 0 0 1 4 0v1.5" />
     </svg>
   );
 }

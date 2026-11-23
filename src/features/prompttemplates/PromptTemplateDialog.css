@@ -1,0 +1,50 @@
+/* Zwei Spalten wie in Bild 5: links Name, Vorlagentext und Namensvorlage, rechts die Formular-Vorschau. */
+.prompt-template-dialog {
+  width: min(1000px, 92vw);
+
+  &__body {
+    display: grid;
+    grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr);
+    align-items: start;
+    gap: 14px;
+  }
+
+  &__column {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+
+  &__text {
+    min-height: 180px;
+    field-sizing: content;
+    max-height: 50vh;
+  }
+
+  &__mono {
+    font-family: var(--font-mono);
+    font-size: var(--font-size-xs);
+  }
+
+  &__preview {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-md);
+    padding: var(--space-md) var(--space-lg);
+    border: 1px solid var(--color-border-subtle);
+    border-radius: var(--radius-lg);
+    background: var(--color-bg-base);
+  }
+
+  &__preview-title {
+    font-size: var(--font-size-2xs);
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: var(--color-fg-muted);
+  }
+
+  &__muted {
+    font-size: var(--font-size-xs);
+    color: var(--color-fg-muted);
+  }
+}
