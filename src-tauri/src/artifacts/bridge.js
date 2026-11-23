@@ -98,12 +98,17 @@
     }
   };
 
-  const setMarks = (marks) => {
+  // Die zuletzt empfangenen Marken. Ein Betrachter baut sein DOM oft erst nach dem Laden und beim
+  // Umschalten von Roh auf formatiert neu: Ändert sich `body`, werden sie neu gesetzt. Die Overlays
+  // hängen an `documentElement`, lösen den Beobachter also nicht aus.
+  let lastMarks = [];
+  let observer = null;
+  let remarkQueued = false;
+
+  const applyMarks = () => {
     markNodes.forEach(({ node }) => node.remove());
     markNodes = [];
-    if (!Array.isArray(marks)) return;
-    marks.forEach((mark) => {
-      if (!mark || typeof mark.n !== 'number' || typeof mark.selector !== 'string') return;
+    lastMarks.forEach((mark) => {
       let element;
       try { element = document.querySelector(mark.selector); } catch { return; }
       if (!element) return;
@@ -116,6 +121,23 @@
       markNodes.push({ node, element });
     });
     queuePosition();
+  };
+
+  const setMarks = (marks) => {
+    lastMarks = Array.isArray(marks)
+      ? marks.filter((mark) => mark && typeof mark.n === 'number' && typeof mark.selector === 'string')
+      : [];
+    applyMarks();
+    if (observer || !document.body) return;
+    observer = new MutationObserver(() => {
+      if (!lastMarks.length || remarkQueued) return;
+      remarkQueued = true;
+      requestAnimationFrame(() => {
+        remarkQueued = false;
+        applyMarks();
+      });
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
   };
 
   window.addEventListener('mouseover', (event) => {
