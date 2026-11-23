@@ -12,6 +12,7 @@ import {
   NAME_TEMPLATE_TAG,
   deleteAriaLabel,
   editAriaLabel,
+  textPreview,
 } from '@/features/prompttemplates/promptTemplateTexts';
 import { usePromptTemplates } from '@/features/prompttemplates/usePromptTemplates';
 import { SettingRow } from '@/features/settings/SettingRow';
@@ -65,7 +66,7 @@ export function PromptTemplatesRow(): ReactElement {
           </button>
         </span>
         <span className="prompt-templates__text" title={promptTemplate.text}>
-          {promptTemplate.text}
+          {textPreview(promptTemplate.text)}
         </span>
       </li>
     );

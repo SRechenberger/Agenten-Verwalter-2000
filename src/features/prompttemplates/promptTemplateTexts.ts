@@ -85,12 +85,10 @@ export function replaceText(templateName: string): string {
   return `Im Auftrag steht schon Text. Die Vorlage „${templateName}“ ersetzt ihn. Mit „Verwerfen“ im Formular holst du ihn zurück.`;
 }
 
-/** Die erste Zeile des Vorlagentexts im Menü, ohne Kommentare. */
-export function menuPreview(text: string): string {
-  return (
-    text
-      .replace(/\{\{![\s\S]*?\}\}/g, '')
-      .trim()
-      .split('\n')[0] ?? ''
-  );
+/** Der Vorlagentext in einer Zeile für Menü und Liste: ohne Kommentare, Zeilenumbrüche als Leerzeichen. */
+export function textPreview(text: string): string {
+  return text
+    .replace(/\{\{![\s\S]*?\}\}/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
 }

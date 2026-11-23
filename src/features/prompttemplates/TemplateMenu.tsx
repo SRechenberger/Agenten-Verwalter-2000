@@ -3,7 +3,7 @@ import { Popover } from '@/components/Popover';
 import {
   MENU_HEADING,
   MENU_SETTINGS_LINK,
-  menuPreview,
+  textPreview,
 } from '@/features/prompttemplates/promptTemplateTexts';
 import type { PromptTemplate } from '@/lib/bindings/PromptTemplate';
 import '@/features/sessions/GroupMenu.css';
@@ -46,7 +46,7 @@ export function TemplateMenu({
           }}
         >
           <span className="group-menu__name">{promptTemplate.name}</span>
-          <span className="template-menu__preview">{menuPreview(promptTemplate.text)}</span>
+          <span className="template-menu__preview">{textPreview(promptTemplate.text)}</span>
         </button>
       ))}
       <div className="group-menu__separator" role="separator" />
