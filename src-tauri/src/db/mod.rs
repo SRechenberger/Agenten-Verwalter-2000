@@ -10,6 +10,7 @@ pub mod implementations;
 pub mod migrations;
 pub mod project_groups;
 pub mod projects;
+pub mod prompt_templates;
 pub mod remote;
 pub mod repositories;
 pub mod session_commits;

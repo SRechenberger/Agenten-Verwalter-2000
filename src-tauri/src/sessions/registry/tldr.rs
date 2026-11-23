@@ -275,7 +275,7 @@ impl SessionRegistry {
             let Some(project) = projects.get_mut(project_id) else {
                 return;
             };
-            if !project.name_auto || project.name == title {
+            if !project.takes_title(title) {
                 return;
             }
             let saved = self

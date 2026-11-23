@@ -1,0 +1,607 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Prompt-Vorlagen – Entwurf</title>
+<style>
+:root{color-scheme:dark;--bg:#1f1f1f;--side:#181818;--surf:#252526;--hover:#2e2e30;--sel:#37373d;--bds:#2b2b2b;--bd:#3c3c3c;--fg:#d4d4d4;--fg2:#b0b0b0;--fgm:#8f8f8f;--acc:#e0825c;--onacc:#1d130e;--wait:#f2b33d;--waitsub:rgba(242,179,61,.14);--err:#f47067;--errsub:rgba(244,112,103,.12);--ok:#4cc38a;--clsub:rgba(224,130,92,.13);--scrim:rgba(0,0,0,.55);--shadow:0 10px 30px rgb(0 0 0/.45);--font:'Segoe UI Variable Text','Segoe UI',system-ui,sans-serif;--mono:'Cascadia Code',Consolas,ui-monospace,monospace}
+:root[data-theme=light]{color-scheme:light;--bg:#fff;--side:#f3f3f3;--surf:#f7f7f7;--hover:#ececec;--sel:#e6e8f0;--bds:#ebebeb;--bd:#d4d4d4;--fg:#3c3c3c;--fg2:#5f5f5f;--fgm:#85858a;--acc:#c4572f;--onacc:#fff;--wait:#a86a00;--waitsub:rgba(168,106,0,.12);--err:#d23b33;--errsub:rgba(210,59,51,.09);--ok:#16803c;--clsub:rgba(196,87,47,.09);--scrim:rgba(0,0,0,.3);--shadow:0 10px 30px rgb(0 0 0/.14)}
+*{box-sizing:border-box}
+body{margin:0;background:var(--side);color:var(--fg);font:13px/1.45 var(--font)}
+main{max-width:1180px;margin:0 auto;padding:16px}
+h1{font-size:15px;margin:0 0 4px}h2{font-size:14px;margin:34px 0 4px}h2 small{color:var(--fgm);font-weight:400}
+.lead{color:var(--fg2);margin:0 0 10px;max-width:95ch}.cap{font-size:12px;color:var(--fgm);margin:6px 0 0;max-width:95ch}
+button{font:inherit;color:inherit}
+code{font-family:var(--mono);font-size:12px;background:var(--hover);border-radius:4px;padding:0 4px}
+#sim{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:0 0 8px;padding:8px 10px;border:1px dashed var(--bd);border-radius:6px;color:var(--fgm);font-size:12px;position:sticky;top:0;background:var(--side);z-index:5}
+#sim button{border:1px solid var(--bd);background:transparent;border-radius:6px;padding:3px 10px;cursor:pointer}
+#sim button[aria-pressed=true]{background:var(--sel);color:var(--fg)}
+#sim .gap{margin-left:14px}
+.row{display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:start}
+.lbl{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--fgm);margin:0 0 4px}
+.new{outline:1.5px dashed var(--acc);outline-offset:3px;border-radius:8px}
+/* Seite „Neues Vorhaben“ wie NewSession.css */
+.ns{background:var(--bg);border:1px solid var(--bd);border-radius:10px;overflow:hidden;position:relative}
+.ns-h{height:44px;display:flex;align-items:center;padding:0 22px;border-bottom:1px solid var(--bds);font-weight:600;font-size:14px}
+.ns-f{display:flex;flex-direction:column;gap:22px;max-width:720px;margin:0 auto;padding:20px 26px}
+.ns-f.wide{max-width:1060px}
+.sec{display:flex;flex-direction:column;gap:8px}
+.hdg{display:flex;align-items:center;gap:10px;font-weight:600}
+.hdg .right{margin-left:auto;font-weight:400}
+.step{width:20px;height:20px;border-radius:50%;background:var(--sel);font-size:11px;display:flex;align-items:center;justify-content:center;flex:none}
+.box{border:1px solid var(--bd);border-radius:10px;background:var(--surf);display:flex;flex-direction:column}
+.box.focus{border-color:var(--acc);box-shadow:0 0 0 3px var(--clsub)}
+.inrow{display:flex;align-items:flex-start}
+.task{flex:1;min-width:0;min-height:96px;padding:10px 14px;border:0;outline:none;background:transparent;color:var(--fg);font:inherit;font-size:14px;line-height:1.55;resize:none;field-sizing:content}
+.task::placeholder{color:var(--fgm)}
+.task[readonly]{color:var(--fg2)}
+.mic{width:30px;height:30px;margin:6px 6px 0 0;border-radius:6px;display:flex;align-items:center;justify-content:center;color:var(--fg2);flex:none}
+.bar{display:flex;align-items:center;gap:4px;padding:4px 6px 6px}
+.ib{width:30px;height:30px;border-radius:6px;display:flex;align-items:center;justify-content:center;color:var(--fg2);flex:none}
+.ib.on{background:var(--sel)}
+.dis{opacity:.45}
+.hintx{margin-left:6px;color:var(--fgm);font-size:12px}
+.lockline{display:flex;gap:6px;align-items:center;font-size:12px;color:var(--fgm);padding:8px 14px 0}
+.note{margin:0;font-size:12px;color:var(--fgm)}
+.pick{display:inline-flex;align-items:center;gap:8px;height:30px;padding:0 12px;border:1px solid var(--bd);border-radius:6px;color:var(--fg2);font-size:12.5px;width:max-content;background:transparent}
+.pick .k{color:var(--fgm)}.pick .v{color:var(--fg)}
+.pill{border-radius:15px;color:var(--fg)}
+.pickers{display:flex;gap:8px}
+.repo{display:flex;gap:14px;flex-wrap:wrap;font-size:12.5px;color:var(--fg2)}
+.cb{display:inline-block;width:14px;height:14px;border:1px solid var(--bd);border-radius:3px;vertical-align:-2px;text-align:center;line-height:12px;font-size:11px;margin-right:6px}
+.cb.on{background:var(--acc);border-color:var(--acc);color:var(--onacc)}
+.foot{display:flex;align-items:center;gap:10px;padding-top:16px;border-top:1px solid var(--bds);flex-wrap:wrap}
+.start{height:32px;padding:0 20px;border:0;border-radius:6px;background:var(--acc);color:var(--onacc);font-weight:600}
+.start[disabled]{opacity:.45;cursor:not-allowed}
+.cancel{height:32px;padding:0 14px;border:1px solid var(--bd);border-radius:6px;background:transparent;color:var(--fg2)}
+.sum{margin-left:auto;font-size:12px;color:var(--fgm)}
+.starthint{flex-basis:100%;font-size:12px;color:var(--wait)}
+/* Menü wie Popover/ModelMenu */
+.anchor{position:relative;width:max-content}
+.menu{position:absolute;top:34px;left:0;z-index:2;background:var(--surf);border:1px solid var(--bd);border-radius:8px;box-shadow:var(--shadow);padding:4px;width:330px}
+.menu.static{position:static;margin-top:4px}
+.mg{font-size:11px;color:var(--fgm);padding:6px 8px 2px}
+.mi{display:flex;flex-direction:column;padding:5px 8px;border-radius:5px}
+.mi.on{background:var(--sel)}
+.mi small{color:var(--fgm);font-size:11.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.msep{border-top:1px solid var(--bds);margin:4px 0}
+.mlink{padding:5px 8px;color:var(--acc);font-size:12px}
+/* Formular */
+.form{border:1px solid var(--bd);border-radius:10px;background:var(--surf);padding:10px 12px 12px;display:flex;flex-direction:column;gap:10px}
+.fh{display:flex;align-items:center;gap:8px}
+.fh b{font-weight:600}.fh .k{color:var(--fgm);font-size:12px}
+.fh .sp{margin-left:auto;display:flex;gap:6px}
+.btn{border:1px solid var(--bd);border-radius:6px;background:transparent;padding:3px 12px;cursor:pointer;white-space:nowrap;font-size:12.5px}
+.btn.pri{background:var(--acc);border-color:var(--acc);color:var(--onacc);font-weight:600}
+.btn[disabled]{opacity:.45;cursor:not-allowed}
+.fld{display:flex;flex-direction:column;gap:3px}
+.fld label{font-size:12.5px}
+.fld .help{font-size:11.5px;color:var(--fgm)}
+.fld textarea,.namein{font:inherit;font-size:13px;color:var(--fg);background:var(--bg);border:1px solid var(--bd);border-radius:6px;padding:5px 8px;resize:none;field-sizing:content;min-height:30px;width:100%}
+.fld textarea:focus,.namein:focus{outline:none;border-color:var(--acc);box-shadow:0 0 0 3px var(--clsub)}
+.chk{display:flex;align-items:center;gap:8px;font-size:12.5px}
+.chk input{accent-color:var(--acc);margin:0}
+.namerow{display:grid;grid-template-columns:auto 1fr auto;gap:8px;align-items:center}
+.namerow>span{font-size:12.5px;color:var(--fg2);white-space:nowrap}
+.chip{font-size:11px;border:1px solid var(--bd);border-radius:99px;padding:0 8px;color:var(--fgm);white-space:nowrap}
+.chip.man{color:var(--acc);border-color:var(--acc)}
+.cols{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.25fr);gap:14px;align-items:start}
+.cols .sticky{position:sticky;top:44px}
+.inst.closed [data-part=form],.inst.closed [data-part=lock],.inst.closed .starthint{display:none}
+.inst.nonm [data-nameplace]{display:none!important}
+:root[data-name=A] .inst:not(.closed) [data-nameplace=B]{display:none}
+:root:not([data-name=A]) [data-nameplace=A]{display:none}
+.inst.closed [data-nameplace=A]{display:none}
+.replay{font-size:12px;color:var(--fgm);display:flex;gap:8px;align-items:center;margin-top:6px}
+/* Dialoge */
+.scrim{position:absolute;inset:44px 0 0;background:var(--scrim);display:flex;align-items:flex-start;justify-content:center;padding-top:70px}
+.dlg{background:var(--surf);border:1px solid var(--bd);border-radius:10px;box-shadow:var(--shadow);overflow:hidden;width:440px}
+.dlg.wide{width:auto}
+.dh{display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid var(--bds);font-weight:600}
+.dh .x{margin-left:auto;color:var(--fgm);font-weight:400}
+.db{padding:12px 14px;display:flex;flex-direction:column;gap:10px}
+.df{display:flex;gap:8px;justify-content:flex-end;align-items:center;padding:10px 14px;border-top:1px solid var(--bds)}
+.df .left{margin-right:auto;font-size:12px;color:var(--fgm)}
+/* Einstellungen */
+.set{display:grid;grid-template-columns:190px 1fr;background:var(--bg);border:1px solid var(--bd);border-radius:10px;overflow:hidden}
+.cats{background:var(--side);border-right:1px solid var(--bds);padding:10px 8px}
+.cat{padding:6px 10px;border-radius:6px;color:var(--fg2)}.cat small{display:block;color:var(--fgm);font-size:11px}
+.cat.on{background:var(--sel);color:var(--fg)}
+.rows{padding:6px 16px 14px}
+.rows h3{font-size:13px;margin:12px 0 0}
+.sr{display:grid;grid-template-columns:200px 1fr auto;gap:12px;padding:10px 0;border-bottom:1px solid var(--bds);align-items:start}
+.sr.wide{grid-template-columns:1fr auto}
+.sr .info{display:block;color:var(--fgm);font-size:11.5px;margin-top:2px}
+.list{grid-column:1/-1;display:flex;flex-direction:column;gap:6px}
+.tpl{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:2px 10px;padding:7px 10px;border:1px solid var(--bd);border-radius:8px;background:var(--surf)}
+.tpl b{font-weight:600}
+.tpl small{color:var(--fgm);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;grid-column:1}
+.tpl .acts{grid-row:1/3;grid-column:2;display:flex;gap:4px;align-items:center}
+.lnk{font-size:12px;color:var(--fg2);border:1px solid transparent;border-radius:5px;padding:1px 6px}
+.tag{font-size:10.5px;color:var(--fgm);border:1px solid var(--bd);border-radius:4px;padding:0 5px;margin-left:6px;font-weight:400}
+.ed{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(0,1fr);gap:14px;padding:12px 14px}
+.ed .fcol{display:flex;flex-direction:column;gap:10px}
+.code{font-family:var(--mono);font-size:12px;line-height:1.6;white-space:pre-wrap;background:var(--bg);border:1px solid var(--bd);border-radius:6px;padding:6px 8px;min-height:120px}
+.code.bad{border-color:var(--err)}
+.tk{color:var(--acc)}.tk.c{color:var(--fgm)}
+.tk.e{background:var(--errsub);color:var(--err);border-radius:3px;outline:1px solid var(--err)}
+.err{border:1px solid var(--err);background:var(--errsub);border-radius:6px;padding:6px 10px;font-size:12px}
+.prev{border:1px solid var(--bds);border-radius:8px;padding:8px 10px;display:flex;flex-direction:column;gap:8px;background:var(--bg)}
+.prev .pt{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--fgm)}
+.prev .fake{border:1px solid var(--bd);border-radius:6px;height:28px;background:var(--surf)}
+.syn{font-size:11.5px;color:var(--fgm)}
+.ferr .hideerr{display:none}.ferr .showerr{display:block}
+.showerr{display:none}
+section.doc{margin-top:30px;color:var(--fg2);max-width:960px}
+section.doc h2{color:var(--fg)}
+section.doc table{border-collapse:collapse;margin-top:6px;width:100%}
+section.doc td,section.doc th{border:1px solid var(--bds);padding:5px 8px;text-align:left;vertical-align:top}
+section.doc th{background:var(--hover);color:var(--fg)}
+/* Kasten im Chat wie AgentTypeProposalBlock (ADR 063) */
+.chatp{background:var(--bg);border:1px solid var(--bd);border-radius:10px;padding:14px 18px;display:flex;flex-direction:column;gap:10px}
+.mu{align-self:flex-end;max-width:78%;padding:8px 12px;border-radius:10px;background:var(--sel)}
+.ma{max-width:860px}
+.toolrow{border:1px solid var(--bds);border-radius:8px;background:var(--surf);padding:6px 10px;font-size:12px;color:var(--fg2);max-width:860px}
+.toolrow b{font-family:var(--mono);font-weight:500;color:var(--fg)}
+.kasten{border:1px solid var(--wait);background:var(--waitsub);border-radius:8px;padding:12px 14px;display:flex;flex-direction:column;gap:10px;max-width:860px}
+.kasten.done{border-color:var(--bd);background:var(--surf)}
+.kh{display:flex;gap:8px;align-items:baseline;flex-wrap:wrap}.kh h3{font-size:13.5px;margin:0;font-weight:600}
+.badge{font-size:11px;border-radius:999px;padding:1px 8px;border:1px solid var(--bd);color:var(--fgm);white-space:nowrap}
+.badge.wait{border-color:var(--wait);color:var(--wait)}.badge.ok{border-color:var(--ok);color:var(--ok)}.badge.no{border-color:var(--err);color:var(--err)}
+.kv{display:grid;grid-template-columns:130px minmax(0,1fr);gap:6px 12px;align-items:start;margin:0}
+.kv dt{color:var(--fgm);font-size:12px;padding-top:2px}.kv dd{margin:0;min-width:0}
+.pre{font-family:var(--mono);font-size:12px;white-space:pre-wrap;background:var(--bg);border:1px solid var(--bds);border-radius:6px;padding:8px 10px;overflow-wrap:anywhere}
+.pre.clip{max-height:62px;overflow:hidden}
+.more{font-size:12px;color:var(--fgm);margin-top:4px}.lnkb{color:var(--acc);cursor:pointer}
+.same{color:var(--fgm);font-size:12px;margin:0}
+.acts{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.btn.danger{color:var(--err);border-color:color-mix(in srgb,var(--err) 45%,var(--bd))}
+.errs{border:1px solid var(--err);background:var(--errsub);border-radius:6px;padding:8px 10px;margin:0;list-style:none;font-size:12px}
+.errs li::before{content:"⚠ ";color:var(--err)}
+.reason{display:flex;flex-direction:column;gap:6px;font-size:12.5px}
+.reason textarea{width:100%;min-height:56px;background:var(--bg);color:var(--fg);border:1px solid var(--bd);border-radius:6px;padding:6px 8px;font:inherit;resize:vertical}
+.answered{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.answered .lnkb{margin-left:auto;font-size:12px}
+.mini{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.mini span{font-size:11.5px;border:1px solid var(--bd);border-radius:99px;padding:0 8px;color:var(--fg2)}
+.mini span.nw{border-color:var(--ok);color:var(--ok)}
+.segv{display:inline-flex;border:1px solid var(--bd);border-radius:6px;overflow:hidden;width:max-content}
+.segv button{border:0;border-right:1px solid var(--bd);background:transparent;padding:2px 12px;font-size:12px;color:var(--fg2);cursor:pointer}
+.segv button:last-child{border-right:0}.segv button[aria-pressed=true]{background:var(--sel);color:var(--fg);font-weight:600}
+.diff{font-family:var(--mono);font-size:12px;border:1px solid var(--bds);border-radius:6px;background:var(--bg);overflow:hidden}
+.dl{display:grid;grid-template-columns:18px minmax(0,1fr);white-space:pre-wrap;overflow-wrap:anywhere;padding-right:8px;min-height:18px}
+.dl i{font-style:normal;text-align:center;color:var(--fgm)}
+.dl.del{background:var(--errsub)}.dl.del i{color:var(--err)}
+.dl.add{background:rgba(76,195,138,.13)}.dl.add i{color:var(--ok)}
+:root[data-theme=light] .dl.add{background:rgba(22,128,60,.10)}
+.dl.ctx{color:var(--fg2)}
+.dl.pad{background:repeating-linear-gradient(135deg,transparent 0 6px,var(--bds) 6px 7px)}
+.sbs{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr)}
+.sbs .col{border-right:1px solid var(--bds);min-width:0}.sbs .col:last-child{border-right:0}
+.sbs .ch{font-family:var(--font);font-size:11px;color:var(--fgm);padding:3px 8px;border-bottom:1px solid var(--bds)}
+.views>[data-view]{display:none}
+.views.v-diff>[data-view=diff],.views.v-before>[data-view=before],.views.v-after>[data-view=after]{display:flex;flex-direction:column;gap:8px}
+:root[data-diff=B] .uni{display:none}:root:not([data-diff=B]) .sbs{display:none}
+@media (max-width:1000px){.row,.cols,.ed{grid-template-columns:1fr}.set{grid-template-columns:1fr}.cats{display:none}}
+</style>
+</head>
+<body>
+<main>
+<h1>Entwurf: Prompt-Vorlagen (Taiga #58)</h1>
+<p class="lead">Wahl einer Vorlage in „Neues Vorhaben“, das Formular, das den Auftrag live füllt, das Namensfeld, die Verwaltung unter Einstellungen › Agent und die Vorschläge von Agenten per MCP, die du im Chat annimmst (Bilder 6 bis 9). Nachgebaut im Stil der App (Maße und Farben aus <code>NewSession.css</code> und <code>theme.css</code>). Die gestrichelte Umrandung markiert, was neu ist. Texte sind Vorschläge, Namen und Inhalte Beispieldaten.</p>
+
+<div id="sim">
+  <span>Farbschema</span>
+  <button data-theme-btn="dark" aria-pressed="true">Dunkel</button><button data-theme-btn="light" aria-pressed="false">Hell</button>
+  <span class="gap">Namensfeld</span>
+  <button data-name-btn="B" aria-pressed="true">B · unter dem Auftrag</button><button data-name-btn="A" aria-pressed="false">A · im Formular</button>
+  <span class="gap">Editor</span>
+  <button data-err-btn="ok" aria-pressed="true">gültig</button><button data-err-btn="bad" aria-pressed="false">Syntaxfehler</button>
+  <span class="gap">Diff</span>
+  <button data-diff-btn="A" aria-pressed="true">A · untereinander</button><button data-diff-btn="B" aria-pressed="false">B · nebeneinander</button>
+</div>
+<p class="cap">Ohne Vorlagen sieht „Neues Vorhaben“ aus wie heute: kein Drop-down, kein Namensfeld. Alles unten erscheint erst, wenn es mindestens eine Vorlage gibt.</p>
+
+<!-- ============ Bild 1 ============ -->
+<h2>1 · Wo man die Vorlage wählt <small>Drop-down offen, drei Vorlagen</small></h2>
+<div class="row">
+  <div>
+    <p class="lbl">1A · eigene Zeile über dem Auftrag (wie „Gruppe“)</p>
+    <div class="ns"><div class="ns-h">Neues Vorhaben</div>
+      <div class="ns-f" style="padding-bottom:150px">
+        <div class="sec">
+          <div class="hdg"><span class="step">1</span>Was soll erledigt werden?</div>
+          <div class="anchor new">
+            <span class="pick"><span class="k">Vorlage</span><span class="v">keine</span> ▾</span>
+            <div class="menu">
+              <div class="mi on">Keine Vorlage</div>
+              <div class="msep"></div>
+              <div class="mi"><span>Bugfix</span><small>Behebe den Fehler: {{Fehler}} in {{Betroffene Komponente}}. …</small></div>
+              <div class="mi"><span>Taiga-Story</span><small>Arbeite die Taiga-Story #{{Ticket}} ab: {{Titel}}. …</small></div>
+              <div class="mi"><span>Review</span><small>Prüfe den Branch {{Branch}} gegen {{Basis}}.</small></div>
+              <div class="msep"></div>
+              <div class="mlink">Vorlagen in den Einstellungen bearbeiten …</div>
+            </div>
+          </div>
+          <div class="box"><div class="inrow"><textarea class="task" rows="3" placeholder="z. B. OAuth Login für Backend und Frontend implementieren. Den bestehenden Session-Mechanismus weiterverwenden."></textarea><span class="mic">🎙</span></div>
+            <div class="bar"><span class="ib">＋</span><span class="ib">/</span><span class="hintx">Bilder und Dateien hineinziehen oder einfügen. Mit / startest du direkt mit einem Skill.</span></div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div>
+    <p class="lbl">1B · Knopf in der Leiste des Eingabefelds, neben + und / · gewählt</p>
+    <div class="ns"><div class="ns-h">Neues Vorhaben</div>
+      <div class="ns-f" style="padding-bottom:190px">
+        <div class="sec">
+          <div class="hdg"><span class="step">1</span>Was soll erledigt werden?</div>
+          <div class="box"><div class="inrow"><textarea class="task" rows="3" placeholder="z. B. OAuth Login für Backend und Frontend implementieren. Den bestehenden Session-Mechanismus weiterverwenden."></textarea><span class="mic">🎙</span></div>
+            <div class="bar"><span class="ib">＋</span><span class="ib">/</span>
+              <div class="anchor new"><span class="ib on" title="Vorlage">▤</span>
+                <div class="menu">
+                  <div class="mg">Vorlage</div>
+                  <div class="mi"><span>Bugfix</span><small>Behebe den Fehler: {{Fehler}} in {{Betroffene Komponente}}. …</small></div>
+                  <div class="mi"><span>Taiga-Story</span><small>Arbeite die Taiga-Story #{{Ticket}} ab: {{Titel}}. …</small></div>
+                  <div class="mi"><span>Review</span><small>Prüfe den Branch {{Branch}} gegen {{Basis}}.</small></div>
+                  <div class="msep"></div>
+                  <div class="mlink">Vorlagen in den Einstellungen bearbeiten …</div>
+                </div>
+              </div>
+              <span class="hintx">Mit / startest du mit einem Skill, mit ▤ aus einer Vorlage.</span></div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<p class="cap">1A ist sofort sichtbar und beschriftet, kostet aber eine Zeile. 1B spart die Zeile und steht neben „/“, das ebenfalls mit vorbereitetem Text startet, ist aber nur ein Symbol. In beiden schließt die Wahl das Menü. Gewählt ist 1B; das Formular öffnet sich dann über dem Auftrag (2A), sein Kopf nennt die Vorlage.</p>
+
+<!-- ============ Bild 2 ============ -->
+<h2>2 · Formular offen <small>zum Ausprobieren: tippen, Haken setzen, Namen ändern, „OK“ oder „Verwerfen“</small></h2>
+<p class="lbl">2A · Formular über dem Auftrag, einspaltig (Seite bleibt 720 px breit) · gewählt, mit Knopf ▤ aus 1B und Namensfeld B</p>
+<div class="ns inst" data-inst="a">
+  <div class="ns-h">Neues Vorhaben</div>
+  <div class="ns-f">
+    <div class="sec">
+      <div class="hdg"><span class="step">1</span>Was soll erledigt werden?</div>
+      <div class="form new" data-part="form">
+        <div class="fh"><b>Bugfix</b><span class="k">· Formular</span><span class="sp"><button class="btn" data-act="discard">Verwerfen</button><button class="btn pri" data-act="ok">OK</button></span></div>
+        <div class="namerow" data-nameplace="A"><span>Name des Vorhabens</span><input class="namein" data-out="name"><span class="chip" data-out="chip">aus der Vorlage</span></div>
+        <div class="fld"><label>Fehler</label><span class="help">Kurze Beschreibung des Fehlers</span><textarea rows="1" data-f="Fehler"></textarea></div>
+        <div class="fld"><label>Betroffene Komponente</label><textarea rows="1" data-f="Betroffene Komponente"></textarea></div>
+        <label class="chk"><input type="checkbox" data-f="Mit Test">Mit Test</label>
+      </div>
+      <div class="box"><div data-part="lock" class="lockline">🔒 Der Auftrag entsteht aus dem Formular. Mit „OK“ wird er wieder frei.</div>
+        <div class="inrow"><textarea class="task" rows="3" readonly data-out="prompt" placeholder="z. B. OAuth Login für Backend und Frontend implementieren."></textarea><span class="mic dis" data-part="tool">🎙</span></div>
+        <div class="bar"><span class="ib">＋</span><span class="ib dis" data-part="tool">/</span><span class="ib on new" title="Vorlage wählen" data-out="tplbtn">▤</span><span class="hintx">Mit / startest du mit einem Skill, mit ▤ aus einer Vorlage.</span></div></div>
+      <div class="namerow new" data-nameplace="B"><span>Name des Vorhabens</span><input class="namein" data-out="name"><span class="chip" data-out="chip">aus der Vorlage</span></div>
+      <p class="note" data-out="namenote">Der Name kommt aus der Vorlage und bleibt fest; die erste Session benennt Haiku wie bisher. Der ganze Text samt Anhängen wird zur ersten Nachricht.</p>
+    </div>
+    <div class="sec"><div class="hdg"><span class="step">2</span>Repositories</div><div class="repo"><span><span class="cb on">✓</span>Agenten-Verwalter-2000</span><span><span class="cb"></span>dev-vault</span></div></div>
+    <div class="sec"><div class="hdg"><span class="step">3</span>Agent</div><div class="pickers"><span class="pick pill">Opus 5.5 <span class="k">Hoch</span></span><span class="pick">⏵ Automatisch</span></div></div>
+    <div class="foot"><button class="start" data-out="start" disabled>Vorhaben starten</button><button class="cancel">Abbrechen</button><span class="sum">1 Repository · Opus 5.5 · Automatisch</span><span class="starthint">Erst das Formular mit „OK“ schließen.</span></div>
+  </div>
+</div>
+<div class="replay"><button class="btn" data-replay="a">Noch einmal von vorn</button><span data-out-state="a"></span></div>
+
+<p class="lbl" style="margin-top:18px">2B · Formular neben dem Auftrag, zweispaltig (Seite wird breiter, solange das Formular offen ist) · nicht gewählt</p>
+<div class="ns inst" data-inst="b">
+  <div class="ns-h">Neues Vorhaben</div>
+  <div class="ns-f wide" data-part="page">
+    <div class="sec">
+      <div class="hdg"><span class="step">1</span>Was soll erledigt werden?</div>
+      <span class="pick"><span class="k">Vorlage</span><span class="v" data-out="tplname">Bugfix</span> ▾</span>
+      <div class="cols" data-part="cols">
+        <div class="form new" data-part="form">
+          <div class="fh"><b>Bugfix</b><span class="k">· Formular</span><span class="sp"><button class="btn" data-act="discard">Verwerfen</button><button class="btn pri" data-act="ok">OK</button></span></div>
+          <div class="namerow" data-nameplace="A"><span>Name des Vorhabens</span><input class="namein" data-out="name"><span class="chip" data-out="chip">aus der Vorlage</span></div>
+          <div class="fld"><label>Fehler</label><span class="help">Kurze Beschreibung des Fehlers</span><textarea rows="1" data-f="Fehler"></textarea></div>
+          <div class="fld"><label>Betroffene Komponente</label><textarea rows="1" data-f="Betroffene Komponente"></textarea></div>
+          <label class="chk"><input type="checkbox" data-f="Mit Test">Mit Test</label>
+        </div>
+        <div class="sticky" style="display:flex;flex-direction:column;gap:8px">
+          <div class="box"><div data-part="lock" class="lockline">🔒 Der Auftrag entsteht aus dem Formular. Mit „OK“ wird er wieder frei.</div>
+            <div class="inrow"><textarea class="task" rows="3" readonly data-out="prompt" placeholder="z. B. OAuth Login für Backend und Frontend implementieren."></textarea><span class="mic dis" data-part="tool">🎙</span></div>
+            <div class="bar"><span class="ib">＋</span><span class="ib dis" data-part="tool">/</span><span class="hintx">Bilder und Dateien hineinziehen oder einfügen.</span></div></div>
+          <div class="namerow new" data-nameplace="B"><span>Name des Vorhabens</span><input class="namein" data-out="name"><span class="chip" data-out="chip">aus der Vorlage</span></div>
+          <p class="note" data-out="namenote">Der Name kommt aus der Vorlage und bleibt fest; die erste Session benennt Haiku wie bisher.</p>
+        </div>
+      </div>
+    </div>
+    <div class="foot"><button class="start" data-out="start" disabled>Vorhaben starten</button><button class="cancel">Abbrechen</button><span class="sum">1 Repository · Opus 5.5 · Automatisch</span><span class="starthint">Erst das Formular mit „OK“ schließen.</span></div>
+  </div>
+</div>
+<div class="replay"><button class="btn" data-replay="b">Noch einmal von vorn</button><span data-out-state="b"></span></div>
+<p class="cap">Solange das Formular offen ist: Der Auftrag ist schreibgeschützt, Diktat und „/“ sind aus, „Vorhaben starten“ und Strg+Enter sind gesperrt, Anhänge (＋, Einfügen, Ziehen), Repositories, Modell, Modus und Gruppe bleiben frei. Ein leeres Feld steht als <code>{{Name}}</code> im Auftrag und im Namen. Enter im Formular macht eine neue Zeile und startet nichts. Sobald du den Namen von Hand änderst, steht „von Hand“ daran, und das Formular überschreibt ihn nicht mehr; ein geleertes Namensfeld heißt: Name wie bisher aus dem ersten Satz. Mit dem Schalter oben wechselt das Namensfeld zwischen B (unter dem Auftrag) und A (im Formular). Bei A muss das Feld nach „OK“ unter den Auftrag wandern, denn das Formular verschwindet, der Name bleibt.</p>
+
+<!-- ============ Bild 3 ============ -->
+<h2>3 · Nachfrage, bevor eine Vorlage Text ersetzt <small>Text steht schon im Feld, Wahl „Taiga-Story“</small></h2>
+<div class="row">
+  <div class="ns" style="min-height:300px"><div class="ns-h">Neues Vorhaben</div>
+    <div class="ns-f">
+      <div class="sec"><div class="hdg"><span class="step">1</span>Was soll erledigt werden?</div>
+        <div class="box"><div class="inrow"><textarea class="task" rows="3">Übergabe aus „Release 0.76.0“: Die Rückführung ist gemergt, als Nächstes …</textarea><span class="mic">🎙</span></div>
+          <div class="bar"><span class="ib">＋</span><span class="ib">/</span><span class="ib on">▤</span><span class="hintx">Mit / startest du mit einem Skill, mit ▤ aus einer Vorlage.</span></div></div></div>
+    </div>
+    <div class="scrim"><div class="dlg new">
+      <div class="dh">Text ersetzen?<span class="x">✕</span></div>
+      <div class="db">Im Auftrag steht schon Text. Die Vorlage „Taiga-Story“ ersetzt ihn. Mit „Verwerfen“ im Formular holst du ihn zurück.</div>
+      <div class="df"><button class="btn">Abbrechen</button><button class="btn pri">Ersetzen</button></div>
+    </div></div>
+  </div>
+  <p class="cap" style="margin:0">Gefragt wird, wenn Text im Feld steht, ob getippt, vorbelegt (Übergabe in ein neues Vorhaben) oder nach „OK“ geändert. Bei leerem Feld oder unverändertem Formulartext wechselt die Wahl ohne Frage. „Abbrechen“ lässt alles, wie es war.</p>
+</div>
+
+<!-- ============ Bild 4 ============ -->
+<h2>4 · Einstellungen › Agent › Prompt-Vorlagen <small>Liste, neu unter den Agententypen</small></h2>
+<div class="set">
+  <div class="cats"><div class="cat">Allgemein<small>Konto · Darstellung</small></div><div class="cat on">Agent<small>Betriebsart · Modelle · Modus · Agententypen · Prompt-Vorlagen · …</small></div><div class="cat">Skills &amp; Umgebung<small>Skills · Umgebung</small></div><div class="cat">App<small>Version · Ordner · Rechte · Fernsteuerung</small></div></div>
+  <div class="rows">
+    <h3>Agententypen</h3>
+    <div class="sr wide"><div>Typen<span class="info">developer, reviewer, pr, merge, tester und 5 weitere</span></div><span class="btn">＋ Typ</span></div>
+    <h3 class="new" style="width:max-content;padding:0 4px">Prompt-Vorlagen</h3>
+    <div class="sr wide new" style="margin-top:6px">
+      <div>Vorlagen<span class="info">Für den Auftrag eines neuen Vorhabens. Jede Variable wird ein Textfeld, jeder Abschnitt eine Checkbox. Gilt für alle Vorhaben, nur auf diesem Rechner.</span></div>
+      <span class="btn">＋ Vorlage</span>
+      <div class="list">
+        <div class="tpl"><b>Bugfix<span class="tag">Namensvorlage</span></b><small>Behebe den Fehler: {{Fehler}} in {{Betroffene Komponente}}. {{#Mit Test}}Schreibe zuerst …</small><span class="acts"><span class="lnk">Bearbeiten</span><span class="lnk">Löschen</span></span></div>
+        <div class="tpl"><b>Taiga-Story<span class="tag">Namensvorlage</span></b><small>Arbeite die Taiga-Story #{{Ticket}} ab: {{Titel}}. {{Hinweise}} {{#Mit Plan}}Plane zuerst …</small><span class="acts"><span class="lnk">Bearbeiten</span><span class="lnk">Löschen</span></span></div>
+        <div class="tpl"><b>Review</b><small>Prüfe den Branch {{Branch}} gegen {{Basis}}.</small><span class="acts"><span class="lnk">Bearbeiten</span><span class="lnk">Löschen</span></span></div>
+      </div>
+    </div>
+  </div>
+</div>
+<p class="cap">Wie die Agententypen: Liste in der Reihenfolge der Anlage, „＋ Vorlage“ öffnet den Editor, „Löschen“ fragt nach. Ohne Vorlagen steht hier nur der Satz und „＋ Vorlage“.</p>
+
+<!-- ============ Bild 5 ============ -->
+<h2>5 · Editor mit Formular-Vorschau <small>Schalter „Editor“ oben: gültig oder mit Syntaxfehler</small></h2>
+<div class="dlg wide new" id="editor" style="max-width:1000px">
+  <div class="dh">Vorlage bearbeiten<span class="x">✕</span></div>
+  <div class="ed">
+    <div class="fcol">
+      <div class="fld"><label>Name</label><input class="namein" value="Bugfix"></div>
+      <div class="fld"><label>Vorlagentext</label>
+        <div class="code hideerr"><span class="tk c">{{! Kurze Beschreibung des Fehlers }}</span>Behebe den Fehler: <span class="tk">{{Fehler}}</span> in <span class="tk">{{Betroffene Komponente}}</span>.
+<span class="tk">{{#Mit Test}}</span>
+Schreibe zuerst einen Test, der den Fehler in <span class="tk">{{Betroffene Komponente}}</span> zeigt.
+<span class="tk">{{/Mit Test}}</span>
+<span class="tk">{{^Mit Test}}</span>
+Ein neuer Test ist nicht nötig.
+<span class="tk">{{/Mit Test}}</span></div>
+        <div class="code bad showerr"><span class="tk c">{{! Kurze Beschreibung des Fehlers }}</span>Behebe den Fehler: <span class="tk">{{Fehler}}</span> in <span class="tk">{{Betroffene Komponente}}</span>.
+<span class="tk e">{{#Mit Test}}</span>
+Schreibe zuerst einen Test, der den Fehler in <span class="tk">{{Betroffene Komponente}}</span> zeigt.
+<span class="tk">{{^Mit Test}}</span>
+Ein neuer Test ist nicht nötig.
+<span class="tk">{{/Mit Test}}</span></div>
+        <span class="err showerr">Zeile 2, Spalte 1: Der Abschnitt „Mit Test“ ist nicht geschlossen.</span>
+        <span class="syn">Variable <code>{{Name}}</code> · Abschnitt <code>{{#Name}}…{{/Name}}</code> (Haken an) · <code>{{^Name}}…{{/Name}}</code> (Haken aus) · Kommentar <code>{{! … }}</code> wird Hilfetext der nächsten Variable</span>
+      </div>
+      <div class="fld"><label>Namensvorlage <span class="help">(freiwillig, dieselben Felder)</span></label><input class="namein" value="Bugfix: {{Betroffene Komponente}}" style="font-family:var(--mono);font-size:12px"></div>
+    </div>
+    <div class="prev">
+      <span class="pt">Formular</span>
+      <div class="hideerr" style="display:flex;flex-direction:column;gap:8px">
+        <div class="fld"><label>Fehler</label><span class="help">Kurze Beschreibung des Fehlers</span><div class="fake"></div></div>
+        <div class="fld"><label>Betroffene Komponente</label><div class="fake"></div></div>
+        <label class="chk"><input type="checkbox" disabled>Mit Test</label>
+        <span class="syn">Namensfeld: „Bugfix: {{Betroffene Komponente}}“</span>
+      </div>
+      <div class="showerr syn">Erst ohne Syntaxfehler zeigt die Vorschau das Formular.</div>
+    </div>
+  </div>
+  <div class="df"><span class="left showerr" style="color:var(--err)">Speichern geht erst ohne Syntaxfehler.</span><button class="btn">Abbrechen</button><button class="btn pri" data-out="save">Speichern</button></div>
+</div>
+<p class="cap">Doppelter Name, leerer Name oder zu langer Text kommen wie bei den Agententypen als Meldung am Feld vom Core. Die Syntax prüft der Editor selbst und nennt Zeile und Spalte; die erste fehlerhafte Stelle ist markiert.</p>
+
+<!-- ============ Bild 6 ============ -->
+<h2>6 · Agent schlägt eine neue Vorlage vor <small>Kasten im Chat, wie bei Agententypen (ADR 063)</small></h2>
+<div class="chatp">
+  <div class="mu">Leg mir eine Vorlage für Refactorings an: Modul, Ziel, und ob sich das Verhalten ändern darf.</div>
+  <div class="ma">Ich schlage dir eine Vorlage vor; du kannst sie vor dem Speichern prüfen.</div>
+  <div class="toolrow">⚙ <b>prompt_template_list</b> · <b>prompt_template_propose_create</b></div>
+  <div class="kasten new">
+    <div class="kh"><h3>Claude schlägt eine neue Prompt-Vorlage vor</h3><span class="badge wait">wartet auf dich</span></div>
+    <dl class="kv">
+      <dt>Name</dt><dd><b>Refactoring</b></dd>
+      <dt>Namensvorlage</dt><dd><code>Refactoring: {{Modul}}</code></dd>
+      <dt>Vorlagentext</dt><dd><div class="pre clip">{{! Datei, Ordner oder Feature }}Baue {{Modul}} um. Ziel: {{Ziel}}.
+{{#Verhalten bleibt}}
+Das Verhalten darf sich nicht ändern; die bestehenden Tests bleiben unverändert grün.
+{{/Verhalten bleibt}}</div><div class="more"><span class="lnkb">Ganz zeigen</span> · 214 / 16.000</div></dd>
+      <dt>Formular</dt><dd><div class="mini"><span>Modul</span><span>Ziel</span><span>☐ Verhalten bleibt</span></div></dd>
+    </dl>
+    <div class="acts"><button class="btn pri">Übernehmen</button><button class="btn">Bearbeiten …</button><button class="btn">Verwerfen</button></div>
+    <p class="same">Text im Eingabefeld unten verwirft den Vorschlag mit dieser Begründung.</p>
+  </div>
+</div>
+<p class="cap">Ein neuer Vorschlag zeigt alle Felder, dazu das Formular, das daraus entsteht. „Bearbeiten …“ öffnet den Editor aus Bild 5 vorbefüllt, mit dem Titel „Vorschlag bearbeiten“ und dem Knopf „Übernehmen“. Gespeichert wird erst mit „Übernehmen“, nie durch Selbstfreigabe.</p>
+
+<!-- ============ Bild 7 ============ -->
+<h2>7 · Agent schlägt eine Änderung vor <small>Ansicht umschaltbar: Diff, Vorher, Nachher; der Schalter „Diff“ oben wechselt A und B</small></h2>
+<div class="chatp">
+  <div class="mu">Der Bugfix soll den neuen Test erst rot laufen lassen, und ich will optional ein zweites Review.</div>
+  <div class="toolrow">⚙ <b>prompt_template_list</b> · <b>prompt_template_propose_update</b></div>
+  <div class="kasten new">
+    <div class="kh"><h3>Claude schlägt eine Änderung an der Vorlage „Bugfix“ vor</h3><span class="badge wait">wartet auf dich</span></div>
+    <div class="segv" role="group" aria-label="Ansicht"><button data-view-btn="diff" aria-pressed="true">Diff</button><button data-view-btn="before" aria-pressed="false">Vorher</button><button data-view-btn="after" aria-pressed="false">Nachher</button></div>
+    <div class="views v-diff" id="views">
+      <div data-view="diff">
+        <dl class="kv">
+          <dt>Namensvorlage</dt><dd>
+            <div class="diff uni"><div class="dl del"><i>−</i>Bugfix: {{Betroffene Komponente}}</div><div class="dl add"><i>+</i>Bugfix {{Betroffene Komponente}}: {{Fehler}}</div></div>
+            <div class="diff sbs"><div class="col"><div class="ch">Vorher</div><div class="dl del"><i>−</i>Bugfix: {{Betroffene Komponente}}</div></div><div class="col"><div class="ch">Nachher</div><div class="dl add"><i>+</i>Bugfix {{Betroffene Komponente}}: {{Fehler}}</div></div></div>
+          </dd>
+          <dt>Vorlagentext</dt><dd>
+            <div class="diff uni">
+              <div class="dl ctx"><i></i>{{! Kurze Beschreibung des Fehlers }}Behebe den Fehler: {{Fehler}} in {{Betroffene Komponente}}.</div>
+              <div class="dl ctx"><i></i>{{#Mit Test}}</div>
+              <div class="dl del"><i>−</i>Schreibe zuerst einen Test, der den Fehler in {{Betroffene Komponente}} zeigt.</div>
+              <div class="dl add"><i>+</i>Schreibe zuerst einen Test, der den Fehler in {{Betroffene Komponente}} zeigt, und lass ihn rot laufen.</div>
+              <div class="dl ctx"><i></i>{{/Mit Test}}</div>
+              <div class="dl ctx"><i></i>{{^Mit Test}}</div>
+              <div class="dl ctx"><i></i>Ein neuer Test ist nicht nötig.</div>
+              <div class="dl ctx"><i></i>{{/Mit Test}}</div>
+              <div class="dl add"><i>+</i>{{#Mit Review}}</div>
+              <div class="dl add"><i>+</i>Lass die Änderung danach von einem zweiten Agenten prüfen.</div>
+              <div class="dl add"><i>+</i>{{/Mit Review}}</div>
+            </div>
+            <div class="diff sbs">
+              <div class="col"><div class="ch">Vorher</div>
+                <div class="dl ctx"><i></i>{{! Kurze Beschreibung des Fehlers }}Behebe den Fehler: {{Fehler}} in {{Betroffene Komponente}}.</div>
+                <div class="dl ctx"><i></i>{{#Mit Test}}</div>
+                <div class="dl del"><i>−</i>Schreibe zuerst einen Test, der den Fehler in {{Betroffene Komponente}} zeigt.</div>
+                <div class="dl ctx"><i></i>{{/Mit Test}}</div>
+                <div class="dl ctx"><i></i>{{^Mit Test}}</div>
+                <div class="dl ctx"><i></i>Ein neuer Test ist nicht nötig.</div>
+                <div class="dl ctx"><i></i>{{/Mit Test}}</div>
+                <div class="dl pad"><i></i> </div><div class="dl pad"><i></i> </div><div class="dl pad"><i></i> </div>
+              </div>
+              <div class="col"><div class="ch">Nachher</div>
+                <div class="dl ctx"><i></i>{{! Kurze Beschreibung des Fehlers }}Behebe den Fehler: {{Fehler}} in {{Betroffene Komponente}}.</div>
+                <div class="dl ctx"><i></i>{{#Mit Test}}</div>
+                <div class="dl add"><i>+</i>Schreibe zuerst einen Test, der den Fehler in {{Betroffene Komponente}} zeigt, und lass ihn rot laufen.</div>
+                <div class="dl ctx"><i></i>{{/Mit Test}}</div>
+                <div class="dl ctx"><i></i>{{^Mit Test}}</div>
+                <div class="dl ctx"><i></i>Ein neuer Test ist nicht nötig.</div>
+                <div class="dl ctx"><i></i>{{/Mit Test}}</div>
+                <div class="dl add"><i>+</i>{{#Mit Review}}</div>
+                <div class="dl add"><i>+</i>Lass die Änderung danach von einem zweiten Agenten prüfen.</div>
+                <div class="dl add"><i>+</i>{{/Mit Review}}</div>
+              </div>
+            </div>
+          </dd>
+          <dt>Formular</dt><dd><div class="mini"><span>Fehler</span><span>Betroffene Komponente</span><span>☐ Mit Test</span><span class="nw">+ ☐ Mit Review</span></div></dd>
+        </dl>
+        <p class="same">Unverändert: Name.</p>
+      </div>
+      <div data-view="before">
+        <dl class="kv">
+          <dt>Name</dt><dd><b>Bugfix</b></dd>
+          <dt>Namensvorlage</dt><dd><code>Bugfix: {{Betroffene Komponente}}</code></dd>
+          <dt>Vorlagentext</dt><dd><div class="pre">{{! Kurze Beschreibung des Fehlers }}Behebe den Fehler: {{Fehler}} in {{Betroffene Komponente}}.
+{{#Mit Test}}
+Schreibe zuerst einen Test, der den Fehler in {{Betroffene Komponente}} zeigt.
+{{/Mit Test}}
+{{^Mit Test}}
+Ein neuer Test ist nicht nötig.
+{{/Mit Test}}</div></dd>
+          <dt>Formular</dt><dd><div class="mini"><span>Fehler</span><span>Betroffene Komponente</span><span>☐ Mit Test</span></div></dd>
+        </dl>
+        <p class="same">So ist die Vorlage heute gespeichert.</p>
+      </div>
+      <div data-view="after">
+        <dl class="kv">
+          <dt>Name</dt><dd><b>Bugfix</b></dd>
+          <dt>Namensvorlage</dt><dd><code>Bugfix {{Betroffene Komponente}}: {{Fehler}}</code></dd>
+          <dt>Vorlagentext</dt><dd><div class="pre">{{! Kurze Beschreibung des Fehlers }}Behebe den Fehler: {{Fehler}} in {{Betroffene Komponente}}.
+{{#Mit Test}}
+Schreibe zuerst einen Test, der den Fehler in {{Betroffene Komponente}} zeigt, und lass ihn rot laufen.
+{{/Mit Test}}
+{{^Mit Test}}
+Ein neuer Test ist nicht nötig.
+{{/Mit Test}}
+{{#Mit Review}}
+Lass die Änderung danach von einem zweiten Agenten prüfen.
+{{/Mit Review}}</div></dd>
+          <dt>Formular</dt><dd><div class="mini"><span>Fehler</span><span>Betroffene Komponente</span><span>☐ Mit Test</span><span>☐ Mit Review</span></div></dd>
+        </dl>
+        <p class="same">So wäre die Vorlage nach „Übernehmen“.</p>
+      </div>
+    </div>
+    <div class="acts"><button class="btn pri">Übernehmen</button><button class="btn">Bearbeiten …</button><button class="btn">Verwerfen</button></div>
+  </div>
+</div>
+<p class="cap">Die Ansicht startet auf „Diff“. A zeigt die Zeilen untereinander wie die Changes-Ansicht (− alt, + neu, Kontext grau), B nebeneinander mit „Vorher“ links und „Nachher“ rechts, Lücken schraffiert. „Vorher“ und „Nachher“ zeigen den ganzen Stand ohne Markierung, jeweils mit dem Formular, das daraus entsteht. Ein neuer Vorschlag (Bild 6) hat kein Vorher und keinen Schalter.</p>
+
+<!-- ============ Bild 8 ============ -->
+<h2>8 · Vorschlag mit Syntaxfehler <small>der Core prüft mit (M4): der Agent bekommt den Fehler sofort, es entsteht kein Kasten</small></h2>
+<div class="chatp">
+  <div class="toolrow" style="border-color:var(--err)">⚙ <b>prompt_template_propose_update</b> · <span style="color:var(--err)">Fehler</span><div class="pre" style="margin-top:6px">text: Zeile 8, Spalte 1: Der Abschnitt „Mit Review“ ist nicht geschlossen.</div></div>
+  <div class="ma">Der Abschnitt „Mit Review“ war nicht geschlossen. Ich korrigiere das und schlage die Änderung neu vor.</div>
+  <div class="toolrow">⚙ <b>prompt_template_propose_update</b></div>
+  <div class="kasten"><div class="kh"><h3>Claude schlägt eine Änderung an der Vorlage „Bugfix“ vor</h3><span class="badge wait">wartet auf dich</span></div><p class="same">… wie Bild 7</p></div>
+</div>
+<p class="cap">Name, Längen, doppelte Namen und die Syntax prüft der Core, bevor ein Kasten entsteht. Ein Fehler geht als Ergebnis des Werkzeugs an den Agenten, eine Zeile je Fehler im Format „Feld: Meldung“, bei der Syntax mit Zeile und Spalte. Du siehst nur gültige Vorschläge. Die Oberfläche prüft dieselben Regeln live im Editor; eine gemeinsame Fallliste hält beide Fassungen gleich.</p>
+
+<!-- ============ Bild 9 ============ -->
+<h2>9 · Beantwortet <small>die Zeile, die im Chat stehen bleibt</small></h2>
+<div class="chatp">
+  <div class="kasten done"><div class="answered"><b>Prompt-Vorlage „Bugfix“</b><span class="badge ok">Übernommen</span><span class="lnkb">In den Einstellungen öffnen</span></div></div>
+  <div class="kasten done"><div class="answered"><b>Prompt-Vorlage „Refactoring“</b><span class="badge ok">Übernommen mit Änderungen</span><span class="lnkb">In den Einstellungen öffnen</span></div></div>
+  <div class="kasten done"><div class="answered"><b>Prompt-Vorlage „Bugfix“</b><span class="badge no">Verworfen</span><span class="same">Kein zweites Review, das macht der Plan.</span><span class="lnkb">Vorschlag zeigen</span></div></div>
+  <div class="kasten done"><div class="answered"><b>Prompt-Vorlage „Refactoring“</b><span class="badge">Abgebrochen</span><span class="same">Der Agent wurde gestoppt; nichts gespeichert.</span></div></div>
+</div>
+<p class="cap">Wie bei den Agententypen: Die Marke kommt aus der Antwortzeile des Core. „Übernommen mit Änderungen“ heißt, der Dialog „Vorschlag bearbeiten“ hat den Stand geändert. Bei einem entfernten Vorhaben fehlt „In den Einstellungen öffnen“, denn die Vorlage liegt dann beim Host.</p>
+
+<!-- ============ Doku ============ -->
+<section class="doc">
+<h2>Was zu wählen war</h2>
+<table>
+<tr><th>Frage</th><th>A</th><th>B</th><th>Empfehlung</th></tr>
+<tr><td>Wo wählt man die Vorlage? (Bild 1)</td><td>eigene Zeile „Vorlage · keine ▾“ über dem Auftrag, Muster wie „Gruppe“</td><td>Knopf ▤ in der Leiste des Eingabefelds neben + und /</td><td><b>A</b>: beschriftet und sofort zu finden; eine Vorlage ersetzt den ganzen Auftrag und ist damit mehr als ein Einfügen wie + und /.</td></tr>
+<tr><td>Wo steht das Formular? (Bild 2)</td><td>über dem Auftrag, einspaltig</td><td>neben dem Auftrag, zweispaltig, Seite breiter</td><td><b>A</b>: passt in die 720 px der Seite und in schmale Fenster; der Auftrag steht direkt darunter. B zeigt beides nebeneinander, braucht aber rund 1060 px.</td></tr>
+<tr><td>Wo steht das Namensfeld? (Schalter oben)</td><td>im Formular, als erstes Feld</td><td>unter dem Auftrag, wo heute der Satz zum ersten Satz steht</td><td><b>B</b>: Der Name bleibt nach „OK“, das Formular nicht. Bei B muss nichts wandern.</td></tr>
+<tr><td>Wie zeigt der Kasten den Diff? (Bild 7, Schalter „Diff“ oben)</td><td>untereinander, − alt und + neu, wie die Changes-Ansicht</td><td>nebeneinander, „Vorher“ links, „Nachher“ rechts</td><td><b>A</b>: vertraut aus den Changes und schmal genug für den Chat; B braucht die Breite zweier Spalten.</td></tr>
+<tr><td>Wer prüft die Syntax eines Vorschlags? (Bild 8)</td><td>die Oberfläche wie in E7: der Kasten zeigt den Fehler, „Übernehmen“ ist gesperrt</td><td>der Core mit einer zweiten Fassung in Rust: der Agent bekommt den Fehler sofort, ohne Kasten</td><td><b>Entschieden am 2026-11-23:</b> beide. Die Oberfläche prüft live, der Core bei jedem Speichern und Vorschlag.</td></tr>
+</table>
+<p><b>Gewählt am 2026-11-23:</b> Drop-down B (Knopf ▤ in der Leiste), Formular A (über dem Auftrag), Namensfeld B (unter dem Auftrag), Diff A (untereinander); die Syntax prüfen Oberfläche und Core.</p>
+<h2>Texte (Vorschläge)</h2>
+<ul>
+<li>Knopf ▤ mit dem Tooltip „Vorlage wählen“; im Menü die Vorlagen mit ihrer ersten Zeile und „Vorlagen in den Einstellungen bearbeiten …“. Hinweis in der Leiste: „Mit / startest du mit einem Skill, mit ▤ aus einer Vorlage.“</li>
+<li>Formular: Kopf „&lt;Name&gt; · Formular“, Knöpfe „Verwerfen“ und „OK“. Im Eingabefeld: „Der Auftrag entsteht aus dem Formular. Mit „OK“ wird er wieder frei.“ Am Start: „Erst das Formular mit „OK“ schließen.“</li>
+<li>Namensfeld: „Name des Vorhabens“ mit der Marke „aus der Vorlage“ oder „von Hand“; Hinweis: „Der Name kommt aus der Vorlage und bleibt fest; die erste Session benennt Haiku wie bisher.“</li>
+<li>Einstellungen: Abschnitt „Prompt-Vorlagen“, Zeile „Vorlagen“ mit Infotext und „＋ Vorlage“; Editor „Vorlage anlegen“ oder „Vorlage bearbeiten“ mit „Name“, „Vorlagentext“, „Namensvorlage (freiwillig)“.</li>
+<li>Kasten: „Claude schlägt eine neue Prompt-Vorlage vor“ oder „Claude schlägt eine Änderung an der Vorlage „&lt;Name&gt;“ vor“, Marke „wartet auf dich“; Ansicht „Diff“, „Vorher“, „Nachher“; Knöpfe „Übernehmen“, „Bearbeiten …“, „Verwerfen“; beantwortet „Prompt-Vorlage „&lt;Name&gt;““ mit „Übernommen“, „Übernommen mit Änderungen“, „Verworfen“, „Abgebrochen“, „Pausiert“ oder „Nicht beantwortet“.</li>
+</ul>
+</section>
+</main>
+<script>
+const root=document.documentElement;
+function sel(attr,val){document.querySelectorAll('['+attr+']').forEach(b=>b.setAttribute('aria-pressed',String(b.getAttribute(attr)===val)));}
+document.querySelectorAll('[data-theme-btn]').forEach(b=>b.onclick=()=>{root.dataset.theme=b.dataset.themeBtn;sel('data-theme-btn',b.dataset.themeBtn);});
+document.querySelectorAll('[data-name-btn]').forEach(b=>b.onclick=()=>{root.dataset.name=b.dataset.nameBtn;sel('data-name-btn',b.dataset.nameBtn);});
+document.querySelectorAll('[data-err-btn]').forEach(b=>b.onclick=()=>{const bad=b.dataset.errBtn==='bad';document.getElementById('editor').classList.toggle('ferr',bad);document.querySelector('[data-out=save]').disabled=bad;sel('data-err-btn',b.dataset.errBtn);});
+try{if(matchMedia('(prefers-color-scheme: light)').matches){root.dataset.theme='light';sel('data-theme-btn','light');}}catch(e){}
+
+// Nur für den Entwurf: kleine Teilmenge ohne Schachtelung und ohne Fehlerprüfung.
+const TEXT='{{! Kurze Beschreibung des Fehlers }}Behebe den Fehler: {{Fehler}} in {{Betroffene Komponente}}.\n{{#Mit Test}}\nSchreibe zuerst einen Test, der den Fehler in {{Betroffene Komponente}} zeigt.\n{{/Mit Test}}\n{{^Mit Test}}\nEin neuer Test ist nicht nötig.\n{{/Mit Test}}';
+const NAME='Bugfix: {{Betroffene Komponente}}';
+function render(src,v){
+  src=src.replace(/^[ \t]*(\{\{[#^\/!][^}]*\}\})[ \t]*\n/gm,'$1');
+  src=src.replace(/\{\{![\s\S]*?\}\}/g,'');
+  src=src.replace(/\{\{([#^])\s*([^}]+?)\s*\}\}([\s\S]*?)\{\{\/\s*\2\s*\}\}/g,(m,k,n,body)=>((k==='#')===!!v[n])?body:'');
+  return src.replace(/\{\{\{?\s*([^#^\/!}][^}]*?)\s*\}?\}\}/g,(m,n)=>(v[n]??'')!==''?v[n]:'{{'+n+'}}');
+}
+function mount(inst){
+  const el=document.querySelector('[data-inst='+inst+']');
+  const st={open:true,manual:false,hasName:true,values:{}};
+  const q=s=>el.querySelectorAll(s);
+  const before='';
+  function paint(){
+    el.classList.toggle('closed',!st.open);el.classList.toggle('nonm',!st.hasName);
+    const prompt=el.querySelector('[data-out=prompt]');
+    if(st.open){prompt.value=render(TEXT,st.values);prompt.readOnly=true;}
+    if(st.open&&!st.manual){const n=render(NAME,st.values);q('[data-out=name]').forEach(i=>{if(i!==document.activeElement)i.value=n;});}
+    q('[data-out=chip]').forEach(c=>{c.textContent=st.manual?'von Hand':'aus der Vorlage';c.classList.toggle('man',st.manual);});
+    q('[data-part=tool]').forEach(t=>t.classList.toggle('dis',st.open));
+    el.querySelector('[data-out=start]').disabled=st.open;
+    q('[data-part=lock]').forEach(l=>l.style.display=st.open?'':'none');
+    const page=el.querySelector('[data-part=page]');if(page)page.classList.toggle('wide',st.open);
+    const cols=el.querySelector('[data-part=cols]');if(cols)cols.style.display=st.open?'':'block';
+    const tn=el.querySelector('[data-out=tplname]');if(tn)tn.textContent=st.hasName?'Bugfix':'keine';const tb=el.querySelector('[data-out=tplbtn]');if(tb)tb.classList.toggle('on',st.hasName);
+    document.querySelector('[data-out-state='+inst+']').textContent=st.open?'Formular offen':(st.hasName?'nach „OK“: Auftrag frei, Name bleibt':'nach „Verwerfen“: Text von vorher, kein Namensfeld');
+  }
+  q('[data-f]').forEach(f=>{f.addEventListener(f.type==='checkbox'?'change':'input',()=>{st.values[f.dataset.f]=f.type==='checkbox'?f.checked:f.value;paint();});
+    if(f.tagName==='TEXTAREA')f.addEventListener('keydown',e=>e.stopPropagation());});
+  q('[data-out=name]').forEach(i=>i.addEventListener('input',()=>{st.manual=true;q('[data-out=name]').forEach(o=>{if(o!==i)o.value=i.value;});paint();}));
+  el.querySelector('[data-act=ok]').onclick=()=>{st.open=false;const p=el.querySelector('[data-out=prompt]');p.readOnly=false;paint();};
+  el.querySelector('[data-act=discard]').onclick=()=>{st.open=false;st.hasName=false;const p=el.querySelector('[data-out=prompt]');p.value=before;p.readOnly=false;paint();};
+  document.querySelector('[data-replay='+inst+']').onclick=()=>{st.open=true;st.manual=false;st.hasName=true;st.values={};q('[data-f]').forEach(f=>{if(f.type==='checkbox')f.checked=false;else f.value='';});paint();};
+  paint();
+}
+document.querySelectorAll('[data-diff-btn]').forEach(b=>b.onclick=()=>{root.dataset.diff=b.dataset.diffBtn;sel('data-diff-btn',b.dataset.diffBtn);});
+document.querySelectorAll('[data-view-btn]').forEach(b=>b.onclick=()=>{document.getElementById('views').className='views v-'+b.dataset.viewBtn;sel('data-view-btn',b.dataset.viewBtn);});
+mount('a');mount('b');
+</script>
+</body>
+</html>
