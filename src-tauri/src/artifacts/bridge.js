@@ -120,7 +120,9 @@
       });
       markNodes.push({ node, element });
     });
-    queuePosition();
+    // Gleich positionieren: Nach einer Änderung unter `body` stünden die Marken sonst einen Frame
+    // lang an ihrer statischen Stelle.
+    positionMarks();
   };
 
   const setMarks = (marks) => {
