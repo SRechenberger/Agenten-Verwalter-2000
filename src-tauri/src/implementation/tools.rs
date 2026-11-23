@@ -113,10 +113,10 @@ impl ToolSet for ImplementationTools {
                 description: "Schlägt die vollständige Liste der kommenden Phasen vor (alle \
                               Phasen ohne gestartete Station); der Benutzer übernimmt oder \
                               verwirft sie. Eine `id` an einer Station ist ein \
-                              Alias nur für diesen Aufruf; die Kennung `<Lane>-<n>` vergibt der Verwalter. Die Antwort nennt je neue Station Alias und Kennung.",
+                              Alias nur für diesen Aufruf; die Kennung `<Lane>-<n>` vergibt der Verwalter. Eine Station einer kommenden Lane, die du mit ihrer Kennung nennst, behält sie. Die Antwort nennt je neue Station Alias und Kennung.",
                 input_schema: json!({
                     "type": "object",
-                    "properties": { "phases": phases_schema(false) },
+                    "properties": { "phases": set_phases_schema() },
                     "required": ["phases"],
                     "additionalProperties": false,
                 }),
@@ -380,6 +380,16 @@ fn phases_schema(is_delta: bool) -> Value {
             "Kennungen bestehender Stationen oder Aliasse aus diesem Aufruf, auf die diese wartet; ohne das Feld ist sie eine Startstation und startet sofort, auch neben der Station davor in ihrer Lane: nenne die davor, wenn sie warten soll. Alias nur für diesen Aufruf; die Kennung `<Lane>-<n>` vergibt der Verwalter."
         );
     }
+    schema
+}
+
+/// Die Lanes von `implementation_set_phases`: Dort nennt eine `id` gleich der Kennung einer Station einer
+/// kommenden Lane mit demselben Schlüssel diese Station (ADR 061, Nachtrag 2026-11-23).
+fn set_phases_schema() -> Value {
+    let mut schema = phases_schema(false);
+    schema["items"]["properties"]["stations"]["items"]["properties"]["id"]["description"] = json!(
+        "Alias nur für diesen Aufruf; die Kennung `<Lane>-<n>` vergibt der Verwalter. Ausnahme: Nennst du eine Station einer kommenden Lane mit ihrer Kennung (etwa „C-5“ in Lane C), bleibt es diese Station mit dieser Kennung, und Kanten auf sie bleiben gültig. Sonst im Aufruf eindeutig und keiner Kennung im Plan gleich; ohne Angabe gilt im Aufruf <Lane-Schlüssel>-<Nummer>"
+    );
     schema
 }
 

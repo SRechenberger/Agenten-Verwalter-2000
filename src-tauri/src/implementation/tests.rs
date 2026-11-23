@@ -9209,3 +9209,233 @@ fn a_failed_release_of_an_own_message_skips_it_once_and_starts_no_loop() {
         "der nächste Durchgang überspringt sie"
     );
 }
+
+// Taiga #210, #212: Kennungen bei `implementation_set_phases` (ADR 061, Nachtrag 2026-11-23).
+
+/// Lane 1 begonnen (1-1 fertig, mit Session), dazu `rest`; `keys` nennt die Lanes in Planreihenfolge,
+/// `changes` die übernommenen Änderungen.
+fn begun_lane_and(
+    rest: Vec<StationRow>,
+    keys: &[&str],
+    changes: Vec<ChangeRow>,
+) -> (StoredImplementation, ImplementationView) {
+    let mut begun = in_phase(finished(node("1-1", &[])), "1");
+    begun.session_id = Some("session".to_owned());
+    let mut stations = vec![begun];
+    stations.extend(rest);
+    let stored = StoredImplementation {
+        row: implementation_row(),
+        phases: keys
+            .iter()
+            .zip(0..)
+            .map(|(key, position): (&&str, u32)| phase_keyed(key, position))
+            .collect(),
+        stations,
+        changes,
+    };
+    let view = build_view(
+        &stored,
+        &HashMap::new(),
+        &HashMap::new(),
+        &HashMap::new(),
+        &[],
+    );
+    (stored, view)
+}
+
+/// Lane 1 begonnen, ihre 1-2 wartet auf 2-1 (Merge); in Lane 2 kommen 2-1 und 2-2.
+fn begun_lane_waiting_on_lane_2() -> (StoredImplementation, ImplementationView) {
+    let mut merge = node("2-1", &["1-1"]);
+    merge.stage = "Merge".to_owned();
+    begun_lane_and(
+        vec![
+            in_phase(node("1-2", &["1-1", "2-1"]), "1"),
+            in_phase(merge, "2"),
+            in_phase(node("2-2", &["2-1"]), "2"),
+        ],
+        &["1", "2"],
+        Vec::new(),
+    )
+}
+
+/// Lane 2 neu: die Merge-Station mit ihrer Kennung 2-1 genannt, Doku mit dem stillen Alias 2-2,
+/// Review mit einem eigenen Alias.
+fn lane_2_naming_2_1() -> Vec<PhaseInput> {
+    inputs(json!([
+        { "key": "2", "title": "Zwei", "stations": [
+            { "stage": "Merge", "id": "2-1", "after": ["1-1"] },
+            { "stage": "Doku", "after": ["2-1"] },
+            { "stage": "Review", "id": "review", "after": ["2-1"] },
+        ] },
+    ]))
+}
+
+#[test]
+fn set_phases_keeps_the_kennung_of_an_upcoming_station_named_by_it() {
+    let (stored, view) = begun_lane_waiting_on_lane_2();
+    let inputs = lane_2_naming_2_1();
+    assert_eq!(changes::refuse_taken_kennungen(&view, &inputs), Ok(()));
+    let (_, replaced, named) =
+        changes::replanned(&view, &inputs, &stored.stations).expect("gültige Änderung");
+    assert_eq!(
+        edges(&replaced),
+        [
+            edge("2-1", &["1-1"]),
+            edge("2-3", &["2-1"]),
+            edge("2-4", &["2-1"]),
+        ],
+        "2-1 bleibt; der stille Alias 2-2 ist keine Nennung, die neuen Nummern liegen über 2-2"
+    );
+    assert_eq!(named, "2-2 → 2-3 · Doku, review → 2-4 · Review");
+    assert_eq!(
+        changes::recorded_summary(&view, &ChangeSummary::default(), &replaced).replaced,
+        ["2-2"],
+        "die behaltene 2-1 gilt nicht als ersetzt"
+    );
+}
+
+#[test]
+fn an_edge_from_a_begun_lane_into_a_named_station_survives_set_phases() {
+    let (stored, view) = begun_lane_waiting_on_lane_2();
+    let (_, replaced, _) = changes::replanned(&view, &lane_2_naming_2_1(), &stored.stations)
+        .expect("die Kante 1-2 → 2-1 bleibt gültig");
+    // Danach: 1-1 (fertig) und 1-2 aus Lane 1, die neue Lane 2.
+    let mut rest: Vec<StationRow> = vec![stored.stations[1].clone()];
+    rest.extend(
+        replaced
+            .iter()
+            .cloned()
+            .map(|row: StationRow| in_phase(row, "2")),
+    );
+    let plan: Vec<(&str, &[String])> = stored.stations[..1]
+        .iter()
+        .chain(&rest)
+        .map(|row: &StationRow| (row.plan_id.as_str(), row.after.as_slice()))
+        .collect();
+    assert_eq!(schedule::check_plan(&plan), Ok(()));
+    let merge_id = replaced[0].id.clone();
+    let (_, view) = begun_lane_and(rest.clone(), &["1", "2"], Vec::new());
+    assert!(
+        schedule::is_due(&view.phases, &merge_id),
+        "nach 1-1 ist 2-1 bereit"
+    );
+    assert!(!schedule::is_due(&view.phases, "1-2"), "1-2 wartet auf 2-1");
+    let merge_finished: Vec<StationRow> = rest
+        .into_iter()
+        .map(|row: StationRow| {
+            if row.id == merge_id {
+                finished(row)
+            } else {
+                row
+            }
+        })
+        .collect();
+    let (_, view) = begun_lane_and(merge_finished, &["1", "2"], Vec::new());
+    assert!(
+        schedule::is_due(&view.phases, "1-2"),
+        "nach 2-1 ist 1-2 bereit"
+    );
+}
+
+#[test]
+fn a_kennung_named_in_a_lane_of_another_key_or_of_a_begun_station_stays_refused() {
+    let (_, view) = begun_lane_waiting_on_lane_2();
+    let other_lane = inputs(json!([
+        { "key": "3", "title": "Drei", "stations": [{ "stage": "Merge", "id": "2-1" }] },
+    ]));
+    let error = changes::refuse_taken_kennungen(&view, &other_lane).expect_err("anderer Schlüssel");
+    assert!(
+        error.starts_with("phases[0].stations[0].id: „2-1“ ist schon die Kennung"),
+        "{error}"
+    );
+    let begun_station = inputs(json!([
+        { "key": "2", "title": "Zwei", "stations": [{ "stage": "Umsetzung", "id": "1-2" }] },
+    ]));
+    let error = changes::refuse_taken_kennungen(&view, &begun_station).expect_err("begonnene Lane");
+    assert!(
+        error.starts_with("phases[0].stations[0].id: „1-2“ ist schon die Kennung"),
+        "{error}"
+    );
+}
+
+#[test]
+fn without_naming_the_refusal_names_the_way_over_id_first_then_implementation_edit() {
+    let (stored, view) = begun_lane_waiting_on_lane_2();
+    let inputs = inputs(json!([
+        { "key": "2", "title": "Zwei", "stations": [{ "stage": "Merge", "after": [] }] },
+    ]));
+    let error = changes::replanned(&view, &inputs, &stored.stations)
+        .expect_err("die Kante 1-2 → 2-1 zeigte danach ins Leere");
+    let by_id = error.find("`id: \"2-1\"`").unwrap_or(usize::MAX);
+    let by_edit = error.find("implementation_edit").unwrap_or(0);
+    assert!(by_id < by_edit, "{error}");
+}
+
+#[test]
+fn a_lane_removed_by_an_accepted_set_phases_never_gives_its_numbers_back() {
+    let (stored, view) = begun_lane_and(
+        vec![
+            in_phase(node("1-2", &["1-1"]), "1"),
+            in_phase(node("2-1", &["1-1"]), "2"),
+            in_phase(node("2-2", &["2-1"]), "2"),
+        ],
+        &["1", "2"],
+        Vec::new(),
+    );
+    let without_lane_2 = inputs(json!([
+        { "key": "3", "title": "Drei", "stations": [{ "stage": "Doku", "after": ["1-1"] }] },
+    ]));
+    let (_, replaced, _) =
+        changes::replanned(&view, &without_lane_2, &stored.stations).expect("gültige Änderung");
+    let summary = changes::diff(&view, &without_lane_2).expect("gültig");
+    let change = ChangeRow {
+        id: "change".to_owned(),
+        implementation_id: "implementation".to_owned(),
+        session_id: Some("session".to_owned()),
+        at: 2.0,
+        summary: serde_json::to_string(&changes::recorded_summary(&view, &summary, &replaced))
+            .expect("JSON"),
+        after_station_id: None,
+        stations_before: 4,
+        stations_after: 3,
+    };
+    let (stored, view) = begun_lane_and(
+        vec![
+            in_phase(node("1-2", &["1-1"]), "1"),
+            in_phase(node("3-1", &["1-1"]), "3"),
+        ],
+        &["1", "3"],
+        vec![change],
+    );
+    let new_lane_2 = inputs(json!([
+        { "key": "2", "title": "Zwei neu", "stations": [{ "stage": "Umsetzung" }, { "stage": "Review" }] },
+    ]));
+    let (_, replaced, _) =
+        changes::replanned(&view, &new_lane_2, &stored.stations).expect("gültige Änderung");
+    assert_eq!(
+        plan_ids_of(&replaced),
+        ["2-3", "2-4"],
+        "nicht wieder 2-1 oder 2-2"
+    );
+}
+
+#[test]
+fn an_old_change_row_without_replaced_kennungen_stays_readable() {
+    let old = ChangeRow {
+        id: "change".to_owned(),
+        implementation_id: "implementation".to_owned(),
+        session_id: Some("session".to_owned()),
+        at: 2.0,
+        summary: r#"{"added":["3"],"moved":[],"removed":["2"]}"#.to_owned(),
+        after_station_id: None,
+        stations_before: 3,
+        stations_after: 2,
+    };
+    let (_, view) = begun_lane_and(Vec::new(), &["1"], vec![old]);
+    assert_eq!(
+        view.changes[0].summary.removed,
+        ["2"],
+        "gelesen, nicht leer"
+    );
+    assert!(view.changes[0].summary.replaced.is_empty());
+}
