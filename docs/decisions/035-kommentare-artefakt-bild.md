@@ -37,3 +37,8 @@ Diff-Kommentare interpretiert.
   erlaubt dafür nur kanonische Dateien unter `<Workspace>\\.anhaenge`.
 - Der persistierte Chat-Eintrag enthält nur die regulären Anhänge der aktuellen Nachricht; erneut
   angehängte Bilder sind ausschließlich Teil der Agentennachricht.
+
+## Nachtrag 2026-11-23: Entwurf und Marken (Taiga #30, #32)
+
+- Ist zu einer Session des Vorhabens ein Kommentar-Kasten zu einem Artefakt offen (Kennung `artifact|…`), ändert `artifact_show` die Auswahl nicht; der Text, den der Benutzer gerade tippt, bliebe sonst nicht beim Artefakt, zu dem er gehört. Der Sprung der Ansicht bleibt wie bisher. Ein Kasten in den Changes sperrt nichts.
+- Die Brücke merkt sich die zuletzt empfangenen Marken und setzt sie neu, wenn sich das DOM unter `body` ändert (ein Durchlauf je Frame). Betrachter bauen ihr DOM erst nach dem Laden und beim Umschalten von Roh auf formatiert neu; die Marken kamen vorher zu früh und blieben weg. Die Overlays hängen an `documentElement`, lösen den Beobachter also nicht aus.

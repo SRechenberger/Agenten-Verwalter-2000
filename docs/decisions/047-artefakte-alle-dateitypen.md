@@ -33,3 +33,9 @@ Der Reiter „Artefakte“ zeigte nur HTML-Seiten direkt im Ordner `.artefakte`;
 - PDF rechnet im Hauptthread: ein Worker von fremder Herkunft startet unter der CSP nicht und meldet keinen Fehler. Der Betrachter lädt `pdf.worker.min.mjs` als Modul mit Prüfsumme; sehr große PDFs können die Seite kurz anhalten.
 - Kommentare auf Inhalte in der Vorschau des Ordner-Betrachters (zweiter Rahmen) erreichen die App nicht; Ordner-Kommentare gehen nur auf Baumzeilen und Raster-Kacheln.
 - „Mit Standardprogramm öffnen“ öffnet bei einer Website `index.html`, bei einem Ordner ohne `index.html` den Ordner im Explorer. Das gilt nur für Dokumente und Medien (Liste in `artifacts/mod.rs`); Programme, Skripte und unbekannte Typen öffnet der Knopf nicht und nennt stattdessen „Im Explorer zeigen“, denn ein Agent darf nichts ablegen, das ein Klick des Benutzers ausführt.
+
+## Nachtrag 2026-11-23: Zubehör ohne Seitentext (Taiga #29, #34)
+
+Zubehör sind nur noch Unterordner, deren Name mit `_` beginnt, und Unterordner, die so heißen wie eine HTML-Datei direkt daneben ohne Endung (Vergleich klein geschrieben). Die Regel „eine HTML-Seite verweist mit `"<name>/`, `'<name>/` oder `"./<name>/` hinein“ in der Entscheidung oben gilt nicht mehr; sie bleibt dort als Geschichte stehen.
+
+Warum: Der Text löste Fehlalarm aus. Ein Ordner wie `daten/` verschwand aus der Liste, sobald irgendeine Seite einen Link dorthin oder ein JSON-Beispiel mit `"daten/…"` enthielt, und der Benutzer sah ihn nirgends mehr. Dazu las die Liste bei jedem Abruf bis zu 1 MiB je HTML-Seite, und `artifact_file_of` tat es unter der Session-Sperre. Die Namen der HTML-Dateien kommen jetzt aus den Verzeichniseinträgen, ohne dass eine Datei geöffnet wird; gelesen werden nur noch die Anfänge für die Titel (bis 64 KiB).
