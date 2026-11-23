@@ -192,6 +192,12 @@ struct ProjectState {
 }
 
 impl ProjectState {
+    /// Der Titel von Haiku ersetzt nur einen automatisch entstandenen Namen (`retitle_project`); ein
+    /// Name aus der Namensvorlage oder von Hand bleibt (ADR 075, A1).
+    fn takes_title(&self, title: &str) -> bool {
+        self.name_auto && self.name != title
+    }
+
     fn new(name: String, created_at: f64) -> Self {
         ProjectState {
             name,
@@ -692,10 +698,13 @@ impl SessionRegistry {
     /// Datenbankzeilen, dann der Agent mit der Aufgabe. Alles oder nichts: scheitert ein Schritt,
     /// bleibt weder der Workspace-Ordner noch eine Datenbankzeile zurück. Worktrees und Branches
     /// legt die App nicht an (ADR 010).
+    /// `name`: der Name des Vorhabens aus der Namensvorlage (ADR 075, A1); leer oder `None` wie
+    /// bisher der erste Satz des Auftrags. Session 1 heißt immer nach dem ersten Satz.
     pub fn create_project(
         &self,
         app: &AppHandle,
         request: NewSession<'_>,
+        name: Option<&str>,
     ) -> Result<ProjectCreated, CommandError> {
         // Vor allem anderen: ein leerer Auftrag und eine unbekannte Gruppe lassen nichts zurück.
         request.refuse_empty_task()?;
@@ -727,6 +736,7 @@ impl SessionRegistry {
         let repositories = worktrees::main_checkouts(&rows)?;
         let project_id = uuid::Uuid::new_v4().to_string();
         let id = uuid::Uuid::new_v4().to_string();
+        let (project_name, project_name_auto) = project_name(task, name);
         let name = name_from_task(task);
         let workspace = new_session_workspace(app, &project_id)?;
         let task_attachments =
@@ -747,12 +757,12 @@ impl SessionRegistry {
         let task_skill: Option<SkillRef> = home_dir(app).ok().and_then(|home: PathBuf| {
             skills::match_invocation(task, &skills::collect(&home, &repository_roots))
         });
-        let mut state = SessionState::new(name.clone(), model, effort, mode);
+        let mut state = SessionState::new(name, model, effort, mode);
         state.name_auto = true;
         state.codex_model = codex_model;
         state.ticket_roots = worktrees::ticket_roots(&repositories);
-        let mut project = ProjectState::new(name, state.created_at);
-        project.name_auto = true;
+        let mut project = ProjectState::new(project_name, state.created_at);
+        project.name_auto = project_name_auto;
         project.self_release = default_self_release;
         project.group_id.clone_from(&group_id);
         let session = Arc::new(Session {
@@ -774,7 +784,7 @@ impl SessionRegistry {
             tldr: None,
             tldr_at: None,
             tldr_sources: None,
-            name_auto: true,
+            name_auto: project_name_auto,
             self_release: default_self_release,
             group_id,
             priority: project.priority,
@@ -2547,6 +2557,16 @@ impl SessionRegistry {
 }
 
 /// Getrimmt und auf die Höchstlänge gekürzt; leer ist ein Fehler.
+/// Name eines neuen Vorhabens und ob er automatisch entstand (ADR 075, A1, A2): ein Name aus der
+/// Namensvorlage gilt wie `project_rename`, gekürzt und von Hand gesetzt; leer oder `None` ist der
+/// erste Satz des Auftrags, den Haiku später ersetzen darf.
+fn project_name(task: &str, name: Option<&str>) -> (String, bool) {
+    match name.and_then(|name: &str| trimmed_name(name).ok()) {
+        Some(name) => (name, false),
+        None => (name_from_task(task), true),
+    }
+}
+
 fn trimmed_name(name: &str) -> Result<String, CommandError> {
     let name: String = name.trim().chars().take(MAX_NAME_CHARS).collect();
     if name.is_empty() {
@@ -7357,7 +7377,7 @@ mod tests {
         let version: u32 = connection
             .query_row("PRAGMA user_version", [], |row| row.get(0))
             .expect("Version");
-        assert_eq!(version, 34);
+        assert_eq!(version, 35);
         let (text, subject): (String, Option<String>) = connection
             .query_row("SELECT text, subject FROM session_inbox", [], |row| {
                 Ok((row.get(0)?, row.get(1)?))
@@ -8336,7 +8356,7 @@ mod tests {
         let version: u32 = connection
             .query_row("PRAGMA user_version", [], |row| row.get(0))
             .expect("Version");
-        assert_eq!(version, 34);
+        assert_eq!(version, 35);
         let row = session_inbox::oldest(&connection, "s")
             .expect("lesen")
             .expect("Zeile bleibt");
@@ -8347,5 +8367,39 @@ mod tests {
                 .is_none(),
             "eine Session-Nachricht ist keine eigene"
         );
+    }
+
+    #[test]
+    fn a_project_named_by_the_name_template_counts_as_set_by_hand_and_keeps_its_name_against_haiku()
+    {
+        let (name, name_auto) =
+            project_name("Behebe den Fehler. Mehr dazu.", Some("  Bugfix: Leiste "));
+        assert_eq!((name.as_str(), name_auto), ("Bugfix: Leiste", false));
+        let mut project = ProjectState::new(name, 1.0);
+        project.name_auto = name_auto;
+        assert!(!project.takes_title("Titel von Haiku"));
+    }
+
+    #[test]
+    fn a_project_without_or_with_an_empty_name_takes_the_first_sentence_that_haiku_may_replace() {
+        for name in [None, Some(""), Some(" \t ")] {
+            let (got, name_auto) = project_name("Behebe den Fehler. Mehr dazu.", name);
+            assert_eq!(
+                (got.as_str(), name_auto),
+                ("Behebe den Fehler", true),
+                "{name:?}"
+            );
+            let mut project = ProjectState::new(got, 1.0);
+            project.name_auto = name_auto;
+            assert!(project.takes_title("Titel von Haiku"), "{name:?}");
+        }
+    }
+
+    #[test]
+    fn a_name_from_the_name_template_is_cut_to_60_chars_like_a_rename() {
+        let long = "n".repeat(70);
+        let (name, _) = project_name("Auftrag", Some(&long));
+        assert_eq!(name, trimmed_name(&long).expect("nicht leer"));
+        assert_eq!(name.chars().count(), MAX_NAME_CHARS);
     }
 }

@@ -1,0 +1,311 @@
+[
+  {
+    "rule": "plain text without tags is valid",
+    "text": "Nur Text.",
+    "nameTemplate": "",
+    "error": null
+  },
+  {
+    "rule": "the Bugfix example of the story is valid",
+    "text": "{{! Kurze Beschreibung des Fehlers }}Behebe den Fehler: {{Fehler}} in {{Betroffene Komponente}}. {{#Mit Test}}Schreibe zuerst einen Test, der den Fehler in {{Betroffene Komponente}} zeigt.{{/Mit Test}}{{^Mit Test}}Ein neuer Test ist nicht nötig.{{/Mit Test}}",
+    "nameTemplate": "Bugfix: {{Betroffene Komponente}}",
+    "error": null
+  },
+  {
+    "rule": "triple braces are a variable like double braces",
+    "text": "{{{x}}} und {{x}}",
+    "nameTemplate": "",
+    "error": null
+  },
+  {
+    "rule": "sections may be nested",
+    "text": "{{#a}}{{^b}}x{{/b}}{{/a}}",
+    "nameTemplate": "",
+    "error": null
+  },
+  {
+    "rule": "a section may be nested in itself",
+    "text": "{{#a}}{{#a}}{{/a}}{{/a}}",
+    "nameTemplate": "",
+    "error": null
+  },
+  {
+    "rule": "whitespace around names and sigils is trimmed",
+    "text": "{{ x }} {{ # a }}y{{/a\t}}{{\nx\n}}",
+    "nameTemplate": "",
+    "error": null
+  },
+  {
+    "rule": "names may hold umlauts, capitals and spaces",
+    "text": "{{Größe der Änderung}}",
+    "nameTemplate": "",
+    "error": null
+  },
+  {
+    "rule": "a comment ends at the first closing braces and may hold an opening brace",
+    "text": "{{! a { b }}",
+    "nameTemplate": "",
+    "error": null
+  },
+  {
+    "rule": "a comment may start after whitespace",
+    "text": "{{ ! hilfe }}{{x}}",
+    "nameTemplate": "",
+    "error": null
+  },
+  {
+    "rule": "closing braces without an opening are text",
+    "text": "a }} b",
+    "nameTemplate": "",
+    "error": null
+  },
+  {
+    "rule": "a name of exactly 40 characters is valid",
+    "text": "{{abcdefghijabcdefghijabcdefghijabcdefghij}}",
+    "nameTemplate": "",
+    "error": null
+  },
+  {
+    "rule": "the name template may use a section of the text",
+    "text": "{{#x}}a{{/x}}",
+    "nameTemplate": "{{#x}}A{{/x}}",
+    "error": null
+  },
+  {
+    "rule": "an empty name template is valid",
+    "text": "a",
+    "nameTemplate": "",
+    "error": null
+  },
+  {
+    "rule": "an unclosed tag is an error at its opening",
+    "text": "ab {{x",
+    "nameTemplate": "",
+    "error": {
+      "source": "text",
+      "line": 1,
+      "column": 4,
+      "message": "„{{“ ohne schließendes „}}“."
+    }
+  },
+  {
+    "rule": "an unclosed triple tag is an error at its opening",
+    "text": "{{{x}}",
+    "nameTemplate": "",
+    "error": {
+      "source": "text",
+      "line": 1,
+      "column": 1,
+      "message": "„{{{“ ohne schließendes „}}}“."
+    }
+  },
+  {
+    "rule": "a section left open is an error with line and column",
+    "text": "Text\n  {{#Mit Test}}x",
+    "nameTemplate": "",
+    "error": {
+      "source": "text",
+      "line": 2,
+      "column": 3,
+      "message": "Der Abschnitt „Mit Test“ ist nicht geschlossen."
+    }
+  },
+  {
+    "rule": "of two open sections the inner one is reported",
+    "text": "{{#a}}{{#b}}",
+    "nameTemplate": "",
+    "error": {
+      "source": "text",
+      "line": 1,
+      "column": 7,
+      "message": "Der Abschnitt „b“ ist nicht geschlossen."
+    }
+  },
+  {
+    "rule": "a section closed by the wrong name is an error at the closing tag",
+    "text": "{{#a}}{{#b}}{{/a}}{{/b}}",
+    "nameTemplate": "",
+    "error": {
+      "source": "text",
+      "line": 1,
+      "column": 13,
+      "message": "„{{/a}}“ passt nicht zum offenen Abschnitt „b“."
+    }
+  },
+  {
+    "rule": "a closing tag without an opening is an error",
+    "text": "x{{/a}}",
+    "nameTemplate": "",
+    "error": {
+      "source": "text",
+      "line": 1,
+      "column": 2,
+      "message": "„{{/a}}“ schließt keinen offenen Abschnitt."
+    }
+  },
+  {
+    "rule": "a partial is not supported",
+    "text": "{{> teil}}",
+    "nameTemplate": "",
+    "error": {
+      "source": "text",
+      "line": 1,
+      "column": 1,
+      "message": "„{{>“ wird nicht unterstützt."
+    }
+  },
+  {
+    "rule": "changing delimiters is not supported",
+    "text": "{{=<% %>=}}",
+    "nameTemplate": "",
+    "error": {
+      "source": "text",
+      "line": 1,
+      "column": 1,
+      "message": "„{{=“ wird nicht unterstützt."
+    }
+  },
+  {
+    "rule": "an ampersand tag is not supported",
+    "text": "a {{&x}}",
+    "nameTemplate": "",
+    "error": {
+      "source": "text",
+      "line": 1,
+      "column": 3,
+      "message": "„{{&“ wird nicht unterstützt."
+    }
+  },
+  {
+    "rule": "an empty tag has no name",
+    "text": "{{}}",
+    "nameTemplate": "",
+    "error": {
+      "source": "text",
+      "line": 1,
+      "column": 1,
+      "message": "Im Tag fehlt der Name."
+    }
+  },
+  {
+    "rule": "an empty section name is an error",
+    "text": "{{# }}{{/ }}",
+    "nameTemplate": "",
+    "error": {
+      "source": "text",
+      "line": 1,
+      "column": 1,
+      "message": "Im Tag fehlt der Name."
+    }
+  },
+  {
+    "rule": "a name with a brace is an error",
+    "text": "{{a{b}}",
+    "nameTemplate": "",
+    "error": {
+      "source": "text",
+      "line": 1,
+      "column": 1,
+      "message": "Der Name „a{b“ enthält „{“ oder „}“."
+    }
+  },
+  {
+    "rule": "a name over 40 characters is an error",
+    "text": "{{abcdefghijabcdefghijabcdefghijabcdefghijk}}",
+    "nameTemplate": "",
+    "error": {
+      "source": "text",
+      "line": 1,
+      "column": 1,
+      "message": "Der Name „abcdefghijabcdefghijabcdefghijabcdefghijk“ ist länger als 40 Zeichen."
+    }
+  },
+  {
+    "rule": "a variable cannot become a section",
+    "text": "{{x}} {{#x}}{{/x}}",
+    "nameTemplate": "",
+    "error": {
+      "source": "text",
+      "line": 1,
+      "column": 7,
+      "message": "„x“ ist schon eine Variable und kann kein Abschnitt sein."
+    }
+  },
+  {
+    "rule": "a section cannot become a variable",
+    "text": "{{^x}}{{/x}}{{x}}",
+    "nameTemplate": "",
+    "error": {
+      "source": "text",
+      "line": 1,
+      "column": 13,
+      "message": "„x“ ist schon ein Abschnitt und kann keine Variable sein."
+    }
+  },
+  {
+    "rule": "text and name template share their fields",
+    "text": "{{x}}",
+    "nameTemplate": "{{#x}}{{/x}}",
+    "error": {
+      "source": "nameTemplate",
+      "line": 1,
+      "column": 1,
+      "message": "„x“ ist schon eine Variable und kann kein Abschnitt sein."
+    }
+  },
+  {
+    "rule": "an error in the name template names its source",
+    "text": "ok",
+    "nameTemplate": "Bugfix: {{#a}}",
+    "error": {
+      "source": "nameTemplate",
+      "line": 1,
+      "column": 9,
+      "message": "Der Abschnitt „a“ ist nicht geschlossen."
+    }
+  },
+  {
+    "rule": "an error in the text comes before one in the name template",
+    "text": "{{#a}}",
+    "nameTemplate": "{{",
+    "error": {
+      "source": "text",
+      "line": 1,
+      "column": 1,
+      "message": "Der Abschnitt „a“ ist nicht geschlossen."
+    }
+  },
+  {
+    "rule": "the column counts code points",
+    "text": "äöü 😀 {{#a}}",
+    "nameTemplate": "",
+    "error": {
+      "source": "text",
+      "line": 1,
+      "column": 7,
+      "message": "Der Abschnitt „a“ ist nicht geschlossen."
+    }
+  },
+  {
+    "rule": "a line ending in CRLF starts a new line",
+    "text": "a\r\nb {{/x}}",
+    "nameTemplate": "",
+    "error": {
+      "source": "text",
+      "line": 2,
+      "column": 3,
+      "message": "„{{/x}}“ schließt keinen offenen Abschnitt."
+    }
+  },
+  {
+    "rule": "the first error in reading order wins",
+    "text": "{{> a}} {{#b}}",
+    "nameTemplate": "",
+    "error": {
+      "source": "text",
+      "line": 1,
+      "column": 1,
+      "message": "„{{>“ wird nicht unterstützt."
+    }
+  }
+]

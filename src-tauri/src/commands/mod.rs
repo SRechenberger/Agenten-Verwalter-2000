@@ -19,6 +19,7 @@ pub mod git;
 pub mod implementation;
 pub mod mcp;
 pub mod projects;
+pub mod prompt_templates;
 pub mod remote;
 pub mod repositories;
 pub mod retro;
