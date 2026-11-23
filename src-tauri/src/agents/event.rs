@@ -7,6 +7,7 @@ use crate::artifacts::model::ArtifactKind;
 use crate::context::model::ContextBreakdown;
 use crate::mcp::model::McpServer;
 use crate::notices::model::{Denial, Notice};
+use crate::prompt_templates::model::{PromptTemplate, PromptTemplateInput};
 use crate::review::model::ReviewComment;
 use crate::skills::model::SkillRef;
 
@@ -204,6 +205,15 @@ pub enum ToolRequest {
         // Vollständige Eingabe des Vorschlags (bei einer Änderung: `base` plus Änderungen), so, wie
         // `validate` sie zurückgibt (getrimmt, doppelte Stationsnamen entfernt).
         proposal: Box<AgentTypeInput>,
+    },
+    // Vorschlag einer Prompt-Vorlage (ADR 075, „Per MCP“): wie `AgentType`, entschieden wird nur über
+    // `prompt_template_proposal_answer`.
+    PromptTemplate {
+        // Gespeicherter Stand beim Vorschlag; `None` bei einer neuen Vorlage.
+        base: Option<Box<PromptTemplate>>,
+        // Vollständige Eingabe (bei einer Änderung: `base` plus Änderungen), so, wie `validate` sie
+        // zurückgibt.
+        proposal: Box<PromptTemplateInput>,
     },
 }
 

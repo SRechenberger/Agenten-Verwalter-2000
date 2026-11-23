@@ -1,6 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen, type Event, type UnlistenFn } from '@tauri-apps/api/event';
 import type { PromptTemplate } from '@/lib/bindings/PromptTemplate';
+import type { PromptTemplateDecision } from '@/lib/bindings/PromptTemplateDecision';
 import type { PromptTemplateInput } from '@/lib/bindings/PromptTemplateInput';
 import type { PromptTemplateSaved } from '@/lib/bindings/PromptTemplateSaved';
 
@@ -37,6 +38,22 @@ export function updatePromptTemplate(
  *  @throws {import('@/lib/bindings/CommandError').CommandError} `internal` (unbekannte Vorlage), `database` */
 export async function deletePromptTemplate(id: string): Promise<void> {
   await invoke('prompt_template_delete', { id });
+}
+
+/** Beantwortet den Vorschlag eines Agenten im Kasten (ADR 075, „Per MCP“). Übernehmen speichert wie der Editor;
+ *  meldet die Prüfung etwas (auch „veraltet“), bleibt der Kasten offen und `promptTemplate` ist `null`.
+ *  @throws {import('@/lib/bindings/CommandError').CommandError} `internal` (Kasten nicht offen oder
+ *  kein Vorschlag), `database` */
+export function answerPromptTemplateProposal(
+  sessionId: string,
+  requestId: string,
+  decision: PromptTemplateDecision,
+): Promise<PromptTemplateSaved> {
+  return invoke<PromptTemplateSaved>('prompt_template_proposal_answer', {
+    sessionId,
+    requestId,
+    decision,
+  });
 }
 
 /** Meldet nach jeder Änderung die ganze Liste. */

@@ -18,6 +18,9 @@ import {
   PREVIEW_BLOCKED,
   PREVIEW_EMPTY,
   PREVIEW_TITLE,
+  PROPOSAL_ACCEPT,
+  PROPOSAL_ACCEPTING,
+  PROPOSAL_DIALOG_TITLE,
   SAVE_BLOCKED,
   SAVE_LABEL,
   SAVING_LABEL,
@@ -25,6 +28,7 @@ import {
   TEXT_LABEL,
   TEXT_PLACEHOLDER,
   previewNameText,
+  proposalDialogSubtitle,
   saveFailedText,
 } from '@/features/prompttemplates/promptTemplateTexts';
 import { TemplateFields } from '@/features/prompttemplates/TemplateFields';
@@ -82,9 +86,20 @@ function Field({ label, htmlFor, counter, messages, children }: FieldProps): Rea
   );
 }
 
+/** Der Vorschlag eines Agenten, den der Editor vorbefüllt und über den Kasten beantwortet (ADR 075, „Per MCP“). */
+export interface PromptTemplateProposalEdit {
+  initial: PromptTemplateInput;
+  /** Die Session, aus der der Vorschlag kommt; der Untertitel nennt sie. */
+  sessionNumber: number;
+  /** Speichert statt `createPromptTemplate`/`updatePromptTemplate`; der Kasten ist danach beantwortet. */
+  onSave: (input: PromptTemplateInput) => Promise<PromptTemplateSaved>;
+}
+
 interface PromptTemplateDialogProps {
-  /** Die Vorlage, die bearbeitet wird; `null` legt eine neue an. */
+  /** Die Vorlage, die bearbeitet wird; `null` legt eine neue an. Mit `proposal` ohne Bedeutung. */
   promptTemplate: PromptTemplate | null;
+  /** „Vorschlag bearbeiten“: vorbefüllt mit dem Vorschlag, „Übernehmen“ beantwortet den Kasten. */
+  proposal?: PromptTemplateProposalEdit;
   onClose: () => void;
 }
 
@@ -92,9 +107,10 @@ interface PromptTemplateDialogProps {
  *  dann das Speichern; Name, Längen und Syntax prüft beim Speichern der Core und meldet am Feld. */
 export function PromptTemplateDialog({
   promptTemplate,
+  proposal,
   onClose,
 }: PromptTemplateDialogProps): ReactElement {
-  const initial: PromptTemplateInput = {
+  const initial: PromptTemplateInput = proposal?.initial ?? {
     name: promptTemplate?.name ?? '',
     text: promptTemplate?.text ?? '',
     nameTemplate: promptTemplate?.nameTemplate ?? '',
@@ -172,9 +188,11 @@ export function PromptTemplateDialog({
     setSaveError(null);
     setIsSaving(true);
     const request: Promise<PromptTemplateSaved> =
-      promptTemplate === null
-        ? createPromptTemplate(draft)
-        : updatePromptTemplate(promptTemplate.id, draft);
+      proposal !== undefined
+        ? proposal.onSave(draft)
+        : promptTemplate === null
+          ? createPromptTemplate(draft)
+          : updatePromptTemplate(promptTemplate.id, draft);
     request
       .then((saved: PromptTemplateSaved) => {
         if (saved.errors.length === 0) {
@@ -211,6 +229,20 @@ export function PromptTemplateDialog({
     );
   }
 
+  function title(): string {
+    if (proposal !== undefined) {
+      return PROPOSAL_DIALOG_TITLE;
+    }
+    return promptTemplate === null ? DIALOG_CREATE_TITLE : DIALOG_EDIT_TITLE;
+  }
+
+  function saveLabel(): string {
+    if (proposal !== undefined) {
+      return isSaving ? PROPOSAL_ACCEPTING : PROPOSAL_ACCEPT;
+    }
+    return isSaving ? SAVING_LABEL : SAVE_LABEL;
+  }
+
   const footerMessage: string | null = saveError ?? (parsed.ok ? null : SAVE_BLOCKED);
   return (
     <Dialog
@@ -220,8 +252,13 @@ export function PromptTemplateDialog({
     >
       <div className="agent-type-dialog__header">
         <h3 id={TITLE_ID} className="agent-type-dialog__title">
-          {promptTemplate === null ? DIALOG_CREATE_TITLE : DIALOG_EDIT_TITLE}
+          {title()}
         </h3>
+        {proposal !== undefined && (
+          <p className="agent-type-dialog__subtitle">
+            {proposalDialogSubtitle(proposal.sessionNumber)}
+          </p>
+        )}
       </div>
       <div className="agent-type-dialog__body prompt-template-dialog__body">
         <div className="prompt-template-dialog__column">
@@ -332,7 +369,7 @@ export function PromptTemplateDialog({
           onClick={save}
           disabled={isSaving || !parsed.ok}
         >
-          {isSaving ? SAVING_LABEL : SAVE_LABEL}
+          {saveLabel()}
         </button>
       </div>
     </Dialog>

@@ -136,7 +136,7 @@ export function useQuestionAnswering(sessionId: string, projectId: string): Ques
 }
 
 /** Ziffern wählen eine Option, Enter sendet: in der ältesten offenen Frage `entry`. Ein Vorschlag für einen
- *  Agententyp beantwortet nur sein Kasten; `chat_answer` wiese „1“ und „2“ ab. */
+ *  Agententyp oder eine Prompt-Vorlage beantwortet nur sein Kasten; `chat_answer` wiese „1“ und „2“ ab. */
 export function useQuestionKeys(entry: QuestionEntry | null, answering: QuestionAnswering): void {
   const handleKey = useEffectEvent((event: KeyboardEvent): void => {
     if (event.defaultPrevented || event.ctrlKey || event.altKey || event.metaKey) {
@@ -145,7 +145,12 @@ export function useQuestionKeys(entry: QuestionEntry | null, answering: Question
     if (isTextTarget(event.target) || entry === null) {
       return;
     }
-    if (answering.isSending(entry.requestId) || entry.toolRequest?.kind === 'agentType') {
+    const requestKind: string | undefined = entry.toolRequest?.kind;
+    if (
+      answering.isSending(entry.requestId) ||
+      requestKind === 'agentType' ||
+      requestKind === 'promptTemplate'
+    ) {
       return;
     }
     // Beim Ändern stehen „Erlauben“ und „Ablehnen“ nicht da; eine Ziffer darf den alten Text nicht senden.

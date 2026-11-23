@@ -1,6 +1,6 @@
 # 075 — Prompt-Vorlagen für neue Vorhaben
 
-**Status:** angenommen, Teil „Vorlagen und Neues Vorhaben“ umgesetzt; der Teil „Per MCP“ folgt · **Datum:** 2026-11-23
+**Status:** umgesetzt, Teil „Vorlagen und Neues Vorhaben“ und Teil „Per MCP“ · **Datum:** 2026-11-23
 
 ## Kontext
 
@@ -38,7 +38,7 @@ Im Mockup gewählt: Drop-down B (Knopf ▤ neben + und /), Formular A (über dem
 | **A9** | Ändert sich die Vorlage, während das Formular offen ist, arbeitet das Formular mit dem Stand bei der Wahl weiter. |
 | **A10** | Tooltip „Vorlage wählen“, Hinweis in der Leiste „Mit / startest du mit einem Skill, mit ▤ aus einer Vorlage.“, der Kopf des Formulars nennt die Vorlage, die Textfelder wachsen mit `field-sizing: content`. |
 | **A11** | Vorlagen sind nur lokal: Die vier Befehle stehen in Klasse G von `remote/access.rs`. |
-| **M4** | `src-tauri/src/prompt_templates/syntax.rs` prüft nur, es füllt nicht; aufgerufen bei Anlegen und Ändern (später auch bei der Antwort auf einen Vorschlag). Die Fallliste `syntax_cases.json` (Eingabe → gültig, oder Quelle, Zeile, Spalte und Satz) lesen der Rust-Test (`include_str!`) und der Selbsttest; beide Fassungen müssen jeden Fall gleich beantworten. |
+| **M4** | `src-tauri/src/prompt_templates/syntax.rs` prüft nur, es füllt nicht; aufgerufen bei Anlegen und Ändern, bei jedem Vorschlag per MCP und bei der Antwort auf ihn. Die Fallliste `syntax_cases.json` (Eingabe → gültig, oder Quelle, Zeile, Spalte und Satz) lesen der Rust-Test (`include_str!`) und der Selbsttest; beide Fassungen müssen jeden Fall gleich beantworten. |
 
 ## Umsetzung
 
@@ -46,6 +46,28 @@ Im Mockup gewählt: Drop-down B (Knopf ▤ neben + und /), Formular A (über dem
 - **Name:** `project_create` gibt `name` an `create_project` weiter; `project_name` entscheidet nach A1 und A2, `ProjectState::takes_title` lässt `retitle_project` einen gesetzten Namen stehen.
 - **Oberfläche:** `src/features/prompttemplates/` mit `mustache.ts` (Zerlegen, Prüfen, Füllen; Selbsttest `mustache.selftest.ts`), der Zeile in den Einstellungen samt Editor und Löschdialog, dem Menü am Knopf ▤, dem Formular und den Texten. „Neues Vorhaben“ (`NewSession.tsx`) hält Formular, Namensfeld, den Text von vor der Wahl und den Text der Vorlage bei der Wahl (`templateText`, Maßstab der Nachfrage) als lokalen Zustand.
 - **Zeile und Spalte** zählen in beiden Fassungen Codepunkte, 1-basiert; eine Zeile endet an `\n`.
+
+## Per MCP
+
+Agenten im Betrieb Claude lesen Vorlagen und schlagen neue oder Änderungen vor, nach dem Muster der Agententypen ([ADR 063](063-agententypen-per-mcp.md)). Gespeichert wird erst, wenn der Benutzer im Chat annimmt. Vorgaben des Benutzers: Lesen, Anlegen und Ändern per MCP, jede Änderung nimmt ein Benutzer im Chat an; Gestaltung wie die Kästen der Agententypen; Anzeige als Diff, nur Vorher und nur Nachher, der Diff untereinander; die Syntax prüfen Oberfläche und Core. Entwurf: Bilder 6 bis 9 in [`docs/design/2026-11-23_prompt-vorlagen/`](../design/2026-11-23_prompt-vorlagen/README.md).
+
+| | Entscheidung |
+|---|---|
+| **M1** | Werkzeug-Satz `PromptTemplateTools` (`src-tauri/src/prompt_templates/tools.rs`, Präfix `prompt_template_`, in `mcp_access::tool_sets()`), `requires_claude` und `blocks`. Lesend ist nur `prompt_template_list` (`{ "promptTemplates": [ { name, text, nameTemplate } ] }`, Reihenfolge der Anlage, ohne ID); eine Nebenfrage darf nur sie rufen („Eine Nebenfrage darf Prompt-Vorlagen nur lesen.“). `prompt_template_propose_create { name, text, nameTemplate? }` und `prompt_template_propose_update { target, name?, text?, nameTemplate? }`: `target` ist der heutige Name ohne Beachtung der Schreibweise, ein fehlendes Feld behält den gespeicherten Wert. Schemas mit `additionalProperties: false`, Argumente mit `deny_unknown_fields`. Kein Löschen. Die Beschreibungen der Vorschläge nennen die Syntax (E1, A4, A5). |
+| **M2** | Aus den Argumenten entsteht die ganze `PromptTemplateInput`, bei einer Änderung der gespeicherte Stand plus die Änderungen. Geprüft wird mit `validate`: Name, Längen, doppelter Name und Syntax (`syntax.rs`). Meldungen gehen als `isError` zurück, eine Zeile je Fehler `<feld>: <Meldung>` (Feld wie `PromptTemplateField`), ohne Kasten. Sonst öffnet `SessionRegistry::tool_propose_prompt_template` den Kasten (`ToolRequest::PromptTemplate { base, proposal }`) und wartet; nie Selbstfreigabe, keine Kettenbremse. Ergebnis: `{ "decision": "accepted", "edited", "promptTemplate" }` oder `{ "decision": "rejected", "reason" }`. |
+| **M3** | Befehl `prompt_template_proposal_answer(session_id, request_id, decision, origin)` mit eigenem Typ `PromptTemplateDecision` (`Accept { input }`, `Reject { reason }`), Klasse C mit Session-ID wie `agent_type_proposal_answer`; bei einem Gast trägt der Server `origin` ein. Gespeichert wird im Befehl: neu über `prompt_templates::create`, eine Änderung über `prompt_templates::update_if_unchanged`, das in derselben `Immediate`-Transaktion wie Prüfung und Schreiben mit `base` vergleicht. Weicht der Stand ab: `errors [{ field: "name", message: "Die Vorlage „<Name>“ wurde seit dem Vorschlag geändert oder gelöscht. Verwirf den Vorschlag." }]`, der Kasten bleibt offen. `chat_answer` lehnt einen Vorschlag ab („Einen Vorschlag für eine Prompt-Vorlage beantwortet nur prompt_template_proposal_answer.“); freier Text im Eingabefeld verwirft ihn mit dem Text als Begründung. Abbruch und Stopp schließen den Kasten, ohne zu speichern. |
+| **M4** | Ein Syntaxfehler im Vorschlag scheitert sofort beim Agenten, mit Zeile und Spalte (Mockup Bild 8). |
+| **M5** | `PromptTemplateProposalBlock` (`src/features/prompttemplates/`), von `SessionToolBlock` gewählt wie `AgentTypeProposalBlock` und mit dessen CSS. Kopf mit der Marke „wartet auf dich“. Neu: Name, Namensvorlage, Vorlagentext und Formular. Änderung: Schalter „Diff \| Vorher \| Nachher“, Start auf „Diff“, darunter „Unverändert: …“. Knöpfe „Übernehmen“, „Bearbeiten …“ und „Verwerfen“ mit Begründung. „Bearbeiten …“ öffnet `PromptTemplateDialog` mit `proposal` als „Vorschlag bearbeiten“ mit „Übernehmen“. Die beantwortete Zeile „Prompt-Vorlage „<Name>““ nimmt ihre Marke aus der Antwortzeile des Core. Die Ziffern-Tasten übergehen den Kasten (`useQuestionKeys`); gesperrt ist er wie die übrigen Kästen. |
+| **M6** | `lineDiff.ts` (längste gemeinsame Teilfolge über Zeilen, Selbsttest `lineDiff.selftest.ts`), untereinander wie die Changes-Ansicht: − alt, + neu, Kontext grau. Gilt für Vorlagentext und Namensvorlage; der Name steht als alt → neu. Keine Diff-Bibliothek. |
+| **M7** | Ein Gast mit Steuerrecht kann annehmen (Klasse C). Bei einem entfernten Vorhaben fehlt „In den Einstellungen öffnen“, denn die Vorlage liegt beim Host. |
+| **M8** | Dieser Abschnitt; ADR 063 verweist hierher. |
+
+**Verworfen (Per MCP):**
+
+- **Löschen per MCP:** nicht gewünscht, wie bei den Agententypen.
+- **Prüfung nur in der Oberfläche** (Mockup Bild 8, Variante A): Der Agent erführe einen Syntaxfehler erst über den Benutzer; der Core prüft mit derselben Fallliste.
+- **Diff nebeneinander** (Mockup Bild 7, Variante B): braucht die Breite zweier Spalten im Chat.
+- **Verallgemeinerung von `ProposalDecision`:** hätte ADR 063 und dessen Code umgebaut; ein eigener Typ `PromptTemplateDecision` kostet zwei Zeilen. Geteilt werden nur der Weg des Kastens in der Registry (`open_proposal`, `ProposalKind`) und Ergebnis- und Antwortzeilen aus `agent_types::tools`, die wörtlich gleich sind.
 
 ## Verworfen
 
@@ -62,4 +84,4 @@ Im Mockup gewählt: Drop-down B (Knopf ▤ neben + und /), Formular A (über dem
 - Migration 035 hebt die Schemaversion; die drei Tests, die sie festhalten, zählen 35.
 - Ein Vorhaben mit Namen aus der Vorlage behält ihn gegen Haiku; umbenennen geht wie bisher.
 - Vorlagen sind global und nur lokal; ein Gast sieht sie nicht und legt mit „Neues Vorhaben“ ohnehin ein lokales Vorhaben an.
-- Der Teil „Per MCP“ (Werkzeuge `prompt_template_list`, `prompt_template_propose_create`, `prompt_template_propose_update`, Kasten im Chat mit Diff) folgt als eigener Abschnitt dieser ADR.
+- Per MCP wie bei den Agententypen: Offene Kästen leben nur im Speicher; Speichern und Antwort liegen nicht unter einer Sperre (ADR 063, D8). Tests unter `prompt_templates::` (Schema, lesend, Nebenfrage, Eingabe, Prüfung samt Syntax, Ergebnis, Antwortzeilen, veraltet, nichts gespeichert bis „Übernehmen“, `chat_answer` lehnt ab, freier Text verwirft, Klasse C) und in `remote::dispatch` (`origin` vom Server). Die Oberfläche belegen die Bilder in `docs/design/2026-11-23_prompt-vorlagen/umsetzung/`.

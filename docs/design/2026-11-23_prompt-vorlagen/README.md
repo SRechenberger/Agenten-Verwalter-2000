@@ -17,7 +17,7 @@
 | 3 | Nachfrage „Text ersetzen?“, wenn schon Text im Feld steht |
 | 4 | Einstellungen › Agent › Prompt-Vorlagen: Liste unter den Agententypen, Marke „Namensvorlage“, „Bearbeiten“ und „Löschen“ |
 | 5 | Editor mit Formular-Vorschau, gültig oder mit Syntaxfehler samt Zeile und Spalte |
-| 6 bis 9 | für Lane M: Kasten im Chat für einen Vorschlag per MCP, Änderung als Diff, Vorschlag mit Syntaxfehler, beantwortete Zeile |
+| 6 bis 9 | Kasten im Chat für einen Vorschlag per MCP, Änderung als Diff, Vorschlag mit Syntaxfehler, beantwortete Zeile |
 
 ## Wahl
 
@@ -45,6 +45,27 @@ Screenshots der echten App unter [umsetzung/](umsetzung/), aufgenommen mit eigen
 
 In 09, 10, 11 und 13 steht `>b>` statt `<b>`: Der Klick-Helfer des Laufs tippte `<` dort mit Umschalt; in 07 ist es korrigiert, die App gibt die Zeichen unverändert weiter.
 
+### Vorschläge per MCP (Bilder 6 bis 9)
+
+Aufgenommen wie die Bilder der Agententypen ([ADR 063](../../decisions/063-agententypen-per-mcp.md)): eigener Benutzerordner, eigener Port, privater Bildschirm, Klicks über XTEST; statt `claude` lief eine Attrappe, die Vorschläge kamen über `mcp-probe` mit dem Schlüssel der Session. Kein Kontingent verbraucht. Fenster 1280 × 800.
+
+| Datei | Zeigt | Bild im Mockup |
+|---|---|---|
+| [14-vorschlag-neu-dunkel.png](umsetzung/14-vorschlag-neu-dunkel.png) | neuer Vorschlag „Refactoring“: Name, Namensvorlage, Vorlagentext eingeklappt mit Zähler, Formular, Knöpfe, Hinweis zum Eingabefeld | 6 |
+| [15-vorschlag-bearbeiten-dunkel.png](umsetzung/15-vorschlag-bearbeiten-dunkel.png) | „Bearbeiten …“: Editor „Vorschlag bearbeiten“ mit Untertitel und „Übernehmen“ | 6, Text |
+| [16-uebernommen-mit-aenderungen-dunkel.png](umsetzung/16-uebernommen-mit-aenderungen-dunkel.png) | nach „Übernehmen“ im Editor mit geändertem Namen: „Übernommen mit Änderungen“ (`edited: true`) | 9 |
+| [17-aenderung-diff-kopf-dunkel.png](umsetzung/17-aenderung-diff-kopf-dunkel.png), [17-aenderung-diff-dunkel.png](umsetzung/17-aenderung-diff-dunkel.png), [17-aenderung-diff-kopf-hell.png](umsetzung/17-aenderung-diff-kopf-hell.png), [17-aenderung-diff-hell.png](umsetzung/17-aenderung-diff-hell.png) | Änderung an „Bugfix“ in der Ansicht „Diff“: Namensvorlage und Vorlagentext untereinander, Formular mit „+ ☐ Mit Review“, „Unverändert: Name.“; Kopf und unteres Ende, dunkel und hell | 7 |
+| [18-aenderung-vorher-dunkel.png](umsetzung/18-aenderung-vorher-dunkel.png), [19-aenderung-nachher-dunkel.png](umsetzung/19-aenderung-nachher-dunkel.png) | „Vorher“ und „Nachher“ mit allen Feldern und dem Formular | 7 |
+| [20-verwerfen-begruendung-hell.png](umsetzung/20-verwerfen-begruendung-hell.png) | „Verwerfen“ öffnet „Begründung für Claude (optional)“ | 6, Text |
+| [22-veraltet-hell.png](umsetzung/22-veraltet-hell.png) | „Übernehmen“, nachdem die Vorlage in der Datenbank geändert wurde: Meldung „veraltet“, nichts gespeichert, Kasten offen | — |
+| [23-freitext-verworfen-hell.png](umsetzung/23-freitext-verworfen-hell.png) | Text im Eingabefeld verwirft den offenen Vorschlag mit diesem Text | — |
+| [24-beantwortet-hell.png](umsetzung/24-beantwortet-hell.png) | die Zeilen nach der Antwort: „Übernommen mit Änderungen“, zweimal „Verworfen“ mit Begründung, „Übernommen“, „Pausiert“ mit „Der Agent wurde gestoppt; nichts gespeichert.“ | 9 |
+| [25-vorschlag-gezeigt-hell.png](umsetzung/25-vorschlag-gezeigt-hell.png) | „Vorschlag zeigen“ an einer verworfenen Änderung | 9 |
+
+Bild 8 hat in der App kein Bild: Ein Vorschlag mit Syntaxfehler öffnet keinen Kasten. `mcp-probe` bekam `isError: true` mit „text: Zeile 2, Spalte 1: Der Abschnitt „Mit Review“ ist nicht geschlossen.“; ein leerer Name zusammen mit einem Fehler in der Namensvorlage kam als zwei Zeilen zurück.
+
+Belegt im Lauf (Ergebnis aus `mcp-probe`, Datenbank mit `sqlite3`): `prompt_template_list` liefert die Vorlagen ganz; übernommen nach Bearbeiten (`edited: true`, gespeichert der neue Name), Verwerfen mit Begründung, veraltet (nichts angewendet, Kasten offen), freier Text verwirft, „1“ und Enter außerhalb des Eingabefelds lassen den Kasten offen, Übernehmen (`edited: false`, gespeichert), „Pausieren“ bei offenem Kasten („Der Kasten wurde geschlossen, ohne dass der Nutzer entschieden hat.“, nichts gespeichert); die Selbstfreigabe des Vorhabens war dabei ganz an. In 20 und 24 fehlt das Komma der Begründung: Der Klick-Helfer tippt keins.
+
 ## Abweichungen vom Mockup
 
 - **Editor (Bild 5):** Der Vorlagentext ist ein einfaches Textfeld in Festbreitenschrift; die Tags sind nicht farbig hervorgehoben, und die fehlerhafte Stelle ist nicht im Text markiert. Die Meldung unter dem Feld nennt Zeile und Spalte.
@@ -52,3 +73,6 @@ In 09, 10, 11 und 13 steht `>b>` statt `<b>`: Der Klick-Helfer des Laufs tippte 
 - **Sperrzeile:** ein Schloss-Symbol statt des Emoji.
 - **Liste und Menü:** Der Vorlagentext steht ohne Kommentare in einer Zeile.
 - **„Vorlagen in den Einstellungen bearbeiten …“** öffnet die Einstellungen in ihrer ersten Kategorie, nicht direkt bei „Agent“.
+- **Kasten (Bilder 6 und 7):** Der Vorlagentext steht wie der Systemprompt der Agententypen eingeklappt mit „Ganz zeigen“ und Zähler, auch in „Vorher“ und „Nachher“; das Mockup zeigt ihn dort ganz. Das Formular steht als Chips wie die Stationsnamen der Agententypen; in „Diff“ steht es, sobald sich Text oder Namensvorlage ändern, neue Felder mit „+“, wegfallende durchgestrichen. Der Schalter „Diff | Vorher | Nachher“ ist der Segment-Schalter der Einstellungen; nach dem Aushängen beim Scrollen steht er wieder auf „Diff“.
+- **Karte im Dashboard:** Ein Vorschlag heißt dort wie jeder Kasten eines Werkzeugs „Freigabe Nachricht“ (wie bei den Agententypen); ihr Fenster verweist auf den Chat der Session.
+- **„In den Einstellungen öffnen“** öffnet die Kategorie Agent; eine Kategorie mit Hinweis (etwa ein nicht lesbares Konto) geht wie bei den Agententypen vor.

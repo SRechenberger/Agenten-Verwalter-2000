@@ -1,10 +1,11 @@
 //! Tabelle `prompt_templates` (Migration 35, ADR 075). Anlegen und Ändern prüfen gegen den Stand in
 //! derselben Transaktion, in der sie schreiben: Zwei Aufrufe ergeben nie einen doppelten Namen.
-use rusqlite::{Connection, Row, TransactionBehavior, params};
+use rusqlite::{Connection, Row, Transaction, TransactionBehavior, params};
 
 use crate::error::CommandError;
 use crate::prompt_templates::model::{
-    PromptTemplate, PromptTemplateError, PromptTemplateInput, PromptTemplateSaved,
+    PromptTemplate, PromptTemplateError, PromptTemplateField, PromptTemplateInput,
+    PromptTemplateSaved,
 };
 use crate::prompt_templates::validate;
 
@@ -58,7 +59,46 @@ pub fn update(
     {
         return Err(not_found(id));
     }
-    let input = match validate(input, &existing, Some(id)) {
+    let saved = write_update(&transaction, &existing, id, input)?;
+    transaction.commit()?;
+    Ok(saved)
+}
+
+/// Übernimmt einen Änderungsvorschlag (ADR 075, „Per MCP“) nur, solange die gespeicherte Vorlage
+/// noch genau `base` ist; verglichen wird in derselben Transaktion wie Prüfung und Schreiben. Sonst
+/// meldet es „veraltet“ am Namen und schreibt nichts.
+pub fn update_if_unchanged(
+    connection: &mut Connection,
+    base: &PromptTemplate,
+    input: &PromptTemplateInput,
+) -> Result<PromptTemplateSaved, CommandError> {
+    let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+    let existing = list(&transaction)?;
+    let current = existing
+        .iter()
+        .find(|prompt_template: &&PromptTemplate| prompt_template.id == base.id);
+    if current != Some(base) {
+        return Ok(rejected(vec![PromptTemplateError {
+            field: PromptTemplateField::Name,
+            message: format!(
+                "Die Vorlage „{}“ wurde seit dem Vorschlag geändert oder gelöscht. Verwirf den Vorschlag.",
+                base.name
+            ),
+        }]));
+    }
+    let saved = write_update(&transaction, &existing, &base.id, input)?;
+    transaction.commit()?;
+    Ok(saved)
+}
+
+/// Prüft und schreibt in der Transaktion des Aufrufers; mit Meldungen schreibt sie nichts.
+fn write_update(
+    transaction: &Transaction<'_>,
+    existing: &[PromptTemplate],
+    id: &str,
+    input: &PromptTemplateInput,
+) -> Result<PromptTemplateSaved, CommandError> {
+    let input = match validate(input, existing, Some(id)) {
         Ok(input) => input,
         Err(errors) => return Ok(rejected(errors)),
     };
@@ -66,7 +106,6 @@ pub fn update(
         "UPDATE prompt_templates SET name = ?2, text = ?3, name_template = ?4 WHERE id = ?1",
         params![id, input.name, input.text, input.name_template],
     )?;
-    transaction.commit()?;
     Ok(saved(id, input))
 }
 

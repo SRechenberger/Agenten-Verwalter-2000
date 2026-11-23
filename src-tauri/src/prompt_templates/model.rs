@@ -25,6 +25,16 @@ pub struct PromptTemplateInput {
     pub name_template: String,
 }
 
+impl From<&PromptTemplate> for PromptTemplateInput {
+    fn from(prompt_template: &PromptTemplate) -> PromptTemplateInput {
+        PromptTemplateInput {
+            name: prompt_template.name.clone(),
+            text: prompt_template.text.clone(),
+            name_template: prompt_template.name_template.clone(),
+        }
+    }
+}
+
 // Das Feld, an dem die Oberfläche eine Meldung zeigt.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
