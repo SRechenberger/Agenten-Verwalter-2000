@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactElement } from 'react';
 import type { UnlistenFn } from '@tauri-apps/api/event';
 import { ProjectHeader } from '@/app/ProjectHeader';
@@ -79,6 +79,7 @@ import { usePanelWidth } from '@/lib/usePanelWidth';
 import { useArtifactsStore } from '@/stores/artifacts';
 import { useBackgroundStore } from '@/stores/background';
 import { useImplementationStore } from '@/stores/implementation';
+import { useReviewStore } from '@/stores/review';
 import {
   useSessionsStore,
   type ImplementationViewKind,
@@ -157,13 +158,24 @@ export function App(): ReactElement {
   // Dito für die Umgebung: der Punkt an „Einstellungen“ liest den Store.
   useEnvironmentCheck();
 
-  // MCP-Zugang (ADR 046): der Agent wählt ein Artefakt aus. Ausgewählt wird immer; die Ansicht
-  // springt nur, wenn der Benutzer gerade diese Session oder die Übersicht ihres Vorhabens sieht.
+  // MCP-Zugang (ADR 046): der Agent wählt ein Artefakt aus. Ausgewählt wird, außer ein Kommentar-Kasten
+  // zu einem Artefakt des Vorhabens ist offen (ADR 035: der getippte Text bliebe sonst nicht beim Artefakt);
+  // die Ansicht springt nur, wenn der Benutzer gerade diese Session oder die Übersicht ihres Vorhabens sieht.
+  const sessionsRef = useRef<SessionSummary[]>(sessions);
+  useEffect(() => {
+    sessionsRef.current = sessions;
+  }, [sessions]);
   useEffect(() => {
     const controller = new AbortController();
     let unlisten: UnlistenFn | null = null;
     onArtifactShow((event: ArtifactShowEvent) => {
-      useArtifactsStore.getState().select(event.projectId, event.file);
+      const { boxes } = useReviewStore.getState();
+      const isArtifactBoxOpen: boolean = sessionsOf(event.projectId, sessionsRef.current).some(
+        (session: SessionSummary) => boxes[session.id]?.lineId.startsWith('artifact|') ?? false,
+      );
+      if (!isArtifactBoxOpen) {
+        useArtifactsStore.getState().select(event.projectId, event.file);
+      }
       const state = useSessionsStore.getState();
       if (
         state.showNewSession ||
