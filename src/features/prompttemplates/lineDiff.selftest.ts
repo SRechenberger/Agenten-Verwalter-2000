@@ -95,6 +95,24 @@ const cases: { name: string; actual: () => unknown; expected: unknown }[] = [
     expected: [same('x'), removed('x'), removed('x')],
   },
   {
+    name: 'a_repeated_line_after_matches_once_and_the_rest_is_added',
+    actual: () => lineDiff('x', 'x\nx\nx'),
+    expected: [same('x'), added('x'), added('x')],
+  },
+  {
+    name: 'an_ambiguous_middle_lists_removed_before_added',
+    actual: () => lineDiff('b\nc\nc\nc', 'a\nc\nb\na'),
+    expected: [
+      removed('b'),
+      removed('c'),
+      removed('c'),
+      added('a'),
+      same('c'),
+      added('b'),
+      added('a'),
+    ],
+  },
+  {
     name: 'a_moved_line_is_removed_at_one_place_and_added_at_the_other',
     actual: () => lineDiff('a\nb\nc', 'b\nc\na'),
     expected: [removed('a'), same('b'), same('c'), added('a')],

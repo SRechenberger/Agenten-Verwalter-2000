@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactElement, ReactNode } from 'react';
 import type { QuestionEntry, ToolDraft } from '@/features/chat/questionDraft';
 import { lineDiff } from '@/features/prompttemplates/lineDiff';
@@ -158,6 +158,17 @@ export function PromptTemplateProposalBlock({
   const isRemote: boolean = useProjectIsRemote(projectId);
   const { base, proposal } = request;
   const isDisabled: boolean = isSending || isBusy;
+  // Die Tabelle des Diffs nur bei neuen Texten; jeder Tastendruck in der Begründung rendert den Kasten neu.
+  const baseNameTemplate: string = base?.nameTemplate ?? '';
+  const baseText: string = base?.text ?? '';
+  const nameTemplateDiff: DiffLine[] = useMemo(
+    () => lineDiff(baseNameTemplate, proposal.nameTemplate),
+    [baseNameTemplate, proposal.nameTemplate],
+  );
+  const textDiff: DiffLine[] = useMemo(
+    () => lineDiff(baseText, proposal.text),
+    [baseText, proposal.text],
+  );
 
   // Fokus nur nach dem Klick auf „Verwerfen“; beim Wiedereinhängen im Verlauf zöge er die Ansicht zum Kasten.
   useEffect(() => {
@@ -263,10 +274,10 @@ export function PromptTemplateProposalBlock({
     );
   }
 
-  function renderDiff(before: string, after: string): ReactNode {
+  function renderDiff(lines: readonly DiffLine[]): ReactNode {
     return (
       <div className="prompt-template-proposal__diff">
-        {lineDiff(before, after).map((line: DiffLine, index: number) => (
+        {lines.map((line: DiffLine, index: number) => (
           <div
             key={`${String(index)}:${line.kind}`}
             className={`prompt-template-proposal__line prompt-template-proposal__line--${line.kind}`}
@@ -316,11 +327,11 @@ export function PromptTemplateProposalBlock({
       rows.push({
         key: 'nameTemplate',
         label: NAME_TEMPLATE_LABEL,
-        content: renderDiff(before.nameTemplate, after.nameTemplate),
+        content: renderDiff(nameTemplateDiff),
       });
     }
     if (before.text !== after.text) {
-      rows.push({ key: 'text', label: TEXT_LABEL, content: renderDiff(before.text, after.text) });
+      rows.push({ key: 'text', label: TEXT_LABEL, content: renderDiff(textDiff) });
     }
     if (before.text !== after.text || before.nameTemplate !== after.nameTemplate) {
       rows.push({ key: 'form', label: PROPOSAL_FORM_LABEL, content: renderForm(after, before) });
