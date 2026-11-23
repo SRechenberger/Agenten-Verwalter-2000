@@ -7377,7 +7377,7 @@ mod tests {
         let version: u32 = connection
             .query_row("PRAGMA user_version", [], |row| row.get(0))
             .expect("Version");
-        assert_eq!(version, 35);
+        assert_eq!(version, crate::db::migrations::LATEST);
         let (text, subject): (String, Option<String>) = connection
             .query_row("SELECT text, subject FROM session_inbox", [], |row| {
                 Ok((row.get(0)?, row.get(1)?))
@@ -8356,7 +8356,7 @@ mod tests {
         let version: u32 = connection
             .query_row("PRAGMA user_version", [], |row| row.get(0))
             .expect("Version");
-        assert_eq!(version, 35);
+        assert_eq!(version, crate::db::migrations::LATEST);
         let row = session_inbox::oldest(&connection, "s")
             .expect("lesen")
             .expect("Zeile bleibt");

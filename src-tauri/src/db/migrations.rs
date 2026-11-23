@@ -3,8 +3,8 @@ use rusqlite::Connection;
 
 use crate::error::CommandError;
 
-/// Eine neue Migration hängt als neue Datei hinten an und verlängert diese Liste;
-/// eine bestehende wird nie geändert, weil sie auf fremden Rechnern schon gelaufen ist.
+/// Eine neue Migration hängt als neue Datei hinten an und verlängert diese Liste (`LATEST` folgt
+/// ihr, Tests vergleichen damit); eine bestehende wird nie geändert, weil sie auf fremden Rechnern schon gelaufen ist.
 const MIGRATIONS: [&str; 35] = [
     include_str!("migrations/001_sessions_and_chat.sql"),
     include_str!("migrations/002_repositories_and_worktrees.sql"),
@@ -42,6 +42,16 @@ const MIGRATIONS: [&str; 35] = [
     include_str!("migrations/034_user_messages.sql"),
     include_str!("migrations/035_prompt_templates.sql"),
 ];
+
+/// Die Schema-Version nach `run`: die Zahl der Migrationen.
+#[cfg(test)]
+pub(crate) const LATEST: u32 = {
+    assert!(MIGRATIONS.len() <= u32::MAX as usize);
+    #[allow(clippy::cast_possible_truncation)]
+    {
+        MIGRATIONS.len() as u32
+    }
+};
 
 /// Die ersten `count` Skripte, für Tests, die einen alten Stand nachbauen.
 #[cfg(test)]
