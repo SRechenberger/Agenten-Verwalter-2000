@@ -449,7 +449,7 @@ export function NewSession({ groups, onCreated, onCancel }: NewSessionProps): Re
                     aria-expanded={openMenu === 'template'}
                     aria-label={PICK_TITLE}
                     title={PICK_TITLE}
-                    disabled={isStarting}
+                    disabled={isStarting || isDictating}
                     onClick={(): void => {
                       toggleMenu('template');
                     }}

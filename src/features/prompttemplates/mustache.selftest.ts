@@ -147,6 +147,11 @@ const cases: { name: string; actual: () => unknown; expected: unknown }[] = [
     expected: ['Kopf\n  Test\nFuß', 'Kopf\nKein Test\nFuß'],
   },
   {
+    name: 'a_variable_alone_on_its_line_keeps_the_line',
+    actual: () => renderTemplate('a\n{{x}}\nb', { x: 'v' }),
+    expected: 'a\nv\nb',
+  },
+  {
     name: 'a_standalone_tag_takes_a_crlf_line_and_one_at_the_end_its_indent',
     actual: () => [
       renderTemplate('a\r\n{{#t}}\r\nb\r\n{{/t}}\r\nc', { t: true }),

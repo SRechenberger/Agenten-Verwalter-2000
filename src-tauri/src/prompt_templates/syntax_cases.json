@@ -18,6 +18,12 @@
     "error": null
   },
   {
+    "rule": "a sigil in triple braces is part of the variable name",
+    "text": "{{{#x}}}",
+    "nameTemplate": "",
+    "error": null
+  },
+  {
     "rule": "sections may be nested",
     "text": "{{#a}}{{^b}}x{{/b}}{{/a}}",
     "nameTemplate": "",
@@ -32,6 +38,18 @@
   {
     "rule": "whitespace around names and sigils is trimmed",
     "text": "{{ x }} {{ # a }}y{{/a\t}}{{\nx\n}}",
+    "nameTemplate": "",
+    "error": null
+  },
+  {
+    "rule": "line breaks around a sigil and a name are trimmed",
+    "text": "{{\n#x\n}}a{{/x\n}}",
+    "nameTemplate": "",
+    "error": null
+  },
+  {
+    "rule": "U+0085 and U+FEFF are not trimmed but part of the name",
+    "text": "{{\u0085x}}{{#x}}{{/x}}{{\ufeffy}}{{#y}}{{/y}}",
     "nameTemplate": "",
     "error": null
   },
@@ -62,6 +80,12 @@
   {
     "rule": "a name of exactly 40 characters is valid",
     "text": "{{abcdefghijabcdefghijabcdefghijabcdefghij}}",
+    "nameTemplate": "",
+    "error": null
+  },
+  {
+    "rule": "a name of 40 multibyte and non-BMP characters is valid",
+    "text": "{{ä😀ä😀ä😀ä😀ä😀ä😀ä😀ä😀ä😀ä😀ä😀ä😀ä😀ä😀ä😀ä😀ä😀ä😀ä😀ä😀}}",
     "nameTemplate": "",
     "error": null
   },
