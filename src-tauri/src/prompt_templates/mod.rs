@@ -1,8 +1,9 @@
 //! Prompt-Vorlagen aus den Einstellungen: Speicher, Prüfung von Name, Längen und Syntax (ADR 075).
 //! Ohne Tauri; das Ereignis sendet der Command über `changed`, und nur nach Erfolg. Das Füllen
-//! läuft in der Oberfläche.
+//! läuft in der Oberfläche. Nur `tools` (Vorschläge per MCP) erreicht über die Registry den Chat.
 pub mod model;
 pub mod syntax;
+pub mod tools;
 pub mod validate;
 
 #[cfg(test)]
@@ -47,6 +48,20 @@ pub fn update(
     changed: impl FnOnce(Vec<PromptTemplate>),
 ) -> Result<PromptTemplateSaved, CommandError> {
     let saved = database.with(|connection| prompt_template_rows::update(connection, id, input))?;
+    notify(database, &saved, changed)?;
+    Ok(saved)
+}
+
+/// Übernimmt einen Änderungsvorschlag nur, solange die gespeicherte Vorlage noch `base` ist (ADR 075,
+/// „Per MCP“); sonst die Meldung „veraltet“ am Namen.
+pub fn update_if_unchanged(
+    database: &Database,
+    base: &PromptTemplate,
+    input: &PromptTemplateInput,
+    changed: impl FnOnce(Vec<PromptTemplate>),
+) -> Result<PromptTemplateSaved, CommandError> {
+    let saved = database
+        .with(|connection| prompt_template_rows::update_if_unchanged(connection, base, input))?;
     notify(database, &saved, changed)?;
     Ok(saved)
 }

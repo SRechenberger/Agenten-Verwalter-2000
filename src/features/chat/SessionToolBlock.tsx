@@ -12,6 +12,7 @@ import {
   type ToolEdit,
 } from '@/features/chat/questionDraft';
 import { SessionLink } from '@/features/chat/SessionLink';
+import { PromptTemplateProposalBlock } from '@/features/prompttemplates/PromptTemplateProposalBlock';
 import { SelectButton } from '@/features/settings/SelectButton';
 import { useProjectLocked } from '@/features/remote/useProjectAccess';
 import type { Effort } from '@/lib/bindings/Effort';
@@ -37,8 +38,9 @@ const ANSWER_OF_OPTION: Readonly<Record<string, string>> = {
   Ablehnen: 'Abgelehnt',
 };
 
-/** Ein Aufruf eines Session-Werkzeugs; ein Vorschlag eines Agententyps hat seinen eigenen Kasten. */
-type SessionToolCall = Exclude<ToolRequest, { kind: 'agentType' }>;
+/** Ein Aufruf eines Session-Werkzeugs; ein Vorschlag eines Agententyps oder einer Prompt-Vorlage hat seinen eigenen
+ *  Kasten. */
+type SessionToolCall = Exclude<ToolRequest, { kind: 'agentType' } | { kind: 'promptTemplate' }>;
 
 interface SessionToolBlockProps {
   entry: QuestionEntry;
@@ -66,6 +68,20 @@ export function SessionToolBlock(props: SessionToolBlockProps): ReactElement {
   if (request.kind === 'agentType') {
     return (
       <AgentTypeProposalBlock
+        entry={props.entry}
+        request={request}
+        sessionId={props.sessionId}
+        sessionNumber={props.sessionNumber}
+        projectId={props.projectId}
+        draft={props.draft}
+        isSending={props.isSending}
+        onDraft={props.onDraft}
+      />
+    );
+  }
+  if (request.kind === 'promptTemplate') {
+    return (
+      <PromptTemplateProposalBlock
         entry={props.entry}
         request={request}
         sessionId={props.sessionId}

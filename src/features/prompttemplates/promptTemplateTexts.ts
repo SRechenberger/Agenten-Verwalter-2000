@@ -63,6 +63,66 @@ export function deleteFailedText(reason: string): string {
   return `Nicht gelöscht: ${reason}`;
 }
 
+// ---- Vorschlag eines Agenten im Chat (ADR 075, „Per MCP“) ----
+export const PROPOSAL_ARIA_LABEL = 'Vorschlag einer Prompt-Vorlage';
+export const PROPOSAL_NEW_TITLE = 'Claude schlägt eine neue Prompt-Vorlage vor';
+export const PROPOSAL_WAITING = 'wartet auf dich';
+export const PROPOSAL_FORM_LABEL = 'Formular';
+export const PROPOSAL_NO_NAME_TEMPLATE = 'keine';
+export const PROPOSAL_VIEW_LABEL = 'Ansicht';
+export const PROPOSAL_VIEW_DIFF = 'Diff';
+export const PROPOSAL_VIEW_BEFORE = 'Vorher';
+export const PROPOSAL_VIEW_AFTER = 'Nachher';
+export const PROPOSAL_BEFORE_NOTE = 'So ist die Vorlage heute gespeichert.';
+export const PROPOSAL_AFTER_NOTE = 'So wäre die Vorlage nach „Übernehmen“.';
+export const PROPOSAL_SHOW_ALL = 'Ganz zeigen';
+export const PROPOSAL_COLLAPSE = 'Einklappen';
+export const PROPOSAL_ACCEPT = 'Übernehmen';
+export const PROPOSAL_ACCEPTING = 'Übernimmt …';
+export const PROPOSAL_EDIT = 'Bearbeiten …';
+export const PROPOSAL_REJECT = 'Verwerfen';
+export const PROPOSAL_BACK = 'Zurück';
+export const PROPOSAL_REASON_LABEL = 'Begründung für Claude (optional)';
+/** Freier Text im Eingabefeld verwirft einen offenen Vorschlag; der Kasten sagt es. */
+export const PROPOSAL_FREE_TEXT_HINT =
+  'Text im Eingabefeld unten verwirft den Vorschlag mit dieser Begründung.';
+export const PROPOSAL_CANCELLED_NOTE = 'Der Agent wurde gestoppt; nichts gespeichert.';
+export const PROPOSAL_SHOW = 'Vorschlag zeigen';
+export const PROPOSAL_HIDE = 'Vorschlag ausblenden';
+export const PROPOSAL_OPEN_SETTINGS = 'In den Einstellungen öffnen';
+export const PROPOSAL_DIALOG_TITLE = 'Vorschlag bearbeiten';
+
+export function proposalUpdateTitle(name: string): string {
+  return `Claude schlägt eine Änderung an der Vorlage „${name}“ vor`;
+}
+
+export function proposalAnsweredTitle(name: string): string {
+  return `Prompt-Vorlage „${name}“`;
+}
+
+/** „Unverändert: Name.“ */
+export function proposalUnchangedText(labels: readonly string[]): string {
+  return `Unverändert: ${labels.join(', ')}.`;
+}
+
+/** Wörtlich wie `db::prompt_templates::update_if_unchanged`. */
+export function proposalStaleText(name: string): string {
+  return `Die Vorlage „${name}“ wurde seit dem Vorschlag geändert oder gelöscht. Verwirf den Vorschlag.`;
+}
+
+/** Der Zähler hinter „Ganz zeigen“, gezählt wie im Editor. */
+export function proposalTextCount(count: string, max: string): string {
+  return `· ${count} / ${max}`;
+}
+
+export function proposalDialogSubtitle(sessionNumber: number): string {
+  return `Vorbefüllt mit dem Vorschlag von Session ${String(sessionNumber)}. „Übernehmen“ speichert diesen Stand und meldet ihn an Claude.`;
+}
+
+export function proposalFailedText(reason: string): string {
+  return `Nicht beantwortet: ${reason}`;
+}
+
 // ---- Neues Vorhaben ----
 export const PICK_TITLE = 'Vorlage wählen';
 export const MENU_HEADING = 'Vorlage';

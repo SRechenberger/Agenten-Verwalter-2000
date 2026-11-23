@@ -159,6 +159,15 @@ function OpenRequestBody({
       </Layout>
     );
   }
+  if (request !== null && request.kind === 'promptTemplate') {
+    return (
+      <Layout open={open}>
+        <p>
+          Ein Agent schlägt eine Prompt-Vorlage vor. Beantworte den Vorschlag im Chat der Session.
+        </p>
+      </Layout>
+    );
+  }
   if (request !== null) {
     return (
       <Layout open={open}>

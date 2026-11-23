@@ -344,6 +344,7 @@ pub fn run() {
             commands::prompt_templates::prompt_template_create,
             commands::prompt_templates::prompt_template_update,
             commands::prompt_templates::prompt_template_delete,
+            commands::prompt_templates::prompt_template_proposal_answer,
             commands::environment::environment_status,
             commands::environment::environment_mirror,
             commands::codex::codex_models,

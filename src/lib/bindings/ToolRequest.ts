@@ -3,6 +3,8 @@ import type { AgentType } from "./AgentType";
 import type { AgentTypeInput } from "./AgentTypeInput";
 import type { Effort } from "./Effort";
 import type { ModelId } from "./ModelId";
+import type { PromptTemplate } from "./PromptTemplate";
+import type { PromptTemplateInput } from "./PromptTemplateInput";
 import type { SessionRef } from "./SessionRef";
 
 /**
@@ -12,4 +14,4 @@ export type ToolRequest = { "kind": "sendMessage", recipients: Array<SessionRef>
 /**
  * Einträge von vorher haben den Betreff nicht (ADR 072).
  */
-subject: string | null, } | { "kind": "getTldr", target: SessionRef, } | { "kind": "openSession", message: string, subject: string | null, model: ModelId, effort: Effort, } | { "kind": "agentType", base: AgentType | null, proposal: AgentTypeInput, };
+subject: string | null, } | { "kind": "getTldr", target: SessionRef, } | { "kind": "openSession", message: string, subject: string | null, model: ModelId, effort: Effort, } | { "kind": "agentType", base: AgentType | null, proposal: AgentTypeInput, } | { "kind": "promptTemplate", base: PromptTemplate | null, proposal: PromptTemplateInput, };

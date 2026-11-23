@@ -95,6 +95,7 @@ const TABLE: &[(Class, Option<IdKind>, &[&str])] = &[
             "chat_answer",
             "dashboard_dismiss",
             "agent_type_proposal_answer",
+            "prompt_template_proposal_answer",
             "git_commit",
             "git_push",
             "git_pull",
