@@ -604,6 +604,14 @@ mod tests {
     }
 
     #[test]
+    fn a_folder_named_like_a_page_in_other_case_is_an_accessory() {
+        let scratch = Scratch::new("folder-case");
+        scratch.write("anhang.html", "<p>x</p>");
+        scratch.write("Anhang/a.png", "x");
+        assert_eq!(scratch.names(), ["anhang.html"]);
+    }
+
+    #[test]
     fn artifact_file_of_names_the_folder_for_a_file_in_it_and_nothing_for_an_accessory() {
         let scratch = Scratch::new("file-of");
         scratch.write("report.html", "<a href=\"daten/x.csv\">Daten</a>");
