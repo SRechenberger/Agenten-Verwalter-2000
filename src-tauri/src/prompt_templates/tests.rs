@@ -154,6 +154,20 @@ fn a_syntax_error_in_the_name_template_is_rejected_at_the_name_template() {
 }
 
 #[test]
+fn a_syntax_error_in_the_name_template_names_line_and_column_as_typed_like_the_editor() {
+    // Der Editor prüft `"\n  {{#x}}"` wie eingegeben: Zeile 2, Spalte 3. Getrimmt wäre es Zeile 1.
+    assert_eq!(
+        errors_of(&input("Bugfix", "Text", "\n  {{#x}}"), &[]),
+        vec![error(
+            PromptTemplateField::NameTemplate,
+            "Zeile 2, Spalte 3: Der Abschnitt „x“ ist nicht geschlossen."
+        )]
+    );
+    let valid = validate(&input("Bugfix", "Text", "\n {{x}} "), &[], None).expect("gültig");
+    assert_eq!(valid.name_template, "{{x}}", "gespeichert wird getrimmt");
+}
+
+#[test]
 fn errors_of_several_fields_come_together_in_field_order() {
     let errors = errors_of(&input("", "", &"n".repeat(201)), &[]);
     let fields: Vec<PromptTemplateField> = errors

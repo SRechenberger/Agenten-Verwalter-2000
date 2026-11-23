@@ -2556,7 +2556,6 @@ impl SessionRegistry {
     }
 }
 
-/// Getrimmt und auf die Höchstlänge gekürzt; leer ist ein Fehler.
 /// Name eines neuen Vorhabens und ob er automatisch entstand (ADR 075, A1, A2): ein Name aus der
 /// Namensvorlage gilt wie `project_rename`, gekürzt und von Hand gesetzt; leer oder `None` ist der
 /// erste Satz des Auftrags, den Haiku später ersetzen darf.
@@ -2567,6 +2566,7 @@ fn project_name(task: &str, name: Option<&str>) -> (String, bool) {
     }
 }
 
+/// Getrimmt und auf die Höchstlänge gekürzt; leer ist ein Fehler.
 fn trimmed_name(name: &str) -> Result<String, CommandError> {
     let name: String = name.trim().chars().take(MAX_NAME_CHARS).collect();
     if name.is_empty() {

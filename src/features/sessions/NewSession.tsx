@@ -132,7 +132,8 @@ export function NewSession({ groups, onCreated, onCancel }: NewSessionProps): Re
   // Das Namensfeld unter dem Auftrag (E8): `null` = keins, wie ohne Namensvorlage.
   const [projectName, setProjectName] = useState<string | null>(null);
   const [isNameManual, setIsNameManual] = useState<boolean>(false);
-  // Der Auftrag, wie ihn die Vorlage zuletzt gefüllt hat: Steht er unverändert da, fragt eine neue Wahl nicht.
+  // Der Auftrag, wie ihn die Vorlage bei der Wahl geschrieben hat: Nur wenn er genau so dasteht, fragt eine
+  // neue Wahl nicht. Ausgefüllte oder angehakte Felder zählen als eigene Änderungen (E5).
   const [templateText, setTemplateText] = useState<string | null>(null);
   // Die Wahl, die auf „Text ersetzen?“ wartet (Bild 3).
   const [pendingTemplate, setPendingTemplate] = useState<PromptTemplate | null>(null);
@@ -209,7 +210,8 @@ export function NewSession({ groups, onCreated, onCancel }: NewSessionProps): Re
     }
   }
 
-  /** Fragt vor dem Ersetzen, wenn Text im Feld steht, den nicht die Vorlage so hineingeschrieben hat (E5). */
+  /** Fragt vor dem Ersetzen, wenn Text im Feld steht, der nicht genau der Text der Vorlage bei der Wahl ist (E5):
+   *  getippt, vorbelegt, im Formular ausgefüllt oder nach „OK“ geändert. */
   function chooseTemplate(template: PromptTemplate): void {
     closeMenu();
     if (text.trim() !== '' && text !== templateText) {
@@ -252,9 +254,7 @@ export function NewSession({ groups, onCreated, onCancel }: NewSessionProps): Re
     }
     const values: TemplateValues = { ...form.values, [name]: value };
     setForm({ ...form, values });
-    const filled: string = renderTemplate(form.template.text, values);
-    setText(filled);
-    setTemplateText(filled);
+    setText(renderTemplate(form.template.text, values));
     if (projectName !== null && !isNameManual) {
       setProjectName(renderTemplate(form.template.nameTemplate, values));
     }
