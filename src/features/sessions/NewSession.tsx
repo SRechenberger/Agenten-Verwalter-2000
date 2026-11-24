@@ -131,6 +131,7 @@ export function NewSession({ groups, onCreated, onCancel }: NewSessionProps): Re
   const [isStarting, setIsStarting] = useState<boolean>(false);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const groupButtonRef = useRef<HTMLButtonElement>(null);
+  const templateButtonRef = useRef<HTMLButtonElement>(null);
   const { promptTemplates } = usePromptTemplates();
   const [form, setForm] = useState<OpenForm | null>(null);
   // Das Namensfeld unter dem Auftrag (E8): `null` = keins, wie ohne Namensvorlage.
@@ -223,6 +224,13 @@ export function NewSession({ groups, onCreated, onCancel }: NewSessionProps): Re
       return;
     }
     applyTemplate(template);
+  }
+
+  /** „Abbrechen“ und Esc der Nachfrage: Der Eintrag im Menü ▤, der sie öffnete, ist schon ausgehängt, `Dialog`
+   *  fände ihn nicht mehr; der Fokus kehrt deshalb zum Knopf ▤ zurück (Taiga #221). */
+  function cancelReplace(): void {
+    setPendingTemplate(null);
+    templateButtonRef.current?.focus();
   }
 
   /** Eine neue Wahl ersetzt Formular, Auftrag und Namensfeld (A7); alle Checkboxen starten aus (A6). */
@@ -447,6 +455,7 @@ export function NewSession({ groups, onCreated, onCancel }: NewSessionProps): Re
               {hasTemplates && promptTemplates !== null && (
                 <div className="new-session__anchor">
                   <button
+                    ref={templateButtonRef}
                     type="button"
                     className="new-session__icon-button new-session__template-button"
                     aria-haspopup="dialog"
@@ -690,22 +699,14 @@ export function NewSession({ groups, onCreated, onCancel }: NewSessionProps): Re
         <Dialog
           labelledBy={REPLACE_TITLE_ID}
           className="new-session__replace"
-          onClose={(): void => {
-            setPendingTemplate(null);
-          }}
+          onClose={cancelReplace}
         >
           <h3 id={REPLACE_TITLE_ID} className="new-session__replace-title">
             {REPLACE_TITLE}
           </h3>
           <p className="new-session__replace-text">{replaceText(pendingTemplate.name)}</p>
           <div className="new-session__replace-actions">
-            <button
-              type="button"
-              className="new-session__cancel"
-              onClick={(): void => {
-                setPendingTemplate(null);
-              }}
-            >
+            <button type="button" className="new-session__cancel" onClick={cancelReplace}>
               {CANCEL_LABEL}
             </button>
             <button
