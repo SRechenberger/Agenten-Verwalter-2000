@@ -34,24 +34,6 @@ p.lead, p.note { color: var(--page-muted); margin: 0 0 16px; max-width: 78ch; }
   --color-code-keyword: #569cd6; --color-code-string: #ce9178; --color-code-comment: #6a9955; --color-code-number: #b5cea8;
   --color-code-type: #4ec9b0; --color-diff-add-bg: #1d3325; --color-diff-del-bg: #3a2020; --color-diff-add-fg: #4cc38a; --color-diff-del-fg: #f07a7a; }
 
-/* #231 Karte, Maße aus DashboardView.css */
-.cards { display: grid; grid-template-columns: repeat(auto-fill, 205px); gap: 10px; }
-.card { display: flex; flex-direction: column; gap: 4px; min-height: 96px; padding: 8px 12px; border: 1px solid var(--color-border);
-  border-left: 3px solid var(--tone, var(--color-status-waiting)); border-radius: 8px; background: var(--color-bg-surface); }
-.card.accent { --tone: var(--color-accent); }
-.top { display: flex; align-items: center; gap: 6px; font-size: 11px; }
-.kind { color: var(--tone, var(--color-status-waiting)); font-weight: 600; }
-.since { margin-left: auto; color: var(--color-fg-muted); white-space: nowrap; }
-.released { padding: 0 6px; border: 1px solid var(--color-status-reported); border-radius: 999px; color: var(--color-status-reported); font-size: 10.5px; font-weight: 600; white-space: nowrap; }
-.ai { padding: 0 6px; border: 1px solid var(--color-border); border-radius: 999px; color: var(--color-fg-muted); font-size: 10.5px; }
-.remote { display: inline-flex; flex: none; color: var(--color-accent); }
-.title { font-size: 13px; overflow-wrap: anywhere; }
-.origin { font-size: 11px; color: var(--color-fg-muted); }
-/* neu */
-.neu .top { flex-wrap: wrap; row-gap: 2px; }
-.neu .kind { white-space: nowrap; flex: none; }
-.neu .ai { white-space: nowrap; }
-
 /* #230 Code */
 pre.code { margin: 0; padding: 10px 12px; background: var(--color-bg-code); border: 1px solid var(--color-border); border-radius: 6px;
   font: 12.5px/1.5 ui-monospace, "JetBrains Mono", monospace; overflow-x: auto; }
