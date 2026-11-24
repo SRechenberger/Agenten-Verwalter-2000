@@ -22,6 +22,10 @@ import { McpDialog } from '@/features/mcp/McpDialog';
 import { McpProblemChip } from '@/features/mcp/McpProblemChip';
 import { CacheAwareModelMenu } from '@/features/promptcache/CacheAwareModelMenu';
 import { CacheColdHint } from '@/features/promptcache/CacheColdHint';
+import {
+  COMMAND_TITLE_DICTATING,
+  DICTATION_HINT,
+} from '@/features/prompttemplates/promptTemplateTexts';
 import { LockedComposer } from '@/features/remote/LockedComposer';
 import { useHostProfile, useOperatingMode } from '@/features/remote/useOperatingMode';
 import { useProjectIsRemote, useProjectLock } from '@/features/remote/useProjectAccess';
@@ -497,14 +501,17 @@ function ComposerForm({
             aria-haspopup="dialog"
             aria-expanded={openMenu === 'command'}
             aria-label="Befehle und Skills"
-            title="Befehle und Skills – oder / ins Feld tippen"
-            disabled={isLocked}
+            title={
+              isDictating ? COMMAND_TITLE_DICTATING : 'Befehle und Skills – oder / ins Feld tippen'
+            }
+            disabled={isLocked || isDictating}
             onClick={(): void => {
               toggleMenu('command');
             }}
           >
             <SlashIcon />
           </button>
+          {isDictating && <span className="composer__hint">{DICTATION_HINT}</span>}
           {isLocal ? (
             <span className="composer__model composer__model--static" title={LOCAL_MODEL_TITLE}>
               {localModelLabel(localModel)}

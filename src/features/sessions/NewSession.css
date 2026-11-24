@@ -134,6 +134,10 @@
     font-size: var(--font-size-xs);
   }
 
+  &__hint--dictating {
+    color: var(--color-status-waiting);
+  }
+
   &__note {
     margin: 0;
     font-size: var(--font-size-xs);

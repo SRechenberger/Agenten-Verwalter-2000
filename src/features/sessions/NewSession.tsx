@@ -24,12 +24,16 @@ import type { Parsed, TemplateField } from '@/features/prompttemplates/mustache'
 import {
   BAR_HINT,
   CANCEL_LABEL,
+  COMMAND_TITLE_DICTATING,
+  DICTATION_HINT,
+  DICTATION_HINT_WITH_TEMPLATES,
   LOCK_LINE,
   NAME_CHIP_MANUAL,
   NAME_CHIP_TEMPLATE,
   NAME_FIELD_LABEL,
   NAME_NOTE,
   PICK_TITLE,
+  PICK_TITLE_DICTATING,
   REPLACE_LABEL,
   REPLACE_TITLE,
   START_HINT,
@@ -432,8 +436,8 @@ export function NewSession({ groups, onCreated, onCancel }: NewSessionProps): Re
                 aria-haspopup="dialog"
                 aria-expanded={openMenu === 'command'}
                 aria-label="Befehle und Skills"
-                title="Befehle und Skills"
-                disabled={isStarting || isFormOpen}
+                title={isDictating ? COMMAND_TITLE_DICTATING : 'Befehle und Skills'}
+                disabled={isStarting || isFormOpen || isDictating}
                 onClick={(): void => {
                   toggleMenu('command');
                 }}
@@ -448,7 +452,7 @@ export function NewSession({ groups, onCreated, onCancel }: NewSessionProps): Re
                     aria-haspopup="dialog"
                     aria-expanded={openMenu === 'template'}
                     aria-label={PICK_TITLE}
-                    title={PICK_TITLE}
+                    title={isDictating ? PICK_TITLE_DICTATING : PICK_TITLE}
                     disabled={isStarting || isDictating}
                     onClick={(): void => {
                       toggleMenu('template');
@@ -469,10 +473,16 @@ export function NewSession({ groups, onCreated, onCancel }: NewSessionProps): Re
                   )}
                 </div>
               )}
-              <span className="new-session__hint">
-                {hasTemplates
-                  ? BAR_HINT
-                  : 'Bilder und Dateien hineinziehen oder einfügen. Mit / startest du direkt mit einem Skill.'}
+              <span
+                className={`new-session__hint${isDictating ? ' new-session__hint--dictating' : ''}`}
+              >
+                {isDictating
+                  ? hasTemplates
+                    ? DICTATION_HINT_WITH_TEMPLATES
+                    : DICTATION_HINT
+                  : hasTemplates
+                    ? BAR_HINT
+                    : 'Bilder und Dateien hineinziehen oder einfügen. Mit / startest du direkt mit einem Skill.'}
               </span>
             </div>
             {commandMenu.isOpen && (
