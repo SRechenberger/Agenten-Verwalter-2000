@@ -220,3 +220,23 @@ Auf Zettel des Nutzers vom 2026-11-19; Entwurf `docs/design/2026-11-21_dashboard
 - **Marke „entfernt“ (Variante D):** Karten, Abläufe und Sessions eines Vorhabens mit `access.kind === 'remote'` tragen ⇄ in Akzentfarbe in der Kopfzeile, wie die Leiste. Die Regel liest nur die `projectId` gegen die Liste der Vorhaben (`remoteHostOf` über `hostNameOf`); der Kern bekommt kein neues Feld dafür. `title` und `aria-label` der Marke nennen den Host; auf der Karte steht er zudem vorn in der Herkunftszeile, bei Ablauf und Session im `title` der Zeile.
 - **Gemeinsame Ordnung beim Gast:** `DashboardFlow` und `DashboardSession` tragen `last_activity_at` aus den Fakten (`#[serde(default)]`, damit die Antwort eines älteren Hosts lesbar bleibt; `#[ts(skip)]`, die Oberfläche zeigt sie nicht). `merge_dashboards` ordnet eigene und entfernte Abläufe mit `dashboard::sort_flows` (nicht fertige zuerst, dann zuletzt aktiv; eine beendete Umsetzung hat keine Karten und steht auf `done`) und Sessions mit `dashboard::sort_sessions` (zuletzt aktiv zuerst). Die lokale Ordnung in `build` bleibt, wie sie war.
 - **Tests:** `settings::tests::` (Standard alles aus, Speichern, unlesbarer Wert), `dashboard::tests::` (gemeinsame Ordnung wie `build` über alle, `last_activity_at` in der Ansicht, Antwort ohne das Feld), Selbsttest `src/features/dashboard/dashboardNest.selftest.ts`.
+
+## Nachtrag 2026-11-24: Beschriftung je Freigabe (Taiga #224)
+
+Die Karte eines Kastens aus den Session-Werkzeugen (`sessionTool`) hieß immer „Freigabe Nachricht“, auch bei einem Vorschlag für einen Agententyp oder eine Prompt-Vorlage ([ADR 063](063-agententypen-per-mcp.md), [ADR 075](075-prompt-vorlagen.md)). Entwurf `docs/design/2026-11-24_folgetickets/`, Bild 1.
+
+- **Beschriftung:** Eine reine Funktion, `taskLabel` in `dashboardTexts.ts`, liest bei `sessionTool` die Art des `toolRequest` im Eintrag der Karte (`task.entry`, Art `question`); alle anderen Karten behalten `KIND_LABEL`.
+
+  | `toolRequest.kind` | Beschriftung |
+  |---|---|
+  | `sendMessage` | Freigabe Nachricht |
+  | `getTldr` | Freigabe TL;DR |
+  | `openSession` | Freigabe neue Session |
+  | `agentType` | Vorschlag Agententyp |
+  | `promptTemplate` | Vorschlag Vorlage |
+
+  Fehlt der Eintrag oder das Feld `toolRequest` (Einträge von vorher), bleibt es „Freigabe Nachricht“.
+- **Wo:** `taskLabel` ersetzt `KIND_LABEL[task.kind]` an allen vier Stellen: Karte im Dashboard, Kopf des Popups und beide Zeilen der Karte im Chat.
+- **Gruppierung „nach Art“:** `groupOf` bildet je Beschriftung eine Gruppe, Schlüssel und Text kommen aus derselben Funktion. Die fünf Arten stehen also in fünf Gruppen, nicht mehr in einer.
+- **Unverändert:** Ton (`kindTone`: „wartet“), `blocking`, Reihenfolge und die Zählung; der Kern kennt die Beschriftung nicht.
+- **Tests:** `dashboardTexts.selftest.ts` (`a_prompt_template_proposal_reads_vorschlag_vorlage`, `a_card_without_entry_stays_freigabe_nachricht`, `group_by_kind_splits_the_five_approvals` und je Art ein Fall).

@@ -1,6 +1,6 @@
 import type { ReactElement } from 'react';
 import type { ChatCard } from '@/features/chat/chatTasks';
-import { ageText, KIND_LABEL, kindTone } from '@/features/dashboard/dashboardTexts';
+import { ageText, kindTone, taskLabel } from '@/features/dashboard/dashboardTexts';
 import './ChatTasks.css';
 
 /** Was die Knöpfe einer Karte tun; ChatView hält die Zustände dahinter. */
@@ -86,7 +86,7 @@ export function ChatTaskRow({
       className={`chat-task chat-task--${variant} chat-task--${kindTone(task.kind)}`}
       role={variant === 'hint' ? 'note' : undefined}
     >
-      <span className="chat-task__kind">{KIND_LABEL[task.kind]}</span>
+      <span className="chat-task__kind">{taskLabel(task)}</span>
       <span className="chat-task__title" title={task.title}>
         {task.title}
       </span>
@@ -105,7 +105,7 @@ export function ChatTaskFrameHead({ card, ...actions }: ChatTaskFrameHeadProps):
   const { task } = card;
   return (
     <div className="chat-task__head">
-      <span className="chat-task__kind">{KIND_LABEL[task.kind]}</span>
+      <span className="chat-task__kind">{taskLabel(task)}</span>
       <span className="chat-task__title" title={task.title}>
         {task.title}
       </span>

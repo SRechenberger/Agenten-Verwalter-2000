@@ -13,6 +13,7 @@ import type { DashboardTask } from '@/lib/bindings/DashboardTask';
 import type { DashboardTaskKind } from '@/lib/bindings/DashboardTaskKind';
 import type { ProjectPriority } from '@/lib/bindings/ProjectPriority';
 import type { ProjectSummary } from '@/lib/bindings/ProjectSummary';
+import type { ToolRequest } from '@/lib/bindings/ToolRequest';
 
 /** Eine Ebene der Gruppierung: nach Vorhaben, nach Art oder nach Gruppe des Vorhabens (#11). */
 export type GroupBy = 'project' | 'kind' | 'group';
@@ -39,6 +40,26 @@ export const KIND_LABEL: Record<DashboardTaskKind, string> = {
   ready: 'Bereit',
   done: 'Fertig',
 };
+
+const TOOL_LABEL: Record<ToolRequest['kind'], string> = {
+  sendMessage: 'Freigabe Nachricht',
+  getTldr: 'Freigabe TL;DR',
+  openSession: 'Freigabe neue Session',
+  agentType: 'Vorschlag Agententyp',
+  promptTemplate: 'Vorschlag Vorlage',
+};
+
+/** Beschriftung einer Karte: `KIND_LABEL`, bei einem Kasten eines Session-Werkzeugs die Art der Anfrage
+ *  (Taiga #224); ohne Eintrag oder ohne `toolRequest` bleibt es „Freigabe Nachricht“. */
+export function taskLabel(task: DashboardTask): string {
+  if (task.kind === 'sessionTool' && task.entry?.kind === 'question') {
+    const request: ToolRequest | null = task.entry.toolRequest;
+    if (request !== null) {
+      return TOOL_LABEL[request.kind];
+    }
+  }
+  return KIND_LABEL[task.kind];
+}
 
 const KIND_TONE: Record<DashboardTaskKind, Tone> = {
   question: 'wait',
@@ -98,7 +119,9 @@ function groupOf(task: DashboardTask, by: GroupBy): { key: string; label: string
     return { key: task.projectId, label: task.projectName };
   }
   if (by === 'kind') {
-    return { key: task.kind, label: KIND_LABEL[task.kind] };
+    // Eine Gruppe je Beschriftung: Schlüssel und Text kommen aus derselben Funktion.
+    const label: string = taskLabel(task);
+    return { key: label, label };
   }
   const name: string = task.groupName ?? NO_GROUP_LABEL;
   return { key: `group:${name}`, label: name };
