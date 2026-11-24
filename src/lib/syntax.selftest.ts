@@ -43,7 +43,7 @@ const MIXED: string = [
 
 const CASES: Case[] = [
   { name: '.agda hat die Sprache agda', holds: () => languageOf('src/A.agda') === 'agda' },
-  { name: '.ps1 hat eine Sprache (PowerShell)', holds: () => languageOf('x.ps1') !== null },
+  { name: '.ps1 hat die Sprache ps1 (PowerShell)', holds: () => languageOf('x.ps1') === 'ps1' },
   {
     name: '.lagda.md behält die Sprache der äußeren Endung',
     holds: () => languageOf('A.lagda.md') === 'md',
@@ -139,8 +139,8 @@ const CASES: Case[] = [
       classOf('n = 42', '42') === 'hljs-number',
   },
   {
-    name: "Ein Strich im Bezeichner x' y' ist kein Zeichen",
-    holds: () => !hasClass("x' = y'", 'hljs-string'),
+    name: "Ein Strich im Bezeichner a'b' ist kein Zeichen",
+    holds: () => !hasClass("a'b' = c", 'hljs-string'),
   },
   {
     name: 'Jede gelieferte Klasse steht in COLORED_CLASSES',
