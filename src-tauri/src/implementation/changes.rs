@@ -407,20 +407,59 @@ pub fn decide(app: &AppHandle, implementation_id: &str, accept: bool) -> Result<
     let summary = diff(&view, &pending.phases).map_err(CommandError::Implementation)?;
     refuse_taken_kennungen(&view, &pending.phases).map_err(CommandError::Implementation)?;
     let record = Record {
-        session_id: pending.session_id,
+        session_id: Some(pending.session_id),
         summary,
     };
     apply(app, &registry, &view, &pending.phases, Some(record)).map(|_| ())
 }
 
-/// Wer die Änderung vorschlug und was sie bewirkt; fehlt er, wird nichts vermerkt.
-struct Record {
-    session_id: String,
-    summary: ChangeSummary,
+/// Wer die Änderung vorschlug (ohne Master keine Session) und was sie bewirkt; fehlt der Vermerk,
+/// wird nichts vermerkt.
+pub struct Record {
+    pub session_id: Option<String>,
+    pub summary: ChangeSummary,
+}
+
+/// Was eine Plan-Änderung schreibt: die Phasen samt Marken, die Stationen, die Änderungszeile (nur mit
+/// Vermerk) und die neuen Kennungen für den Planer.
+pub struct Replacement {
+    pub removed_ids: Vec<String>,
+    pub phases: Vec<PhaseRow>,
+    pub stations: Vec<StationRow>,
+    pub change: Option<ChangeRow>,
+    pub named: String,
+}
+
+/// Der Teil von `apply` ohne Registry und `AppHandle`: rechnet aus der Ansicht `view`, der Eingabe und
+/// den gespeicherten Zeilen `rows` (`replanned`) die Phasen mit Marken (`set_marks`), die Stationen, die
+/// Änderungszeile (`change_row`, mit `record`) und die neuen Kennungen. Die App (`apply`) und die Probe
+/// `implementation-probe set-phases --apply` gehen beide diesen Weg. Prüft zuerst, schreibt nichts.
+pub fn replacement(
+    view: &ImplementationView,
+    inputs: &[PhaseInput],
+    rows: &[StationRow],
+    record: Option<&Record>,
+) -> Result<Replacement, String> {
+    let removed = upcoming(view);
+    let (mut phases, stations, named) = replanned(view, inputs, rows)?;
+    set_marks(&removed, record, &mut phases);
+    let change = record.map(|record: &Record| change_row(view, &removed, &stations, record));
+    let removed_ids: Vec<String> = removed
+        .iter()
+        .map(|phase: &&PhaseView| phase.id.clone())
+        .collect();
+    Ok(Replacement {
+        removed_ids,
+        phases,
+        stations,
+        change,
+        named,
+    })
 }
 
 /// Ersetzt die kommenden Phasen, vermerkt die Änderung (mit `record`) und plant die Stationen, die
-/// danach starten dürfen. Gibt die neuen Stationen für den Planer zurück (`assigned_text`).
+/// danach starten dürfen. Gibt die neuen Stationen für den Planer zurück (`assigned_text`). Die
+/// Rechnung steht in `replacement`; hier bleiben Countdowns, Schreiben, Ankündigen und Planen.
 fn apply(
     app: &AppHandle,
     registry: &SessionRegistry,
@@ -428,27 +467,23 @@ fn apply(
     inputs: &[PhaseInput],
     record: Option<Record>,
 ) -> Result<String, CommandError> {
-    let removed = upcoming(view);
     // Die gespeicherten Zeilen von jetzt: Was der Benutzer seit dem Vorschlag auf der Karte gesetzt
     // hat, zählt mit.
     let rows = registry.station_rows(&view.id)?;
-    let (mut phases, stations, named) =
-        replanned(view, inputs, &rows).map_err(CommandError::Implementation)?;
+    let Replacement {
+        removed_ids,
+        phases,
+        stations,
+        change,
+        named,
+    } = replacement(view, inputs, &rows, record.as_ref()).map_err(CommandError::Implementation)?;
     // Erst nach der Prüfung: Eine abgelehnte Änderung lässt die Countdowns stehen.
-    for station in removed
+    for station in upcoming(view)
         .iter()
         .flat_map(|phase: &&PhaseView| phase.stations.iter())
     {
         let _ = registry.cancel_countdown(&station.id);
     }
-    set_marks(&removed, record.as_ref(), &mut phases);
-    let change = record
-        .as_ref()
-        .map(|record: &Record| change_row(view, &removed, &stations, record));
-    let removed_ids: Vec<String> = removed
-        .iter()
-        .map(|phase: &&PhaseView| phase.id.clone())
-        .collect();
     if let Err(error) =
         registry.store_plan_change(&view.id, &removed_ids, &phases, &stations, change.as_ref())
     {
@@ -609,7 +644,7 @@ fn change_row(
     ChangeRow {
         id: uuid::Uuid::new_v4().to_string(),
         implementation_id: view.id.clone(),
-        session_id: Some(record.session_id.clone()),
+        session_id: record.session_id.clone(),
         at: now_ms(),
         summary: serde_json::to_string(&recorded_summary(view, &record.summary, new_stations))
             .unwrap_or_default(),
