@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { isQuotaHeld, sessionWaitPosition } from '@/features/queue/queueTexts';
+import { quotaHeldUntil, sessionWaitPosition } from '@/features/queue/queueTexts';
 import type { AgentQueue } from '@/lib/bindings/AgentQueue';
 
 interface AgentQueueState {
@@ -55,9 +55,10 @@ export function waitQueuesOf(state: {
   return [state.queue, ...Object.values(state.hostQueues)];
 }
 
-/** Wartet die Station wegen des Kontingents, auch eine Station eines Hosts (Taiga-Story 130). */
-export function useQuotaHeld(stationId: string): boolean {
-  return useAgentQueueStore((state) => isQuotaHeld(waitQueuesOf(state), stationId));
+/** Bis wann der Halt die Station wegen des Kontingents hält, auch eine Station eines Hosts (Taiga-Story 130);
+ *  `null`, wenn sie nicht wartet. */
+export function useQuotaHeldUntil(stationId: string): string | null {
+  return useAgentQueueStore((state) => quotaHeldUntil(waitQueuesOf(state), stationId));
 }
 
 /** „Nachricht wartet · Platz n“ einer Session, auch einer Session eines Hosts mit dem Rang dort; `null` ohne. */

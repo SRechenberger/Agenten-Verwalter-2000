@@ -12,6 +12,7 @@ import {
   messageWaitText,
   isSlotsBarShown,
   isQuotaHeld,
+  quotaHeldUntil,
   parseQuotaHoldPercent,
   QUOTA_HOLD_INVALID_TEXT,
   quotaHoldText,
@@ -179,6 +180,16 @@ const CASES: { name: string; actual: () => unknown; expected: unknown }[] = [
         isQuotaHeld([HELD, null], 'other'),
       ].join(),
     expected: 'true,false,false',
+  },
+  {
+    name: 'quota_held_until_names_the_hold_of_the_queue_with_the_station',
+    actual: () =>
+      [
+        quotaHeldUntil([queue(4, 1, 1), HELD], 's'),
+        quotaHeldUntil([queue(4, 1, 1)], 's'),
+        quotaHeldUntil([HELD, null], 'other'),
+      ].join(),
+    expected: '2026-11-22T14:30:00Z,,',
   },
   { name: 'quota_hold_empty_is_off', actual: () => parseQuotaHoldPercent(' '), expected: null },
   { name: 'quota_hold_number', actual: () => parseQuotaHoldPercent(' 90 '), expected: 90 },

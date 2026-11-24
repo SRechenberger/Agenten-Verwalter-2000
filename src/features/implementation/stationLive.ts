@@ -23,7 +23,9 @@ export function shownState(station: LiveFacts): { state: StationState; isChecked
   return { state: station.live, isChecked: station.state === 'done' };
 }
 
-/** Text der Zeile, Kartei und Leiste, wenn die Session mehr sagt als `state`; sonst `null`. */
+/** Text der Zeile, Kartei und Leiste, wenn die Session mehr sagt als `state`; sonst `null`. Ein scharfer
+ *  Zeitgeber heißt auch hinter „fertig“ und „gemeldet“ „setzt automatisch fort“, ohne ihn „pausiert“
+ *  (Taiga #227; Chip dazu: `waitChip`). */
 export function liveText(station: LiveFacts): string | null {
   const { state, live, pause } = station;
   if (state === 'waitsForYou' && pause !== null) {
@@ -39,8 +41,9 @@ export function liveText(station: LiveFacts): string | null {
     case 'asking':
       return lead === 'fertig' ? 'fertig · fragt dich' : null;
     case 'waitsForYou':
-    case 'waitsForQuota':
       return lead === null ? null : `${lead} · pausiert`;
+    case 'waitsForQuota':
+      return lead === null ? null : `${lead} · setzt automatisch fort`;
     case 'error':
       return lead === null ? null : `${lead} · Fehler`;
     default:
@@ -56,6 +59,43 @@ export function pauseChip(station: Pick<StationView, 'pause'>): string | null {
     return null;
   }
   return pause.resetsAt === null ? 'Kontingent' : `Kontingent bis ${clockText(pause.resetsAt)}`;
+}
+
+/** Chip hinter „setzt automatisch fort“ und „wartet auf Kontingent“: „ab 17:04“. */
+export function resumesAtChip(at: number): string {
+  return `ab ${clockText(at)}`;
+}
+
+/** Chip einer Station mit Text; `isWarn` färbt ihn bernsteinfarben. */
+export interface WaitChip {
+  text: string;
+  isWarn: boolean;
+}
+
+/** Die eine Regel für den Chip beim Warten auf das Kontingent (Taiga #227), für Zeitleiste, Leiste, Kartei und
+ *  Sidebar; der Text dazu kommt aus `liveText` und `rowStateText`. Nach dem gezeigten Zustand der Session
+ *  (`shownState`), nicht nach `state`:
+ *  - scharfer Zeitgeber (`waitsForQuota`): der neutrale Chip „ab 13:30“, nie der bernsteinfarbene;
+ *  - vom Halt gehalten (`heldUntil`, ISO-Zeit aus `quotaUntil` der Warteschlange; eine bereite Station in der
+ *    Warteschlange oder ein Neustart): ebenso „ab 13:30“;
+ *  - sonst bei einer Kontingent-Pause ohne Zeitgeber: der bernsteinfarbene „Kontingent bis 13:30“
+ *    (`pauseChip`), denn dann muss jemand handeln. */
+export function waitChip(
+  station: LiveFacts & Pick<StationView, 'restarting' | 'queuePosition'>,
+  heldUntil: string | null,
+): WaitChip | null {
+  if (shownState(station).state === 'waitsForQuota') {
+    const resetsAt: number | null = station.pause?.resetsAt ?? null;
+    return resetsAt === null ? null : { text: resumesAtChip(resetsAt), isWarn: false };
+  }
+  const isQueued: boolean =
+    (station.state === 'ready' && station.queuePosition !== null) ||
+    (station.state === 'error' && station.restarting);
+  if (heldUntil !== null && isQueued) {
+    return { text: resumesAtChip(Date.parse(heldUntil)), isWarn: false };
+  }
+  const chip: string | null = pauseChip(station);
+  return chip === null ? null : { text: chip, isWarn: true };
 }
 
 /** Symbol der Sessions, damit Umsetzung und Session-Zeilen gleich aussehen. */

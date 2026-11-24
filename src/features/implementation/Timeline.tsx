@@ -31,7 +31,6 @@ import {
   NO_PHASES,
   PHASE_MARK_LABEL,
   PHASE_MARK_TITLE,
-  resumesAtChip,
   ROW_OPEN_CHAT_TITLE,
   ROW_OPEN_LABEL,
   ROW_OPEN_TITLE,
@@ -60,13 +59,17 @@ import { RELEASED_CHIP, RELEASED_TITLE, returnsChip } from '@/features/implement
 import { DoneConfirm } from '@/features/implementation/DoneConfirm';
 import { asksBeforeDone, isDoneByYou } from '@/features/implementation/stationControls';
 import { StationDot } from '@/features/implementation/StationDot';
-import { pauseChip } from '@/features/implementation/stationLive';
-import { isQuotaHeld, messageWaitText, sessionWaitPosition } from '@/features/queue/queueTexts';
+import { type WaitChip, waitChip } from '@/features/implementation/stationLive';
+import {
+  isQuotaHeld,
+  messageWaitText,
+  quotaHeldUntil,
+  sessionWaitPosition,
+} from '@/features/queue/queueTexts';
 import { useOperatingMode } from '@/features/remote/useOperatingMode';
 import type { ChangeView } from '@/lib/bindings/ChangeView';
 import type { ImplementationView } from '@/lib/bindings/ImplementationView';
 import type { OperatingMode } from '@/lib/bindings/OperatingMode';
-import type { PauseReason } from '@/lib/bindings/PauseReason';
 import type { AgentQueue } from '@/lib/bindings/AgentQueue';
 import type { SessionSummary } from '@/lib/bindings/SessionSummary';
 import type { StationView } from '@/lib/bindings/StationView';
@@ -319,29 +322,15 @@ export function Timeline({
     }
   }
 
-  /** „ab 17:04“ hinter „setzt automatisch fort“; „Kontingent“ hinter „wartet auf dich“ bei einer Kontingent-Pause. */
-  function renderQuotaChip(station: StationView): ReactElement | null {
-    const reason: PauseReason | null = sessionOf(station)?.pauseReason ?? null;
-    if (reason?.kind !== 'quota') {
-      return null;
-    }
-    if (station.state === 'waitsForQuota') {
-      return reason.resetsAt === null ? null : (
-        <span className="timeline__chip timeline__chip--static timeline__chip--state">
-          {resumesAtChip(reason.resetsAt)}
-        </span>
-      );
-    }
-    return null;
-  }
-
-  /** „Kontingent bis 14:00“ hinter einer pausierten Station, auch einer fertigen oder gemeldeten. */
-  function renderPauseChip(station: StationView): ReactElement | null {
-    // Bei scharfem Zeitgeber steht die Zeit schon im Chip „ab …“.
-    const chip: string | null = station.state === 'waitsForQuota' ? null : pauseChip(station);
+  /** „ab 17:04“ hinter „setzt automatisch fort“ und „wartet auf Kontingent“, bernsteinfarben „Kontingent bis
+   *  14:00“ hinter einer Pause ohne Zeitgeber, auch einer fertigen oder gemeldeten (`waitChip`). */
+  function renderWaitChip(station: StationView): ReactElement | null {
+    const chip: WaitChip | null = waitChip(station, quotaHeldUntil(waitQueues, station.id));
     return chip === null ? null : (
-      <span className="timeline__chip timeline__chip--static timeline__chip--state timeline__chip--warn">
-        {chip}
+      <span
+        className={`timeline__chip timeline__chip--static timeline__chip--state${chip.isWarn ? ' timeline__chip--warn' : ''}`}
+      >
+        {chip.text}
       </span>
     );
   }
@@ -431,8 +420,7 @@ export function Timeline({
         <span className={`timeline__state timeline__state--${tone}`}>
           {rowText(station)}
           {renderMasterChips(station)}
-          {renderQuotaChip(station)}
-          {renderPauseChip(station)}
+          {renderWaitChip(station)}
           {renderAction(station)}
           {renderResume(station)}
         </span>

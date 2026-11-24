@@ -15,6 +15,7 @@ import {
   pauseChip,
   shownState,
   stationIcon,
+  waitChip,
 } from '../features/implementation/stationLive.ts';
 import type { StationState } from '../lib/bindings/StationState.ts';
 import type { StationView } from '../lib/bindings/StationView.ts';
@@ -158,7 +159,7 @@ check(
     'fertig · läuft wieder',
     'fertig · fragt dich',
     'fertig · pausiert',
-    'fertig · pausiert',
+    'fertig · setzt automatisch fort',
     'fertig · Fehler',
     null,
   ],
@@ -172,6 +173,15 @@ check(
     liveText(station('reported', null)),
   ],
   ['gemeldet · pausiert', 'gemeldet · Fehler', null, null],
+);
+check(
+  'eine gemeldete Station mit scharfem Zeitgeber setzt automatisch fort, ohne Zeitgeber ist sie pausiert',
+  [
+    liveText(station('reported', 'waitsForQuota')),
+    liveText(station('reported', 'waitsForYou')),
+    liveText(station('waitsForQuota', null)),
+  ],
+  ['gemeldet · setzt automatisch fort', 'gemeldet · pausiert', null],
 );
 check(
   'eine pausierte Station, die auf dich wartet, sagt es und nennt „wartet auf dich“',
@@ -231,6 +241,67 @@ check(
     pauseChip({ pause: null }),
   ],
   [`Kontingent bis ${clockText(1_700_000_000_000)}`, 'Kontingent', null, null],
+);
+
+const AT = 1_700_000_000_000;
+type ChipFacts = Pick<StationView, 'state' | 'live' | 'pause' | 'restarting' | 'queuePosition'>;
+function chipOf(
+  facts: Facts,
+  heldUntil: string | null = null,
+  extra: Partial<ChipFacts> = {},
+): unknown {
+  return waitChip({ ...facts, restarting: false, queuePosition: null, ...extra }, heldUntil);
+}
+check(
+  'Chip bei scharfem Zeitgeber: neutral „ab …“, auch hinter „gemeldet“ und „fertig“, nie bernsteinfarben',
+  [
+    chipOf(station('waitsForQuota', null, AT)),
+    chipOf(station('reported', 'waitsForQuota', AT)),
+    chipOf(station('done', 'waitsForQuota', AT)),
+    chipOf(station('waitsForQuota', null, null)),
+  ],
+  [
+    { text: `ab ${clockText(AT)}`, isWarn: false },
+    { text: `ab ${clockText(AT)}`, isWarn: false },
+    { text: `ab ${clockText(AT)}`, isWarn: false },
+    null,
+  ],
+);
+check(
+  'Chip ohne Zeitgeber: bernsteinfarben „Kontingent bis …“, auch hinter „gemeldet“ und „fertig“',
+  [
+    chipOf(station('waitsForYou', null, AT)),
+    chipOf(station('reported', 'waitsForYou', AT)),
+    chipOf(station('done', 'waitsForYou', AT)),
+    chipOf(station('waitsForYou', null, null)),
+    chipOf(station('waitsForYou', null)),
+    chipOf({ ...station('waitsForYou', null), pause: otherPause }),
+  ],
+  [
+    { text: `Kontingent bis ${clockText(AT)}`, isWarn: true },
+    { text: `Kontingent bis ${clockText(AT)}`, isWarn: true },
+    { text: `Kontingent bis ${clockText(AT)}`, isWarn: true },
+    { text: 'Kontingent', isWarn: true },
+    null,
+    null,
+  ],
+);
+check(
+  'Chip vom Halt: „ab …“ für eine bereite Station in der Warteschlange und einen Neustart, sonst keiner',
+  [
+    chipOf(station('ready', null), new Date(AT).toISOString(), { queuePosition: 1 }),
+    chipOf(station('error', null), new Date(AT).toISOString(), { restarting: true }),
+    chipOf(station('ready', null), new Date(AT).toISOString()),
+    chipOf(station('error', null), new Date(AT).toISOString()),
+    chipOf(station('ready', null), null, { queuePosition: 1 }),
+  ],
+  [
+    { text: `ab ${clockText(AT)}`, isWarn: false },
+    { text: `ab ${clockText(AT)}`, isWarn: false },
+    null,
+    null,
+    null,
+  ],
 );
 
 check(

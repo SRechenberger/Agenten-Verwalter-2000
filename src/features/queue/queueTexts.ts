@@ -188,14 +188,26 @@ export function readyStationText(position: number | null, isQuotaHeld: boolean):
 
 export const QUOTA_WAIT_TEXT = 'wartet auf Kontingent';
 
-/** Wartet die Station wegen des Kontingents: Sie steht in einer Warteschlange mit Halt (`quotaUntil`), der eigenen
- *  oder der eines Hosts (Stations-IDs sind über Geräte eindeutig). */
-export function isQuotaHeld(queues: readonly (AgentQueue | null)[], stationId: string): boolean {
-  return queues.some(
-    (queue: AgentQueue | null) =>
+/** Bis wann der Halt die Station hält (`quotaUntil`, ISO-Zeit): Sie steht in einer Warteschlange mit Halt, der
+ *  eigenen oder der eines Hosts (Stations-IDs sind über Geräte eindeutig); sonst `null`. */
+export function quotaHeldUntil(
+  queues: readonly (AgentQueue | null)[],
+  stationId: string,
+): string | null {
+  for (const queue of queues) {
+    if (
       queue?.quotaUntil !== undefined &&
-      queue.entries.some((entry: QueueEntry) => entry.stationId === stationId),
-  );
+      queue.entries.some((entry: QueueEntry) => entry.stationId === stationId)
+    ) {
+      return queue.quotaUntil;
+    }
+  }
+  return null;
+}
+
+/** Wartet die Station wegen des Kontingents (`quotaHeldUntil`). */
+export function isQuotaHeld(queues: readonly (AgentQueue | null)[], stationId: string): boolean {
+  return quotaHeldUntil(queues, stationId) !== null;
 }
 
 /** Zusatz beim Halt wegen des Kontingents: „Kontingent: Stationen ab 15:30 Uhr“. `resetAt` ist `formatResetAt` von

@@ -76,6 +76,12 @@
     color: var(--color-status-waiting);
     font-size: var(--font-size-2xs);
     line-height: 1.5;
+
+    /* „ab 13:30“: Der Zeitgeber ist scharf oder der Halt gilt, niemand muss handeln (Taiga #227). */
+    &--neutral {
+      border-color: var(--color-border);
+      color: var(--color-fg-muted);
+    }
   }
 
   &__question {
