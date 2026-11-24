@@ -2,8 +2,50 @@
 // Je Fall `PASS`/`FAIL`, Exit 1 bei einem Fehlschlag. Node streicht die Typen; die geprüfte Datei
 // importiert nichts.
 import { nextMenuIndex } from './menuNavigation.ts';
+import { moveMenuFocus } from './menuNavigation.ts';
+import type { MenuItem } from './menuNavigation.ts';
 
 const FREE: boolean[] = [false, false, false];
+
+/** Ein Eintrag als Attrappe: merkt sich die Optionen seines `focus`-Aufrufs. */
+function stubItem(calls: unknown[]): MenuItem {
+  return {
+    contains: () => false,
+    focus: (options?: FocusOptions): void => {
+      calls.push(options);
+    },
+    matches: () => false,
+  };
+}
+
+/** `moveMenuFocus` ohne DOM: `document.activeElement` ist für die Dauer des Aufrufs der Eintrag mit dem Fokus; Ergebnis: die Optionen je Eintrag als JSON. */
+function focusCalls(key: string, focused: number): string {
+  const calls: unknown[][] = [[], [], []];
+  const items: MenuItem[] = calls.map((own: unknown[]) => stubItem(own));
+  const active: object = {};
+  const first: MenuItem | undefined = items[focused];
+  if (first !== undefined) {
+    items[focused] = { ...first, contains: (node: Node | null): boolean => node === active };
+  }
+  const saved: PropertyDescriptor | undefined = Object.getOwnPropertyDescriptor(
+    globalThis,
+    'document',
+  );
+  Object.defineProperty(globalThis, 'document', {
+    value: { activeElement: active },
+    configurable: true,
+  });
+  try {
+    moveMenuFocus(key, items);
+  } finally {
+    if (saved === undefined) {
+      Reflect.deleteProperty(globalThis, 'document');
+    } else {
+      Object.defineProperty(globalThis, 'document', saved);
+    }
+  }
+  return JSON.stringify(calls);
+}
 
 const CASES: { name: string; actual: () => unknown; expected: unknown }[] = [
   {
@@ -91,6 +133,11 @@ const CASES: { name: string; actual: () => unknown; expected: unknown }[] = [
     name: 'an_empty_menu_has_no_target',
     actual: () => nextMenuIndex('Home', -1, []),
     expected: null,
+  },
+  {
+    name: 'arrow_down_focuses_the_next_item_visibly',
+    actual: () => focusCalls('ArrowDown', 0),
+    expected: '[[],[{"focusVisible":true}],[]]',
   },
   {
     name: 'other_keys_are_not_navigation',

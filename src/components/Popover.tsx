@@ -34,9 +34,10 @@ interface PopoverProps {
  *  Tastatur (Taiga #220), einmal für alle Menüs: Hat das Menü Einträge mit `role` `menuitem`, `menuitemradio`
  *  oder `menuitemcheckbox`, wechseln ↓ und ↑ den Eintrag im Umlauf, Pos1 und Ende springen an Anfang und Ende;
  *  ein gesperrter Eintrag wird übersprungen (`menuNavigation.ts`). In einem Textfeld des Menüs und in einem Menü
- *  ohne solche Einträge bleiben die Tasten, was sie waren.
+ *  ohne solche Einträge bleiben die Tasten, was sie waren. Der so gesetzte Fokus ist sichtbar (`:focus-visible`),
+ *  auch wenn das Menü per Maus aufging.
  *
- *  Fokus (Taiga #221): Esc gibt ihn an den Auslöser zurück. Gesucht wird das erste Element mit
+ *  Fokus (Taiga #221): Esc gibt ihn sichtbar an den Auslöser zurück. Gesucht wird das erste Element mit
  *  `aria-expanded="true"` im Anker, der auch das Menü trägt, außerhalb des Menüs. In einem Kontextmenü der Leiste
  *  ist das der Knopf zum Ein- und Ausklappen der Zeile. Nicht an das Element, das vorher den Fokus hatte: Das ist
  *  nach dem Mausklick unter WebKit auf macOS `body` und gilt nach dem zweiten Durchlauf des Effekts im
@@ -97,7 +98,8 @@ export function Popover({
       onCloseRef.current();
       const target: Element | null = findTrigger() ?? previouslyFocusedRef.current;
       if (shouldTakeFocusRef.current && target instanceof HTMLElement) {
-        target.focus();
+        // Esc ist eine Taste: der Rahmen am Knopf soll auch nach einem Mausklick erscheinen.
+        target.focus({ focusVisible: true });
       }
     }
 

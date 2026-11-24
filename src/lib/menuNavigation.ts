@@ -31,19 +31,28 @@ export function nextMenuIndex(
 export const MENU_ITEM_SELECTOR =
   '[role="menuitem"], [role="menuitemradio"], [role="menuitemcheckbox"]';
 
-/** Setzt den Fokus auf den Eintrag, den ↓, ↑, Pos1 oder Ende wählt; `true`, wenn die Taste dem Menü galt. */
-export function moveMenuFocus(key: string, items: readonly HTMLElement[]): boolean {
-  const current: number = items.findIndex((item: HTMLElement) =>
+/** Was `moveMenuFocus` von einem Eintrag braucht; ein `HTMLElement` genügt, im Selbsttest eine Attrappe. */
+export interface MenuItem {
+  contains: (other: Node | null) => boolean;
+  focus: (options?: FocusOptions) => void;
+  matches: (selectors: string) => boolean;
+}
+
+/** Setzt den Fokus auf den Eintrag, den ↓, ↑, Pos1 oder Ende wählt; `true`, wenn die Taste dem Menü galt. Der
+ *  Fokus ist sichtbar (`focusVisible`): WebKitGTK setzt `:focus-visible` nach einem Mausklick sonst nicht, und
+ *  der Rahmen der Einträge hängt daran. */
+export function moveMenuFocus(key: string, items: readonly MenuItem[]): boolean {
+  const current: number = items.findIndex((item: MenuItem) =>
     item.contains(document.activeElement),
   );
   const target: number | null = nextMenuIndex(
     key,
     current,
-    items.map((item: HTMLElement) => item.matches(':disabled')),
+    items.map((item: MenuItem) => item.matches(':disabled')),
   );
   if (target === null) {
     return false;
   }
-  items[target]?.focus();
+  items[target]?.focus({ focusVisible: true });
   return true;
 }
