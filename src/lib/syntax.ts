@@ -1,6 +1,11 @@
 import { common, createLowlight } from 'lowlight';
+import powershell from 'highlight.js/lib/languages/powershell';
+import agda from './agdaLanguage.ts';
 
-const lowlight = createLowlight(common);
+/** Eine Sprachliste für Chat (`Markdown.tsx`) und Diff: `common` kennt kein PowerShell und kein Agda. */
+export const HIGHLIGHT_LANGUAGES = { ...common, powershell, agda };
+
+const lowlight = createLowlight(HIGHLIGHT_LANGUAGES);
 
 // Die hast-Typen sind keine direkte Abhängigkeit; sie kommen aus der Rückgabe von lowlight.
 type HastRoot = ReturnType<typeof lowlight.highlight>;
@@ -16,7 +21,7 @@ export interface SyntaxSegment {
 export type SyntaxLine = readonly SyntaxSegment[];
 
 // Muss zu `src/styles/syntax.css` passen: nur diese Klassen färben oder stylen etwas.
-const COLORED_CLASSES: ReadonlySet<string> = new Set([
+export const COLORED_CLASSES: ReadonlySet<string> = new Set([
   'hljs-keyword',
   'hljs-literal',
   'hljs-built_in',
