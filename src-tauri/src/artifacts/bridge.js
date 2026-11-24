@@ -99,15 +99,21 @@
 
   const positionMarks = () => {
     positionQueued = false;
-    // Die Marke sitzt an der Ecke ihres Elements, wird aber ins Fenster geschoben: Ein Element bis an
-    // den Rand ließe sie sonst halb abgeschnitten (ADR 035). Marken scrollen weiter mit ihrem Element.
+    // Die Marke sitzt an der Ecke ihres Elements. Ragt das Element ins Fenster, wird sie ins Fenster
+    // geschoben: Ein Element bis an den Rand ließe sie sonst halb abgeschnitten (ADR 035). Die Marke
+    // eines Elements außerhalb des Fensters bleibt unbegrenzt und scrollt mit ihm aus dem Bild.
     const { width, height } = viewport();
     markNodes.forEach(({ node, element }) => {
       const rect = element.getBoundingClientRect();
-      Object.assign(node.style, {
-        left: `${Math.max(0, Math.min(rect.right - 10, width - MARK_SIZE - 2))}px`,
-        top: `${Math.min(Math.max(rect.top - 10, 0), Math.max(0, height - MARK_SIZE))}px`,
-      });
+      const left = rect.right - 10;
+      const top = rect.top - 10;
+      const visible = rect.bottom > 0 && rect.top < height && rect.right > 0 && rect.left < width;
+      Object.assign(node.style, visible
+        ? {
+          left: `${Math.max(0, Math.min(left, width - MARK_SIZE - 2))}px`,
+          top: `${Math.min(Math.max(top, 0), Math.max(0, height - MARK_SIZE))}px`,
+        }
+        : { left: `${left}px`, top: `${top}px` });
     });
     positionOutline();
   };
