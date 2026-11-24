@@ -56,3 +56,20 @@ Nach einem Neustart der App sind Zeitgeber und Begründung der Pause weg; die Se
 ## Prüfung
 
 `cargo test --manifest-path src-tauri/Cargo.toml --lib -- implementation:: agent_types::` prüft Wirksamkeit, Zukunftsprüfung, fertige Station, Zustand und Platz, Ausschalten gibt den Platz frei, Rang, Lagebericht, „letzte Aktion gewinnt“ in der Datenbank, den Schalter je Station bis zur Fertigmeldung, Migration 27, Standardkopie und dass eine Änderung des Standards bestehende Umsetzungen nicht berührt, die JSON-Form der Einstellung, Fix-Runde und Plan-Änderung, die Schemas der Werkzeuge und die Klasse der Befehle. `implementation-probe --selftest` hat vier Fälle „Automatisch fortsetzen“ (Wirksamkeit und letzte Aktion, Platz, Schutz vor der Schleife, Neustart). `pnpm selftest` prüft die Zählung der Warnleiste; die Bilder der echten App liegen im Entwurfsordner unter `umsetzung/`.
+
+## Nachtrag 2026-11-24 (Taiga-Issue 226): eine zweite Kontingent-Meldung behält den Zeitgeber
+
+Endet ein Hintergrund-Befehl (`Bash` im Hintergrund, `Monitor`), beginnt die Kommandozeile von selbst einen neuen Zug. Läuft der ins Kontingent, meldet die Session ein zweites Mal, obwohl sie schon pausiert. Früher setzte `SessionState::pause_for_quota` dann `auto_resume: false` und nahm den scharfen Zustand weg: Der Zeitgeber endete als abgebrochen, die Station setzte nach dem Reset nicht fort. Dafür gibt es keinen Haken, denn ohne Statuswechsel (schon pausiert) läuft er nicht noch einmal.
+
+Als Wiederholung gilt: Die Session ist vor der Meldung `Paused` mit der Begründung Kontingent. `pause_for_quota` ist der eine Weg für Sessions mit und ohne Station; die Regeln:
+
+| Vorher | Neue Rücksetzzeit | Danach |
+|---|---|---|
+| scharf mit `t` | gleich `t` | scharf mit `t`, Marke unverändert, der laufende Zeitgeber gilt weiter |
+| scharf mit `t` | bekannt, `t2` ungleich `t` | scharf mit `t2`, Marke +1, ein neuer Zeitgeber für `t2` |
+| scharf mit `t` | unbekannt | scharf mit `t`, wie in der ersten Zeile |
+| nicht scharf | beliebig | `auto_resume: false` mit der neuen Zeit, wie zuvor |
+
+- `awaits_arming` behält bei einer Wiederholung seinen Wert: Hat der Haken der ersten Pause noch nicht entschieden, hält die Session ihren Platz, bis er entscheidet.
+- Der neue Zeitgeber startet nach dem Freigeben der Session-Sperre (`Outbox::restart_auto_resume`, wie bei `set_auto_resume`), nie unter ihr.
+- Die Karte „Kontingent aufgebraucht“ kommt bei jeder Meldung.
