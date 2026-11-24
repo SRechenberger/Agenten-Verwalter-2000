@@ -43,6 +43,16 @@ const CASES: { name: string; actual: () => unknown; expected: unknown }[] = [
   },
   { name: 'end_goes_to_the_last_item', actual: () => nextMenuIndex('End', 0, FREE), expected: 2 },
   {
+    name: 'home_from_a_middle_item_goes_to_the_first',
+    actual: () => nextMenuIndex('Home', 1, FREE),
+    expected: 0,
+  },
+  {
+    name: 'end_from_a_middle_item_goes_to_the_last',
+    actual: () => nextMenuIndex('End', 1, FREE),
+    expected: 2,
+  },
+  {
     name: 'arrow_down_skips_a_disabled_item',
     actual: () => nextMenuIndex('ArrowDown', 0, [false, true, false]),
     expected: 2,
