@@ -1,0 +1,320 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mockup Folgetickets 0.77.0</title>
+<style>
+:root{color-scheme:dark;--bg:#1f1f1f;--side:#181818;--surf:#252526;--hover:#2e2e30;--sel:#37373d;--bds:#2b2b2b;--bd:#3c3c3c;--fg:#d4d4d4;--fg2:#b0b0b0;--fgm:#8f8f8f;--acc:#e0825c;--onacc:#1d130e;--wait:#f2b33d;--waitsub:rgba(242,179,61,.14);--err:#f47067;--ok:#4cc38a;--clsub:rgba(224,130,92,.13);--shadow:0 10px 30px rgb(0 0 0/.45);--font:'Segoe UI Variable Text','Segoe UI',system-ui,sans-serif;--mono:'Cascadia Code',Consolas,ui-monospace,monospace;
+/* Betrachter (shell.html), dunkel */
+--vbg:#1f1f1f;--vbar:#252526;--vfg:#d4d4d4;--vfgm:#8f8f8f;--vbd:#2b2b2b;--kw:#569cd6;--str:#ce9178;--com:#6a9955;--fn:#dcdcaa}
+:root[data-theme=light]{color-scheme:light;--bg:#fff;--side:#f3f3f3;--surf:#f7f7f7;--hover:#ececec;--sel:#e6e8f0;--bds:#ebebeb;--bd:#d4d4d4;--fg:#3c3c3c;--fg2:#5f5f5f;--fgm:#85858a;--acc:#c4572f;--onacc:#fff;--wait:#a86a00;--waitsub:rgba(168,106,0,.12);--err:#d23b33;--ok:#16803c;--clsub:rgba(196,87,47,.09);--shadow:0 10px 30px rgb(0 0 0/.14);
+--vbg:#fff;--vbar:#f8f8f8;--vfg:#3c3c3c;--vfgm:#6e6e6e;--vbd:#e5e5e5;--kw:#0000ff;--str:#a31515;--com:#008000;--fn:#795e26}
+*{box-sizing:border-box}
+body{margin:0;background:var(--side);color:var(--fg);font:13px/1.45 var(--font)}
+main{max-width:1180px;margin:0 auto;padding:16px}
+h1{font-size:15px;margin:0 0 4px}h2{font-size:14px;margin:34px 0 4px}h2 small{color:var(--fgm);font-weight:400}
+.lead{color:var(--fg2);margin:0 0 10px;max-width:95ch}.cap{font-size:12px;color:var(--fgm);margin:6px 0 0;max-width:95ch}
+button{font:inherit;color:inherit}
+code,kbd{font-family:var(--mono);font-size:12px;background:var(--hover);border-radius:4px;padding:0 4px}
+kbd{border:1px solid var(--bd)}
+#sim{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:0 0 8px;padding:8px 10px;border:1px dashed var(--bd);border-radius:6px;color:var(--fgm);font-size:12px;position:sticky;top:0;background:var(--side);z-index:5}
+#sim button{border:1px solid var(--bd);background:transparent;border-radius:6px;padding:3px 10px;cursor:pointer}
+#sim button[aria-pressed=true]{background:var(--sel);color:var(--fg)}
+#sim .gap{margin-left:14px}
+.row{display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:start}
+.lbl{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--fgm);margin:0 0 4px}
+.lbl.new{color:var(--acc)}
+.panel{background:var(--bg);border:1px solid var(--bd);border-radius:10px;padding:14px}
+/* Dashboard-Karte wie DashboardView.css */
+.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px}
+.card{--tone:var(--wait);display:flex;flex-direction:column;gap:4px;min-height:96px;padding:10px 14px;border:1px solid var(--bd);border-left:3px solid var(--tone);border-radius:8px;background:var(--surf);text-align:left}
+.card .top{display:flex;align-items:center;gap:8px;font-size:11px}
+.card .kind{color:var(--tone);font-weight:600}
+.card .since{margin-left:auto;color:var(--fgm)}
+.card .title{font-size:12.5px}
+.card .origin{font-size:11.5px;color:var(--fgm)}
+.card .kind.hl{outline:1.5px dashed var(--acc);outline-offset:2px;border-radius:3px}
+.ghead{display:flex;align-items:center;gap:8px;margin:14px 0 6px;font-size:12px;font-weight:600;color:var(--fg2)}
+.ghead .n{font-weight:400;color:var(--fgm)}
+.ghead:first-child{margin-top:0}
+/* Neues Vorhaben / Eingabe wie NewSession.css und Composer.css */
+.box{border:1px solid var(--bd);border-radius:10px;background:var(--surf);display:flex;flex-direction:column}
+.inrow{display:flex;align-items:flex-start}
+.task{flex:1;min-height:70px;padding:10px 14px;font-size:14px;line-height:1.55;color:var(--fg2)}
+.task .live{color:var(--fgm);font-style:italic}
+.mic{width:30px;height:30px;margin:6px 6px 0 0;border-radius:6px;display:flex;align-items:center;justify-content:center;flex:none;background:var(--errsub,rgba(244,112,103,.14));color:var(--err)}
+.bar{display:flex;align-items:center;gap:4px;padding:4px 6px 6px;position:relative}
+.ib{width:30px;height:30px;border:0;border-radius:6px;display:flex;align-items:center;justify-content:center;color:var(--fg2);background:transparent;flex:none}
+.ib[disabled]{opacity:.45}
+.ib.ring{outline:1.5px dashed var(--acc);outline-offset:2px}
+.tip{position:absolute;bottom:40px;left:30px;background:var(--fg);color:var(--bg);font-size:11.5px;padding:3px 8px;border-radius:4px;white-space:nowrap;box-shadow:var(--shadow)}
+.hintline{margin-left:6px;color:var(--wait);font-size:12px}
+:root:not([data-hint=B]) .hintline{display:none}
+:root[data-hint=B] .tip.b-hide{display:none}
+/* Menü wie Popover */
+.anchor{position:relative;display:inline-block}
+.menu{position:absolute;top:34px;left:0;z-index:2;background:var(--surf);border:1px solid var(--bd);border-radius:8px;box-shadow:var(--shadow);padding:4px;width:300px}
+.menu[hidden]{display:none}
+.mi{display:flex;flex-direction:column;width:100%;padding:5px 8px;border:0;border-radius:5px;background:transparent;text-align:left;cursor:pointer}
+.mi small{color:var(--fgm);font-size:11.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mi:hover{background:var(--hover)}
+.mi:focus{outline:none}
+.mi:focus-visible,.mi:focus{background:var(--sel);box-shadow:inset 0 0 0 1px var(--acc)}
+.msep{border-top:1px solid var(--bds);margin:4px 0}
+.trig{width:30px;height:30px;border:1px solid var(--bd);border-radius:6px;background:transparent;color:var(--fg2);cursor:pointer}
+.trig:focus-visible,.trig.kfocus{outline:2px solid var(--acc);outline-offset:2px}
+.readout{font-family:var(--mono);font-size:12px;color:var(--fg2);margin-top:8px}
+.keys{display:grid;grid-template-columns:auto 1fr;gap:4px 10px;font-size:12px;color:var(--fg2);margin-top:10px}
+/* Betrachter (shell.html) */
+.viewer{border:1px solid var(--vbd);border-radius:8px;overflow:hidden;background:var(--vbg);color:var(--vfg);position:relative}
+.viewer.forcedark{--vbg:#1f1f1f;--vbar:#252526;--vfg:#d4d4d4;--vfgm:#8f8f8f;--vbd:#2b2b2b;--kw:#569cd6;--str:#ce9178;--com:#6a9955;--fn:#dcdcaa}
+.vbar{display:flex;gap:8px;align-items:center;padding:5px 10px;background:var(--vbar);border-bottom:1px solid var(--vbd);font-size:12px;color:var(--vfgm)}
+.vbar .name{color:var(--vfg)}
+.code{font-family:var(--mono);font-size:12px;line-height:20px;padding:8px 0;margin:0;position:relative;overflow:hidden}
+.ln{display:flex;padding-right:0}
+.ln .no{width:36px;text-align:right;padding-right:10px;color:var(--vfgm);flex:none}
+.ln .tx{flex:1;white-space:pre}
+.ln.marked{background:rgba(196,87,47,.10)}
+.kw{color:var(--kw)}.str{color:var(--str)}.com{color:var(--com)}.fn{color:var(--fn)}
+.mark{position:absolute;width:20px;height:20px;border-radius:50%;background:#c4572f;color:#fff;font:700 11px/20px system-ui,sans-serif;text-align:center}
+.md{padding:10px 14px;font-size:13px}
+.md h3{margin:0 0 6px;font-size:15px}
+.md p{margin:0 0 8px}
+.md pre{background:var(--vbar);border:1px solid var(--vbd);border-radius:6px;padding:6px 8px;font-family:var(--mono);font-size:12px;margin:0}
+.appframe{background:var(--bg);border:1px solid var(--bd);border-radius:10px;padding:10px}
+.apphead{display:flex;gap:8px;align-items:center;font-size:12px;color:var(--fgm);margin-bottom:8px}
+.apphead b{color:var(--fg)}
+.attr{font-family:var(--mono);font-size:12px;color:var(--fg2);background:var(--surf);border:1px solid var(--bd);border-radius:6px;padding:8px 10px;white-space:pre;overflow-x:auto}
+table.t{border-collapse:collapse;font-size:12.5px;width:100%}
+table.t td,table.t th{border-bottom:1px solid var(--bds);padding:5px 8px;text-align:left;vertical-align:top}
+table.t th{color:var(--fgm);font-weight:600;font-size:11.5px}
+@media (max-width:900px){.row{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<main>
+<h1>Entwurf: Folgetickets von #58 (0.77.0)</h1>
+<p class="lead">Die Oberflächenänderungen der Lanes <b>Oberfläche</b> (#219, #220, #221, #224) und <b>Betrachter</b> (#223, #225), nachgebaut im Stil der App (Farben aus <code>theme.css</code> und <code>shell.html</code>, Maße aus <code>DashboardView.css</code>, <code>NewSession.css</code>, <code>bridge.js</code>). Links steht der Stand heute, rechts der neue. Gestrichelt umrandet ist, was sich ändert.</p>
+
+<div id="sim">
+  <span>Farbschema der App</span>
+  <button data-theme-btn="dark" aria-pressed="true">Dunkel</button><button data-theme-btn="light" aria-pressed="false">Hell</button>
+  <span class="gap">#219 Hinweis</span>
+  <button data-hint-btn="A" aria-pressed="true">A · Tooltip</button><button data-hint-btn="B" aria-pressed="false">B · Tooltip und Zeile</button>
+</div>
+
+<!-- ============ Bild 1 · #224 ============ -->
+<h2>1 · Dashboard: Beschriftung je Art der Freigabe <small>#224</small></h2>
+<div class="row">
+  <div>
+    <p class="lbl">heute</p>
+    <div class="panel"><div class="cards">
+      <div class="card"><div class="top"><span class="kind">Freigabe Nachricht</span><span class="since">2 min</span></div><div class="title">Agententyp „tester“ ändern</div><div class="origin">Agenten-Verwalter · Session 4</div></div>
+      <div class="card"><div class="top"><span class="kind">Freigabe Nachricht</span><span class="since">5 min</span></div><div class="title">Vorlage „Bugfix“ anlegen</div><div class="origin">Agenten-Verwalter · Session 2</div></div>
+      <div class="card"><div class="top"><span class="kind">Freigabe Nachricht</span><span class="since">8 min</span></div><div class="title">Neue Session „Review Lane B“</div><div class="origin">facepass · Session 1</div></div>
+    </div></div>
+  </div>
+  <div>
+    <p class="lbl new">neu</p>
+    <div class="panel"><div class="cards">
+      <div class="card"><div class="top"><span class="kind hl">Vorschlag Agententyp</span><span class="since">2 min</span></div><div class="title">Agententyp „tester“ ändern</div><div class="origin">Agenten-Verwalter · Session 4</div></div>
+      <div class="card"><div class="top"><span class="kind hl">Vorschlag Vorlage</span><span class="since">5 min</span></div><div class="title">Vorlage „Bugfix“ anlegen</div><div class="origin">Agenten-Verwalter · Session 2</div></div>
+      <div class="card"><div class="top"><span class="kind hl">Freigabe neue Session</span><span class="since">8 min</span></div><div class="title">Neue Session „Review Lane B“</div><div class="origin">facepass · Session 1</div></div>
+    </div></div>
+  </div>
+</div>
+<p class="cap">Titel und Herkunft der Karten sind Beispiele; sie kommen wie heute vom Core. Neu ist nur die farbige Beschriftung oben links. Dieselbe Beschriftung tragen die Karte im Chat (<code>ChatTaskRow</code>) und der Kopf des Popups (<code>TaskPopup</code>).</p>
+
+<div class="row" style="margin-top:12px">
+  <div>
+    <p class="lbl new">alle fünf Arten</p>
+    <table class="t panel" style="padding:0">
+      <tr><th>Werkzeug, das wartet</th><th>Beschriftung</th></tr>
+      <tr><td><code>verwalter_send_message_to</code></td><td>Freigabe Nachricht <span style="color:var(--fgm)">(wie heute)</span></td></tr>
+      <tr><td><code>verwalter_get_session_tldr</code></td><td>Freigabe TL;DR</td></tr>
+      <tr><td><code>verwalter_open_session</code></td><td>Freigabe neue Session</td></tr>
+      <tr><td><code>agent_type_propose_*</code></td><td>Vorschlag Agententyp</td></tr>
+      <tr><td><code>prompt_template_propose_*</code></td><td>Vorschlag Vorlage</td></tr>
+    </table>
+  </div>
+  <div>
+    <p class="lbl new">Dashboard „nach Art“ gruppiert</p>
+    <div class="panel">
+      <div class="ghead">Vorschlag Agententyp <span class="n">1</span></div>
+      <div class="cards"><div class="card"><div class="top"><span class="kind">Vorschlag Agententyp</span><span class="since">2 min</span></div><div class="title">Agententyp „tester“ ändern</div><div class="origin">Agenten-Verwalter · Session 4</div></div></div>
+      <div class="ghead">Freigabe Nachricht <span class="n">2</span></div>
+      <p class="cap" style="margin:0">… Jede der fünf Arten bildet eine eigene Gruppe mit derselben Beschriftung wie die Karte. Bisher fielen alle unter „Freigabe Nachricht“.</p>
+    </div>
+  </div>
+</div>
+
+<!-- ============ Bild 2 · #219 ============ -->
+<h2>2 · Während des Diktats: <code>/</code> gesperrt wie ▤ <small>#219</small></h2>
+<div class="row">
+  <div>
+    <p class="lbl">heute · Neues Vorhaben, Diktat läuft</p>
+    <div class="box">
+      <div class="inrow"><div class="task">Baue den Export für <span class="live">die Rechnungen als CSV …</span></div><span class="mic">●</span></div>
+      <div class="bar"><button class="ib">＋</button><button class="ib">/</button><button class="ib" disabled>▤</button></div>
+    </div>
+    <p class="cap"><code>/</code> ist frei. Was der Befehl einfügt, überschreibt der nächste Teiltext des Diktats.</p>
+  </div>
+  <div>
+    <p class="lbl new">neu · Neues Vorhaben, Diktat läuft</p>
+    <div class="box">
+      <div class="inrow"><div class="task">Baue den Export für <span class="live">die Rechnungen als CSV …</span></div><span class="mic">●</span></div>
+      <div class="bar"><button class="ib">＋</button><button class="ib ring" disabled>/</button><button class="ib" disabled>▤</button><span class="tip">Befehle und Skills – während des Diktats gesperrt</span><span class="hintline">Diktat läuft – / und ▤ sind gesperrt</span></div>
+    </div>
+    <p class="cap">Mit Maus über dem gesperrten <code>/</code> erscheint der Tooltip, bei ▤ entsprechend „Vorlage wählen – während des Diktats gesperrt“. Variante B zeigt zusätzlich eine Zeile in der Leiste. <b>Empfehlung A</b>: Die Leiste bleibt ruhig, und das rote Mikrofon zeigt das Diktat schon an.</p>
+  </div>
+</div>
+<div class="row" style="margin-top:12px">
+  <div></div>
+  <div>
+    <p class="lbl new">neu · Eingabe im Chat, Diktat läuft</p>
+    <div class="box">
+      <div class="inrow"><div class="task" style="min-height:44px">Prüfe bitte noch <span class="live">den Fall ohne Datei …</span></div><span class="mic">●</span></div>
+      <div class="bar"><button class="ib">＋</button><button class="ib ring" disabled>/</button><span class="tip b-hide">Befehle und Skills – während des Diktats gesperrt</span><span class="hintline">Diktat läuft – / ist gesperrt</span></div>
+    </div>
+    <p class="cap">Im Chat dieselbe Lücke: <code>/</code> sperrte bisher nur bei gesperrter Session. ＋ bleibt frei, weil Anhänge den Text nicht ändern.</p>
+  </div>
+</div>
+
+<!-- ============ Bild 3 · #220/#221 ============ -->
+<h2>3 · Menüs per Tastatur <small>#220 Pfeiltasten, #221 Fokus nach Esc · zum Ausprobieren</small></h2>
+<div class="row">
+  <div class="panel" style="min-height:260px">
+    <p class="lbl new">probier es aus</p>
+    <div class="anchor">
+      <button class="trig" id="trig" aria-haspopup="menu" aria-expanded="false" title="Vorlage wählen">▤</button>
+      <div class="menu" id="menu" role="menu" hidden>
+        <button class="mi" role="menuitem"><span>Bugfix</span><small>Behebe den Fehler: {{Fehler}} in …</small></button>
+        <button class="mi" role="menuitem"><span>Taiga-Story</span><small>Arbeite die Taiga-Story #{{Ticket}} ab …</small></button>
+        <button class="mi" role="menuitem"><span>Review</span><small>Prüfe den Branch {{Branch}} gegen {{Basis}}.</small></button>
+        <div class="msep"></div>
+        <button class="mi" role="menuitem"><span style="color:var(--acc)">Vorlagen in den Einstellungen bearbeiten …</span></button>
+      </div>
+    </div>
+    <div class="readout" id="readout">Fokus: –</div>
+  </div>
+  <div>
+    <div class="keys">
+      <kbd>↓</kbd><span>nächster Eintrag; vom letzten wieder zum ersten</span>
+      <kbd>↑</kbd><span>vorheriger Eintrag; vom ersten zum letzten</span>
+      <kbd>Pos1</kbd><span>erster Eintrag</span>
+      <kbd>Ende</kbd><span>letzter Eintrag</span>
+      <kbd>Esc</kbd><span>schließt; der Fokus steht wieder auf dem Knopf, der das Menü geöffnet hat (heute: auf <code>body</code>)</span>
+      <kbd>Tab</kbd><span>wie heute</span>
+    </div>
+    <p class="cap">Das gilt einmal zentral für alle Menüs mit Einträgen <code>menuitem</code> oder <code>menuitemradio</code>: ▤, Gruppe, die Menüs der Leiste (Vorhaben, Session, Umsetzung, Gruppe), Master wählen, Modus, Modell, lokales Modell und das Menü der Textauswahl. Auch nach „Abbrechen“ in der Nachfrage „Text ersetzen?“ steht der Fokus wieder auf ▤. Optisch ändert sich nichts außer dem Fokusrahmen, den es heute schon gibt.</p>
+  </div>
+</div>
+
+<!-- ============ Bild 4 · #223 ============ -->
+<h2>4 · Kommentar-Marke ganz im Bild <small>#223</small></h2>
+<div class="row">
+  <div>
+    <p class="lbl">heute · Text-Betrachter, Kommentar an Zeile 1 und 4</p>
+    <div class="viewer"><div class="vbar"><span class="name">export.py</span><span>Python · 6 Zeilen</span></div>
+      <div class="code" id="code-old">
+        <div class="ln marked"><span class="no">1</span><span class="tx"><span class="kw">import</span> csv</span></div>
+        <div class="ln"><span class="no">2</span><span class="tx"></span></div>
+        <div class="ln"><span class="no">3</span><span class="tx"><span class="kw">def</span> <span class="fn">export</span>(rows, path):</span></div>
+        <div class="ln marked"><span class="no">4</span><span class="tx">    <span class="kw">with</span> <span class="fn">open</span>(path, <span class="str">"w"</span>) <span class="kw">as</span> f:</span></div>
+        <div class="ln"><span class="no">5</span><span class="tx">        csv.<span class="fn">writer</span>(f).<span class="fn">writerows</span>(rows)</span></div>
+        <div class="ln"><span class="no">6</span><span class="tx">    <span class="com"># fertig</span></span></div>
+        <span class="mark" style="right:-10px;top:-2px">1</span>
+        <span class="mark" style="right:-10px;top:58px">2</span>
+      </div>
+    </div>
+    <p class="cap">Die Marke sitzt mit <code>left = rect.right − 10</code> und <code>top = rect.top − 10</code> an der Ecke der Zeile. Eine Zeile reicht bis an den Rand, also liegt die Marke halb draußen, an Zeile 1 auch oben.</p>
+  </div>
+  <div>
+    <p class="lbl new">neu</p>
+    <div class="viewer"><div class="vbar"><span class="name">export.py</span><span>Python · 6 Zeilen</span></div>
+      <div class="code">
+        <div class="ln marked"><span class="no">1</span><span class="tx"><span class="kw">import</span> csv</span></div>
+        <div class="ln"><span class="no">2</span><span class="tx"></span></div>
+        <div class="ln"><span class="no">3</span><span class="tx"><span class="kw">def</span> <span class="fn">export</span>(rows, path):</span></div>
+        <div class="ln marked"><span class="no">4</span><span class="tx">    <span class="kw">with</span> <span class="fn">open</span>(path, <span class="str">"w"</span>) <span class="kw">as</span> f:</span></div>
+        <div class="ln"><span class="no">5</span><span class="tx">        csv.<span class="fn">writer</span>(f).<span class="fn">writerows</span>(rows)</span></div>
+        <div class="ln"><span class="no">6</span><span class="tx">    <span class="com"># fertig</span></span></div>
+        <span class="mark" style="right:2px;top:0;outline:1.5px dashed var(--acc);outline-offset:2px">1</span>
+        <span class="mark" style="right:2px;top:58px;outline:1.5px dashed var(--acc);outline-offset:2px">2</span>
+      </div>
+    </div>
+    <p class="cap">Die Marke bleibt an der Ecke, wird aber ins Fenster geschoben: <code>left</code> höchstens Fensterbreite − 20 − 2, <code>top</code> mindestens 0. Dasselbe gilt für das Schild beim Überfahren im Kommentarmodus, das heute an der obersten Zeile ebenfalls oben herausragt.</p>
+  </div>
+</div>
+
+<!-- ============ Bild 5 · #225 ============ -->
+<h2>5 · Betrachter folgen dem Schema der App <small>#225 · schalte oben auf „Hell“</small></h2>
+<div class="row">
+  <div>
+    <p class="lbl">heute · App hell, System dunkel</p>
+    <div class="appframe"><div class="apphead"><b>Artefakte</b><span>notizen.md</span></div>
+      <div class="viewer forcedark"><div class="vbar"><span class="name">notizen.md</span><span>Markdown</span></div>
+        <div class="md"><h3>Export</h3><p>Die Rechnungen gehen als CSV raus, eine Zeile je Posten.</p><pre><span class="kw">def</span> <span class="fn">export</span>(rows, path): …</pre></div></div>
+    </div>
+    <p class="cap">Text, Markdown und Mermaid richten sich nach <code>prefers-color-scheme</code>, und das kommt im Rahmen vom System, nicht von der App. Im Bild bleibt der Betrachter dunkel, auch wenn du oben „Hell“ wählst.</p>
+  </div>
+  <div>
+    <p class="lbl new">neu</p>
+    <div class="appframe"><div class="apphead"><b>Artefakte</b><span>notizen.md</span></div>
+      <div class="viewer" style="outline:1.5px dashed var(--acc);outline-offset:3px"><div class="vbar"><span class="name">notizen.md</span><span>Markdown</span></div>
+        <div class="md"><h3>Export</h3><p>Die Rechnungen gehen als CSV raus, eine Zeile je Posten.</p><pre><span class="kw">def</span> <span class="fn">export</span>(rows, path): …</pre></div></div>
+    </div>
+    <p class="cap">Steht die App auf Hell oder Dunkel, folgt der Betrachter ihr. Steht sie auf System, folgt er wie heute dem System. Ein Wechsel lädt den Rahmen neu.</p>
+  </div>
+</div>
+<div class="row" style="margin-top:12px">
+  <div>
+    <p class="lbl new">auch HTML-Artefakte der Agenten (deine Wahl)</p>
+    <div class="attr">&lt;html data-theme="light"&gt;   ← setzt die Brücke, wenn die App auf Hell steht
+&lt;html data-theme="dark"&gt;    ← wenn die App auf Dunkel steht
+&lt;html&gt;                      ← bei System: kein Attribut</div>
+    <p class="cap">Eine Seite, die ihre Farben so schreibt, folgt damit der App:<br><code>@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {…} }</code> und <code>:root[data-theme="dark"] {…}</code>. Seiten, die nur auf <code>prefers-color-scheme</code> hören, bleiben beim System. Die Anweisung an die Agenten bekommt dazu einen Satz.</p>
+  </div>
+  <div>
+    <p class="lbl">betroffen und geprüft</p>
+    <table class="t panel" style="padding:0">
+      <tr><th>Betrachter</th><th>liest das Schema über</th></tr>
+      <tr><td>Text, CSV, JSON, YAML, XML, Baum, Ordner</td><td>Farben aus <code>shell.html</code></td></tr>
+      <tr><td>Markdown (Codeblöcke)</td><td><code>markdown.js</code>, <code>matchMedia</code></td></tr>
+      <tr><td>Mermaid</td><td><code>mermaid.js</code>, <code>matchMedia</code></td></tr>
+      <tr><td>Bild, PDF, Video, Audio</td><td>prüft die Lane; bisher ohne eigene Farben gesehen</td></tr>
+    </table>
+  </div>
+</div>
+
+</main>
+<script>
+const root=document.documentElement;
+function sel(attr,val){document.querySelectorAll('['+attr+']').forEach(b=>b.setAttribute('aria-pressed',String(b.getAttribute(attr)===val)));}
+document.querySelectorAll('[data-theme-btn]').forEach(b=>b.onclick=()=>{root.dataset.theme=b.dataset.themeBtn;sel('data-theme-btn',b.dataset.themeBtn);});
+document.querySelectorAll('[data-hint-btn]').forEach(b=>b.onclick=()=>{root.dataset.hint=b.dataset.hintBtn;sel('data-hint-btn',b.dataset.hintBtn);});
+try{if(matchMedia('(prefers-color-scheme: light)').matches){root.dataset.theme='light';sel('data-theme-btn','light');}}catch(e){}
+
+// #220/#221: Pfeiltasten, Pos1, Ende im Menü; Esc gibt den Fokus an den Auslöser zurück.
+const trig=document.getElementById('trig'),menu=document.getElementById('menu'),out=document.getElementById('readout');
+const items=()=>Array.from(menu.querySelectorAll('[role=menuitem]'));
+function show(){const a=document.activeElement;out.textContent='Fokus: '+(a===trig?'Knopf ▤':menu.contains(a)?'Eintrag „'+a.querySelector('span').textContent+'“':a===document.body?'body':a.tagName.toLowerCase());}
+function open(){menu.hidden=false;trig.setAttribute('aria-expanded','true');items()[0].focus();show();}
+function close(){menu.hidden=true;trig.setAttribute('aria-expanded','false');trig.focus();show();}
+trig.onclick=()=>menu.hidden?open():close();
+menu.addEventListener('keydown',e=>{
+  const list=items(),i=list.indexOf(document.activeElement);
+  let next=null;
+  if(e.key==='ArrowDown')next=(i+1)%list.length;
+  else if(e.key==='ArrowUp')next=(i-1+list.length)%list.length;
+  else if(e.key==='Home')next=0;
+  else if(e.key==='End')next=list.length-1;
+  else if(e.key==='Escape'){e.preventDefault();close();return;}
+  if(next!==null){e.preventDefault();list[next].focus();show();}
+});
+menu.addEventListener('click',e=>{if(e.target.closest('[role=menuitem]'))close();});
+document.addEventListener('focusin',show);
+</script>
+</body>
+</html>

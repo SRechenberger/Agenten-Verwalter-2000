@@ -514,7 +514,11 @@ fn artifacts_prompt(dir: &Path, can_publish: bool, has_tools: bool) -> String {
          Artefakt dieses Ordners im Reiter „Artefakte“ an und lädt es nach jedem Speichern neu; \
          zum Überarbeiten dieselbe Datei ändern statt eine neue anzulegen. Eine Seite darf \
          Skripte, Schriften und Bibliotheken über https aus dem Internet laden, hat aber keinen \
-         Zugriff auf Dateien außerhalb dieses Ordners. Lege in diesem Ordner nichts anderes ab \
+         Zugriff auf Dateien außerhalb dieses Ordners. Der Verwalter setzt an `<html>` \
+         `data-theme=\"light\"` oder `\"dark\"`, wenn der Benutzer ein Farbschema gewählt hat; \
+         ohne Attribut gilt das des Systems. Schreib dunkle Farben deshalb unter \
+         `:root[data-theme=\"dark\"]` und unter `@media (prefers-color-scheme: dark)` mit \
+         `:root:not([data-theme=\"light\"])`. Lege in diesem Ordner nichts anderes ab \
          als Artefakte und ihre Dateien.",
         dir.display()
     );
@@ -743,5 +747,31 @@ mod tests {
             "der beendete Einmalaufruf steht noch in der Liste"
         );
         assert!(child_gone, "sein Kind lebt nach dem Ende noch");
+    }
+}
+
+#[cfg(test)]
+mod artifacts_prompt_tests {
+    use std::path::Path;
+
+    use super::artifacts_prompt;
+
+    #[test]
+    fn the_artifacts_prompt_names_data_theme() {
+        let sentence = r#"Der Verwalter setzt an `<html>` `data-theme="light"` oder `"dark"`, wenn der Benutzer ein Farbschema gewählt hat; ohne Attribut gilt das des Systems. Schreib dunkle Farben deshalb unter `:root[data-theme="dark"]` und unter `@media (prefers-color-scheme: dark)` mit `:root:not([data-theme="light"])`."#;
+        let prompt = artifacts_prompt(Path::new("artefakte"), true, true);
+        let at = prompt
+            .find(sentence)
+            .expect("der Satz steht wörtlich in der Anweisung");
+        let libraries = prompt
+            .find("Zugriff auf Dateien außerhalb dieses Ordners.")
+            .expect("der Satz über Skripte, Schriften und Bibliotheken steht in der Anweisung");
+        let last = prompt
+            .find("Lege in diesem Ordner nichts anderes ab")
+            .expect("der letzte Satz steht in der Anweisung");
+        assert!(
+            libraries < at && at < last,
+            "der Satz steht an der falschen Stelle"
+        );
     }
 }

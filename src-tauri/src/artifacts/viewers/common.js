@@ -63,6 +63,22 @@ const LANGUAGES = {
   yml: 'yaml', xml: 'xml', html: 'xml', toml: 'ini', ini: 'ini', md: 'markdown',
 };
 
+// Das Schema der App kommt als Parameter `scheme` in die Adresse des Rahmens (ADR 047): Der Rahmen
+// sieht von sich aus nur das des Systems. `light` und `dark` setzen `data-theme` an `<html>`, alles
+// andere nichts. Das läuft vor dem Skript des Betrachters.
+const APP_SCHEME = (() => {
+  const scheme = new URLSearchParams(location.search).get('scheme');
+  return scheme === 'light' || scheme === 'dark' ? scheme : null;
+})();
+if (APP_SCHEME) document.documentElement.dataset.theme = APP_SCHEME;
+
+/** Dunkel ist `data-theme="dark"`; fehlt das Attribut, entscheidet das System. */
+function isDarkScheme() {
+  const theme = document.documentElement.dataset.theme;
+  if (theme === 'dark' || theme === 'light') return theme === 'dark';
+  return window.matchMedia('(prefers-color-scheme: dark)').matches;
+}
+
 const loadedScripts = new Map();
 
 /** Lädt ein Skript einmal; lehnt ab, wenn es nicht kommt oder die Prüfsumme nicht stimmt. */
