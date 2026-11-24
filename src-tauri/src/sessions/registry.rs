@@ -582,6 +582,11 @@ struct Outbox {
     /// aus, Senden gescheitert): nach dem Freigeben der Sperre plant die Umsetzung ihre Warteschlange
     /// neu (ADR 064). Nicht `station_idle`: dessen Haken schaltete wieder scharf.
     station_disarmed: Option<String>,
+    /// Eine weitere Kontingent-Meldung an eine Session mit scharfem Zeitgeber nannte eine neue
+    /// Rücksetzzeit: nach dem Freigeben der Sperre startet der Zeitgeber für sie neu, denn `spawn`
+    /// läuft nie unter der Sperre (ADR 064, Nachtrag 2026-11-24). Der alte ist mit der neuen Marke
+    /// nicht mehr aktuell.
+    restart_auto_resume: Option<ArmedResume>,
     /// Die Session einer Station hat eine Rückfrage gestellt (Umsetzung, Kennung der Rückfrage): nach
     /// dem Freigeben der Sperre weckt die Umsetzung ihren Ersteller (ADR 061).
     station_asks: Option<(String, String)>,
@@ -4290,10 +4295,27 @@ impl SessionState {
 
     /// Warnung im Verlauf statt Fehlerkarte, Session pausiert mit Begründung (ADR 051). Der Prozess
     /// bleibt offen; endet er, startet `send` ihn neu.
+    ///
+    /// Ist die Session schon am Kontingent pausiert, ist das eine Wiederholung: Ein Zug, den die
+    /// Kommandozeile nach einem Hintergrund-Befehl selbst beginnt, lief erneut ins Kontingent. Der
+    /// scharfe Zeitgeber bleibt dann scharf: bei gleicher oder unbekannter Rücksetzzeit mit seiner Marke,
+    /// bei einer neuen Zeit mit neuer Marke und neuem Zeitgeber (`Outbox::restart_auto_resume`). Wer
+    /// nicht scharf war, bleibt es. `awaits_arming` behält seinen Wert, denn ohne Statuswechsel läuft
+    /// kein Haken (ADR 064, Nachtrag 2026-11-24).
     fn pause_for_quota(&mut self, outbox: &mut Outbox, text: String, resets_at: Option<i64>) {
         let now_secs = (now_ms() / MS_PER_SECOND) as i64;
         let resets_at: Option<f64> = reset_text::resolve(resets_at, &text, now_secs)
             .map(|seconds: i64| seconds as f64 * MS_PER_SECOND);
+        let repeated: Option<(Option<f64>, bool)> = match (self.status, &self.pause_reason) {
+            (
+                SessionStatus::Paused,
+                Some(PauseReason::Quota {
+                    resets_at,
+                    auto_resume,
+                }),
+            ) => Some((*resets_at, *auto_resume)),
+            _ => None,
+        };
         self.interrupt_running_tools(outbox);
         self.abandon_pending(outbox, "Nicht beantwortet");
         self.push_entry(outbox, |seq: u32| ChatEntry::Notice {
@@ -4302,13 +4324,35 @@ impl SessionState {
             at: None,
         });
         self.pause_after_interrupt(outbox);
-        self.pause_reason = Some(PauseReason::Quota {
-            resets_at,
-            auto_resume: false,
-        });
-        // Nur mit Haken: Ohne Statuswechsel (schon pausiert) entscheidet keiner und gäbe den Platz frei.
-        self.awaits_arming = outbox.station_idle.is_some()
-            && slots::awaits_arming(self.station_of.is_some(), resets_at, now_ms());
+        match repeated {
+            Some((before, true)) => {
+                if let Some(new) = resets_at
+                    && before != Some(new)
+                {
+                    self.auto_resume_token += 1;
+                    self.pause_reason = Some(PauseReason::Quota {
+                        resets_at: Some(new),
+                        auto_resume: true,
+                    });
+                    outbox.restart_auto_resume = Some(ArmedResume {
+                        token: self.auto_resume_token,
+                        resets_at: new,
+                    });
+                }
+            }
+            _ => {
+                self.pause_reason = Some(PauseReason::Quota {
+                    resets_at,
+                    auto_resume: false,
+                });
+                // Nur mit Haken: Ohne Statuswechsel (schon pausiert) entscheidet keiner und gäbe den
+                // Platz frei; eine Wiederholung behält den Wert der ersten Pause.
+                if repeated.is_none() {
+                    self.awaits_arming = outbox.station_idle.is_some()
+                        && slots::awaits_arming(self.station_of.is_some(), resets_at, now_ms());
+                }
+            }
+        }
         // Wie beim Fehler: der Agent hat abgegeben, die Sidebar soll es zeigen.
         self.touch_activity(outbox);
     }
@@ -4551,6 +4595,9 @@ fn update<R>(
         && outbox.station_disarmed.is_none()
     {
         schedule_pass(app);
+    }
+    if let Some(armed) = outbox.restart_auto_resume.take() {
+        auto_resume::spawn(app, &session.id, armed);
     }
     if let Some(implementation_id) = outbox.station_idle.take() {
         implementation::schedule_station_session_end(app, implementation_id, session.id.clone());
@@ -6479,6 +6526,148 @@ mod tests {
         assert!(!takes(&paused(true), true));
         assert!(!takes(&state_with(SessionStatus::Running), true));
         assert!(takes(&state_with(SessionStatus::Completed), false));
+    }
+
+    /// Eine Station, pausiert am Kontingent, Rücksetzzeit in `seconds` Sekunden nach der Epoche; die
+    /// Marke des Zeitgebers steht auf 3.
+    fn paused_station(seconds: i64, auto_resume: bool) -> SessionState {
+        let mut state = state_with(SessionStatus::Paused);
+        state.station_of = Some("i".to_owned());
+        state.auto_resume_token = 3;
+        state.pause_reason = Some(PauseReason::Quota {
+            resets_at: Some(seconds as f64 * MS_PER_SECOND),
+            auto_resume,
+        });
+        state
+    }
+
+    fn quota_end(seconds: Option<i64>) -> TurnEnd {
+        TurnEnd::QuotaExhausted {
+            text: "Kontingent aufgebraucht".to_owned(),
+            resets_at: seconds,
+        }
+    }
+
+    /// Eine Stunde nach jetzt, in Sekunden seit der Epoche.
+    fn in_an_hour() -> i64 {
+        (now_ms() / MS_PER_SECOND) as i64 + 3600
+    }
+
+    #[test]
+    fn a_second_quota_end_keeps_the_armed_timer() {
+        let at = in_an_hour();
+        let mut state = paused_station(at, true);
+        let held = state.holds_slot_at(now_ms());
+        let mut outbox = Outbox::default();
+        state.end_turn(&mut outbox, quota_end(Some(at)), None, Vec::new(), None);
+        let armed = ArmedResume {
+            token: 3,
+            resets_at: at as f64 * MS_PER_SECOND,
+        };
+        assert!(state.auto_resume_is_current(armed), "der Zeitgeber gilt");
+        assert_eq!(state.auto_resume_token, 3);
+        assert!(outbox.restart_auto_resume.is_none(), "kein neuer Zeitgeber");
+        assert!(outbox.station_disarmed.is_none());
+        assert_eq!(state.holds_slot_at(now_ms()), held, "der Platz bleibt");
+        assert!(
+            matches!(
+                state.entries.last(),
+                Some(ChatEntry::Notice {
+                    notice: Notice::QuotaExhausted { .. },
+                    ..
+                })
+            ),
+            "die Karte kommt bei jeder Meldung"
+        );
+    }
+
+    #[test]
+    fn a_second_quota_end_with_a_new_time_restarts_the_timer_for_it() {
+        let (at, later) = (in_an_hour(), in_an_hour() + 600);
+        let mut state = paused_station(at, true);
+        let held = state.holds_slot_at(now_ms());
+        let mut outbox = Outbox::default();
+        state.end_turn(&mut outbox, quota_end(Some(later)), None, Vec::new(), None);
+        let old = ArmedResume {
+            token: 3,
+            resets_at: at as f64 * MS_PER_SECOND,
+        };
+        let new = ArmedResume {
+            token: 4,
+            resets_at: later as f64 * MS_PER_SECOND,
+        };
+        assert_eq!(outbox.restart_auto_resume, Some(new));
+        assert!(state.auto_resume_is_current(new));
+        assert!(!state.auto_resume_is_current(old), "der alte endet");
+        assert_eq!(state.holds_slot_at(now_ms()), held, "der Platz bleibt");
+    }
+
+    #[test]
+    fn a_second_quota_end_without_a_time_keeps_the_armed_timer_and_its_time() {
+        let at = in_an_hour();
+        let mut state = paused_station(at, true);
+        let mut outbox = Outbox::default();
+        state.end_turn(&mut outbox, quota_end(None), None, Vec::new(), None);
+        let armed = ArmedResume {
+            token: 3,
+            resets_at: at as f64 * MS_PER_SECOND,
+        };
+        assert!(state.auto_resume_is_current(armed));
+        assert!(outbox.restart_auto_resume.is_none());
+    }
+
+    #[test]
+    fn a_second_quota_end_without_an_armed_timer_takes_the_new_time_and_stays_disarmed() {
+        let (at, later) = (in_an_hour(), in_an_hour() + 600);
+        let mut state = paused_station(at, false);
+        let mut outbox = Outbox::default();
+        state.end_turn(&mut outbox, quota_end(Some(later)), None, Vec::new(), None);
+        assert_eq!(
+            state.pause_reason,
+            Some(PauseReason::Quota {
+                resets_at: Some(later as f64 * MS_PER_SECOND),
+                auto_resume: false,
+            })
+        );
+        assert_eq!(state.auto_resume_token, 3);
+        assert!(outbox.restart_auto_resume.is_none());
+    }
+
+    #[test]
+    fn a_second_quota_end_keeps_a_station_waiting_for_the_hook() {
+        let at = in_an_hour();
+        let mut state = paused_station(at, false);
+        state.awaits_arming = true;
+        let held = state.holds_slot_at(now_ms());
+        assert!(held, "der Haken hat noch nicht entschieden");
+        let mut outbox = Outbox::default();
+        state.end_turn(&mut outbox, quota_end(Some(at)), None, Vec::new(), None);
+        assert!(state.awaits_arming);
+        assert!(state.holds_slot_at(now_ms()));
+        assert!(
+            outbox.station_idle.is_none(),
+            "der Haken läuft nicht noch einmal"
+        );
+    }
+
+    #[test]
+    fn a_first_quota_end_pauses_disarmed_and_asks_the_hook() {
+        let at = in_an_hour();
+        let mut state = state_with(SessionStatus::Running);
+        state.station_of = Some("i".to_owned());
+        let mut outbox = Outbox::default();
+        state.end_turn(&mut outbox, quota_end(Some(at)), None, Vec::new(), None);
+        assert_eq!(state.status, SessionStatus::Paused);
+        assert_eq!(
+            state.pause_reason,
+            Some(PauseReason::Quota {
+                resets_at: Some(at as f64 * MS_PER_SECOND),
+                auto_resume: false,
+            })
+        );
+        assert!(state.awaits_arming);
+        assert_eq!(outbox.station_idle.as_deref(), Some("i"));
+        assert!(outbox.restart_auto_resume.is_none());
     }
 
     #[test]
