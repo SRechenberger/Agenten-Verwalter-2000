@@ -4,12 +4,11 @@ import ReactMarkdown, { defaultUrlTransform } from 'react-markdown';
 import type { Components, Options } from 'react-markdown';
 import rehypeHighlight from 'rehype-highlight';
 import remarkGfm from 'remark-gfm';
-import { common } from 'lowlight';
-import powershell from 'highlight.js/lib/languages/powershell';
 import { CodeBlock } from '@/components/CodeBlock';
 import { ExternalLink } from '@/components/ExternalLink';
 import { FileLink } from '@/components/FileLink';
 import { FileLinkSessionContext } from '@/components/FileLinkSessionContext';
+import { HIGHLIGHT_LANGUAGES } from '@/lib/syntax';
 import { remarkBreakTags } from '@/components/remarkBreakTags';
 import { rehypeUnsourced } from '@/features/sourcing/rehypeUnsourced';
 import { filePathOf } from '@/lib/fileLinks';
@@ -42,9 +41,9 @@ const FILE_URL = /^file:\/\/\//i;
 
 const REMARK_PLUGINS: NonNullable<Options['remarkPlugins']> = [remarkGfm, remarkBreakTags];
 
-// `common` kennt kein PowerShell; `detect: false`, damit nur Blöcke mit Sprachangabe gefärbt werden.
+// Dieselbe Sprachliste wie der Diff (`src/lib/syntax.ts`); `detect: false`, damit nur Blöcke mit Sprachangabe gefärbt werden.
 const REHYPE_PLUGINS: NonNullable<Options['rehypePlugins']> = [
-  [rehypeHighlight, { detect: false, languages: { ...common, powershell } }],
+  [rehypeHighlight, { detect: false, languages: HIGHLIGHT_LANGUAGES }],
 ];
 
 const NO_NEEDLES: readonly string[] = [];
