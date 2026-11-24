@@ -96,16 +96,17 @@ impl Waiter {
 /// Reihenfolge (Regel c): Stufe des Vorhabens (hoch vor normal vor niedrig), dann der Vorrang der
 /// Station (höher zuerst; Nachrichten und Fortsetzen 0), dann wer früher wartet. Stabil: Gleiche
 /// behalten die Reihenfolge, in der sie gesammelt wurden (nach dem App-Start die Planreihenfolge).
-/// Kein Altern. Bei gleicher Stufe und gleichem Vorrang geht ein Fortsetzen vor jede Station und jeden
-/// Neustart, gleich wie lange sie warten (`advance_resumes`, Taiga #227): Eine pausierte Session hielt
-/// früher ihren Platz und kam so vor jeder neuen Station wieder; jetzt hält sie keinen. Untereinander
-/// und gegenüber Nachrichten bleibt die Wartezeit. Danach rückt jede Nachricht an einen Master (`master_message`) und jede eigene Nachricht
-/// des Benutzers (`QueueEntry::from_user`, Taiga-Story 190; `Waiter::advances`) direkt vor den besten
-/// Wartenden, der in ihrem Vorhaben vor ihr liegt und keine solche Nachricht ist; mehrere behalten ihre
-/// Reihenfolge. Die Vorhaben behalten ihre Reihenfolge, gemessen an ihrem besten Wartenden: Die Nachricht
-/// nimmt den Platz des besten Wartenden ihres Vorhabens ein, der keine Master-Nachricht ist, und überholt
-/// nie einen Wartenden eines anderen Vorhabens, der vor diesem steht; die Wartenden dahinter, auch
-/// anderer Vorhaben, rücken nach hinten. Setzt die Plätze 1-basiert.
+/// Kein Altern. Bei gleicher Stufe und gleichem Vorrang rückt ein Fortsetzen vor die erste Station
+/// (auch Neustart) seiner Gruppe und überholt die Nachrichten dahinter, gleich wie lange sie warten
+/// (`advance_resumes`, Taiga #227): Eine pausierte Session hielt früher ihren Platz und kam so vor
+/// jeder neuen Station wieder; jetzt hält sie keinen. Sonst gilt die Wartezeit. Danach rückt jede
+/// Nachricht an einen Master (`master_message`) und jede eigene Nachricht des Benutzers
+/// (`QueueEntry::from_user`, Taiga-Story 190; `Waiter::advances`) direkt vor den besten Wartenden,
+/// der in ihrem Vorhaben vor ihr liegt und keine solche Nachricht ist; mehrere behalten ihre
+/// Reihenfolge. Die Vorhaben behalten ihre Reihenfolge, gemessen an ihrem besten Wartenden: Die
+/// Nachricht nimmt den Platz des besten Wartenden ihres Vorhabens ein, der keine Master-Nachricht
+/// ist, und überholt nie einen Wartenden eines anderen Vorhabens, der vor diesem steht; die
+/// Wartenden dahinter, auch anderer Vorhaben, rücken nach hinten. Setzt die Plätze 1-basiert.
 pub fn rank(waiters: &mut Vec<Waiter>) {
     waiters.sort_by(|left: &Waiter, right: &Waiter| {
         left.entry
