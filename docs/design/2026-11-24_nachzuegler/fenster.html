@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fenster 0.77.0</title>
+<style>
+:root {
+  --page: #f6f6f4; --page-fg: #24231f; --page-muted: #6d6b63; --page-line: #deddd8; --page-card: #ffffff;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) { --page: #1b1b1b; --page-fg: #e6e4de; --page-muted: #a3a19a; --page-line: #3a3a3a; --page-card: #242424; }
+}
+:root[data-theme="dark"] { --page: #1b1b1b; --page-fg: #e6e4de; --page-muted: #a3a19a; --page-line: #3a3a3a; --page-card: #242424; }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--page); color: var(--page-fg); font: 14px/1.45 system-ui, sans-serif; padding: 24px 16px 48px; }
+main { max-width: 1080px; margin: 0 auto; }
+h1 { font-size: 20px; margin: 0 0 4px; }
+h2 { font-size: 16px; margin: 32px 0 4px; }
+p.lead, p.note { color: var(--page-muted); margin: 0 0 16px; max-width: 78ch; }
+.pair { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+@media (max-width: 760px) { .pair { grid-template-columns: 1fr; } }
+.frame { border: 1px solid var(--page-line); border-radius: 10px; overflow: hidden; }
+.frame > header { padding: 6px 12px; font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--page-muted); background: var(--page-card); border-bottom: 1px solid var(--page-line); }
+
+/* Ausschnitte der App: Token wie in src/styles/theme.css */
+.app { padding: 14px; background: var(--color-bg-base); color: var(--color-fg-primary);
+  --color-bg-base: #ffffff; --color-bg-surface: #ffffff; --color-bg-code: #f8f8f8; --color-fg-primary: #3c3c3c; --color-fg-muted: #6e6e6e;
+  --color-border: #cecece; --color-accent: #c4572f; --color-status-reported: #3d6fa8; --color-status-waiting: #a86a00;
+  --color-code-keyword: #0000ff; --color-code-string: #a31515; --color-code-comment: #008000; --color-code-number: #098658;
+  --color-code-type: #267f99; --color-diff-add-bg: #e6f4ea; --color-diff-del-bg: #fbe9e9; --color-diff-add-fg: #16803c; --color-diff-del-fg: #b42318; }
+.app.dark { --color-bg-base: #1f1f1f; --color-bg-surface: #262628; --color-bg-code: #181818; --color-fg-primary: #e0e0e0; --color-fg-muted: #8f8f8f;
+  --color-border: #3c3c3c; --color-accent: #e0825c; --color-status-reported: #8ab8ea; --color-status-waiting: #f2b33d;
+  --color-code-keyword: #569cd6; --color-code-string: #ce9178; --color-code-comment: #6a9955; --color-code-number: #b5cea8;
+  --color-code-type: #4ec9b0; --color-diff-add-bg: #1d3325; --color-diff-del-bg: #3a2020; --color-diff-add-fg: #4cc38a; --color-diff-del-fg: #f07a7a; }
+
+/* #231 Karte, Maße aus DashboardView.css */
+.cards { display: grid; grid-template-columns: repeat(auto-fill, 205px); gap: 10px; }
+.card { display: flex; flex-direction: column; gap: 4px; min-height: 96px; padding: 8px 12px; border: 1px solid var(--color-border);
+  border-left: 3px solid var(--tone, var(--color-status-waiting)); border-radius: 8px; background: var(--color-bg-surface); }
+.card.accent { --tone: var(--color-accent); }
+.top { display: flex; align-items: center; gap: 6px; font-size: 11px; }
+.kind { color: var(--tone, var(--color-status-waiting)); font-weight: 600; }
+.since { margin-left: auto; color: var(--color-fg-muted); white-space: nowrap; }
+.released { padding: 0 6px; border: 1px solid var(--color-status-reported); border-radius: 999px; color: var(--color-status-reported); font-size: 10.5px; font-weight: 600; white-space: nowrap; }
+.ai { padding: 0 6px; border: 1px solid var(--color-border); border-radius: 999px; color: var(--color-fg-muted); font-size: 10.5px; }
+.remote { display: inline-flex; flex: none; color: var(--color-accent); }
+.title { font-size: 13px; overflow-wrap: anywhere; }
+.origin { font-size: 11px; color: var(--color-fg-muted); }
+/* neu */
+.neu .top { flex-wrap: wrap; row-gap: 2px; }
+.neu .kind { white-space: nowrap; flex: none; }
+.neu .ai { white-space: nowrap; }
+ul.notes { color: var(--page-muted); margin: 8px 0 0; padding-left: 20px; max-width: 80ch; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Fenster für 0.77.0: #231 und #228</h1>
+  <p class="lead">Ein Bild für die Kopfzeile der Karte, heute und neu, in hell und dunkel. Farben und Maße aus <code>theme.css</code> und <code>DashboardView.css</code>. #228 ändert nichts Sichtbares außer der Stelle des Fokus, dazu der Text am Ende.</p>
+
+  <h2>1 · #231 Kopfzeile der Dashboard-Karte (205 px breit)</h2>
+  <p class="note">Heute darf nur die Art umbrechen. Neu bleibt die Art einzeilig, und die Zeile darf umbrechen: Was nicht mehr passt, rutscht in die zweite Zeile. Die Bilder benutzen dasselbe CSS wie der Vorschlag im Ticket (<code>flex-wrap: wrap</code> an <code>__top</code>, <code>nowrap</code> und <code>flex: none</code> an <code>__kind</code>).</p>
+  <div class="pair">
+    <div class="frame"><header>Heute · hell</header><div class="app">
+      <div class="cards">
+        <div class="card"><span class="top"><span class="kind">Durch dich</span><span class="released">✓ vom Master freigegeben</span><span class="remote">⇄</span><span class="since">3 min</span></span><span class="title">C-5 · Review</span><span class="origin">⇄ kropotkin · FreeCHR-Agda</span></div>
+        <div class="card accent"><span class="top"><span class="kind">Zurückgeben ausgeschöpft</span><span class="remote">⇄</span><span class="since">12 min</span></span><span class="title">plaetze-2 · Review</span><span class="origin">⇄ kropotkin · Verwalter</span></div>
+        <div class="card"><span class="top"><span class="kind">Bittet</span><span class="ai">✦ eingeordnet</span><span class="since">gerade</span></span><span class="title">Freigabe für den Push</span><span class="origin">Session 14 · Vault</span></div>
+      </div>
+    </div></div>
+    <div class="frame"><header>Neu · hell</header><div class="app neu">
+      <div class="cards">
+        <div class="card"><span class="top"><span class="kind">Durch dich</span><span class="released">✓ vom Master freigegeben</span><span class="remote">⇄</span><span class="since">3 min</span></span><span class="title">C-5 · Review</span><span class="origin">⇄ kropotkin · FreeCHR-Agda</span></div>
+        <div class="card accent"><span class="top"><span class="kind">Zurückgeben ausgeschöpft</span><span class="remote">⇄</span><span class="since">12 min</span></span><span class="title">plaetze-2 · Review</span><span class="origin">⇄ kropotkin · Verwalter</span></div>
+        <div class="card"><span class="top"><span class="kind">Bittet</span><span class="ai">✦ eingeordnet</span><span class="since">gerade</span></span><span class="title">Freigabe für den Push</span><span class="origin">Session 14 · Vault</span></div>
+      </div>
+    </div></div>
+    <div class="frame"><header>Heute · dunkel</header><div class="app dark">
+      <div class="cards">
+        <div class="card"><span class="top"><span class="kind">Durch dich</span><span class="released">✓ vom Master freigegeben</span><span class="remote">⇄</span><span class="since">3 min</span></span><span class="title">C-5 · Review</span><span class="origin">⇄ kropotkin · FreeCHR-Agda</span></div>
+        <div class="card accent"><span class="top"><span class="kind">Zurückgeben ausgeschöpft</span><span class="remote">⇄</span><span class="since">12 min</span></span><span class="title">plaetze-2 · Review</span><span class="origin">⇄ kropotkin · Verwalter</span></div>
+      </div>
+    </div></div>
+    <div class="frame"><header>Neu · dunkel</header><div class="app dark neu">
+      <div class="cards">
+        <div class="card"><span class="top"><span class="kind">Durch dich</span><span class="released">✓ vom Master freigegeben</span><span class="remote">⇄</span><span class="since">3 min</span></span><span class="title">C-5 · Review</span><span class="origin">⇄ kropotkin · FreeCHR-Agda</span></div>
+        <div class="card accent"><span class="top"><span class="kind">Zurückgeben ausgeschöpft</span><span class="remote">⇄</span><span class="since">12 min</span></span><span class="title">plaetze-2 · Review</span><span class="origin">⇄ kropotkin · Verwalter</span></div>
+      </div>
+    </div></div>
+  </div>
+  <ul class="notes">
+    <li>Mit dem Umbruch steht die Zeit am Ende der letzten Kopfzeile, weiter rechtsbündig. Passt alles in eine Zeile, ändert sich nichts.</li>
+    <li>Die Karte wird dadurch höchstens eine Kopfzeile höher. Ihre Mindesthöhe von 96 px bleibt.</li>
+  </ul>
+
+  <h2>2 · #228 Fokus nach Klick neben einen Dialog</h2>
+  <p class="note">Nichts Neues zu sehen, nur die Stelle des Fokus. Heute steht er nach einem Klick auf den Hintergrund auf <code>body</code>, neu dort, wo ihn Abbrechen und Esc hinsetzen: bei „Text ersetzen?“ auf ▤, sonst auf dem Element, das vor dem Dialog den Fokus hatte. Der Dialog schließt neu beim Loslassen der Maus statt beim Drücken, und nur, wenn auch das Drücken auf dem Hintergrund war. Ein Ziehen aus dem Dialog heraus schließt ihn also nicht.</p>
+</main>
+</body>
+</html>
