@@ -36,10 +36,12 @@ interface PopoverProps {
  *  ein gesperrter Eintrag wird übersprungen (`menuNavigation.ts`). In einem Textfeld des Menüs und in einem Menü
  *  ohne solche Einträge bleiben die Tasten, was sie waren.
  *
- *  Fokus (Taiga #221): Esc gibt ihn an den Auslöser zurück, das Element mit `aria-expanded="true"` im Anker, der
- *  auch das Menü trägt; nicht an das Element, das vorher den Fokus hatte, denn das ist nach dem Mausklick oft
- *  `body` oder gilt nach dem zweiten Durchlauf des Effekts im Entwicklungsmodus schon für einen Eintrag des
- *  Menüs. Findet sich kein Auslöser (Kontextmenü), bleibt es beim Element von vorher. */
+ *  Fokus (Taiga #221): Esc gibt ihn an den Auslöser zurück. Gesucht wird das erste Element mit
+ *  `aria-expanded="true"` im Anker, der auch das Menü trägt, außerhalb des Menüs. In einem Kontextmenü der Leiste
+ *  ist das der Knopf zum Ein- und Ausklappen der Zeile. Nicht an das Element, das vorher den Fokus hatte: Das ist
+ *  nach dem Mausklick unter WebKit auf macOS `body` und gilt nach dem zweiten Durchlauf des Effekts im
+ *  Entwicklungsmodus schon für einen Eintrag des Menüs. Nur ohne ein solches Element bleibt es beim Element von
+ *  vorher. */
 export function Popover({
   label,
   placement,
