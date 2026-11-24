@@ -237,6 +237,6 @@ Die Karte eines Kastens aus den Session-Werkzeugen (`sessionTool`) hieß immer �
 
   Fehlt der Eintrag oder das Feld `toolRequest` (Einträge von vorher), bleibt es „Freigabe Nachricht“.
 - **Wo:** `taskLabel` ersetzt `KIND_LABEL[task.kind]` an allen vier Stellen: Karte im Dashboard, Kopf des Popups und beide Zeilen der Karte im Chat.
-- **Gruppierung „nach Art“:** `groupOf` bildet je Beschriftung eine Gruppe, Schlüssel und Text kommen aus derselben Funktion. Die fünf Arten stehen also in fünf Gruppen, nicht mehr in einer.
+- **Gruppierung „nach Art“:** `groupOf` bildet je Beschriftung eine Gruppe, Schlüssel und Text kommen aus derselben Funktion. Die fünf Arten stehen also in fünf Gruppen, nicht mehr in einer. Der Schlüssel bleibt `task.kind` (so stehen die Pfade der Einklapp-Zustände von Gruppe und Vorhaben unverändert, `dashboardNest.selftest.ts`); nur die Arten außer „Freigabe Nachricht“ tragen `sessionTool:<Art>`.
 - **Unverändert:** Ton (`kindTone`: „wartet“), `blocking`, Reihenfolge und die Zählung; der Kern kennt die Beschriftung nicht.
 - **Tests:** `dashboardTexts.selftest.ts` (`a_prompt_template_proposal_reads_vorschlag_vorlage`, `a_card_without_entry_stays_freigabe_nachricht`, `group_by_kind_splits_the_five_approvals` und je Art ein Fall).
