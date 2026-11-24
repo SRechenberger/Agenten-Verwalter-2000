@@ -256,16 +256,21 @@
     --tone: var(--color-status-completed);
   }
 
+  /* Umbruch statt Kürzung (#231): Die Art bleibt einzeilig, die Marken weichen in die nächste Zeile. */
   &__top {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     gap: var(--space-sm);
+    row-gap: var(--space-2xs);
     font-size: var(--font-size-2xs);
   }
 
   &__kind {
+    flex: none;
     color: var(--tone);
     font-weight: 600;
+    white-space: nowrap;
   }
 
   &__since {
@@ -280,6 +285,7 @@
     border-radius: var(--radius-full);
     color: var(--color-fg-muted);
     font-size: 10.5px;
+    white-space: nowrap;
   }
 
   /* Freigabe des Masters an einer Station „durch dich“ (#136). */

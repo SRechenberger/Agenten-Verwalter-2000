@@ -27,6 +27,7 @@ use crate::implementation::master::{self, MasterRef};
 use crate::implementation::slots;
 use crate::mcp_access::tools::ToolCall;
 use crate::projects::model::ProjectSummary;
+use crate::prompt_templates::model::{PromptTemplate, PromptTemplateInput};
 use crate::review::model::ReviewComment;
 use crate::session_tools::model::SelfRelease;
 use crate::session_tools::reference as message_text;
@@ -51,6 +52,11 @@ const FAILED: &str = "Die Session steht auf Fehler.";
 const PROPOSAL_BY_COMMAND: &str =
     "Einen Vorschlag für einen Agententyp beantwortet nur agent_type_proposal_answer.";
 const NOT_A_PROPOSAL: &str = "Der Kasten ist kein offener Vorschlag für einen Agententyp.";
+/// Wie bei den Agententypen (ADR 075, „Per MCP“).
+const TEMPLATE_PROPOSAL_BY_COMMAND: &str =
+    "Einen Vorschlag für eine Prompt-Vorlage beantwortet nur prompt_template_proposal_answer.";
+const NOT_A_TEMPLATE_PROPOSAL: &str =
+    "Der Kasten ist kein offener Vorschlag für eine Prompt-Vorlage.";
 
 /// Offener Aufruf eines Session-Werkzeugs hinter einem Kasten. Fällt der Sender weg (`abandon_pending`
 /// und alles, was `pending` leert), endet der Aufruf mit einem Fehler, und es passiert nichts.
@@ -66,9 +72,44 @@ pub(super) struct PendingTool {
 pub(super) enum Waiter {
     /// Session-Werkzeug: die Entscheidung im Kasten.
     Answer(mpsc::Sender<QuestionAnswer>),
-    /// Vorschlag eines Agententyps: das fertige Ergebnis des Werkzeugs, gesendet allein von
-    /// `finish_agent_type_proposal` (ADR 063).
+    /// Vorschlag eines Agententyps oder einer Prompt-Vorlage: das fertige Ergebnis des Werkzeugs,
+    /// gesendet allein von `finish_agent_type_proposal` bzw. `finish_prompt_template_proposal`
+    /// (ADR 063, ADR 075).
     Result(mpsc::Sender<Value>),
+}
+
+/// Welcher Vorschlag hinter einem Kasten steht; beantwortet wird er nur über seinen Befehl.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ProposalKind {
+    AgentType,
+    PromptTemplate,
+}
+
+impl ProposalKind {
+    fn of(request: &ToolRequest) -> Option<ProposalKind> {
+        match request {
+            ToolRequest::AgentType { .. } => Some(ProposalKind::AgentType),
+            ToolRequest::PromptTemplate { .. } => Some(ProposalKind::PromptTemplate),
+            ToolRequest::SendMessage { .. }
+            | ToolRequest::GetTldr { .. }
+            | ToolRequest::OpenSession { .. } => None,
+        }
+    }
+
+    /// `chat_answer` würde am Speichern vorbei übernehmen.
+    fn by_command(self) -> &'static str {
+        match self {
+            ProposalKind::AgentType => PROPOSAL_BY_COMMAND,
+            ProposalKind::PromptTemplate => TEMPLATE_PROPOSAL_BY_COMMAND,
+        }
+    }
+
+    fn not_open(self) -> &'static str {
+        match self {
+            ProposalKind::AgentType => NOT_A_PROPOSAL,
+            ProposalKind::PromptTemplate => NOT_A_TEMPLATE_PROPOSAL,
+        }
+    }
 }
 
 /// Wie ein Aufruf den Kasten passiert hat.
@@ -537,6 +578,31 @@ impl SessionRegistry {
         base: Option<AgentType>,
         proposal: AgentTypeInput,
     ) -> ToolReply {
+        let request = ToolRequest::AgentType {
+            base: base.map(Box::new),
+            proposal: Box::new(proposal),
+        };
+        self.open_proposal(app, call, request)
+    }
+
+    /// Wie `tool_propose_agent_type`, für eine Prompt-Vorlage; das Ergebnis sendet allein
+    /// `finish_prompt_template_proposal` (ADR 075, „Per MCP“).
+    pub fn tool_propose_prompt_template(
+        &self,
+        app: &AppHandle,
+        call: &ToolCall,
+        base: Option<PromptTemplate>,
+        proposal: PromptTemplateInput,
+    ) -> ToolReply {
+        let request = ToolRequest::PromptTemplate {
+            base: base.map(Box::new),
+            proposal: Box::new(proposal),
+        };
+        self.open_proposal(app, call, request)
+    }
+
+    /// Öffnet den Kasten eines Vorschlags und wartet auf sein fertiges Ergebnis.
+    fn open_proposal(&self, app: &AppHandle, call: &ToolCall, request: ToolRequest) -> ToolReply {
         let caller = self.get(call.session_id).map_err(text_of)?;
         refuse_repeated(&caller, call)?;
         let (reply, results) = mpsc::channel::<Value>();
@@ -547,10 +613,6 @@ impl SessionRegistry {
                 if !state.is_listening() {
                     return Err(CommandError::AgentStopped);
                 }
-                let request = ToolRequest::AgentType {
-                    base: base.map(Box::new),
-                    proposal: Box::new(proposal),
-                };
                 ask_tool(state, outbox, call, request, Waiter::Result(reply), false);
                 Ok(())
             },
@@ -571,11 +633,27 @@ impl SessionRegistry {
     ) -> Result<(Option<AgentType>, AgentTypeInput), CommandError> {
         let session = self.get(session_id)?;
         let state = session.lock();
-        match pending_proposal(&state, request_id) {
+        match pending_proposal(&state, request_id, ProposalKind::AgentType) {
             Some((_, ToolRequest::AgentType { base, proposal })) => {
                 Ok((base.as_deref().cloned(), (**proposal).clone()))
             }
             _ => Err(CommandError::Internal(NOT_A_PROPOSAL.to_owned())),
+        }
+    }
+
+    /// Wie `agent_type_proposal`, für eine Prompt-Vorlage.
+    pub fn prompt_template_proposal(
+        &self,
+        session_id: &str,
+        request_id: &str,
+    ) -> Result<(Option<PromptTemplate>, PromptTemplateInput), CommandError> {
+        let session = self.get(session_id)?;
+        let state = session.lock();
+        match pending_proposal(&state, request_id, ProposalKind::PromptTemplate) {
+            Some((_, ToolRequest::PromptTemplate { base, proposal })) => {
+                Ok((base.as_deref().cloned(), (**proposal).clone()))
+            }
+            _ => Err(CommandError::Internal(NOT_A_TEMPLATE_PROPOSAL.to_owned())),
         }
     }
 
@@ -589,15 +667,57 @@ impl SessionRegistry {
         label: String,
         device: Option<&str>,
     ) -> Result<(), CommandError> {
+        let answer = ProposalAnswer {
+            request_id,
+            result,
+            label,
+            device,
+        };
+        self.finish_open_proposal(app, session_id, ProposalKind::AgentType, answer)
+    }
+
+    /// Wie `finish_agent_type_proposal`, für eine Prompt-Vorlage.
+    pub fn finish_prompt_template_proposal(
+        &self,
+        app: &AppHandle,
+        session_id: &str,
+        request_id: &str,
+        result: Value,
+        label: String,
+        device: Option<&str>,
+    ) -> Result<(), CommandError> {
+        let answer = ProposalAnswer {
+            request_id,
+            result,
+            label,
+            device,
+        };
+        self.finish_open_proposal(app, session_id, ProposalKind::PromptTemplate, answer)
+    }
+
+    fn finish_open_proposal(
+        &self,
+        app: &AppHandle,
+        session_id: &str,
+        kind: ProposalKind,
+        answer: ProposalAnswer<'_>,
+    ) -> Result<(), CommandError> {
         let session = self.get(session_id)?;
         update(
             app,
             &session,
             |state: &mut SessionState, outbox: &mut Outbox| {
-                let Some((position, _)) = pending_proposal(state, request_id) else {
-                    return Err(CommandError::Internal(NOT_A_PROPOSAL.to_owned()));
+                let Some((position, _)) = pending_proposal(state, answer.request_id, kind) else {
+                    return Err(CommandError::Internal(kind.not_open().to_owned()));
                 };
-                finish_proposal(state, outbox, position, result, label, device);
+                finish_proposal(
+                    state,
+                    outbox,
+                    position,
+                    answer.result,
+                    answer.label,
+                    answer.device,
+                );
                 Ok(())
             },
         )
@@ -965,8 +1085,8 @@ pub(crate) fn tool_answer_label(
     request: &ToolRequest,
     answer: &QuestionAnswer,
 ) -> Result<String, CommandError> {
-    if matches!(request, ToolRequest::AgentType { .. }) {
-        return Err(CommandError::Internal(PROPOSAL_BY_COMMAND.to_owned()));
+    if let Some(kind) = ProposalKind::of(request) {
+        return Err(CommandError::Internal(kind.by_command().to_owned()));
     }
     match answer {
         QuestionAnswer::Allow => Ok("Erlaubt".to_owned()),
@@ -1171,8 +1291,21 @@ fn tool_question(request: &ToolRequest) -> Question {
         ToolRequest::AgentType {
             base: Some(base), ..
         } => format!("Claude schlägt eine Änderung an „{}“ vor.", base.name),
+        ToolRequest::PromptTemplate {
+            base: None,
+            proposal,
+        } => format!(
+            "Claude schlägt eine neue Prompt-Vorlage „{}“ vor.",
+            proposal.name
+        ),
+        ToolRequest::PromptTemplate {
+            base: Some(base), ..
+        } => format!(
+            "Claude schlägt eine Änderung an der Vorlage „{}“ vor.",
+            base.name
+        ),
     };
-    if matches!(request, ToolRequest::AgentType { .. }) {
+    if ProposalKind::of(request).is_some() {
         return Question {
             question,
             header: String::new(),
@@ -1244,10 +1377,19 @@ fn ask_tool(
     );
 }
 
-/// Platz und Kasten eines offenen Vorschlags mit dieser ID.
+/// Die Antwort auf einen offenen Vorschlag, wie `finish_proposal` sie braucht.
+struct ProposalAnswer<'a> {
+    request_id: &'a str,
+    result: Value,
+    label: String,
+    device: Option<&'a str>,
+}
+
+/// Platz und Kasten eines offenen Vorschlags dieser Art mit dieser ID.
 fn pending_proposal<'a>(
     state: &'a SessionState,
     request_id: &str,
+    kind: ProposalKind,
 ) -> Option<(usize, &'a ToolRequest)> {
     state
         .pending
@@ -1256,7 +1398,7 @@ fn pending_proposal<'a>(
         .find_map(|(position, (pending_id, request))| {
             let tool = request.tool.as_ref()?;
             let is_proposal =
-                pending_id == request_id && matches!(tool.request, ToolRequest::AgentType { .. });
+                pending_id == request_id && ProposalKind::of(&tool.request) == Some(kind);
             is_proposal.then_some((position, &tool.request))
         })
 }
@@ -1296,7 +1438,7 @@ pub(super) fn reject_proposal_with_text(
         request
             .tool
             .as_ref()
-            .is_some_and(|tool: &PendingTool| matches!(tool.request, ToolRequest::AgentType { .. }))
+            .is_some_and(|tool: &PendingTool| ProposalKind::of(&tool.request).is_some())
     });
     if is_proposal {
         finish_proposal(
@@ -1317,3 +1459,5 @@ fn text_of(error: CommandError) -> String {
 
 #[cfg(test)]
 mod agent_types;
+#[cfg(test)]
+mod prompt_templates;

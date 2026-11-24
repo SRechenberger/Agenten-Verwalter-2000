@@ -197,7 +197,7 @@
     } catch {
       return;
     }
-    const dark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+    const dark = isDarkScheme();
     window.mermaid.initialize({ startOnLoad: false, securityLevel: 'strict', theme: dark ? 'dark' : 'default' });
     let counter = 0;
     for (const code of mermaidBlocks) {

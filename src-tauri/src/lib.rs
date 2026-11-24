@@ -27,6 +27,7 @@ pub mod notices;
 pub mod processes;
 pub mod projects;
 pub mod prompt_cache;
+pub mod prompt_templates;
 pub mod remote;
 pub mod repositories;
 pub mod retro;
@@ -339,6 +340,11 @@ pub fn run() {
             commands::agent_types::agent_type_update,
             commands::agent_types::agent_type_delete,
             commands::agent_types::agent_type_proposal_answer,
+            commands::prompt_templates::prompt_templates_list,
+            commands::prompt_templates::prompt_template_create,
+            commands::prompt_templates::prompt_template_update,
+            commands::prompt_templates::prompt_template_delete,
+            commands::prompt_templates::prompt_template_proposal_answer,
             commands::environment::environment_status,
             commands::environment::environment_mirror,
             commands::codex::codex_models,

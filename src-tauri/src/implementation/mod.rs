@@ -1143,8 +1143,8 @@ pub fn wake_reported_on_start(app: AppHandle) {
 /// Neuer Haken (ADR 061, 070): Die Session einer Station endet mit Fehler, Abbruch, Rückfrage oder ohne
 /// Meldung. Ihr Platz ist frei (ADR 068), ein Durchgang läuft: Er startet sie nach „Bei Fehler“
 /// neu und lässt die globale Warteschlange nachrücken. Eine neue Kontingent-Pause schaltet zuerst den
-/// Zeitgeber von „Automatisch fortsetzen“ scharf (ADR 064): Bis dahin hält die Session ihren Platz
-/// (`slots::awaits_arming`), erst danach gibt sie ihn frei, und ein Durchgang läuft (ADR 068, Regel d).
+/// Zeitgeber von „Automatisch fortsetzen“ scharf (ADR 064); einen Platz belegt sie nie (ADR 068,
+/// Nachtrag 2026-11-24).
 /// Zuletzt weckt das Zugende den Master.
 pub fn station_session_ended(
     app: &AppHandle,
@@ -1155,7 +1155,6 @@ pub fn station_session_ended(
         eprintln!("Zeitgeber nach der Kontingent-Pause nicht scharf geschaltet: {error}");
     }
     let registry = app.state::<SessionRegistry>();
-    registry.arming_decided(app, session_id);
     let scheduled =
         registry
             .implementation_view(implementation_id)
@@ -2404,7 +2403,7 @@ pub fn new_rows(
             .iter()
             .map(|phase: &PhaseRow| (phase.id.as_str(), phase.key.as_str())),
     );
-    number_stations(&mut stations, &lanes, &[]);
+    number_stations(&mut stations, &lanes, &[], &[]);
     Ok((row, phases, stations))
 }
 
@@ -2519,20 +2518,25 @@ pub fn phase_rows(
     (phases, stations)
 }
 
-/// Alle Kennungen, die in der Umsetzung je vergeben wurden (ADR 061, Nachtrag 2026-11-22): die der
-/// Stationen `plan_ids` und die, die übernommene Änderungen entfernt haben (`implementation_changes`,
-/// `summary.removed`). Daraus zählt `schedule::next_ids` weiter, ohne Migration.
+/// Alle Kennungen, die in der Umsetzung je vergeben wurden (ADR 061, Nachträge 2026-11-22 und
+/// 2026-11-23): die der Stationen `plan_ids` und die, die übernommene Änderungen entfernt
+/// (`implementation_edit`, `summary.removed`) oder ersetzt haben (`implementation_set_phases`,
+/// `summary.replaced`), aus `implementation_changes`. Daraus zählt `schedule::next_ids` weiter, ohne
+/// Migration.
 pub fn used_ids<'a>(
     plan_ids: impl Iterator<Item = &'a str>,
     changes: &[ChangeView],
 ) -> Vec<String> {
     plan_ids
         .map(str::to_owned)
-        .chain(
-            changes
+        .chain(changes.iter().flat_map(|change: &ChangeView| {
+            change
+                .summary
+                .removed
                 .iter()
-                .flat_map(|change: &ChangeView| change.summary.removed.iter().cloned()),
-        )
+                .chain(&change.summary.replaced)
+                .cloned()
+        }))
         .collect()
 }
 
@@ -2546,15 +2550,20 @@ pub fn lane_keys<'a>(phases: impl Iterator<Item = (&'a str, &'a str)>) -> HashMa
 /// Gibt den neuen Stationen ihre Kennungen `<Lane>-<n>` (`schedule::next_ids`, in Planreihenfolge) und
 /// schreibt ihre vorläufigen Kennungen (Alias oder `<Lane>-<Nummer>` der Eingabe) in ihrem `after` um.
 /// Erst nach der Prüfung des Plans aufrufen: Dann sind die vorläufigen Kennungen eindeutig. `lanes`
-/// ordnet `phase_id` den Lane-Schlüssel zu, `used` sind alle je vergebenen Kennungen. Gibt je Station
-/// (vorläufige Kennung, Kennung) zurück; andere Zeilen zieht `rename_after` nach.
+/// ordnet `phase_id` den Lane-Schlüssel zu, `used` sind alle je vergebenen Kennungen. Eine Station,
+/// deren vorläufige Kennung in `keep` steht, behält sie (`implementation_set_phases`, ADR 061, Nachtrag
+/// 2026-11-23). Gibt je Station (vorläufige Kennung, Kennung) zurück; andere Zeilen zieht
+/// `rename_after` nach.
 pub fn number_stations(
     stations: &mut [StationRow],
     lanes: &HashMap<String, String>,
     used: &[String],
+    keep: &[&str],
 ) -> Vec<(String, String)> {
+    let is_kept = |station: &StationRow| keep.contains(&station.plan_id.as_str());
     let keys: Vec<&str> = stations
         .iter()
+        .filter(|station: &&StationRow| !is_kept(station))
         .map(|station: &StationRow| {
             lanes
                 .get(&station.phase_id)
@@ -2562,11 +2571,15 @@ pub fn number_stations(
         })
         .collect();
     let used: Vec<&str> = used.iter().map(String::as_str).collect();
-    let ids = schedule::next_ids(&keys, &used);
+    let mut ids = schedule::next_ids(&keys, &used).into_iter();
     let renames: Vec<(String, String)> = stations
         .iter_mut()
-        .zip(ids)
-        .map(|(station, id): (&mut StationRow, String)| {
+        .map(|station: &mut StationRow| {
+            let id = if is_kept(station) {
+                station.plan_id.clone()
+            } else {
+                ids.next().unwrap_or_default()
+            };
             (std::mem::replace(&mut station.plan_id, id.clone()), id)
         })
         .collect();

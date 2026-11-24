@@ -50,7 +50,7 @@
   ]);
 
   async function drawDiagram(source) {
-    const isDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+    const isDark = isDarkScheme();
     window.mermaid.initialize({ startOnLoad: false, securityLevel: 'strict', theme: isDark ? 'dark' : 'default' });
     let svg;
     try {

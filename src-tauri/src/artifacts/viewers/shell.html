@@ -27,8 +27,30 @@
         --warn: #9a6700;
         color-scheme: light;
       }
+      /* Dunkel: das gewählte Schema der App (`data-theme`, ADR 047) oder, ohne Attribut, das des Systems. */
+      :root[data-theme='dark'] {
+        --bg: #1f1f1f;
+        --bg-bar: #252526;
+        --fg: #d4d4d4;
+        --fg-muted: #8f8f8f;
+        --border: #2b2b2b;
+        --accent: #e0825c;
+        --code-keyword: #569cd6;
+        --code-string: #ce9178;
+        --code-comment: #6a9955;
+        --code-number: #b5cea8;
+        --code-function: #dcdcaa;
+        --code-type: #4ec9b0;
+        --code-variable: #9cdcfe;
+        --diff-add-fg: #4cc38a;
+        --diff-del-fg: #f47067;
+        --diff-add-bg: rgba(76, 195, 138, 0.11);
+        --diff-del-bg: rgba(244, 112, 103, 0.11);
+        --warn: #e5c07b;
+        color-scheme: dark;
+      }
       @media (prefers-color-scheme: dark) {
-        :root {
+        :root:not([data-theme='light']) {
           --bg: #1f1f1f;
           --bg-bar: #252526;
           --fg: #d4d4d4;

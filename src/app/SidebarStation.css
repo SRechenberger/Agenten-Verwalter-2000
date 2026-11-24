@@ -140,6 +140,12 @@
     line-height: 1.4;
     white-space: nowrap;
 
+    /* „ab 13:30“: Der Zeitgeber ist scharf oder der Halt gilt, niemand muss handeln (Taiga #227). */
+    &--neutral {
+      border-color: var(--color-border);
+      color: var(--color-fg-muted);
+    }
+
     /* „✓ freigegeben“: Freigabe des Masters an einer Station „durch dich“ (#136). */
     &--released {
       border-color: var(--color-status-reported);

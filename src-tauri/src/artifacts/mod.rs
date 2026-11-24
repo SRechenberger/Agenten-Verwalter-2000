@@ -23,8 +23,6 @@ pub const DIR_NAME: &str = ".artefakte";
 
 const MAX_TITLE_BYTES: u64 = 65_536;
 const MAX_TITLE_CHARS: usize = 200;
-/// So viel einer HTML-Datei wird nach Verweisen auf Zubehör-Ordner durchsucht.
-const MAX_PAGE_BYTES: u64 = 1024 * 1024;
 /// Höchstens so viele Einträge eines Ordners werden für Größe und Anzahl gezählt.
 const MAX_FOLDER_ENTRIES: u32 = 1000;
 pub const INDEX_PAGE: &str = "index.html";
@@ -135,7 +133,7 @@ pub fn artifact_file_of(dir: &Path, used_path: &str) -> Option<String> {
         None if is_hidden(&name) => None,
         None => Some(name),
         Some(_) if name.starts_with('.') => None,
-        Some(_) if is_accessory_dir(&name, &pages_in(dir)) => None,
+        Some(_) if is_accessory_dir(&name, &page_stems_in(dir)) => None,
         Some(_) => Some(name),
     }
 }
@@ -151,7 +149,7 @@ pub fn list(dir: &Path, owners: &[ArtifactOwner]) -> Vec<Artifact> {
         return Vec::new();
     };
     let entries: Vec<fs::DirEntry> = read.flatten().collect();
-    let pages = pages_of(&entries);
+    let stems = page_stems_of(&entries);
     let mut items: Vec<Artifact> = Vec::new();
     for entry in &entries {
         let Ok(file_type) = entry.file_type() else {
@@ -161,7 +159,7 @@ pub fn list(dir: &Path, owners: &[ArtifactOwner]) -> Vec<Artifact> {
         let path = entry.path();
         let item = if file_type.is_file() && !is_hidden(&file) {
             file_item(&path, file, entry)
-        } else if file_type.is_dir() && !file.starts_with('.') && !is_accessory_dir(&file, &pages) {
+        } else if file_type.is_dir() && !file.starts_with('.') && !is_accessory_dir(&file, &stems) {
             folder_item(&path, file)
         } else {
             continue;
@@ -262,13 +260,9 @@ fn normalize_separators(path: &str) -> String {
         .replace('/', "\\")
 }
 
-/// Eine HTML-Datei direkt im Ordner: Name ohne Endung und Anfang des Inhalts, beides klein.
-struct Page {
-    stem: String,
-    text: String,
-}
-
-fn pages_of(entries: &[fs::DirEntry]) -> Vec<Page> {
+/// Die Namen der HTML-Dateien direkt im Ordner ohne Endung, klein geschrieben. Aus den
+/// Verzeichniseinträgen, ohne eine Datei zu öffnen.
+fn page_stems_of(entries: &[fs::DirEntry]) -> Vec<String> {
     entries
         .iter()
         .filter(|entry: &&fs::DirEntry| {
@@ -277,51 +271,27 @@ fn pages_of(entries: &[fs::DirEntry]) -> Vec<Page> {
                 .is_ok_and(|file_type: fs::FileType| file_type.is_file())
                 && kind_of(&entry.path()) == ArtifactKind::Html
         })
-        .map(|entry: &fs::DirEntry| page_of(&entry.path()))
+        .filter_map(|entry: &fs::DirEntry| {
+            entry
+                .path()
+                .file_stem()
+                .map(|stem| stem.to_string_lossy().to_lowercase())
+        })
         .collect()
 }
 
-fn pages_in(dir: &Path) -> Vec<Page> {
+fn page_stems_in(dir: &Path) -> Vec<String> {
     fs::read_dir(dir).map_or_else(
         |_| Vec::new(),
-        |read| pages_of(&read.flatten().collect::<Vec<fs::DirEntry>>()),
+        |read| page_stems_of(&read.flatten().collect::<Vec<fs::DirEntry>>()),
     )
 }
 
-fn page_of(path: &Path) -> Page {
-    let mut bytes: Vec<u8> = Vec::new();
-    if let Ok(file) = File::open(path) {
-        let _ = file.take(MAX_PAGE_BYTES).read_to_end(&mut bytes);
-    }
-    Page {
-        stem: path
-            .file_stem()
-            .map(|stem| stem.to_string_lossy().to_lowercase())
-            .unwrap_or_default(),
-        text: String::from_utf8_lossy(&bytes).to_lowercase(),
-    }
-}
-
-/// Zubehör ist ein Ordner, der nur einer Seite dient: Name mit `_` vorn, so benannt wie eine
-/// HTML-Datei daneben ohne Endung, oder eine HTML-Datei daneben verweist mit `"<name>/`,
-/// `'<name>/` oder `"./<name>/` hinein.
-fn is_accessory_dir(name: &str, pages: &[Page]) -> bool {
-    if name.starts_with('_') {
-        return true;
-    }
-    let lower = name.to_lowercase();
-    let references = [
-        format!("\"{lower}/"),
-        format!("'{lower}/"),
-        format!("\"./{lower}/"),
-        format!("'./{lower}/"),
-    ];
-    pages.iter().any(|page: &Page| {
-        page.stem == lower
-            || references
-                .iter()
-                .any(|reference: &String| page.text.contains(reference.as_str()))
-    })
+/// Zubehör ist ein Ordner, der nur einer Seite dient: Name mit `_` vorn oder so benannt wie eine
+/// HTML-Datei daneben ohne Endung. Der Inhalt der Seiten zählt nicht: Ein Link oder ein Beispiel
+/// im Text macht einen Ordner nicht zum Zubehör.
+fn is_accessory_dir(name: &str, page_stems: &[String]) -> bool {
+    name.starts_with('_') || page_stems.contains(&name.to_lowercase())
 }
 
 fn file_item(path: &Path, file: String, entry: &fs::DirEntry) -> Artifact {
@@ -555,4 +525,101 @@ fn markdown_title(path: &Path) -> Option<String> {
         .map(str::trim)
         .find(|line: &&str| !line.is_empty())?;
     collapse_title(first.strip_prefix("# ")?)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Ein Wegwerf-Ordner unter dem Temp-Ordner; er wird beim Verlassen entfernt.
+    struct Scratch(PathBuf);
+
+    impl Scratch {
+        fn new(name: &str) -> Self {
+            let dir = std::env::temp_dir().join(format!(
+                "verwalter-artifacts-{name}-{}-{}",
+                std::process::id(),
+                SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .map_or(0, |elapsed| elapsed.as_nanos())
+            ));
+            fs::create_dir_all(&dir).expect("create scratch dir");
+            Self(dir)
+        }
+
+        fn write(&self, relative: &str, text: &str) {
+            let path = self.0.join(relative);
+            fs::create_dir_all(path.parent().expect("parent")).expect("create parent");
+            fs::write(path, text).expect("write file");
+        }
+
+        fn names(&self) -> Vec<String> {
+            let mut names: Vec<String> = list(&self.0, &[])
+                .into_iter()
+                .map(|item: Artifact| item.file)
+                .collect();
+            names.sort();
+            names
+        }
+    }
+
+    impl Drop for Scratch {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    #[test]
+    fn a_folder_a_page_links_to_stays_an_artifact() {
+        let scratch = Scratch::new("link");
+        scratch.write("report.html", "<a href=\"daten/x.csv\">Daten</a>");
+        scratch.write("daten/x.csv", "a,b\n");
+        assert_eq!(scratch.names(), ["daten", "report.html"]);
+    }
+
+    #[test]
+    fn a_folder_named_in_page_text_stays_an_artifact() {
+        let scratch = Scratch::new("text");
+        scratch.write("notes.html", "<pre>\"src/main.rs\"</pre>");
+        scratch.write("src/main.rs", "fn main() {}\n");
+        assert_eq!(scratch.names(), ["notes.html", "src"]);
+    }
+
+    #[test]
+    fn a_folder_with_an_underscore_is_an_accessory() {
+        let scratch = Scratch::new("underscore");
+        scratch.write("page.html", "<img src=\"_bilder/a.png\">");
+        scratch.write("_bilder/a.png", "x");
+        assert_eq!(scratch.names(), ["page.html"]);
+    }
+
+    #[test]
+    fn a_folder_named_like_a_page_is_an_accessory() {
+        let scratch = Scratch::new("stem");
+        scratch.write("bericht.html", "<p>x</p>");
+        scratch.write("bericht/a.png", "x");
+        scratch.write("Seite.HTML", "<p>x</p>");
+        scratch.write("seite/a.png", "x");
+        assert_eq!(scratch.names(), ["Seite.HTML", "bericht.html"]);
+    }
+
+    #[test]
+    fn a_folder_named_like_a_page_in_other_case_is_an_accessory() {
+        let scratch = Scratch::new("folder-case");
+        scratch.write("anhang.html", "<p>x</p>");
+        scratch.write("Anhang/a.png", "x");
+        assert_eq!(scratch.names(), ["anhang.html"]);
+    }
+
+    #[test]
+    fn artifact_file_of_names_the_folder_for_a_file_in_it_and_nothing_for_an_accessory() {
+        let scratch = Scratch::new("file-of");
+        scratch.write("report.html", "<a href=\"daten/x.csv\">Daten</a>");
+        scratch.write("daten/x.csv", "a,b\n");
+        scratch.write("_bilder/a.png", "x");
+        let dir = &scratch.0;
+        let of = |relative: &str| artifact_file_of(dir, &dir.join(relative).to_string_lossy());
+        assert_eq!(of("daten/x.csv"), Some("daten".to_owned()));
+        assert_eq!(of("_bilder/a.png"), None);
+    }
 }

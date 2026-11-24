@@ -37,3 +37,12 @@ Diff-Kommentare interpretiert.
   erlaubt dafür nur kanonische Dateien unter `<Workspace>\\.anhaenge`.
 - Der persistierte Chat-Eintrag enthält nur die regulären Anhänge der aktuellen Nachricht; erneut
   angehängte Bilder sind ausschließlich Teil der Agentennachricht.
+
+## Nachtrag 2026-11-23: Entwurf und Marken (Taiga #30, #32)
+
+- Ist zu einer Session des Vorhabens ein Kommentar-Kasten zu einem Artefakt offen (Kennung `artifact|…`), ändert `artifact_show` die Auswahl nicht; der Text, den der Benutzer gerade tippt, bliebe sonst nicht beim Artefakt, zu dem er gehört. Der Sprung der Ansicht bleibt wie bisher. Ein Kasten in den Changes sperrt nichts.
+- Die Brücke merkt sich die zuletzt empfangenen Marken und setzt sie neu, wenn sich das DOM unter `body` ändert (ein Durchlauf je Frame). Betrachter bauen ihr DOM erst nach dem Laden und beim Umschalten von Roh auf formatiert neu; die Marken kamen vorher zu früh und blieben weg. Die Overlays hängen an `documentElement`, lösen den Beobachter also nicht aus.
+
+## Nachtrag 2026-11-24: Marke und Schild im Fenster (Taiga #223)
+
+Die Marke einer Zeile, die bis an den Rand reicht, lag halb außerhalb des Fensters, an der obersten Zeile auch oben; dem Schild beim Überfahren ging es oben genauso. Beide bleiben an der Ecke ihres Elements, werden aber ins Fenster geschoben: die Marke mit `left` höchstens Fensterbreite − 22 und `top` mindestens 0, das Schild mit `top` mindestens 0 und `left` höchstens Fensterbreite − Breite des Schilds. Gemessen wird am Dokument (`clientWidth`, `clientHeight`), nicht an `innerWidth`: Die Scrollleiste des Fensters zählt `innerWidth` mit, und die Marke läge darunter. Geschoben wird nur die Marke eines Elements, das ins Fenster ragt; die Marke eines Elements außerhalb des Fensters sitzt unbegrenzt an seiner Ecke und scrollt wie vorher mit ihm aus dem Bild. Der Beobachter aus dem Nachtrag oben löst nicht aus, denn die Overlays hängen an `documentElement`.

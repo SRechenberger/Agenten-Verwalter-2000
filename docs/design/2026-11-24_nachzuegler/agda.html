@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agda im Chat und im Diff</title>
+<style>
+:root {
+  --page: #f6f6f4; --page-fg: #24231f; --page-muted: #6d6b63; --page-line: #deddd8; --page-card: #ffffff;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) { --page: #1b1b1b; --page-fg: #e6e4de; --page-muted: #a3a19a; --page-line: #3a3a3a; --page-card: #242424; }
+}
+:root[data-theme="dark"] { --page: #1b1b1b; --page-fg: #e6e4de; --page-muted: #a3a19a; --page-line: #3a3a3a; --page-card: #242424; }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--page); color: var(--page-fg); font: 14px/1.45 system-ui, sans-serif; padding: 24px 16px 48px; }
+main { max-width: 1080px; margin: 0 auto; }
+h1 { font-size: 20px; margin: 0 0 4px; }
+h2 { font-size: 16px; margin: 32px 0 4px; }
+p.lead, p.note { color: var(--page-muted); margin: 0 0 16px; max-width: 78ch; }
+.pair { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+@media (max-width: 760px) { .pair { grid-template-columns: 1fr; } }
+.frame { border: 1px solid var(--page-line); border-radius: 10px; overflow: hidden; }
+.frame > header { padding: 6px 12px; font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--page-muted); background: var(--page-card); border-bottom: 1px solid var(--page-line); }
+
+/* Ausschnitte der App: Token wie in src/styles/theme.css */
+.app { padding: 14px; background: var(--color-bg-base); color: var(--color-fg-primary);
+  --color-bg-base: #ffffff; --color-bg-surface: #ffffff; --color-bg-code: #f8f8f8; --color-fg-primary: #3c3c3c; --color-fg-muted: #6e6e6e;
+  --color-border: #cecece; --color-accent: #c4572f; --color-status-reported: #3d6fa8; --color-status-waiting: #a86a00;
+  --color-code-keyword: #0000ff; --color-code-string: #a31515; --color-code-comment: #008000; --color-code-number: #098658;
+  --color-code-type: #267f99; --color-diff-add-bg: #e6f4ea; --color-diff-del-bg: #fbe9e9; --color-diff-add-fg: #16803c; --color-diff-del-fg: #b42318; }
+.app.dark { --color-bg-base: #1f1f1f; --color-bg-surface: #262628; --color-bg-code: #181818; --color-fg-primary: #e0e0e0; --color-fg-muted: #8f8f8f;
+  --color-border: #3c3c3c; --color-accent: #e0825c; --color-status-reported: #8ab8ea; --color-status-waiting: #f2b33d;
+  --color-code-keyword: #569cd6; --color-code-string: #ce9178; --color-code-comment: #6a9955; --color-code-number: #b5cea8;
+  --color-code-type: #4ec9b0; --color-diff-add-bg: #1d3325; --color-diff-del-bg: #3a2020; --color-diff-add-fg: #4cc38a; --color-diff-del-fg: #f07a7a; }
+
+/* #230 Code */
+pre.code { margin: 0; padding: 10px 12px; background: var(--color-bg-code); border: 1px solid var(--color-border); border-radius: 6px;
+  font: 12.5px/1.5 ui-monospace, "JetBrains Mono", monospace; overflow-x: auto; }
+.lang { font: 11px ui-monospace, monospace; color: var(--color-fg-muted); margin: 0 0 4px; }
+.kw { color: var(--color-code-keyword); } .ty { color: var(--color-code-type); } .cm { color: var(--color-code-comment); }
+.st { color: var(--color-code-string); } .nu { color: var(--color-code-number); }
+.plain .kw, .plain .ty, .plain .cm, .plain .st, .plain .nu { color: inherit; }
+.diff { font: 12.5px/1.5 ui-monospace, monospace; border: 1px solid var(--color-border); border-radius: 6px; overflow: hidden; margin-top: 12px; }
+.diff div { padding: 0 10px; white-space: pre; overflow-x: auto; }
+.diff .add { background: var(--color-diff-add-bg); } .diff .del { background: var(--color-diff-del-bg); }
+.diff .head { color: var(--color-fg-muted); background: var(--color-bg-code); }
+.sign { display: inline-block; width: 1.4ch; color: var(--color-fg-muted); }
+.add .sign { color: var(--color-diff-add-fg); } .del .sign { color: var(--color-diff-del-fg); }
+ul.notes { color: var(--page-muted); margin: 8px 0 0; padding-left: 20px; max-width: 80ch; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Agda im Chat und im Diff (Taiga #230)</h1>
+  <p class="lead">Heute und neu, in hell und dunkel. Farben und Maße aus <code>theme.css</code> und <code>syntax.css</code>. Alle Texte sind Beispieldaten.</p>
+
+  <h2>Agda im Chat und im Diff</h2>
+  <p class="note">Gefärbt wird nur mit den Klassen, die <code>syntax.css</code> schon kennt, es gibt keine neuen Farben. Schlüsselwörter (auch <code>∀</code>, <code>→</code>, <code>λ</code>) in der Farbe für Schlüsselwörter, <code>Set</code> und <code>Prop</code> als Typ, Kommentare, Pragmas und Löcher in der Kommentarfarbe (<code>hljs-meta</code>), dazu Zeichenketten und Zahlen. <code>map-with</code> und <code>≤-trans</code> bleiben ein Bezeichner.</p>
+  <div class="pair">
+    <div class="frame"><header>Heute · hell (ungefärbt)</header><div class="app plain">
+      <p class="lang">agda</p>
+<pre class="code"><span class="cm">{-# OPTIONS --safe #-}</span>
+<span class="kw">module</span> Nat.Order <span class="kw">where</span>
+
+<span class="kw">open</span> <span class="kw">import</span> Data.Nat <span class="kw">using</span> (ℕ; zero; suc)
+
+<span class="cm">-- Ordnung auf ℕ</span>
+<span class="kw">data</span> _≤_ : ℕ <span class="kw">→</span> ℕ <span class="kw">→</span> <span class="ty">Set</span> <span class="kw">where</span>
+  z≤n : <span class="kw">∀</span> {n} <span class="kw">→</span> zero ≤ n
+  s≤s : <span class="kw">∀</span> {m n} <span class="kw">→</span> m ≤ n <span class="kw">→</span> suc m ≤ suc n
+
+≤-trans : <span class="kw">∀</span> {a b c} <span class="kw">→</span> a ≤ b <span class="kw">→</span> b ≤ c <span class="kw">→</span> a ≤ c
+≤-trans z≤n     _       = z≤n
+≤-trans (s≤s p) (s≤s q) = s≤s (≤-trans p q)
+
+map-with : {A B : <span class="ty">Set</span>} <span class="kw">→</span> (A <span class="kw">→</span> B) <span class="kw">→</span> List A <span class="kw">→</span> List B
+map-with f xs = <span class="cm">{! !}</span>
+
+limit = <span class="nu">42</span>   name = <span class="st">"ℕ-Ordnung"</span></pre>
+    </div></div>
+    <div class="frame"><header>Neu · hell</header><div class="app">
+      <p class="lang">agda</p>
+<pre class="code"><span class="cm">{-# OPTIONS --safe #-}</span>
+<span class="kw">module</span> Nat.Order <span class="kw">where</span>
+
+<span class="kw">open</span> <span class="kw">import</span> Data.Nat <span class="kw">using</span> (ℕ; zero; suc)
+
+<span class="cm">-- Ordnung auf ℕ</span>
+<span class="kw">data</span> _≤_ : ℕ <span class="kw">→</span> ℕ <span class="kw">→</span> <span class="ty">Set</span> <span class="kw">where</span>
+  z≤n : <span class="kw">∀</span> {n} <span class="kw">→</span> zero ≤ n
+  s≤s : <span class="kw">∀</span> {m n} <span class="kw">→</span> m ≤ n <span class="kw">→</span> suc m ≤ suc n
+
+≤-trans : <span class="kw">∀</span> {a b c} <span class="kw">→</span> a ≤ b <span class="kw">→</span> b ≤ c <span class="kw">→</span> a ≤ c
+≤-trans z≤n     _       = z≤n
+≤-trans (s≤s p) (s≤s q) = s≤s (≤-trans p q)
+
+map-with : {A B : <span class="ty">Set</span>} <span class="kw">→</span> (A <span class="kw">→</span> B) <span class="kw">→</span> List A <span class="kw">→</span> List B
+map-with f xs = <span class="cm">{! !}</span>
+
+limit = <span class="nu">42</span>   name = <span class="st">"ℕ-Ordnung"</span></pre>
+      <div class="diff">
+        <div class="head">src/Nat/Order.agda</div>
+        <div class="del"><span class="sign">-</span>≤-trans p q = <span class="cm">?</span></div>
+        <div class="add"><span class="sign">+</span>≤-trans z≤n     _       = z≤n</div>
+        <div class="add"><span class="sign">+</span>≤-trans (s≤s p) (s≤s q) = s≤s (≤-trans p q)</div>
+        <div><span class="sign"> </span><span class="kw">open</span> <span class="kw">import</span> Relation.Binary <span class="kw">using</span> (Rel)</div>
+      </div>
+    </div></div>
+    <div class="frame"><header>Heute · dunkel (ungefärbt)</header><div class="app dark plain">
+      <p class="lang">agda</p>
+<pre class="code"><span class="cm">{-# OPTIONS --safe #-}</span>
+<span class="kw">data</span> _≤_ : ℕ <span class="kw">→</span> ℕ <span class="kw">→</span> <span class="ty">Set</span> <span class="kw">where</span>
+  z≤n : <span class="kw">∀</span> {n} <span class="kw">→</span> zero ≤ n
+<span class="cm">-- Lücke</span>
+map-with f xs = <span class="cm">{! !}</span></pre>
+    </div></div>
+    <div class="frame"><header>Neu · dunkel</header><div class="app dark">
+      <p class="lang">agda</p>
+<pre class="code"><span class="cm">{-# OPTIONS --safe #-}</span>
+<span class="kw">data</span> _≤_ : ℕ <span class="kw">→</span> ℕ <span class="kw">→</span> <span class="ty">Set</span> <span class="kw">where</span>
+  z≤n : <span class="kw">∀</span> {n} <span class="kw">→</span> zero ≤ n
+<span class="cm">-- Lücke</span>
+map-with f xs = <span class="cm">{! !}</span></pre>
+      <div class="diff">
+        <div class="head">src/Nat/Order.agda</div>
+        <div class="del"><span class="sign">-</span>≤-trans p q = <span class="cm">?</span></div>
+        <div class="add"><span class="sign">+</span>≤-trans (s≤s p) (s≤s q) = s≤s (≤-trans p q)</div>
+      </div>
+    </div></div>
+  </div>
+  <ul class="notes">
+    <li>Die gemeinsame Sprachliste färbt im Diff nebenbei auch <code>.ps1</code>-Dateien, das konnte bisher nur der Chat.</li>
+    <li>Ein <code>?</code> zählt nur als Loch, wenn es allein steht. In <code>_?_</code> oder <code>Dec?</code> bleibt es Teil des Bezeichners.</li>
+    <li>Nicht Teil: semantische Färbung wie im Emacs-Modus (Konstruktor, Funktion, Postulat). Dafür bräuchte es Agda selbst.</li>
+  </ul>
+
+</main>
+</body>
+</html>

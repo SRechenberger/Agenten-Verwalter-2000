@@ -27,6 +27,7 @@ use verwalter_lib::{
     codex::models::{CodexModel, CodexModels},
     commands::agent_types::ProposalDecision,
     commands::app::AppInfo,
+    commands::prompt_templates::PromptTemplateDecision,
     context::model::{
         ContextBreakdown, ContextCategory, ContextChangedEvent, ContextFile, SessionContext,
     },
@@ -57,6 +58,10 @@ use verwalter_lib::{
     notices::model::{Denial, Notice},
     projects::model::{ProjectCreated, ProjectGroup, ProjectPriority, ProjectSummary},
     prompt_cache::model::PromptCache,
+    prompt_templates::model::{
+        PromptTemplate, PromptTemplateError, PromptTemplateField, PromptTemplateInput,
+        PromptTemplateSaved,
+    },
     remote::model::{
         DeviceRef, HostProfile, ProjectAccess, RemoteDevice, RemoteHostStatus, RemoteInvitation,
         RemoteServerStatus,
@@ -283,5 +288,11 @@ fn main() -> Result<(), ts_rs::ExportError> {
     AgentTypeSaved::export_all(&cfg)?;
     AgentValueSource::export_all(&cfg)?;
     ProposalDecision::export_all(&cfg)?;
+    PromptTemplateDecision::export_all(&cfg)?;
+    PromptTemplate::export_all(&cfg)?;
+    PromptTemplateInput::export_all(&cfg)?;
+    PromptTemplateField::export_all(&cfg)?;
+    PromptTemplateError::export_all(&cfg)?;
+    PromptTemplateSaved::export_all(&cfg)?;
     Ok(())
 }

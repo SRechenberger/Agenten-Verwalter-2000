@@ -476,11 +476,6 @@ export function rowResumeTitle(station: StationView): string {
   return `${AUTO_RESUME_LABEL}: ${station.resumesAutomatically ? 'an' : 'aus'} (${source}). Ein Klick schaltet nur diese Station.`;
 }
 
-/** Chip hinter „setzt automatisch fort“: „ab 17:04“. */
-export function resumesAtChip(at: number): string {
-  return `ab ${clockText(at)}`;
-}
-
 /** Zustand rechts in der Zeile: „läuft · 12 min“, „bereit · Warteschlange 1“, „startet in 7 s“; `isQuotaHeld`:
  *  Die Station wartet wegen des Kontingents („wartet auf Kontingent“). */
 export function rowStateText(station: StationView, now: number, isQuotaHeld = false): string {

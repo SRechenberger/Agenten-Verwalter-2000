@@ -1,11 +1,17 @@
 // Brücke für Kommentare an Artefakten (ADR 035). Passiv bis `mode`.
 (() => {
+  // HTML-Artefakte folgen dem Schema der App wie die Betrachter (ADR 047): `scheme=light|dark` in der
+  // Adresse wird zu `data-theme` an `<html>`. Ohne den Parameter bleibt ein Attribut der Seite stehen.
+  const scheme = new URLSearchParams(location.search).get('scheme');
+  if (scheme === 'light' || scheme === 'dark') document.documentElement.dataset.theme = scheme;
+
   if (window.parent === window) return;
 
   let on = false;
   let hovered = null;
   let markNodes = [];
   let positionQueued = false;
+  const MARK_SIZE = 20;
 
   const overlayStyle = (node) => {
     Object.assign(node.style, {
@@ -66,6 +72,9 @@
 
   const labelOf = (element) => `${tagName(element)}${element.classList.length ? ` · ${element.classList[0]}` : ''}`;
 
+  // Ohne Scrollleiste: `innerWidth` zählte sie mit, und eine Marke läge darunter.
+  const viewport = () => ({ width: document.documentElement.clientWidth, height: document.documentElement.clientHeight });
+
   const positionOutline = () => {
     if (!hovered) return;
     const rect = hovered.getBoundingClientRect();
@@ -73,7 +82,13 @@
       display: 'block', left: `${rect.left}px`, top: `${rect.top}px`, width: `${rect.width}px`, height: `${rect.height}px`,
     });
     tag.textContent = labelOf(hovered);
-    Object.assign(tag.style, { display: 'block', left: `${rect.left}px`, top: `${rect.top - 20}px` });
+    tag.style.display = 'block';
+    // Das Schild bleibt an der Ecke des Elements, liegt aber ganz im Fenster (ADR 035).
+    const { width, height } = viewport();
+    Object.assign(tag.style, {
+      left: `${Math.max(0, Math.min(rect.left, width - tag.offsetWidth))}px`,
+      top: `${Math.min(Math.max(rect.top - 20, 0), Math.max(0, height - tag.offsetHeight))}px`,
+    });
   };
 
   const clearHover = () => {
@@ -84,9 +99,21 @@
 
   const positionMarks = () => {
     positionQueued = false;
+    // Die Marke sitzt an der Ecke ihres Elements. Ragt das Element ins Fenster, wird sie ins Fenster
+    // geschoben: Ein Element bis an den Rand ließe sie sonst halb abgeschnitten (ADR 035). Die Marke
+    // eines Elements außerhalb des Fensters bleibt unbegrenzt und scrollt mit ihm aus dem Bild.
+    const { width, height } = viewport();
     markNodes.forEach(({ node, element }) => {
       const rect = element.getBoundingClientRect();
-      Object.assign(node.style, { left: `${rect.right - 10}px`, top: `${rect.top - 10}px` });
+      const left = rect.right - 10;
+      const top = rect.top - 10;
+      const visible = rect.bottom > 0 && rect.top < height && rect.right > 0 && rect.left < width;
+      Object.assign(node.style, visible
+        ? {
+          left: `${Math.max(0, Math.min(left, width - MARK_SIZE - 2))}px`,
+          top: `${Math.min(Math.max(top, 0), Math.max(0, height - MARK_SIZE))}px`,
+        }
+        : { left: `${left}px`, top: `${top}px` });
     });
     positionOutline();
   };
@@ -98,24 +125,48 @@
     }
   };
 
-  const setMarks = (marks) => {
+  // Die zuletzt empfangenen Marken. Ein Betrachter baut sein DOM oft erst nach dem Laden und beim
+  // Umschalten von Roh auf formatiert neu: Ändert sich `body`, werden sie neu gesetzt. Die Overlays
+  // hängen an `documentElement`, lösen den Beobachter also nicht aus.
+  let lastMarks = [];
+  let observer = null;
+  let remarkQueued = false;
+
+  const applyMarks = () => {
     markNodes.forEach(({ node }) => node.remove());
     markNodes = [];
-    if (!Array.isArray(marks)) return;
-    marks.forEach((mark) => {
-      if (!mark || typeof mark.n !== 'number' || typeof mark.selector !== 'string') return;
+    lastMarks.forEach((mark) => {
       let element;
       try { element = document.querySelector(mark.selector); } catch { return; }
       if (!element) return;
       const node = overlayStyle(document.createElement('div'));
       node.textContent = String(mark.n);
       Object.assign(node.style, {
-        width: '20px', height: '20px', borderRadius: '50%', background: '#c4572f', color: '#fff',
+        width: `${MARK_SIZE}px`, height: `${MARK_SIZE}px`, borderRadius: '50%', background: '#c4572f', color: '#fff',
         display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '11px', fontWeight: '700',
       });
       markNodes.push({ node, element });
     });
-    queuePosition();
+    // Gleich positionieren: Nach einer Änderung unter `body` stünden die Marken sonst einen Frame
+    // lang an ihrer statischen Stelle.
+    positionMarks();
+  };
+
+  const setMarks = (marks) => {
+    lastMarks = Array.isArray(marks)
+      ? marks.filter((mark) => mark && typeof mark.n === 'number' && typeof mark.selector === 'string')
+      : [];
+    applyMarks();
+    if (observer || !document.body) return;
+    observer = new MutationObserver(() => {
+      if (!lastMarks.length || remarkQueued) return;
+      remarkQueued = true;
+      requestAnimationFrame(() => {
+        remarkQueued = false;
+        applyMarks();
+      });
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
   };
 
   window.addEventListener('mouseover', (event) => {

@@ -346,6 +346,11 @@ pub struct ChangeSummary {
     // `added` und `removed` nennen dort neue Lanes und Plan-Kennungen.
     #[serde(default)]
     pub changed: Vec<String>,
+    // ADR 061, Nachtrag 2026-11-23: Plan-Kennungen der Stationen, die eine übernommene
+    // `implementation_set_phases` ersetzt hat, ohne die mit ihrer Kennung genannten; nur für `used_ids`.
+    #[serde(default)]
+    #[ts(skip)]
+    pub replaced: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]

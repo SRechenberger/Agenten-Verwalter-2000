@@ -38,13 +38,13 @@ import { canMarkDone } from '@/features/implementation/markDone';
 import { StationReportSection } from '@/features/implementation/StationReportSection';
 import { StationFlowSection } from '@/features/implementation/StationFlowSection';
 import { typeNamed, typeOfStation } from '@/features/implementation/stationAgent';
-import { pauseChip } from '@/features/implementation/stationLive';
+import { type WaitChip, waitChip } from '@/features/implementation/stationLive';
 import { stationTone } from '@/features/implementation/stationState';
 import type { AgentType } from '@/lib/bindings/AgentType';
 import type { OperatingMode } from '@/lib/bindings/OperatingMode';
 import type { SessionSummary } from '@/lib/bindings/SessionSummary';
 import type { ActionError } from '@/lib/useActionError';
-import { useQuotaHeld } from '@/stores/agentQueue';
+import { useQuotaHeldUntil } from '@/stores/agentQueue';
 import './StationCard.css';
 
 /** Die vier Abschnitte der Kartei. */
@@ -118,7 +118,8 @@ export function StationCard({
   const { station, phase } = stationRef;
   const number: string = station.sessionNumber === null ? '' : `#${String(station.sessionNumber)}`;
   const { agentTypes } = useAgentTypes();
-  const quotaHeld: boolean = useQuotaHeld(station.id);
+  const quotaUntil: string | null = useQuotaHeldUntil(station.id);
+  const chip: WaitChip | null = waitChip(station, quotaUntil);
   const [isTypeDialogOpen, setIsTypeDialogOpen] = useState<boolean>(false);
   const types: readonly AgentType[] = agentTypes ?? [];
   const isCommand: boolean = isCommandStation(station);
@@ -306,9 +307,13 @@ export function StationCard({
       </div>
       <p className="station-card__phase">{phase.title}</p>
       <p className="station-card__state">
-        {rowStateText(station, now, quotaHeld)}
-        {pauseChip(station) !== null && (
-          <span className="station-card__chip">{pauseChip(station)}</span>
+        {rowStateText(station, now, quotaUntil !== null)}
+        {chip !== null && (
+          <span
+            className={`station-card__chip${chip.isWarn ? '' : ' station-card__chip--neutral'}`}
+          >
+            {chip.text}
+          </span>
         )}
       </p>
       {renderPurpose()}

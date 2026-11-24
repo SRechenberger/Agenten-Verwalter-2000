@@ -1,0 +1,58 @@
+.template-fields {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-lg);
+
+  &__field {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+  }
+
+  &__label,
+  &__check {
+    font-size: var(--font-size-sm);
+  }
+
+  &__help {
+    font-size: var(--font-size-2xs);
+    color: var(--color-fg-muted);
+  }
+
+  /* Wächst beim Tippen mit wie `.new-session__task` (A10). */
+  &__input {
+    box-sizing: border-box;
+    width: 100%;
+    min-height: 30px;
+    max-height: 40vh;
+    field-sizing: content;
+    padding: 5px var(--space-md);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    background: var(--color-bg-base);
+    color: var(--color-fg-primary);
+    font: inherit;
+    resize: none;
+
+    &:focus {
+      outline: none;
+      border-color: var(--color-accent);
+      box-shadow: 0 0 0 3px var(--color-accent-subtle);
+    }
+
+    &:disabled {
+      cursor: default;
+    }
+  }
+
+  &__check {
+    display: flex;
+    align-items: center;
+    gap: var(--space-md);
+
+    & input {
+      margin: 0;
+      accent-color: var(--color-accent);
+    }
+  }
+}

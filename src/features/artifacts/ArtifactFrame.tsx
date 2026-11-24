@@ -2,7 +2,9 @@ import { useEffect, useRef } from 'react';
 import type { ReactElement, RefObject } from 'react';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import type { Artifact } from '@/lib/bindings/Artifact';
+import type { ColorScheme } from '@/lib/bindings/ColorScheme';
 import { artifactUrl } from '@/lib/artifacts';
+import { useSettingsStore } from '@/stores/settings';
 import { parseOpenRequest } from '@/features/artifacts/artifactBridge';
 
 interface ArtifactFrameProps {
@@ -35,6 +37,10 @@ export function ArtifactFrame({
   const ownFrame = useRef<HTMLIFrameElement>(null);
   const frame: RefObject<HTMLIFrameElement | null> = frameRef ?? ownFrame;
   const lastOpenedAt = useRef<number>(0);
+  // Der Rahmen sieht nur das Schema des Systems; das der App geht als Parameter in die Adresse.
+  const colorScheme: ColorScheme = useSettingsStore(
+    (state) => state.settings?.colorScheme ?? 'system',
+  );
 
   // Links nach außen meldet die Brücke im Rahmen (`bridge.js`); geöffnet wird im Standardbrowser.
   useEffect(() => {
@@ -59,7 +65,7 @@ export function ArtifactFrame({
       key={`${item.file}:${String(reloadToken)}`}
       ref={frame}
       className={className}
-      src={artifactUrl(baseUrl, item)}
+      src={artifactUrl(baseUrl, item, colorScheme)}
       sandbox={FRAME_SANDBOX}
       allow="fullscreen"
       title={item.title}

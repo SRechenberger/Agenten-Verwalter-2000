@@ -264,6 +264,7 @@ export function AgentTypeDialog({
   const bodyRef = useRef<HTMLDivElement>(null);
   const keepEditingRef = useRef<HTMLButtonElement>(null);
   const returnFocusRef = useRef<Element | null>(null);
+  const menuOpenAtPressRef = useRef<boolean>(false);
   const nameId: string = useId();
   const descriptionId: string = useId();
   const promptId: string = useId();
@@ -275,6 +276,24 @@ export function AgentTypeDialog({
       bodyRef.current?.querySelector('[data-invalid="true"]')?.scrollIntoView({ block: 'nearest' });
     }
   }, [errorRevision]);
+
+  // `Dialog` schließt bei `click`, aber `Popover` schließt sein Menü schon beim `pointerdown` und die Liste der
+  // Skills beim Blur im `mousedown`: Beim `click` ist `layer` dann `null`. Darum merkt sich der Dialog beim Drücken
+  // (Capture, vor beiden), ob ein Menü offen war; das `click` (Bubble, nach React) beendet die Geste.
+  useEffect(() => {
+    function handlePress(event: PointerEvent): void {
+      menuOpenAtPressRef.current = event.button === 0 && layer !== null;
+    }
+    function handleClick(): void {
+      menuOpenAtPressRef.current = false;
+    }
+    window.addEventListener('pointerdown', handlePress, true);
+    window.addEventListener('click', handleClick);
+    return (): void => {
+      window.removeEventListener('pointerdown', handlePress, true);
+      window.removeEventListener('click', handleClick);
+    };
+  }, [layer]);
 
   // Die Rückfrage wählt die sichere Antwort vor. `autoFocus` genügt nicht: Nach einem Klick auf den
   // Hintergrund nimmt das Fenster den Fokus erst danach wieder weg.
@@ -369,12 +388,13 @@ export function AgentTypeDialog({
   }
 
   /** Esc und ein Klick auf den Hintergrund: erst schließen sie ein offenes Menü, dann fragen sie, wenn etwas
-   *  Ungespeichertes im Formular steht. `Dialog` schließt sonst ohne Rückfrage, und der Text wäre weg. */
+   *  Ungespeichertes im Formular steht. `Dialog` schließt sonst ohne Rückfrage, und der Text wäre weg.
+   *  Beim Klick kann das Menü schon zu sein; dann zählt, ob es beim Drücken offen war. */
   function requestClose(): void {
     if (isSaving) {
       return;
     }
-    if (layer !== null) {
+    if (layer !== null || menuOpenAtPressRef.current) {
       setLayer(null);
       return;
     }

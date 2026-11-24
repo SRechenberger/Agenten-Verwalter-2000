@@ -1,0 +1,63 @@
+/* Diff und Formular im Kasten eines Vorschlags; alles Übrige kommt aus AgentTypeProposalBlock.css. */
+.prompt-template-proposal {
+  &__views {
+    align-self: flex-start;
+  }
+
+  &__code {
+    font-family: var(--font-mono);
+    font-size: var(--font-size-xs);
+    overflow-wrap: anywhere;
+  }
+
+  /* Untereinander wie die Changes-Ansicht: − alt, + neu, Kontext grau. */
+  &__diff {
+    overflow: hidden;
+    border: 1px solid var(--color-border-subtle);
+    border-radius: var(--radius-md);
+    background: var(--color-bg-base);
+    font-family: var(--font-mono);
+    font-size: var(--font-size-xs);
+  }
+
+  &__line {
+    display: flex;
+    min-height: 18px;
+
+    &--same {
+      color: var(--color-fg-secondary);
+    }
+
+    &--added {
+      background: var(--color-diff-add-bg);
+      color: var(--color-fg-primary);
+    }
+
+    &--removed {
+      background: var(--color-diff-del-bg);
+      color: var(--color-fg-primary);
+    }
+  }
+
+  &__sign {
+    flex-shrink: 0;
+    width: 20px;
+    text-align: center;
+  }
+
+  &__line--added &__sign {
+    color: var(--color-diff-add-fg);
+  }
+
+  &__line--removed &__sign {
+    color: var(--color-diff-del-fg);
+  }
+
+  &__text {
+    flex: 1;
+    min-width: 0;
+    padding-right: var(--space-md);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+}

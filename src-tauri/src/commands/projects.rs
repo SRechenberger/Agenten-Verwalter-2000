@@ -31,6 +31,7 @@ pub async fn project_create(
     app: tauri::AppHandle,
     registry: tauri::State<'_, SessionRegistry>,
     task: String,
+    name: Option<String>,
     attachment_ids: Vec<String>,
     repository_ids: Vec<String>,
     model: ModelId,
@@ -51,6 +52,7 @@ pub async fn project_create(
             mode,
             group_id,
         },
+        name.as_deref(),
     )
 }
 

@@ -1,5 +1,10 @@
 import { useEffect, useRef } from 'react';
-import type { PointerEvent as ReactPointerEvent, ReactElement, ReactNode } from 'react';
+import type {
+  MouseEvent as ReactMouseEvent,
+  PointerEvent as ReactPointerEvent,
+  ReactElement,
+  ReactNode,
+} from 'react';
 import { createPortal } from 'react-dom';
 import { FOCUSABLE_SELECTOR } from '@/lib/focus';
 import './Dialog.css';
@@ -14,10 +19,12 @@ interface DialogProps {
 }
 
 /** Modale Hülle für Dialoge mittig über der App; Gegenstück zu `Popover` für Inhalte,
- *  die nicht an einem Auslöser hängen. Der Fokus bleibt im Feld und kehrt beim Schließen zurück. */
+ *  die nicht an einem Auslöser hängen. Der Fokus bleibt im Feld und kehrt beim Schließen zurück.
+ *  Ein Klick mit der linken Taste auf den Hintergrund schließt erst bei `click`, und nur wenn auch das `pointerdown` dort lag. */
 export function Dialog({ labelledBy, className, onClose, children }: DialogProps): ReactElement {
   const panelRef = useRef<HTMLElement>(null);
   const onCloseRef = useRef<() => void>(onClose);
+  const pressedOnBackdropRef = useRef<boolean>(false);
 
   // Der Listener-Effekt läuft nur einmal; über die Ref sieht er stets den aktuellen Callback,
   // ohne dass ein neuer Callback pro Render den Fokus erneut auf das erste Element setzt.
@@ -76,14 +83,35 @@ export function Dialog({ labelledBy, className, onClose, children }: DialogProps
     };
   }, []);
 
+  // Capture-Handler (`onPointerDownCapture`, `onPointerUpCapture`): Kinder, die `stopPropagation` aufrufen,
+  // setzen den Merker so trotzdem neu.
+  // Schließen erst bei `click`: Die Standardaktion von `mousedown` setzt den Fokus auf `body` und
+  // läuft vor dem Schließen, sodass `onClose` und die Rückgabe an `previouslyFocused` das letzte Wort haben.
   function handleBackdropPointerDown(event: ReactPointerEvent<HTMLDivElement>): void {
-    if (event.target === event.currentTarget) {
-      onClose();
+    pressedOnBackdropRef.current = event.button === 0 && event.target === event.currentTarget;
+  }
+
+  // Ein Ziehen vom Hintergrund ins Feld endet im `click` auf dem gemeinsamen Vorfahren, dem Hintergrund.
+  function handleBackdropPointerUp(event: ReactPointerEvent<HTMLDivElement>): void {
+    if (event.target !== event.currentTarget) {
+      pressedOnBackdropRef.current = false;
     }
   }
 
+  function handleBackdropClick(event: ReactMouseEvent<HTMLDivElement>): void {
+    if (pressedOnBackdropRef.current && event.target === event.currentTarget) {
+      onClose();
+    }
+    pressedOnBackdropRef.current = false;
+  }
+
   return createPortal(
-    <div className="dialog" onPointerDown={handleBackdropPointerDown}>
+    <div
+      className="dialog"
+      onPointerDownCapture={handleBackdropPointerDown}
+      onPointerUpCapture={handleBackdropPointerUp}
+      onClick={handleBackdropClick}
+    >
       <section
         ref={panelRef}
         className={`dialog__panel ${className ?? ''}`}

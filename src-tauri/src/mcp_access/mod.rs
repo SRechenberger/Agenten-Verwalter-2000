@@ -26,6 +26,7 @@ use crate::agent_types::tools::AgentTypeTools;
 use crate::artifacts::tools::ArtifactTools;
 use crate::filesystem::workspace::data_dir;
 use crate::implementation::tools::ImplementationTools;
+use crate::prompt_templates::tools::PromptTemplateTools;
 use crate::session_tools::tools::SessionTools;
 use http::{BodyError, Head, Reply};
 use rpc::{OpenCall, Outcome};
@@ -55,6 +56,7 @@ pub fn tool_sets() -> Vec<Box<dyn ToolSet>> {
         Box::new(SessionTools),
         Box::new(ImplementationTools),
         Box::new(AgentTypeTools),
+        Box::new(PromptTemplateTools),
     ]
 }
 

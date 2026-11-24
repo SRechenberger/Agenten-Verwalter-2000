@@ -134,6 +134,10 @@
     font-size: var(--font-size-xs);
   }
 
+  &__hint--dictating {
+    color: var(--color-status-waiting);
+  }
+
   &__note {
     margin: 0;
     font-size: var(--font-size-xs);
@@ -265,5 +269,96 @@
   &__error {
     margin: 0;
     color: var(--color-status-error);
+  }
+
+  /* Prompt-Vorlagen (ADR 075): Knopf ▤, Sperrzeile, Namensfeld, Hinweis am Start und „Text ersetzen?“. */
+  &__template-button {
+    font-size: 15px;
+  }
+
+  &__lock {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    padding: var(--space-md) 14px 0;
+    font-size: var(--font-size-xs);
+    color: var(--color-fg-muted);
+  }
+
+  &__task:read-only {
+    color: var(--color-fg-secondary);
+  }
+
+  &__name-row {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: center;
+    gap: var(--space-md);
+  }
+
+  &__name-label {
+    font-size: var(--font-size-sm);
+    color: var(--color-fg-secondary);
+    white-space: nowrap;
+  }
+
+  &__name {
+    box-sizing: border-box;
+    width: 100%;
+    height: 30px;
+    padding: 0 var(--space-md);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    background: var(--color-bg-base);
+    color: var(--color-fg-primary);
+    font: inherit;
+
+    &:focus {
+      outline: none;
+      border-color: var(--color-accent);
+      box-shadow: 0 0 0 3px var(--color-accent-subtle);
+    }
+  }
+
+  &__name-chip {
+    padding: 0 var(--space-md);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-full);
+    font-size: var(--font-size-2xs);
+    color: var(--color-fg-muted);
+    white-space: nowrap;
+
+    &--manual {
+      border-color: var(--color-accent);
+      color: var(--color-accent-text);
+    }
+  }
+
+  &__start-hint {
+    margin: -18px 0 0;
+    font-size: var(--font-size-xs);
+    color: var(--color-status-waiting);
+  }
+
+  &__replace {
+    width: 440px;
+    padding: 14px 18px;
+  }
+
+  &__replace-title {
+    margin: 0 0 var(--space-md);
+    font-size: 15px;
+    font-weight: 600;
+  }
+
+  &__replace-text {
+    margin: 0 0 var(--space-xl);
+    color: var(--color-fg-secondary);
+  }
+
+  &__replace-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: var(--space-md);
   }
 }

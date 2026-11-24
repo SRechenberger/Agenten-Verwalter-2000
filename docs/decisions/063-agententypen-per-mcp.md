@@ -74,3 +74,4 @@ Entwurf und Bilder der gebauten App: [`docs/design/2026-11-15_agententypen-mcp/`
 - Gleichzeitiges „Übernehmen“ und „Verwerfen“ von Host und Gast kann einen gespeicherten Typ hinterlassen, den der Agent für verworfen hält (Fenster D8, siehe *Kasten und Antwort*). Der Benutzer sieht ihn in den Einstellungen und kann ihn löschen.
 - Die Oberfläche hat keine automatischen Tests; belegt ist sie durch die Bilder in `docs/design/2026-11-15_agententypen-mcp/umsetzung/` (Linux).
 - **Offen:** der Probelauf mit einer echten Claude-Session; unter Windows nur, was die CI dort prüft.
+- Prompt-Vorlagen folgen diesem Muster mit eigenem Werkzeug-Satz, Kasten und Befehl: [ADR 075](075-prompt-vorlagen.md), Abschnitt „Per MCP“.

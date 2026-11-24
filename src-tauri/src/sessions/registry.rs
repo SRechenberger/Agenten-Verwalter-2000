@@ -192,6 +192,12 @@ struct ProjectState {
 }
 
 impl ProjectState {
+    /// Der Titel von Haiku ersetzt nur einen automatisch entstandenen Namen (`retitle_project`); ein
+    /// Name aus der Namensvorlage oder von Hand bleibt (ADR 075, A1).
+    fn takes_title(&self, title: &str) -> bool {
+        self.name_auto && self.name != title
+    }
+
     fn new(name: String, created_at: f64) -> Self {
         ProjectState {
             name,
@@ -302,10 +308,6 @@ struct SessionState {
     /// macht gleich von selbst weiter (`wake_if_idle`). Bis zum nächsten Status oder Prozessende hält
     /// die Session so ihren Platz (ADR 068). Nur im Speicher.
     continues_by_itself: bool,
-    /// Die Session einer Station pausierte neu am Kontingent, der Haken hat über das Scharfschalten noch
-    /// nicht entschieden (`slots::awaits_arming`): Bis dahin hält sie ihren Platz (ADR 068, Regel d). Nur
-    /// im Speicher; jeder Statuswechsel und der Haken (`arming_decided`) löschen ihn.
-    awaits_arming: bool,
     /// `tool_use`-IDs der Session-Werkzeuge, die `gate` schon gesehen hat. Nur im Speicher.
     seen_tool_uses: HashSet<String>,
     /// Marke von „Automatisch fortsetzen“: jedes Umlegen erhöht sie, der Zeitgeber vergleicht sie. Nur
@@ -576,6 +578,11 @@ struct Outbox {
     /// aus, Senden gescheitert): nach dem Freigeben der Sperre plant die Umsetzung ihre Warteschlange
     /// neu (ADR 064). Nicht `station_idle`: dessen Haken schaltete wieder scharf.
     station_disarmed: Option<String>,
+    /// Eine weitere Kontingent-Meldung an eine Session mit scharfem Zeitgeber nannte eine neue
+    /// Rücksetzzeit: nach dem Freigeben der Sperre startet der Zeitgeber für sie neu, denn `spawn`
+    /// läuft nie unter der Sperre (ADR 064, Nachtrag 2026-11-24). Der alte ist mit der neuen Marke
+    /// nicht mehr aktuell.
+    restart_auto_resume: Option<ArmedResume>,
     /// Die Session einer Station hat eine Rückfrage gestellt (Umsetzung, Kennung der Rückfrage): nach
     /// dem Freigeben der Sperre weckt die Umsetzung ihren Ersteller (ADR 061).
     station_asks: Option<(String, String)>,
@@ -692,10 +699,13 @@ impl SessionRegistry {
     /// Datenbankzeilen, dann der Agent mit der Aufgabe. Alles oder nichts: scheitert ein Schritt,
     /// bleibt weder der Workspace-Ordner noch eine Datenbankzeile zurück. Worktrees und Branches
     /// legt die App nicht an (ADR 010).
+    /// `name`: der Name des Vorhabens aus der Namensvorlage (ADR 075, A1); leer oder `None` wie
+    /// bisher der erste Satz des Auftrags. Session 1 heißt immer nach dem ersten Satz.
     pub fn create_project(
         &self,
         app: &AppHandle,
         request: NewSession<'_>,
+        name: Option<&str>,
     ) -> Result<ProjectCreated, CommandError> {
         // Vor allem anderen: ein leerer Auftrag und eine unbekannte Gruppe lassen nichts zurück.
         request.refuse_empty_task()?;
@@ -727,6 +737,7 @@ impl SessionRegistry {
         let repositories = worktrees::main_checkouts(&rows)?;
         let project_id = uuid::Uuid::new_v4().to_string();
         let id = uuid::Uuid::new_v4().to_string();
+        let (project_name, project_name_auto) = project_name(task, name);
         let name = name_from_task(task);
         let workspace = new_session_workspace(app, &project_id)?;
         let task_attachments =
@@ -747,12 +758,12 @@ impl SessionRegistry {
         let task_skill: Option<SkillRef> = home_dir(app).ok().and_then(|home: PathBuf| {
             skills::match_invocation(task, &skills::collect(&home, &repository_roots))
         });
-        let mut state = SessionState::new(name.clone(), model, effort, mode);
+        let mut state = SessionState::new(name, model, effort, mode);
         state.name_auto = true;
         state.codex_model = codex_model;
         state.ticket_roots = worktrees::ticket_roots(&repositories);
-        let mut project = ProjectState::new(name, state.created_at);
-        project.name_auto = true;
+        let mut project = ProjectState::new(project_name, state.created_at);
+        project.name_auto = project_name_auto;
         project.self_release = default_self_release;
         project.group_id.clone_from(&group_id);
         let session = Arc::new(Session {
@@ -774,7 +785,7 @@ impl SessionRegistry {
             tldr: None,
             tldr_at: None,
             tldr_sources: None,
-            name_auto: true,
+            name_auto: project_name_auto,
             self_release: default_self_release,
             group_id,
             priority: project.priority,
@@ -2546,6 +2557,16 @@ impl SessionRegistry {
     }
 }
 
+/// Name eines neuen Vorhabens und ob er automatisch entstand (ADR 075, A1, A2): ein Name aus der
+/// Namensvorlage gilt wie `project_rename`, gekürzt und von Hand gesetzt; leer oder `None` ist der
+/// erste Satz des Auftrags, den Haiku später ersetzen darf.
+fn project_name(task: &str, name: Option<&str>) -> (String, bool) {
+    match name.and_then(|name: &str| trimmed_name(name).ok()) {
+        Some(name) => (name, false),
+        None => (name_from_task(task), true),
+    }
+}
+
 /// Getrimmt und auf die Höchstlänge gekürzt; leer ist ein Fehler.
 fn trimmed_name(name: &str) -> Result<String, CommandError> {
     let name: String = name.trim().chars().take(MAX_NAME_CHARS).collect();
@@ -2677,7 +2698,6 @@ impl SessionState {
             pause_reason: None,
             fresh_error: false,
             continues_by_itself: false,
-            awaits_arming: false,
             seen_tool_uses: HashSet::new(),
             auto_resume_token: 0,
             seen_at: now,
@@ -3100,14 +3120,12 @@ impl SessionState {
         })
     }
 
-    /// Belegt einen Platz der globalen Warteschlange (ADR 068, Regel a; `slots::holds_slot`), zur Zeit
-    /// `now`: Ein Durchgang zählt und sammelt mit derselben Uhr.
-    pub(crate) fn holds_slot_at(&self, now: f64) -> bool {
+    /// Belegt einen Platz der globalen Warteschlange (ADR 068, Regel a; `slots::holds_slot`). Eine
+    /// pausierte Session nie, auch nicht die einer Station mit scharfem Zeitgeber (Taiga #227).
+    pub(crate) fn holds_slot(&self) -> bool {
         slots::holds_slot(
             self.status,
             self.awaits_background() || self.continues_by_itself,
-            self.station_of.is_some() && (self.waits_for_resume() || self.awaits_arming),
-            self.resume_is_due(now),
         )
     }
 
@@ -3128,6 +3146,19 @@ impl SessionState {
             )
     }
 
+    /// Fälligkeit der Rücksetzzeit, solange die Session am Kontingent pausiert, scharf oder nicht, mit
+    /// Station oder ohne: Das Kontingent ist kontoweit, die Warteschlange hält Stationen bis dahin
+    /// (`usage::pause_hold_until`, Taiga #227).
+    pub(crate) fn quota_pause_due_at(&self) -> Option<f64> {
+        match self.pause_reason {
+            Some(PauseReason::Quota {
+                resets_at: Some(resets_at),
+                ..
+            }) if self.status == SessionStatus::Paused => Some(auto_resume::due_at(resets_at)),
+            _ => None,
+        }
+    }
+
     /// Ab wann das Fortsetzen fällig ist, solange die Session mit scharfem Zeitgeber pausiert.
     fn resume_due_at(&self) -> Option<f64> {
         match self.pause_reason {
@@ -3137,12 +3168,6 @@ impl SessionState {
             }) if self.status == SessionStatus::Paused => Some(auto_resume::due_at(resets_at)),
             _ => None,
         }
-    }
-
-    /// Das Fortsetzen ist fällig und wartet auf einen Platz (ADR 068).
-    fn resume_is_due(&self, now: f64) -> bool {
-        self.resume_due_at()
-            .is_some_and(|due_at: f64| now >= due_at)
     }
 
     /// Abgeschlossen, ohne offene Rückfrage, ohne laufenden Subagent oder Skript: Eine neue Eingabe
@@ -3251,7 +3276,6 @@ impl SessionState {
         if self.status == status {
             return;
         }
-        self.awaits_arming = false;
         let now = now_ms();
         if self.status == SessionStatus::Running
             && let Some(since) = self.running_since.take()
@@ -4270,10 +4294,26 @@ impl SessionState {
 
     /// Warnung im Verlauf statt Fehlerkarte, Session pausiert mit Begründung (ADR 051). Der Prozess
     /// bleibt offen; endet er, startet `send` ihn neu.
+    ///
+    /// Ist die Session schon am Kontingent pausiert, ist das eine Wiederholung: Ein Zug, den die
+    /// Kommandozeile nach einem Hintergrund-Befehl selbst beginnt, lief erneut ins Kontingent. Der
+    /// scharfe Zeitgeber bleibt dann scharf: bei gleicher oder unbekannter Rücksetzzeit mit seiner Marke,
+    /// bei einer neuen Zeit mit neuer Marke und neuem Zeitgeber (`Outbox::restart_auto_resume`). Wer
+    /// nicht scharf war, bleibt es (ADR 064, Nachtrag 2026-11-24).
     fn pause_for_quota(&mut self, outbox: &mut Outbox, text: String, resets_at: Option<i64>) {
         let now_secs = (now_ms() / MS_PER_SECOND) as i64;
         let resets_at: Option<f64> = reset_text::resolve(resets_at, &text, now_secs)
             .map(|seconds: i64| seconds as f64 * MS_PER_SECOND);
+        let repeated: Option<(Option<f64>, bool)> = match (self.status, &self.pause_reason) {
+            (
+                SessionStatus::Paused,
+                Some(PauseReason::Quota {
+                    resets_at,
+                    auto_resume,
+                }),
+            ) => Some((*resets_at, *auto_resume)),
+            _ => None,
+        };
         self.interrupt_running_tools(outbox);
         self.abandon_pending(outbox, "Nicht beantwortet");
         self.push_entry(outbox, |seq: u32| ChatEntry::Notice {
@@ -4282,13 +4322,29 @@ impl SessionState {
             at: None,
         });
         self.pause_after_interrupt(outbox);
-        self.pause_reason = Some(PauseReason::Quota {
-            resets_at,
-            auto_resume: false,
-        });
-        // Nur mit Haken: Ohne Statuswechsel (schon pausiert) entscheidet keiner und gäbe den Platz frei.
-        self.awaits_arming = outbox.station_idle.is_some()
-            && slots::awaits_arming(self.station_of.is_some(), resets_at, now_ms());
+        match repeated {
+            Some((before, true)) => {
+                if let Some(new) = resets_at
+                    && before != Some(new)
+                {
+                    self.auto_resume_token += 1;
+                    self.pause_reason = Some(PauseReason::Quota {
+                        resets_at: Some(new),
+                        auto_resume: true,
+                    });
+                    outbox.restart_auto_resume = Some(ArmedResume {
+                        token: self.auto_resume_token,
+                        resets_at: new,
+                    });
+                }
+            }
+            _ => {
+                self.pause_reason = Some(PauseReason::Quota {
+                    resets_at,
+                    auto_resume: false,
+                });
+            }
+        }
         // Wie beim Fehler: der Agent hat abgegeben, die Sidebar soll es zeigen.
         self.touch_activity(outbox);
     }
@@ -4491,11 +4547,11 @@ fn update<R>(
     let mut outbox = Outbox::default();
     let result = {
         let mut state = session.lock_loaded()?;
-        let held_slot = state.holds_slot_at(now_ms());
+        let held_slot = state.holds_slot();
         let result = change(&mut state, &mut outbox);
         // Vorher und nachher, nicht je Statuswechsel: Auch ein endender Subagent oder ein
         // ausgeschalteter Zeitgeber gibt einen Platz frei (ADR 068).
-        outbox.slots_changed |= held_slot != state.holds_slot_at(now_ms());
+        outbox.slots_changed |= held_slot != state.holds_slot();
         // Zugende ohne Statuswechsel: Ein wartendes Skript oder ein Subagent einer abgegebenen Station
         // endet mit dem Prozess, der Status bleibt `Completed`. Auch das weckt den Master (ADR 070).
         if outbox.station_idle.is_none()
@@ -4531,6 +4587,9 @@ fn update<R>(
         && outbox.station_disarmed.is_none()
     {
         schedule_pass(app);
+    }
+    if let Some(armed) = outbox.restart_auto_resume.take() {
+        auto_resume::spawn(app, &session.id, armed);
     }
     if let Some(implementation_id) = outbox.station_idle.take() {
         implementation::schedule_station_session_end(app, implementation_id, session.id.clone());
@@ -5002,12 +5061,7 @@ fn route_input(
         .with(|connection| session_inbox::oldest_from_user(connection, &session.id))?
         .is_some();
     Ok(
-        if queues_user_message(
-            state.status,
-            state.holds_slot_at(now_ms()),
-            claimed,
-            has_waiting,
-        ) {
+        if queues_user_message(state.status, state.holds_slot(), claimed, has_waiting) {
             InputRoute::Queue
         } else {
             InputRoute::Start
@@ -6461,6 +6515,177 @@ mod tests {
         assert!(takes(&state_with(SessionStatus::Completed), false));
     }
 
+    /// Eine Station, pausiert am Kontingent, Rücksetzzeit in `seconds` Sekunden nach der Epoche; die
+    /// Marke des Zeitgebers steht auf 3.
+    fn paused_station(seconds: i64, auto_resume: bool) -> SessionState {
+        let mut state = state_with(SessionStatus::Paused);
+        state.station_of = Some("i".to_owned());
+        state.auto_resume_token = 3;
+        state.pause_reason = Some(PauseReason::Quota {
+            resets_at: Some(seconds as f64 * MS_PER_SECOND),
+            auto_resume,
+        });
+        state
+    }
+
+    fn quota_end(seconds: Option<i64>) -> TurnEnd {
+        TurnEnd::QuotaExhausted {
+            text: "Kontingent aufgebraucht".to_owned(),
+            resets_at: seconds,
+        }
+    }
+
+    /// Eine Stunde nach jetzt, in Sekunden seit der Epoche.
+    fn in_an_hour() -> i64 {
+        (now_ms() / MS_PER_SECOND) as i64 + 3600
+    }
+
+    #[test]
+    fn a_quota_pause_holds_no_slot() {
+        let at = in_an_hour();
+        // Ein scharfer Zeitgeber, ein nicht scharfer, eine Station und eine Session ohne Station:
+        // keine pausierte Session belegt einen Platz (Taiga #227).
+        assert!(!paused_station(at, true).holds_slot(), "scharf");
+        assert!(!paused_station(at, false).holds_slot(), "nicht scharf");
+        let mut without_station = paused_station(at, true);
+        without_station.station_of = None;
+        assert!(!without_station.holds_slot(), "ohne Station");
+    }
+
+    #[test]
+    fn a_quota_pause_with_a_reset_time_names_its_due_time_armed_or_not_with_a_station_or_without() {
+        let at = in_an_hour();
+        let due = auto_resume::due_at(at as f64 * MS_PER_SECOND);
+        assert_eq!(paused_station(at, true).quota_pause_due_at(), Some(due));
+        assert_eq!(paused_station(at, false).quota_pause_due_at(), Some(due));
+        let mut without_station = paused_station(at, false);
+        without_station.station_of = None;
+        assert_eq!(without_station.quota_pause_due_at(), Some(due));
+        let mut unknown = paused_station(at, true);
+        unknown.pause_reason = Some(PauseReason::Quota {
+            resets_at: None,
+            auto_resume: true,
+        });
+        assert_eq!(unknown.quota_pause_due_at(), None, "ohne Rücksetzzeit");
+        let mut running = paused_station(at, true);
+        running.status = SessionStatus::Running;
+        assert_eq!(running.quota_pause_due_at(), None, "nicht pausiert");
+    }
+
+    #[test]
+    fn a_second_quota_end_keeps_the_armed_timer() {
+        let at = in_an_hour();
+        let mut state = paused_station(at, true);
+        let held = state.holds_slot();
+        let mut outbox = Outbox::default();
+        state.end_turn(&mut outbox, quota_end(Some(at)), None, Vec::new(), None);
+        let armed = ArmedResume {
+            token: 3,
+            resets_at: at as f64 * MS_PER_SECOND,
+        };
+        assert!(state.auto_resume_is_current(armed), "der Zeitgeber gilt");
+        assert_eq!(state.auto_resume_token, 3);
+        assert!(outbox.restart_auto_resume.is_none(), "kein neuer Zeitgeber");
+        assert!(outbox.station_disarmed.is_none());
+        assert_eq!(state.holds_slot(), held, "der Platz bleibt");
+        assert!(
+            matches!(
+                state.entries.last(),
+                Some(ChatEntry::Notice {
+                    notice: Notice::QuotaExhausted { .. },
+                    ..
+                })
+            ),
+            "die Karte kommt bei jeder Meldung"
+        );
+    }
+
+    #[test]
+    fn a_second_quota_end_with_a_new_time_restarts_the_timer_for_it() {
+        let (at, later) = (in_an_hour(), in_an_hour() + 600);
+        let mut state = paused_station(at, true);
+        let held = state.holds_slot();
+        let mut outbox = Outbox::default();
+        state.end_turn(&mut outbox, quota_end(Some(later)), None, Vec::new(), None);
+        let old = ArmedResume {
+            token: 3,
+            resets_at: at as f64 * MS_PER_SECOND,
+        };
+        let new = ArmedResume {
+            token: 4,
+            resets_at: later as f64 * MS_PER_SECOND,
+        };
+        assert_eq!(outbox.restart_auto_resume, Some(new));
+        assert!(state.auto_resume_is_current(new));
+        assert!(!state.auto_resume_is_current(old), "der alte endet");
+        assert_eq!(state.holds_slot(), held, "der Platz bleibt");
+    }
+
+    #[test]
+    fn a_second_quota_end_without_a_time_keeps_the_armed_timer_and_its_time() {
+        let at = in_an_hour();
+        let mut state = paused_station(at, true);
+        let mut outbox = Outbox::default();
+        state.end_turn(&mut outbox, quota_end(None), None, Vec::new(), None);
+        let armed = ArmedResume {
+            token: 3,
+            resets_at: at as f64 * MS_PER_SECOND,
+        };
+        assert!(state.auto_resume_is_current(armed));
+        assert!(outbox.restart_auto_resume.is_none());
+    }
+
+    #[test]
+    fn a_second_quota_end_without_an_armed_timer_takes_the_new_time_and_stays_disarmed() {
+        let (at, later) = (in_an_hour(), in_an_hour() + 600);
+        let mut state = paused_station(at, false);
+        let mut outbox = Outbox::default();
+        state.end_turn(&mut outbox, quota_end(Some(later)), None, Vec::new(), None);
+        assert_eq!(
+            state.pause_reason,
+            Some(PauseReason::Quota {
+                resets_at: Some(later as f64 * MS_PER_SECOND),
+                auto_resume: false,
+            })
+        );
+        assert_eq!(state.auto_resume_token, 3);
+        assert!(outbox.restart_auto_resume.is_none());
+    }
+
+    #[test]
+    fn a_second_quota_end_holds_no_slot_and_asks_the_hook_no_more() {
+        let at = in_an_hour();
+        let mut state = paused_station(at, false);
+        assert!(!state.holds_slot(), "auch vor dem Haken kein Platz");
+        let mut outbox = Outbox::default();
+        state.end_turn(&mut outbox, quota_end(Some(at)), None, Vec::new(), None);
+        assert!(!state.holds_slot());
+        assert!(
+            outbox.station_idle.is_none(),
+            "der Haken läuft nicht noch einmal"
+        );
+    }
+
+    #[test]
+    fn a_first_quota_end_pauses_disarmed_and_asks_the_hook() {
+        let at = in_an_hour();
+        let mut state = state_with(SessionStatus::Running);
+        state.station_of = Some("i".to_owned());
+        let mut outbox = Outbox::default();
+        state.end_turn(&mut outbox, quota_end(Some(at)), None, Vec::new(), None);
+        assert_eq!(state.status, SessionStatus::Paused);
+        assert_eq!(
+            state.pause_reason,
+            Some(PauseReason::Quota {
+                resets_at: Some(at as f64 * MS_PER_SECOND),
+                auto_resume: false,
+            })
+        );
+        assert!(!state.holds_slot(), "auch vor dem Haken kein Platz");
+        assert_eq!(outbox.station_idle.as_deref(), Some("i"));
+        assert!(outbox.restart_auto_resume.is_none());
+    }
+
     #[test]
     fn only_a_master_message_since_the_pause_counts_for_the_pass() {
         use crate::db::{Database, session_inbox};
@@ -7357,7 +7582,7 @@ mod tests {
         let version: u32 = connection
             .query_row("PRAGMA user_version", [], |row| row.get(0))
             .expect("Version");
-        assert_eq!(version, 34);
+        assert_eq!(version, crate::db::migrations::LATEST);
         let (text, subject): (String, Option<String>) = connection
             .query_row("SELECT text, subject FROM session_inbox", [], |row| {
                 Ok((row.get(0)?, row.get(1)?))
@@ -8336,7 +8561,7 @@ mod tests {
         let version: u32 = connection
             .query_row("PRAGMA user_version", [], |row| row.get(0))
             .expect("Version");
-        assert_eq!(version, 34);
+        assert_eq!(version, crate::db::migrations::LATEST);
         let row = session_inbox::oldest(&connection, "s")
             .expect("lesen")
             .expect("Zeile bleibt");
@@ -8347,5 +8572,39 @@ mod tests {
                 .is_none(),
             "eine Session-Nachricht ist keine eigene"
         );
+    }
+
+    #[test]
+    fn a_project_named_by_the_name_template_counts_as_set_by_hand_and_keeps_its_name_against_haiku()
+    {
+        let (name, name_auto) =
+            project_name("Behebe den Fehler. Mehr dazu.", Some("  Bugfix: Leiste "));
+        assert_eq!((name.as_str(), name_auto), ("Bugfix: Leiste", false));
+        let mut project = ProjectState::new(name, 1.0);
+        project.name_auto = name_auto;
+        assert!(!project.takes_title("Titel von Haiku"));
+    }
+
+    #[test]
+    fn a_project_without_or_with_an_empty_name_takes_the_first_sentence_that_haiku_may_replace() {
+        for name in [None, Some(""), Some(" \t ")] {
+            let (got, name_auto) = project_name("Behebe den Fehler. Mehr dazu.", name);
+            assert_eq!(
+                (got.as_str(), name_auto),
+                ("Behebe den Fehler", true),
+                "{name:?}"
+            );
+            let mut project = ProjectState::new(got, 1.0);
+            project.name_auto = name_auto;
+            assert!(project.takes_title("Titel von Haiku"), "{name:?}");
+        }
+    }
+
+    #[test]
+    fn a_name_from_the_name_template_is_cut_to_60_chars_like_a_rename() {
+        let long = "n".repeat(70);
+        let (name, _) = project_name("Auftrag", Some(&long));
+        assert_eq!(name, trimmed_name(&long).expect("nicht leer"));
+        assert_eq!(name.chars().count(), MAX_NAME_CHARS);
     }
 }

@@ -8,8 +8,8 @@ use tauri::{AppHandle, Manager};
 
 use super::model::{
     ChangeSummary, ImplementationView, OnError, PendingChange, PhaseInput, PhaseMark, PhaseView,
-    PredecessorsMay, StationState, StationView, check_agents, refuse_taken_aliases, station_label,
-    stations_in, validate,
+    PredecessorsMay, StationInput, StationState, StationView, check_agents, refuse_taken_aliases,
+    station_label, stations_in, validate,
 };
 use super::{
     announce, assigned_text, kept_phases, lane_keys, link, now_ms, number_stations, phase_rows,
@@ -165,7 +165,8 @@ pub fn describe(summary: &ChangeSummary) -> String {
     parts.join(", ")
 }
 
-/// Prüft die Phasen des Vorschlags (Form, Agenten, Befehls-Stationen) und gibt die Umsetzung der Session zurück.
+/// Prüft die Phasen des Vorschlags (Form, Agenten, Befehls-Stationen, Aliasse gegen die Kennungen im
+/// Plan ohne die genannten, `refuse_taken_kennungen`) und gibt die Umsetzung der Session zurück.
 pub(super) fn checked_view(
     registry: &SessionRegistry,
     session_id: &str,
@@ -180,8 +181,67 @@ pub(super) fn checked_view(
         .require_implementation_of_session(session_id)
         .map_err(|error: CommandError| error.to_string())?;
     registry.check_commands(&view.project_id, &stations_in("phases", inputs), &[])?;
-    refuse_taken_aliases(&stations_in("phases", inputs), &plan_ids(&view))?;
+    refuse_taken_kennungen(&view, inputs)?;
     Ok(view)
+}
+
+/// `refuse_taken_aliases` für `implementation_set_phases`: gegen die Kennungen im Plan ohne die, die
+/// `inputs` nach `named_upcoming` nennt (ADR 061, Nachtrag 2026-11-23).
+pub fn refuse_taken_kennungen(
+    view: &ImplementationView,
+    inputs: &[PhaseInput],
+) -> Result<(), String> {
+    let named = named_upcoming(view, inputs);
+    let taken: Vec<&str> = plan_ids(view)
+        .into_iter()
+        .filter(|id: &&str| !named.contains(id))
+        .collect();
+    refuse_taken_aliases(&stations_in("phases", inputs), &taken)
+}
+
+/// Die Stationen kommender Lanes, die `inputs` mit ihrer Kennung nennt (ADR 061, Nachtrag
+/// 2026-11-23): ein ausdrückliches `id` gleich ihrer Kennung an einer Station der Lane mit demselben
+/// Schlüssel. Sie bleiben diese Stationen mit dieser Kennung. Der stille Alias `<Lane>-<Nummer>`
+/// einer Station ohne `id` zählt nicht.
+fn named_upcoming<'a>(view: &'a ImplementationView, inputs: &[PhaseInput]) -> Vec<&'a str> {
+    upcoming(view)
+        .into_iter()
+        .flat_map(|phase: &PhaseView| {
+            let named: Vec<&str> = inputs
+                .iter()
+                .filter(|input: &&PhaseInput| input.key.trim() == phase.key)
+                .flat_map(|input: &PhaseInput| input.stations.iter())
+                .filter_map(|station: &StationInput| station.id.as_deref().map(str::trim))
+                .collect();
+            phase
+                .stations
+                .iter()
+                .map(|station: &StationView| station.plan_id.as_str())
+                .filter(move |id: &&str| named.contains(id))
+        })
+        .collect()
+}
+
+/// Die Zusammenfassung für die Änderungszeile (ADR 061, Nachtrag 2026-11-23): dazu die Kennungen
+/// aller Stationen, die die Änderung ersetzt, ohne die genannten, die bleiben (`new_stations` führt
+/// sie weiter). `used_ids` zählt sie mit, damit keine wiederkommt.
+pub fn recorded_summary(
+    view: &ImplementationView,
+    summary: &ChangeSummary,
+    new_stations: &[StationRow],
+) -> ChangeSummary {
+    let mut recorded = summary.clone();
+    recorded.replaced = upcoming(view)
+        .into_iter()
+        .flat_map(|phase: &PhaseView| phase.stations.iter())
+        .map(|station: &StationView| station.plan_id.clone())
+        .filter(|id: &String| {
+            !new_stations
+                .iter()
+                .any(|station: &StationRow| station.plan_id == *id)
+        })
+        .collect();
+    recorded
 }
 
 /// Die Kennungen aller Stationen der Umsetzung.
@@ -195,15 +255,18 @@ fn plan_ids(view: &ImplementationView) -> Vec<&str> {
 
 /// Die Zeilen der kommenden Phasen nach der Plan-Änderung gegen den Stand `view` und die gespeicherten
 /// Zeilen `rows` (`replacement_rows`), mit Kanten (`link`, geprüft) und Kennungen `<Lane>-<n>` gegen
-/// alle Kennungen von jetzt, auch die der ersetzten Stationen: Keine Nummer kommt wieder (ADR 061,
-/// Nachtrag 2026-11-22). Dazu die neuen Stationen für den Planer (`assigned_text`).
+/// alle je vergebenen Kennungen (`used_ids`): Keine Nummer kommt wieder (ADR 061, Nachtrag
+/// 2026-11-22). Eine Station, die `inputs` mit ihrer Kennung nennt (`named_upcoming`), behält sie,
+/// und Kanten auf sie bleiben gültig (Nachtrag 2026-11-23). Dazu die neuen Stationen für den Planer
+/// (`assigned_text`), ohne die behaltenen.
 pub fn replanned(
     view: &ImplementationView,
     inputs: &[PhaseInput],
     rows: &[StationRow],
 ) -> Result<(Vec<PhaseRow>, Vec<StationRow>, String), String> {
     let removed = upcoming(view);
-    refuse_edges_into_upcoming(view, &removed)?;
+    let named = named_upcoming(view, inputs);
+    refuse_edges_into_upcoming(view, &removed, &named)?;
     let (phases, mut stations) = replacement_rows(&view.id, inputs, &removed, rows);
     link(&kept_phases(view), inputs, &mut stations)?;
     let lanes = lane_keys(
@@ -212,25 +275,34 @@ pub fn replanned(
             .map(|phase: &PhaseRow| (phase.id.as_str(), phase.key.as_str())),
     );
     let used = used_ids(plan_ids(view).into_iter(), &view.changes);
-    let renames = number_stations(&mut stations, &lanes, &used);
-    let named = assigned_text(renames.iter().zip(&stations).map(
-        |((alias, id), station): (&(String, String), &StationRow)| {
-            (alias.as_str(), id.as_str(), station.stage.as_str())
-        },
-    ));
-    Ok((phases, stations, named))
+    let renames = number_stations(&mut stations, &lanes, &used, &named);
+    let assigned = assigned_text(
+        renames
+            .iter()
+            .zip(&stations)
+            .filter(|((alias, _), _): &(&(String, String), &StationRow)| {
+                !named.contains(&alias.as_str())
+            })
+            .map(|((alias, id), station): (&(String, String), &StationRow)| {
+                (alias.as_str(), id.as_str(), station.stage.as_str())
+            }),
+    );
+    Ok((phases, stations, assigned))
 }
 
-/// Lehnt ab, wenn eine Station einer begonnenen Lane auf eine Station einer kommenden Lane wartet:
-/// `set_phases` gäbe dieser eine neue Kennung, und die Kante zeigte ins Leere (ADR 061, Nachtrag
-/// 2026-11-22). Der Zustand der wartenden Station zählt nicht.
+/// Lehnt ab, wenn eine Station einer begonnenen Lane auf eine Station einer kommenden Lane wartet, die
+/// der Planer nicht mit ihrer Kennung nennt (`named`): `set_phases` gäbe ihr eine neue Kennung, und die
+/// Kante zeigte ins Leere (ADR 061, Nachträge 2026-11-22 und 2026-11-23). Der Zustand der wartenden
+/// Station zählt nicht.
 fn refuse_edges_into_upcoming(
     view: &ImplementationView,
     upcoming: &[&PhaseView],
+    named: &[&str],
 ) -> Result<(), String> {
     let replaced: HashMap<&str, &str> = upcoming
         .iter()
         .flat_map(|phase: &&PhaseView| phase.stations.iter())
+        .filter(|station: &&StationView| !named.contains(&station.plan_id.as_str()))
         .map(|station: &StationView| (station.plan_id.as_str(), station.stage.as_str()))
         .collect();
     for station in view
@@ -244,9 +316,10 @@ fn refuse_edges_into_upcoming(
                 return Err(format!(
                     "Station „{}“ einer begonnenen Lane wartet auf „{}“. \
                      `implementation_set_phases` ersetzt alle kommenden Lanes, „{before}“ bekäme \
-                     eine neue Kennung. Ändere die kommende Lane mit `implementation_edit` \
-                     (`change`, `add`, `remove`), dann behält „{before}“ ihre Kennung, oder nimm \
-                     die Kante vorher mit `implementation_edit` heraus.",
+                     eine neue Kennung. Nenne die Station in ihrer Lane mit `id: \"{before}\"`, \
+                     dann bleibt sie „{before}“ samt der Kante; oder ändere die kommende Lane mit \
+                     `implementation_edit` (`change`, `add`, `remove`), oder nimm die Kante vorher \
+                     mit `implementation_edit` heraus.",
                     station_label(&station.plan_id, &station.stage),
                     station_label(before, stage),
                 ));
@@ -276,6 +349,10 @@ pub fn propose(app: &AppHandle, session_id: &str, inputs: &[PhaseInput]) -> Resu
     if !view.phases.iter().any(is_begun) {
         let named = apply(app, &registry, &view, inputs, None)
             .map_err(|error: CommandError| error.to_string())?;
+        // Nennt die Eingabe nur behaltene Stationen, entfällt der Teilsatz.
+        if named.is_empty() {
+            return Ok("Übernommen.".to_owned());
+        }
         return Ok(format!("Übernommen. Neue Stationen: {named}."));
     }
     // Kanten, Prüfung und Kennungen wie beim Übernehmen, damit ein Zyklus schon hier abgelehnt wird
@@ -299,9 +376,13 @@ pub fn propose(app: &AppHandle, session_id: &str, inputs: &[PhaseInput]) -> Resu
         .implementation_view(&view.id)
         .map_err(|error: CommandError| error.to_string())?;
     announce(app, &fresh);
+    let named = if named.is_empty() {
+        String::new()
+    } else {
+        format!(" Die neuen Stationen bekämen nach heutigem Stand: {named}.")
+    };
     Ok(format!(
-        "Vorgeschlagen: {}; wartet auf Übernehmen. Die neuen Stationen bekämen nach heutigem Stand: \
-         {named}.",
+        "Vorgeschlagen: {}; wartet auf Übernehmen.{named}",
         describe(&summary)
     ))
 }
@@ -324,23 +405,61 @@ pub fn decide(app: &AppHandle, implementation_id: &str, accept: bool) -> Result<
     }
     // Seit dem Vorschlag kann eine Phase begonnen haben: gegen den heutigen Stand neu rechnen.
     let summary = diff(&view, &pending.phases).map_err(CommandError::Implementation)?;
-    refuse_taken_aliases(&stations_in("phases", &pending.phases), &plan_ids(&view))
-        .map_err(CommandError::Implementation)?;
+    refuse_taken_kennungen(&view, &pending.phases).map_err(CommandError::Implementation)?;
     let record = Record {
-        session_id: pending.session_id,
+        session_id: Some(pending.session_id),
         summary,
     };
     apply(app, &registry, &view, &pending.phases, Some(record)).map(|_| ())
 }
 
-/// Wer die Änderung vorschlug und was sie bewirkt; fehlt er, wird nichts vermerkt.
-struct Record {
-    session_id: String,
-    summary: ChangeSummary,
+/// Wer die Änderung vorschlug (ohne Master keine Session) und was sie bewirkt; fehlt der Vermerk,
+/// wird nichts vermerkt.
+pub struct Record {
+    pub session_id: Option<String>,
+    pub summary: ChangeSummary,
+}
+
+/// Was eine Plan-Änderung schreibt: die Phasen samt Marken, die Stationen, die Änderungszeile (nur mit
+/// Vermerk) und die neuen Kennungen für den Planer.
+pub struct Replacement {
+    pub removed_ids: Vec<String>,
+    pub phases: Vec<PhaseRow>,
+    pub stations: Vec<StationRow>,
+    pub change: Option<ChangeRow>,
+    pub named: String,
+}
+
+/// Der Teil von `apply` ohne Registry und `AppHandle`: rechnet aus der Ansicht `view`, der Eingabe und
+/// den gespeicherten Zeilen `rows` (`replanned`) die Phasen mit Marken (`set_marks`), die Stationen, die
+/// Änderungszeile (`change_row`, mit `record`) und die neuen Kennungen. Die App (`apply`) und die Probe
+/// `implementation-probe set-phases --apply` gehen beide diesen Weg. Prüft zuerst, schreibt nichts.
+pub fn replacement(
+    view: &ImplementationView,
+    inputs: &[PhaseInput],
+    rows: &[StationRow],
+    record: Option<&Record>,
+) -> Result<Replacement, String> {
+    let removed = upcoming(view);
+    let (mut phases, stations, named) = replanned(view, inputs, rows)?;
+    set_marks(&removed, record, &mut phases);
+    let change = record.map(|record: &Record| change_row(view, &removed, &stations, record));
+    let removed_ids: Vec<String> = removed
+        .iter()
+        .map(|phase: &&PhaseView| phase.id.clone())
+        .collect();
+    Ok(Replacement {
+        removed_ids,
+        phases,
+        stations,
+        change,
+        named,
+    })
 }
 
 /// Ersetzt die kommenden Phasen, vermerkt die Änderung (mit `record`) und plant die Stationen, die
-/// danach starten dürfen. Gibt die neuen Stationen für den Planer zurück (`assigned_text`).
+/// danach starten dürfen. Gibt die neuen Stationen für den Planer zurück (`assigned_text`). Die
+/// Rechnung steht in `replacement`; hier bleiben Countdowns, Schreiben, Ankündigen und Planen.
 fn apply(
     app: &AppHandle,
     registry: &SessionRegistry,
@@ -348,27 +467,23 @@ fn apply(
     inputs: &[PhaseInput],
     record: Option<Record>,
 ) -> Result<String, CommandError> {
-    let removed = upcoming(view);
     // Die gespeicherten Zeilen von jetzt: Was der Benutzer seit dem Vorschlag auf der Karte gesetzt
     // hat, zählt mit.
     let rows = registry.station_rows(&view.id)?;
-    let (mut phases, stations, named) =
-        replanned(view, inputs, &rows).map_err(CommandError::Implementation)?;
+    let Replacement {
+        removed_ids,
+        phases,
+        stations,
+        change,
+        named,
+    } = replacement(view, inputs, &rows, record.as_ref()).map_err(CommandError::Implementation)?;
     // Erst nach der Prüfung: Eine abgelehnte Änderung lässt die Countdowns stehen.
-    for station in removed
+    for station in upcoming(view)
         .iter()
         .flat_map(|phase: &&PhaseView| phase.stations.iter())
     {
         let _ = registry.cancel_countdown(&station.id);
     }
-    set_marks(&removed, record.as_ref(), &mut phases);
-    let change = record
-        .as_ref()
-        .map(|record: &Record| change_row(view, &removed, &stations, record));
-    let removed_ids: Vec<String> = removed
-        .iter()
-        .map(|phase: &&PhaseView| phase.id.clone())
-        .collect();
     if let Err(error) =
         registry.store_plan_change(&view.id, &removed_ids, &phases, &stations, change.as_ref())
     {
@@ -529,9 +644,10 @@ fn change_row(
     ChangeRow {
         id: uuid::Uuid::new_v4().to_string(),
         implementation_id: view.id.clone(),
-        session_id: Some(record.session_id.clone()),
+        session_id: record.session_id.clone(),
         at: now_ms(),
-        summary: serde_json::to_string(&record.summary).unwrap_or_default(),
+        summary: serde_json::to_string(&recorded_summary(view, &record.summary, new_stations))
+            .unwrap_or_default(),
         after_station_id,
         stations_before: view.stations_total,
         stations_after: u32::try_from(total - removed_count + new_stations.len())

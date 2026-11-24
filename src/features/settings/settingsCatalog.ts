@@ -21,7 +21,8 @@ export const SETTINGS_CATEGORIES: readonly SettingsCategory[] = [
   {
     id: 'agent',
     label: 'Agent',
-    summary: 'Betriebsart · Modelle · Modus · Agententypen · Claude Code · Selbstfreigabe',
+    summary:
+      'Betriebsart · Modelle · Modus · Agententypen · Prompt-Vorlagen · Claude Code · Selbstfreigabe',
   },
   { id: 'skills', label: 'Skills & Umgebung', summary: 'Skills · Umgebung' },
   { id: 'app', label: 'App', summary: 'Version · Ordner · Rechte · Fernsteuerung' },
@@ -167,6 +168,12 @@ const ENTRY_DATA = {
     section: 'Agententypen',
     label: 'Typen',
     info: 'Agententypen sind Rollen für die Stationen einer Umsetzung. Ein Typ legt Modell, Denkaufwand, Systemprompt, Dateien und Skills fest; eine Station läuft als der Typ, der ihren Namen führt oder den sie mit agent nennt. Die Beschreibungen liest der Planer und empfiehlt damit den Ablauf. Auf der Karte einer Station ändert „Einstellungen“ Typ, Modell, Denkaufwand, Zusatztext und Skill nur für diese Station.',
+  },
+  promptTemplates: {
+    category: 'agent',
+    section: 'Prompt-Vorlagen',
+    label: 'Vorlagen',
+    info: 'Eine Prompt-Vorlage ist ein Auftrag mit Lücken im Mustache-Stil: {{Name}} wird ein Textfeld, {{#Name}}…{{/Name}} ein Abschnitt mit Checkbox (an), {{^Name}}…{{/Name}} sein Gegenstück (aus), {{! … }} der Hilfetext der nächsten Variable. In „Neues Vorhaben“ wählt der Knopf ▤ eine Vorlage; ihr Formular füllt den Auftrag, bis „OK“ ihn freigibt. Eine Namensvorlage gibt dem Vorhaben einen festen Namen, den Haiku nicht ersetzt. Den Knopf gibt es erst, wenn es eine Vorlage gibt. Einen Syntaxfehler lehnen Editor und Core mit Zeile und Spalte ab.',
   },
   cliVersion: {
     category: 'agent',

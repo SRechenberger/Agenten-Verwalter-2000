@@ -64,9 +64,11 @@
   }
 
   // HTML läuft direkt, alles mit Betrachter als dessen Seite; der Rest hat keine Vorschau.
+  // Das Schema der App geht an die Vorschau weiter, denn deren Rahmen sieht nur das des Systems.
   function previewUrl(entry) {
-    if (entry.kind === 'html') return urlOf(entry.path);
-    if (PREVIEW_KINDS.has(entry.kind)) return `${urlOf(entry.path)}?view=1`;
+    const scheme = APP_SCHEME ? `scheme=${APP_SCHEME}` : '';
+    if (entry.kind === 'html') return scheme ? `${urlOf(entry.path)}?${scheme}` : urlOf(entry.path);
+    if (PREVIEW_KINDS.has(entry.kind)) return `${urlOf(entry.path)}?view=1${scheme ? `&${scheme}` : ''}`;
     return null;
   }
 
