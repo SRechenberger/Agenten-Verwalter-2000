@@ -76,3 +76,79 @@ fn script_string(text: &str) -> String {
         .to_string()
         .replace("</", "<\\/")
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Die Zeilen eines `{ … }`-Blocks hinter `start`, ohne Einzug.
+    fn block_after<'a>(text: &'a str, start: &str) -> Vec<&'a str> {
+        let from = text.find(start).expect("Block steht in der Seite") + start.len();
+        let body = &text[from..];
+        body[..body.find('}').expect("Block endet")]
+            .lines()
+            .map(str::trim)
+            .filter(|line: &&str| !line.is_empty())
+            .collect()
+    }
+
+    #[test]
+    fn markdown_and_mermaid_ask_the_shared_scheme_helper() {
+        for kind in [ArtifactKind::Markdown, ArtifactKind::Mermaid] {
+            let script = page(kind).expect("Betrachter vorhanden");
+            assert!(
+                script.contains("isDarkScheme()"),
+                "{kind:?} fragt die Hilfe nicht"
+            );
+            assert!(
+                !script.contains("matchMedia"),
+                "{kind:?} fragt das System selbst"
+            );
+        }
+        assert_eq!(
+            COMMON.matches("matchMedia").count(),
+            1,
+            "die Hilfe fragt das System einmal"
+        );
+    }
+
+    #[test]
+    fn every_viewer_page_sets_data_theme_before_its_own_script_runs() {
+        for kind in [
+            ArtifactKind::Text,
+            ArtifactKind::Markdown,
+            ArtifactKind::Mermaid,
+            ArtifactKind::Folder,
+        ] {
+            let html = render(kind, "x").expect("Betrachter vorhanden");
+            let sets = html
+                .find("dataset.theme = APP_SCHEME")
+                .expect("setzt data-theme");
+            let script = html
+                .rfind(page(kind).expect("Betrachter vorhanden"))
+                .expect("Skript steht in der Seite");
+            assert!(sets < script, "{kind:?}: data-theme kommt zu spät");
+        }
+    }
+
+    #[test]
+    fn the_scheme_parameter_sets_only_light_or_dark() {
+        assert!(COMMON.contains("scheme === 'light' || scheme === 'dark' ? scheme : null"));
+    }
+
+    #[test]
+    fn the_dark_colors_of_a_chosen_scheme_and_of_the_system_are_the_same() {
+        let chosen = block_after(SHELL, ":root[data-theme='dark'] {");
+        let system = block_after(
+            SHELL,
+            "@media (prefers-color-scheme: dark) {\n        :root:not([data-theme='light']) {",
+        );
+        assert!(chosen.len() > 10, "zu wenige Farben unter data-theme");
+        assert_eq!(chosen, system);
+    }
+
+    #[test]
+    fn the_folder_viewer_hands_the_scheme_to_its_preview() {
+        assert!(FOLDER.contains("scheme=${APP_SCHEME}"));
+    }
+}
