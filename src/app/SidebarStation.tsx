@@ -5,12 +5,17 @@ import type { StationRef } from '@/features/implementation/implementationOrder';
 import { rowStateText, stationMeta } from '@/features/implementation/implementationTexts';
 import { stationDisplay } from '@/features/implementation/commandStation';
 import { RELEASED_CHIP, RELEASED_TITLE } from '@/features/implementation/masterTexts';
-import { liveText, pauseChip, stationIcon } from '@/features/implementation/stationLive';
+import {
+  liveText,
+  stationIcon,
+  type WaitChip,
+  waitChip,
+} from '@/features/implementation/stationLive';
 import { stateLabel, stationTone, type StationTone } from '@/features/implementation/stationState';
 import { messageWaitShort } from '@/features/queue/queueTexts';
 import { WAITING_JUMP_HINT } from '@/features/waiting/waitingTexts';
 import type { StationState } from '@/lib/bindings/StationState';
-import { useMessageWait, useQuotaHeld } from '@/stores/agentQueue';
+import { useMessageWait, useQuotaHeldUntil } from '@/stores/agentQueue';
 import './SidebarStation.css';
 
 /** Zustände, in denen der Zustandstext eine Laufzeit oder einen Countdown zeigt. */
@@ -45,12 +50,12 @@ export function SidebarStation({
   const now: number = useNow(TICKING_STATES.includes(station.state));
   const label: string = stationDisplay(station);
   const messageWait: number | null = useMessageWait(station.sessionId);
-  const quotaHeld: boolean = useQuotaHeld(station.id);
+  const quotaUntil: string | null = useQuotaHeldUntil(station.id);
   const meta: string =
     messageWait === null
       ? stationMeta(station, now) || stateLabel(station.state)
       : messageWaitShort(messageWait);
-  const chip: string | null = pauseChip(station);
+  const chip: WaitChip | null = waitChip(station, quotaUntil);
   // Zustandstext und Chip einer Station mit Session-Zustand sind zu lang für die Zeile des Namens.
   const isStacked: boolean = chip !== null || station.released || liveText(station) !== null;
   const opening: string =
@@ -63,7 +68,7 @@ export function SidebarStation({
         type="button"
         className={`sidebar-station__button${isActive ? ' sidebar-station__button--active' : ''}${isStacked ? ' sidebar-station__button--stacked' : ''}`}
         aria-current={isActive ? 'page' : undefined}
-        title={`${label} · Lane ${phase.key} ${phase.title} · ${rowStateText(station, now, quotaHeld)} · ${opening}${WAITING_JUMP_HINT}`}
+        title={`${label} · Lane ${phase.key} ${phase.title} · ${rowStateText(station, now, quotaUntil !== null)} · ${opening}${WAITING_JUMP_HINT}`}
         onClick={onSelect}
       >
         <span className="sidebar-station__status">
@@ -85,7 +90,13 @@ export function SidebarStation({
           >
             {meta}
           </span>
-          {chip !== null && <span className="sidebar-station__chip">{chip}</span>}
+          {chip !== null && (
+            <span
+              className={`sidebar-station__chip${chip.isWarn ? '' : ' sidebar-station__chip--neutral'}`}
+            >
+              {chip.text}
+            </span>
+          )}
           {station.released && (
             <span
               className="sidebar-station__chip sidebar-station__chip--released"

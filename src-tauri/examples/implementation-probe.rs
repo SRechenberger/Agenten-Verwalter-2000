@@ -894,7 +894,7 @@ fn begin(
         .filter(|station: &&StationView| {
             matches!(
                 station.state,
-                StationState::Starting | StationState::Running | StationState::WaitsForQuota
+                StationState::Starting | StationState::Running
             )
         })
         .filter_map(|station: &StationView| station.session_id.clone())
@@ -1630,12 +1630,12 @@ fn auto_resume(database: &Database, path: &Path) -> Result<bool, String> {
     begin(&Mutex::new(Countdowns::default()), &mut disarmed, Some(1));
     let holds = station(&waiting, "1-1")
         .is_some_and(|station: &StationView| station.state == StationState::WaitsForQuota)
-        && waiting.queued == 2;
+        && waiting.queued == 1;
     let frees = station(&disarmed, "1-1")
         .is_some_and(|station: &StationView| station.state == StationState::WaitsForYou)
         && disarmed.queued == 1;
     all &= check(
-        "Automatisch fortsetzen: wartet auf das Kontingent hält den Platz, aus gibt ihn frei",
+        "Automatisch fortsetzen: wartet auf das Kontingent hält keinen Platz, aus ebenso",
         holds && frees,
     );
 
@@ -1648,12 +1648,9 @@ fn auto_resume(database: &Database, path: &Path) -> Result<bool, String> {
         .collect();
     let now = now_ms();
     all &= check(
-        "Automatisch fortsetzen: fällig kein Platz, höchstens bis zur Grenze, neue Pause hält bis zum Haken",
-        slots::holds_slot(SessionStatus::Paused, false, true, false)
-            && !slots::holds_slot(SessionStatus::Paused, false, true, true)
-            && resumed == [Some(true), Some(true), Some(false)]
-            && slots::awaits_arming(true, Some(now + 60_000.0), now)
-            && !slots::awaits_arming(true, Some(now - 1.0), now),
+        "Automatisch fortsetzen: pausiert kein Platz, fällig höchstens bis zur Grenze",
+        !slots::holds_slot(SessionStatus::Paused, false)
+            && resumed == [Some(true), Some(true), Some(false)],
     );
 
     let open = station(&switched_on, "1-3").ok_or("keine Station 1-3")?;

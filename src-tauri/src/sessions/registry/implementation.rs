@@ -747,19 +747,6 @@ impl SessionRegistry {
         }
     }
 
-    /// Der Haken hat über das Scharfschalten einer neuen Kontingent-Pause entschieden (ADR 068, Regel d):
-    /// Ab jetzt zählt die Session nach ihrem Zeitgeber. Gibt sie damit ihren Platz frei, läuft über
-    /// `update` ein Durchgang, auch wenn der Haken danach scheitert.
-    pub fn arming_decided(&self, app: &AppHandle, session_id: &str) {
-        let Ok(session) = self.get(session_id) else {
-            return;
-        };
-        let _ = update(app, &session, |state: &mut SessionState, _| {
-            state.awaits_arming = false;
-            Ok(())
-        });
-    }
-
     /// Gibt der Umsetzung den Namen, den der Nutzer gewählt hat.
     pub fn rename_implementation(
         &self,

@@ -44,7 +44,8 @@ pub struct QuotaHold {
 /// Rein: der Halt aus dem Stand `limits` bei der Schwelle `threshold` (Prozent) zur Zeit `now` (ms).
 /// Das späteste `resets_at` der Fenster `session` und `weekly_all`, die die Schwelle erreichen und deren
 /// Reset in der Zukunft liegt. Ohne Schwelle, außerhalb der Betriebsart Claude (ein alter Stand bleibt
-/// nach einem Wechsel stehen) und ohne lesbares `resets_at` gibt es keinen.
+/// nach einem Wechsel stehen) und ohne lesbares `resets_at` gibt es keinen. Die Rücksetzzeiten der Kontingent-Meldungen
+/// pausierter Sessions kommen aus `pause_hold_until`, `later_hold` nimmt den späteren von beiden.
 pub fn hold_until(
     operating_mode: OperatingMode,
     limits: &[UsageLimit],
@@ -66,6 +67,46 @@ pub fn hold_until(
             (until_ms > now).then_some(QuotaHold { until, until_ms })
         })
         .max_by(|left: &QuotaHold, right: &QuotaHold| left.until_ms.total_cmp(&right.until_ms))
+}
+
+/// Rein: der Halt aus den Kontingent-Meldungen pausierter Sessions (Taiga #227): bis zur spätesten
+/// Fälligkeit `due_ats` (`auto_resume::due_at` der Rücksetzzeit jeder Session, die am Kontingent
+/// pausiert, ob mit Station oder ohne, ob scharf oder nicht), soweit sie nach `now` liegt. Das Kontingent
+/// ist kontoweit: Eine Meldung zeigt, dass es leer ist, auch wenn der Prozentstand es nicht zeigt oder
+/// fehlt. Dieselben Bedingungen wie bei `hold_until`: Ohne Schwelle und außerhalb der Betriebsart Claude
+/// gibt es keinen.
+pub fn pause_hold_until(
+    operating_mode: OperatingMode,
+    threshold: Option<u32>,
+    due_ats: &[f64],
+    now: f64,
+) -> Option<QuotaHold> {
+    threshold?;
+    if operating_mode != OperatingMode::Claude {
+        return None;
+    }
+    let until_ms = due_ats
+        .iter()
+        .copied()
+        .filter(|due_at: &f64| *due_at > now)
+        .max_by(f64::total_cmp)?;
+    let until = jiff::Timestamp::from_millisecond(until_ms as i64).ok()?;
+    Some(QuotaHold {
+        until: until.to_string(),
+        until_ms,
+    })
+}
+
+/// Rein: der spätere von zwei Halten.
+pub fn later_hold(left: Option<QuotaHold>, right: Option<QuotaHold>) -> Option<QuotaHold> {
+    match (left, right) {
+        (Some(left), Some(right)) => Some(if right.until_ms > left.until_ms {
+            right
+        } else {
+            left
+        }),
+        (left, right) => left.or(right),
+    }
 }
 
 /// So alt darf der Stand sein, solange eine Station wartet oder gerade einen Platz bekommt; so selten

@@ -73,3 +73,17 @@ Als Wiederholung gilt: Die Session ist vor der Meldung `Paused` mit der Begründ
 - `awaits_arming` behält bei einer Wiederholung seinen Wert: Hat der Haken der ersten Pause noch nicht entschieden, hält die Session ihren Platz, bis er entscheidet.
 - Der neue Zeitgeber startet nach dem Freigeben der Session-Sperre (`Outbox::restart_auto_resume`, wie bei `set_auto_resume`), nie unter ihr.
 - Die Karte „Kontingent aufgebraucht“ kommt bei jeder Meldung.
+
+## Nachtrag 2026-11-24 (Taiga #227): eine Anzeige für das Warten, kein `awaits_arming`
+
+Löst im Nachtrag zu Taiga-Issue 226 den Satz zu `awaits_arming` ab: Der Merker und `slots::awaits_arming` entfallen, eine pausierte Session belegt nie einen Platz ([ADR 068](068-globale-warteschlange.md), Nachtrag 2026-11-24). Der Haken `station_session_ended` schaltet den Zeitgeber weiter zuerst scharf, ohne dass davon ein Platz abhängt.
+
+Die Anzeige folgt dem gezeigten Zustand der Session (`shownState`: `live`, sonst `state`), nicht `station.state`. Eine Regel in `src/features/implementation/stationLive.ts` (`liveText`, `waitChip`), die Zeitleiste, Leiste, Kartei und Sidebar nutzen:
+
+| Zustand | Text | Chip |
+|---|---|---|
+| scharfer Zeitgeber (`live` oder `state` ist `waitsForQuota`) | „setzt automatisch fort“, hinter „gemeldet“ und „fertig“ „gemeldet · setzt automatisch fort“ und „fertig · setzt automatisch fort“ | neutral „ab 13:30“ (`resumesAtChip`), nie bernsteinfarben |
+| ohne Zeitgeber | „pausiert“ bzw. „pausiert · wartet auf dich“, hinter „gemeldet“ und „fertig“ „… · pausiert“ | bernsteinfarben „Kontingent bis 13:30“ (`pauseChip`), denn dann muss jemand handeln |
+| vom Halt der Warteschlange gehalten | „wartet auf Kontingent“, ein Neustart „Fehler · wartet auf Kontingent“ | neutral „ab 13:30“, die Zeit aus `quotaUntil` der Warteschlange |
+
+Früher machte `liveText` aus `waitsForQuota` und `waitsForYou` dasselbe „gemeldet · pausiert“, und `renderQuotaChip` prüfte `station.state` statt der Session: Eine gemeldete Station mit scharfem Zeitgeber sah aus wie eine Pause, die auf den Benutzer wartet. Entwurf: [`docs/design/2026-11-24_kontingent-warten/`](../design/2026-11-24_kontingent-warten/README.md).

@@ -96,13 +96,17 @@ impl Waiter {
 /// Reihenfolge (Regel c): Stufe des Vorhabens (hoch vor normal vor niedrig), dann der Vorrang der
 /// Station (höher zuerst; Nachrichten und Fortsetzen 0), dann wer früher wartet. Stabil: Gleiche
 /// behalten die Reihenfolge, in der sie gesammelt wurden (nach dem App-Start die Planreihenfolge).
-/// Kein Altern. Danach rückt jede Nachricht an einen Master (`master_message`) und jede eigene Nachricht
-/// des Benutzers (`QueueEntry::from_user`, Taiga-Story 190; `Waiter::advances`) direkt vor den besten
-/// Wartenden, der in ihrem Vorhaben vor ihr liegt und keine solche Nachricht ist; mehrere behalten ihre
-/// Reihenfolge. Die Vorhaben behalten ihre Reihenfolge, gemessen an ihrem besten Wartenden: Die Nachricht
-/// nimmt den Platz des besten Wartenden ihres Vorhabens ein, der keine Master-Nachricht ist, und überholt
-/// nie einen Wartenden eines anderen Vorhabens, der vor diesem steht; die Wartenden dahinter, auch
-/// anderer Vorhaben, rücken nach hinten. Setzt die Plätze 1-basiert.
+/// Kein Altern. Bei gleicher Stufe und gleichem Vorrang rückt ein Fortsetzen vor die erste Station
+/// (auch Neustart) seiner Gruppe und überholt die Nachrichten dahinter, gleich wie lange sie warten
+/// (`advance_resumes`, Taiga #227): Eine pausierte Session hielt früher ihren Platz und kam so vor
+/// jeder neuen Station wieder; jetzt hält sie keinen. Sonst gilt die Wartezeit. Danach rückt jede
+/// Nachricht an einen Master (`master_message`) und jede eigene Nachricht des Benutzers
+/// (`QueueEntry::from_user`, Taiga-Story 190; `Waiter::advances`) direkt vor den besten Wartenden,
+/// der in ihrem Vorhaben vor ihr liegt und keine solche Nachricht ist; mehrere behalten ihre
+/// Reihenfolge. Die Vorhaben behalten ihre Reihenfolge, gemessen an ihrem besten Wartenden: Die
+/// Nachricht nimmt den Platz des besten Wartenden ihres Vorhabens ein, der keine Master-Nachricht
+/// ist, und überholt nie einen Wartenden eines anderen Vorhabens, der vor diesem steht; die
+/// Wartenden dahinter, auch anderer Vorhaben, rücken nach hinten. Setzt die Plätze 1-basiert.
 pub fn rank(waiters: &mut Vec<Waiter>) {
     waiters.sort_by(|left: &Waiter, right: &Waiter| {
         left.entry
@@ -116,12 +120,39 @@ pub fn rank(waiters: &mut Vec<Waiter>) {
             )
             .then(left.entry.since_ms.total_cmp(&right.entry.since_ms))
     });
+    advance_resumes(waiters);
     advance_master_messages(waiters);
     renumber(
         waiters
             .iter_mut()
             .map(|waiter: &mut Waiter| &mut waiter.entry),
     );
+}
+
+/// Rein: In jeder Gruppe gleicher Stufe und gleichen Vorrangs rücken die Fortsetzen direkt vor die erste
+/// Station (Countdown oder Neustart) der Gruppe und behalten ihre Reihenfolge; alles andere bleibt, wo
+/// es war. Die Wartenden sind schon nach Stufe, Vorrang und Wartezeit sortiert, die Gruppen also
+/// zusammenhängend.
+fn advance_resumes(waiters: &mut [Waiter]) {
+    let mut start = 0;
+    while start < waiters.len() {
+        let group_of = |waiter: &Waiter| (waiter.entry.priority, waiter.entry.station_priority);
+        let group = group_of(&waiters[start]);
+        let len = waiters[start..]
+            .iter()
+            .take_while(|waiter: &&Waiter| group_of(waiter) == group)
+            .count();
+        let members = &mut waiters[start..start + len];
+        if let Some(first_station) = members
+            .iter()
+            .position(|waiter: &Waiter| waiter.entry.kind == QueueKind::Station)
+        {
+            // Stabil: Fortsetzen (false) vor den übrigen (true) ab der ersten Station.
+            members[first_station..]
+                .sort_by_key(|waiter: &Waiter| waiter.entry.kind != QueueKind::Resume);
+        }
+        start += len;
+    }
 }
 
 /// Rein: ordnet die schon nach Stufe, Vorrang und Wartezeit sortierten Wartenden um. Vor dem ersten
@@ -163,33 +194,21 @@ fn renumber<'a>(entries: impl Iterator<Item = &'a mut QueueEntry>) {
 }
 
 /// Belegt eine Session einen Platz (Regel a): Der Agent hat einen Zug; oder er hat abgegeben und wartet
-/// auf einen Subagenten oder ein Skript, nach dem er von selbst weitermacht, ohne Tor; oder die Session
-/// einer Station wartet auf das Kontingent, mit scharfem Zeitgeber oder bis der Haken über das
-/// Scharfschalten entschieden hat (`awaits_arming`). Ist das Fortsetzen fällig (`resume_due`), belegt
-/// sie keinen Platz mehr: Sie ist ein Wartender „Fortsetzen“, bis das Tor ihr einen gibt. Eine
-/// Rückfrage, eine Pause ohne Zeitgeber, Fehler, Abbruch, Ende und eine neue Session belegen keinen.
-pub fn holds_slot(
-    status: SessionStatus,
-    awaits_background: bool,
-    station_waits_for_resume: bool,
-    resume_due: bool,
-) -> bool {
+/// auf einen Subagenten oder ein Skript, nach dem er von selbst weitermacht, ohne Tor. Eine pausierte
+/// Session belegt nie einen Platz, ob ihr Zeitgeber scharf ist, der Haken noch entscheidet oder das
+/// Fortsetzen fällig ist (Taiga #227): Sie wartet auf das Kontingent, nicht auf einen Platz, und ihr
+/// fälliges Fortsetzen ist ein Wartender, bis das Tor ihm einen gibt. Eine Rückfrage, Fehler, Abbruch,
+/// Ende und eine neue Session belegen ebenfalls keinen.
+pub fn holds_slot(status: SessionStatus, awaits_background: bool) -> bool {
     match status {
         SessionStatus::Starting | SessionStatus::Running => true,
         SessionStatus::Completed => awaits_background,
-        SessionStatus::Paused => station_waits_for_resume && !resume_due,
-        SessionStatus::Waiting
+        SessionStatus::Paused
+        | SessionStatus::Waiting
         | SessionStatus::Error
         | SessionStatus::Cancelled
         | SessionStatus::New => false,
     }
-}
-
-/// Hält eine neue Kontingent-Pause ihren Platz, bis der Haken über das Scharfschalten entschieden hat
-/// (Regel d): nur die Session einer Station mit Rücksetzzeit in der Zukunft, denn nur sie kann er scharf
-/// schalten (`continues_after_quota`). Sonst gäbe ein Durchgang dazwischen ihren Platz an Fremde.
-pub fn awaits_arming(is_station: bool, resets_at: Option<f64>, now: f64) -> bool {
-    is_station && resets_at.is_some_and(|resets_at: f64| resets_at > now)
 }
 
 /// Ein Fortsetzen wartet nur, solange seine Session keinen Platz belegt (Regel a). Zählen und Sammeln

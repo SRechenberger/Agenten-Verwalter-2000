@@ -1143,8 +1143,8 @@ pub fn wake_reported_on_start(app: AppHandle) {
 /// Neuer Haken (ADR 061, 070): Die Session einer Station endet mit Fehler, Abbruch, Rückfrage oder ohne
 /// Meldung. Ihr Platz ist frei (ADR 068), ein Durchgang läuft: Er startet sie nach „Bei Fehler“
 /// neu und lässt die globale Warteschlange nachrücken. Eine neue Kontingent-Pause schaltet zuerst den
-/// Zeitgeber von „Automatisch fortsetzen“ scharf (ADR 064): Bis dahin hält die Session ihren Platz
-/// (`slots::awaits_arming`), erst danach gibt sie ihn frei, und ein Durchgang läuft (ADR 068, Regel d).
+/// Zeitgeber von „Automatisch fortsetzen“ scharf (ADR 064); einen Platz belegt sie nie (ADR 068,
+/// Nachtrag 2026-11-24).
 /// Zuletzt weckt das Zugende den Master.
 pub fn station_session_ended(
     app: &AppHandle,
@@ -1155,7 +1155,6 @@ pub fn station_session_ended(
         eprintln!("Zeitgeber nach der Kontingent-Pause nicht scharf geschaltet: {error}");
     }
     let registry = app.state::<SessionRegistry>();
-    registry.arming_decided(app, session_id);
     let scheduled =
         registry
             .implementation_view(implementation_id)
