@@ -308,10 +308,6 @@ struct SessionState {
     /// macht gleich von selbst weiter (`wake_if_idle`). Bis zum nächsten Status oder Prozessende hält
     /// die Session so ihren Platz (ADR 068). Nur im Speicher.
     continues_by_itself: bool,
-    /// Die Session einer Station pausierte neu am Kontingent, der Haken hat über das Scharfschalten noch
-    /// nicht entschieden (`slots::awaits_arming`): Bis dahin hält sie ihren Platz (ADR 068, Regel d). Nur
-    /// im Speicher; jeder Statuswechsel und der Haken (`arming_decided`) löschen ihn.
-    awaits_arming: bool,
     /// `tool_use`-IDs der Session-Werkzeuge, die `gate` schon gesehen hat. Nur im Speicher.
     seen_tool_uses: HashSet<String>,
     /// Marke von „Automatisch fortsetzen“: jedes Umlegen erhöht sie, der Zeitgeber vergleicht sie. Nur
@@ -2702,7 +2698,6 @@ impl SessionState {
             pause_reason: None,
             fresh_error: false,
             continues_by_itself: false,
-            awaits_arming: false,
             seen_tool_uses: HashSet::new(),
             auto_resume_token: 0,
             seen_at: now,
@@ -3125,14 +3120,12 @@ impl SessionState {
         })
     }
 
-    /// Belegt einen Platz der globalen Warteschlange (ADR 068, Regel a; `slots::holds_slot`), zur Zeit
-    /// `now`: Ein Durchgang zählt und sammelt mit derselben Uhr.
-    pub(crate) fn holds_slot_at(&self, now: f64) -> bool {
+    /// Belegt einen Platz der globalen Warteschlange (ADR 068, Regel a; `slots::holds_slot`). Eine
+    /// pausierte Session nie, auch nicht die einer Station mit scharfem Zeitgeber (Taiga #227).
+    pub(crate) fn holds_slot(&self) -> bool {
         slots::holds_slot(
             self.status,
             self.awaits_background() || self.continues_by_itself,
-            self.station_of.is_some() && (self.waits_for_resume() || self.awaits_arming),
-            self.resume_is_due(now),
         )
     }
 
@@ -3153,6 +3146,19 @@ impl SessionState {
             )
     }
 
+    /// Fälligkeit der Rücksetzzeit, solange die Session am Kontingent pausiert, scharf oder nicht, mit
+    /// Station oder ohne: Das Kontingent ist kontoweit, die Warteschlange hält Stationen bis dahin
+    /// (`usage::pause_hold_until`, Taiga #227).
+    pub(crate) fn quota_pause_due_at(&self) -> Option<f64> {
+        match self.pause_reason {
+            Some(PauseReason::Quota {
+                resets_at: Some(resets_at),
+                ..
+            }) if self.status == SessionStatus::Paused => Some(auto_resume::due_at(resets_at)),
+            _ => None,
+        }
+    }
+
     /// Ab wann das Fortsetzen fällig ist, solange die Session mit scharfem Zeitgeber pausiert.
     fn resume_due_at(&self) -> Option<f64> {
         match self.pause_reason {
@@ -3162,12 +3168,6 @@ impl SessionState {
             }) if self.status == SessionStatus::Paused => Some(auto_resume::due_at(resets_at)),
             _ => None,
         }
-    }
-
-    /// Das Fortsetzen ist fällig und wartet auf einen Platz (ADR 068).
-    fn resume_is_due(&self, now: f64) -> bool {
-        self.resume_due_at()
-            .is_some_and(|due_at: f64| now >= due_at)
     }
 
     /// Abgeschlossen, ohne offene Rückfrage, ohne laufenden Subagent oder Skript: Eine neue Eingabe
@@ -3276,7 +3276,6 @@ impl SessionState {
         if self.status == status {
             return;
         }
-        self.awaits_arming = false;
         let now = now_ms();
         if self.status == SessionStatus::Running
             && let Some(since) = self.running_since.take()
@@ -4300,8 +4299,7 @@ impl SessionState {
     /// Kommandozeile nach einem Hintergrund-Befehl selbst beginnt, lief erneut ins Kontingent. Der
     /// scharfe Zeitgeber bleibt dann scharf: bei gleicher oder unbekannter Rücksetzzeit mit seiner Marke,
     /// bei einer neuen Zeit mit neuer Marke und neuem Zeitgeber (`Outbox::restart_auto_resume`). Wer
-    /// nicht scharf war, bleibt es. `awaits_arming` behält seinen Wert, denn ohne Statuswechsel läuft
-    /// kein Haken (ADR 064, Nachtrag 2026-11-24).
+    /// nicht scharf war, bleibt es (ADR 064, Nachtrag 2026-11-24).
     fn pause_for_quota(&mut self, outbox: &mut Outbox, text: String, resets_at: Option<i64>) {
         let now_secs = (now_ms() / MS_PER_SECOND) as i64;
         let resets_at: Option<f64> = reset_text::resolve(resets_at, &text, now_secs)
@@ -4345,12 +4343,6 @@ impl SessionState {
                     resets_at,
                     auto_resume: false,
                 });
-                // Nur mit Haken: Ohne Statuswechsel (schon pausiert) entscheidet keiner und gäbe den
-                // Platz frei; eine Wiederholung behält den Wert der ersten Pause.
-                if repeated.is_none() {
-                    self.awaits_arming = outbox.station_idle.is_some()
-                        && slots::awaits_arming(self.station_of.is_some(), resets_at, now_ms());
-                }
             }
         }
         // Wie beim Fehler: der Agent hat abgegeben, die Sidebar soll es zeigen.
@@ -4555,11 +4547,11 @@ fn update<R>(
     let mut outbox = Outbox::default();
     let result = {
         let mut state = session.lock_loaded()?;
-        let held_slot = state.holds_slot_at(now_ms());
+        let held_slot = state.holds_slot();
         let result = change(&mut state, &mut outbox);
         // Vorher und nachher, nicht je Statuswechsel: Auch ein endender Subagent oder ein
         // ausgeschalteter Zeitgeber gibt einen Platz frei (ADR 068).
-        outbox.slots_changed |= held_slot != state.holds_slot_at(now_ms());
+        outbox.slots_changed |= held_slot != state.holds_slot();
         // Zugende ohne Statuswechsel: Ein wartendes Skript oder ein Subagent einer abgegebenen Station
         // endet mit dem Prozess, der Status bleibt `Completed`. Auch das weckt den Master (ADR 070).
         if outbox.station_idle.is_none()
@@ -5069,12 +5061,7 @@ fn route_input(
         .with(|connection| session_inbox::oldest_from_user(connection, &session.id))?
         .is_some();
     Ok(
-        if queues_user_message(
-            state.status,
-            state.holds_slot_at(now_ms()),
-            claimed,
-            has_waiting,
-        ) {
+        if queues_user_message(state.status, state.holds_slot(), claimed, has_waiting) {
             InputRoute::Queue
         } else {
             InputRoute::Start
@@ -6554,10 +6541,42 @@ mod tests {
     }
 
     #[test]
+    fn a_quota_pause_holds_no_slot() {
+        let at = in_an_hour();
+        // Ein scharfer Zeitgeber, ein nicht scharfer, eine Station und eine Session ohne Station:
+        // keine pausierte Session belegt einen Platz (Taiga #227).
+        assert!(!paused_station(at, true).holds_slot(), "scharf");
+        assert!(!paused_station(at, false).holds_slot(), "nicht scharf");
+        let mut without_station = paused_station(at, true);
+        without_station.station_of = None;
+        assert!(!without_station.holds_slot(), "ohne Station");
+    }
+
+    #[test]
+    fn a_quota_pause_with_a_reset_time_names_its_due_time_armed_or_not_with_a_station_or_without() {
+        let at = in_an_hour();
+        let due = auto_resume::due_at(at as f64 * MS_PER_SECOND);
+        assert_eq!(paused_station(at, true).quota_pause_due_at(), Some(due));
+        assert_eq!(paused_station(at, false).quota_pause_due_at(), Some(due));
+        let mut without_station = paused_station(at, false);
+        without_station.station_of = None;
+        assert_eq!(without_station.quota_pause_due_at(), Some(due));
+        let mut unknown = paused_station(at, true);
+        unknown.pause_reason = Some(PauseReason::Quota {
+            resets_at: None,
+            auto_resume: true,
+        });
+        assert_eq!(unknown.quota_pause_due_at(), None, "ohne Rücksetzzeit");
+        let mut running = paused_station(at, true);
+        running.status = SessionStatus::Running;
+        assert_eq!(running.quota_pause_due_at(), None, "nicht pausiert");
+    }
+
+    #[test]
     fn a_second_quota_end_keeps_the_armed_timer() {
         let at = in_an_hour();
         let mut state = paused_station(at, true);
-        let held = state.holds_slot_at(now_ms());
+        let held = state.holds_slot();
         let mut outbox = Outbox::default();
         state.end_turn(&mut outbox, quota_end(Some(at)), None, Vec::new(), None);
         let armed = ArmedResume {
@@ -6568,7 +6587,7 @@ mod tests {
         assert_eq!(state.auto_resume_token, 3);
         assert!(outbox.restart_auto_resume.is_none(), "kein neuer Zeitgeber");
         assert!(outbox.station_disarmed.is_none());
-        assert_eq!(state.holds_slot_at(now_ms()), held, "der Platz bleibt");
+        assert_eq!(state.holds_slot(), held, "der Platz bleibt");
         assert!(
             matches!(
                 state.entries.last(),
@@ -6585,7 +6604,7 @@ mod tests {
     fn a_second_quota_end_with_a_new_time_restarts_the_timer_for_it() {
         let (at, later) = (in_an_hour(), in_an_hour() + 600);
         let mut state = paused_station(at, true);
-        let held = state.holds_slot_at(now_ms());
+        let held = state.holds_slot();
         let mut outbox = Outbox::default();
         state.end_turn(&mut outbox, quota_end(Some(later)), None, Vec::new(), None);
         let old = ArmedResume {
@@ -6599,7 +6618,7 @@ mod tests {
         assert_eq!(outbox.restart_auto_resume, Some(new));
         assert!(state.auto_resume_is_current(new));
         assert!(!state.auto_resume_is_current(old), "der alte endet");
-        assert_eq!(state.holds_slot_at(now_ms()), held, "der Platz bleibt");
+        assert_eq!(state.holds_slot(), held, "der Platz bleibt");
     }
 
     #[test]
@@ -6634,16 +6653,13 @@ mod tests {
     }
 
     #[test]
-    fn a_second_quota_end_keeps_a_station_waiting_for_the_hook() {
+    fn a_second_quota_end_holds_no_slot_and_asks_the_hook_no_more() {
         let at = in_an_hour();
         let mut state = paused_station(at, false);
-        state.awaits_arming = true;
-        let held = state.holds_slot_at(now_ms());
-        assert!(held, "der Haken hat noch nicht entschieden");
+        assert!(!state.holds_slot(), "auch vor dem Haken kein Platz");
         let mut outbox = Outbox::default();
         state.end_turn(&mut outbox, quota_end(Some(at)), None, Vec::new(), None);
-        assert!(state.awaits_arming);
-        assert!(state.holds_slot_at(now_ms()));
+        assert!(!state.holds_slot());
         assert!(
             outbox.station_idle.is_none(),
             "der Haken läuft nicht noch einmal"
@@ -6665,7 +6681,7 @@ mod tests {
                 auto_resume: false,
             })
         );
-        assert!(state.awaits_arming);
+        assert!(!state.holds_slot(), "auch vor dem Haken kein Platz");
         assert_eq!(outbox.station_idle.as_deref(), Some("i"));
         assert!(outbox.restart_auto_resume.is_none());
     }

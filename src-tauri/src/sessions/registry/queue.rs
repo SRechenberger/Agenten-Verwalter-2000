@@ -27,13 +27,13 @@ use crate::usage::{self, QUOTA_STALE, QuotaHold, RefreshInput, UsageService};
 pub const AGENT_QUEUE_CHANGED_EVENT: &str = "agent_queue://changed";
 
 impl SessionRegistry {
-    /// Sessions, die zur Zeit `now` einen Platz belegen (Regel a; `SessionState::holds_slot_at`), jede
-    /// kurz und einzeln gesperrt.
-    pub(crate) fn busy_sessions(&self, now: f64) -> Vec<String> {
+    /// Sessions, die einen Platz belegen (Regel a; `SessionState::holds_slot`), jede kurz und einzeln
+    /// gesperrt.
+    pub(crate) fn busy_sessions(&self) -> Vec<String> {
         let sessions: Vec<Arc<Session>> = self.lock_sessions().values().cloned().collect();
         sessions
             .iter()
-            .filter(|session: &&Arc<Session>| session.lock().holds_slot_at(now))
+            .filter(|session: &&Arc<Session>| session.lock().holds_slot())
             .map(|session: &Arc<Session>| session.id.clone())
             .collect()
     }
@@ -46,17 +46,38 @@ impl SessionRegistry {
         )
     }
 
-    /// Der Halt bei knappem Kontingent jetzt (`usage::hold_until`): Stand, Schwelle und Betriebsart.
-    /// Eine unlesbare Einstellung gilt als Standard.
-    fn quota_hold(&self, app: &AppHandle, now: f64) -> Option<QuotaHold> {
+    /// Fälligkeiten (`auto_resume::due_at`) der Rücksetzzeiten aller Sessions, die am Kontingent
+    /// pausieren, jede kurz und einzeln gesperrt (Taiga #227).
+    fn quota_pause_due_ats(&self) -> Vec<f64> {
+        let sessions: Vec<Arc<Session>> = self.lock_sessions().values().cloned().collect();
+        sessions
+            .iter()
+            .filter_map(|session: &Arc<Session>| session.lock().quota_pause_due_at())
+            .collect()
+    }
+
+    /// Der Halt bei knappem Kontingent jetzt: der spätere von `usage::hold_until` (Stand, Schwelle und
+    /// Betriebsart) und `usage::pause_hold_until` (Rücksetzzeiten der Meldungen, `due_ats`; sie gelten
+    /// auch ohne Stand). Eine unlesbare Einstellung gilt als Standard.
+    fn quota_hold(&self, app: &AppHandle, due_ats: &[f64], now: f64) -> Option<QuotaHold> {
         let loaded = settings::load(&self.database).unwrap_or(settings::DEFAULT_SETTINGS);
-        let snapshot = app.state::<UsageService>().status().snapshot?;
-        usage::hold_until(
+        let by_stand = app.state::<UsageService>().status().snapshot.and_then(
+            |snapshot: usage::model::UsageSnapshot| {
+                usage::hold_until(
+                    loaded.operating_mode,
+                    &snapshot.limits,
+                    loaded.quota_hold_percent,
+                    now,
+                )
+            },
+        );
+        let by_pauses = usage::pause_hold_until(
             loaded.operating_mode,
-            &snapshot.limits,
             loaded.quota_hold_percent,
+            due_ats,
             now,
-        )
+        );
+        usage::later_hold(by_stand, by_pauses)
     }
 
     /// Ruft den Stand ab, wenn `usage::refresh_due` es verlangt. Nie unter einer Sperre aufrufen.
@@ -134,10 +155,10 @@ impl SessionRegistry {
             let limit = self.max_agents();
             // Eine Uhr je Durchgang: Zählen und Sammeln sehen dieselbe Fälligkeit.
             let now = now_ms();
-            let busy = self.busy_sessions(now);
+            let busy = self.busy_sessions();
             let waiters = slots::without_held_resumes(self.waiters(now), &busy);
             let ends_at = now + START_DELAY.as_secs_f64() * 1000.0;
-            let hold = self.quota_hold(app, now);
+            let hold = self.quota_hold(app, &self.quota_pause_due_ats(), now);
             let mut countdowns = self.lock_countdowns();
             countdowns.set_quota_hold(hold);
             if let Some(claimed) = countdowns.pass(seen, limit, &busy, waiters, now, ends_at) {
@@ -182,7 +203,7 @@ impl SessionRegistry {
     /// `agent_queue`: die Wartenden des letzten Durchgangs, Grenze und belegte Plätze jetzt.
     pub fn agent_queue(&self) -> AgentQueue {
         let limit = self.max_agents();
-        let busy = self.busy_sessions(now_ms());
+        let busy = self.busy_sessions();
         let countdowns = self.lock_countdowns();
         AgentQueue {
             limit,
@@ -204,7 +225,7 @@ impl SessionRegistry {
         loop {
             let seen: u64 = self.lock_countdowns().releases();
             let limit = self.max_agents();
-            let busy = self.busy_sessions(now_ms());
+            let busy = self.busy_sessions();
             if let Some(claimed) = self
                 .lock_countdowns()
                 .claim_session(seen, limit, &busy, session_id)
@@ -306,7 +327,7 @@ impl SessionRegistry {
                         && takes_user_messages(
                             state.status,
                             !state.pending.is_empty(),
-                            state.holds_slot_at(now),
+                            state.holds_slot(),
                         ),
                     has_message
                         && takes_oldest(
