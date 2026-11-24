@@ -16,9 +16,9 @@ import {
 import {
   ageText,
   isClassified,
-  KIND_LABEL,
   kindTone,
   originText,
+  taskLabel,
 } from '@/features/dashboard/dashboardTexts';
 import { useProjectLocked } from '@/features/remote/useProjectAccess';
 import type { DashboardTask } from '@/lib/bindings/DashboardTask';
@@ -123,7 +123,7 @@ export function TaskPopup({
       <header className={`task-popup__head task-popup__head--${kindTone(task.kind)}`}>
         <div>
           <div className="task-popup__kind" id={TITLE_ID}>
-            {KIND_LABEL[task.kind]}
+            {taskLabel(task)}
             {isClassified(task.kind) && <span className="task-popup__ai"> ✦ eingeordnet</span>}
           </div>
           <div className="task-popup__meta">

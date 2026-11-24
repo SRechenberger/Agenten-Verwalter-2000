@@ -17,6 +17,7 @@ import {
   isMessageEmpty,
   NO_GROUP_LABEL,
   KIND_LABEL,
+  taskLabel,
 } from './dashboardTexts.ts';
 import { emptyDraft, pickOption, type QuestionEntry } from '../chat/questionDraft.ts';
 import type { ChatEntry } from '@/lib/bindings/ChatEntry';
@@ -235,6 +236,83 @@ const MORE: { name: string; actual: () => unknown; expected: unknown }[] = [
   },
 ];
 CASES.push(...MORE);
+
+// Eine Karte „sessionTool“ mit der Anfrage `request` (JSON des `toolRequest`) im Eintrag.
+function toolCard(request: string | null): DashboardTask {
+  const body: string = request === null ? 'null' : request;
+  const entry = JSON.parse(
+    `{"kind":"question","seq":0,"requestId":"r","questionKind":"sessionTool","questions":[],"answer":null,"toolRequest":${body},"chainLimited":false,"origin":null,"at":null}`,
+  ) as ChatEntry;
+  return task('t', 'sessionTool', { entry });
+}
+
+const LABELS: { name: string; actual: () => unknown; expected: unknown }[] = [
+  {
+    name: 'a_send_message_request_reads_freigabe_nachricht',
+    actual: () =>
+      taskLabel(toolCard('{"kind":"sendMessage","recipients":[],"message":"x","subject":null}')),
+    expected: 'Freigabe Nachricht',
+  },
+  {
+    name: 'a_get_tldr_request_reads_freigabe_tldr',
+    actual: () =>
+      taskLabel(toolCard('{"kind":"getTldr","target":{"id":"s","number":1,"title":"t"}}')),
+    expected: 'Freigabe TL;DR',
+  },
+  {
+    name: 'an_open_session_request_reads_freigabe_neue_session',
+    actual: () =>
+      taskLabel(
+        toolCard(
+          '{"kind":"openSession","message":"x","subject":null,"model":"sonnet","effort":"high"}',
+        ),
+      ),
+    expected: 'Freigabe neue Session',
+  },
+  {
+    name: 'an_agent_type_proposal_reads_vorschlag_agententyp',
+    actual: () => taskLabel(toolCard('{"kind":"agentType","base":null,"proposal":{}}')),
+    expected: 'Vorschlag Agententyp',
+  },
+  {
+    name: 'a_prompt_template_proposal_reads_vorschlag_vorlage',
+    actual: () => taskLabel(toolCard('{"kind":"promptTemplate","base":null,"proposal":{}}')),
+    expected: 'Vorschlag Vorlage',
+  },
+  {
+    name: 'a_card_without_entry_stays_freigabe_nachricht',
+    actual: () => taskLabel(task('t', 'sessionTool')),
+    expected: 'Freigabe Nachricht',
+  },
+  {
+    name: 'a_card_without_tool_request_stays_freigabe_nachricht',
+    actual: () => taskLabel(toolCard(null)),
+    expected: 'Freigabe Nachricht',
+  },
+  {
+    name: 'other_kinds_keep_their_label',
+    actual: () => taskLabel(task('t', 'question')),
+    expected: 'Rückfrage',
+  },
+  {
+    name: 'group_by_kind_splits_the_five_approvals',
+    actual: () =>
+      groupTasks(
+        [
+          toolCard('{"kind":"sendMessage","recipients":[],"message":"x","subject":null}'),
+          toolCard('{"kind":"getTldr","target":{"id":"s","number":1,"title":"t"}}'),
+          toolCard('{"kind":"promptTemplate","base":null,"proposal":{}}'),
+          toolCard('{"kind":"promptTemplate","base":null,"proposal":{}}'),
+          task('q', 'question'),
+        ],
+        'kind',
+      )
+        .map((group) => `${group.label}:${String(group.tasks.length)}`)
+        .join(),
+    expected: 'Freigabe Nachricht:1,Freigabe TL;DR:1,Vorschlag Vorlage:2,Rückfrage:1',
+  },
+];
+CASES.push(...LABELS);
 
 let failed = 0;
 for (const { name, actual, expected } of CASES) {
