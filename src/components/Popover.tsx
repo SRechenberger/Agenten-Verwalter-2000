@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { ReactElement, ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { FOCUSABLE_SELECTOR } from '@/lib/focus';
+import { MENU_ITEM_SELECTOR, moveMenuFocus } from '@/lib/menuNavigation';
 import './Popover.css';
 
 /** Mindestabstand des Menüs zum Fensterrand in px. */
@@ -27,7 +28,12 @@ interface PopoverProps {
 
 /** Hülle für alle Menüs. Wird als Kind eines `position: relative`-Elements gerendert,
  *  das auch den Auslöser enthält — ein Klick auf den Auslöser zählt nicht als „außerhalb“,
- *  damit dessen eigener Klick das Menü umschalten kann. */
+ *  damit dessen eigener Klick das Menü umschalten kann.
+ *
+ *  Tastatur (Taiga #220), einmal für alle Menüs: Hat das Menü Einträge mit `role` `menuitem`, `menuitemradio`
+ *  oder `menuitemcheckbox`, wechseln ↓ und ↑ den Eintrag im Umlauf, Pos1 und Ende springen an Anfang und Ende;
+ *  ein gesperrter Eintrag wird übersprungen (`menuNavigation.ts`). In einem Textfeld des Menüs und in einem Menü
+ *  ohne solche Einträge bleiben die Tasten, was sie waren. */
 export function Popover({
   label,
   placement,
@@ -68,6 +74,7 @@ export function Popover({
     // und pausiert die Session nicht zusätzlich, wenn ein Menü das Esc verbraucht hat.
     function handleKeyDown(event: KeyboardEvent): void {
       if (event.key !== 'Escape') {
+        handleNavigation(event);
         return;
       }
       event.preventDefault();
@@ -78,6 +85,27 @@ export function Popover({
       onCloseRef.current();
       if (shouldTakeFocusRef.current && previouslyFocused instanceof HTMLElement) {
         previouslyFocused.focus();
+      }
+    }
+
+    function handleNavigation(event: KeyboardEvent): void {
+      const target: EventTarget | null = event.target;
+      if (
+        event.ctrlKey ||
+        event.altKey ||
+        event.metaKey ||
+        event.shiftKey ||
+        !(target instanceof HTMLElement) ||
+        !(root?.contains(target) ?? false) ||
+        target.closest('input, textarea, select, [contenteditable]') !== null
+      ) {
+        return;
+      }
+      const items: HTMLElement[] = Array.from(
+        root?.querySelectorAll<HTMLElement>(MENU_ITEM_SELECTOR) ?? [],
+      );
+      if (moveMenuFocus(event.key, items)) {
+        event.preventDefault();
       }
     }
 
