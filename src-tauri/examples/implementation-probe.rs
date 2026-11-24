@@ -570,7 +570,8 @@ fn agent_lines(view: &ImplementationView, rows: &[StationRow]) -> String {
 }
 
 /// Druckt die Unterschiede eines Vorschlags; mit `is_applied` ersetzt er die kommenden Phasen wie
-/// „Übernehmen“ (dieselbe Rechnung wie `changes::apply`, ohne Marken und ohne Vermerk).
+/// „Übernehmen“ (dieselbe Rechnung wie `changes::apply`: `changes::replacement`, mit Vermerk, sobald eine
+/// Station begonnen hat).
 fn set_phases(
     database_path: &Path,
     implementation_id: &str,
@@ -602,36 +603,42 @@ fn set_phases(
         return Ok(text);
     }
     check_agents(&input.phases, &types_of(&database)?)?;
-    let removed: Vec<&PhaseView> = view
+    changes::refuse_taken_kennungen(&view, &input.phases)?;
+    // Wie das Werkzeug: Hat noch keine Station begonnen, gilt die Änderung sofort ohne Vermerk
+    // (`propose`), sonst wie „Übernehmen“ mit Vermerk der Master-Session (`decide`).
+    let record = view
         .phases
         .iter()
-        .filter(|phase: &&PhaseView| !changes::is_begun(phase))
-        .collect();
-    let removed_ids: Vec<String> = removed
-        .iter()
-        .map(|phase: &&PhaseView| phase.id.clone())
-        .collect();
-    let (phases, mut stations) = changes::replacement_rows(
-        &view.id,
+        .any(changes::is_begun)
+        .then(|| changes::Record {
+            session_id: view.master_session_id.clone(),
+            summary,
+        });
+    let replacement = changes::replacement(
+        &view,
         &input.phases,
-        &removed,
         &rows_of(&database, &view.id)?,
-    );
-    link(&kept_phases(&view), &input.phases, &mut stations)?;
+        record.as_ref(),
+    )?;
     database
         .with(|connection| {
             implementations::replace_upcoming_phases(
                 connection,
                 &view.id,
-                &removed_ids,
-                &phases,
-                &stations,
-                None,
+                &replacement.removed_ids,
+                &replacement.phases,
+                &replacement.stations,
+                replacement.change.as_ref(),
             )
         })
         .map_err(|error| error.to_string())?;
+    let named = if replacement.named.is_empty() {
+        String::new()
+    } else {
+        format!(" Neue Stationen: {}.", replacement.named)
+    };
     Ok(format!(
-        "{text}\nÜbernommen.\n\n{}",
+        "{text}\nÜbernommen.{named}\n\n{}",
         report_of(&database, implementation_id)?
     ))
 }
@@ -1063,6 +1070,60 @@ fn selftest(path: &Path) -> Result<bool, String> {
         "Einfügen der Fix-Runde: PR wartet auf das zweite Review",
         due(&fixed) == ["1-4"]
             && station(&fixed, "1-3").map(|pr| pr.after.clone()) == Some(vec!["1-5".to_owned()]),
+    );
+
+    // set-phases --apply wie das Werkzeug (ADR 061, Nachträge 2026-11-22 und 2026-11-23): Kennungen
+    // `<Lane>-<n>` ohne eine alte Nummer, genannte Kennungen bleiben, Kanten ins Leere werden abgelehnt,
+    // genau ein Vermerk.
+    let replan = create_in(
+        &database,
+        &phases_of(serde_json::json!([
+            { "key": "1", "title": "Eins", "stations": [
+                { "stage": "Umsetzung", "id": "a", "after": [] },
+                { "stage": "Review", "id": "c", "after": ["a", "b"] },
+            ] },
+            { "key": "2", "title": "Zwei", "stations": [
+                { "stage": "Merge", "id": "b", "after": [] },
+                { "stage": "Doku", "id": "d", "after": [] },
+            ] },
+        ]))?,
+    )?;
+    mark_done(&database, &plan_view(&database, &replan)?, "1-1")?;
+    let phases_file = path.with_extension("phases.json");
+    let write_phases = |json: serde_json::Value| -> Result<(), String> {
+        fs::write(&phases_file, json.to_string()).map_err(|error| error.to_string())
+    };
+    write_phases(serde_json::json!({ "phases": [
+        { "key": "2", "title": "Zwei", "stations": [{ "stage": "Merge", "after": [] }] },
+    ] }))?;
+    let refused = set_phases(path, &replan, &phases_file, true);
+    all &= check(
+        "set-phases --apply: Kante einer begonnenen Lane auf eine nicht genannte kommende Station abgelehnt",
+        refused.is_err_and(|error: String| error.contains("„1-2 · Review“")),
+    );
+    write_phases(serde_json::json!({ "phases": [
+        { "key": "2", "title": "Zwei", "stations": [
+            { "stage": "Merge", "id": "2-1", "after": [] },
+            { "stage": "Test", "after": ["2-1"] },
+        ] },
+        { "key": "3", "title": "Drei", "stations": [{ "stage": "PR" }] },
+    ] }))?;
+    let applied = set_phases(path, &replan, &phases_file, true);
+    let _ = fs::remove_file(&phases_file);
+    let replanned = plan_view(&database, &replan)?;
+    all &= check(
+        "set-phases --apply: neue Stationen ohne alte Nummer, genannte Kennung bleibt mit ihrer Kante",
+        applied.is_ok_and(|text: String| text.contains("Neue Stationen:"))
+            && station(&replanned, "2-1").is_some_and(|merge| merge.stage == "Merge")
+            && station(&replanned, "2-2").is_none()
+            && station(&replanned, "2-3").is_some_and(|test| test.after == ["2-1"])
+            && station(&replanned, "3-1").is_some_and(|pr| pr.stage == "PR")
+            && station(&replanned, "1-2")
+                .is_some_and(|review| review.after.contains(&"2-1".to_owned())),
+    );
+    all &= check(
+        "set-phases --apply: genau ein Vermerk bei begonnener Lane",
+        replanned.changes.len() == 1,
     );
 
     // Verzweigung und Zusammenlauf: zwei gleichzeitige Fertigmeldungen starten die Join-Station
