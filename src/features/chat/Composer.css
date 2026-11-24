@@ -99,6 +99,16 @@
     }
   }
 
+  &__hint {
+    min-width: 0;
+    margin-left: var(--space-sm);
+    overflow: hidden;
+    color: var(--color-status-waiting);
+    font-size: var(--font-size-xs);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
   &__model,
   &__mode,
   &__browser,

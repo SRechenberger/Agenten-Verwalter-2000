@@ -128,6 +128,14 @@ export const PICK_TITLE = 'Vorlage wählen';
 export const MENU_HEADING = 'Vorlage';
 export const MENU_SETTINGS_LINK = 'Vorlagen in den Einstellungen bearbeiten …';
 export const BAR_HINT = 'Mit / startest du mit einem Skill, mit ▤ aus einer Vorlage.';
+
+// Während des Diktats sind `/` und ▤ gesperrt (Taiga #219): Der Tooltip nennt den Grund, die Zeile in der Leiste
+// ersetzt den Hinweis; ▤ steht nur in „Neues Vorhaben“ und nur mit Vorlagen.
+const LOCKED_BY_DICTATION = 'während des Diktats gesperrt';
+export const COMMAND_TITLE_DICTATING = `Befehle und Skills – ${LOCKED_BY_DICTATION}`;
+export const PICK_TITLE_DICTATING = `${PICK_TITLE} – ${LOCKED_BY_DICTATION}`;
+export const DICTATION_HINT_WITH_TEMPLATES = 'Diktat läuft – / und ▤ sind gesperrt';
+export const DICTATION_HINT = 'Diktat läuft – / ist gesperrt';
 export const FORM_KIND = '· Formular';
 export const FORM_OK = 'OK';
 export const FORM_DISCARD = 'Verwerfen';

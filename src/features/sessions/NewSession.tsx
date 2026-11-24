@@ -24,12 +24,16 @@ import type { Parsed, TemplateField } from '@/features/prompttemplates/mustache'
 import {
   BAR_HINT,
   CANCEL_LABEL,
+  COMMAND_TITLE_DICTATING,
+  DICTATION_HINT,
+  DICTATION_HINT_WITH_TEMPLATES,
   LOCK_LINE,
   NAME_CHIP_MANUAL,
   NAME_CHIP_TEMPLATE,
   NAME_FIELD_LABEL,
   NAME_NOTE,
   PICK_TITLE,
+  PICK_TITLE_DICTATING,
   REPLACE_LABEL,
   REPLACE_TITLE,
   START_HINT,
@@ -127,6 +131,7 @@ export function NewSession({ groups, onCreated, onCancel }: NewSessionProps): Re
   const [isStarting, setIsStarting] = useState<boolean>(false);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const groupButtonRef = useRef<HTMLButtonElement>(null);
+  const templateButtonRef = useRef<HTMLButtonElement>(null);
   const { promptTemplates } = usePromptTemplates();
   const [form, setForm] = useState<OpenForm | null>(null);
   // Das Namensfeld unter dem Auftrag (E8): `null` = keins, wie ohne Namensvorlage.
@@ -219,6 +224,13 @@ export function NewSession({ groups, onCreated, onCancel }: NewSessionProps): Re
       return;
     }
     applyTemplate(template);
+  }
+
+  /** „Abbrechen“ und Esc der Nachfrage: Der Eintrag im Menü ▤, der sie öffnete, ist schon ausgehängt, `Dialog`
+   *  fände ihn nicht mehr; der Fokus kehrt deshalb zum Knopf ▤ zurück (Taiga #221). */
+  function cancelReplace(): void {
+    setPendingTemplate(null);
+    templateButtonRef.current?.focus();
   }
 
   /** Eine neue Wahl ersetzt Formular, Auftrag und Namensfeld (A7); alle Checkboxen starten aus (A6). */
@@ -432,8 +444,8 @@ export function NewSession({ groups, onCreated, onCancel }: NewSessionProps): Re
                 aria-haspopup="dialog"
                 aria-expanded={openMenu === 'command'}
                 aria-label="Befehle und Skills"
-                title="Befehle und Skills"
-                disabled={isStarting || isFormOpen}
+                title={isDictating ? COMMAND_TITLE_DICTATING : 'Befehle und Skills'}
+                disabled={isStarting || isFormOpen || isDictating}
                 onClick={(): void => {
                   toggleMenu('command');
                 }}
@@ -443,12 +455,13 @@ export function NewSession({ groups, onCreated, onCancel }: NewSessionProps): Re
               {hasTemplates && promptTemplates !== null && (
                 <div className="new-session__anchor">
                   <button
+                    ref={templateButtonRef}
                     type="button"
                     className="new-session__icon-button new-session__template-button"
                     aria-haspopup="dialog"
                     aria-expanded={openMenu === 'template'}
                     aria-label={PICK_TITLE}
-                    title={PICK_TITLE}
+                    title={isDictating ? PICK_TITLE_DICTATING : PICK_TITLE}
                     disabled={isStarting || isDictating}
                     onClick={(): void => {
                       toggleMenu('template');
@@ -469,10 +482,16 @@ export function NewSession({ groups, onCreated, onCancel }: NewSessionProps): Re
                   )}
                 </div>
               )}
-              <span className="new-session__hint">
-                {hasTemplates
-                  ? BAR_HINT
-                  : 'Bilder und Dateien hineinziehen oder einfügen. Mit / startest du direkt mit einem Skill.'}
+              <span
+                className={`new-session__hint${isDictating ? ' new-session__hint--dictating' : ''}`}
+              >
+                {isDictating
+                  ? hasTemplates
+                    ? DICTATION_HINT_WITH_TEMPLATES
+                    : DICTATION_HINT
+                  : hasTemplates
+                    ? BAR_HINT
+                    : 'Bilder und Dateien hineinziehen oder einfügen. Mit / startest du direkt mit einem Skill.'}
               </span>
             </div>
             {commandMenu.isOpen && (
@@ -680,22 +699,14 @@ export function NewSession({ groups, onCreated, onCancel }: NewSessionProps): Re
         <Dialog
           labelledBy={REPLACE_TITLE_ID}
           className="new-session__replace"
-          onClose={(): void => {
-            setPendingTemplate(null);
-          }}
+          onClose={cancelReplace}
         >
           <h3 id={REPLACE_TITLE_ID} className="new-session__replace-title">
             {REPLACE_TITLE}
           </h3>
           <p className="new-session__replace-text">{replaceText(pendingTemplate.name)}</p>
           <div className="new-session__replace-actions">
-            <button
-              type="button"
-              className="new-session__cancel"
-              onClick={(): void => {
-                setPendingTemplate(null);
-              }}
-            >
+            <button type="button" className="new-session__cancel" onClick={cancelReplace}>
               {CANCEL_LABEL}
             </button>
             <button

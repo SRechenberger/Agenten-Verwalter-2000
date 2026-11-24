@@ -19,7 +19,7 @@ interface TemplateMenuProps {
 }
 
 /** Das Menü am Knopf ▤ (Bild 1B): die Vorlagen mit ihrer ersten Zeile, darunter der Weg in die Einstellungen.
- *  Tab geht durch die Einträge, Enter wählt, Esc schließt. */
+ *  ↑, ↓, Pos1 und Ende wechseln den Eintrag (`Popover`), Tab geht durch sie, Enter wählt, Esc schließt. */
 export function TemplateMenu({
   promptTemplates,
   onPick,

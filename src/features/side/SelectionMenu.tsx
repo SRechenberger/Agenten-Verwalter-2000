@@ -5,6 +5,7 @@ import { focusComposer, setQuoteDraft } from '@/features/chat/composerDraft';
 import { openSide } from '@/features/side/openSide';
 import type { OperatingMode } from '@/lib/bindings/OperatingMode';
 import { commandErrorText } from '@/lib/errors';
+import { MENU_ITEM_SELECTOR, moveMenuFocus } from '@/lib/menuNavigation';
 import { useSessionErrorsStore } from '@/stores/sessionErrors';
 import './SelectionMenu.css';
 
@@ -89,16 +90,12 @@ export function SelectionMenu({
   }, []);
 
   function handleNavigation(event: KeyboardEvent<HTMLDivElement>): void {
-    if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') {
-      return;
-    }
     const rows: HTMLElement[] = Array.from(
-      event.currentTarget.querySelectorAll<HTMLElement>('button'),
+      event.currentTarget.querySelectorAll<HTMLElement>(MENU_ITEM_SELECTOR),
     );
-    const current: number = rows.findIndex((row: HTMLElement) => row === document.activeElement);
-    const step: number = event.key === 'ArrowDown' ? 1 : -1;
-    event.preventDefault();
-    rows[(current + step + rows.length) % rows.length]?.focus();
+    if (moveMenuFocus(event.key, rows)) {
+      event.preventDefault();
+    }
   }
 
   function copy(): void {

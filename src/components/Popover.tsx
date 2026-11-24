@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { ReactElement, ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { FOCUSABLE_SELECTOR } from '@/lib/focus';
+import { MENU_ITEM_SELECTOR, moveMenuFocus } from '@/lib/menuNavigation';
 import './Popover.css';
 
 /** Mindestabstand des Menüs zum Fensterrand in px. */
@@ -14,7 +15,8 @@ interface PopoverProps {
   /** Breite in px oder `'anchor'` für die volle Breite des Elements, das das Menü trägt. */
   width: number | 'anchor';
   onClose: () => void;
-  /** Ersetzt für Esc das Schließen (ein Menü mit Unteransicht geht damit zurück); der Fokus bleibt dann beim Menü. */
+  /** Ersetzt für Esc das Schließen (ein Menü mit Unteransicht geht damit zurück); der Fokus bleibt dann beim Menü,
+   *  `onClose` und die Rückgabe des Fokus an den Auslöser entfallen. */
   onEscape?: (() => void) | undefined;
   /** `false`: der Fokus bleibt, wo er ist (Menü, das ein Textfeld begleitet). Standard `true`. */
   autoFocus?: boolean;
@@ -27,7 +29,20 @@ interface PopoverProps {
 
 /** Hülle für alle Menüs. Wird als Kind eines `position: relative`-Elements gerendert,
  *  das auch den Auslöser enthält — ein Klick auf den Auslöser zählt nicht als „außerhalb“,
- *  damit dessen eigener Klick das Menü umschalten kann. */
+ *  damit dessen eigener Klick das Menü umschalten kann.
+ *
+ *  Tastatur (Taiga #220), einmal für alle Menüs: Hat das Menü Einträge mit `role` `menuitem`, `menuitemradio`
+ *  oder `menuitemcheckbox`, wechseln ↓ und ↑ den Eintrag im Umlauf, Pos1 und Ende springen an Anfang und Ende;
+ *  ein gesperrter Eintrag wird übersprungen (`menuNavigation.ts`). In einem Textfeld des Menüs und in einem Menü
+ *  ohne solche Einträge bleiben die Tasten, was sie waren. Der so gesetzte Fokus ist sichtbar (`:focus-visible`),
+ *  auch wenn das Menü per Maus aufging.
+ *
+ *  Fokus (Taiga #221): Esc gibt ihn sichtbar an den Auslöser zurück. Gesucht wird das erste Element mit
+ *  `aria-expanded="true"` im Anker, der auch das Menü trägt, außerhalb des Menüs. In einem Kontextmenü der Leiste
+ *  ist das der Knopf zum Ein- und Ausklappen der Zeile. Nicht an das Element, das vorher den Fokus hatte: Das ist
+ *  nach dem Mausklick unter WebKit auf macOS `body` und gilt nach dem zweiten Durchlauf des Effekts im
+ *  Entwicklungsmodus schon für einen Eintrag des Menüs. Nur ohne ein solches Element bleibt es beim Element von
+ *  vorher. */
 export function Popover({
   label,
   placement,
@@ -45,6 +60,7 @@ export function Popover({
   const onCloseRef = useRef<() => void>(onClose);
   const onEscapeRef = useRef<(() => void) | undefined>(onEscape);
   const shouldTakeFocusRef = useRef<boolean>(autoFocus);
+  const previouslyFocusedRef = useRef<Element | null>(null);
 
   // Der Listener-Effekt läuft nur einmal; über die Ref sieht er stets den aktuellen Callback,
   // ohne dass ein neuer Callback pro Render den Fokus erneut auf das erste Element setzt.
@@ -59,7 +75,10 @@ export function Popover({
     if (root === null) {
       return undefined;
     }
-    const previouslyFocused: Element | null = document.activeElement;
+    // Nur ein Element außerhalb des Menüs gilt: Beim zweiten Durchlauf des Effekts steht der Fokus schon darin.
+    if (!root.contains(document.activeElement)) {
+      previouslyFocusedRef.current = document.activeElement;
+    }
     if (shouldTakeFocusRef.current) {
       root.querySelector<HTMLElement>(FOCUSABLE_SELECTOR)?.focus();
     }
@@ -68,6 +87,7 @@ export function Popover({
     // und pausiert die Session nicht zusätzlich, wenn ein Menü das Esc verbraucht hat.
     function handleKeyDown(event: KeyboardEvent): void {
       if (event.key !== 'Escape') {
+        handleNavigation(event);
         return;
       }
       event.preventDefault();
@@ -76,8 +96,40 @@ export function Popover({
         return;
       }
       onCloseRef.current();
-      if (shouldTakeFocusRef.current && previouslyFocused instanceof HTMLElement) {
-        previouslyFocused.focus();
+      const target: Element | null = findTrigger() ?? previouslyFocusedRef.current;
+      if (shouldTakeFocusRef.current && target instanceof HTMLElement) {
+        // Esc ist eine Taste: der Rahmen am Knopf soll auch nach einem Mausklick erscheinen.
+        target.focus({ focusVisible: true });
+      }
+    }
+
+    function findTrigger(): HTMLElement | null {
+      const anchor: HTMLElement | null =
+        (detached ? markerRef.current : root)?.parentElement ?? null;
+      const open: HTMLElement[] = Array.from(
+        anchor?.querySelectorAll<HTMLElement>('[aria-expanded="true"]') ?? [],
+      );
+      return open.find((element: HTMLElement) => !(root?.contains(element) ?? false)) ?? null;
+    }
+
+    function handleNavigation(event: KeyboardEvent): void {
+      const target: EventTarget | null = event.target;
+      if (
+        event.ctrlKey ||
+        event.altKey ||
+        event.metaKey ||
+        event.shiftKey ||
+        !(target instanceof HTMLElement) ||
+        !(root?.contains(target) ?? false) ||
+        target.closest('input, textarea, select, [contenteditable]') !== null
+      ) {
+        return;
+      }
+      const items: HTMLElement[] = Array.from(
+        root?.querySelectorAll<HTMLElement>(MENU_ITEM_SELECTOR) ?? [],
+      );
+      if (moveMenuFocus(event.key, items)) {
+        event.preventDefault();
       }
     }
 

@@ -13,6 +13,7 @@ import type { DashboardTask } from '@/lib/bindings/DashboardTask';
 import type { DashboardTaskKind } from '@/lib/bindings/DashboardTaskKind';
 import type { ProjectPriority } from '@/lib/bindings/ProjectPriority';
 import type { ProjectSummary } from '@/lib/bindings/ProjectSummary';
+import type { ToolRequest } from '@/lib/bindings/ToolRequest';
 
 /** Eine Ebene der Gruppierung: nach Vorhaben, nach Art oder nach Gruppe des Vorhabens (#11). */
 export type GroupBy = 'project' | 'kind' | 'group';
@@ -39,6 +40,31 @@ export const KIND_LABEL: Record<DashboardTaskKind, string> = {
   ready: 'Bereit',
   done: 'Fertig',
 };
+
+// `sendMessage` steht in `KIND_LABEL.sessionTool`, wie bei einer Karte ohne Anfrage.
+const TOOL_LABEL: Record<Exclude<ToolRequest['kind'], 'sendMessage'>, string> = {
+  getTldr: 'Freigabe TL;DR',
+  openSession: 'Freigabe neue Session',
+  agentType: 'Vorschlag Agententyp',
+  promptTemplate: 'Vorschlag Vorlage',
+};
+
+/** Schlüssel und Beschriftung einer Karte: `task.kind` und `KIND_LABEL`, bei einem Kasten eines Session-Werkzeugs
+ *  die Art der Anfrage (Taiga #224). Ohne Eintrag oder ohne `toolRequest` und bei `sendMessage` bleibt es bei
+ *  `sessionTool` und „Freigabe Nachricht“; die übrigen Arten bekommen einen eigenen Schlüssel. */
+function cardKind(task: DashboardTask): { key: string; label: string } {
+  if (task.kind === 'sessionTool' && task.entry?.kind === 'question') {
+    const request: ToolRequest | null = task.entry.toolRequest;
+    if (request !== null && request.kind !== 'sendMessage') {
+      return { key: `${task.kind}:${request.kind}`, label: TOOL_LABEL[request.kind] };
+    }
+  }
+  return { key: task.kind, label: KIND_LABEL[task.kind] };
+}
+
+export function taskLabel(task: DashboardTask): string {
+  return cardKind(task).label;
+}
 
 const KIND_TONE: Record<DashboardTaskKind, Tone> = {
   question: 'wait',
@@ -98,7 +124,7 @@ function groupOf(task: DashboardTask, by: GroupBy): { key: string; label: string
     return { key: task.projectId, label: task.projectName };
   }
   if (by === 'kind') {
-    return { key: task.kind, label: KIND_LABEL[task.kind] };
+    return cardKind(task);
   }
   const name: string = task.groupName ?? NO_GROUP_LABEL;
   return { key: `group:${name}`, label: name };

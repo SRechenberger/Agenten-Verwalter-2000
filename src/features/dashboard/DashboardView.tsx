@@ -7,11 +7,11 @@ import {
   filterTasks,
   isClassified,
   isNested,
-  KIND_LABEL,
   kindTone,
   levelsOf,
   NEST_LABEL,
   NEST_ORDER,
+  taskLabel,
   nestTasks,
   originText,
   priorityOf,
@@ -107,7 +107,7 @@ export function DashboardView({
         }}
       >
         <span className="dashboard-card__top">
-          <span className="dashboard-card__kind">{KIND_LABEL[task.kind]}</span>
+          <span className="dashboard-card__kind">{taskLabel(task)}</span>
           {isClassified(task.kind) && (
             <span
               className="dashboard-card__ai"
