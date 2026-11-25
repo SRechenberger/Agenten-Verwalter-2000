@@ -29,9 +29,10 @@
 
   &--bar {
     padding: var(--space-sm) var(--space-lg);
-    border: 1px solid var(--tone);
-    border-left-width: 3px;
-    border-radius: var(--radius-lg);
+    border: 0;
+    border-bottom: 1px solid var(--color-border-subtle);
+    border-left: 2px solid var(--tone);
+    border-radius: 0;
     background: var(--color-bg-surface);
     pointer-events: auto;
   }
@@ -39,7 +40,7 @@
   &--hint {
     padding: var(--space-md) var(--space-lg);
     border-bottom: 1px solid var(--color-border-subtle);
-    border-radius: calc(var(--radius-xl) - 1px) calc(var(--radius-xl) - 1px) 0 0;
+    border-radius: 0;
   }
 
   &__kind {
@@ -62,7 +63,7 @@
     flex-shrink: 0;
     padding: 0 var(--space-md);
     border: 1px solid var(--color-border);
-    border-radius: 99px;
+    border-radius: var(--radius-flat);
     color: var(--color-fg-muted);
     white-space: nowrap;
   }
@@ -71,7 +72,7 @@
     flex-shrink: 0;
     padding: var(--space-xs) var(--space-lg);
     border: 1px solid var(--color-border);
-    border-radius: var(--radius-md);
+    border-radius: var(--radius-flat);
     background: transparent;
     color: var(--color-fg-secondary);
     font: inherit;
@@ -99,7 +100,7 @@
     align-self: flex-start;
     padding: var(--space-xs) var(--space-lg);
     border: 0;
-    border-radius: var(--radius-md);
+    border-radius: var(--radius-flat);
     background: var(--color-bg-surface);
     color: var(--color-fg-secondary);
     font: inherit;
@@ -130,9 +131,10 @@
 .chat-task-frame {
   --tone: var(--color-fg-muted);
   padding: var(--space-md) var(--space-lg);
-  border: 1px solid var(--tone);
-  border-left-width: 3px;
-  border-radius: var(--radius-lg);
+  border: 0;
+  border-bottom: 1px solid var(--color-border-subtle);
+  border-left: 2px solid var(--tone);
+  border-radius: 0;
   background: var(--color-bg-surface);
 
   &--wait {

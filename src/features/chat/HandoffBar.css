@@ -13,7 +13,7 @@
 
   &__kind {
     padding: 0 var(--space-sm);
-    border-radius: var(--radius-full);
+    border-radius: var(--radius-flat);
     background: var(--color-accent-subtle);
     color: var(--color-accent-text);
     font-size: var(--font-size-xs);

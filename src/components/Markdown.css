@@ -109,7 +109,7 @@
   /* Inline-Code; Code in Blöcken gestaltet CodeBlock. */
   :not(pre) > code {
     padding: 0 var(--space-xs);
-    border-radius: var(--radius-sm);
+    border-radius: var(--radius-flat);
     background: var(--color-bg-hover);
     font-family: var(--font-mono);
     font-size: var(--font-size-sm);

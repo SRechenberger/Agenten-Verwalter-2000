@@ -2,13 +2,11 @@
   display: flex;
   flex-direction: column;
   gap: var(--space-lg);
-  padding: var(--space-xl);
-  border: 1px solid var(--color-status-waiting);
-  border-radius: var(--radius-lg);
-  background: var(--color-bg-surface);
+  padding: var(--space-xs) 0 var(--space-xs) var(--space-xl);
+  border-left: 2px solid var(--color-status-waiting);
 
   &--answered {
-    border-color: var(--color-border);
+    border-left-color: var(--color-border);
   }
 
   &__head {
@@ -37,17 +35,18 @@
   &__options {
     display: flex;
     flex-direction: column;
-    gap: var(--space-sm);
+    border-top: 1px solid var(--color-border-subtle);
   }
 
   &__option {
     display: flex;
     align-items: center;
     gap: var(--space-lg);
-    padding: 9px var(--space-xl);
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius-md);
-    background: var(--color-bg-base);
+    padding: 9px var(--space-md);
+    border: 0;
+    border-bottom: 1px solid var(--color-border-subtle);
+    border-radius: 0;
+    background: transparent;
     color: var(--color-fg-primary);
     font: inherit;
     text-align: left;
@@ -67,13 +66,12 @@
       color: var(--color-fg-secondary);
     }
 
-    &--selected {
-      border-color: var(--color-accent);
+    &--selected,
+    &--selected:hover:not(:disabled) {
+      background: var(--color-status-waiting-subtle);
     }
 
     &--selected:disabled {
-      border-color: var(--color-accent);
-      background: var(--color-accent-subtle);
       color: var(--color-fg-primary);
     }
   }
@@ -82,7 +80,7 @@
     flex-shrink: 0;
     width: 18px;
     height: 18px;
-    border-radius: var(--radius-sm);
+    border-radius: var(--radius-flat);
     background: var(--color-bg-hover);
     color: var(--color-fg-secondary);
     font-size: var(--font-size-2xs);
@@ -116,7 +114,7 @@
     height: 28px;
     padding: 0 var(--space-xl);
     border: 0;
-    border-radius: var(--radius-md);
+    border-radius: var(--radius-flat);
     background: var(--color-accent);
     color: var(--color-fg-on-accent);
     font: inherit;
@@ -175,7 +173,7 @@
     align-items: center;
     height: 20px;
     padding: 0 var(--space-md);
-    border-radius: var(--radius-full);
+    border-radius: var(--radius-flat);
     background: var(--color-bg-hover);
     color: var(--color-fg-secondary);
     font-size: var(--font-size-2xs);
@@ -211,8 +209,8 @@
   &__choices {
     display: flex;
     flex-direction: column;
-    gap: var(--space-sm);
     min-width: 0;
+    border-top: 1px solid var(--color-border-subtle);
   }
 
   &__choice {
@@ -223,16 +221,14 @@
     gap: var(--space-lg);
     min-width: 0;
     padding: var(--space-md) var(--space-lg);
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius-md);
-    background: var(--color-bg-base);
+    border: 0;
+    border-radius: 0;
+    background: transparent;
     color: var(--color-fg-primary);
     font: inherit;
     text-align: left;
     cursor: pointer;
-    transition:
-      background-color var(--duration-fast) var(--ease-out),
-      border-color var(--duration-fast) var(--ease-out);
+    transition: background-color var(--duration-fast) var(--ease-out);
 
     &:hover:not(:disabled) {
       background: var(--color-bg-hover);
@@ -250,8 +246,7 @@
 
     &--selected,
     &--selected:hover:not(:disabled) {
-      border-color: var(--color-accent);
-      background: var(--color-accent-subtle);
+      background: var(--color-status-waiting-subtle);
     }
 
     &--selected:disabled {
@@ -272,7 +267,7 @@
     }
 
     &--check {
-      border-radius: var(--radius-sm);
+      border-radius: var(--radius-flat);
     }
   }
 
@@ -297,7 +292,7 @@
     height: 17px;
     padding: 0 var(--space-sm);
     border: 1px solid color-mix(in srgb, var(--color-status-completed) 45%, transparent);
-    border-radius: var(--radius-sm);
+    border-radius: var(--radius-flat);
     color: var(--color-status-completed);
     font-size: var(--font-size-2xs);
     font-weight: 600;
@@ -309,7 +304,7 @@
     min-width: 20px;
     padding: 0 5px;
     border: 1px solid var(--color-border);
-    border-radius: var(--radius-sm);
+    border-radius: var(--radius-flat);
     color: var(--color-fg-muted);
     font-family: var(--font-mono);
     font-size: var(--font-size-2xs);
@@ -324,8 +319,9 @@
     gap: var(--space-lg);
     width: 100%;
     padding: var(--space-md) var(--space-lg);
-    border: 1px solid var(--color-border-subtle);
-    border-radius: var(--radius-md);
+    border: 0;
+    border-bottom: 1px solid var(--color-border-subtle);
+    border-radius: 0;
     background: transparent;
     color: var(--color-fg-muted);
     font: inherit;
@@ -348,6 +344,10 @@
 
     &--done {
       color: var(--color-fg-primary);
+    }
+    /* Die offene Frage endet ohne Haarlinie; die Zeile darunter trägt nur ihre Unterlinie. */
+    &:first-child {
+      border-top: 1px solid var(--color-border-subtle);
     }
   }
 
@@ -375,6 +375,12 @@
     gap: var(--space-md) var(--space-2xl);
     padding-top: var(--space-lg);
     border-top: 1px solid var(--color-border-subtle);
+  }
+
+  /* Endet der Körper mit einer Zeile samt Unterlinie, genügt diese. */
+  &__body:has(> .question-block__row:last-child) + &__foot {
+    padding-top: 0;
+    border-top: 0;
   }
 
   &__progress {
@@ -555,13 +561,14 @@
   align-items: stretch;
   gap: var(--space-sm);
   min-width: 0;
+  border-bottom: 1px solid var(--color-border-subtle);
 }
 
 .question-block__note-toggle {
   flex-shrink: 0;
   width: 34px;
   border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-flat);
   background: var(--color-bg-base);
   color: var(--color-fg-muted);
   font: inherit;
@@ -603,7 +610,7 @@
   height: 30px;
   padding: 0 var(--space-lg);
   border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
+  border-radius: 0;
   background: var(--color-bg-base);
   color: var(--color-fg-primary);
   font: inherit;
@@ -638,7 +645,7 @@
   align-self: stretch;
   padding: var(--space-md) var(--space-lg);
   border: 1px dashed var(--color-border);
-  border-radius: var(--radius-md);
+  border-radius: 0;
   background: transparent;
   color: var(--color-fg-muted);
   font: inherit;

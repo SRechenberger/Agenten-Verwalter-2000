@@ -49,7 +49,7 @@
   &__type {
     flex-shrink: 0;
     padding: 0 var(--space-sm);
-    border-radius: var(--radius-sm);
+    border-radius: var(--radius-flat);
     background: var(--color-bg-hover);
     font-family: var(--font-mono);
     font-size: var(--font-size-xs);
