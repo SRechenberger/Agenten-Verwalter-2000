@@ -3,6 +3,7 @@ import { useMemo, useRef, useState } from 'react';
 import type { ReactElement } from 'react';
 import { ModeMenu } from '@/components/ModeMenu';
 import { ModelMenu } from '@/components/ModelMenu';
+import { ResizeHandle } from '@/components/ResizeHandle';
 import { Switch } from '@/components/Switch';
 import { AccountRow } from '@/features/account/AccountRow';
 import { AgentTypesRow } from '@/features/agenttypes/AgentTypesRow';
@@ -40,7 +41,6 @@ import { SelectButton } from '@/features/settings/SelectButton';
 import { SelfReleaseRow } from '@/features/settings/SelfReleaseSettings';
 import type { SelfReleaseRowId } from '@/features/settings/SelfReleaseSettings';
 import { SettingRow } from '@/features/settings/SettingRow';
-import { ResizeHandle } from '@/components/ResizeHandle';
 import { SettingsNav } from '@/features/settings/SettingsNav';
 import { SettingsSearchContext } from '@/features/settings/SettingsSearchContext';
 import { SettingsSearchField } from '@/features/settings/SettingsSearchField';
@@ -72,6 +72,7 @@ import type { SessionSummary } from '@/lib/bindings/SessionSummary';
 import type { Settings } from '@/lib/bindings/Settings';
 import type { SettingsOverview } from '@/lib/bindings/SettingsOverview';
 import { commandErrorText } from '@/lib/errors';
+import { usePanelWidth } from '@/lib/usePanelWidth';
 import {
   effortLabel,
   isLocalOperatingMode,
@@ -82,7 +83,6 @@ import {
 } from '@/lib/labels';
 import { useRemoteStore } from '@/stores/remote';
 import { useSettingsStore } from '@/stores/settings';
-import { usePanelWidth } from '@/lib/usePanelWidth';
 import { useSettingsNavStore } from '@/stores/settingsNav';
 import './SettingsView.css';
 
