@@ -19,7 +19,7 @@ Die vier festen Leisten — Seitenleiste (Vorhaben), Dateibaum der Changes, List
 - **Schlüssel** `panel_width.sidebar`, `panel_width.changes_tree`, `panel_width.artifacts_list`, `panel_width.background`. Fehlt ein Schlüssel oder ist sein Text unlesbar, gilt `None`. `SettingsChange::PanelWidth { panel, value }` mit `value = None` löscht den Schlüssel (Doppelklick = Standard).
 - **(B) Gespeichert wird beim Loslassen**: während des Ziehens hält ein React-State die Breite, `pointerup` schickt genau ein `settings_update`.
 - **Kein festes Maximum, aber nie breiter als das Fenster:** eine Leiste darf genau den Platz ihrer Füllfläche übernehmen (der flexible Nachbar im selben Elternelement, markiert mit `data-resize-fill`). Obergrenze beim Ziehen = Breite der Leiste plus Breite der Füllfläche minus deren `min-width`, gelesen beim Anfassen.
-- **Fenster wird kleiner:** reine CSS-Regel. Leisten haben `flex-shrink: 1` und `min-width`, Füllflächen `flex: 1 1 0; min-width: 0` — die Füllfläche schrumpft zuerst auf null, danach die Leisten bis zu ihrem Minimum. Die gespeicherte Breite bleibt unverändert und gilt wieder, wenn das Fenster wächst.
+- **Fenster wird kleiner:** reine CSS-Regel. Leisten haben `flex-shrink: 1` und `min-width`, Füllflächen `flex: 1 1 0; min-width: 0` — die Füllfläche schrumpft zuerst auf null (hat sie ein eigenes `min-width`, wie die Liste des Dashboards mit 320 px, nur bis dahin), danach die Leisten bis zu ihrem Minimum. Die gespeicherte Breite bleibt unverändert und gilt wieder, wenn das Fenster wächst.
 
 | Leiste | `PanelId` | Standard | Minimum | Griff an |
 |---|---|---|---|---|
