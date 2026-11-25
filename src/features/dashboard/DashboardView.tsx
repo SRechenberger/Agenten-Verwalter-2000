@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactElement } from 'react';
+import { ResizeHandle } from '@/components/ResizeHandle';
 import { DashboardFolders } from '@/features/dashboard/DashboardFolders';
 import { DashboardList, type BulkKind } from '@/features/dashboard/DashboardList';
 import { TaskPanel, TaskReader } from '@/features/dashboard/TaskPanel';
@@ -30,6 +31,7 @@ import { dismissCard, loadDashboard, markCardsSeen, undismissCard } from '@/lib/
 import { startStation } from '@/lib/implementation';
 import { resumeSession } from '@/lib/sessions';
 import { useActionError } from '@/lib/useActionError';
+import { usePanelWidth } from '@/lib/usePanelWidth';
 import { useDashboardStore } from '@/stores/dashboard';
 import './DashboardView.css';
 
@@ -80,6 +82,8 @@ export function DashboardView({
   const now: number = useNow(true);
   const { error, run } = useActionError('postfach');
   const [toast, setToast] = useState<Toast | null>(null);
+  const foldersWidth = usePanelWidth('dashboardFolders');
+  const readerWidth = usePanelWidth('dashboardReader');
   const searchRef = useRef<HTMLInputElement>(null);
 
   const tasks: readonly DashboardTask[] = useMemo(() => view?.tasks ?? [], [view]);
@@ -425,7 +429,9 @@ export function DashboardView({
           }}
           onToggleGroup={store.toggleGroup}
           onOpenSession={onOpenSession}
+          width={foldersWidth.width}
         />
+        <ResizeHandle edge="end" label="Breite der Ordnerspalte" {...foldersWidth.handleProps} />
         <DashboardList
           entries={entries}
           visible={visible}
@@ -470,7 +476,12 @@ export function DashboardView({
           onBulk={bulk}
           onClearChecked={store.clearChecked}
         />
-        <section className="postfach__pane" aria-label="Lesebereich">
+        <ResizeHandle edge="start" label="Breite des Lesebereichs" {...readerWidth.handleProps} />
+        <section
+          className="postfach__pane"
+          aria-label="Lesebereich"
+          style={{ width: readerWidth.width }}
+        >
           {selectedTask === undefined ? (
             <p className="postfach__empty">
               {selected !== null && isThreadId(selected)

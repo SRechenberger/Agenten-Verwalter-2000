@@ -380,7 +380,7 @@ export function DashboardList(props: DashboardListProps): ReactElement {
   }
 
   return (
-    <div className="postfach__listcol">
+    <div className="postfach__listcol" data-resize-fill>
       <div className="postfach__tools">
         <input
           type="checkbox"
