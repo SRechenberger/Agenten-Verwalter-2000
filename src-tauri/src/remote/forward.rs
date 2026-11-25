@@ -19,6 +19,7 @@ use super::{
     AGENT_QUEUE_CHANGED_EVENT, CHANGED_EVENT, INBOX_CHANGED_EVENT, RemoteControl,
     USAGE_CHANGED_EVENT,
 };
+use crate::dashboard::SEEN_EVENT as DASHBOARD_SEEN_EVENT;
 use crate::db::Database;
 use crate::implementation::IMPLEMENTATION_REMOVED_EVENT as REMOVED_EVENT;
 use crate::sessions::registry::AGENT_QUEUE_CHANGED_EVENT as HOST_QUEUE_EVENT;
@@ -53,6 +54,7 @@ pub(super) const FORWARDED: &[(&str, Owner)] = &[
     ("side://changed", Owner::Session),
     ("session://changed", Owner::Project),
     ("tldr://changed", Owner::Project),
+    (DASHBOARD_SEEN_EVENT, Owner::Project),
     ("retro://progress", Owner::Project),
     ("artifacts://show", Owner::Project),
     ("terminal://changed", Owner::Project),

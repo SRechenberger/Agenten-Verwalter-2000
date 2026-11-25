@@ -248,3 +248,8 @@ Die Karte eines Kastens aus den Session-Werkzeugen (`sessionTool`) hieß immer �
 - **Entfallen:** B6 und der Abschnitt „Einordnung“: `dashboard/classify.rs`, `sessions/registry/classify.rs`, `Outbox.classify` mit dem Wächter `classify_running`, die Einstellung „Modell der Einordnung“ (`answer_model`), die Probe `answer-probe` mit ihren 14 Fällen und in der Oberfläche `isClassified` und `classifiedText`. `ask_model` bleibt für TL;DR und Retro.
 - **Neu:** `DashboardTaskKind` hat `blocked` und `review`; `DashboardTask` hat `offer`, `link` und `reported`. Der Rang in `level` ist blockierend, `blocked`, `asks`, `requests`, `review`, `answer`, `planChange`, `cancelRequest`, `byYou`, `returnsExhausted`, `masterMissing`, `error`, `paused`, `ready`, `done`.
 - **Karten-Regel „Antwort“:** Eine Session ohne Station mit abgeschlossenem Zug zeigt die Art, die der Agent mit `verwalter_notify_user` gemeldet hat (`answer_kind`, `answer_line`); ohne Aufruf bleibt `answer` mit dem Auszug, im Popup „nicht gemeldet“. Die Kennung `session:<Session>` bleibt wie vorher beim Wechsel der Art stehen.
+
+## Nachtrag 2026-11-25: Postfach (Taiga #187, ADR 079)
+
+- **Entfallen:** die Kacheln, die Schachtelung „Gruppiert nach“ samt Einstellung (`DashboardChoice`, Taiga 186), der Filter „Nur, was einen Agenten anhält“ (jetzt der Ordner „Hält Agenten an“), die rechte Spalte der Abläufe (jetzt Ordner im Rand) und das Popup im Dashboard (jetzt der Lesebereich). Die Karten im Chat behalten ihr Popup.
+- **Neu:** `DashboardTask.seen_at` („angesehen“ je Karte, Tabelle `dashboard_seen`, Migration 38), die Befehle `dashboard_seen` und `dashboard_undismiss`, die Oberfläche als Postfach. Die Regeln der Karten, ihr Rang und „Gelesen“ bleiben.

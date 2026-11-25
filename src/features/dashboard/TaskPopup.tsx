@@ -1,18 +1,6 @@
 import type { ReactElement } from 'react';
 import { Dialog } from '@/components/Dialog';
-import {
-  AnswerBody,
-  ByYouBody,
-  CancelRequestBody,
-  ErrorBody,
-  MasterMissingBody,
-  PausedBody,
-  PlanChangeBody,
-  ReadyBody,
-  RequestBody,
-  ReturnsExhaustedBody,
-  type PopupProps,
-} from '@/features/dashboard/PopupBodies';
+import { TaskContent } from '@/features/dashboard/TaskContent';
 import {
   REPORTED_MARK,
   ageText,
@@ -20,7 +8,6 @@ import {
   originText,
   taskLabel,
 } from '@/features/dashboard/dashboardTexts';
-import { useProjectLocked } from '@/features/remote/useProjectAccess';
 import type { DashboardTask } from '@/lib/bindings/DashboardTask';
 import type { ImplementationView } from '@/lib/bindings/ImplementationView';
 import type { ProjectSummary } from '@/lib/bindings/ProjectSummary';
@@ -41,38 +28,6 @@ interface TaskPopupProps extends ActionError {
   onClose: () => void;
 }
 
-function renderBody(props: PopupProps): ReactElement {
-  switch (props.task.kind) {
-    case 'question':
-    case 'permission':
-    case 'sessionTool':
-      return <RequestBody {...props} />;
-    case 'planChange':
-      return <PlanChangeBody {...props} />;
-    case 'cancelRequest':
-      return <CancelRequestBody {...props} />;
-    case 'byYou':
-      return <ByYouBody {...props} />;
-    case 'returnsExhausted':
-      return <ReturnsExhaustedBody {...props} />;
-    case 'masterMissing':
-      return <MasterMissingBody {...props} />;
-    case 'error':
-      return <ErrorBody {...props} />;
-    case 'paused':
-      return <PausedBody {...props} />;
-    case 'ready':
-      return <ReadyBody {...props} />;
-    case 'asks':
-    case 'requests':
-    case 'done':
-    case 'review':
-    case 'blocked':
-    case 'answer':
-      return <AnswerBody {...props} />;
-  }
-}
-
 /** Das Popup einer Karte (ADR 071): die Sache wird hier erledigt, mit den Bausteinen, die Chat und Umsetzung schon
  *  haben. Esc schließt nur das Popup (`Dialog` verbraucht die Taste); die Karte verschwindet, wenn der Core sie
  *  nicht mehr liefert, und die Ansicht schließt das Popup dann. */
@@ -89,37 +44,6 @@ export function TaskPopup({
   run,
   report,
 }: TaskPopupProps): ReactElement {
-  const isLocked: boolean = useProjectLocked(task.projectId);
-  // Eine Sache der Session öffnet die Session, eine der Station oder Umsetzung die Umsetzung.
-  const { sessionId, implementationId } = task;
-  const opensSession: boolean =
-    sessionId !== null && (task.blocking || implementationId === null || task.stationId === null);
-  let open: ReactElement | null = null;
-  if (opensSession && sessionId !== null) {
-    open = (
-      <button
-        type="button"
-        className="popup-button popup-button--ghost"
-        onClick={(): void => {
-          onOpenSession(sessionId);
-        }}
-      >
-        Session öffnen
-      </button>
-    );
-  } else if (implementationId !== null) {
-    open = (
-      <button
-        type="button"
-        className="popup-button popup-button--ghost"
-        onClick={(): void => {
-          onOpenImplementation(implementationId);
-        }}
-      >
-        Umsetzung öffnen
-      </button>
-    );
-  }
   return (
     <Dialog labelledBy={TITLE_ID} className="task-popup" onClose={onClose}>
       <header className={`task-popup__head task-popup__head--${kindTone(task.kind)}`}>
@@ -141,7 +65,16 @@ export function TaskPopup({
           ✕
         </button>
       </header>
-      {renderBody({ task, sessions, implementations, projects, isLocked, run, report, open })}
+      <TaskContent
+        task={task}
+        sessions={sessions}
+        implementations={implementations}
+        projects={projects}
+        onOpenSession={onOpenSession}
+        onOpenImplementation={onOpenImplementation}
+        run={run}
+        report={report}
+      />
       {error !== null && (
         <p className="task-popup__error" role="alert">
           {error}

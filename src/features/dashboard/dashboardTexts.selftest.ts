@@ -1,23 +1,24 @@
-// Selbsttest der Texte, Gruppen und Filter des Dashboards: `node src/features/dashboard/dashboardTexts.selftest.ts`
+// Selbsttest der Texte des Dashboards: `node src/features/dashboard/dashboardTexts.selftest.ts`
 // (`pnpm selftest`). Je Fall `PASS`/`FAIL`, Exit 1 bei einem Fehlschlag. Node streicht die Typen; die geprüfte
 // Datei importiert nur Typen.
 import {
   ageText,
   badgeCount,
-  filterTasks,
   flowOpenText,
   flowPercent,
-  groupTasks,
   isAnswerKind,
+  kindSubtitle,
   kindTone,
+  listKindLabel,
   linkLabel,
   linkTarget,
   offerMessage,
   originText,
+  postfachOriginText,
   reportedText,
+  sentOfferText,
   lastExchange,
   isMessageEmpty,
-  NO_GROUP_LABEL,
   KIND_LABEL,
   taskLabel,
 } from './dashboardTexts.ts';
@@ -54,6 +55,7 @@ function task(
     offer: null,
     link: null,
     reported: false,
+    seenAt: null,
     ...extra,
   };
 }
@@ -79,55 +81,7 @@ function flow(done: number, total: number, open: number): DashboardFlow {
   };
 }
 
-function ids(groups: ReturnType<typeof groupTasks>): string {
-  return groups.map((group) => `${group.label}:${group.tasks.map((t) => t.id).join('')}`).join('|');
-}
-
 const CASES: { name: string; actual: () => unknown; expected: unknown }[] = [
-  {
-    name: 'filter_blocking_keeps_core_order',
-    actual: () =>
-      filterTasks(TASKS, true)
-        .map((t) => t.id)
-        .join(''),
-    expected: 'ac',
-  },
-  {
-    name: 'filter_blocking_also_keeps_paused_cards_in_place',
-    actual: () =>
-      filterTasks([task('a', 'question'), task('b', 'asks'), task('c', 'paused')], true)
-        .map((t) => t.id)
-        .join(''),
-    expected: 'ac',
-  },
-  {
-    name: 'filter_off_keeps_all',
-    actual: () =>
-      filterTasks(TASKS, false)
-        .map((t) => t.id)
-        .join(''),
-    expected: 'abcd',
-  },
-  {
-    name: 'group_by_project_first_appearance_keeps_order',
-    actual: () => ids(groupTasks(TASKS, 'project')),
-    expected: 'agda:ac|Verwalter:bd',
-  },
-  {
-    name: 'group_by_kind_one_group_per_kind',
-    actual: () => ids(groupTasks(TASKS, 'kind')),
-    expected: 'Rückfrage:a|Fragt:b|Rechte-Abfrage:c|Fertig:d',
-  },
-  {
-    name: 'group_by_group_without_group_is_named',
-    actual: () => ids(groupTasks(TASKS, 'group')),
-    expected: `Sonstiges:ac|${NO_GROUP_LABEL}:b|Verwalter:d`,
-  },
-  {
-    name: 'group_of_empty_list_is_empty',
-    actual: () => groupTasks([], 'project').length,
-    expected: 0,
-  },
   { name: 'badge_zero_shows_no_number', actual: () => badgeCount([]), expected: null },
   { name: 'badge_counts_all_cards', actual: () => badgeCount(TASKS), expected: 4 },
   {
@@ -182,6 +136,17 @@ const CASES: { name: string; actual: () => unknown; expected: unknown }[] = [
     name: 'origin_implementation_when_no_session',
     actual: () => originText(task('x', 'planChange', { implementationName: 'Warteschlange' })),
     expected: 'Verwalter · Warteschlange',
+  },
+  {
+    name: 'postfach_origin_names_the_session_before_the_project',
+    actual: () =>
+      postfachOriginText(task('x', 'asks', { sessionNumber: 4, sessionTitle: 'Beweis' })),
+    expected: '#4 Beweis · Verwalter',
+  },
+  {
+    name: 'postfach_origin_without_session_or_station_is_the_project',
+    actual: () => postfachOriginText(task('x', 'planChange', { sessionNumber: null })),
+    expected: 'Verwalter',
   },
   { name: 'flow_percent', actual: () => flowPercent(flow(7, 11, 0)).toFixed(1), expected: '63.6' },
   { name: 'flow_percent_without_stations', actual: () => flowPercent(flow(0, 0, 0)), expected: 0 },
@@ -336,21 +301,34 @@ const LABELS: { name: string; actual: () => unknown; expected: unknown }[] = [
     expected: 'Rückfrage',
   },
   {
-    name: 'group_by_kind_splits_the_five_approvals',
+    name: 'the_approvals_carry_their_own_label_each',
     actual: () =>
-      groupTasks(
-        [
-          toolCard('{"kind":"sendMessage","recipients":[],"message":"x","subject":null}'),
-          toolCard('{"kind":"getTldr","target":{"id":"s","number":1,"title":"t"}}'),
-          toolCard('{"kind":"promptTemplate","base":null,"proposal":{}}'),
-          toolCard('{"kind":"promptTemplate","base":null,"proposal":{}}'),
-          task('q', 'question'),
-        ],
-        'kind',
-      )
-        .map((group) => `${group.label}:${String(group.tasks.length)}`)
+      [
+        toolCard('{"kind":"sendMessage","recipients":[],"message":"x","subject":null}'),
+        toolCard('{"kind":"getTldr","target":{"id":"s","number":1,"title":"t"}}'),
+        toolCard('{"kind":"promptTemplate","base":null,"proposal":{}}'),
+        task('q', 'question'),
+      ]
+        .map(taskLabel)
         .join(),
-    expected: 'Freigabe Nachricht:1,Freigabe TL;DR:1,Vorschlag Vorlage:2,Rückfrage:1',
+    expected: 'Freigabe Nachricht,Freigabe TL;DR,Vorschlag Vorlage,Rückfrage',
+  },
+  {
+    name: 'a_done_card_with_an_offer_reads_angebot_in_the_list',
+    actual: () =>
+      `${listKindLabel(task('d', 'done', { offer: 'x' }))}|${listKindLabel(task('d', 'done'))}`,
+    expected: 'Fertig · Angebot|Fertig',
+  },
+  {
+    name: 'only_blocked_has_a_subtitle_in_the_reader',
+    actual: () =>
+      `${String(kindSubtitle(task('b', 'blocked')))}|${String(kindSubtitle(task('a', 'asks')))}`,
+    expected: 'der Agent kommt ohne dich nicht weiter|null',
+  },
+  {
+    name: 'sending_the_offer_reports_the_message_that_went_out',
+    actual: () => sentOfferText('die Issues verlinken'),
+    expected: 'Gesendet: „Ja, bitte: die Issues verlinken“',
   },
 ];
 CASES.push(...LABELS);

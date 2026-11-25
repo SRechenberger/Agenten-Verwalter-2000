@@ -9,9 +9,10 @@ use super::model::{
     DashboardView, FlowFacts, PendingFacts, ProjectFacts, RequestFacts, SessionFacts, Snapshot,
     StationFacts,
 };
-use super::{EXCERPT_CHARS, build, excerpt, notify};
+use super::{EXCERPT_CHARS, build, excerpt, is_unread, notify};
 use crate::agents::event::QuestionKind;
 use crate::db::Database;
+use crate::db::dashboard as seen_rows;
 use crate::error::CommandError;
 use crate::implementation::model::StationState;
 use crate::remote::RemoteControl;
@@ -111,6 +112,7 @@ fn snapshot(sessions: Vec<SessionFacts>, flows: Vec<FlowFacts>) -> Snapshot {
         projects: vec![project("p")],
         sessions,
         flows,
+        ..Snapshot::default()
     }
 }
 
@@ -1189,6 +1191,7 @@ fn local_and_host() -> (Snapshot, Snapshot) {
             on_host(session("h-error", SessionStatus::Error)),
         ],
         flows: Vec::new(),
+        ..Snapshot::default()
     };
     (local, host)
 }
@@ -1209,6 +1212,7 @@ fn merged_local_and_host_cards_stand_in_the_order_build_gives_all_of_them() {
         projects: [local.projects, host.projects].concat(),
         sessions: [local.sessions, host.sessions].concat(),
         flows: Vec::new(),
+        ..Snapshot::default()
     };
     assert_eq!(ids(&merged), ids(&build(&all, NOW)));
     assert_eq!(merged.tasks.len(), 6);
@@ -1290,6 +1294,7 @@ fn local_and_host_flows() -> (Snapshot, Snapshot) {
             at("h-middle", "h", 1000.0, None),
             at("h-done", "h", 2500.0, Some(NOW - HOUR_MS)),
         ],
+        ..Snapshot::default()
     };
     (local, host)
 }
@@ -1319,6 +1324,7 @@ fn merged_local_and_host_flows_and_sessions_stand_in_the_order_build_gives_all_o
         projects: [local.projects, host.projects].concat(),
         sessions: [local.sessions, host.sessions].concat(),
         flows: [local.flows, host.flows].concat(),
+        ..Snapshot::default()
     };
     let (flows, sessions) = flow_and_session_ids(&merged);
     assert_eq!(
@@ -1482,4 +1488,200 @@ fn a_station_gets_no_card_from_a_reported_kind() {
         ..answered("st", 200.0)
     };
     assert!(view_of(vec![station], vec![]).tasks.is_empty());
+}
+
+// Postfach: gesehen je Karte, die Tabelle `dashboard_seen` und das Aufräumen.
+
+/// Der Zustand der Fehler-Session `e` (letzte Aktivität `at`) mit der Tabelle `seen`.
+fn view_seen(at: f64, seen: &[(&str, f64)]) -> DashboardView {
+    let mut snapshot = snapshot(
+        vec![SessionFacts {
+            last_activity_at: at,
+            ..session("e", SessionStatus::Error)
+        }],
+        vec![],
+    );
+    snapshot.seen = seen
+        .iter()
+        .map(|(id, at): &(&str, f64)| ((*id).to_owned(), *at))
+        .collect();
+    build(&snapshot, NOW)
+}
+
+#[test]
+fn a_card_carries_seen_at_from_the_snapshot_and_none_without_an_entry() {
+    let seen = view_seen(200.0, &[("session:e", 250.0), ("session:other", 1.0)]);
+    assert_eq!(seen.tasks[0].seen_at, Some(250.0));
+    assert_eq!(view_seen(200.0, &[]).tasks[0].seen_at, None);
+}
+
+#[test]
+fn a_card_is_unread_without_an_entry_or_with_one_older_than_since() {
+    assert!(is_unread(None, 200.0));
+    assert!(is_unread(Some(199.0), 200.0));
+    assert!(!is_unread(Some(200.0), 200.0), "gleich: gesehen");
+    assert!(!is_unread(Some(201.0), 200.0));
+    let task = &view_seen(200.0, &[("session:e", 150.0)]).tasks[0];
+    assert!(is_unread(task.seen_at, task.since));
+}
+
+#[test]
+fn a_new_kind_with_the_same_id_and_a_later_since_is_unread_again() {
+    let seen = [("session:e", 250.0)];
+    let before = &view_seen(200.0, &seen).tasks[0];
+    assert!(!is_unread(before.seen_at, before.since));
+    // Dieselbe Kennung `session:e`, aber der Zustand ist neuer als das Gesehene.
+    let after = &view_seen(300.0, &seen).tasks[0];
+    assert_eq!(after.id, before.id);
+    assert!(is_unread(after.seen_at, after.since));
+}
+
+#[test]
+fn a_task_from_an_older_host_without_seen_at_reads_as_unread() {
+    let mut value =
+        serde_json::to_value(&view_seen(200.0, &[("session:e", 250.0)]).tasks[0]).expect("json");
+    value.as_object_mut().expect("Objekt").remove("seenAt");
+    let task: DashboardTask = serde_json::from_value(value).expect("liest ohne seenAt");
+    assert_eq!(task.seen_at, None);
+    assert!(is_unread(task.seen_at, task.since));
+}
+
+fn memory_database() -> Database {
+    Database::open(Path::new(":memory:")).expect("Datenbank im Speicher")
+}
+
+fn ids_of(list: &[&str]) -> Vec<String> {
+    list.iter().map(|id: &&str| (*id).to_owned()).collect()
+}
+
+#[test]
+fn mark_seen_sets_the_time_and_is_idempotent() {
+    let database = memory_database();
+    let mark = |ids: &[&str], at: f64| {
+        database
+            .with(|connection| seen_rows::mark_seen(connection, &ids_of(ids), at))
+            .expect("gesetzt");
+    };
+    let map = || {
+        database
+            .with(|connection| seen_rows::seen_map(connection))
+            .expect("gelesen")
+    };
+    assert!(map().is_empty());
+    mark(&["session:a", "answer:b"], 100.0);
+    mark(&["session:a", "answer:b"], 100.0);
+    assert_eq!(map().len(), 2);
+    assert_eq!(map()["session:a"], 100.0);
+    mark(&["session:a"], 200.0);
+    assert_eq!(map()["session:a"], 200.0);
+    assert_eq!(map()["answer:b"], 100.0, "nur die genannte Karte");
+    mark(&[], 300.0);
+    assert_eq!(map().len(), 2, "eine leere Liste ändert nichts");
+}
+
+#[test]
+fn mark_seen_never_turns_the_time_back() {
+    let database = memory_database();
+    let mark = |at: f64| {
+        database
+            .with(|connection| seen_rows::mark_seen(connection, &ids_of(&["session:a"]), at))
+            .expect("gesetzt");
+    };
+    mark(200.0);
+    mark(100.0);
+    let map = database
+        .with(|connection| seen_rows::seen_map(connection))
+        .expect("gelesen");
+    assert_eq!(map["session:a"], 200.0);
+}
+
+#[test]
+fn prune_seen_keeps_only_the_named_cards() {
+    let database = memory_database();
+    database
+        .with(|connection| {
+            seen_rows::mark_seen(
+                connection,
+                &ids_of(&["session:a", "session:b", "session:c"]),
+                1.0,
+            )
+        })
+        .expect("gesetzt");
+    let keep: std::collections::HashSet<String> = ids_of(&["session:b", "session:unknown"])
+        .into_iter()
+        .collect();
+    database
+        .with(|connection| seen_rows::prune_seen(connection, &keep))
+        .expect("aufgeräumt");
+    let map = database
+        .with(|connection| seen_rows::seen_map(connection))
+        .expect("gelesen");
+    assert_eq!(
+        map.keys().cloned().collect::<Vec<_>>(),
+        ids_of(&["session:b"])
+    );
+    database
+        .with(|connection| seen_rows::prune_seen(connection, &std::collections::HashSet::new()))
+        .expect("alles weg");
+    assert!(
+        database
+            .with(|connection| seen_rows::seen_map(connection))
+            .expect("gelesen")
+            .is_empty()
+    );
+}
+
+#[test]
+fn the_dashboard_get_path_prunes_rows_of_gone_cards_and_keeps_those_of_visible_ones() {
+    let database = Arc::new(memory_database());
+    let registry = SessionRegistry::new(Arc::clone(&database), Arc::new(RemoteControl::default()));
+    registry.add_project_for_test("p", "Vorhaben");
+    registry.add_session_for_test("a", "p", SessionStatus::Completed);
+    registry.set_answer_for_test("a", 200.0, "Auszug");
+    database
+        .with(|connection| {
+            seen_rows::mark_seen(connection, &ids_of(&["session:a", "session:gone"]), 300.0)
+        })
+        .expect("gesetzt");
+    // Der Weg von `dashboard_get`: Momentaufnahme, Ansicht, Aufräumen.
+    let snapshot = registry.dashboard_snapshot().expect("lesbar");
+    assert_eq!(snapshot.seen.len(), 2, "die Registry liest die Tabelle");
+    let view = build(&snapshot, NOW);
+    assert_eq!(view.tasks[0].seen_at, Some(300.0));
+    super::prune_seen(&database, &view);
+    let map = database
+        .with(|connection| seen_rows::seen_map(connection))
+        .expect("gelesen");
+    assert_eq!(
+        map.keys().cloned().collect::<Vec<_>>(),
+        ids_of(&["session:a"])
+    );
+}
+
+#[test]
+fn migration_38_adds_the_empty_seen_table_to_a_database_of_version_37() {
+    let mut connection = rusqlite::Connection::open_in_memory().expect("Datenbank");
+    for script in crate::db::migrations::first(37) {
+        connection.execute_batch(script).expect("alte Migration");
+    }
+    connection
+        .execute_batch(
+            "PRAGMA user_version = 37; \
+             INSERT INTO projects (id, name, created_at) VALUES ('p', 'V', 1.0);",
+        )
+        .expect("Bestand");
+    crate::db::migrations::run(&mut connection).expect("wandert");
+    let version: u32 = connection
+        .query_row("PRAGMA user_version", [], |row| row.get(0))
+        .expect("Version");
+    assert_eq!(version, crate::db::migrations::LATEST);
+    assert!(
+        seen_rows::seen_map(&connection)
+            .expect("Tabelle da")
+            .is_empty()
+    );
+    let projects: u32 = connection
+        .query_row("SELECT COUNT(*) FROM projects", [], |row| row.get(0))
+        .expect("Vorhaben");
+    assert_eq!(projects, 1, "der Bestand bleibt");
 }

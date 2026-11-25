@@ -6,6 +6,7 @@
 pub mod agent_types;
 pub mod background;
 pub mod chat_entries;
+pub mod dashboard;
 pub mod implementations;
 pub mod migrations;
 pub mod project_groups;

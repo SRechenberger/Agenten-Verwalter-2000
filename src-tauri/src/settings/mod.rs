@@ -16,8 +16,8 @@ use crate::remote::server::DEFAULT_PORT as DEFAULT_REMOTE_PORT;
 use crate::session_tools::model::SelfRelease;
 use crate::skills::{self, model::SkillKind, model::SkillOrigin};
 use model::{
-    ColorScheme, DashboardChoice, OperatingMode, PanelId, PanelWidths, Settings, SettingsChange,
-    SettingsOverview, TerminalPlacement,
+    ColorScheme, OperatingMode, PanelId, PanelWidths, Settings, SettingsChange, SettingsOverview,
+    TerminalPlacement,
 };
 
 const KEY_COLOR_SCHEME: &str = "color_scheme";
@@ -42,8 +42,6 @@ const KEY_COMMAND_PROGRAMS: &str = "command_programs";
 const KEY_TERMINAL_PLACEMENT: &str = "terminal_placement";
 const KEY_TERMINAL_HEIGHT: &str = "terminal_height";
 const KEY_TERMINAL_WIDTH: &str = "terminal_width";
-/// JSON von `DashboardChoice`; fehlt der Schlüssel oder ist er unlesbar, ist alles aus.
-const KEY_DASHBOARD: &str = "dashboard";
 const KEY_REMOTE_ENABLED: &str = "remote_enabled";
 const KEY_REMOTE_PORT: &str = "remote_port";
 const KEY_REMOTE_HOST_ID: &str = "remote_host_id";
@@ -102,12 +100,6 @@ pub const DEFAULT_SETTINGS: Settings = Settings {
         changes_tree: None,
         artifacts_list: None,
         background: None,
-    },
-    dashboard: DashboardChoice {
-        by_group: false,
-        by_project: false,
-        by_kind: false,
-        blocking_only: false,
     },
 };
 
@@ -185,10 +177,6 @@ pub fn load(database: &Database) -> Result<Settings, CommandError> {
             artifacts_list: stored_panel_width(&stored, PanelId::ArtifactsList),
             background: stored_panel_width(&stored, PanelId::Background),
         },
-        dashboard: stored
-            .get(KEY_DASHBOARD)
-            .and_then(|text: &String| serde_json::from_str(text).ok())
-            .unwrap_or(DEFAULT_SETTINGS.dashboard),
     })
 }
 
@@ -324,11 +312,6 @@ pub fn update(database: &Database, change: SettingsChange) -> Result<Settings, C
                 }
                 None => setting_rows::delete(&transaction, panel_key(panel))?,
             },
-            SettingsChange::Dashboard { value } => {
-                let text = serde_json::to_string(&value)
-                    .map_err(|error| CommandError::Internal(error.to_string()))?;
-                setting_rows::write(&transaction, KEY_DASHBOARD, &text)?;
-            }
         }
         transaction.commit()?;
         Ok(())
@@ -483,8 +466,8 @@ fn stored_or<T: DeserializeOwned>(stored: &HashMap<String, String>, key: &str, d
 mod tests {
     use std::path::Path;
 
-    use super::model::{DashboardChoice, SettingsChange};
-    use super::{DEFAULT_SETTINGS, load, update};
+    use super::load;
+    use super::model::SettingsChange;
     use crate::db::Database;
 
     #[test]
@@ -503,50 +486,26 @@ mod tests {
     }
 
     #[test]
-    fn dashboard_choice_defaults_to_all_off_and_is_saved_on_change() {
+    fn a_stored_dashboard_choice_is_ignored() {
+        // Die Wahl im Kopf des Dashboards entfällt (Postfach): weder Feld noch Änderung, und eine Zeile
+        // `dashboard` aus einer alten Datenbank bleibt unberührt und ohne Wirkung.
         let database = Database::open(Path::new(":memory:")).expect("Datenbank im Speicher");
-        let off = DashboardChoice {
-            by_group: false,
-            by_project: false,
-            by_kind: false,
-            blocking_only: false,
-        };
-        assert_eq!(DEFAULT_SETTINGS.dashboard, off);
-        assert_eq!(load(&database).expect("laden").dashboard, off);
-        let chosen = DashboardChoice {
-            by_group: true,
-            by_project: false,
-            by_kind: true,
-            blocking_only: true,
-        };
-        let saved = update(&database, SettingsChange::Dashboard { value: chosen }).expect("ok");
-        assert_eq!(saved.dashboard, chosen);
-        assert_eq!(load(&database).expect("laden").dashboard, chosen);
+        database
+            .with(|connection| {
+                crate::db::settings::write(connection, "dashboard", r#"{"byGroup": true}"#)
+            })
+            .expect("schreiben");
+        let loaded = serde_json::to_value(load(&database).expect("laden")).expect("json");
+        assert!(loaded.get("dashboard").is_none(), "{loaded}");
+        let change: Result<SettingsChange, _> =
+            serde_json::from_value(serde_json::json!({"kind": "dashboard", "value": {}}));
+        assert!(change.is_err(), "die Änderung gibt es nicht mehr");
+        let kept = database
+            .with(|connection| crate::db::settings::read_all(connection))
+            .expect("lesen");
         assert_eq!(
-            serde_json::to_value(SettingsChange::Dashboard { value: chosen }).expect("json"),
-            serde_json::json!({"kind": "dashboard", "value": {
-                "byGroup": true, "byProject": false, "byKind": true, "blockingOnly": true
-            }})
+            kept.get("dashboard").map(String::as_str),
+            Some(r#"{"byGroup": true}"#)
         );
-    }
-
-    #[test]
-    fn an_unreadable_dashboard_choice_falls_back_to_all_off_and_a_missing_field_is_off() {
-        let database = Database::open(Path::new(":memory:")).expect("Datenbank im Speicher");
-        let write = |text: &str| {
-            database
-                .with(|connection| {
-                    crate::db::settings::write(connection, super::KEY_DASHBOARD, text)
-                })
-                .expect("schreiben");
-        };
-        write("kein JSON");
-        assert_eq!(
-            load(&database).expect("laden").dashboard,
-            DEFAULT_SETTINGS.dashboard
-        );
-        write(r#"{"byProject": true}"#);
-        let read = load(&database).expect("laden").dashboard;
-        assert!(read.by_project && !read.by_group && !read.by_kind && !read.blocking_only);
     }
 }

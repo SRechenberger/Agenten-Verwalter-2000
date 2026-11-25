@@ -1,5 +1,7 @@
 //! Typen des Dashboards (ADR 071): die Ansicht, die über die Tauri-Grenze geht, und die
 //! Momentaufnahme aus einfachen Daten, aus der `build` sie ableitet.
+use std::collections::HashMap;
+
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
@@ -93,6 +95,10 @@ pub struct DashboardTask {
     // Der Agent hat die Karte mit `verwalter_notify_user` gemeldet; ohne Aufruf bleibt es bei `answer`.
     #[serde(default)]
     pub reported: bool,
+    // Wann der Nutzer die Karte zuletzt gesehen hat, ms seit der Epoche; `null`: nie. Ungelesen heißt
+    // `seenAt == null || seenAt < since` (`is_unread`). `default`: Ein älterer Host schickt es nicht.
+    #[serde(default)]
+    pub seen_at: Option<f64>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -198,6 +204,8 @@ pub struct Snapshot {
     pub projects: Vec<ProjectFacts>,
     pub sessions: Vec<SessionFacts>,
     pub flows: Vec<FlowFacts>,
+    /// Kennung der Karte → Zeitpunkt, an dem sie zuletzt gesehen wurde (Tabelle `dashboard_seen`).
+    pub seen: HashMap<String, f64>,
 }
 
 /// Ein eigenes, nicht archiviertes Vorhaben.

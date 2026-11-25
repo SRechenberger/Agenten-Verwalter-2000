@@ -722,6 +722,7 @@ export function App(): ReactElement {
     if (showDashboard) {
       return (
         <DashboardView
+          groups={groups}
           sessions={sessions}
           implementations={implementations}
           projects={projects}

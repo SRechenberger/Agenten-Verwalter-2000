@@ -7291,6 +7291,7 @@ fn a_done_station_with_a_failed_session_reaches_the_dashboard_as_an_error_card()
         }],
         sessions: Vec::new(),
         flows: vec![crate::dashboard::flow_facts(&view)],
+        ..Snapshot::default()
     };
     let dashboard = crate::dashboard::build(&snapshot, 100.0);
     let kinds: Vec<DashboardTaskKind> = dashboard.tasks.iter().map(|task| task.kind).collect();
@@ -7346,6 +7347,7 @@ fn a_finished_station_with_a_fresh_error_does_not_restart() {
         }],
         sessions: Vec::new(),
         flows: vec![crate::dashboard::flow_facts(&view)],
+        ..Snapshot::default()
     };
     let dashboard = crate::dashboard::build(&snapshot, 100.0);
     let kinds: Vec<DashboardTaskKind> = dashboard.tasks.iter().map(|task| task.kind).collect();

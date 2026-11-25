@@ -68,7 +68,7 @@ const TABLE: &[(Class, Option<IdKind>, &[&str])] = &[
     (
         Class::HostRead,
         Some(IdKind::Project),
-        &["terminal_list", "tldr_project_load"],
+        &["dashboard_seen", "terminal_list", "tldr_project_load"],
     ),
     (
         Class::HostRead,
@@ -95,6 +95,7 @@ const TABLE: &[(Class, Option<IdKind>, &[&str])] = &[
             "chat_discard_queued",
             "chat_answer",
             "dashboard_dismiss",
+            "dashboard_undismiss",
             "agent_type_proposal_answer",
             "prompt_template_proposal_answer",
             "git_commit",

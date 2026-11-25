@@ -431,6 +431,9 @@ struct SessionState {
     answer_line: Option<String>,
     /// Zeitpunkt von „Gelesen“ im Dashboard; gespeichert.
     card_dismissed_at: Option<f64>,
+    /// Der Wert von `card_dismissed_at` vor dem letzten „Gelesen“, für „Rückgängig“; nur im Speicher,
+    /// `None`: nichts gemerkt (nach einem Neustart oder nach dem Zurücknehmen).
+    card_dismissed_prev: Option<Option<f64>>,
     /// Der letzte Aufruf von `verwalter_notify_user` in diesem Zug (ADR 077); nur im Speicher. Erst ein
     /// abgeschlossenes Zugende macht daraus Art und Zeile der Karte; Pause, Fehler, Abbruch und jede neue
     /// Eingabe verwerfen ihn.
@@ -2778,6 +2781,7 @@ impl SessionState {
             answer_kind: None,
             answer_line: None,
             card_dismissed_at: None,
+            card_dismissed_prev: None,
             notified: None,
         }
     }
@@ -8938,5 +8942,89 @@ mod tests {
         let (name, _) = project_name("Auftrag", Some(&long));
         assert_eq!(name, trimmed_name(&long).expect("nicht leer"));
         assert_eq!(name.chars().count(), MAX_NAME_CHARS);
+    }
+
+    #[test]
+    fn dismissing_a_card_takes_it_from_the_list_and_undismissing_brings_it_back() {
+        use crate::dashboard::model::{ProjectFacts, SessionFacts, Snapshot};
+        let mut state = state();
+        let cards = |state: &SessionState| {
+            let snapshot = Snapshot {
+                projects: vec![ProjectFacts {
+                    id: "p".to_owned(),
+                    name: "V".to_owned(),
+                    group_name: None,
+                }],
+                sessions: vec![SessionFacts {
+                    id: "s".to_owned(),
+                    number: 1,
+                    title: "S".to_owned(),
+                    project_id: "p".to_owned(),
+                    station_of: None,
+                    status: SessionStatus::Error,
+                    awaits_script: false,
+                    awaits_subagent: false,
+                    last_activity_at: 100.0,
+                    idle_since: 100.0,
+                    pause_reason: None,
+                    resets_text: None,
+                    answer_at: None,
+                    answer_excerpt: None,
+                    answer_kind: None,
+                    answer_line: None,
+                    dismissed_at: state.card_dismissed_at,
+                    requests: Vec::new(),
+                }],
+                ..Snapshot::default()
+            };
+            crate::dashboard::build(&snapshot, 1000.0).tasks.len()
+        };
+        assert_eq!(cards(&state), 1);
+        state.dismiss_card_at(500.0);
+        assert_eq!(cards(&state), 0, "nach „Gelesen“ ist die Karte weg");
+        state.undismiss_card();
+        assert_eq!(cards(&state), 1, "nach „Rückgängig“ wieder da");
+    }
+
+    #[test]
+    fn undismissing_restores_the_value_before_the_last_dismiss() {
+        let mut state = state();
+        state.card_dismissed_at = Some(40.0);
+        state.dismiss_card_at(50.0);
+        assert_eq!(state.card_dismissed_at, Some(50.0));
+        state.undismiss_card();
+        assert_eq!(
+            state.card_dismissed_at,
+            Some(40.0),
+            "mit Vorwert Some(x): x"
+        );
+    }
+
+    #[test]
+    fn undismissing_without_a_previous_value_gives_none() {
+        let mut state = state();
+        state.dismiss_card_at(50.0);
+        state.undismiss_card();
+        assert_eq!(state.card_dismissed_at, None, "Vorwert war None");
+    }
+
+    #[test]
+    fn undismissing_without_a_remembered_value_gives_none() {
+        // Nach einem Neustart steht `card_dismissed_at` aus der Datenbank, der Vorwert fehlt.
+        let mut state = state();
+        state.card_dismissed_at = Some(50.0);
+        state.undismiss_card();
+        assert_eq!(state.card_dismissed_at, None);
+    }
+
+    #[test]
+    fn dismissing_twice_and_undismissing_once_restores_the_value_before_the_second() {
+        let mut state = state();
+        state.dismiss_card_at(50.0);
+        state.dismiss_card_at(80.0);
+        state.undismiss_card();
+        assert_eq!(state.card_dismissed_at, Some(50.0));
+        state.undismiss_card();
+        assert_eq!(state.card_dismissed_at, None, "kein Vorwert mehr gemerkt");
     }
 }

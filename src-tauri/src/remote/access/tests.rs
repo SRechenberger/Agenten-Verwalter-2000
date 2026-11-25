@@ -376,6 +376,47 @@ fn the_host_surface_keeps_read_and_open_commands_while_a_guest_is_holder() {
 }
 
 #[test]
+fn the_host_marks_cards_seen_while_a_guest_holds_the_project_but_may_not_dismiss_them() {
+    let control = held_by_a();
+    assert_eq!(
+        check_call(
+            "dashboard_seen",
+            json!({ "projectId": PROJECT }),
+            Actor::HostSurface,
+            &control,
+        ),
+        Ok(())
+    );
+    assert_eq!(
+        check_call(
+            "dashboard_seen",
+            json!({ "projectId": PROJECT }),
+            Actor::Guest("a"),
+            &control,
+        ),
+        Ok(())
+    );
+    assert_eq!(
+        check_call(
+            "dashboard_seen",
+            json!({ "projectId": PROJECT }),
+            Actor::Guest("b"),
+            &control,
+        ),
+        Err(Denied::ForeignId(PROJECT.to_owned()))
+    );
+    assert_eq!(
+        check_call(
+            "dashboard_dismiss",
+            json!({ "sessionId": OWN_SESSION }),
+            Actor::HostSurface,
+            &control,
+        ),
+        Err(Denied::ControlledBy(device("a")))
+    );
+}
+
+#[test]
 fn the_host_surface_changes_nothing_on_a_project_nobody_holds() {
     let control = held_by_a();
     assert_eq!(
