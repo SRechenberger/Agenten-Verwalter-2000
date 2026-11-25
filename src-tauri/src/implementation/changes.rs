@@ -361,7 +361,7 @@ pub fn propose(app: &AppHandle, session_id: &str, inputs: &[PhaseInput]) -> Resu
         .station_rows(&view.id)
         .map_err(|error: CommandError| error.to_string())?;
     let (_, replanned_rows, named) = replanned(&view, inputs, &rows)?;
-    registry.check_row_lengths(&view.project_id, &replanned_rows)?;
+    registry.check_row_lengths(&view.project_id, &rows, &replanned_rows)?;
     let pending = PendingChange {
         session_id: session_id.to_owned(),
         session_number: registry.session_number(session_id),
@@ -467,7 +467,7 @@ pub(super) fn checked_replacement(
     record: Option<&Record>,
 ) -> Result<Replacement, String> {
     let replaced = replacement(view, inputs, rows, record)?;
-    registry.check_row_lengths(&view.project_id, &replaced.stations)?;
+    registry.check_row_lengths(&view.project_id, rows, &replaced.stations)?;
     Ok(replaced)
 }
 

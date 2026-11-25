@@ -646,6 +646,7 @@ export function NewLaneForm({
           type="button"
           className="station-card__button station-card__button--primary"
           disabled={isLocked || problems.length > 0}
+          title={problems.length > 0 ? problems.join(' ') : undefined}
           onClick={create}
         >
           {CREATE_LANE_LABEL}

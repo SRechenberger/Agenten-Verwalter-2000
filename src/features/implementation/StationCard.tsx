@@ -379,7 +379,6 @@ export function StationCard({
             isOpen={openSections.agent}
             onToggle={toggle('agent')}
             isLocked={isLocked}
-            run={run}
           />
         )}
         <StationAutomationSection

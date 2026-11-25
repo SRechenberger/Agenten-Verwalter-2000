@@ -51,7 +51,7 @@ import type { StationSettings } from '@/lib/bindings/StationSettings';
 import type { StationView } from '@/lib/bindings/StationView';
 import { setStationAgent } from '@/lib/implementation';
 import { EFFORT_OPTIONS, MODEL_OPTIONS } from '@/lib/labels';
-import type { ActionError } from '@/lib/useActionError';
+import { useActionError } from '@/lib/useActionError';
 
 interface AdditionFieldProps {
   initial: string;
@@ -83,7 +83,11 @@ function AdditionField({ initial, disabled, onSave }: AdditionFieldProps): React
           }
         }}
       />
-      <LimitCounter length={length} max={MAX_STATION_PROMPT_CHARS} />
+      <LimitCounter
+        length={length}
+        max={MAX_STATION_PROMPT_CHARS}
+        reason={overLimitReason(ADDITION_LABEL, MAX_STATION_PROMPT_CHARS)}
+      />
     </>
   );
 }
@@ -99,7 +103,6 @@ interface StationAgentSectionProps {
   isOpen: boolean;
   onToggle: () => void;
   isLocked: boolean;
-  run: ActionError['run'];
 }
 
 const MODEL_CHOICES: readonly SegmentOption<ModelId | null>[] = MODEL_OPTIONS.map(
@@ -143,9 +146,10 @@ export function StationAgentSection({
   isOpen,
   onToggle,
   isLocked,
-  run,
 }: StationAgentSectionProps): ReactElement {
   const { station } = stationRef;
+  // Eine Ablehnung (etwa S1, Taiga 266) steht in der Kartei, nicht in der Leiste der Umsetzung.
+  const { error, run } = useActionError(station.id);
   const types: readonly AgentType[] = agentTypes ?? [];
   const isWaiting: boolean = !isBegun(station);
   const isEditable: boolean = isWaiting && !isLocked;
@@ -325,6 +329,11 @@ export function StationAgentSection({
           save({ prompt });
         }}
       />
+      {error !== null && (
+        <p className="station-card__hint station-card__hint--over" role="alert">
+          {error}
+        </p>
+      )}
       <p className="station-card__hint">{SYSTEM_PROMPT_HINT}</p>
     </CardSection>
   );

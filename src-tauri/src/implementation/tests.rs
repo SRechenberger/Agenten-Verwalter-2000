@@ -9929,6 +9929,47 @@ fn editing_the_station_prompt_beyond_the_total_is_refused() {
     );
 }
 
+#[test]
+fn a_station_grown_by_its_file_does_not_block_other_edits() {
+    let (registry, database) = registry_with_two_masters();
+    // Der Typ kommt nach dem Anlegen: Die Station ist jetzt über der Grenze, ohne dass sie sich änderte.
+    let created = registry
+        .create_implementation("a", "Eins", "", &phases_with_prompt(3_500))
+        .expect("angelegt");
+    add_long_type(&database, 13_000);
+    let edit = |patch: model::StationPatch| PlanEdit {
+        change: vec![model::StationPatch {
+            id: created.phases[0].stations[0].plan_id.clone(),
+            ..patch
+        }],
+        ..PlanEdit::default()
+    };
+    edit::plan_of(
+        &registry,
+        &created,
+        &edit(model::StationPatch {
+            brief: Some("Neuer Auftrag".to_owned()),
+            ..model::StationPatch::default()
+        }),
+    )
+    .expect("Auftrag ändern geht durch");
+    let rows = registry.station_rows(&created.id).expect("Zeilen");
+    changes::checked_replacement(&registry, &created, &phases_with_prompt(3_500), &rows, None)
+        .expect("Planänderung geht durch");
+    let sentence = refusal_of_plan(edit::plan_of(
+        &registry,
+        &created,
+        &edit(model::StationPatch {
+            prompt: Some("y".repeat(3_501)),
+            ..model::StationPatch::default()
+        }),
+    ));
+    assert!(
+        sentence.contains("Der Systemprompt hätte 16 503 Zeichen"),
+        "{sentence}"
+    );
+}
+
 fn refusal_of_plan(result: Result<edit::EditedPlan, CommandError>) -> String {
     match result {
         Err(CommandError::Implementation(sentence)) => sentence,

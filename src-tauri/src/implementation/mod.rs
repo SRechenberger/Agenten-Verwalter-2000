@@ -1529,14 +1529,15 @@ pub fn check_settings_length(
     station_id: &str,
     checked: &StationSettings,
 ) -> Result<(), CommandError> {
-    let mut rows = registry.station_rows(&view.id)?;
+    let stored = registry.station_rows(&view.id)?;
+    let mut rows: Vec<StationRow> = stored.clone();
     rows.retain(|row: &StationRow| row.id == station_id);
     for row in &mut rows {
         row.agent.clone_from(&checked.agent);
         row.prompt.clone_from(&checked.prompt);
     }
     registry
-        .check_row_lengths(&view.project_id, &rows)
+        .check_row_lengths(&view.project_id, &stored, &rows)
         .map_err(CommandError::Implementation)
 }
 

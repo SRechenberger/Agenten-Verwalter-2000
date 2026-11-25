@@ -571,6 +571,11 @@ export function overLimitReason(label: string, max: number): string {
   return `${label} ist länger als ${String(max)} Zeichen.`;
 }
 
+/** Zeile unter dem Zähler, solange ein Feld über der Grenze liegt und deshalb nichts gespeichert wird. */
+export function notSavedLine(reason: string): string {
+  return `Nicht gespeichert: ${reason}`;
+}
+
 export const PREDECESSORS_MAY_LABEL = 'Vorgänger dürfen';
 export const PREDECESSORS_MAY_OPTIONS: readonly { id: PredecessorsMay; label: string }[] = [
   { id: 'append', label: 'nur ergänzen' },

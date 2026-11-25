@@ -348,7 +348,7 @@ pub(super) fn plan_of(
         .cloned()
         .collect();
     registry
-        .check_row_lengths(&view.project_id, &changed)
+        .check_row_lengths(&view.project_id, &rows, &changed)
         .map_err(CommandError::Implementation)?;
     Ok(edited)
 }

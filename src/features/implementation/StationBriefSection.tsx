@@ -101,6 +101,7 @@ function BriefField({ initial, isOpen, label, onSave }: BriefFieldProps): ReactE
       <LimitCounter
         length={draft.length}
         max={MAX_BRIEF_CHARS}
+        reason={overLimitReason(label, MAX_BRIEF_CHARS)}
         note={isOpen ? BRIEF_COUNTER_OPEN : BRIEF_COUNTER_SENT}
       />
     </>

@@ -129,8 +129,15 @@ impl SessionRegistry {
 
     /// S1 (Taiga 266): Der Systemprompt jeder noch nicht gestarteten Agent-Station in `rows` bliebe beim
     /// Start unter 16 000 Zeichen; sonst der Satz der ersten, die es nicht tut. Zählt wie der Start
-    /// (`length::check_station`).
-    pub fn check_row_lengths(&self, project_id: &str, rows: &[StationRow]) -> Result<(), String> {
+    /// (`length::check_station`). Eine Station, die mit Stufe, Typ und Zusatztext schon in `stored` steht (eine Planänderung vergibt die Kennungen neu), ist
+    /// nicht neu zu prüfen: Wuchs ihre Datei seither, meldet das der Start (S4), und Auftrag, Kanten oder
+    /// Modell bleiben änderbar.
+    pub fn check_row_lengths(
+        &self,
+        project_id: &str,
+        stored: &[StationRow],
+        rows: &[StationRow],
+    ) -> Result<(), String> {
         let types = self
             .agent_types()
             .map_err(|error: CommandError| error.to_string())?;
@@ -144,6 +151,9 @@ impl SessionRegistry {
             row.kind == implementation::model::StationKind::Agent
                 && row.session_id.is_none()
                 && row.completed_at.is_none()
+                && !stored.iter().any(|old: &StationRow| {
+                    old.stage == row.stage && old.agent == row.agent && old.prompt == row.prompt
+                })
         }) {
             length::check_station(
                 &station_label(&row.plan_id, &row.stage),
@@ -282,7 +292,7 @@ impl SessionRegistry {
             default_auto_resume,
         )
         .map_err(CommandError::Implementation)?;
-        self.check_row_lengths(&project_id, &station_rows)
+        self.check_row_lengths(&project_id, &[], &station_rows)
             .map_err(CommandError::Implementation)?;
         self.database.with(|connection| {
             check_agents(phases, &agent_type_rows::list(connection)?)
