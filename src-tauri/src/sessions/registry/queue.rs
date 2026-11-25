@@ -197,6 +197,7 @@ impl SessionRegistry {
         if current != previous {
             let _ = app.emit(AGENT_QUEUE_CHANGED_EVENT, ());
         }
+        self.announce_inbox_if_changed(app);
         claimed
     }
 

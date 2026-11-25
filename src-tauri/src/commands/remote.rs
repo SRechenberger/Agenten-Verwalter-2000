@@ -12,6 +12,7 @@ use crate::remote::model::{
 };
 use crate::remote::peer::{INVITATION_TTL, local_addresses};
 use crate::remote::server::RemoteServer;
+use crate::sessions::model::WaitingMessage;
 use crate::sessions::registry::SessionRegistry;
 use crate::settings;
 use crate::usage::model::UsageStatus;
@@ -190,6 +191,16 @@ pub async fn remote_agent_queue(
     host_id: String,
 ) -> Result<AgentQueue, CommandError> {
     guest::agent_queue(Arc::clone(&clients), host_id).await
+}
+
+/// Am Gast: die wartenden Nachrichten des Hosts, nur die der Vorhaben, die dieses Gerät hält; Änderungen
+/// meldet `remote://inbox-changed`.
+#[tauri::command]
+pub async fn remote_inbox_list(
+    clients: tauri::State<'_, Arc<RemoteClients>>,
+    host_id: String,
+) -> Result<Vec<WaitingMessage>, CommandError> {
+    guest::inbox_list(Arc::clone(&clients), host_id).await
 }
 
 /// Am Gast: lässt den Host sein Kontingent abrufen; das Ergebnis meldet `remote://usage-changed`.

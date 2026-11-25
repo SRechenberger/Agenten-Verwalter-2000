@@ -132,3 +132,7 @@ Anlass: Das Kontingent war von 10:42 bis 13:30 leer, und der Balken zeigte „4/
 - **Plätze beim Einschalten:** „Plätze 4 von 2“ gibt es nicht mehr: Auch beim Einschalten von „Automatisch fortsetzen“ zählt keine pausierte Session. Fällig setzen höchstens so viele fort, wie Plätze frei sind.
 - **Anzeige:** Eine Regel für Text und Chip des Wartens, siehe [ADR 064](064-automatisch-fortsetzen.md), Nachtrag 2026-11-24 (Taiga #227).
 - **Prüfung:** `cargo test --manifest-path src-tauri/Cargo.toml --lib -- implementation::tests:: sessions::registry::tests::` prüft `a_quota_pause_holds_no_slot` (Session und Tor), `a_quota_notice_holds_stations_until_its_resume_is_due`, `a_due_resume_goes_before_a_new_station` und `due_resumes_go_through_the_gate_up_to_the_limit_in_two_passes`. `--selftest` von `implementation-probe` prüft dasselbe Tor gegen die Datenbank; `pnpm selftest` die Anzeige.
+
+### Nachtrag 2026-11-25: Wartende Nachrichten sichtbar (Taiga Story 218)
+
+Die Liste der Warteschlange hat zwei Reiter: „Plätze“ (wie bisher) und „Nachrichten“ mit jeder Zeile aus `session_inbox` (Von → An, Betreff, Grund, seit), auch für Sessions, die laufen, fragen oder pausiert sind. `QueueEntry` bleibt unverändert; die Nachrichten kommen aus `inbox_list`. Eine eigene wartende Nachricht lässt sich verwerfen. Siehe [ADR 078](078-wartende-nachrichten.md).

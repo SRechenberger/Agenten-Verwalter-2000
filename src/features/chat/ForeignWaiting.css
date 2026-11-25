@@ -1,0 +1,15 @@
+/* Wartende Nachrichten anderer Sessions (Taiga-Story 218): flach, in der Spalte der Einträge, die Wartefarbe als Linie. */
+.foreign-waiting {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  padding-left: var(--space-lg);
+  border-left: 2px solid var(--color-status-waiting);
+
+  &__notice {
+    margin: 0;
+    color: var(--color-fg-secondary);
+    font-size: var(--font-size-xs);
+    font-weight: 600;
+  }
+}

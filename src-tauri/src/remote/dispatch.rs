@@ -31,6 +31,7 @@ use crate::dashboard::{
 };
 use crate::error::CommandError;
 use crate::implementation::slots::{AgentQueue, QueueEntry};
+use crate::sessions::model::WaitingMessage;
 use crate::sessions::registry::{SessionRegistry, now_ms};
 use crate::terminal::model::TerminalOutput;
 use crate::terminal::{TerminalService, Viewer};
@@ -57,6 +58,8 @@ pub trait Host: Send + Sync {
     fn dashboard_snapshot(&self) -> Result<Snapshot, CommandError>;
     /// Die Warteschlange aus der Registry, ungefiltert; nie über `agent_queue`.
     fn agent_queue(&self) -> AgentQueue;
+    /// Die wartenden Nachrichten aus der Registry, ungefiltert; nie über `inbox_list`.
+    fn inbox_list(&self) -> Result<Vec<WaitingMessage>, CommandError>;
     /// Führt den Command aus wie die eigene Oberfläche, mit der Kopfzeile des Servers.
     fn invoke(&self, command: &str, args: Value) -> Result<Value, CommandError>;
     /// Der Ordner `.artefakte` im Workspace der Session.
@@ -109,6 +112,7 @@ pub fn answer(
         )),
         "dashboard_get" => dashboard_for(host, control, device),
         "agent_queue" => queue_for(host, control, device),
+        "inbox_list" => inbox_for(host, control, device),
         list if MERGED_LISTS.contains(&list) => {
             let items = host.list(list)?;
             Ok(Value::Array(filter_list(
@@ -367,6 +371,18 @@ fn queue_for(
     to_json(&queue)
 }
 
+/// Die wartenden Nachrichten für einen Gast (Taiga-Story 218): nur die der Vorhaben, die das Gerät hält.
+fn inbox_for(
+    host: &dyn Host,
+    control: &RemoteControl,
+    device: &DeviceRef,
+) -> Result<Value, CommandError> {
+    let held: HashSet<String> = control.with(|control| control.held_by(&device.id));
+    let mut messages = host.inbox_list()?;
+    messages.retain(|message: &WaitingMessage| held.contains(&message.project_id));
+    to_json(&messages)
+}
+
 /// Der Host in der App: Befehle laufen über `Webview::on_message` auf dem Fenster `main`, also
 /// durch dieselben Commands und Antworten wie für die eigene Oberfläche. `invoke_key` bleibt hier.
 pub struct AppHost {
@@ -418,6 +434,10 @@ impl Host for AppHost {
 
     fn agent_queue(&self) -> AgentQueue {
         self.app.state::<SessionRegistry>().agent_queue()
+    }
+
+    fn inbox_list(&self) -> Result<Vec<WaitingMessage>, CommandError> {
+        self.app.state::<SessionRegistry>().inbox_list()
     }
 
     fn invoke(&self, command: &str, args: Value) -> Result<Value, CommandError> {

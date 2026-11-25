@@ -27,6 +27,7 @@ use crate::db::{Database, remote as remote_rows};
 use crate::error::CommandError;
 use crate::implementation::slots::AgentQueue;
 use crate::projects::model::{ProjectGroup, ProjectSummary};
+use crate::sessions::model::WaitingMessage;
 use crate::usage::model::UsageStatus;
 
 /// So lange wartet eine Liste auf einen Host, danach gilt, was er zuletzt geschickt hat.
@@ -328,6 +329,15 @@ pub async fn agent_queue(
     host_id: String,
 ) -> Result<AgentQueue, CommandError> {
     let value = blocking(move || clients.call(&host_id, "agent_queue", Value::Null)).await??;
+    serde_json::from_value(value).map_err(|error| CommandError::Internal(error.to_string()))
+}
+
+/// Die wartenden Nachrichten des Hosts, gefiltert auf die Vorhaben, die dieses Gerät hält.
+pub async fn inbox_list(
+    clients: Arc<RemoteClients>,
+    host_id: String,
+) -> Result<Vec<WaitingMessage>, CommandError> {
+    let value = blocking(move || clients.call(&host_id, "inbox_list", Value::Null)).await??;
     serde_json::from_value(value).map_err(|error| CommandError::Internal(error.to_string()))
 }
 

@@ -71,8 +71,8 @@ use verwalter_lib::{
     review::model::{CommentTarget, ReviewComment},
     session_tools::model::SelfRelease,
     sessions::model::{
-        AwaitedScript, ChatEntryEvent, ChatPage, SendOutcome, SessionOverlap, SessionStatus,
-        SessionSummary,
+        AwaitedScript, ChatEntryEvent, ChatPage, DiscardOutcome, SendOutcome, SessionOverlap,
+        SessionStatus, SessionSummary, WaitingMessage, WaitsFor,
     },
     settings::model::{
         ColorScheme, DashboardChoice, OperatingMode, PanelId, PanelWidths, Settings,
@@ -136,6 +136,9 @@ fn main() -> Result<(), ts_rs::ExportError> {
     SessionOverlap::export_all(&cfg)?;
     ChatPage::export_all(&cfg)?;
     SendOutcome::export_all(&cfg)?;
+    DiscardOutcome::export_all(&cfg)?;
+    WaitingMessage::export_all(&cfg)?;
+    WaitsFor::export_all(&cfg)?;
     ChatEntryEvent::export_all(&cfg)?;
     DeviceRef::export_all(&cfg)?;
     HostProfile::export_all(&cfg)?;

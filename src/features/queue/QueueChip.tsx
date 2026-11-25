@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import type { ReactElement } from 'react';
 import { useNow } from '@/features/background/useNow';
 import { SlotsMeter } from '@/features/queue/SlotsMeter';
@@ -5,6 +6,16 @@ import {
   entrySinceText,
   entryStage,
   entryWhat,
+  ALREADY_SENT_TEXT,
+  DISCARD_LABEL,
+  DISCARD_TITLE,
+  inboxRouteText,
+  MESSAGES_NOTHING_WAITING,
+  messagesSectionHead,
+  tabMessagesLabel,
+  TAB_SLOTS_LABEL,
+  waitsForText,
+  waitingSinceText,
   QUEUE_NOTHING_WAITING,
   QUEUE_ORDER_NOTE,
   WAITING_CHIP_TITLE,
@@ -12,8 +23,13 @@ import {
   waitingCount,
   type QueueSection,
 } from '@/features/queue/queueTexts';
+import { commandErrorText } from '@/lib/errors';
+import { discardQueued } from '@/lib/inbox';
 import type { ProjectSummary } from '@/lib/bindings/ProjectSummary';
 import type { QueueEntry } from '@/lib/bindings/QueueEntry';
+import type { WaitingMessage } from '@/lib/bindings/WaitingMessage';
+import { useInboxStore } from '@/stores/inbox';
+import { useRemoteStore } from '@/stores/remote';
 import './QueueChip.css';
 
 interface QueueChipProps {
@@ -44,11 +60,167 @@ interface QueueListProps {
   projects: readonly ProjectSummary[];
   /** Der Weg zur Grenze verlässt die Liste. */
   onClose: () => void;
+  /** Der Reiter beim Öffnen: „Nachrichten“, wenn kein Platz wartet. */
+  initialTab?: 'slots' | 'messages';
+  /** Meldet den gewählten Reiter, damit das Fenster für „Nachrichten“ breiter werden kann. */
+  onTabChange?: (tab: 'slots' | 'messages') => void;
 }
 
 /** Inhalt der Liste: je Warteschlange oben die Belegung, darunter die Wartenden in der Reihenfolge ihres Cores
  *  oder der Hinweis. Die Ränge eines Hosts sind seine; die Listen werden nie zusammengeführt. */
-export function QueueList({ sections, projects, onClose }: QueueListProps): ReactElement {
+export function QueueList({
+  sections,
+  projects,
+  onClose,
+  initialTab = 'slots',
+  onTabChange,
+}: QueueListProps): ReactElement {
+  const [tab, setTab] = useState<'slots' | 'messages'>(initialTab);
+  const messageCount: number = useInboxStore(
+    (state) =>
+      state.messages.length +
+      Object.values(state.hostMessages).reduce((sum: number, list) => sum + list.length, 0),
+  );
+  return (
+    <>
+      <div className="queue-chip__tabs" role="tablist">
+        {(['slots', 'messages'] as const).map((id) => (
+          <button
+            key={id}
+            type="button"
+            role="tab"
+            aria-selected={tab === id}
+            className="queue-chip__tab"
+            onClick={(): void => {
+              setTab(id);
+              onTabChange?.(id);
+            }}
+          >
+            {id === 'slots' ? TAB_SLOTS_LABEL : tabMessagesLabel(messageCount)}
+          </button>
+        ))}
+      </div>
+      {tab === 'slots' ? (
+        <SlotsTab sections={sections} projects={projects} onClose={onClose} />
+      ) : (
+        <MessagesTab sections={sections} projects={projects} />
+      )}
+    </>
+  );
+}
+
+/** Reiter „Nachrichten“ (Taiga-Story 218): je Abschnitt (dieses Gerät, je Host) die wartenden Nachrichten mit
+ *  Von → An, Betreff, Grund und seit wann. */
+function MessagesTab({
+  sections,
+  projects,
+}: {
+  sections: readonly QueueSection[];
+  projects: readonly ProjectSummary[];
+}): ReactElement {
+  const now: number = useNow(true);
+  // Eine Statuszeile unter den Tabellen: Die Zeile selbst ist nach „Schon gesendet“ schon aus der Liste.
+  const [note, setNote] = useState<string>('');
+  const own = useInboxStore((state) => state.messages);
+  const hostMessages = useInboxStore((state) => state.hostMessages);
+  const hosts = useRemoteStore((state) => state.hosts);
+  const parts: { key: string; name: string | null; messages: readonly WaitingMessage[] }[] = [
+    { key: '', name: null, messages: own },
+    ...hosts
+      .filter((host) => hostMessages[host.hostId] !== undefined)
+      .map((host) => ({
+        key: host.hostId,
+        name: host.hostName,
+        messages: hostMessages[host.hostId] ?? [],
+      })),
+  ];
+  function discard(message: WaitingMessage): void {
+    if (message.entrySeq === null) {
+      return;
+    }
+    discardQueued(message.sessionId, message.entrySeq)
+      .then((outcome) => {
+        setNote(outcome === 'alreadySent' ? ALREADY_SENT_TEXT : '');
+      })
+      .catch((reason: unknown) => {
+        setNote(commandErrorText(reason));
+      });
+  }
+
+  const shown = parts.filter((part) => part.messages.length > 0);
+  if (shown.length === 0 || (sections.length === 0 && own.length === 0)) {
+    return (
+      <>
+        <p className="queue-chip__note">{MESSAGES_NOTHING_WAITING}</p>
+        {note !== '' && (
+          <p className="queue-chip__note" role="status">
+            {note}
+          </p>
+        )}
+      </>
+    );
+  }
+  return (
+    <>
+      {shown.map((part) => (
+        <div key={part.key}>
+          <div className="queue-chip__head">
+            {messagesSectionHead(part.name, part.messages.length)}
+          </div>
+          <table className="queue-chip__table">
+            <thead>
+              <tr>
+                <th>Von → An</th>
+                <th>Betreff</th>
+                <th>Grund</th>
+                <th>seit</th>
+                <th />
+              </tr>
+            </thead>
+            <tbody>
+              {part.messages.map((message: WaitingMessage) => (
+                <tr key={message.id} title={projects.find((p) => p.id === message.projectId)?.name}>
+                  <td>
+                    {inboxRouteText(message)}
+                    <span className="queue-chip__project">
+                      {projects.find((p) => p.id === message.projectId)?.name ?? '–'}
+                    </span>
+                  </td>
+                  <td>{message.subject ?? '–'}</td>
+                  <td>
+                    <span className="user-message__queued">{waitsForText(message)}</span>
+                  </td>
+                  <td className="queue-chip__since">{waitingSinceText(message.createdAt, now)}</td>
+                  <td>
+                    {message.fromUser && message.entrySeq !== null && (
+                      <button
+                        type="button"
+                        className="queue-chip__discard"
+                        title={DISCARD_TITLE}
+                        onClick={(): void => {
+                          discard(message);
+                        }}
+                      >
+                        {DISCARD_LABEL}
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ))}
+      {note !== '' && (
+        <p className="queue-chip__note" role="status">
+          {note}
+        </p>
+      )}
+    </>
+  );
+}
+
+function SlotsTab({ sections, projects, onClose }: QueueListProps): ReactElement {
   const now: number = useNow(true);
 
   function projectName(projectId: string): string {
