@@ -530,6 +530,18 @@ enum TurnOrigin<'a> {
     },
 }
 
+/// Der Betreff am Chat-Eintrag einer Sitzungsnachricht: der der Referenz (außer bei „Gemeldet“, da steht
+/// er schon im Text), sonst der eigene `chat_subject`.
+fn session_entry_subject<'a>(
+    reference: Option<Reference<'a>>,
+    chat_subject: Option<&'a str>,
+) -> Option<&'a str> {
+    reference
+        .filter(|found: &Reference<'_>| found.note.is_none())
+        .map(|found: Reference<'_>| found.subject)
+        .or(chat_subject)
+}
+
 /// Nur die Betriebsart Claude hat `verwalter_read_message`; sonst geht der ganze Text (ADR 072). Die
 /// einzige Stelle, die das für Nachrichten, Rückgaben und erste Nachrichten entscheidet.
 fn readable<T>(by_reference: Option<T>, mode: OperatingMode) -> Option<T> {
@@ -5052,10 +5064,7 @@ fn start_turn(
             let line = user_message(&agent_text);
             let titled = state.begin_turn(outbox, session, text, &agent_text);
             // Bei „Gemeldet“ steht der Betreff schon im Text.
-            let subject: Option<&str> = reference
-                .filter(|found: &Reference<'_>| found.note.is_none())
-                .map(|found: Reference<'_>| found.subject)
-                .or(chat_subject);
+            let subject = session_entry_subject(reference, chat_subject);
             state.push_session_message(outbox, sent_text, sender, subject);
             (titled, line)
         }
@@ -6263,7 +6272,7 @@ mod tests {
             assert!(
                 matches!(
                     state.entries.last(),
-                    Some(ChatEntry::Notice { notice: Notice::Info { text }, .. })
+                    Some(ChatEntry::Notice { notice: Notice::Verwalter { text }, .. })
                         if text.starts_with("Zusammenfassen gescheitert: ")
                 ),
                 "der Chat nennt den Grund"
@@ -9144,7 +9153,7 @@ mod tests {
     fn last_note(state: &SessionState) -> Option<&str> {
         match state.entries.last() {
             Some(ChatEntry::Notice {
-                notice: Notice::Info { text },
+                notice: Notice::Verwalter { text },
                 ..
             }) => Some(text.as_str()),
             _ => None,
@@ -9991,21 +10000,16 @@ mod tests {
     }
 
     #[test]
-    fn the_request_and_the_reminder_carry_their_subject_in_the_chat_only() {
-        let mut state = state();
-        let mut outbox = Outbox::default();
-        let sender = crate::implementation::wake::sender();
-        state.push_session_message(
-            &mut outbox,
-            compact::REMINDER_TEXT,
-            &sender,
-            Some("Erinnerung: Compact"),
+    fn the_chat_subject_of_the_request_and_the_reminder_shows_without_a_reference() {
+        assert_eq!(
+            session_entry_subject(None, Some(compact::REQUEST_SUBJECT)),
+            Some("Compact vorbereiten")
         );
-        assert!(matches!(
-            state.entries.last(),
-            Some(ChatEntry::SessionMessage { subject: Some(subject), text, .. })
-                if subject == "Erinnerung: Compact" && text == compact::REMINDER_TEXT
-        ));
+        assert_eq!(
+            session_entry_subject(None, Some(compact::REMINDER_SUBJECT)),
+            Some("Erinnerung: Compact")
+        );
+        assert_eq!(session_entry_subject(None, None), None);
     }
 
     #[test]

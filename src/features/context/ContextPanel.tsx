@@ -39,6 +39,8 @@ const COMPACT_BUTTON_TITLE =
   'Fasst den bisherigen Verlauf jetzt zusammen, um Platz im Kontext zu schaffen.';
 const COMPACT_BLOCKED_TITLE =
   'Compact geht nur, wenn der Agent gerade nicht arbeitet und nichts von dir wartet.';
+const COMPACT_WAITING_TITLE = 'Der Compact wartet auf einen freien Platz.';
+const COMPACT_PAUSED_TITLE = 'Erst fortsetzen oder abbrechen.';
 /** Nur hier ist der Agent untätig und wartet nicht auf eine Antwort — sonst würde „/compact“ eine Rückfrage beantworten. */
 const COMPACTABLE_STATUSES: readonly SessionStatus[] = ['completed', 'paused'];
 
@@ -137,7 +139,11 @@ export function ContextPanel({ session, onClose }: ContextPanelProps): ReactElem
                   : COMPACT_BUTTON_TITLE
                 : isLocked
                   ? LOCKED_TITLE
-                  : COMPACT_BLOCKED_TITLE
+                  : preparing
+                    ? session.status === 'paused'
+                      ? COMPACT_PAUSED_TITLE
+                      : COMPACT_WAITING_TITLE
+                    : COMPACT_BLOCKED_TITLE
             }
             onClick={compact}
           >

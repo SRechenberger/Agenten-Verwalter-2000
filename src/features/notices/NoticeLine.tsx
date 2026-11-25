@@ -14,7 +14,7 @@ interface NoticeLineProps {
   variant: NoticeLineVariant;
   icon: ReactNode;
   /** Fetter Anfang der Zeile. */
-  lead: string;
+  lead?: string;
   text: string;
   /** Kleiner Zusatz unter der Zeile. */
   detail?: string | undefined;
@@ -37,7 +37,8 @@ export function NoticeLine({
       <span className="notice-line__icon">{icon}</span>
       <div className="notice-line__body">
         <p className="notice-line__text">
-          <strong>{lead}</strong> {text}
+          {lead !== undefined && <strong>{lead} </strong>}
+          {text}
         </p>
         {detail !== undefined && <p className="notice-line__detail">{detail}</p>}
       </div>

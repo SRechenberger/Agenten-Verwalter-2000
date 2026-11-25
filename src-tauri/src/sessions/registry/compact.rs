@@ -25,8 +25,8 @@ use crate::settings::model::OperatingMode;
 pub(super) const COMPACT_TEXT: &str = "/compact";
 
 /// Betreff der Bitte und der Erinnerung im Chat (nicht im Text an den Agenten).
-const REQUEST_SUBJECT: &str = "Compact vorbereiten";
-const REMINDER_SUBJECT: &str = "Erinnerung: Compact";
+pub(super) const REQUEST_SUBJECT: &str = "Compact vorbereiten";
+pub(super) const REMINDER_SUBJECT: &str = "Erinnerung: Compact";
 
 /// Die Erinnerung, wenn der Vorbereitungszug ohne Meldung endet; einmal. Der Wortlaut ist an Haiku
 /// gemessen (ADR 070, Nachtrag „Compact mit Vorbereitung“); eine Änderung braucht eine neue Messung.
@@ -39,7 +39,7 @@ pub(super) const NO_COMPACT_PENDING: &str = "Gerade steht kein Compact an.";
 pub(super) const COMPACT_LOCKED: &str =
     "Die Session bereitet einen Compact vor. Nachrichten warten, bis er fertig ist.";
 const COMPACT_RUNNING: &str = "Der Compact läuft schon.";
-const END_OF_IMPLEMENTATION: &str = "Die Umsetzung ist fertig – kein Compact nötig";
+const END_OF_IMPLEMENTATION: &str = "Die Umsetzung ist beendet – kein Compact nötig";
 
 /// Die Bitte des Verwalters an den ruhenden Master über der Grenze (ADR 070, Nachtrag). Der Wortlaut ist
 /// an Haiku gemessen; er nennt den vollen Namen des Werkzeugs (Laden aufgeschobener Werkzeuge).
@@ -316,7 +316,7 @@ impl SessionState {
     pub(super) fn push_compact_note(&mut self, outbox: &mut Outbox, text: &str) {
         self.push_entry(outbox, |seq: u32| ChatEntry::Notice {
             seq,
-            notice: Notice::Info {
+            notice: Notice::Verwalter {
                 text: text.to_owned(),
             },
             at: None,
@@ -331,7 +331,7 @@ impl SessionState {
         let (last_activity_at, seen_at) = (self.last_activity_at, self.seen_at);
         self.push_entry(outbox, |seq: u32| ChatEntry::Notice {
             seq,
-            notice: Notice::Info {
+            notice: Notice::Verwalter {
                 text: format!("Zusammenfassen gescheitert: {reason}"),
             },
             at: None,
