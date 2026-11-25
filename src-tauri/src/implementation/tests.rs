@@ -1983,6 +1983,13 @@ fn plan_reminder_names_the_create_tool() {
     );
 }
 
+#[test]
+fn plan_reminder_names_both_ways_to_ask_while_ask_user_question_stays_open() {
+    // ADR 077, K6: Solange `AskUserQuestion` nicht gesperrt ist, nennt die Erinnerung beide Wege.
+    assert!(plan::PLAN_REMINDER_TEXT.contains("AskUserQuestion"));
+    assert!(plan::PLAN_REMINDER_TEXT.contains("mcp__verwalter__verwalter_notify_user"));
+}
+
 // Constraint-Abläufe (ADR 061): Kanten, bereiter Satz, Stufe, Warteschlange, Migration.
 
 /// Eine Station mit Plan-Kennung `id` (zugleich ihre `id`) und diesen Vorgängern.

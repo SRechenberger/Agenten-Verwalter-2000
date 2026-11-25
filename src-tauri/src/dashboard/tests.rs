@@ -9,7 +9,7 @@ use super::model::{
     DashboardView, FlowFacts, PendingFacts, ProjectFacts, RequestFacts, SessionFacts, Snapshot,
     StationFacts,
 };
-use super::{EXCERPT_CHARS, build, excerpt};
+use super::{EXCERPT_CHARS, build, excerpt, notify};
 use crate::agents::event::QuestionKind;
 use crate::db::Database;
 use crate::error::CommandError;
@@ -1363,4 +1363,123 @@ fn a_host_answer_without_last_activity_still_reads() {
     let merged = merge_dashboards(build(&local, NOW), vec![Ok(answer)], &HashMap::new());
     assert_eq!(merged.flows.len(), 5);
     assert_eq!(merged.sessions.len(), 3);
+}
+
+#[test]
+fn each_reported_kind_is_its_card_with_line_and_reported() {
+    for (kind, expected) in [
+        (AnswerKind::Asks, DashboardTaskKind::Asks),
+        (AnswerKind::Requests, DashboardTaskKind::Requests),
+        (AnswerKind::Done, DashboardTaskKind::Done),
+        (AnswerKind::Review, DashboardTaskKind::Review),
+        (AnswerKind::Blocked, DashboardTaskKind::Blocked),
+    ] {
+        let reported = SessionFacts {
+            answer_kind: Some(kind),
+            answer_line: Some("Zeile".to_owned()),
+            ..answered("a", 200.0)
+        };
+        let view = view_of(vec![reported], vec![]);
+        let [task] = &view.tasks[..] else {
+            panic!("Erwartet: eine Karte");
+        };
+        assert_eq!(task.kind, expected, "{kind:?}");
+        assert_eq!(task.title, "Zeile");
+        assert!(task.reported, "{kind:?}");
+        assert!(!task.blocking, "{kind:?}");
+    }
+}
+
+#[test]
+fn an_answer_without_a_call_is_not_reported() {
+    let view = view_of(vec![answered("a", 200.0)], vec![]);
+    assert_eq!(view.tasks[0].kind, DashboardTaskKind::Answer);
+    assert!(!view.tasks[0].reported);
+    assert_eq!(view.tasks[0].offer, None);
+    assert_eq!(view.tasks[0].link, None);
+}
+
+#[test]
+fn the_offer_and_the_link_come_with_their_cards() {
+    let stored = |kind: AnswerKind, offer: Option<&str>, link: Option<&str>| {
+        notify::stored_line(&notify::Notification {
+            kind,
+            line: "Zeile".to_owned(),
+            offer: offer.map(str::to_owned),
+            link: link.map(str::to_owned),
+        })
+    };
+    let done = SessionFacts {
+        answer_kind: Some(AnswerKind::Done),
+        answer_line: Some(stored(AnswerKind::Done, Some("Issues verlinken"), None)),
+        ..answered("a", 200.0)
+    };
+    let review = SessionFacts {
+        answer_kind: Some(AnswerKind::Review),
+        answer_line: Some(stored(AnswerKind::Review, None, Some("entwurf.html"))),
+        ..answered("b", 100.0)
+    };
+    let view = view_of(vec![done, review], vec![]);
+    let by_id = |id: &str| {
+        view.tasks
+            .iter()
+            .find(|task: &&DashboardTask| task.id == id)
+            .expect("Karte")
+    };
+    assert_eq!(by_id("session:a").title, "Zeile");
+    assert_eq!(
+        by_id("session:a").offer.as_deref(),
+        Some("Issues verlinken")
+    );
+    assert_eq!(by_id("session:a").link, None);
+    assert_eq!(by_id("session:b").link.as_deref(), Some("entwurf.html"));
+    assert_eq!(by_id("session:b").offer, None);
+}
+
+#[test]
+fn blocked_comes_after_the_blocking_requests_and_before_asks_and_review_after_requests() {
+    let reported = |id: &str, kind: AnswerKind, at: f64| SessionFacts {
+        answer_kind: Some(kind),
+        answer_line: Some("Zeile".to_owned()),
+        ..answered(id, at)
+    };
+    let mut asking = session("q", SessionStatus::Waiting);
+    asking.requests = vec![request("late", QuestionKind::AskUser, 900.0)];
+    let sessions = vec![
+        reported("done", AnswerKind::Done, 1.0),
+        answered("ans", 10.0),
+        reported("review", AnswerKind::Review, 5.0),
+        reported("req", AnswerKind::Requests, 20.0),
+        reported("ask", AnswerKind::Asks, 30.0),
+        reported("blocked", AnswerKind::Blocked, 40.0),
+        asking,
+    ];
+    let order: Vec<String> = view_of(sessions, vec![])
+        .tasks
+        .iter()
+        .map(|task: &DashboardTask| task.id.clone())
+        .collect();
+    assert_eq!(
+        order,
+        vec![
+            "question:q:late",
+            "session:blocked",
+            "session:ask",
+            "session:req",
+            "session:review",
+            "session:ans",
+            "session:done",
+        ]
+    );
+}
+
+#[test]
+fn a_station_gets_no_card_from_a_reported_kind() {
+    let station = SessionFacts {
+        station_of: Some("i".to_owned()),
+        answer_kind: Some(AnswerKind::Done),
+        answer_line: Some("Fertig".to_owned()),
+        ..answered("st", 200.0)
+    };
+    assert!(view_of(vec![station], vec![]).tasks.is_empty());
 }

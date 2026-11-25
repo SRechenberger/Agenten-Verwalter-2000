@@ -1,3 +1,0 @@
-Add retry handling to the upload client.
-=====
-I can implement this in two ways, and they behave differently under failure: (a) retry the whole upload with exponential backoff, which is simple but re-sends data that already arrived, or (b) resume from the last acknowledged chunk, which needs the server to expose the received offset. The server in staging does not expose it yet. Which approach do you prefer?

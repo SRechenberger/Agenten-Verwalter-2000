@@ -196,6 +196,11 @@ pub enum ToolRequest {
         model: ModelId,
         effort: Effort,
     },
+    // Die Rückfrage von `verwalter_notify_user` (ADR 077): eine gewöhnliche Rückfrage der Art `AskUser`,
+    // deren Antwort über den Kanal des Aufrufs statt an den Agenten geht. Sie steht nie in einem
+    // Eintrag (`SessionState::ask` lässt `tool_request` leer) und geht deshalb nicht über die Grenze.
+    #[ts(skip)]
+    AskUser,
     // Vorschlag eines Agententyps (ADR 063): nie Selbstfreigabe, entschieden wird nur über
     // `agent_type_proposal_answer`.
     AgentType {

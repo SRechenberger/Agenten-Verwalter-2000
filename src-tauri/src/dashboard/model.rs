@@ -15,8 +15,10 @@ pub enum DashboardTaskKind {
     Question,
     Permission,
     SessionTool,
+    Blocked,
     Asks,
     Requests,
+    Review,
     Answer,
     PlanChange,
     CancelRequest,
@@ -36,8 +38,10 @@ impl DashboardTaskKind {
             DashboardTaskKind::Question => "question",
             DashboardTaskKind::Permission => "permission",
             DashboardTaskKind::SessionTool => "sessionTool",
+            DashboardTaskKind::Blocked => "blocked",
             DashboardTaskKind::Asks => "asks",
             DashboardTaskKind::Requests => "requests",
+            DashboardTaskKind::Review => "review",
             DashboardTaskKind::Answer => "answer",
             DashboardTaskKind::PlanChange => "planChange",
             DashboardTaskKind::CancelRequest => "cancelRequest",
@@ -79,6 +83,16 @@ pub struct DashboardTask {
     pub entry: Option<ChatEntry>,
     // `byYou`: vom Master freigegeben.
     pub released: bool,
+    // `done`: „Ja, bitte: <offer>“ geht als Nachricht des Nutzers hinaus (ADR 077). `default`: Ein älterer
+    // Host schickt die drei Felder nicht.
+    #[serde(default)]
+    pub offer: Option<String>,
+    // `review`: ein Artefaktpfad oder eine https-Adresse.
+    #[serde(default)]
+    pub link: Option<String>,
+    // Der Agent hat die Karte mit `verwalter_notify_user` gemeldet; ohne Aufruf bleibt es bei `answer`.
+    #[serde(default)]
+    pub reported: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -142,12 +156,14 @@ pub struct DashboardView {
     pub sessions: Vec<DashboardSession>,
 }
 
-/// Die Einordnung der Antwort durch das Modell (Spalte `answer_kind`).
+/// Die Art, die der Agent mit `verwalter_notify_user` meldet (Spalte `answer_kind`, ADR 077).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AnswerKind {
     Asks,
     Requests,
     Done,
+    Review,
+    Blocked,
 }
 
 impl AnswerKind {
@@ -157,15 +173,19 @@ impl AnswerKind {
             AnswerKind::Asks => "asks",
             AnswerKind::Requests => "requests",
             AnswerKind::Done => "done",
+            AnswerKind::Review => "review",
+            AnswerKind::Blocked => "blocked",
         }
     }
 
-    /// Aus dem gespeicherten Text; ein unbekannter Wert gilt als nicht eingeordnet.
+    /// Aus dem gespeicherten Text; ein unbekannter Wert gilt als nicht gemeldet.
     pub fn from_text(text: &str) -> Option<AnswerKind> {
         match text {
             "asks" => Some(AnswerKind::Asks),
             "requests" => Some(AnswerKind::Requests),
             "done" => Some(AnswerKind::Done),
+            "review" => Some(AnswerKind::Review),
+            "blocked" => Some(AnswerKind::Blocked),
             _ => None,
         }
     }
@@ -209,6 +229,8 @@ pub struct SessionFacts {
     pub answer_at: Option<f64>,
     pub answer_excerpt: Option<String>,
     pub answer_kind: Option<AnswerKind>,
+    /// Der gespeicherte Text der Spalte `answer_line`: die Zeile, mit Angebot oder Verweis ein Objekt
+    /// (`notify::from_stored`).
     pub answer_line: Option<String>,
     pub dismissed_at: Option<f64>,
     pub requests: Vec<RequestFacts>,

@@ -27,8 +27,10 @@ export const KIND_LABEL: Record<DashboardTaskKind, string> = {
   question: 'Rückfrage',
   permission: 'Rechte-Abfrage',
   sessionTool: 'Freigabe Nachricht',
+  blocked: 'Blockiert',
   asks: 'Fragt',
   requests: 'Bittet',
+  review: 'Zum Ansehen',
   answer: 'Antwort liegt vor',
   planChange: 'Plan ändern?',
   cancelRequest: 'Abbrechen?',
@@ -70,8 +72,10 @@ const KIND_TONE: Record<DashboardTaskKind, Tone> = {
   question: 'wait',
   permission: 'wait',
   sessionTool: 'wait',
+  blocked: 'error',
   asks: 'wait',
   requests: 'wait',
+  review: 'accent',
   answer: 'muted',
   planChange: 'accent',
   cancelRequest: 'accent',
@@ -88,14 +92,16 @@ export function kindTone(kind: DashboardTaskKind): Tone {
   return KIND_TONE[kind];
 }
 
-/** „✦ eingeordnet“ trägt, was ein kleines Modell aus der letzten Antwort gelesen hat. */
-export function isClassified(kind: DashboardTaskKind): boolean {
-  return kind === 'asks' || kind === 'requests' || kind === 'done';
-}
-
 /** Karten einer Session ohne Station aus ihrer letzten Antwort: Das Popup ist ein Chat mit „Gelesen“. */
 export function isAnswerKind(kind: DashboardTaskKind): boolean {
-  return kind === 'asks' || kind === 'requests' || kind === 'done' || kind === 'answer';
+  return (
+    kind === 'asks' ||
+    kind === 'requests' ||
+    kind === 'done' ||
+    kind === 'review' ||
+    kind === 'blocked' ||
+    kind === 'answer'
+  );
 }
 
 /** „Nur, was einen Agenten anhält“: `blocking` und pausierte Karten; die Reihenfolge bleibt die des Core. */
@@ -302,18 +308,47 @@ export function sessionTone(state: DashboardSessionState): Tone {
   return SESSION_STATE_TONE[state];
 }
 
-const CLASSIFIED_AS: Partial<Record<DashboardTaskKind, string>> = {
-  asks: 'fragt',
-  requests: 'bittet',
-  done: 'fertig',
-};
+/** Marke an der Karte und im Kopf des Popups: Der Agent hat die Art mit `verwalter_notify_user` gemeldet. */
+export const REPORTED_MARK = '✓ vom Agenten gemeldet';
 
-/** Hinweis im Popup einer Antwort: wie das Modell sie eingeordnet hat, oder dass es das nicht tat. */
-export function classifiedText(task: DashboardTask): string {
-  const as: string | undefined = CLASSIFIED_AS[task.kind];
-  return as === undefined
-    ? 'Nicht eingeordnet (Modell aus oder Einordnung gescheitert).'
-    : `✦ Eingeordnet als „${as}“ aus der letzten Antwort: ${task.title}`;
+/** Hinweis im Popup einer Antwort: vom Agenten gemeldet, oder dass er das Werkzeug nicht gerufen hat. */
+export function reportedText(task: DashboardTask): string {
+  return task.reported
+    ? REPORTED_MARK
+    : 'Nicht gemeldet: Der Agent hat das Werkzeug verwalter_notify_user nicht gerufen.';
+}
+
+/** „Ja, mach das“ an einer fertigen Karte mit Angebot (K4). */
+export const OFFER_YES_LABEL = 'Ja, mach das';
+
+/** Die Nachricht, die „Ja, mach das“ als Nachricht des Benutzers sendet. */
+export function offerMessage(offer: string): string {
+  return `Ja, bitte: ${offer}`;
+}
+
+/** Wohin „Zum Ansehen“ führt: eine Adresse im Standardbrowser oder ein Artefakt im Reiter „Artefakte“. */
+export type LinkTarget = { kind: 'url'; url: string } | { kind: 'artifact'; file: string };
+
+const ARTIFACT_DIR = '.artefakte/';
+
+/** Eine `http(s)`-Adresse geht in den Browser; sonst ist es ein Artefakt: Steht `.artefakte/` im Pfad, gilt der
+ *  erste Name dahinter (der Datei oder des Ordners direkt in `.artefakte`, wie bei `artifact_show`), sonst der
+ *  Pfad selbst ohne führendes `./`. */
+export function linkTarget(link: string): LinkTarget {
+  const trimmed: string = link.trim();
+  if (/^https?:\/\//i.test(trimmed)) {
+    return { kind: 'url', url: trimmed };
+  }
+  const slashed: string = trimmed.replace(/\\/g, '/');
+  const at: number = slashed.lastIndexOf(ARTIFACT_DIR);
+  const inside: string =
+    at < 0 ? slashed.replace(/^\.\//, '') : slashed.slice(at + ARTIFACT_DIR.length);
+  return { kind: 'artifact', file: at < 0 ? inside : (inside.split('/')[0] ?? inside) };
+}
+
+/** Beschriftung des Knopfs an einer Karte „Zum Ansehen“. */
+export function linkLabel(target: LinkTarget): string {
+  return target.kind === 'url' ? 'Im Browser öffnen ↗' : 'Artefakt öffnen';
 }
 
 export interface LastExchange {

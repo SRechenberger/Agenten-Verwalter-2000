@@ -11,6 +11,7 @@ pub const SEND_MESSAGE: &str = "verwalter_send_message_to";
 pub const GET_SESSIONS: &str = "verwalter_get_sessions";
 pub const GET_TLDR: &str = "verwalter_get_session_tldr";
 pub const READ_MESSAGE: &str = "verwalter_read_message";
+pub const NOTIFY_USER: &str = "verwalter_notify_user";
 /// Längster Betreff einer Nachricht (ADR 072).
 pub const MAX_SUBJECT_CHARS: usize = 120;
 
@@ -84,13 +85,80 @@ impl ToolSet for SessionTools {
                     "required": ["reference"],
                 }),
             },
+            ToolSpec {
+                name: NOTIFY_USER,
+                description: "Sagt dem Nutzer, was er nach deinem Zug tun kann oder muss; daraus entsteht seine \
+                    Karte im Dashboard. kind: asks, wenn du eine Frage stellst oder eine Entscheidung \
+                    verlangst; requests, wenn du ihn bittest, selbst etwas außerhalb der Session zu tun; \
+                    done, wenn du ein Ergebnis berichtest und nichts von ihm erwartest (optional offer: \
+                    was du ihm als Nächstes anbietest); review, wenn er etwas ansehen soll (Pflicht: link); \
+                    blocked, wenn du ohne ihn nicht weiterkommst. Mit asks und questions (1 bis 4 Fragen \
+                    wie bei AskUserQuestion) wartet der Aufruf auf die Antworten des Nutzers und gibt sie \
+                    zurück. Jeder andere Aufruf antwortet sofort; die Karte erscheint, wenn dein Zug \
+                    endet, und der letzte Aufruf des Zugs gilt. Eine Station meldet nur Rückfragen mit \
+                    questions; ihr Ergebnis meldet sie mit implementation_complete_station.",
+                input_schema: json!({
+                    "type": "object",
+                    "properties": {
+                        "kind": {
+                            "type": "string",
+                            "enum": ["asks", "requests", "done", "review", "blocked"],
+                        },
+                        "line": {
+                            "type": "string",
+                            "description": "Ein Satz für die Karte, höchstens 120 Zeichen: bei asks die Frage, bei requests die Bitte, bei done das Ergebnis, bei review was zu sehen ist, bei blocked das Hindernis.",
+                        },
+                        "questions": {
+                            "type": "array",
+                            "minItems": 1,
+                            "maxItems": 4,
+                            "description": "Nur bei asks: Rückfragen mit Auswahl, der Aufruf wartet auf die Antworten.",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "question": { "type": "string" },
+                                    "header": { "type": "string", "description": "Kurzname der Frage." },
+                                    "multiSelect": { "type": "boolean" },
+                                    "options": {
+                                        "type": "array",
+                                        "minItems": 2,
+                                        "maxItems": 4,
+                                        "items": {
+                                            "type": "object",
+                                            "properties": {
+                                                "label": { "type": "string" },
+                                                "description": { "type": "string" },
+                                            },
+                                            "required": ["label"],
+                                        },
+                                    },
+                                },
+                                "required": ["question", "options"],
+                            },
+                        },
+                        "offer": {
+                            "type": "string",
+                            "description": "Nur bei done: was du anbietest, höchstens 120 Zeichen. „Ja, mach das“ sendet „Ja, bitte: <offer>“ an dich.",
+                        },
+                        "link": {
+                            "type": "string",
+                            "description": "Nur bei review: der Pfad eines Artefakts oder eine https-Adresse.",
+                        },
+                    },
+                    "required": ["kind", "line"],
+                }),
+            },
         ]
     }
 
     fn call(&self, call: &ToolCall) -> ToolResult {
         match handle(call) {
             Ok(value) => ToolResult::Ok {
-                text: value.to_string(),
+                // Ein Satz geht ohne Anführungszeichen hinaus.
+                text: match value {
+                    Value::String(sentence) => sentence,
+                    other => other.to_string(),
+                },
                 structured: None,
             },
             Err(sentence) => ToolResult::Err(sentence),
@@ -140,6 +208,7 @@ fn handle(call: &ToolCall) -> ToolReply {
         ),
         READ_MESSAGE => registry.tool_read_message(call.session_id, &text(arguments, "reference")?),
         GET_TLDR => registry.tool_get_tldr(app, call, &text(arguments, "session_id")?),
+        NOTIFY_USER => registry.tool_notify_user(app, call),
         other => Err(format!("Unbekanntes Werkzeug: {other}")),
     }
 }

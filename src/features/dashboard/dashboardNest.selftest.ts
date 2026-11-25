@@ -51,6 +51,9 @@ function task(
     requestId: null,
     entry: null,
     released: false,
+    offer: null,
+    link: null,
+    reported: false,
   };
 }
 

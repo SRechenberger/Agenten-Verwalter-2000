@@ -9,10 +9,12 @@ import {
   flowPercent,
   groupTasks,
   isAnswerKind,
-  isClassified,
   kindTone,
+  linkLabel,
+  linkTarget,
+  offerMessage,
   originText,
-  classifiedText,
+  reportedText,
   lastExchange,
   isMessageEmpty,
   NO_GROUP_LABEL,
@@ -49,6 +51,9 @@ function task(
     requestId: null,
     entry: null,
     released: false,
+    offer: null,
+    link: null,
+    reported: false,
     ...extra,
   };
 }
@@ -126,15 +131,23 @@ const CASES: { name: string; actual: () => unknown; expected: unknown }[] = [
   { name: 'badge_zero_shows_no_number', actual: () => badgeCount([]), expected: null },
   { name: 'badge_counts_all_cards', actual: () => badgeCount(TASKS), expected: 4 },
   {
-    name: 'classified_only_asks_requests_done',
+    name: 'answer_kinds_are_the_five_reported_kinds_and_the_fallback',
     actual: () =>
-      (['asks', 'requests', 'done', 'answer', 'error'] as const).map(isClassified).join(),
-    expected: 'true,true,true,false,false',
+      (['asks', 'requests', 'done', 'review', 'blocked', 'answer', 'error'] as const)
+        .map(isAnswerKind)
+        .join(),
+    expected: 'true,true,true,true,true,true,false',
   },
   {
-    name: 'answer_kind_includes_unclassified',
-    actual: () => isAnswerKind('answer'),
-    expected: true,
+    name: 'new_kinds_have_their_labels_and_tones',
+    actual: () =>
+      [KIND_LABEL.blocked, KIND_LABEL.review, kindTone('blocked'), kindTone('review')].join(),
+    expected: 'Blockiert,Zum Ansehen,error,accent',
+  },
+  {
+    name: 'a_reported_card_is_labelled_by_its_kind',
+    actual: () => taskLabel(task('x', 'review', { reported: true })),
+    expected: 'Zum Ansehen',
   },
   { name: 'answer_kind_excludes_error', actual: () => isAnswerKind('error'), expected: false },
   { name: 'tone_of_blocking_is_wait', actual: () => kindTone('sessionTool'), expected: 'wait' },
@@ -204,14 +217,42 @@ const MORE: { name: string; actual: () => unknown; expected: unknown }[] = [
   { name: 'empty_message_blank', actual: () => isMessageEmpty(' \n\t '), expected: true },
   { name: 'empty_message_text', actual: () => isMessageEmpty(' x '), expected: false },
   {
-    name: 'classified_asks',
-    actual: () => classifiedText(task('x', 'asks', { title: 'Frage?' })),
-    expected: '✦ Eingeordnet als „fragt“ aus der letzten Antwort: Frage?',
+    name: 'reported_text_names_the_agent',
+    actual: () => reportedText(task('x', 'asks', { title: 'Frage?', reported: true })),
+    expected: '✓ vom Agenten gemeldet',
   },
   {
-    name: 'classified_answer_is_not_classified',
-    actual: () => classifiedText(task('x', 'answer')).startsWith('Nicht eingeordnet'),
+    name: 'an_answer_without_a_call_is_not_reported',
+    actual: () => reportedText(task('x', 'answer')).startsWith('Nicht gemeldet'),
     expected: true,
+  },
+  {
+    name: 'the_offer_goes_out_as_yes_please',
+    actual: () => offerMessage('die zwei Issues verlinken'),
+    expected: 'Ja, bitte: die zwei Issues verlinken',
+  },
+  {
+    name: 'a_link_is_a_browser_address_or_an_artifact',
+    actual: () =>
+      [
+        'https://example.org/a',
+        'entwurf.html',
+        './entwurf.html',
+        '/ws/.artefakte/entwurf/index.html',
+        'C:\\ws\\.artefakte\\mockup.html',
+      ]
+        .map((link) => JSON.stringify(linkTarget(link)))
+        .join(' '),
+    expected:
+      '{"kind":"url","url":"https://example.org/a"} {"kind":"artifact","file":"entwurf.html"} ' +
+      '{"kind":"artifact","file":"entwurf.html"} {"kind":"artifact","file":"entwurf"} ' +
+      '{"kind":"artifact","file":"mockup.html"}',
+  },
+  {
+    name: 'the_link_button_says_browser_or_artifact',
+    actual: () =>
+      [linkTarget('https://example.org'), linkTarget('x.html')].map(linkLabel).join(' | '),
+    expected: 'Im Browser öffnen ↗ | Artefakt öffnen',
   },
   {
     name: 'exchange_last_answer_and_its_message',

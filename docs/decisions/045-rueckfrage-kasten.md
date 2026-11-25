@@ -26,3 +26,7 @@ Transport der Ergänzungen (Notiz je Option, eigene Antwort je Frage):
 - Ein Options-Label mit „(Recommended)“ oder „(Empfohlen)“ am Ende erscheint ohne Zusatz mit Plakette „Empfohlen“; gewählt und gesendet wird der Name ohne Zusatz.
 - Der Antworttext ist für den Agenten Freitext mit festem Muster: Antworten je Frage mit ` · ` getrennt, gewählte Optionen einer Frage mit `, `.
 - Rechte-Abfragen behalten Aufbau und Verhalten.
+
+## Nachtrag 2026-11-25: Rückfrage per Werkzeug (Taiga #235, ADR 077)
+
+Eine Rückfrage mit Auswahl hat einen zweiten Weg: `verwalter_notify_user` mit `kind` `asks` und `questions` (dieselbe Form, 1 bis 4 Fragen). Der Aufruf blockiert, der Chat zeigt dieselbe Rückfrage mit Ziehharmonika, Notiz und eigener Antwort, und die Antworten kommen als Ergebnis des Aufrufs zurück (`{"answers": {"<Frage>": "<Antwort>"}}`, mit ` · ` verbundene Antworten einer Mehrfachauswahl wie oben). `AskUserQuestion` bleibt offen: Die Messung zeigte, dass Sonnet nur in 9 von 18 Läufen das Werkzeug nimmt; die Sperre käme erst ab 17 von 18 je Modell. Eine Station darf nur diese Art melden.
