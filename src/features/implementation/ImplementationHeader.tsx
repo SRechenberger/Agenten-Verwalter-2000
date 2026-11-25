@@ -36,6 +36,8 @@ interface ImplementationHeaderProps {
   onToggleTerminal: () => void;
   /** Alle Sessions; „Master“ wählt unter denen des Vorhabens. */
   sessions: readonly SessionSummary[];
+  /** Alle Umsetzungen; „Master“ sperrt Sessions, die schon eine unfertige führen. */
+  implementations: readonly ImplementationView[];
   /** Gesperrt, solange ein anderes Gerät das Vorhaben steuert oder der Host fehlt. */
   isLocked: boolean;
   run: ActionError['run'];
@@ -56,6 +58,7 @@ export function ImplementationHeader({
   isTerminalOpen,
   onToggleTerminal,
   sessions,
+  implementations,
   isLocked,
   run,
 }: ImplementationHeaderProps): ReactElement {
@@ -127,6 +130,7 @@ export function ImplementationHeader({
       <div className="session-header__tools">
         <MasterPicker
           implementation={implementation}
+          implementations={implementations}
           sessions={sessions}
           isLocked={isLocked}
           run={run}

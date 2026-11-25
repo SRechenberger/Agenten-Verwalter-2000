@@ -167,3 +167,8 @@ Prüfung: `a_declined_compact_lets_the_waiting_message_through`, `a_failed_compa
 - **Rückfrage ohne Freigabe:** Hat die Umsetzung einen Master und hat er die Station nicht freigegeben, fragt jeder Weg zu „Erledigt“ einmal nach: „Der Master hat diese Station nicht freigegeben. Trotzdem erledigt?“, gleich in Zeile, Kartei und Popup (`asksBeforeDone` in `stationControls.ts`, Selbsttest). Ohne Master fragt keiner. Der Core prüft weiter nur, dass die Station „durch dich“ ist.
 - **Marke der Freigabe:** „✓ freigegeben“ als Chip in der zweiten Zeile der Station in der Leiste, „✓ vom Master freigegeben“ an der Karte im Dashboard (Variante A des Entwurfs).
 - **Antwort auf `accept`:** Der bisherige Text bleibt; dahinter nennt `CompleteOutcome::text` die Stationen „durch dich“, die jetzt an der Reihe sind, mit Lane, Stufe und `id` (`due_for_user`, dieselbe Regel wie `release`), damit der Master sie freigeben kann. Prüfung: `acceptance_names_the_stations_by_you_that_are_due_with_id_and_stage`.
+
+## Nachtrag 2026-11-25: Umsetzungen je Session ([ADR 076](076-umsetzungen-je-session.md), Taiga #217)
+
+- **D9:** `verwalter_open_session` gibt es nicht mehr (ADR 076); die Sperre `open_refusal` entfällt. Stattdessen legt eine Station keine Umsetzung an: `implementation_create` lehnt mit „Eine Station legt keine Umsetzung an. Melde dein Ergebnis mit implementation_complete_station.“ ab.
+- **D11:** Ein Masterwechsel auf eine Session, die schon eine unfertige Umsetzung führt, wird abgelehnt („Die Session führt schon die Umsetzung „…“.“); der `MasterPicker` sperrt sie mit „führt schon „…““.

@@ -62,6 +62,8 @@ interface ImplementationViewProps {
   changesCount: number | null;
   /** Alle Sessions; die Kachel der Station im Fokus liest daraus die Changes ihrer Session. */
   sessions: readonly SessionSummary[];
+  /** Alle Umsetzungen; der Master-Wechsel sperrt Sessions, die schon eine unfertige führen. */
+  implementations: readonly Implementation[];
   /** Inhalt des Reiters „Changes“ (Reichweite Vorhaben); gezeigt, wenn er aktiv ist. */
   changes: ReactNode;
   /** Artefakte aus Sessions der Umsetzung (Stationen und Rückfragen). */
@@ -112,6 +114,7 @@ export function ImplementationView({
   hasChanges,
   changesCount,
   sessions,
+  implementations,
   changes,
   artifactCount,
   artifacts,
@@ -411,6 +414,7 @@ export function ImplementationView({
         isTerminalOpen={isTerminalOpen}
         onToggleTerminal={onToggleTerminal}
         sessions={sessions}
+        implementations={implementations}
         isLocked={isLocked}
         run={run}
       />

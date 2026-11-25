@@ -4519,6 +4519,7 @@ fn restart_after_cancel_starts_nothing() {
     database
         .with(|connection| {
             implementation_rows::set_pending_change(connection, "implementation", Some("{}"))?;
+            implementation_rows::set_master(connection, "implementation", "session")?;
             implementation_rows::cancel(connection, "implementation", 5.0)
         })
         .expect("abgebrochen");
@@ -4545,10 +4546,10 @@ fn restart_after_cancel_starts_nothing() {
     );
     assert!(
         database
-            .with(|connection| implementation_rows::unfinished_of_project(connection, "project"))
+            .with(|connection| implementation_rows::unfinished_led_by(connection, "session", None))
             .expect("lesbar")
             .is_none(),
-        "eine neue Umsetzung im Vorhaben ist möglich"
+        "der Master darf nach dem Abbruch eine neue Umsetzung anlegen"
     );
     let view = build_view(
         &stored,
@@ -6634,8 +6635,9 @@ fn add_implementation(
 fn a_master_gets_its_open_implementation_not_a_cancelled_one() {
     use crate::sessions::registry::SessionRegistry;
     let database = std::sync::Arc::new(database_with(&[]));
-    add_implementation(&database, "open", 2.0, "session", false);
+    // Die abgebrochene zuerst: Der Index erlaubt nur eine unfertige je Master (ADR 076).
     add_implementation(&database, "cancelled", 3.0, "session", true);
+    add_implementation(&database, "open", 2.0, "session", false);
     add_implementation(&database, "foreign", 4.0, "other", false);
     let registry = SessionRegistry::new(
         std::sync::Arc::clone(&database),
@@ -6659,8 +6661,7 @@ fn a_master_gets_its_open_implementation_not_a_cancelled_one() {
     );
     add_implementation(&database, "own", 5.0, "station", false);
     assert_eq!(chosen("station").as_deref(), Some("own"));
-    // Ohne eine offene Umsetzung als Master gilt wie bisher (ADR 048): die der Station, sonst die
-    // neueste des Vorhabens.
+    // Ohne eine offene Umsetzung als Master: die der Station (ADR 076, S7).
     registry.add_station_session_for_test(
         "plain-station",
         "project",
@@ -6668,8 +6669,235 @@ fn a_master_gets_its_open_implementation_not_a_cancelled_one() {
         SessionStatus::Completed,
     );
     assert_eq!(chosen("plain-station").as_deref(), Some("open"));
+    // Keine Umsetzung geführt, keine Station, keine Rückfrage: kein Rückfall auf das Vorhaben.
     registry.add_session_for_test("plain", "project", SessionStatus::Completed);
-    assert_eq!(chosen("plain").as_deref(), Some("own"));
+    assert_eq!(chosen("plain"), None);
+}
+
+#[test]
+fn an_inquiry_session_gets_its_implementation_before_the_last_led_one() {
+    use crate::sessions::registry::SessionRegistry;
+    let database = std::sync::Arc::new(database_with(&[]));
+    add_implementation(&database, "asked", 2.0, "other", false);
+    add_implementation(&database, "old", 3.0, "inquirer", true);
+    let registry = SessionRegistry::new(
+        std::sync::Arc::clone(&database),
+        std::sync::Arc::new(crate::remote::RemoteControl::default()),
+    );
+    let chosen = |session_id: &str| {
+        registry
+            .implementation_of_session(session_id)
+            .expect("lesbar")
+            .map(|view: ImplementationView| view.id)
+    };
+    registry.add_session_for_test("inquirer", "project", SessionStatus::Completed);
+    // Nur die zuletzt geführte, auch eine abgebrochene.
+    assert_eq!(chosen("inquirer").as_deref(), Some("old"));
+    // Mit Rückfrage gewinnt deren Umsetzung vor der zuletzt geführten.
+    registry.set_inquiry_for_test("inquirer", "asked");
+    assert_eq!(chosen("inquirer").as_deref(), Some("asked"));
+    // Eine unfertige, die sie führt, gewinnt vor der Rückfrage.
+    add_implementation(&database, "led", 4.0, "inquirer", false);
+    assert_eq!(chosen("inquirer").as_deref(), Some("led"));
+}
+
+fn one_phase() -> Vec<PhaseInput> {
+    vec![PhaseInput {
+        key: "1".to_owned(),
+        title: "Phase".to_owned(),
+        description: None,
+        wave: None,
+        stations: vec![StationInput {
+            stage: "Umsetzung".to_owned(),
+            ..Default::default()
+        }],
+    }]
+}
+
+/// Ein Vorhaben mit den Sessions `a`, `b` (frei) und `station` (Station einer Umsetzung).
+fn registry_with_two_masters() -> (
+    crate::sessions::registry::SessionRegistry,
+    std::sync::Arc<Database>,
+) {
+    let database = std::sync::Arc::new(database_with(&[]));
+    let registry = crate::sessions::registry::SessionRegistry::new(
+        std::sync::Arc::clone(&database),
+        std::sync::Arc::new(crate::remote::RemoteControl::default()),
+    );
+    registry.add_session_for_test("a", "project", SessionStatus::Completed);
+    registry.add_session_for_test("b", "project", SessionStatus::Completed);
+    registry.add_station_session_for_test(
+        "station",
+        "project",
+        "implementation",
+        SessionStatus::Completed,
+    );
+    (registry, database)
+}
+
+fn refusal_of(result: Result<ImplementationView, crate::error::CommandError>) -> String {
+    match result {
+        Err(crate::error::CommandError::Implementation(sentence)) => sentence,
+        other => panic!("abgelehnt erwartet: {other:?}"),
+    }
+}
+
+#[test]
+fn two_unfinished_implementations_of_one_project_run_under_two_masters() {
+    let (registry, _) = registry_with_two_masters();
+    let first = registry
+        .create_implementation("a", "Eins", "", &one_phase())
+        .expect("a legt an");
+    let second = registry
+        .create_implementation("b", "Zwei", "", &one_phase())
+        .expect("b legt an, obwohl im Vorhaben schon eine läuft");
+    assert_eq!(first.master_session_id.as_deref(), Some("a"));
+    assert_eq!(second.master_session_id.as_deref(), Some("b"));
+    assert_eq!(
+        registry
+            .implementation_of_session("a")
+            .expect("a")
+            .map(|v| v.id),
+        Some(first.id)
+    );
+    assert_eq!(
+        registry
+            .implementation_of_session("b")
+            .expect("b")
+            .map(|v| v.id),
+        Some(second.id)
+    );
+}
+
+#[test]
+fn a_second_unfinished_implementation_from_the_same_session_is_refused() {
+    let (registry, _) = registry_with_two_masters();
+    registry
+        .create_implementation("a", "Eins", "", &one_phase())
+        .expect("a legt an");
+    let sentence = refusal_of(registry.create_implementation("a", "Zwei", "", &one_phase()));
+    assert_eq!(
+        sentence,
+        "Du führst schon die Umsetzung „Eins“. Ändere ihren Plan mit implementation_edit, oder leg eine neue an, wenn sie fertig ist."
+    );
+}
+
+#[test]
+fn after_the_end_the_same_session_may_create_another_implementation() {
+    let (registry, database) = registry_with_two_masters();
+    let first = registry
+        .create_implementation("a", "Eins", "", &one_phase())
+        .expect("a legt an");
+    database
+        .with(|connection| implementation_rows::cancel(connection, &first.id, 9.0))
+        .expect("abgebrochen");
+    let second = registry
+        .create_implementation("a", "Zwei", "", &one_phase())
+        .expect("nach dem Ende darf a wieder anlegen");
+    assert_eq!(second.name, "Zwei");
+}
+
+#[test]
+fn a_station_creates_no_implementation() {
+    let (registry, _) = registry_with_two_masters();
+    let sentence = refusal_of(registry.create_implementation("station", "Neu", "", &one_phase()));
+    assert_eq!(sentence, master::STATION_CREATES_NONE);
+}
+
+#[test]
+fn the_database_index_allows_one_unfinished_implementation_per_master() {
+    let database = database_with(&[]);
+    let insert = |id: &str, master: &str| {
+        database.with(|connection| {
+            let row = ImplementationRow {
+                id: id.to_owned(),
+                master_session_id: Some(master.to_owned()),
+                ..implementation_row()
+            };
+            let phase = PhaseRow {
+                id: format!("phase-{id}"),
+                implementation_id: id.to_owned(),
+                ..phase_row()
+            };
+            implementation_rows::insert(connection, &row, &[phase], &[])
+        })
+    };
+    insert("one", "m").expect("die erste");
+    insert("other-master", "n").expect("ein anderer Master im selben Vorhaben");
+    assert!(
+        insert("two", "m").is_err(),
+        "derselbe Master, noch unfertig"
+    );
+}
+
+#[test]
+fn a_master_change_to_a_leading_session_is_refused() {
+    let (registry, database) = registry_with_two_masters();
+    let first = registry
+        .create_implementation("a", "Eins", "", &one_phase())
+        .expect("a legt an");
+    let second = registry
+        .create_implementation("b", "Zwei", "", &one_phase())
+        .expect("b legt an");
+    let refused = registry
+        .store_master(&second.id, "project", "a")
+        .expect_err("a führt schon Eins");
+    assert!(
+        refused
+            .to_string()
+            .contains("Die Session führt schon die Umsetzung „Eins“."),
+        "{refused}"
+    );
+    // Dieselbe Session, die schon Master ist, und eine freie Session gehen.
+    registry
+        .store_master(&second.id, "project", "b")
+        .expect("unverändert");
+    database
+        .with(|connection| implementation_rows::cancel(connection, &first.id, 9.0))
+        .expect("abgebrochen");
+    registry
+        .store_master(&second.id, "project", "a")
+        .expect("a führt nichts mehr");
+}
+
+#[test]
+fn migration_36_adds_the_index_to_a_database_of_version_35() {
+    let mut connection = rusqlite::Connection::open_in_memory().expect("Datenbank");
+    for script in crate::db::migrations::first(35) {
+        connection.execute_batch(script).expect("alte Migration");
+    }
+    connection
+        .execute_batch(
+            "PRAGMA user_version = 35; \
+             INSERT INTO projects (id, name, created_at) VALUES ('project', 'V', 1.0); \
+             INSERT INTO implementations (id, project_id, name, source, created_at, master_session_id) \
+                 VALUES ('old', 'project', 'U', '', 1.0, 'm');",
+        )
+        .expect("Bestand");
+    crate::db::migrations::run(&mut connection).expect("wandert");
+    let version: u32 = connection
+        .query_row("PRAGMA user_version", [], |row| row.get(0))
+        .expect("Version");
+    assert_eq!(version, 36);
+    let second = connection.execute(
+        "INSERT INTO implementations (id, project_id, name, source, created_at, master_session_id) \
+         VALUES ('new', 'project', 'U', '', 2.0, 'm')",
+        [],
+    );
+    assert!(second.is_err(), "ein zweiter unfertiger desselben Masters");
+    connection
+        .execute(
+            "UPDATE implementations SET finished_at = 3.0 WHERE id = 'old'",
+            [],
+        )
+        .expect("beendet");
+    connection
+        .execute(
+            "INSERT INTO implementations (id, project_id, name, source, created_at, master_session_id) \
+             VALUES ('new', 'project', 'U', '', 2.0, 'm')",
+            [],
+        )
+        .expect("nach dem Ende ist wieder eine möglich");
 }
 
 #[test]

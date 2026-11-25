@@ -15,7 +15,9 @@ import {
   MASTER_STATION_TITLE,
   masterMissingText,
   masterName,
+  masterLeadsTitle,
   masterOf,
+  unfinishedLedBy,
 } from '@/features/implementation/masterTexts';
 import { sessionsOf } from '@/features/projects/projectStatus';
 import { displayStatus } from '@/features/sessions/sessionStatus';
@@ -30,6 +32,8 @@ const ICON_SIZE = 14;
 
 interface MasterPickerProps {
   implementation: ImplementationView;
+  /** Alle Umsetzungen: Eine Session, die schon eine unfertige führt, ist gesperrt (ADR 076). */
+  implementations: readonly ImplementationView[];
   sessions: readonly SessionSummary[];
   isLocked: boolean;
   run: ActionError['run'];
@@ -39,6 +43,7 @@ interface MasterPickerProps {
  *  Stationen stehen gesperrt in der Liste (ADR 070). */
 export function MasterPicker({
   implementation,
+  implementations,
   sessions,
   isLocked,
   run,
@@ -97,23 +102,39 @@ export function MasterPicker({
           <p className="master-picker__title">{MASTER_POPOVER_TITLE}</p>
           {candidates.map((session: SessionSummary) => {
             const isStation: boolean = session.stationOf !== null;
+            const leads: ImplementationView | undefined = unfinishedLedBy(
+              implementations,
+              session.id,
+              implementation.id,
+            );
+            const isBlocked: boolean = isStation || leads !== undefined;
+            const reason: string | undefined = isStation
+              ? MASTER_STATION_TITLE
+              : leads === undefined
+                ? undefined
+                : masterLeadsTitle(leads.name);
             return (
               <button
                 key={session.id}
                 type="button"
                 role="menuitem"
                 className="master-picker__item"
-                disabled={isStation}
+                disabled={isBlocked}
                 aria-current={session.id === implementation.masterSessionId ? 'true' : undefined}
-                title={isStation ? MASTER_STATION_TITLE : undefined}
+                title={reason}
                 onClick={(): void => {
                   choose(session.id);
                 }}
               >
                 <StatusIcon status={displayStatus(session, sessions)} size={10} />
-                <span className="master-picker__item-name">
-                  {masterName(session.number, session.name)}
-                  {isStation ? ' (Station)' : ''}
+                <span className="master-picker__item-text">
+                  <span className="master-picker__item-name">
+                    {masterName(session.number, session.name)}
+                    {isStation ? ' (Station)' : ''}
+                  </span>
+                  {reason !== undefined && (
+                    <span className="master-picker__item-reason">{reason}</span>
+                  )}
                 </span>
                 {session.id === implementation.masterSessionId && (
                   <span className="master-picker__item-mark">◆</span>

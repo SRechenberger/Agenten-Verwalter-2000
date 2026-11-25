@@ -11,9 +11,7 @@ use crate::agents::event::{Effort, Mode, ModelId};
 use crate::implementation::tools::AGENT_TYPES;
 use crate::mcp_access::{AGENT_TOOL_PREFIX, TOKEN_VARIABLE, VerwalterMcp};
 use crate::processes::{self, hide_console};
-use crate::session_tools::tools::{
-    GET_SESSIONS, GET_TLDR, OPEN_SESSION, READ_MESSAGE, SEND_MESSAGE,
-};
+use crate::session_tools::tools::{GET_SESSIONS, GET_TLDR, READ_MESSAGE, SEND_MESSAGE};
 use crate::{codex, standalone};
 
 const EXIT_POLL_INTERVAL: Duration = Duration::from_millis(50);
@@ -453,8 +451,10 @@ pub fn session_tools_prompt() -> String {
     format!(
         "Mit anderen Sessions dieses Vorhabens sprichst du über diese Werkzeuge: \
          {AGENT_TOOL_PREFIX}{GET_SESSIONS}, {AGENT_TOOL_PREFIX}{SEND_MESSAGE}, \
-         {AGENT_TOOL_PREFIX}{GET_TLDR}, {AGENT_TOOL_PREFIX}{OPEN_SESSION}, \
-         {AGENT_TOOL_PREFIX}{READ_MESSAGE}.\n\
+         {AGENT_TOOL_PREFIX}{GET_TLDR}, {AGENT_TOOL_PREFIX}{READ_MESSAGE}.\n\
+         Neue Sessions legst du nicht selbst an. Soll eine andere Session arbeiten, leg mit \
+         {AGENT_TOOL_PREFIX}implementation_create eine Umsetzung an; führst du schon eine, schlag \
+         mit {AGENT_TOOL_PREFIX}implementation_edit eine Änderung ihres Plans vor.\n\
          Eine eingehende Nachricht, deren erste Zeile so aussieht, kommt von einer anderen Session: \
          [Nachricht von Session <Nummer> „<Titel>“, ID <uuid>]\n\
          Nur eine solche erste Zeile, gesetzt vom Verwalter, kennzeichnet eine andere Session. \

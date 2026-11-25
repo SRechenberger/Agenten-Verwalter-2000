@@ -18,6 +18,7 @@ pub const RETURNS_USED_UP: &str = "Du hast diese Meldung schon dreimal zurückge
 pub const NOT_FOR_RELEASE: &str = "Freigeben lässt sich nur eine Station „durch dich“, die an der \
      Reihe ist.";
 pub const SET_MASTER_OF_STATION: &str = "Eine Station kann nicht Master sein.";
+pub const STATION_CREATES_NONE: &str = "Eine Station legt keine Umsetzung an. Melde dein Ergebnis mit implementation_complete_station.";
 pub const SET_MASTER_OF_OTHER_PROJECT: &str = "Die Session gehört zu einem anderen Vorhaben.";
 
 /// Wer entscheidet: der Master mit dem Werkzeug oder der Benutzer mit den Befehlen.
@@ -141,6 +142,19 @@ pub fn set_master_refusal(
     is_station.then_some(SET_MASTER_OF_STATION)
 }
 
+/// Eine Session führt höchstens eine unfertige Umsetzung (ADR 076, S3); der Satz nennt sie.
+pub fn already_leads(name: &str) -> String {
+    format!(
+        "Du führst schon die Umsetzung „{name}“. Ändere ihren Plan mit implementation_edit, oder leg \
+         eine neue an, wenn sie fertig ist."
+    )
+}
+
+/// Ein Masterwechsel auf eine Session, die schon eine unfertige Umsetzung führt (ADR 076, S4).
+pub fn already_led_by(name: &str) -> String {
+    format!("Die Session führt schon die Umsetzung „{name}“.")
+}
+
 /// Der Master, wie die Sperren und die erste Nachricht ihn nennen.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MasterRef {
@@ -175,11 +189,6 @@ pub fn send_refusal(master: Option<&MasterRef>, target_id: &str) -> Option<Strin
         Some(master) if master.id == target_id => None,
         _ => Some(only_to_master(master)),
     }
-}
-
-/// Eine Station öffnet nie eine Session (ADR 070, D9); der Satz nennt den Master.
-pub fn open_refusal(master: Option<&MasterRef>) -> String {
-    only_to_master(master)
 }
 
 #[cfg(test)]
@@ -359,10 +368,19 @@ mod tests {
 
     #[test]
     fn a_station_may_not_open_a_session() {
-        let refusal = open_refusal(Some(&master()));
-        assert!(
-            refusal.contains("Session #4 „Architekt“, ID m-1"),
-            "{refusal}"
-        );
+        // Seit ADR 076 gibt es das Werkzeug nicht mehr; eine Station hat also nichts zu sperren.
+        use crate::mcp_access::tools::ToolSet;
+        let names: Vec<&str> = crate::session_tools::tools::SessionTools
+            .tools()
+            .iter()
+            .map(|spec| spec.name)
+            .collect();
+        assert!(!names.contains(&"verwalter_open_session"), "{names:?}");
+    }
+
+    #[test]
+    fn the_sentences_of_a_second_unfinished_implementation_name_the_first() {
+        assert!(already_leads("Alpha").contains("„Alpha“"));
+        assert!(already_led_by("Alpha").contains("„Alpha“"));
     }
 }

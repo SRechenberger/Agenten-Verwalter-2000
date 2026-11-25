@@ -395,6 +395,7 @@ export function MasterMissingBody(props: PopupProps): ReactElement {
       <MasterWarning implementation={implementation} sessions={sessions} />
       <MasterPicker
         implementation={implementation}
+        implementations={props.implementations}
         sessions={sessions}
         isLocked={isLocked}
         run={run}

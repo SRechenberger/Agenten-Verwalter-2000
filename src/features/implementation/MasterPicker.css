@@ -75,6 +75,20 @@
     }
   }
 
+  &__item-text {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+
+  &__item-reason {
+    overflow: hidden;
+    color: var(--color-fg-secondary);
+    font-size: var(--font-size-2xs);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
   &__item-name {
     min-width: 0;
     overflow: hidden;

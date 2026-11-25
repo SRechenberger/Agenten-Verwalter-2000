@@ -147,3 +147,7 @@ Wer eine Nachricht an eine andere Session schickt, kommt mit einem Klick in dies
 4. **Zeile:** Die Links stehen neben dem Knopf zum Aufklappen, nicht in ihm (ein Knopf in einem Knopf ist kein gültiges HTML). Eine Zeile ohne Links bleibt ein einziger Knopf.
 
 Der Name vor „möchte …“, „wartet auf deine Entscheidung“ und „hat gefragt“ ist der des Agenten der Betriebsart (siehe [ADR 069](069-zeitpunkt-im-chat.md), Nachtrag 2026-11-21). Entwurf: `docs/design/2026-11-21_chat-sprung/`.
+
+### Nachtrag 2026-11-25: kein `verwalter_open_session` mehr ([ADR 076](076-umsetzungen-je-session.md), Taiga #216)
+
+Das Werkzeug `verwalter_open_session` ist aus dem Werkzeugsatz verschwunden; der Satz hat vier Werkzeuge (`verwalter_send_message_to`, `verwalter_get_sessions`, `verwalter_get_session_tldr`, `verwalter_read_message`), und `tools/list` nennt es nicht mehr. `ToolRequest::OpenSession` und die Spalte `self_release_open_session` bleiben für alte Einträge, die Zeile „Selbstfreigabe für neue Sessions“ ist aus Übersicht und Einstellungen entfernt. Neue Sessions legt ein Agent nur über eine Umsetzung an (`implementation_create`).

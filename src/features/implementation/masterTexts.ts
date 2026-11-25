@@ -54,6 +54,23 @@ export function masterOf(
   return master === undefined ? null : masterName(master.number, master.name);
 }
 
+/** Die unfertige Umsetzung, die `sessionId` als Master führt, ohne `exceptId` (ADR 076, S4); sonst `undefined`. */
+export function unfinishedLedBy<
+  T extends Pick<ImplementationView, 'id' | 'masterSessionId' | 'finishedAt'>,
+>(implementations: readonly T[], sessionId: string, exceptId: string): T | undefined {
+  return implementations.find(
+    (candidate: T) =>
+      candidate.id !== exceptId &&
+      candidate.masterSessionId === sessionId &&
+      candidate.finishedAt === null,
+  );
+}
+
+/** Tooltip einer gesperrten Session im Picker: Sie führt schon eine Umsetzung. */
+export function masterLeadsTitle(name: string): string {
+  return `führt schon „${name}“`;
+}
+
 export const MASTER_LABEL = 'Master:';
 export const MASTER_CHANGE = 'ändern';
 export const MASTER_CHANGE_TITLE =

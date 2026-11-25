@@ -21,10 +21,12 @@ import type { StationState } from '../lib/bindings/StationState.ts';
 import type { StationView } from '../lib/bindings/StationView.ts';
 import {
   masterMissingText,
+  masterLeadsTitle,
   masterName,
   masterOf,
   returnsChip,
   returnsText,
+  unfinishedLedBy,
 } from '../features/implementation/masterTexts.ts';
 
 function impl(id: string, master: string | null, isMissing: boolean = false): Hosted {
@@ -323,6 +325,21 @@ check(
     masterOf({ masterSessionId: null }, []),
   ],
   ['#4 Recherche', null, null],
+);
+const LEADING = [
+  { id: 'a', masterSessionId: 'm1', finishedAt: null },
+  { id: 'b', masterSessionId: 'm2', finishedAt: null },
+  { id: 'c', masterSessionId: 'm3', finishedAt: 5 },
+];
+check(
+  'Eine Session, die schon eine unfertige Umsetzung führt, ist im Picker gesperrt, auch nach dem Ende frei',
+  [
+    unfinishedLedBy(LEADING, 'm2', 'a')?.id,
+    unfinishedLedBy(LEADING, 'm1', 'a')?.id,
+    unfinishedLedBy(LEADING, 'm3', 'a')?.id,
+    masterLeadsTitle('Release'),
+  ],
+  ['b', undefined, undefined, 'führt schon „Release“'],
 );
 check(
   'Warnung nennt den Master, wenn es ihn gibt',
