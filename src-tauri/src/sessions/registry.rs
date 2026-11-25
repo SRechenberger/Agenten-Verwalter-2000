@@ -9140,7 +9140,6 @@ mod tests {
         assert_eq!(state.card_dismissed_at, None, "kein Vorwert mehr gemerkt");
     }
 
-
     // ----- Compact mit Vorbereitung (ADR 070, Nachtrag; Taiga-Story 215) -----
 
     fn in_phase(phase: CompactPhase) -> SessionState {
