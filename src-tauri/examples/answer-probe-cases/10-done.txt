@@ -1,7 +1,0 @@
-What changed in the auth module since last week?
-=====
-Three things changed in the auth module since last week:
-1. Session tokens now expire after 12 hours instead of 24 (commit touching `session.ts`).
-2. The password reset mail uses the new template and includes the request IP.
-3. `verifyToken` no longer throws on a malformed header but returns `null`; the two callers were adjusted.
-No other files in the module were touched.

@@ -28,8 +28,8 @@ use crate::agents::claude::translate::Translator;
 use crate::agents::codex::{self, find_codex};
 use crate::agents::event::{
     AgentEvent, Attachment, ChatEntry, Effort, Mode, ModelId, Question, QuestionAnswer,
-    QuestionKind, RateLimitInfo, SessionRef, TaskEnd, TaskKind, TodoItem, ToolDetail, ToolState,
-    TurnEnd,
+    QuestionKind, RateLimitInfo, SessionRef, TaskEnd, TaskKind, TodoItem, ToolDetail, ToolRequest,
+    ToolState, TurnEnd,
 };
 use crate::agents::standalone;
 use crate::attachments;
@@ -47,6 +47,7 @@ use crate::changes::attribution::{self, Ownership};
 use crate::changes::model::ChangesReach;
 use crate::changes::sources;
 use crate::context::model::{ContextBreakdown, ContextChangedEvent, SessionContext};
+use crate::dashboard::notify::{self, Notification};
 use crate::db::implementations as implementation_rows;
 use crate::db::project_groups as group_rows;
 use crate::db::projects::{self as project_rows, ProjectRow};
@@ -93,7 +94,6 @@ use crate::usage::{UsageService, reset_text};
 use crate::worktrees::{self, SessionRepository, TicketRoot, WorktreeCheck};
 
 mod artifacts;
-mod classify;
 mod commit_scan;
 mod compact;
 mod dashboard;
@@ -414,19 +414,19 @@ struct SessionState {
     /// Speicher. Jeder neue Zug setzt ihn neu, die Antwort auf eine Rückfrage und eine Erinnerung des
     /// Wächters lassen ihn stehen.
     plan_guard: Option<PlanGuard>,
-    /// Das Zugende der letzten abgegebenen Antwort einer Session ohne Station, ihr Auszug und die
-    /// Einordnung des Modells (Dashboard, ADR 071); gespeichert. `answer_kind` und `answer_line`
-    /// setzt erst die Einordnung, jedes neue Zugende löscht sie.
+    /// Das Zugende der letzten abgegebenen Antwort einer Session ohne Station, ihr Auszug und die Art,
+    /// die der Agent mit `verwalter_notify_user` gemeldet hat (Dashboard, ADR 071, ADR 077); gespeichert.
+    /// `answer_kind` und `answer_line` setzt das Zugende aus `notified`, jede neue Eingabe löscht sie.
     answer_at: Option<f64>,
     answer_excerpt: Option<String>,
     answer_kind: Option<String>,
     answer_line: Option<String>,
     /// Zeitpunkt von „Gelesen“ im Dashboard; gespeichert.
     card_dismissed_at: Option<f64>,
-    /// Eine Einordnung läuft (ADR 071); nur im Speicher. Ein weiteres Zugende währenddessen wartet
-    /// in `classify_next`, nur das jüngste.
-    classify_running: bool,
-    classify_next: Option<(classify::Job, ModelId)>,
+    /// Der letzte Aufruf von `verwalter_notify_user` in diesem Zug (ADR 077); nur im Speicher. Erst ein
+    /// abgeschlossenes Zugende macht daraus Art und Zeile der Karte; Pause, Fehler, Abbruch und jede neue
+    /// Eingabe verwerfen ihn.
+    notified: Option<Notification>,
 }
 
 /// Eine Session, wie `SessionRegistry::restore` sie aus der Datenbank liest.
@@ -591,9 +591,6 @@ struct Outbox {
     plan_reminder: bool,
     /// Befehlsliste aus `system/init`; gespeichert nach dem Freigeben der Sperre.
     slash_commands: Option<Vec<String>>,
-    /// Ein Zug endete abgeschlossen: nach dem Freigeben der Sperre fragt ein Thread das Modell der
-    /// Einordnung, falls die Einstellung es verlangt (ADR 071).
-    classify: Option<classify::Job>,
     /// Ein Zug endete abgeschlossen: nach dem Freigeben der Sperre prüft ein Thread, ob die Session
     /// `/compact` bekommt (ADR 070).
     compact: bool,
@@ -2759,8 +2756,7 @@ impl SessionState {
             answer_kind: None,
             answer_line: None,
             card_dismissed_at: None,
-            classify_running: false,
-            classify_next: None,
+            notified: None,
         }
     }
 
@@ -3440,10 +3436,11 @@ impl SessionState {
     }
 
     /// Eine neue Eingabe ist da: Die Einstiegszeilen und die Antwort des Dashboards (Auszug und
-    /// Einordnung) der letzten Antwort gelten nicht mehr, auch nicht nach Archivieren und Zurückholen.
+    /// gemeldete Art) der letzten Antwort gelten nicht mehr, auch nicht nach Archivieren und Zurückholen.
     fn note_input(&mut self, outbox: &mut Outbox) {
         self.touch_activity(outbox);
         self.handoff_lines.clear();
+        self.notified = None;
         self.answer_at = None;
         self.answer_excerpt = None;
         self.answer_kind = None;
@@ -4039,7 +4036,8 @@ impl SessionState {
         let entry_questions = questions.clone();
         let tool_request = tool
             .as_ref()
-            .map(|tool: &session_tools::PendingTool| tool.request.clone());
+            .map(|tool: &session_tools::PendingTool| tool.request.clone())
+            .filter(|request: &ToolRequest| !matches!(request, ToolRequest::AskUser));
         let chain_limited = tool
             .as_ref()
             .is_some_and(|tool: &session_tools::PendingTool| tool.chain_limited);
@@ -4089,6 +4087,8 @@ impl SessionState {
         self.todos_seq = None;
         let was_compact = std::mem::take(&mut self.compact_turn);
         let by_hand = std::mem::take(&mut self.compact_by_hand);
+        // Nur ein abgeschlossenes Zugende macht daraus eine Karte; in jedem anderen Ausgang verfällt er.
+        let notified: Option<Notification> = self.notified.take();
         if self.cancel_requested {
             self.end_sourcing();
             return;
@@ -4111,7 +4111,6 @@ impl SessionState {
         }
         // Vor `note_unsourced`, das die Einträge der Antwort abgibt.
         let excerpt: Option<String> = self.turn_excerpt();
-        let classify_input = crate::dashboard::classify::collect(&self.entries, &self.turn_texts);
         let unsourced: Vec<u32> = self.note_unsourced(outbox);
         self.note_turn_summary(outbox, denials, total_cost_usd, unsourced);
         // Aufschlüsselung und MCP-Liste sind Beiwerk: ein Fehler beim Einreihen darf das Ende der Antwort nicht stören.
@@ -4146,20 +4145,11 @@ impl SessionState {
             }
             TurnEnd::Completed => {
                 self.set_status(outbox, SessionStatus::Completed);
+                // Ein `/compact` von Hand ist keine Antwort.
                 if !by_hand {
-                    self.note_answer(outbox, excerpt);
+                    self.note_answer(outbox, excerpt, notified);
                 }
                 outbox.compact = true;
-                // Ein `/compact` von Hand ist keine Antwort: kein Modellaufruf, und ein wartender
-                // Auftrag des vorigen Zugs (`classify_next`) bleibt, wie er ist.
-                outbox.classify = classify_input
-                    .filter(|_| !by_hand)
-                    .map(|input| classify::Job {
-                        has_station: self.station_of.is_some(),
-                        has_open_request: !self.pending.is_empty(),
-                        answer_at: self.last_activity_at,
-                        input,
-                    });
                 outbox.turn_completed = true;
                 self.check_plan(outbox);
             }
@@ -4177,16 +4167,24 @@ impl SessionState {
         crate::dashboard::excerpt(text)
     }
 
-    /// Ein abgegebener Zug einer Session ohne Station: Zeitpunkt und Auszug für das Dashboard. Pause,
-    /// Kontingent, Fehler und Abbruch kommen hier nie an. Eine Einordnung des vorigen Zugs gilt nicht mehr.
-    fn note_answer(&mut self, outbox: &mut Outbox, excerpt: Option<String>) {
+    /// Ein abgegebener Zug einer Session ohne Station: Zeitpunkt und Auszug für das Dashboard, dazu Art
+    /// und Zeile, wenn der Agent sie mit `verwalter_notify_user` gemeldet hat; sonst bleibt es bei der
+    /// Karte „Antwort liegt vor“ (ADR 077). Pause, Kontingent, Fehler und Abbruch kommen hier nie an.
+    fn note_answer(
+        &mut self,
+        outbox: &mut Outbox,
+        excerpt: Option<String>,
+        notified: Option<Notification>,
+    ) {
         if self.station_of.is_some() {
             return;
         }
         self.answer_at = Some(self.last_activity_at);
         self.answer_excerpt = excerpt;
-        self.answer_kind = None;
-        self.answer_line = None;
+        self.answer_kind = notified
+            .as_ref()
+            .map(|notification: &Notification| notification.kind.text().to_owned());
+        self.answer_line = notified.as_ref().map(notify::stored_line);
         outbox.summary_dirty = true;
     }
 
@@ -4610,9 +4608,6 @@ fn update<R>(
     }
     if outbox.compact {
         compact::schedule(app, session);
-    }
-    if let Some(job) = outbox.classify.take() {
-        classify::schedule(app, session, job);
     }
     let value = result?;
     outbox.deliver(session)?;
@@ -5553,6 +5548,7 @@ fn answer_line(
 mod tests {
     use super::*;
     use crate::agents::event::tests::old_payloads;
+    use crate::dashboard::model::AnswerKind;
     use crate::db::session_inbox;
     use crate::implementation::wake;
 
@@ -6081,7 +6077,6 @@ mod tests {
         assert_eq!(state.answer_at, Some(4.0));
         assert_eq!(state.answer_excerpt.as_deref(), Some("Auszug"));
         assert_eq!(state.answer_kind.as_deref(), Some("done"));
-        assert!(outbox.classify.is_none(), "keine Einordnung");
         assert!(!outbox.compact, "kein weiterer Compact");
         assert!(!state.compact_turn);
         assert_eq!(state.last_activity_at, 5.0, "nicht ungelesen");
@@ -6114,7 +6109,7 @@ mod tests {
             assert_eq!(state.last_activity_at, 5.0, "nicht ungelesen");
             assert_eq!(state.seen_at, 5.0);
             assert_eq!(state.answer_at, Some(4.0));
-            assert!(outbox.classify.is_none() && !outbox.compact);
+            assert!(!outbox.compact);
             assert!(outbox.turn_completed);
             assert!(!state.compact_turn);
             assert!(
@@ -6329,51 +6324,46 @@ mod tests {
         (state, outbox)
     }
 
-    #[test]
-    fn a_completed_turn_hands_its_input_and_time_to_the_classification() {
-        let (mut state, mut outbox) = answered();
-        state.end_turn(&mut outbox, TurnEnd::Completed, None, Vec::new(), None);
-        let job = outbox.classify.expect("Zugende ohne Station und Anfrage");
-        assert_eq!(Some(job.answer_at), state.answer_at);
-        assert_eq!(job.input.started_by, "Prüfe das");
-        assert_eq!(job.input.answer, "Geprüft.");
-        assert!(!job.has_station && !job.has_open_request);
+    fn notified(kind: AnswerKind, line: &str) -> Notification {
+        Notification {
+            kind,
+            line: line.to_owned(),
+            offer: None,
+            link: None,
+        }
     }
 
     #[test]
-    fn a_compact_turn_by_hand_plans_no_classification() {
+    fn a_completed_turn_turns_the_last_call_into_kind_and_line() {
         let (mut state, mut outbox) = answered();
-        turn(&mut state, "/compact");
-        say(&mut state, &mut outbox, "Zusammengefasst.");
+        // Der letzte Aufruf im Zug gilt, auch wenn ein früherer eine andere Art meldete.
+        state.notified = Some(notified(AnswerKind::Asks, "erste Meldung"));
+        state.notified = Some(Notification {
+            offer: Some("X tun".to_owned()),
+            ..notified(AnswerKind::Done, "Fertig")
+        });
         state.end_turn(&mut outbox, TurnEnd::Completed, None, Vec::new(), None);
-        // Ein wartender Auftrag des vorigen Zugs bleibt: Nur `classify::schedule` überschreibt ihn, und
-        // das läuft nur mit einem Auftrag in der Outbox.
-        assert!(outbox.classify.is_none(), "kein Auftrag nach /compact");
-        // Eine gewöhnliche Eingabe danach plant wieder ein.
-        let mut next = Outbox::default();
-        turn(&mut state, "weiter");
-        say(&mut state, &mut next, "Fertig.");
-        state.end_turn(&mut next, TurnEnd::Completed, None, Vec::new(), None);
-        assert!(next.classify.is_some());
+        assert_eq!(state.answer_kind.as_deref(), Some("done"));
+        let (line, offer, link) =
+            notify::from_stored(state.answer_line.as_deref().expect("Zeile gespeichert"));
+        assert_eq!(line, "Fertig");
+        assert_eq!(offer.as_deref(), Some("X tun"));
+        assert_eq!(link, None);
+        assert_eq!(state.notified, None, "verbraucht");
+        assert!(outbox.summary_dirty, "wird mit der Session gespeichert");
     }
 
     #[test]
-    fn an_open_request_is_marked_in_the_classification_job() {
+    fn a_completed_turn_without_a_call_keeps_the_answer_card() {
         let (mut state, mut outbox) = answered();
-        state.ask(
-            &mut outbox,
-            "r".to_owned(),
-            QuestionKind::AskUser,
-            Vec::new(),
-            Value::Null,
-            None,
-        );
         state.end_turn(&mut outbox, TurnEnd::Completed, None, Vec::new(), None);
-        assert!(outbox.classify.expect("Auftrag").has_open_request);
+        assert_eq!(state.answer_kind, None);
+        assert_eq!(state.answer_line, None);
+        assert_eq!(state.answer_excerpt.as_deref(), Some("Geprüft."));
     }
 
     #[test]
-    fn a_turn_that_did_not_complete_starts_no_classification() {
+    fn a_call_of_a_turn_that_did_not_complete_is_discarded() {
         let ends = [
             TurnEnd::Failed("kaputt".to_owned()),
             TurnEnd::QuotaExhausted {
@@ -6384,13 +6374,65 @@ mod tests {
         ];
         for end in ends {
             let (mut state, mut outbox) = answered();
+            state.notified = Some(notified(AnswerKind::Done, "Fertig"));
             state.end_turn(&mut outbox, end, None, Vec::new(), None);
-            assert!(outbox.classify.is_none());
+            assert_eq!(state.notified, None);
+            assert_eq!(state.answer_kind, None);
+            assert_eq!(state.answer_line, None);
         }
+        // Pause und Abbruch durch den Benutzer verwerfen ihn ebenso.
         let (mut state, mut outbox) = answered();
+        state.notified = Some(notified(AnswerKind::Done, "Fertig"));
         state.pause_requested = true;
         state.end_turn(&mut outbox, TurnEnd::Completed, None, Vec::new(), None);
-        assert!(outbox.classify.is_none(), "Pause");
+        assert_eq!(state.notified, None);
+        assert_eq!(state.answer_kind, None, "Pause");
+        let (mut state, mut outbox) = answered();
+        state.notified = Some(notified(AnswerKind::Done, "Fertig"));
+        state.cancel_requested = true;
+        state.end_turn(&mut outbox, TurnEnd::Aborted, None, Vec::new(), None);
+        assert_eq!(state.notified, None, "Abbruch");
+    }
+
+    #[test]
+    fn a_compact_turn_discards_a_call_and_sets_no_card() {
+        let (mut state, mut outbox) = answered();
+        turn(&mut state, "/compact");
+        state.notified = Some(notified(AnswerKind::Done, "Fertig"));
+        say(&mut state, &mut outbox, "Zusammengefasst.");
+        state.end_turn(&mut outbox, TurnEnd::Completed, None, Vec::new(), None);
+        assert_eq!(state.notified, None);
+        assert_eq!(state.answer_kind, None);
+    }
+
+    #[test]
+    fn a_new_input_discards_a_call_of_the_turn_before() {
+        let (mut state, mut outbox) = answered();
+        state.notified = Some(notified(AnswerKind::Asks, "Frage"));
+        state.push_user(&mut outbox, "weiter", Vec::new(), None, Vec::new(), None);
+        assert_eq!(state.notified, None);
+    }
+
+    #[test]
+    fn a_station_keeps_no_card_even_with_a_call() {
+        let (mut state, mut outbox) = answered();
+        state.station_of = Some("umsetzung".to_owned());
+        state.notified = Some(notified(AnswerKind::Done, "Fertig"));
+        state.end_turn(&mut outbox, TurnEnd::Completed, None, Vec::new(), None);
+        assert_eq!(state.answer_kind, None);
+        assert_eq!(state.answer_at, None);
+    }
+
+    #[test]
+    fn the_end_of_a_turn_calls_no_model() {
+        // `end_turn` ist eine Funktion des Zustands ohne `AppHandle`: Was am Zugende nach dem Freigeben der
+        // Sperre läuft, steht in der `Outbox`, und dort gibt es keinen Auftrag an ein Modell mehr. Die
+        // Karte entsteht allein aus dem Aufruf des Werkzeugs, ohne Aufruf bleibt es bei der Antwort.
+        let (mut state, mut outbox) = answered();
+        state.end_turn(&mut outbox, TurnEnd::Completed, None, Vec::new(), None);
+        assert!(outbox.compact && outbox.turn_completed);
+        assert_eq!(state.answer_kind, None);
+        assert_eq!(state.answer_line, None);
     }
 
     /// Der Weg einer Nachricht an `state`: mit Platz, ohne wartende Nachricht, vom Master, bis ein

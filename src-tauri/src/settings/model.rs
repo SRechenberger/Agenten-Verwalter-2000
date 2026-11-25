@@ -100,9 +100,6 @@ pub struct Settings {
     // „Automatisch fortsetzen“, das eine neue Umsetzung übernimmt; bestehende bleiben unverändert
     // (ADR 064).
     pub default_auto_resume: bool,
-    // Modell der Einordnung von Textantworten am Zugende (Dashboard, ADR 071); `None` = aus. Gilt
-    // für die ganze App.
-    pub answer_model: Option<ModelId>,
     // „Gleichzeitige Agenten max.“ (ADR 068): so viele Agenten startet der Verwalter höchstens von
     // selbst; `None` = unbegrenzt, sonst mindestens 1.
     pub max_agents: Option<u32>,
@@ -181,10 +178,6 @@ pub enum SettingsChange {
     },
     DefaultAutoResume {
         value: bool,
-    },
-    /// `None` schaltet die Einordnung aus (ADR 071).
-    AnswerModel {
-        value: Option<ModelId>,
     },
     // `None` = aus; sonst 50 000 bis 2 000 000 (ADR 070).
     MasterCompactTokens {

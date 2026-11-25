@@ -41,7 +41,14 @@ export interface ChatHint {
 }
 
 const REQUEST_KINDS: readonly DashboardTaskKind[] = ['question', 'permission', 'sessionTool'];
-const ANSWER_KINDS: readonly DashboardTaskKind[] = ['asks', 'requests', 'answer', 'done'];
+const ANSWER_KINDS: readonly DashboardTaskKind[] = [
+  'blocked',
+  'asks',
+  'requests',
+  'review',
+  'answer',
+  'done',
+];
 const DISMISS_KINDS: readonly DashboardTaskKind[] = [...ANSWER_KINDS, 'error', 'paused'];
 
 /** Die Knöpfe einer Karte nach Art (Vertrag V128, A). */

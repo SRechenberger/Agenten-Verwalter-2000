@@ -1,8 +1,8 @@
 //! Das Dashboard (ADR 071): eine Arbeitsliste aus den Zuständen des Kerns. `build` bildet die
 //! Karten, die Abläufe und die aktiven Sessions als reine Funktion über einer Momentaufnahme; die
 //! Oberfläche rechnet nichts nach. Die Momentaufnahme liest `SessionRegistry::dashboard_snapshot`.
-pub mod classify;
 pub mod model;
+pub mod notify;
 #[cfg(test)]
 mod tests;
 
@@ -52,7 +52,8 @@ fn is_open(dismissed_at: Option<f64>, since: f64) -> bool {
     dismissed_at.is_none_or(|dismissed: f64| dismissed < since)
 }
 
-/// Stufe der Reihenfolge: erst blockierende, dann die Stufen der Aufgabe, `ready`, zuletzt `done`.
+/// Stufe der Reihenfolge: erst blockierende Anfragen, dann `blocked`, `asks`, `requests`, `review` und die
+/// übrigen Stufen der Aufgabe, `ready`, zuletzt `done` (ADR 077).
 fn level(task: &DashboardTask) -> u8 {
     if task.blocking {
         return 0;
@@ -61,18 +62,20 @@ fn level(task: &DashboardTask) -> u8 {
         DashboardTaskKind::Question
         | DashboardTaskKind::Permission
         | DashboardTaskKind::SessionTool => 0,
-        DashboardTaskKind::Asks => 1,
-        DashboardTaskKind::Requests => 2,
-        DashboardTaskKind::Answer => 3,
-        DashboardTaskKind::PlanChange => 4,
-        DashboardTaskKind::CancelRequest => 5,
-        DashboardTaskKind::ByYou => 6,
-        DashboardTaskKind::ReturnsExhausted => 7,
-        DashboardTaskKind::MasterMissing => 8,
-        DashboardTaskKind::Error => 9,
-        DashboardTaskKind::Paused => 10,
-        DashboardTaskKind::Ready => 11,
-        DashboardTaskKind::Done => 12,
+        DashboardTaskKind::Blocked => 1,
+        DashboardTaskKind::Asks => 2,
+        DashboardTaskKind::Requests => 3,
+        DashboardTaskKind::Review => 4,
+        DashboardTaskKind::Answer => 5,
+        DashboardTaskKind::PlanChange => 6,
+        DashboardTaskKind::CancelRequest => 7,
+        DashboardTaskKind::ByYou => 8,
+        DashboardTaskKind::ReturnsExhausted => 9,
+        DashboardTaskKind::MasterMissing => 10,
+        DashboardTaskKind::Error => 11,
+        DashboardTaskKind::Paused => 12,
+        DashboardTaskKind::Ready => 13,
+        DashboardTaskKind::Done => 14,
     }
 }
 
@@ -141,6 +144,9 @@ impl<'a> Context<'a> {
             request_id: None,
             entry: None,
             released: false,
+            offer: None,
+            link: None,
+            reported: false,
         }
     }
 
@@ -301,19 +307,29 @@ fn session_card_of(
     project: &ProjectFacts,
     session: &SessionFacts,
 ) -> Option<DashboardTask> {
+    // `reported`: Der Agent hat die Art mit `verwalter_notify_user` gemeldet; Angebot und Verweis stehen
+    // mit der Zeile in `answer_line`.
+    let mut reported: Option<(Option<String>, Option<String>)> = None;
     let (kind, since, title) = match session.status {
         SessionStatus::Completed if !session.awaits_script && !session.awaits_subagent => {
             let at = session.answer_at?;
             match session.answer_kind {
-                Some(kind) => (
-                    match kind {
-                        AnswerKind::Asks => DashboardTaskKind::Asks,
-                        AnswerKind::Requests => DashboardTaskKind::Requests,
-                        AnswerKind::Done => DashboardTaskKind::Done,
-                    },
-                    at,
-                    session.answer_line.clone().unwrap_or_default(),
-                ),
+                Some(kind) => {
+                    let (line, offer, link) =
+                        notify::from_stored(session.answer_line.as_deref().unwrap_or_default());
+                    reported = Some((offer, link));
+                    (
+                        match kind {
+                            AnswerKind::Asks => DashboardTaskKind::Asks,
+                            AnswerKind::Requests => DashboardTaskKind::Requests,
+                            AnswerKind::Done => DashboardTaskKind::Done,
+                            AnswerKind::Review => DashboardTaskKind::Review,
+                            AnswerKind::Blocked => DashboardTaskKind::Blocked,
+                        },
+                        at,
+                        line,
+                    )
+                }
                 None => (
                     DashboardTaskKind::Answer,
                     at,
@@ -333,8 +349,15 @@ fn session_card_of(
         ),
         _ => return None,
     };
-    is_open(session.dismissed_at, since)
-        .then(|| context.session_card(project, session, kind, since, title))
+    is_open(session.dismissed_at, since).then(|| {
+        let mut task = context.session_card(project, session, kind, since, title);
+        if let Some((offer, link)) = reported {
+            task.reported = true;
+            task.offer = offer;
+            task.link = link;
+        }
+        task
+    })
 }
 
 /// Pausiert am Kontingent mit scharfem Zeitgeber von „Automatisch fortsetzen“ (ADR 064).

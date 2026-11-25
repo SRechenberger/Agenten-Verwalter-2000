@@ -11,7 +11,16 @@ import {
   type QuestionAnswering,
 } from '@/features/chat/useQuestionAnswering';
 import type { QuestionEntry } from '@/features/chat/questionDraft';
-import { classifiedText, isMessageEmpty } from '@/features/dashboard/dashboardTexts';
+import { openUrl } from '@tauri-apps/plugin-opener';
+import {
+  isMessageEmpty,
+  linkLabel,
+  linkTarget,
+  OFFER_YES_LABEL,
+  offerMessage,
+  reportedText,
+  type LinkTarget,
+} from '@/features/dashboard/dashboardTexts';
 import { useLastExchange } from '@/features/dashboard/useLastExchange';
 import { stationsAfterProposal } from '@/features/implementation/CardStack';
 import { CancelRequestCard } from '@/features/implementation/CancelRequestCard';
@@ -45,6 +54,8 @@ import type { DashboardTask } from '@/lib/bindings/DashboardTask';
 import type { ImplementationView } from '@/lib/bindings/ImplementationView';
 import type { ProjectSummary } from '@/lib/bindings/ProjectSummary';
 import type { SessionSummary } from '@/lib/bindings/SessionSummary';
+import { useArtifactsStore } from '@/stores/artifacts';
+import { useSessionsStore } from '@/stores/sessions';
 import { sendMessage } from '@/lib/chat';
 import { dismissCard } from '@/lib/dashboard';
 import {
@@ -533,7 +544,20 @@ export function ReadyBody(props: PopupProps): ReactElement {
   );
 }
 
-/** `asks`, `requests`, `done`, `answer`: die letzte Antwort, die Nachricht davor und ein Antwortfeld. */
+/** „Zum Ansehen“: ein Artefakt wählt der Reiter „Artefakte“ der Session aus, eine Adresse geht in den Browser. */
+function openLink(task: DashboardTask, sessionId: string, target: LinkTarget): Promise<void> {
+  if (target.kind === 'url') {
+    return openUrl(target.url);
+  }
+  useArtifactsStore.getState().select(task.projectId, target.file);
+  const sessions = useSessionsStore.getState();
+  sessions.selectSession(sessionId);
+  sessions.showView('artifacts');
+  return Promise.resolve();
+}
+
+/** `asks`, `requests`, `done`, `review`, `blocked`, `answer`: die letzte Antwort, die Nachricht davor und ein
+ *  Antwortfeld; „Ja, mach das“ bei einem Angebot, „Artefakt öffnen“ bei „Zum Ansehen“ (ADR 077). */
 export function AnswerBody(props: PopupProps): ReactElement {
   const { task, open } = props;
   if (task.sessionId === null) {
@@ -574,7 +598,40 @@ function OpenAnswerBody({
         </>
       }
     >
-      <p className="popup-note">{classifiedText(task)}</p>
+      <p className="popup-note">{reportedText(task)}</p>
+      {task.offer !== null && (
+        <div className="popup-offer">
+          <span>Angebot: {task.offer}</span>
+          <button
+            type="button"
+            className="popup-button popup-button--primary"
+            disabled={isLocked}
+            onClick={(): void => {
+              const offer: string = task.offer ?? '';
+              run(async () => {
+                await sendMessage(sessionId, offerMessage(offer), [], []);
+              }, 'Senden fehlgeschlagen');
+            }}
+          >
+            {OFFER_YES_LABEL}
+          </button>
+        </div>
+      )}
+      {task.link !== null && (
+        <div className="popup-offer">
+          <span className="popup-offer__link">{task.link}</span>
+          <button
+            type="button"
+            className="popup-button popup-button--primary"
+            onClick={(): void => {
+              const target: LinkTarget = linkTarget(task.link ?? '');
+              run(() => openLink(task, sessionId, target), 'Öffnen fehlgeschlagen');
+            }}
+          >
+            {linkLabel(linkTarget(task.link))}
+          </button>
+        </div>
+      )}
       {error !== null && <p role="alert">{error}</p>}
       <FileLinkSessionContext.Provider value={sessionId}>
         {exchange !== null && exchange.before !== null && (

@@ -14,8 +14,8 @@ import {
   type PopupProps,
 } from '@/features/dashboard/PopupBodies';
 import {
+  REPORTED_MARK,
   ageText,
-  isClassified,
   kindTone,
   originText,
   taskLabel,
@@ -66,6 +66,8 @@ function renderBody(props: PopupProps): ReactElement {
     case 'asks':
     case 'requests':
     case 'done':
+    case 'review':
+    case 'blocked':
     case 'answer':
       return <AnswerBody {...props} />;
   }
@@ -124,7 +126,7 @@ export function TaskPopup({
         <div>
           <div className="task-popup__kind" id={TITLE_ID}>
             {taskLabel(task)}
-            {isClassified(task.kind) && <span className="task-popup__ai"> ✦ eingeordnet</span>}
+            {task.reported && <span className="task-popup__ai"> {REPORTED_MARK}</span>}
           </div>
           <div className="task-popup__meta">
             {originText(task)} · seit {ageText(task.since, now)}

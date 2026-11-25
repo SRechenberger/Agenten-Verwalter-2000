@@ -10,14 +10,16 @@ use serde_json::{Value, json};
 use tauri::{AppHandle, Emitter};
 
 use super::{
-    Outbox, PROJECT_CHANGED_EVENT, PendingRequest, QUEUED_ANSWER_FIRST, Session, SessionRegistry,
-    SessionState, TurnOrigin, now_ms, project_not_found, schedule_pass, start_turn, update,
+    ANSWER_SEPARATOR, Outbox, PROJECT_CHANGED_EVENT, PendingRequest, QUEUED_ANSWER_FIRST, Session,
+    SessionRegistry, SessionState, TurnOrigin, now_ms, project_not_found, schedule_pass,
+    start_turn, update,
 };
 use crate::agent_types::model::{AgentType, AgentTypeInput};
 use crate::agent_types::tools as agent_type_tools;
 use crate::agents::event::{
     ChatEntry, Question, QuestionAnswer, QuestionKind, QuestionOption, SessionRef, ToolRequest,
 };
+use crate::dashboard::notify::{self, Call, Notification};
 use crate::db::projects as project_rows;
 use crate::db::session_inbox::{self, InboxRow, Reference};
 use crate::db::session_messages;
@@ -90,7 +92,8 @@ impl ProposalKind {
             ToolRequest::PromptTemplate { .. } => Some(ProposalKind::PromptTemplate),
             ToolRequest::SendMessage { .. }
             | ToolRequest::GetTldr { .. }
-            | ToolRequest::OpenSession { .. } => None,
+            | ToolRequest::OpenSession { .. }
+            | ToolRequest::AskUser => None,
         }
     }
 
@@ -280,6 +283,71 @@ impl SessionRegistry {
         };
         let (tldr, reused) = self.session_tldr_now(app, &target, release.tldr_model)?;
         Ok(json!({ "decision": decision, "tldr": tldr, "reused": reused }))
+    }
+
+    /// `verwalter_notify_user` (ADR 077): Ein Aufruf ohne `questions` merkt die Karte vor und antwortet
+    /// sofort; erst ein abgeschlossenes Zugende macht daraus `answer_kind` und `answer_line`, und der
+    /// letzte Aufruf des Zugs gilt. Mit `questions` öffnet er eine Rückfrage und blockiert bis zur Antwort
+    /// (ADR 045); abgebrochen oder verworfen endet er mit einem Fehler. Eine Station darf nur das.
+    pub fn tool_notify_user(&self, app: &AppHandle, call: &ToolCall) -> ToolReply {
+        let caller = self.get(call.session_id).map_err(text_of)?;
+        let is_station = caller.lock().station_of.is_some();
+        match notify::parse_for(call.arguments, is_station)? {
+            Call::Card(notification) => {
+                let noted = notify::noted_text(notification.kind);
+                update(
+                    app,
+                    &caller,
+                    |state: &mut SessionState, _outbox: &mut Outbox| {
+                        // Läuft kein Agent mehr, ist der Aufruf hinfällig.
+                        if !state.is_listening() {
+                            return Err(CommandError::AgentStopped);
+                        }
+                        note_call(state, notification);
+                        Ok(())
+                    },
+                )
+                .map_err(|error: CommandError| match error {
+                    CommandError::AgentStopped => AGENT_GONE.to_owned(),
+                    other => text_of(other),
+                })?;
+                Ok(Value::String(noted))
+            }
+            Call::Ask(questions) => self.tool_ask_user(app, &caller, call, questions),
+        }
+    }
+
+    /// Die Rückfrage von `verwalter_notify_user`: eine Karte „Rückfrage“ wie bei `AskUserQuestion`; die
+    /// Antworten gehen als Ergebnis des Aufrufs zurück.
+    fn tool_ask_user(
+        &self,
+        app: &AppHandle,
+        caller: &Arc<Session>,
+        call: &ToolCall,
+        questions: Vec<Question>,
+    ) -> ToolReply {
+        refuse_repeated(caller, call)?;
+        let (reply, answers) = mpsc::channel::<QuestionAnswer>();
+        let asked = questions.clone();
+        update(
+            app,
+            caller,
+            |state: &mut SessionState, outbox: &mut Outbox| {
+                if !state.is_listening() {
+                    return Err(CommandError::AgentStopped);
+                }
+                open_ask(state, outbox, call.call_id, questions, reply);
+                Ok(())
+            },
+        )
+        .map_err(|error: CommandError| match error {
+            CommandError::AgentStopped => AGENT_GONE.to_owned(),
+            other => text_of(other),
+        })?;
+        match answers.recv() {
+            Ok(QuestionAnswer::Options { answers }) => Ok(answers_result(&asked, answers)),
+            _ => Err(NO_ANSWER.to_owned()),
+        }
     }
 
     /// `notifications/cancelled` oder abgerissene Verbindung: Der Kasten schließt sich. Unbekannte
@@ -909,12 +977,20 @@ pub(super) fn apply_tool_answer(
     let Some((
         _,
         PendingRequest {
-            tool: Some(tool), ..
+            tool: Some(tool),
+            questions,
+            ..
         },
     )) = state.pending.get(position)
     else {
         return Err(CommandError::Internal(WRONG_ANSWER.to_owned()));
     };
+    // Die Rückfrage von `verwalter_notify_user` braucht eine Antwort je Frage.
+    if let (ToolRequest::AskUser, QuestionAnswer::Options { answers }) = (&tool.request, answer)
+        && answers.len() != questions.len()
+    {
+        return Err(CommandError::Internal(WRONG_ANSWER.to_owned()));
+    }
     let label = tool_answer_label(&tool.request, answer)?;
     let (_, request) = state.pending.remove(position);
     if matches!(answer, QuestionAnswer::Allow | QuestionAnswer::Edit { .. }) {
@@ -934,12 +1010,64 @@ pub(super) fn apply_tool_answer(
     Ok(())
 }
 
+/// Der Aufruf von `verwalter_notify_user` ohne `questions` ist angekommen: Er gilt bis zum Zugende, ein
+/// späterer ersetzt ihn.
+fn note_call(state: &mut SessionState, notification: Notification) {
+    state.notified = Some(notification);
+}
+
+/// Die Rückfrage von `verwalter_notify_user` öffnet dieselbe Karte wie `AskUserQuestion` (Art `AskUser`);
+/// ihre Antwort geht über `reply` an den wartenden Aufruf statt an den Agenten.
+fn open_ask(
+    state: &mut SessionState,
+    outbox: &mut Outbox,
+    call_id: &str,
+    questions: Vec<Question>,
+    reply: mpsc::Sender<QuestionAnswer>,
+) {
+    state.ask(
+        outbox,
+        format!("ask-{}", uuid::Uuid::new_v4().simple()),
+        QuestionKind::AskUser,
+        questions,
+        Value::Null,
+        Some(PendingTool {
+            reply: Waiter::Answer(reply),
+            call_id: call_id.to_owned(),
+            request: ToolRequest::AskUser,
+            chain_limited: false,
+        }),
+    );
+}
+
+/// Das Ergebnis des Aufrufs: je Frage ihre Antwort, wie `AskUserQuestion` sie zurückgibt.
+fn answers_result(asked: &[Question], answers: Vec<String>) -> Value {
+    let answered: serde_json::Map<String, Value> = asked
+        .iter()
+        .zip(answers)
+        .map(|(question, choice)| (question.question.clone(), Value::String(choice)))
+        .collect();
+    json!({ "answers": answered })
+}
+
+/// Die Antwort auf die Rückfrage von `verwalter_notify_user`: nur eine Auswahl je Frage, so wie bei
+/// einer Rückfrage des Agenten. Freier Text im Eingabefeld kommt schon als `Options` an.
+fn ask_answer_label(answer: &QuestionAnswer) -> Result<String, CommandError> {
+    match answer {
+        QuestionAnswer::Options { answers } => Ok(answers.join(ANSWER_SEPARATOR)),
+        _ => Err(CommandError::Internal(WRONG_ANSWER.to_owned())),
+    }
+}
+
 /// Prüft die Antwort und liefert den Text, den der Chat als Antwort anzeigt. Eine abgelehnte Eingabe
 /// lässt den Kasten offen.
 pub(crate) fn tool_answer_label(
     request: &ToolRequest,
     answer: &QuestionAnswer,
 ) -> Result<String, CommandError> {
+    if matches!(request, ToolRequest::AskUser) {
+        return ask_answer_label(answer);
+    }
     if let Some(kind) = ProposalKind::of(request) {
         return Err(CommandError::Internal(kind.by_command().to_owned()));
     }
@@ -1113,6 +1241,8 @@ fn subject_line(subject: Option<&str>) -> String {
 /// Der Text für Transkript und TL;DR; der Kasten zeigt die Felder aus `ToolRequest`.
 fn tool_question(request: &ToolRequest) -> Question {
     let question = match request {
+        // Die Rückfrage von `verwalter_notify_user` hat ihre Fragen schon und kommt nie hierher.
+        ToolRequest::AskUser => String::new(),
         ToolRequest::SendMessage {
             recipients,
             message,
@@ -1314,5 +1444,7 @@ fn text_of(error: CommandError) -> String {
 
 #[cfg(test)]
 mod agent_types;
+#[cfg(test)]
+mod notify_user;
 #[cfg(test)]
 mod prompt_templates;

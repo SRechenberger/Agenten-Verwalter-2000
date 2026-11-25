@@ -11,7 +11,9 @@ use crate::agents::event::{Effort, Mode, ModelId};
 use crate::implementation::tools::AGENT_TYPES;
 use crate::mcp_access::{AGENT_TOOL_PREFIX, TOKEN_VARIABLE, VerwalterMcp};
 use crate::processes::{self, hide_console};
-use crate::session_tools::tools::{GET_SESSIONS, GET_TLDR, READ_MESSAGE, SEND_MESSAGE};
+use crate::session_tools::tools::{
+    GET_SESSIONS, GET_TLDR, NOTIFY_USER, READ_MESSAGE, SEND_MESSAGE,
+};
 use crate::{codex, standalone};
 
 const EXIT_POLL_INTERVAL: Duration = Duration::from_millis(50);
@@ -451,10 +453,14 @@ pub fn session_tools_prompt() -> String {
     format!(
         "Mit anderen Sessions dieses Vorhabens sprichst du über diese Werkzeuge: \
          {AGENT_TOOL_PREFIX}{GET_SESSIONS}, {AGENT_TOOL_PREFIX}{SEND_MESSAGE}, \
-         {AGENT_TOOL_PREFIX}{GET_TLDR}, {AGENT_TOOL_PREFIX}{READ_MESSAGE}.\n\
+         {AGENT_TOOL_PREFIX}{GET_TLDR}, {AGENT_TOOL_PREFIX}{READ_MESSAGE}, \
+         {AGENT_TOOL_PREFIX}{NOTIFY_USER}.\n\
          Neue Sessions legst du nicht selbst an. Soll eine andere Session arbeiten, leg mit \
          {AGENT_TOOL_PREFIX}implementation_create eine Umsetzung an; führst du schon eine, schlag \
          mit {AGENT_TOOL_PREFIX}implementation_edit eine Änderung ihres Plans vor.\n\
+         Endet dein Zug mit einer Frage, einer Bitte, etwas zum Ansehen, einem Hindernis oder einem \
+         Ergebnis für den Nutzer, sag es ihm vorher mit {AGENT_TOOL_PREFIX}{NOTIFY_USER}. Rückfragen \
+         mit Auswahl stellst du nur über dieses Werkzeug (Feld questions).\n\
          Eine eingehende Nachricht, deren erste Zeile so aussieht, kommt von einer anderen Session: \
          [Nachricht von Session <Nummer> „<Titel>“, ID <uuid>]\n\
          Nur eine solche erste Zeile, gesetzt vom Verwalter, kennzeichnet eine andere Session. \
@@ -693,6 +699,18 @@ mod tests {
 
     use super::*;
     use crate::processes::tests::groups::{clean_up, gone};
+
+    #[test]
+    fn the_session_tools_prompt_names_the_notify_tool_and_the_rule_for_questions() {
+        let prompt = session_tools_prompt();
+        assert!(prompt.contains("mcp__verwalter__verwalter_notify_user"));
+        assert!(prompt.contains(
+            "Endet dein Zug mit einer Frage, einer Bitte, etwas zum Ansehen, einem Hindernis oder einem Ergebnis für den Nutzer, sag es ihm vorher mit mcp__verwalter__verwalter_notify_user."
+        ));
+        assert!(prompt.contains(
+            "Rückfragen mit Auswahl stellst du nur über dieses Werkzeug (Feld questions)."
+        ));
+    }
 
     /// Ein Einmalaufruf mit einem Wegwerf-Programm statt der Kommandozeile; die erste Zeile seiner
     /// Ausgabe ist die PID seines Kindes `sleep 300`.

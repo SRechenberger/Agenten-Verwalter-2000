@@ -100,3 +100,29 @@
   color: var(--color-status-completed);
   font-size: var(--font-size-xs);
 }
+
+/* Angebot einer fertigen Karte und Verweis von „Zum Ansehen“ (ADR 077): flach, die Farbe der Art als
+   2-px-Linie links, der Knopf mit 2 px (Regel F1–F5 der Story „flacher Chat-Stil“). */
+.popup-offer {
+  display: flex;
+  align-items: center;
+  gap: var(--space-lg);
+  padding: var(--space-sm) 0 var(--space-sm) var(--space-lg);
+  border-left: 2px solid var(--color-accent);
+
+  & > span {
+    flex: 1;
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
+  &__link {
+    font-family: var(--font-mono);
+    font-size: var(--font-size-xs);
+  }
+
+  & .popup-button {
+    flex: none;
+    border-radius: 2px;
+  }
+}

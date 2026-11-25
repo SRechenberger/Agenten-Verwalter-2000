@@ -5,7 +5,6 @@ import {
   ageText,
   badgeCount,
   filterTasks,
-  isClassified,
   isNested,
   kindTone,
   levelsOf,
@@ -108,12 +107,12 @@ export function DashboardView({
       >
         <span className="dashboard-card__top">
           <span className="dashboard-card__kind">{taskLabel(task)}</span>
-          {isClassified(task.kind) && (
+          {task.reported && (
             <span
               className="dashboard-card__ai"
-              title="Eingeordnet von einem kleinen Modell aus der letzten Antwort"
+              title="Der Agent hat die Art mit verwalter_notify_user gemeldet"
             >
-              ✦ eingeordnet
+              ✓ gemeldet
             </span>
           )}
           {task.released && (

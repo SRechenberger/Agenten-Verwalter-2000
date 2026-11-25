@@ -29,6 +29,9 @@ function task(
     requestId: null,
     entry: null,
     released: false,
+    offer: null,
+    link: null,
+    reported: false,
     ...extra,
   };
 }
@@ -105,6 +108,24 @@ const CASES: { name: string; actual: () => unknown; expected: unknown }[] = [
         })
         .join(' '),
     expected: 'answer:false:true answer:false:true answer:false:true answer:false:true',
+  },
+  {
+    name: 'reported_kinds_jump_to_last_answer_and_can_be_read',
+    actual: () =>
+      (['blocked', 'review'] as const)
+        .map((kind) => {
+          const card = chatTasks(view(task('a', kind, { reported: true })), 's1').cards[0];
+          return `${String(card?.jump)}:${String(card?.canOpen)}:${String(card?.canDismiss)}`;
+        })
+        .join(' '),
+    expected: 'answer:false:true answer:false:true',
+  },
+  {
+    name: 'a_reported_review_frames_the_answer',
+    actual: () =>
+      chatTasks(view(task('q', 'question'), task('r', 'review', { reported: true })), 's1').frame
+        ?.task.id,
+    expected: 'r',
   },
   {
     name: 'other_kinds_open_the_popup',
