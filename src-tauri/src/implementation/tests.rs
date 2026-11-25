@@ -9970,6 +9970,36 @@ fn a_station_grown_by_its_file_does_not_block_other_edits() {
     );
 }
 
+#[test]
+fn a_new_station_like_a_finished_one_is_still_checked() {
+    let (registry, database) = registry_with_two_masters();
+    add_long_type(&database, 13_000);
+    let created = registry
+        .create_implementation("a", "Eins", "", &phases_with_prompt(2_000))
+        .expect("angelegt");
+    let station_id = created.phases[0].stations[0].id.clone();
+    database
+        .with(|connection| {
+            implementation_rows::set_station_session(connection, &station_id, "session", 1.0)
+        })
+        .expect("gestartet");
+    let mut stored = registry.station_rows(&created.id).expect("Zeilen");
+    stored[0].completed_at = Some(2.0);
+    let mut twin = stored[0].clone();
+    twin.id = "neu".to_owned();
+    twin.session_id = None;
+    twin.completed_at = None;
+    twin.prompt = Some("y".repeat(3_500));
+    stored[0].prompt.clone_from(&twin.prompt);
+    let sentence = registry
+        .check_row_lengths(&created.project_id, &stored, &[twin])
+        .expect_err("die gleiche Zeile wie eine fertige Station wird trotzdem geprüft");
+    assert!(
+        sentence.contains("Der Systemprompt hätte 16 502 Zeichen"),
+        "{sentence}"
+    );
+}
+
 fn refusal_of_plan(result: Result<edit::EditedPlan, CommandError>) -> String {
     match result {
         Err(CommandError::Implementation(sentence)) => sentence,

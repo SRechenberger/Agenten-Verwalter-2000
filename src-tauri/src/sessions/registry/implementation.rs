@@ -90,6 +90,13 @@ pub(super) fn return_reference(subject: Option<&str>) -> Option<Reference<'_>> {
     })
 }
 
+/// Eine Agent-Station ohne Session, die noch nicht fertig ist: ihr Systemprompt entsteht erst beim Start.
+fn is_waiting_agent(row: &StationRow) -> bool {
+    row.kind == implementation::model::StationKind::Agent
+        && row.session_id.is_none()
+        && row.completed_at.is_none()
+}
+
 impl SessionRegistry {
     /// Alle Umsetzungen nicht archivierter Vorhaben, neueste zuerst.
     pub fn implementation_views(&self) -> Result<Vec<ImplementationView>, CommandError> {
@@ -129,9 +136,10 @@ impl SessionRegistry {
 
     /// S1 (Taiga 266): Der Systemprompt jeder noch nicht gestarteten Agent-Station in `rows` bliebe beim
     /// Start unter 16 000 Zeichen; sonst der Satz der ersten, die es nicht tut. Zählt wie der Start
-    /// (`length::check_station`). Eine Station, die mit Stufe, Typ und Zusatztext schon in `stored` steht (eine Planänderung vergibt die Kennungen neu), ist
-    /// nicht neu zu prüfen: Wuchs ihre Datei seither, meldet das der Start (S4), und Auftrag, Kanten oder
-    /// Modell bleiben änderbar.
+    /// (`length::check_station`). Eine Station, die mit Stufe, Typ und Zusatztext schon als wartende
+    /// Zeile in `stored` steht (eine Planänderung vergibt die Kennungen neu), ist nicht neu zu prüfen:
+    /// Wuchs ihre Datei seither, meldet das der Start (S4), und Auftrag, Kanten oder Modell bleiben
+    /// änderbar. Gestartete und fertige Zeilen zählen dafür nicht.
     pub fn check_row_lengths(
         &self,
         project_id: &str,
@@ -148,11 +156,12 @@ impl SessionRegistry {
             repositories: &repositories,
         };
         for row in rows.iter().filter(|row: &&StationRow| {
-            row.kind == implementation::model::StationKind::Agent
-                && row.session_id.is_none()
-                && row.completed_at.is_none()
+            is_waiting_agent(row)
                 && !stored.iter().any(|old: &StationRow| {
-                    old.stage == row.stage && old.agent == row.agent && old.prompt == row.prompt
+                    is_waiting_agent(old)
+                        && old.stage == row.stage
+                        && old.agent == row.agent
+                        && old.prompt == row.prompt
                 })
         }) {
             length::check_station(
