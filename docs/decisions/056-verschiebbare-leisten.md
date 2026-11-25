@@ -34,3 +34,7 @@ Die vier festen Leisten — Seitenleiste (Vorhaben), Dateibaum der Changes, List
 - Löscht der Benutzer den WebView-Speicher, springen die Leisten beim nächsten Start einmal von der Standardbreite auf die gemerkte, bis die Einstellungen geladen sind.
 - Ist der Chat auf null gezogen, sieht man ihn nicht mehr; zurück per Ziehen oder Doppelklick.
 - Die Container-Abfragen der Kopfzeile reagieren auf die gezogenen Breiten.
+
+## Nachtrag: Kategorien-Leiste der Einstellungen (Nachbesserung 0.78.0)
+
+Aus der Abnahme von 0.78.0 kam die Bitte, die Kategorien-Leiste der Einstellungen wie die Seitenleiste verschiebbar zu machen. Sie ist die fünfte Leiste: `PanelId::SettingsNav` (`settingsNav`), Schlüssel `panel_width.settings_nav`, Standard 216, Minimum 160, Griff an der rechten Kante, Füllfläche ist der Inhalt rechts. Keine Migration. Label und Zusammenfassung kürzen mit „…“, damit bei 160 px kein waagerechter Scrollbalken entsteht.

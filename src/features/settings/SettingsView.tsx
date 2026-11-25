@@ -3,6 +3,7 @@ import { useMemo, useRef, useState } from 'react';
 import type { ReactElement } from 'react';
 import { ModeMenu } from '@/components/ModeMenu';
 import { ModelMenu } from '@/components/ModelMenu';
+import { ResizeHandle } from '@/components/ResizeHandle';
 import { Switch } from '@/components/Switch';
 import { AccountRow } from '@/features/account/AccountRow';
 import { AgentTypesRow } from '@/features/agenttypes/AgentTypesRow';
@@ -71,6 +72,7 @@ import type { SessionSummary } from '@/lib/bindings/SessionSummary';
 import type { Settings } from '@/lib/bindings/Settings';
 import type { SettingsOverview } from '@/lib/bindings/SettingsOverview';
 import { commandErrorText } from '@/lib/errors';
+import { usePanelWidth } from '@/lib/usePanelWidth';
 import {
   effortLabel,
   isLocalOperatingMode,
@@ -115,6 +117,7 @@ export function SettingsView({
     initialCategory(attention, storedCategory),
   );
   const [query, setQuery] = useState<string>('');
+  const navWidth = usePanelWidth('settingsNav');
   const contentRef = useRef<HTMLDivElement>(null);
   const { repositories, isLoading: areRepositoriesLoading } = useKnownRepositories();
   const { save, error: saveError } = useSettingsUpdate();
@@ -617,8 +620,10 @@ export function SettingsView({
           attention={attention}
           counts={isShowingHits ? countByCategory(hits) : null}
           onSelect={selectCategory}
+          width={navWidth.width}
         />
-        <div ref={contentRef} className="settings-view__scroll">
+        <ResizeHandle edge="end" label="Breite der Kategorien-Leiste" {...navWidth.handleProps} />
+        <div ref={contentRef} className="settings-view__scroll" data-resize-fill>
           <SettingsSearchContext.Provider value={terms}>
             <div className="settings-view__content">
               {renderErrors()}

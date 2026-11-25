@@ -65,6 +65,7 @@ fn panel_key(panel: PanelId) -> &'static str {
         PanelId::ChangesTree => "panel_width.changes_tree",
         PanelId::ArtifactsList => "panel_width.artifacts_list",
         PanelId::Background => "panel_width.background",
+        PanelId::SettingsNav => "panel_width.settings_nav",
     }
 }
 
@@ -100,6 +101,7 @@ pub const DEFAULT_SETTINGS: Settings = Settings {
         changes_tree: None,
         artifacts_list: None,
         background: None,
+        settings_nav: None,
     },
 };
 
@@ -176,6 +178,7 @@ pub fn load(database: &Database) -> Result<Settings, CommandError> {
             changes_tree: stored_panel_width(&stored, PanelId::ChangesTree),
             artifacts_list: stored_panel_width(&stored, PanelId::ArtifactsList),
             background: stored_panel_width(&stored, PanelId::Background),
+            settings_nav: stored_panel_width(&stored, PanelId::SettingsNav),
         },
     })
 }
