@@ -298,13 +298,22 @@ mod tests {
         }
     }
 
+    /// Absolut auf jeder Plattform; `"/f.md"` ist unter Windows relativ.
+    fn absolute(name: &str) -> String {
+        if cfg!(windows) {
+            format!("C:\\{name}")
+        } else {
+            format!("/{name}")
+        }
+    }
+
     fn no_files(_: &Path) -> io::Result<String> {
         Err(io::Error::from(io::ErrorKind::NotFound))
     }
 
     #[test]
     fn a_station_whose_system_prompt_would_be_too_long_is_refused_with_its_parts() {
-        let reviewer = agent_type("reviewer", &[], 14_000, &["/f.md"]);
+        let reviewer = agent_type("reviewer", &[], 14_000, &[absolute("f.md").as_str()]);
         let read = |_: &Path| Ok(String::new());
         let refusal = check_station(
             "A-3 · Review",
@@ -340,7 +349,7 @@ mod tests {
 
     #[test]
     fn an_unreadable_file_refuses_the_station_with_the_text_of_the_start() {
-        let reviewer = agent_type("reviewer", &[], 10, &["/missing.md"]);
+        let reviewer = agent_type("reviewer", &[], 10, &[absolute("missing.md").as_str()]);
         let refusal = check_station(
             "A-3 · Review",
             &[reviewer],
@@ -351,7 +360,10 @@ mod tests {
             &no_files,
         )
         .expect_err("Datei fehlt");
-        assert!(refusal.starts_with("Station A-3 · Review: Die Datei „/missing.md“"));
+        assert!(refusal.starts_with(&format!(
+            "Station A-3 · Review: Die Datei „{}“",
+            absolute("missing.md")
+        )));
     }
 
     #[test]
@@ -464,7 +476,7 @@ mod tests {
         let mut station = waiting("A-3 · Review", "Review", 10);
         station.repositories = vec![PathBuf::from("/r1"), PathBuf::from("/r2")];
         let read = |path: &Path| {
-            if path == Path::new("/r2/docs/rolle.md") {
+            if path == Path::new("/r2").join("docs/rolle.md") {
                 Ok("z".repeat(15_990))
             } else {
                 Err(io::Error::from(io::ErrorKind::NotFound))
