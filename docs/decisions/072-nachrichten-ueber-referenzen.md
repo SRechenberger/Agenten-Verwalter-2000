@@ -43,3 +43,7 @@ Beim dritten Text lädt das Modell zuerst die Rolle, die die erste Zeile verlang
 - Die Messung gilt für Haiku und diese drei Texte mit einem Inhalt, der den Auftrag nicht vollständig beschreibt; sie belegt das Lesen, nicht die Güte der Arbeit danach.
 - Eine Zeile `session_messages` wird nie gelöscht, außer mit der Session des Empfängers.
 - Die Betriebsart wird bei der Zustellung geprüft; in einer Session, die nach dem Wechsel der Betriebsart weiterläuft, kann eine frühere Referenz unlesbar bleiben (der Chat hat den Text).
+
+## Nachtrag 2026-11-25: Wartende Nachrichten (Taiga Story 218)
+
+Der Betreff einer wartenden Nachricht steht in `inbox_list` und im Reiter „Nachrichten“ der Warteschlange; die Zeile in `session_inbox` bleibt, wie sie ist. Siehe [ADR 078](078-wartende-nachrichten.md).

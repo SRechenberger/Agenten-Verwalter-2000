@@ -92,6 +92,7 @@ const TABLE: &[(Class, Option<IdKind>, &[&str])] = &[
             "background_stop",
             "chat_send",
             "chat_send_now",
+            "chat_discard_queued",
             "chat_answer",
             "dashboard_dismiss",
             "agent_type_proposal_answer",
@@ -231,6 +232,7 @@ const TABLE: &[(Class, Option<IdKind>, &[&str])] = &[
             "session_overlaps",
             "dashboard_get",
             "agent_queue",
+            "inbox_list",
         ],
     ),
     (
@@ -295,6 +297,7 @@ const TABLE: &[(Class, Option<IdKind>, &[&str])] = &[
             "remote_usage_load",
             "remote_usage_refresh",
             "remote_agent_queue",
+            "remote_inbox_list",
             "remote_asset_base",
         ],
     ),

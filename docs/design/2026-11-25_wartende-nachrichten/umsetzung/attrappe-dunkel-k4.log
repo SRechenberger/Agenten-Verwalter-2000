@@ -1,0 +1,16 @@
+2026-11-25T03:25:58.833Z 1795577158833 pid=532369 start session=3e622bff-0738-4006-b3fb-6f2ac41fe25c art=--session-id
+2026-11-25T03:25:58.840Z 1795577158840 pid=532369 nachricht fall=normal text="Hallo vom Absender"
+2026-11-25T03:25:58.840Z 1795577158840 pid=532369 volltext "Hallo vom Absender"
+2026-11-25T03:26:05.059Z 1795577165059 pid=533277 start session=2c2dd45c-7f1b-497d-ba76-58e5bdf3c048 art=--session-id
+2026-11-25T03:26:05.064Z 1795577165064 pid=533277 nachricht fall=halt text="attrappe:halt Arbeite lange"
+2026-11-25T03:26:05.065Z 1795577165065 pid=533277 volltext "attrappe:halt Arbeite lange"
+2026-11-25T03:27:09.957Z 1795577229957 pid=533277 halt beendet
+2026-11-25T03:27:09.967Z 1795577229967 pid=533277 nachricht fall=normal text="[Nachricht von Session 2 „Absender“, ID 3e622bff-0738-4006-b3fb-6f2ac41fe25c]\nBetreff: Probelauf K3 "
+2026-11-25T03:27:09.967Z 1795577229967 pid=533277 volltext "[Nachricht von Session 2 „Absender“, ID 3e622bff-0738-4006-b3fb-6f2ac41fe25c]\nBetreff: Probelauf K3 im Bild\nInhalt: msg-1 — lies ihn mit verwalter_read_message, bevor du handelst."
+2026-11-25T03:27:15.447Z 1795577235447 pid=533277 nachricht fall=halt text="attrappe:halt Zweiter Zug"
+2026-11-25T03:27:15.447Z 1795577235447 pid=533277 volltext "attrappe:halt Zweiter Zug"
+2026-11-25T03:27:19.253Z 1795577239253 pid=533277 halt beendet
+2026-11-25T03:27:42.638Z 1795577262638 pid=532369 SIGTERM
+2026-11-25T03:27:42.639Z 1795577262639 pid=532369 ende code=143
+2026-11-25T03:27:42.638Z 1795577262638 pid=533277 SIGTERM
+2026-11-25T03:27:42.639Z 1795577262639 pid=533277 ende code=143

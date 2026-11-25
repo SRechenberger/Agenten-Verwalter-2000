@@ -274,6 +274,10 @@ pub enum ChatEntry {
         /// Agenten. Die Freigabe setzt es zurück; Einträge von vorher haben das Feld nicht.
         #[serde(default)]
         queued: bool,
+        /// Verworfen, solange sie wartete (Taiga-Story 218): Die Nachricht ging nie an den Agenten, der
+        /// Eintrag bleibt als „verworfen“ stehen (`queued` ist dann zurückgesetzt).
+        #[serde(default)]
+        discarded: bool,
     },
     Text {
         seq: u32,

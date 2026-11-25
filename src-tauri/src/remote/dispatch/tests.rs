@@ -8,6 +8,7 @@ use crate::dashboard::model::DashboardView;
 use crate::implementation::slots::QueueKind;
 use crate::projects::model::ProjectPriority;
 use crate::remote::model::HostProfile;
+use crate::sessions::model::WaitsFor;
 
 const PROJECT: &str = "project";
 const OWN_SESSION: &str = "own-session";
@@ -75,6 +76,10 @@ impl Host for Stub {
 
     fn agent_queue(&self) -> AgentQueue {
         queue_of_two_projects()
+    }
+
+    fn inbox_list(&self) -> Result<Vec<WaitingMessage>, CommandError> {
+        Ok(waiting_in_two_projects())
     }
 
     fn invoke(&self, command: &str, args: Value) -> Result<Value, CommandError> {
@@ -503,6 +508,60 @@ fn dashboard_get_is_reachable_for_guests_without_an_id() {
     assert_eq!(
         access::class_of("dashboard_get"),
         Some(access::Class::Reachable)
+    );
+}
+
+/// Je eine wartende Nachricht in `PROJECT` und im fremden Vorhaben.
+fn waiting_in_two_projects() -> Vec<WaitingMessage> {
+    let message = |id: i64, project_id: &str| WaitingMessage {
+        id,
+        session_id: format!("{project_id}-session"),
+        recipient_number: 1,
+        recipient_title: format!("{project_id} Empfänger"),
+        project_id: project_id.to_owned(),
+        sender_id: "sender".to_owned(),
+        sender_number: 2,
+        sender_title: "Absender".to_owned(),
+        from_user: false,
+        subject: Some("Betreff".to_owned()),
+        text: "Text".to_owned(),
+        created_at: 0.0,
+        entry_seq: None,
+        waits_for: WaitsFor::TurnEnd,
+        position: None,
+    };
+    vec![message(1, PROJECT), message(2, "foreign-project")]
+}
+
+#[test]
+fn inbox_list_gives_a_guest_only_the_messages_of_projects_it_holds() {
+    let host = Stub::new(&Scratch::new());
+    let value = call(&host, &held_by_a(), "a", "inbox_list", Value::Null).expect("Liste");
+    let messages: Vec<WaitingMessage> = serde_json::from_value(value.clone()).expect("Liste");
+    assert_eq!(messages.len(), 1, "{messages:?}");
+    assert_eq!(messages[0].project_id, PROJECT);
+    assert!(!value.to_string().contains("foreign"), "{value}");
+    assert!(
+        host.invoked().is_empty(),
+        "aus der Registry, nie über den Befehl"
+    );
+    let held_nothing = call(&host, &held_by_a(), "b", "inbox_list", Value::Null).expect("Liste");
+    assert_eq!(held_nothing, serde_json::json!([]));
+}
+
+#[test]
+fn inbox_commands_have_their_classes_in_the_access_table() {
+    assert_eq!(
+        access::class_of("inbox_list"),
+        Some(access::Class::Reachable)
+    );
+    assert_eq!(
+        access::class_of("chat_discard_queued"),
+        Some(access::Class::HostWrite)
+    );
+    assert_eq!(
+        access::class_of("remote_inbox_list"),
+        Some(access::Class::LocalOnly)
     );
 }
 

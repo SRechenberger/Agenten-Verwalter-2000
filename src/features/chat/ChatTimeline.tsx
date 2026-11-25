@@ -52,7 +52,10 @@ import { useArtifactsStore } from '@/stores/artifacts';
 import { lockNote } from '@/features/remote/projectAccess';
 import { useOperatingMode } from '@/features/remote/useOperatingMode';
 import { useProjectIsRemote } from '@/features/remote/useProjectAccess';
+import { useForeignWaiting } from '@/stores/inbox';
 import { useSessionsStore } from '@/stores/sessions';
+import type { WaitingMessage } from '@/lib/bindings/WaitingMessage';
+import { ForeignWaiting } from '@/features/chat/ForeignWaiting';
 import './ChatTimeline.css';
 
 const ESTIMATED_BLOCK_HEIGHT = 40;
@@ -63,6 +66,7 @@ const SURFACE_PADDING_BOTTOM = 12;
 const STICK_TO_BOTTOM_TOLERANCE = 24;
 const LOAD_OLDER_THRESHOLD = 200;
 const WORKING_KEY = 'working';
+const FOREIGN_KEY = 'foreign-waiting';
 
 /** Schlüssel eines einzelnen Aufrufs in `expandedKeys`; Gruppen-Schlüssel kommen aus `buildBlocks`. */
 function toolKey(toolUseId: string): string {
@@ -162,7 +166,10 @@ export function ChatTimeline({
     [blocks, now, hasMore],
   );
   const isWorking: boolean = session.status === 'starting' || session.status === 'running';
-  const count: number = blocks.length + (isWorking ? 1 : 0);
+  // Wartende Nachrichten anderer Sessions stehen als letzter Eintrag der Liste, in der Spalte der Einträge.
+  const foreignWaiting: readonly WaitingMessage[] = useForeignWaiting(session.id);
+  const foreignIndex: number = blocks.length + (isWorking ? 1 : 0);
+  const count: number = foreignIndex + (foreignWaiting.length > 0 ? 1 : 0);
 
   // Die Warnung gilt dem React Compiler, den das Projekt nicht nutzt; die Bibliothek schreibt ADR 002 vor.
   // eslint-disable-next-line react-hooks/incompatible-library
@@ -170,7 +177,8 @@ export function ChatTimeline({
     count,
     getScrollElement: (): HTMLDivElement | null => scrollRef.current,
     estimateSize: (): number => ESTIMATED_BLOCK_HEIGHT,
-    getItemKey: (index: number): string => blocks[index]?.key ?? WORKING_KEY,
+    getItemKey: (index: number): string =>
+      blocks[index]?.key ?? (index === foreignIndex ? FOREIGN_KEY : WORKING_KEY),
     overscan: OVERSCAN,
     paddingStart: SURFACE_PADDING_TOP + topInset,
     paddingEnd: SURFACE_PADDING_BOTTOM + bottomInset,
@@ -374,6 +382,8 @@ export function ChatTimeline({
             comments={entry.comments}
             origin={entry.origin}
             queued={entry.queued}
+            entrySeq={entry.seq}
+            discarded={entry.discarded}
           />
         );
       case 'text': {
@@ -589,8 +599,18 @@ export function ChatTimeline({
                 style={{ transform: `translateY(${String(item.start + bottomOffset)}px)` }}
               >
                 <div className="chat-timeline__block" data-seq={blockSeq(blocks[item.index])}>
-                  {renderTime(blocks[item.index], dividers[item.index] ?? null)}
-                  {renderBlock(blocks[item.index])}
+                  {item.index === foreignIndex ? (
+                    <ForeignWaiting
+                      sessionId={session.id}
+                      sessions={sessions}
+                      waiting={foreignWaiting}
+                    />
+                  ) : (
+                    <>
+                      {renderTime(blocks[item.index], dividers[item.index] ?? null)}
+                      {renderBlock(blocks[item.index])}
+                    </>
+                  )}
                 </div>
               </div>
             ))}

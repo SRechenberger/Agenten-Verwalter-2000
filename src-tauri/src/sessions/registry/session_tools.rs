@@ -754,6 +754,11 @@ impl SessionRegistry {
         if needs_nudge {
             schedule_pass(app);
         }
+        // Auch ohne Anstoß (laufendes Ziel): Kein Durchgang folgt, die neue Zeile soll trotzdem sofort
+        // sichtbar sein. Ein Anstoß meldet sie im Durchgang; die Meldung kommt nur bei Änderung.
+        if matches!(delivered, Ok(("queued", _))) {
+            self.announce_inbox_if_changed(app);
+        }
         delivered.unwrap_or_else(|error: CommandError| ("undeliverable", Some(text_of(error))))
     }
 

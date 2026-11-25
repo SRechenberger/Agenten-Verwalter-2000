@@ -34,6 +34,7 @@ use verwalter_lib::remote::tls;
 use verwalter_lib::remote::wire::{
     self, Frame, LineBuffer, MAX_LINE, Outcome, PROTOCOL, RefuseReason, Timing,
 };
+use verwalter_lib::sessions::model::WaitingMessage;
 use verwalter_lib::settings::DEFAULT_SETTINGS;
 use verwalter_lib::settings::model::{OperatingMode, Settings, SettingsOverview};
 use verwalter_lib::terminal::model::TerminalOutput;
@@ -823,6 +824,10 @@ impl dispatch::Host for StubHost {
 
     fn agent_queue(&self) -> AgentQueue {
         AgentQueue::default()
+    }
+
+    fn inbox_list(&self) -> Result<Vec<WaitingMessage>, CommandError> {
+        Ok(Vec::new())
     }
 
     fn invoke(&self, command: &str, args: Value) -> Result<Value, CommandError> {

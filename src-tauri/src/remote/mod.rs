@@ -29,6 +29,8 @@ pub const CHANGED_EVENT: &str = "remote://changed";
 pub const USAGE_CHANGED_EVENT: &str = "remote://usage-changed";
 /// `{ hostId }`, am Gast: Die Warteschlange eines Hosts hat sich geändert (`agent_queue://changed` am Host).
 pub const AGENT_QUEUE_CHANGED_EVENT: &str = "remote://agent-queue-changed";
+/// `{ hostId }`, am Gast: Die wartenden Nachrichten eines Hosts haben sich geändert (`inbox://changed` am Host).
+pub const INBOX_CHANGED_EVENT: &str = "remote://inbox-changed";
 /// Ordner unter `~/.verwalter` für Zertifikat und Hosts.
 pub const DIR_NAME: &str = "remote";
 pub const HOST_KEY_FILE: &str = "host-key.pem";

@@ -144,6 +144,63 @@ pub enum SendOutcome {
     Queued,
 }
 
+/// Was `chat_discard_queued` mit einer wartenden eigenen Nachricht getan hat (Taiga-Story 218):
+/// verworfen, oder sie war schon beim Agenten.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub enum DiscardOutcome {
+    Discarded,
+    AlreadySent,
+}
+
+/// Worauf eine wartende Nachricht wartet (Taiga-Story 218); `compact` ergänzt später `compact`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub enum WaitsFor {
+    /// Ein freier Platz der Warteschlange (`position`).
+    Slot,
+    /// Das Ende des laufenden Zugs.
+    TurnEnd,
+    /// Die Antwort auf eine offene Rückfrage.
+    Answer,
+    /// Das Ende der Pause.
+    Paused,
+    /// Der erste Start einer neuen Session.
+    Start,
+}
+
+/// Eine Zeile aus `session_inbox`, wie `inbox_list` sie zeigt (Taiga-Story 218). Der Absender einer
+/// eigenen Nachricht ist `user` (`from_user`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct WaitingMessage {
+    #[ts(type = "number")]
+    pub id: i64,
+    pub session_id: String,
+    pub recipient_number: u32,
+    pub recipient_title: String,
+    pub project_id: String,
+    pub sender_id: String,
+    pub sender_number: u32,
+    pub sender_title: String,
+    pub from_user: bool,
+    /// Betreff einer Nachricht, die über eine Referenz zugestellt wird.
+    #[serde(default)]
+    pub subject: Option<String>,
+    /// Der Text der Nachricht; der Chat des Empfängers zeigt ihn gestrichelt, bis sie zugestellt ist.
+    #[serde(default)]
+    pub text: String,
+    #[ts(type = "number")]
+    pub created_at: f64,
+    /// Der Eintrag im Chat einer eigenen Nachricht; fremde haben keinen.
+    #[serde(default)]
+    pub entry_seq: Option<u32>,
+    pub waits_for: WaitsFor,
+    /// Platz in der Warteschlange, nur bei `slot`.
+    #[serde(default)]
+    pub position: Option<u32>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct ChatPage {
