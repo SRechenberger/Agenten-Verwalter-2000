@@ -122,6 +122,21 @@
     }
   }
 
+  &__item--top {
+    align-items: flex-start;
+
+    .remote-row__dot {
+      margin-top: 6px;
+    }
+  }
+
+  &__note {
+    margin: 0;
+    padding-bottom: var(--space-md);
+    font-size: var(--font-size-xs);
+    color: var(--color-fg-muted);
+  }
+
   &__item-text {
     display: flex;
     flex-direction: column;

@@ -441,18 +441,17 @@ export function NewSession({ groups, onCreated, onCancel }: NewSessionProps): Re
                   },
                 )}
               </div>
+              {!isTargetLost && createTargets.denied.length > 0 && (
+                <span className="new-session__target-denied">
+                  {createTargets.denied.map((host: RemoteHostStatus) => host.hostName).join(', ')}{' '}
+                  erlaubt diesem Gerät keine neuen Vorhaben.
+                </span>
+              )}
             </div>
             {isTargetLost && (
               <p className="new-session__note" role="alert">
                 {lostHostName} erlaubt diesem Gerät gerade keine neuen Vorhaben. Wähle „
                 {THIS_COMPUTER}“, um hier anzulegen.
-              </p>
-            )}
-            {!isTargetLost && createTargets.denied.length > 0 && (
-              <p className="new-session__note">
-                {createTargets.denied.map((host: RemoteHostStatus) => host.hostName).join(', ')}{' '}
-                erlaubt diesem Gerät nicht, Vorhaben anzulegen. Der Host erlaubt es in den
-                Einstellungen unter „Gekoppelte Geräte“.
               </p>
             )}
             {target !== null && (
@@ -656,7 +655,17 @@ export function NewSession({ groups, onCreated, onCancel }: NewSessionProps): Re
               : 'Der erste Satz wird zum Namen des Vorhabens und seiner ersten Session (später per Rechtsklick änderbar), der ganze Text samt Anhängen zur ersten Nachricht an den Agenten.'}
           </p>
         </section>
-        {!isTargetLost && (
+        {isTargetLost ? (
+          <fieldset className="repository-picker">
+            <legend className="repository-picker__heading">
+              <span className="repository-picker__step">2</span>
+              Repositories
+            </legend>
+            <p className="repository-picker__empty">
+              Erst wieder wählbar, wenn {lostHostName} es erlaubt.
+            </p>
+          </fieldset>
+        ) : (
           <RepositoryPicker
             key={target?.hostId ?? 'local'}
             selectedIds={repositoryIds}
@@ -785,7 +794,9 @@ export function NewSession({ groups, onCreated, onCancel }: NewSessionProps): Re
         </section>
         <div className="new-session__footer">
           <button type="submit" className="new-session__start" disabled={!canStart}>
-            {target === null ? 'Vorhaben starten' : `Auf ${target.hostName} anlegen`}
+            {target === null && !isTargetLost
+              ? 'Vorhaben starten'
+              : `Auf ${target?.hostName ?? lostHostName} anlegen`}
           </button>
           <button type="button" className="new-session__cancel" onClick={cancel}>
             Abbrechen

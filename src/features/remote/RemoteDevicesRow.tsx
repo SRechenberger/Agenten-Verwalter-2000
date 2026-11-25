@@ -36,7 +36,7 @@ export function RemoteDevicesRow(): ReactElement {
 
   function renderDevice(device: RemoteDevice): ReactElement {
     return (
-      <li key={device.id} className="remote-row__item">
+      <li key={device.id} className="remote-row__item remote-row__item--top">
         <span
           className={`remote-row__dot${device.online ? ' remote-row__dot--on' : ''}`}
           aria-hidden="true"
@@ -82,27 +82,32 @@ export function RemoteDevicesRow(): ReactElement {
   }
 
   return (
-    <SettingRow id="remoteDevices">
-      <div className="remote-row__stack">
-        {devices.length === 0 ? (
-          <span className="remote-row__muted">
-            Noch kein Gerät gekoppelt. Die Einladung dafür erstellst du unter „Status“.
-          </span>
-        ) : (
-          <>
-            <ul className="remote-row__list">{devices.map(renderDevice)}</ul>
+    <>
+      <SettingRow id="remoteDevices">
+        <div className="remote-row__stack">
+          {devices.length === 0 ? (
             <span className="remote-row__muted">
-              „Neue Vorhaben“ erlaubt einem Gerät, auf diesem Rechner Vorhaben anzulegen. Sie landen
-              sofort bei ihm und in der gewählten Gruppe.
+              Noch kein Gerät gekoppelt. Die Einladung dafür erstellst du unter „Status“.
             </span>
-          </>
-        )}
-        {error !== null && (
-          <span className="remote-row__error" role="alert">
-            {error}
-          </span>
-        )}
-      </div>
-    </SettingRow>
+          ) : (
+            <>
+              <ul className="remote-row__list">{devices.map(renderDevice)}</ul>
+            </>
+          )}
+          {error !== null && (
+            <span className="remote-row__error" role="alert">
+              {error}
+            </span>
+          )}
+        </div>
+      </SettingRow>
+      {devices.length > 0 && (
+        <p className="remote-row__note">
+          Ein Vorhaben, das ein Gerät anlegt, ist für Gäste freigegeben und vom Gerät übernommen.
+          Herauswerfen geht jederzeit in der Übersicht des Vorhabens. Archivieren und Löschen
+          bleiben dir.
+        </p>
+      )}
+    </>
   );
 }

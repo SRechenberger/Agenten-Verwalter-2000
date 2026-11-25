@@ -34,8 +34,14 @@
 
   &__target-row {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     gap: var(--space-lg);
+  }
+
+  &__target-denied {
+    font-size: var(--font-size-xs);
+    color: var(--color-fg-muted);
   }
 
   &__target-label {
