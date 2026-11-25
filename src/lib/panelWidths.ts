@@ -1,8 +1,10 @@
 import type { PanelId } from '@/lib/bindings/PanelId';
 import type { PanelWidths } from '@/lib/bindings/PanelWidths';
+import type { ReaderPlacement } from '@/lib/bindings/ReaderPlacement';
 
 const STORAGE_KEY = 'verwalter.panelWidths';
 const COLLAPSED_STORAGE_KEY = 'verwalter.collapsedPanels';
+const READER_PLACEMENT_STORAGE_KEY = 'verwalter.dashboardReaderPlacement';
 
 interface PanelBounds {
   /** Standardbreite in Pixeln. */
@@ -20,6 +22,8 @@ export const PANEL_BOUNDS: Readonly<Record<PanelId, PanelBounds>> = {
   dashboardFolders: { initial: 210, min: 160 },
   dashboardReader: { initial: 430, min: 340 },
   implementationTimeline: { initial: 640, min: 380 },
+  /** Eine Höhe, keine Breite: der Lesebereich des Dashboards unter dem Postfach. */
+  dashboardReaderHeight: { initial: 320, min: 200 },
 };
 
 /** Klemmt auf `[min, max]`; ist `max < min`, gilt `min`. */
@@ -43,6 +47,7 @@ const NO_WIDTHS: PanelWidths = {
   dashboardFolders: null,
   dashboardReader: null,
   implementationTimeline: null,
+  dashboardReaderHeight: null,
 };
 
 /** Spiegel der Datenbank, den die Leisten beim ersten Rendern lesen — sonst springen sie beim Start von der Standardbreite. */
@@ -78,6 +83,7 @@ export function readRememberedPanelWidths(): PanelWidths {
       dashboardFolders: numberOrNull(record.dashboardFolders),
       dashboardReader: numberOrNull(record.dashboardReader),
       implementationTimeline: numberOrNull(record.implementationTimeline),
+      dashboardReaderHeight: numberOrNull(record.dashboardReaderHeight),
     };
   } catch {
     return NO_WIDTHS;
@@ -103,5 +109,23 @@ export function readRememberedCollapsedPanels(): PanelId[] {
       : [];
   } catch {
     return [];
+  }
+}
+
+/** Spiegel der Anordnung des Lesebereichs, gelesen beim ersten Rendern, damit er beim Start nicht von rechts nach unten springt. */
+export function rememberReaderPlacement(placement: ReaderPlacement): void {
+  try {
+    localStorage.setItem(READER_PLACEMENT_STORAGE_KEY, placement);
+  } catch (reason: unknown) {
+    console.error('Anordnung des Lesebereichs nicht gemerkt', reason);
+  }
+}
+
+/** Ein unbekannter oder fehlender Wert gilt als `right`. */
+export function readRememberedReaderPlacement(): ReaderPlacement {
+  try {
+    return localStorage.getItem(READER_PLACEMENT_STORAGE_KEY) === 'bottom' ? 'bottom' : 'right';
+  } catch {
+    return 'right';
   }
 }

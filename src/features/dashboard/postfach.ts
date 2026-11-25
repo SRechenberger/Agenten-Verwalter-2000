@@ -3,6 +3,7 @@
 // relativ aus Dateien, die selbst nur Typen importieren: `pnpm selftest` fährt `postfach.selftest.ts` direkt mit
 // Node.
 import { originText, taskLabel } from './dashboardTexts.ts';
+import type { DashboardFlow } from '../../lib/bindings/DashboardFlow.ts';
 import type { DashboardTask } from '../../lib/bindings/DashboardTask.ts';
 import type { DashboardTaskKind } from '../../lib/bindings/DashboardTaskKind.ts';
 import type { ProjectGroup } from '../../lib/bindings/ProjectGroup.ts';
@@ -87,6 +88,27 @@ export function folderTest(key: FolderKey): (task: DashboardTask) => boolean {
     return (task: DashboardTask): boolean => task.projectId === id;
   }
   return FOLDERS.find((folder: Folder) => folder.key === key)?.test ?? ((): boolean => true);
+}
+
+/** Der Name des gewählten Ordners, wie ihn die Ordnerspalte zeigt, für den Hinweis bei eingeklappter Spalte (Taiga 260).
+ *  `null` bei „Alles“ und bei einem Ordner, den es nicht mehr gibt. */
+export function folderName(
+  key: FolderKey,
+  projects: readonly ProjectSummary[],
+  flows: readonly DashboardFlow[],
+): string | null {
+  if (key === ALL_FOLDER) {
+    return null;
+  }
+  if (key.startsWith(IMPL_PREFIX)) {
+    const id: string = key.slice(IMPL_PREFIX.length);
+    return flows.find((flow: DashboardFlow) => flow.implementationId === id)?.name ?? null;
+  }
+  if (key.startsWith(PROJECT_PREFIX)) {
+    const id: string = key.slice(PROJECT_PREFIX.length);
+    return projects.find((project: ProjectSummary) => project.id === id)?.name ?? null;
+  }
+  return FOLDERS.find((folder: Folder) => folder.key === key)?.label ?? null;
 }
 
 /** Die Zahl am Ordner: alle seine Karten, auch die, die die Suche ausblendet. */

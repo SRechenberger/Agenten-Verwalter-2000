@@ -16,8 +16,8 @@ use crate::remote::server::DEFAULT_PORT as DEFAULT_REMOTE_PORT;
 use crate::session_tools::model::SelfRelease;
 use crate::skills::{self, model::SkillKind, model::SkillOrigin};
 use model::{
-    ColorScheme, OperatingMode, PanelId, PanelWidths, Settings, SettingsChange, SettingsOverview,
-    TerminalPlacement,
+    ColorScheme, OperatingMode, PanelId, PanelWidths, ReaderPlacement, Settings, SettingsChange,
+    SettingsOverview, TerminalPlacement,
 };
 
 const KEY_COLOR_SCHEME: &str = "color_scheme";
@@ -40,6 +40,7 @@ const KEY_MASTER_COMPACT_TOKENS: &str = "master_compact_tokens";
 /// JSON-Liste; fehlt der Schlüssel, gilt `DEFAULT_COMMAND_PROGRAMS` (ADR 073).
 const KEY_COMMAND_PROGRAMS: &str = "command_programs";
 const KEY_TERMINAL_PLACEMENT: &str = "terminal_placement";
+const KEY_DASHBOARD_READER_PLACEMENT: &str = "dashboard_reader_placement";
 const KEY_TERMINAL_HEIGHT: &str = "terminal_height";
 const KEY_TERMINAL_WIDTH: &str = "terminal_width";
 const KEY_REMOTE_ENABLED: &str = "remote_enabled";
@@ -69,11 +70,12 @@ fn panel_key(panel: PanelId) -> &'static str {
         PanelId::DashboardFolders => "panel_width.dashboard_folders",
         PanelId::DashboardReader => "panel_width.dashboard_reader",
         PanelId::ImplementationTimeline => "panel_width.implementation_timeline",
+        PanelId::DashboardReaderHeight => "panel_width.dashboard_reader_height",
     }
 }
 
 /// Alle Leisten in der Reihenfolge von `PanelId`.
-const ALL_PANELS: [PanelId; 8] = [
+const ALL_PANELS: [PanelId; 9] = [
     PanelId::Sidebar,
     PanelId::ChangesTree,
     PanelId::ArtifactsList,
@@ -82,6 +84,7 @@ const ALL_PANELS: [PanelId; 8] = [
     PanelId::DashboardFolders,
     PanelId::DashboardReader,
     PanelId::ImplementationTimeline,
+    PanelId::DashboardReaderHeight,
 ];
 
 /// Schlüssel der eingeklappten Leiste: `panel_collapsed.<Name wie in panel_width.*>`; fehlt er, ist sie offen.
@@ -95,6 +98,7 @@ fn collapsed_key(panel: PanelId) -> &'static str {
         PanelId::DashboardFolders => "panel_collapsed.dashboard_folders",
         PanelId::DashboardReader => "panel_collapsed.dashboard_reader",
         PanelId::ImplementationTimeline => "panel_collapsed.implementation_timeline",
+        PanelId::DashboardReaderHeight => "panel_collapsed.dashboard_reader_height",
     }
 }
 
@@ -134,8 +138,10 @@ pub const DEFAULT_SETTINGS: Settings = Settings {
         dashboard_folders: None,
         dashboard_reader: None,
         implementation_timeline: None,
+        dashboard_reader_height: None,
     },
     collapsed_panels: Vec::new(),
+    dashboard_reader_placement: ReaderPlacement::Right,
 };
 
 pub fn load(database: &Database) -> Result<Settings, CommandError> {
@@ -215,6 +221,7 @@ pub fn load(database: &Database) -> Result<Settings, CommandError> {
             dashboard_folders: stored_panel_width(&stored, PanelId::DashboardFolders),
             dashboard_reader: stored_panel_width(&stored, PanelId::DashboardReader),
             implementation_timeline: stored_panel_width(&stored, PanelId::ImplementationTimeline),
+            dashboard_reader_height: stored_panel_width(&stored, PanelId::DashboardReaderHeight),
         },
         collapsed_panels: ALL_PANELS
             .into_iter()
@@ -224,6 +231,11 @@ pub fn load(database: &Database) -> Result<Settings, CommandError> {
                     .is_some_and(|text| text == "true")
             })
             .collect(),
+        dashboard_reader_placement: stored_or(
+            &stored,
+            KEY_DASHBOARD_READER_PLACEMENT,
+            DEFAULT_SETTINGS.dashboard_reader_placement,
+        ),
     })
 }
 
@@ -346,6 +358,13 @@ pub fn update(database: &Database, change: SettingsChange) -> Result<Settings, C
             }
             SettingsChange::TerminalPlacement { value } => {
                 setting_rows::write(&transaction, KEY_TERMINAL_PLACEMENT, &enum_to_text(&value)?)?;
+            }
+            SettingsChange::DashboardReaderPlacement { value } => {
+                setting_rows::write(
+                    &transaction,
+                    KEY_DASHBOARD_READER_PLACEMENT,
+                    &enum_to_text(&value)?,
+                )?;
             }
             SettingsChange::TerminalHeight { value } => {
                 setting_rows::write(&transaction, KEY_TERMINAL_HEIGHT, &value.to_string())?;
@@ -521,7 +540,7 @@ mod tests {
     use std::path::Path;
 
     use super::load;
-    use super::model::{PanelId, SettingsChange};
+    use super::model::{PanelId, ReaderPlacement, SettingsChange};
     use super::update;
     use crate::db::Database;
 
@@ -531,6 +550,57 @@ mod tests {
             SettingsChange::PanelCollapsed { panel, collapsed },
         )
         .expect("speichern");
+    }
+
+    #[test]
+    fn the_reader_placement_survives_reload() {
+        let database = Database::open(Path::new(":memory:")).expect("Datenbank im Speicher");
+        assert_eq!(
+            load(&database).expect("laden").dashboard_reader_placement,
+            ReaderPlacement::Right
+        );
+        update(
+            &database,
+            SettingsChange::DashboardReaderPlacement {
+                value: ReaderPlacement::Bottom,
+            },
+        )
+        .expect("speichern");
+        assert_eq!(
+            load(&database).expect("laden").dashboard_reader_placement,
+            ReaderPlacement::Bottom
+        );
+    }
+
+    #[test]
+    fn the_reader_height_is_stored_like_a_width() {
+        let database = Database::open(Path::new(":memory:")).expect("Datenbank im Speicher");
+        let set = |value: Option<u32>| {
+            update(
+                &database,
+                SettingsChange::PanelWidth {
+                    panel: PanelId::DashboardReaderHeight,
+                    value,
+                },
+            )
+            .expect("speichern");
+        };
+        set(Some(280));
+        assert_eq!(
+            load(&database)
+                .expect("laden")
+                .panel_widths
+                .dashboard_reader_height,
+            Some(280)
+        );
+        set(None);
+        assert_eq!(
+            load(&database)
+                .expect("laden")
+                .panel_widths
+                .dashboard_reader_height,
+            None
+        );
     }
 
     #[test]
