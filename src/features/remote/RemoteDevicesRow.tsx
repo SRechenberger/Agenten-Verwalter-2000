@@ -49,25 +49,25 @@ export function RemoteDevicesRow(): ReactElement {
               guests.find((guest: ConnectedGuest) => guest.id === device.id)?.projectName ?? null,
             )}
           </span>
+          <label className="remote-row__create">
+            <span className="remote-row__muted">Neue Vorhaben</span>
+            <select
+              className="remote-row__select"
+              value={createValue(device)}
+              onChange={(event: ChangeEvent<HTMLSelectElement>): void => {
+                changeCreate(device, event.target.value);
+              }}
+            >
+              <option value="off">nicht erlaubt</option>
+              <option value="on">erlaubt, ohne Gruppe</option>
+              {groups.map((group: ProjectGroup) => (
+                <option key={group.id} value={`g:${group.id}`}>
+                  {`erlaubt, in „${group.name}“`}
+                </option>
+              ))}
+            </select>
+          </label>
         </span>
-        <label className="remote-row__create">
-          <span className="remote-row__muted">Neue Vorhaben</span>
-          <select
-            className="remote-row__select"
-            value={createValue(device)}
-            onChange={(event: ChangeEvent<HTMLSelectElement>): void => {
-              changeCreate(device, event.target.value);
-            }}
-          >
-            <option value="off">nicht erlaubt</option>
-            <option value="on">erlaubt, ohne Gruppe</option>
-            {groups.map((group: ProjectGroup) => (
-              <option key={group.id} value={`g:${group.id}`}>
-                {`erlaubt, in „${group.name}“`}
-              </option>
-            ))}
-          </select>
-        </label>
         <button
           type="button"
           className="settings-view__button remote-row__danger"
@@ -89,7 +89,13 @@ export function RemoteDevicesRow(): ReactElement {
             Noch kein Gerät gekoppelt. Die Einladung dafür erstellst du unter „Status“.
           </span>
         ) : (
-          <ul className="remote-row__list">{devices.map(renderDevice)}</ul>
+          <>
+            <ul className="remote-row__list">{devices.map(renderDevice)}</ul>
+            <span className="remote-row__muted">
+              „Neue Vorhaben“ erlaubt einem Gerät, auf diesem Rechner Vorhaben anzulegen. Sie landen
+              sofort bei ihm und in der gewählten Gruppe.
+            </span>
+          </>
         )}
         {error !== null && (
           <span className="remote-row__error" role="alert">

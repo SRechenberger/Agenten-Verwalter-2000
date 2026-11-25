@@ -44,7 +44,9 @@ import type { TemplateValues } from '@/features/prompttemplates/TemplateFields';
 import { TemplateMenu } from '@/features/prompttemplates/TemplateMenu';
 import { usePromptTemplates } from '@/features/prompttemplates/usePromptTemplates';
 import { useHostProfileOf } from '@/features/remote/useOperatingMode';
+import { deriveCreateTarget } from '@/features/remote/createTarget';
 import { useCreateTargets } from '@/features/remote/useCreateTargets';
+import { useRemoteStore } from '@/stores/remote';
 import { RepositoryPicker } from '@/features/repositories/RepositoryPicker';
 import { VoiceButton } from '@/features/voice/VoiceButton';
 import type { Attachment } from '@/lib/bindings/Attachment';
@@ -133,8 +135,14 @@ export function NewSession({ groups, onCreated, onCancel }: NewSessionProps): Re
   // „Anlegen auf“ (ADR 059, Nachtrag): `null` ist dieser Rechner, sonst die ID eines Hosts, der es erlaubt.
   const [chosenHostId, setChosenHostId] = useState<string | null>(null);
   const createTargets = useCreateTargets();
-  const target: RemoteHostStatus | null =
-    createTargets.allowed.find((host: RemoteHostStatus) => host.hostId === chosenHostId) ?? null;
+  const derived = deriveCreateTarget(chosenHostId, createTargets.allowed);
+  const target: RemoteHostStatus | null = derived.kind === 'host' ? derived.host : null;
+  // Die Wahl eines Hosts fällt nie still auf diesen Rechner zurück: Erlaubt er es nicht mehr, ist sie verloren.
+  const isTargetLost: boolean = derived.kind === 'lost';
+  const hostNames: RemoteHostStatus[] = useRemoteStore((state) => state.hosts);
+  const lostHostName: string =
+    hostNames.find((host: RemoteHostStatus) => host.hostId === chosenHostId)?.hostName ??
+    'Der Host';
   const hostProfile = useHostProfileOf(target?.hostId ?? null);
   const isRemote: boolean = target !== null;
   // Die Seite startet immer ohne Gruppe, auch aus einer Einstiegszeile.
@@ -187,7 +195,8 @@ export function NewSession({ groups, onCreated, onCancel }: NewSessionProps): Re
     (state) => state.owner === NEW_SESSION_OWNER && state.phase !== 'idle',
   );
   const isFormOpen: boolean = form !== null;
-  const canStart: boolean = text.trim() !== '' && !isStarting && !isDictating && !isFormOpen;
+  const canStart: boolean =
+    text.trim() !== '' && !isStarting && !isDictating && !isFormOpen && !isTargetLost;
   const hasTemplates: boolean = promptTemplates !== null && promptTemplates.length > 0;
   const currentMode = modeOption(mode);
   // Eine inzwischen gelöschte Gruppe zählt nicht mehr: das Vorhaben startet dann ohne Gruppe.
@@ -205,7 +214,7 @@ export function NewSession({ groups, onCreated, onCancel }: NewSessionProps): Re
     isSuppressed: isStarting || openMenu !== null || isFormOpen || isRemote,
     buttonScope: 'skills',
     slashScope: 'skills',
-    skillSource: { repositoryIds },
+    skillSource: { repositoryIds: isTargetLost ? [] : repositoryIds },
     session: null,
   });
 
@@ -395,46 +404,51 @@ export function NewSession({ groups, onCreated, onCancel }: NewSessionProps): Re
         <h1 className="new-session__title">Neues Vorhaben</h1>
       </header>
       <form className="new-session__form" onSubmit={handleSubmit}>
-        {(createTargets.allowed.length > 0 || createTargets.denied.length > 0) && (
+        {(createTargets.allowed.length > 0 || createTargets.denied.length > 0 || isTargetLost) && (
           <section className="new-session__section new-session__target">
             <div className="new-session__target-row">
               <span className="new-session__target-label" id="new-session-target">
                 Anlegen auf
               </span>
-              {createTargets.allowed.length > 0 && (
-                <div
-                  className="new-session__target-choices"
-                  role="radiogroup"
-                  aria-labelledby="new-session-target"
-                >
-                  {[null, ...createTargets.allowed].map(
-                    (host: RemoteHostStatus | null): ReactElement => {
-                      const isChosen: boolean = (host?.hostId ?? null) === (target?.hostId ?? null);
-                      return (
-                        <button
-                          key={host?.hostId ?? 'local'}
-                          type="button"
-                          role="radio"
-                          aria-checked={isChosen}
-                          className={`new-session__target-choice${isChosen ? ' new-session__target-choice--on' : ''}`}
-                          disabled={isStarting}
-                          onClick={(): void => {
-                            if (!isChosen) {
-                              setChosenHostId(host?.hostId ?? null);
-                              // Jede Seite hat ihre eigene Liste von Repositories.
-                              setRepositoryIds([]);
-                            }
-                          }}
-                        >
-                          {host?.hostName ?? THIS_COMPUTER}
-                        </button>
-                      );
-                    },
-                  )}
-                </div>
-              )}
+              <div
+                className="new-session__target-choices"
+                role="radiogroup"
+                aria-labelledby="new-session-target"
+              >
+                {[null, ...createTargets.allowed].map(
+                  (host: RemoteHostStatus | null): ReactElement => {
+                    const isChosen: boolean =
+                      !isTargetLost && (host?.hostId ?? null) === (target?.hostId ?? null);
+                    return (
+                      <button
+                        key={host?.hostId ?? 'local'}
+                        type="button"
+                        role="radio"
+                        aria-checked={isChosen}
+                        className={`new-session__target-choice${isChosen ? ' new-session__target-choice--on' : ''}`}
+                        disabled={isStarting}
+                        onClick={(): void => {
+                          if (!isChosen) {
+                            setChosenHostId(host?.hostId ?? null);
+                            // Jede Seite hat ihre eigene Liste von Repositories.
+                            setRepositoryIds([]);
+                          }
+                        }}
+                      >
+                        {host?.hostName ?? THIS_COMPUTER}
+                      </button>
+                    );
+                  },
+                )}
+              </div>
             </div>
-            {createTargets.denied.length > 0 && (
+            {isTargetLost && (
+              <p className="new-session__note" role="alert">
+                {lostHostName} erlaubt diesem Gerät gerade keine neuen Vorhaben. Wähle „
+                {THIS_COMPUTER}“, um hier anzulegen.
+              </p>
+            )}
+            {!isTargetLost && createTargets.denied.length > 0 && (
               <p className="new-session__note">
                 {createTargets.denied.map((host: RemoteHostStatus) => host.hostName).join(', ')}{' '}
                 erlaubt diesem Gerät nicht, Vorhaben anzulegen. Der Host erlaubt es in den
@@ -642,12 +656,14 @@ export function NewSession({ groups, onCreated, onCancel }: NewSessionProps): Re
               : 'Der erste Satz wird zum Namen des Vorhabens und seiner ersten Session (später per Rechtsklick änderbar), der ganze Text samt Anhängen zur ersten Nachricht an den Agenten.'}
           </p>
         </section>
-        <RepositoryPicker
-          key={target?.hostId ?? 'local'}
-          selectedIds={repositoryIds}
-          onChange={setRepositoryIds}
-          host={target === null ? null : { id: target.hostId, name: target.hostName }}
-        />
+        {!isTargetLost && (
+          <RepositoryPicker
+            key={target?.hostId ?? 'local'}
+            selectedIds={repositoryIds}
+            onChange={setRepositoryIds}
+            host={target === null ? null : { id: target.hostId, name: target.hostName }}
+          />
+        )}
         <section className="new-session__section">
           <div className="new-session__heading">
             <span className="new-session__step">3</span>
@@ -769,7 +785,7 @@ export function NewSession({ groups, onCreated, onCancel }: NewSessionProps): Re
         </section>
         <div className="new-session__footer">
           <button type="submit" className="new-session__start" disabled={!canStart}>
-            Vorhaben starten
+            {target === null ? 'Vorhaben starten' : `Auf ${target.hostName} anlegen`}
           </button>
           <button type="button" className="new-session__cancel" onClick={cancel}>
             Abbrechen
@@ -777,7 +793,7 @@ export function NewSession({ groups, onCreated, onCancel }: NewSessionProps): Re
           <span className="new-session__summary">
             {isStarting && repositoryIds.length > 0
               ? 'Session wird angelegt …'
-              : `${repositoryCountLabel(repositoryIds.length)} · ${isLocal ? localLabel : modelText} · ${currentMode.label}${group === null ? '' : ` · ${group.name}`}`}
+              : `${repositoryCountLabel(isTargetLost ? 0 : repositoryIds.length)} · ${isLocal ? localLabel : modelText} · ${currentMode.label}${group === null ? '' : ` · ${group.name}`}`}
           </span>
         </div>
         {isFormOpen && (
