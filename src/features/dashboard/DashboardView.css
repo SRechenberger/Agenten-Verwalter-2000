@@ -254,9 +254,30 @@
     border-bottom: 1px solid var(--color-border-subtle);
   }
 
+  /* Eigenes Kästchen statt des nativen: Das native ist in der WebView im Dunkeln weiß, `color-scheme` am Thema
+     (Prototyp) hilft dort nicht. */
   &__box {
+    appearance: none;
+    flex: none;
+    width: 14px;
+    height: 14px;
     margin: 0;
-    accent-color: var(--color-accent);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-flat);
+    background: var(--color-bg-base);
+    cursor: pointer;
+
+    &:checked,
+    &:indeterminate {
+      border-color: var(--color-accent);
+      background: var(--color-accent);
+      box-shadow: inset 0 0 0 3px var(--color-bg-base);
+    }
+
+    &:focus-visible {
+      outline: 2px solid var(--color-accent);
+      outline-offset: 1px;
+    }
   }
 
   &__search {

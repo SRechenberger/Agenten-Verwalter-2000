@@ -40,9 +40,14 @@
     gap: var(--space-xs);
     padding: var(--space-md) var(--space-lg);
     border: 1px solid var(--color-border-subtle);
-    border-radius: 0;
+    border-radius: var(--radius-flat);
     background: var(--color-bg-base);
     font-size: var(--font-size-xs);
+  }
+
+  /* Segmentknöpfe und Marke „Standard“ im Vorschlag flach (#236); die Picker anderswo bleiben unberührt. */
+  & .segment-group {
+    border-radius: var(--radius-flat);
   }
 }
 

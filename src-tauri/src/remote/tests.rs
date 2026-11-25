@@ -641,7 +641,7 @@ fn migration_37_adds_the_group_sharing_to_a_database_of_version_36() {
     let version: u32 = connection
         .query_row("PRAGMA user_version", [], |row| row.get(0))
         .expect("Version");
-    assert_eq!(version, 37);
+    assert_eq!(version, migrations::LATEST);
     assert!(
         remote_rows::shared_group_ids(&connection)
             .expect("lesbar")
