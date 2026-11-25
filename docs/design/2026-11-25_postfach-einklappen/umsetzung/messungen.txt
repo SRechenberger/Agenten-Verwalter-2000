@@ -1,0 +1,153 @@
+Probelauf postfach-einklappen (Taiga 260), Port 1475, Xvfb :175, Wegwerf-HOME, Attrappe ohne Modell; 2 Vorhaben, 6 Karten. Fenster 1440x900, Seitenleiste 256 px. Maße in px aus getBoundingClientRect.
+
+===== k1
+## start
+{"bottom": false, "folders": {"x": 256, "y": 48, "w": 210, "h": 852}, "list": {"x": 466, "y": 48, "w": 544, "h": 852}, "pane": {"x": 1010, "y": 48, "w": 430, "h": 852}, "hint": null, "toggles": [["Ordnerspalte", "true", "Ordnerspalte einklappen"], ["Lesebereich", "true", "Lesebereich einklappen"]]}
+## Ordnerspalte geklickt
+{"bottom": false, "folders": null, "list": {"x": 256, "y": 48, "w": 754, "h": 852}, "pane": {"x": 1010, "y": 48, "w": 430, "h": 852}, "hint": null, "toggles": [["Ordnerspalte", "false", "Ordnerspalte aufklappen"], ["Lesebereich", "true", "Lesebereich einklappen"]]}
+## Lesebereich geklickt
+{"bottom": false, "folders": null, "list": {"x": 256, "y": 48, "w": 1184, "h": 852}, "pane": null, "hint": null, "toggles": [["Ordnerspalte", "false", "Ordnerspalte aufklappen"], ["Lesebereich", "false", "Lesebereich aufklappen"]]}
+## Ordnerspalte geklickt
+{"bottom": false, "folders": {"x": 256, "y": 48, "w": 210, "h": 852}, "list": {"x": 466, "y": 48, "w": 974, "h": 852}, "pane": null, "hint": null, "toggles": [["Ordnerspalte", "true", "Ordnerspalte einklappen"], ["Lesebereich", "false", "Lesebereich aufklappen"]]}
+## Lesebereich geklickt
+{"bottom": false, "folders": {"x": 256, "y": 48, "w": 210, "h": 852}, "list": {"x": 466, "y": 48, "w": 544, "h": 852}, "pane": {"x": 1010, "y": 48, "w": 430, "h": 852}, "hint": null, "toggles": [["Ordnerspalte", "true", "Ordnerspalte einklappen"], ["Lesebereich", "true", "Lesebereich einklappen"]]}
+
+===== k2
+griff ordner 466 474
+griff lese 1010 474
+## nach Ziehen
+{"bottom": false, "folders": {"x": 256, "y": 48, "w": 250, "h": 852}, "list": {"x": 506, "y": 48, "w": 434, "h": 852}, "pane": {"x": 940, "y": 48, "w": 500, "h": 852}, "hint": null, "toggles": [["Ordnerspalte", "true", "Ordnerspalte einklappen"], ["Lesebereich", "true", "Lesebereich einklappen"]]}
+## beide eingeklappt
+{"bottom": false, "folders": null, "list": {"x": 256, "y": 48, "w": 1184, "h": 852}, "pane": null, "hint": null, "toggles": [["Ordnerspalte", "false", "Ordnerspalte aufklappen"], ["Lesebereich", "false", "Lesebereich aufklappen"]]}
+## beide aufgeklappt
+{"bottom": false, "folders": {"x": 256, "y": 48, "w": 250, "h": 852}, "list": {"x": 506, "y": 48, "w": 434, "h": 852}, "pane": {"x": 940, "y": 48, "w": 500, "h": 852}, "hint": null, "toggles": [["Ordnerspalte", "true", "Ordnerspalte einklappen"], ["Lesebereich", "true", "Lesebereich einklappen"]]}
+## localStorage
+{"verwalter.colorScheme": "light", "verwalter.collapsedPanels": "[]", "verwalter.dashboardReaderPlacement": "right", "verwalter.panelWidths": "{\"sidebar\":null,\"changesTree\":null,\"artifactsList\":null,\"background\":null,\"settingsNav\":null,\"dashboardFolders\":250,\"dashboardReader\":500,\"implementationTimeline\":null,\"dashboardReaderHeight\":null}"}
+## Datenbank
+[('panel_width.dashboard_folders', '250'), ('panel_width.dashboard_reader', '500')]
+
+===== k3
+## Dashboard, unten
+{"bottom": true, "folders": {"x": 256, "y": 48, "w": 250, "h": 852}, "list": {"x": 506, "y": 48, "w": 934, "h": 532}, "pane": {"x": 506, "y": 580, "w": 934, "h": 320}, "hint": null, "toggles": [["Ordnerspalte", "true", "Ordnerspalte einklappen"], ["Lesebereich", "true", "Lesebereich einklappen"]]}
+[{"aria-orientation": "horizontal", "title": "Ziehen: Höhe ändern · Doppelklick: Standardhöhe", "class": "resize-handle resize-handle--y"}]
+griff [{"x": 973, "y": 580, "l": 506, "t0": 580, "w": 934, "h": 0, "t": "", "aria": "Höhe des Lesebereichs"}]
+[{"cursor": "auto"}]
+## nach Ziehen um 40 px nach unten
+{"bottom": true, "folders": {"x": 256, "y": 48, "w": 250, "h": 852}, "list": {"x": 506, "y": 48, "w": 934, "h": 572}, "pane": {"x": 506, "y": 620, "w": 934, "h": 280}, "hint": null, "toggles": [["Ordnerspalte", "true", "Ordnerspalte einklappen"], ["Lesebereich", "true", "Lesebereich einklappen"]]}
+## nach Doppelklick
+{"bottom": true, "folders": {"x": 256, "y": 48, "w": 250, "h": 852}, "list": {"x": 506, "y": 48, "w": 934, "h": 532}, "pane": {"x": 506, "y": 580, "w": 934, "h": 320}, "hint": null, "toggles": [["Ordnerspalte", "true", "Ordnerspalte einklappen"], ["Lesebereich", "true", "Lesebereich einklappen"]]}
+## DB
+[]
+cursor ::before: [{"cursor": "row-resize", "height": "6px", "content": "\"\""}]
+cursor ::after: [{"cursor": "auto", "height": "2px", "content": "\"\""}]
+cursor Breiten-Griff before: [{"cursor": "col-resize", "width": "6px"}]
+
+===== k3-nachprobe
+Runde 1: nach Doppelklick 320, nach Zug +40 (Griff y=580): 316
+Runde 2: nach Doppelklick 320, nach Zug +40 (Griff y=580): 316
+Runde 3: nach Doppelklick 320, nach Zug +40 (Griff y=580): 316
+Zug -40 nach Pause 2 s: 320
+Start: pane h 320 folders w 250
+A x-Griff Doppelklick: pane h 320 folders w 210
+A x-Griff Zug +40: pane h 320 folders w 250
+B y-Griff Zug +40, vorher Maus oben: pane h 280 folders w 250
+B2 y-Griff Zug -40 direkt danach: pane h 320 folders w 250
+B3 y-Griff Zug -40, vorher Maus oben: pane h 360 folders w 250
+C nach Doppelklick: pane h 320
+C Zug +40 nach Klick ins Leere des Lesebereichs: pane h 280
+D Breite des Lesebereichs Runde 1: nach Doppelklick pane w 430 folders w 250; Zug -40 direkt danach: pane w 470 folders w 250
+D Breite des Lesebereichs Runde 2: nach Doppelklick pane w 430 folders w 250; Zug -40 direkt danach: pane w 470 folders w 250
+D Breite der Ordnerspalte Runde 1: nach Doppelklick pane w 430 folders w 210; Zug -40 direkt danach: pane w 430 folders w 170
+D Breite der Ordnerspalte Runde 2: nach Doppelklick pane w 430 folders w 210; Zug -40 direkt danach: pane w 430 folders w 170
+zurückgesetzt: pane w 500 folders w 250
+
+===== k4
+## vor Neustart
+{"bottom": true, "folders": {"x": 256, "y": 48, "w": 1184, "h": 852}, "list": {"x": 256, "y": 48, "w": 1184, "h": 536}, "pane": {"x": 256, "y": 584, "w": 1184, "h": 316}, "hint": null, "toggles": [["Ordnerspalte", "false", "Ordnerspalte aufklappen"], ["Lesebereich", "true", "Lesebereich einklappen"]]}
+{"verwalter.colorScheme": "light", "verwalter.collapsedPanels": "[\"dashboardFolders\"]", "verwalter.dashboardReaderPlacement": "bottom", "verwalter.panelWidths": "{\"sidebar\":null,\"changesTree\":null,\"artifactsList\":null,\"background\":null,\"settingsNav\":null,\"dashboardFolders\":250,\"dashboardReader\":500,\"implementationTimeline\":null,\"dashboardReaderHeight\":316}"}
+[('dashboard_reader_placement', 'bottom'), ('panel_collapsed.dashboard_folders', 'true'), ('panel_width.dashboard_folders', '250'), ('panel_width.dashboard_reader', '500'), ('panel_width.dashboard_reader_height', '316')]
+app 706139 beendet
+app pgid 710313
+## nach Neustart: Zeitleiste ab Laden des Treibers
+{"timeline":[{"ms":2272,"bottom":true,"folders":{"x":256,"y":48,"w":1184,"h":852},"list":{"x":256,"y":48,"w":1184,"h":536},"pane":{"x":256,"y":584,"w":1184,"h":316},"hint":null,"toggles":[["Ordnerspalte","false","Ordnerspalte aufklappen"],["Lesebereich","true","Lesebereich einklappen"]]}]}
+## nach Neustart
+{"bottom": true, "folders": {"x": 256, "y": 48, "w": 1184, "h": 852}, "list": {"x": 256, "y": 48, "w": 1184, "h": 536}, "pane": {"x": 256, "y": 584, "w": 1184, "h": 316}, "hint": null, "toggles": [["Ordnerspalte", "false", "Ordnerspalte aufklappen"], ["Lesebereich", "true", "Lesebereich einklappen"]]}
+# Runde 2
+Höhe 316, ziehe um 36
+## vor Neustart
+{"bottom": true, "folders": {"x": 256, "y": 48, "w": 1184, "h": 852}, "list": {"x": 256, "y": 48, "w": 1184, "h": 572}, "pane": {"x": 256, "y": 620, "w": 1184, "h": 280}, "hint": null, "toggles": [["Ordnerspalte", "false", "Ordnerspalte aufklappen"], ["Lesebereich", "true", "Lesebereich einklappen"]]}
+{"verwalter.colorScheme": "light", "verwalter.dashboardReaderPlacement": "bottom", "verwalter.collapsedPanels": "[\"dashboardFolders\"]", "verwalter.panelWidths": "{\"sidebar\":null,\"changesTree\":null,\"artifactsList\":null,\"background\":null,\"settingsNav\":null,\"dashboardFolders\":250,\"dashboardReader\":500,\"implementationTimeline\":null,\"dashboardReaderHeight\":280}"}
+[('dashboard_reader_placement', 'bottom'), ('panel_collapsed.dashboard_folders', 'true'), ('panel_width.dashboard_folders', '250'), ('panel_width.dashboard_reader', '500'), ('panel_width.dashboard_reader_height', '280')]
+app 710313 beendet
+app pgid 711732
+## nach Neustart: Zeitleiste ab Laden des Treibers
+{"timeline":[{"ms":2370,"bottom":true,"folders":null,"list":{"x":256,"y":48,"w":1184,"h":572},"pane":{"x":256,"y":620,"w":1184,"h":280},"hint":null,"toggles":[["Ordnerspalte","false","Ordnerspalte aufklappen"],["Lesebereich","true","Lesebereich einklappen"]]}]}
+## nach Neustart
+{"bottom": true, "folders": null, "list": {"x": 256, "y": 48, "w": 1184, "h": 572}, "pane": {"x": 256, "y": 620, "w": 1184, "h": 280}, "hint": null, "toggles": [["Ordnerspalte", "false", "Ordnerspalte aufklappen"], ["Lesebereich", "true", "Lesebereich einklappen"]]}
+
+===== k5
+## Ordner Kundenportal gewählt, Spalte offen
+["Dashboard\n6\nOrdnerspalte\nLesebereich\n"]
+3 Zeilen: ['', '', '']
+## Ordnerspalte eingeklappt
+["Dashboard\n6\nOrdner: Kundenportal migrieren\nOrdnerspalte\nLesebereich\n"]
+3 Zeilen: ['', '', '']
+## Ordner Alles, Spalte eingeklappt
+["Dashboard\n6\nOrdnerspalte\nLesebereich\n"]
+6 Zeilen: ['', '', '', '', '', '']
+
+===== k6
+## unten, Lesebereich zu, ▸ an Zeile 2
+{"selected": "session:…", "selRow": "▸ |  | Blockiert | #3 Rechte abgleichen · Kundenportal migrieren | 22 min | Ohne Zugang zu", "expanded": ["session:…"], "checked": 0, "focus": "BUTTON.postfach__toggle ", "reader": null}
+["Soll die alte Tabelle archiviert oder gelöscht werden?\n\nSession öffnen\nGelesen\nSenden\n▴ Zuklappen\n"]
+["Session öffnen", "Gelesen", "Senden", "▴ Zuklappen"]
+
+===== k7
+# Anordnung unten, Lesebereich offen: {"bottom": true, "folders": {"x": 256, "
+Start (Fokus frei) → {"selected": "session:…", "selRow": "▸ |  | Blockiert | #3 Rechte abgleichen · Kundenportal migrieren | 23 min | Ohne Zugang zu", "expanded": [], "checked": 0, "focus": "BODY. ", "reader": "Blockiert · der Agent kommt ohne dich nicht weiter ✓ vom Agenten gemeldet\nOhne Z"}
+Pfeil runter → {"selected": "session:…", "selRow": "▸ |  | Fragt | #1 Datenbank umziehen · Kundenportal migrieren | 11 min | Soll die alte Tab", "expanded": [], "checked": 0, "focus": "BODY. ", "reader": "Fragt ✓ vom Agenten gemeldet\nSoll die alte Tabelle archiviert oder gelöscht werd"}
+j → {"selected": "session:…", "selRow": "▸ |  | Bittet | #3 Literatur · Vortrag vorbereiten | 33 min | Bitte lade die PDF der Studi", "expanded": [], "checked": 0, "focus": "BODY. ", "reader": "Bittet ✓ vom Agenten gemeldet\nBitte lade die PDF der Studie in den Ordner quelle"}
+Pfeil hoch → {"selected": "session:…", "selRow": "▸ |  | Fragt | #1 Datenbank umziehen · Kundenportal migrieren | 11 min | Soll die alte Tab", "expanded": [], "checked": 0, "focus": "BODY. ", "reader": "Fragt ✓ vom Agenten gemeldet\nSoll die alte Tabelle archiviert oder gelöscht werd"}
+o → {"selected": "session:…", "selRow": "▾ |  | Fragt | #1 Datenbank umziehen · Kundenportal migrieren | 11 min | Soll die alte Tab", "expanded": ["session:…"], "checked": 0, "focus": "BODY. ", "reader": "Fragt ✓ vom Agenten gemeldet\nSoll die alte Tabelle archiviert oder gelöscht werd"}
+o (zu) → {"selected": "session:…", "selRow": "▸ |  | Fragt | #1 Datenbank umziehen · Kundenportal migrieren | 11 min | Soll die alte Tab", "expanded": [], "checked": 0, "focus": "BODY. ", "reader": "Fragt ✓ vom Agenten gemeldet\nSoll die alte Tabelle archiviert oder gelöscht werd"}
+Pfeil rechts → {"selected": "session:…", "selRow": "▾ |  | Fragt | #1 Datenbank umziehen · Kundenportal migrieren | 11 min | Soll die alte Tab", "expanded": ["session:…"], "checked": 0, "focus": "BODY. ", "reader": "Fragt ✓ vom Agenten gemeldet\nSoll die alte Tabelle archiviert oder gelöscht werd"}
+Pfeil links → {"selected": "session:…", "selRow": "▸ |  | Fragt | #1 Datenbank umziehen · Kundenportal migrieren | 11 min | Soll die alte Tab", "expanded": [], "checked": 0, "focus": "BODY. ", "reader": "Fragt ✓ vom Agenten gemeldet\nSoll die alte Tabelle archiviert oder gelöscht werd"}
+x → {"selected": "session:…", "selRow": "▸ |  | Fragt | #1 Datenbank umziehen · Kundenportal migrieren | 11 min | Soll die alte Tab", "expanded": [], "checked": 1, "focus": "BODY. ", "reader": "Fragt ✓ vom Agenten gemeldet\nSoll die alte Tabelle archiviert oder gelöscht werd"}
+Pfeil runter, x → {"selected": "session:…", "selRow": "▸ |  | Bittet | #3 Literatur · Vortrag vorbereiten | 33 min | Bitte lade die PDF der Studi", "expanded": [], "checked": 2, "focus": "BODY. ", "reader": "Bittet ✓ vom Agenten gemeldet\nBitte lade die PDF der Studie in den Ordner quelle"}
+x, Pfeil hoch, x (abwählen) → {"selected": "session:…", "selRow": "▸ |  | Fragt | #1 Datenbank umziehen · Kundenportal migrieren | 11 min | Soll die alte Tab", "expanded": [], "checked": 0, "focus": "BODY. ", "reader": "Fragt ✓ vom Agenten gemeldet\nSoll die alte Tabelle archiviert oder gelöscht werd"}
+r → {"selected": "session:…", "selRow": "▸ |  | Fragt | #1 Datenbank umziehen · Kundenportal migrieren | 11 min | Soll die alte Tab", "expanded": [], "checked": 0, "focus": "TEXTAREA.popup-input Antwort …", "reader": "Fragt ✓ vom Agenten gemeldet\nSoll die alte Tabelle archiviert oder gelöscht werd"}
+Esc → {"selected": "session:…", "selRow": "▸ |  | Fragt | #1 Datenbank umziehen · Kundenportal migrieren | 11 min | Soll die alte Tab", "expanded": [], "checked": 0, "focus": "BODY. ", "reader": "Fragt ✓ vom Agenten gemeldet\nSoll die alte Tabelle archiviert oder gelöscht werd"}
+Enter → {"selected": "session:…", "selRow": "▸ |  | Fragt | #1 Datenbank umziehen · Kundenportal migrieren | 11 min | Soll die alte Tab", "expanded": [], "checked": 0, "focus": "TEXTAREA.popup-input Antwort …", "reader": "Fragt ✓ vom Agenten gemeldet\nSoll die alte Tabelle archiviert oder gelöscht werd"}
+Esc → {"selected": "session:…", "selRow": "▸ |  | Fragt | #1 Datenbank umziehen · Kundenportal migrieren | 11 min | Soll die alte Tab", "expanded": [], "checked": 0, "focus": "BODY. ", "reader": "Fragt ✓ vom Agenten gemeldet\nSoll die alte Tabelle archiviert oder gelöscht werd"}
+# Anordnung rechts, Lesebereich offen: {"bottom": false, "folders": {"x": 256, 
+Start (Fokus frei) → {"selected": "session:…", "selRow": "▸ |  | Fragt | #1 Datenbank umziehen · Kundenportal migrieren | 11 min | Soll die alte Tab", "expanded": [], "checked": 0, "focus": "BODY. ", "reader": "Fragt ✓ vom Agenten gemeldet\nSoll die alte Tabelle archiviert oder gelöscht werd"}
+Pfeil runter → {"selected": "session:…", "selRow": "▸ |  | Bittet | #3 Literatur · Vortrag vorbereiten | 33 min | Bitte lade die PDF der Studi", "expanded": [], "checked": 0, "focus": "BODY. ", "reader": "Bittet ✓ vom Agenten gemeldet\nBitte lade die PDF der Studie in den Ordner quelle"}
+j → {"selected": "session:…", "selRow": "▸ |  | Zum Ansehen | #1 Folien gliedern · Vortrag vorbereiten | 13 min | Gliederung steht,", "expanded": [], "checked": 0, "focus": "BODY. ", "reader": "Zum Ansehen ✓ vom Agenten gemeldet\nGliederung steht, bitte ansehen\n#1 Folien gli"}
+Pfeil hoch → {"selected": "session:…", "selRow": "▸ |  | Bittet | #3 Literatur · Vortrag vorbereiten | 33 min | Bitte lade die PDF der Studi", "expanded": [], "checked": 0, "focus": "BODY. ", "reader": "Bittet ✓ vom Agenten gemeldet\nBitte lade die PDF der Studie in den Ordner quelle"}
+o → {"selected": "session:…", "selRow": "▾ |  | Bittet | #3 Literatur · Vortrag vorbereiten | 33 min | Bitte lade die PDF der Studi", "expanded": ["session:…"], "checked": 0, "focus": "BODY. ", "reader": "Bittet ✓ vom Agenten gemeldet\nBitte lade die PDF der Studie in den Ordner quelle"}
+o (zu) → {"selected": "session:…", "selRow": "▸ |  | Bittet | #3 Literatur · Vortrag vorbereiten | 33 min | Bitte lade die PDF der Studi", "expanded": [], "checked": 0, "focus": "BODY. ", "reader": "Bittet ✓ vom Agenten gemeldet\nBitte lade die PDF der Studie in den Ordner quelle"}
+Pfeil rechts → {"selected": "session:…", "selRow": "▾ |  | Bittet | #3 Literatur · Vortrag vorbereiten | 33 min | Bitte lade die PDF der Studi", "expanded": ["session:…"], "checked": 0, "focus": "BODY. ", "reader": "Bittet ✓ vom Agenten gemeldet\nBitte lade die PDF der Studie in den Ordner quelle"}
+Pfeil links → {"selected": "session:…", "selRow": "▸ |  | Bittet | #3 Literatur · Vortrag vorbereiten | 33 min | Bitte lade die PDF der Studi", "expanded": [], "checked": 0, "focus": "BODY. ", "reader": "Bittet ✓ vom Agenten gemeldet\nBitte lade die PDF der Studie in den Ordner quelle"}
+x → {"selected": "session:…", "selRow": "▸ |  | Bittet | #3 Literatur · Vortrag vorbereiten | 33 min | Bitte lade die PDF der Studi", "expanded": [], "checked": 1, "focus": "BODY. ", "reader": "Bittet ✓ vom Agenten gemeldet\nBitte lade die PDF der Studie in den Ordner quelle"}
+Pfeil runter, x → {"selected": "session:…", "selRow": "▸ |  | Zum Ansehen | #1 Folien gliedern · Vortrag vorbereiten | 13 min | Gliederung steht,", "expanded": [], "checked": 2, "focus": "BODY. ", "reader": "Zum Ansehen ✓ vom Agenten gemeldet\nGliederung steht, bitte ansehen\n#1 Folien gli"}
+x, Pfeil hoch, x (abwählen) → {"selected": "session:…", "selRow": "▸ |  | Bittet | #3 Literatur · Vortrag vorbereiten | 33 min | Bitte lade die PDF der Studi", "expanded": [], "checked": 0, "focus": "BODY. ", "reader": "Bittet ✓ vom Agenten gemeldet\nBitte lade die PDF der Studie in den Ordner quelle"}
+r → {"selected": "session:…", "selRow": "▸ |  | Bittet | #3 Literatur · Vortrag vorbereiten | 33 min | Bitte lade die PDF der Studi", "expanded": [], "checked": 0, "focus": "TEXTAREA.popup-input Antwort …", "reader": "Bittet ✓ vom Agenten gemeldet\nBitte lade die PDF der Studie in den Ordner quelle"}
+Esc → {"selected": "session:…", "selRow": "▸ |  | Bittet | #3 Literatur · Vortrag vorbereiten | 33 min | Bitte lade die PDF der Studi", "expanded": [], "checked": 0, "focus": "BODY. ", "reader": "Bittet ✓ vom Agenten gemeldet\nBitte lade die PDF der Studie in den Ordner quelle"}
+Enter → {"selected": "session:…", "selRow": "▸ |  | Bittet | #3 Literatur · Vortrag vorbereiten | 33 min | Bitte lade die PDF der Studi", "expanded": [], "checked": 0, "focus": "TEXTAREA.popup-input Antwort …", "reader": "Bittet ✓ vom Agenten gemeldet\nBitte lade die PDF der Studie in den Ordner quelle"}
+Esc → {"selected": "session:…", "selRow": "▸ |  | Bittet | #3 Literatur · Vortrag vorbereiten | 33 min | Bitte lade die PDF der Studi", "expanded": [], "checked": 0, "focus": "BODY. ", "reader": "Bittet ✓ vom Agenten gemeldet\nBitte lade die PDF der Studie in den Ordner quelle"}
+# Anordnung rechts, Lesebereich zu
+Pfeil runter → {"selected": "session:…", "selRow": "▸ |  | Zum Ansehen | #1 Folien gliedern · Vortrag vorbereiten | 13 min | Gliederung steht,", "expanded": [], "checked": 0, "focus": "BODY. ", "reader": null}
+r ohne aufgeklappte Zeile → {"selected": "session:…", "selRow": "▸ |  | Zum Ansehen | #1 Folien gliedern · Vortrag vorbereiten | 13 min | Gliederung steht,", "expanded": [], "checked": 0, "focus": "BODY. ", "reader": null}
+Pfeil rechts → {"selected": "session:…", "selRow": "▾ |  | Zum Ansehen | #1 Folien gliedern · Vortrag vorbereiten | 13 min | Gliederung steht,", "expanded": ["session:…"], "checked": 0, "focus": "BODY. ", "reader": null}
+r → {"selected": "session:…", "selRow": "▾ |  | Zum Ansehen | #1 Folien gliedern · Vortrag vorbereiten | 13 min | Gliederung steht,", "expanded": ["session:…"], "checked": 0, "focus": "TEXTAREA.popup-input Antwort …", "reader": null}
+Esc, Enter → {"selected": "session:…", "selRow": "▾ |  | Zum Ansehen | #1 Folien gliedern · Vortrag vorbereiten | 13 min | Gliederung steht,", "expanded": ["session:…"], "checked": 0, "focus": "TEXTAREA.popup-input Antwort …", "reader": null}
+
+===== k8-unten
+## offen
+{"bottom": true, "folders": {"x": 256, "y": 48, "w": 250, "h": 852}, "list": {"x": 506, "y": 48, "w": 934, "h": 572}, "pane": {"x": 506, "y": 620, "w": 934, "h": 280}, "hint": null, "toggles": [["Ordnerspalte", "true", "Ordnerspalte einklappen"], ["Lesebereich", "true", "Lesebereich einklappen"]]}
+## ordner-zu
+{"bottom": true, "folders": null, "list": {"x": 256, "y": 48, "w": 1184, "h": 572}, "pane": {"x": 256, "y": 620, "w": 1184, "h": 280}, "hint": null, "toggles": [["Ordnerspalte", "false", "Ordnerspalte aufklappen"], ["Lesebereich", "true", "Lesebereich einklappen"]]}
+## beides-zu
+{"bottom": true, "folders": null, "list": {"x": 256, "y": 48, "w": 1184, "h": 852}, "pane": null, "hint": null, "toggles": [["Ordnerspalte", "false", "Ordnerspalte aufklappen"], ["Lesebereich", "false", "Lesebereich aufklappen"]]}
+## lesebereich-zu
+{"bottom": true, "folders": {"x": 256, "y": 48, "w": 250, "h": 852}, "list": {"x": 506, "y": 48, "w": 934, "h": 852}, "pane": null, "hint": null, "toggles": [["Ordnerspalte", "true", "Ordnerspalte einklappen"], ["Lesebereich", "false", "Lesebereich aufklappen"]]}
