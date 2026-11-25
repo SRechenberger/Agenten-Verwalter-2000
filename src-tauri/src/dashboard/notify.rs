@@ -101,9 +101,10 @@ pub fn parse(arguments: &Value) -> Result<Call, String> {
     if let Some(questions) = questions {
         return questions_of(questions).map(Call::Ask);
     }
-    if kind == AnswerKind::Review && link.as_deref().is_none_or(str::is_empty) {
+    if kind == AnswerKind::Review && !link.as_deref().is_some_and(is_link) {
         return Err(
-            "review braucht link: einen Pfad im Reiter Artefakte oder eine https-Adresse."
+            "review braucht link: einen Pfad im Reiter Artefakte (ohne Leerzeichen) oder eine \
+             Adresse mit https://."
                 .to_owned(),
         );
     }
@@ -113,6 +114,12 @@ pub fn parse(arguments: &Value) -> Result<Call, String> {
         offer: offer.filter(|text: &String| !text.is_empty()),
         link: link.filter(|text: &String| !text.is_empty()),
     }))
+}
+
+/// V2: eine Adresse mit `https://` oder ein Pfad ohne Leerzeichen; `http://` und Sätze sind keine Verweise.
+fn is_link(link: &str) -> bool {
+    link.starts_with("https://")
+        || !(link.is_empty() || link.contains(char::is_whitespace) || link.contains("://"))
 }
 
 fn present<'a>(arguments: &'a Value, field: &str) -> Option<&'a Value> {
@@ -315,6 +322,23 @@ mod tests {
             parse(&json!({"kind": "done", "line": "x", "link": "a"})).expect_err("abgelehnt"),
             "link gibt es nur bei review."
         );
+    }
+
+    #[test]
+    fn a_review_link_is_a_https_address_or_a_path_without_spaces() {
+        for bad in ["siehe PR 12", "http://example.com/x", "ftp://x"] {
+            let error = parse(&json!({"kind": "review", "line": "x", "link": bad})).expect_err(bad);
+            assert!(
+                error.contains("https://") && error.contains("Pfad"),
+                "{error}"
+            );
+        }
+        for good in ["https://example.com/x", ".artefakte/x.html"] {
+            assert!(
+                parse(&json!({"kind": "review", "line": "x", "link": good})).is_ok(),
+                "{good}"
+            );
+        }
     }
 
     #[test]
