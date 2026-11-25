@@ -7,6 +7,7 @@ import {
   canDismiss,
   entriesOf,
   folderCount,
+  folderName,
   groupProjects,
   implementationFolder,
   isUnread,
@@ -474,6 +475,17 @@ const CASES: { name: string; actual: () => unknown; expected: unknown }[] = [
     name: 'remote_title_names_the_host',
     actual: () => remoteTitle('Annas Laptop'),
     expected: 'Entfernt: Host „Annas Laptop“',
+  },
+  {
+    name: 'folder_name_is_the_one_the_folder_column_shows_and_empty_for_all',
+    actual: () =>
+      [
+        folderName('all', [project('p1', null)], []),
+        folderName('halt', [], []),
+        folderName(projectFolder('p1'), [project('p1', null)], []),
+        folderName(projectFolder('weg'), [project('p1', null)], []),
+      ].join('|'),
+    expected: '|Hält Agenten an|p1|',
   },
 ];
 

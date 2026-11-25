@@ -31,6 +31,7 @@ import { RemotePortRow } from '@/features/remote/RemotePortRow';
 import { RemoteStatusRow } from '@/features/remote/RemoteStatusRow';
 import { useKnownRepositories } from '@/features/repositories/useKnownRepositories';
 import { ColorSchemeSegment } from '@/features/settings/ColorSchemeSegment';
+import { ReaderPlacementSegment } from '@/features/settings/ReaderPlacementSegment';
 import { TerminalPlacementSegment } from '@/features/settings/TerminalPlacementSegment';
 import { LocalModelMenu } from '@/features/settings/LocalModelMenu';
 import { CommandProgramsRow } from '@/features/settings/CommandProgramsRow';
@@ -323,6 +324,17 @@ export function SettingsView({
               value={current.terminalPlacement}
               onChange={(placement): void => {
                 save({ kind: 'terminalPlacement', value: placement }).catch(() => undefined);
+              }}
+            />
+          </SettingRow>
+        );
+      case 'dashboardReaderPlacement':
+        return (
+          <SettingRow id={id}>
+            <ReaderPlacementSegment
+              value={current.dashboardReaderPlacement}
+              onChange={(placement): void => {
+                save({ kind: 'dashboardReaderPlacement', value: placement }).catch(() => undefined);
               }}
             />
           </SettingRow>

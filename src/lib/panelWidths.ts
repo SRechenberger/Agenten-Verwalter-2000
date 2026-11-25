@@ -20,6 +20,8 @@ export const PANEL_BOUNDS: Readonly<Record<PanelId, PanelBounds>> = {
   dashboardFolders: { initial: 210, min: 160 },
   dashboardReader: { initial: 430, min: 340 },
   implementationTimeline: { initial: 640, min: 380 },
+  /** Eine Höhe, keine Breite: der Lesebereich des Dashboards unter dem Postfach. */
+  dashboardReaderHeight: { initial: 320, min: 200 },
 };
 
 /** Klemmt auf `[min, max]`; ist `max < min`, gilt `min`. */
@@ -43,6 +45,7 @@ const NO_WIDTHS: PanelWidths = {
   dashboardFolders: null,
   dashboardReader: null,
   implementationTimeline: null,
+  dashboardReaderHeight: null,
 };
 
 /** Spiegel der Datenbank, den die Leisten beim ersten Rendern lesen — sonst springen sie beim Start von der Standardbreite. */
@@ -78,6 +81,7 @@ export function readRememberedPanelWidths(): PanelWidths {
       dashboardFolders: numberOrNull(record.dashboardFolders),
       dashboardReader: numberOrNull(record.dashboardReader),
       implementationTimeline: numberOrNull(record.implementationTimeline),
+      dashboardReaderHeight: numberOrNull(record.dashboardReaderHeight),
     };
   } catch {
     return NO_WIDTHS;

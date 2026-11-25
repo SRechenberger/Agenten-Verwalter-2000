@@ -3,4 +3,4 @@
 /**
  * Gezogene Breite je Leiste in Pixeln; `None` = Standardbreite der Oberfläche.
  */
-export type PanelWidths = { sidebar: number | null, changesTree: number | null, artifactsList: number | null, background: number | null, settingsNav: number | null, dashboardFolders: number | null, dashboardReader: number | null, implementationTimeline: number | null, };
+export type PanelWidths = { sidebar: number | null, changesTree: number | null, artifactsList: number | null, background: number | null, settingsNav: number | null, dashboardFolders: number | null, dashboardReader: number | null, implementationTimeline: number | null, dashboardReaderHeight: number | null, };

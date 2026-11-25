@@ -60,6 +60,17 @@
     color: var(--color-fg-muted);
   }
 
+  &__folder-hint {
+    color: var(--color-fg-secondary);
+    font-size: var(--font-size-xs);
+  }
+
+  /* Die zwei Knöpfe stehen rechts in der Kopfzeile. */
+  &__panel-toggles {
+    margin-left: auto;
+    flex-shrink: 0;
+  }
+
   &__error {
     margin: 0;
     color: var(--color-status-error);
@@ -625,6 +636,24 @@
     outline: 0;
   }
 
+  /* Lesebereich unter dem Postfach: rechts der Ordnerspalte eine Spalte mit Liste oben und Lesebereich unten. */
+  &__rightcol {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 0;
+    box-sizing: border-box;
+    /* Gleich dem min-width der Liste. */
+    min-width: 320px;
+    min-height: 0;
+
+    & > .postfach__listcol {
+      /* Gleich der Mindesthöhe der Liste im Griff (ResizeHandle misst sie an der Füllfläche). */
+      min-height: 160px;
+      min-width: 0;
+      border-right: 0;
+    }
+  }
+
   /* Lesebereich */
   &__pane {
     box-sizing: border-box;
@@ -637,6 +666,14 @@
     min-height: 0;
     padding: var(--space-xl) var(--space-2xl) var(--space-3xl);
     overflow: auto;
+  }
+
+  &__pane--bottom {
+    flex-shrink: 1;
+    min-width: 0;
+    /* Gleich PANEL_BOUNDS.dashboardReaderHeight.min. */
+    min-height: 200px;
+    border-top: 1px solid var(--color-border-subtle);
   }
 
   &__reader {

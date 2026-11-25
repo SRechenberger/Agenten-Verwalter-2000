@@ -4,11 +4,18 @@ import './ResizeHandle.css';
 
 const KEY_STEP = 16;
 const RESIZING_CLASS = 'resizing';
-const HANDLE_TITLE = 'Ziehen: Breite ändern · Doppelklick: Standardbreite';
+const RESIZING_Y_CLASS = 'resizing-y';
+const HANDLE_TITLES = {
+  x: 'Ziehen: Breite ändern · Doppelklick: Standardbreite',
+  y: 'Ziehen: Höhe ändern · Doppelklick: Standardhöhe',
+} as const;
 
 interface ResizeHandleProps {
   /** Kante, an der die Leiste wächst: `end` = Griff rechts von ihr, `start` = links von ihr. */
   edge: 'start' | 'end';
+  /** Richtung des Ziehens: `x` ändert die Breite (Standard), `y` die Höhe; `start` ist dann der Griff über der Leiste. */
+  axis?: 'x' | 'y';
+  /** Größe der Leiste in Pixeln entlang der Achse (Breite bei `x`, Höhe bei `y`). */
   width: number;
   min: number;
   onResize: (width: number) => void;
@@ -20,7 +27,7 @@ interface ResizeHandleProps {
 
 interface DragState {
   pointerId: number;
-  startX: number;
+  startPos: number;
   startWidth: number;
   max: number;
   hasMoved: boolean;
@@ -28,14 +35,20 @@ interface DragState {
 
 /** Die Füllfläche neben der Leiste (`data-resize-fill`) schrumpft bis auf ihr `min-width` (sonst bis auf null);
  *  Leiste plus Füllfläche minus dieses Minimum ergibt die Obergrenze. Gelesen beim Anfassen, nicht beim Rendern. */
-function measureMax(handle: HTMLElement, edge: 'start' | 'end', fallback: number): number {
-  return measurePanel(handle, edge, fallback).max;
+function measureMax(
+  handle: HTMLElement,
+  edge: 'start' | 'end',
+  axis: 'x' | 'y',
+  fallback: number,
+): number {
+  return measurePanel(handle, edge, axis, fallback).max;
 }
 
 /** Tatsächliche Breite der Leiste (die CSS-Regel kann sie unter die gemerkte Breite drücken) und ihre Obergrenze. */
 function measurePanel(
   handle: HTMLElement,
   edge: 'start' | 'end',
+  axis: 'x' | 'y',
   fallback: number,
 ): { current: number; max: number } {
   const panel: Element | null =
@@ -46,15 +59,17 @@ function measurePanel(
   if (!(panel instanceof HTMLElement) || !(fill instanceof HTMLElement)) {
     return { current: fallback, max: fallback };
   }
-  const fillMin: number = parseFloat(getComputedStyle(fill).minWidth) || 0;
-  return {
-    current: panel.offsetWidth,
-    max: Math.max(panel.offsetWidth, panel.offsetWidth + fill.offsetWidth - fillMin),
-  };
+  const isY: boolean = axis === 'y';
+  const size: number = isY ? panel.offsetHeight : panel.offsetWidth;
+  const fillSize: number = isY ? fill.offsetHeight : fill.offsetWidth;
+  const fillMin: number =
+    parseFloat(isY ? getComputedStyle(fill).minHeight : getComputedStyle(fill).minWidth) || 0;
+  return { current: size, max: Math.max(size, size + fillSize - fillMin) };
 }
 
 export function ResizeHandle({
   edge,
+  axis = 'x',
   width,
   min,
   onResize,
@@ -70,16 +85,16 @@ export function ResizeHandle({
 
   useEffect(() => {
     return (): void => {
-      document.documentElement.classList.remove(RESIZING_CLASS);
+      document.documentElement.classList.remove(RESIZING_CLASS, RESIZING_Y_CLASS);
     };
   }, []);
 
   // `aria-valuemax` folgt der Füllfläche; sie ändert sich mit dem Fenster, also bei jeder Breite neu messen.
   useEffect(() => {
     if (handleRef.current !== null) {
-      setMax(measureMax(handleRef.current, edge, width));
+      setMax(measureMax(handleRef.current, edge, axis, width));
     }
-  }, [edge, width]);
+  }, [edge, axis, width]);
 
   function clamp(value: number, limit: number): number {
     return Math.max(min, Math.min(value, limit));
@@ -90,16 +105,17 @@ export function ResizeHandle({
       return;
     }
     event.currentTarget.setPointerCapture(event.pointerId);
-    const measured = measurePanel(event.currentTarget, edge, width);
+    const measured = measurePanel(event.currentTarget, edge, axis, width);
     dragRef.current = {
       pointerId: event.pointerId,
-      startX: event.clientX,
+      startPos: axis === 'y' ? event.clientY : event.clientX,
       startWidth: measured.current,
       max: measured.max,
       hasMoved: false,
     };
     lastWidthRef.current = measured.current;
     document.documentElement.classList.add(RESIZING_CLASS);
+    document.documentElement.classList.toggle(RESIZING_Y_CLASS, axis === 'y');
     setIsActive(true);
   }
 
@@ -108,7 +124,7 @@ export function ResizeHandle({
     if (drag === null || drag.pointerId !== event.pointerId) {
       return;
     }
-    const delta: number = event.clientX - drag.startX;
+    const delta: number = (axis === 'y' ? event.clientY : event.clientX) - drag.startPos;
     const nextWidth: number = clamp(
       edge === 'end' ? drag.startWidth + delta : drag.startWidth - delta,
       drag.max,
@@ -126,7 +142,7 @@ export function ResizeHandle({
       return;
     }
     dragRef.current = null;
-    document.documentElement.classList.remove(RESIZING_CLASS);
+    document.documentElement.classList.remove(RESIZING_CLASS, RESIZING_Y_CLASS);
     setIsActive(false);
     // Ein Klick ohne Bewegung ist der halbe Doppelklick und speichert nichts.
     if (drag.hasMoved) {
@@ -135,11 +151,13 @@ export function ResizeHandle({
   }
 
   function handleKeyDown(event: KeyboardEvent<HTMLDivElement>): void {
-    const limit: number = measureMax(event.currentTarget, edge, width);
+    const limit: number = measureMax(event.currentTarget, edge, axis, width);
     let nextWidth: number;
-    if (event.key === 'ArrowRight') {
+    const growKey: string = axis === 'y' ? 'ArrowDown' : 'ArrowRight';
+    const shrinkKey: string = axis === 'y' ? 'ArrowUp' : 'ArrowLeft';
+    if (event.key === growKey) {
       nextWidth = width + (edge === 'end' ? KEY_STEP : -KEY_STEP);
-    } else if (event.key === 'ArrowLeft') {
+    } else if (event.key === shrinkKey) {
       nextWidth = width + (edge === 'end' ? -KEY_STEP : KEY_STEP);
     } else if (event.key === 'Home') {
       nextWidth = min;
@@ -166,15 +184,15 @@ export function ResizeHandle({
   return (
     <div
       ref={handleRef}
-      className={`resize-handle${isActive ? ' resize-handle--active' : ''}`}
+      className={`resize-handle${axis === 'y' ? ' resize-handle--y' : ''}${isActive ? ' resize-handle--active' : ''}`}
       role="separator"
-      aria-orientation="vertical"
+      aria-orientation={axis === 'y' ? 'horizontal' : 'vertical'}
       aria-label={label}
       aria-valuenow={width}
       aria-valuemin={min}
       aria-valuemax={Math.max(min, max)}
       tabIndex={0}
-      title={HANDLE_TITLE}
+      title={HANDLE_TITLES[axis]}
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={handleDragEnd}
