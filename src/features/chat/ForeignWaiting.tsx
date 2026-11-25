@@ -25,8 +25,7 @@ export function ForeignWaiting({ sessionId, sessions }: ForeignWaitingProps): Re
         <SessionMessage
           key={message.id}
           sessionId={sessionId}
-          // Der Text bleibt dem Empfänger bis zur Zustellung verborgen: `inbox_list` trägt ihn nicht.
-          text=""
+          text={message.text}
           sender={{
             id: message.senderId,
             number: message.senderNumber,

@@ -8487,6 +8487,29 @@ mod tests {
     }
 
     #[test]
+    fn inbox_list_carries_the_text_of_the_waiting_message() {
+        use crate::agents::event::SessionRef;
+        let base = temp_base("inbox-text");
+        let (registry, session) = registry_with_full_limit(&base);
+        let sender = SessionRef {
+            id: "m".to_owned(),
+            number: 1,
+            title: "Master".to_owned(),
+        };
+        session
+            .database
+            .with(|connection| {
+                session_inbox::insert(connection, "q", &sender, "Bitte prüfen", 0, 1.0)
+            })
+            .expect("eingefügt");
+        assert_eq!(
+            registry.inbox_list().expect("Liste")[0].text,
+            "Bitte prüfen"
+        );
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    #[test]
     fn inbox_changed_reports_an_insert_and_a_delete_once_each() {
         use crate::agents::event::SessionRef;
         let base = temp_base("inbox-changed");

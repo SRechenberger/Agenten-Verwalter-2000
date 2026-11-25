@@ -81,6 +81,7 @@ function waiting(fields: Partial<WaitingMessage>): WaitingMessage {
     senderTitle: 'Quelle',
     fromUser: false,
     subject: null,
+    text: '',
     createdAt: 0,
     entrySeq: null,
     waitsFor: 'turnEnd',

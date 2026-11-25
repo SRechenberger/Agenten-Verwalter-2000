@@ -524,6 +524,7 @@ fn waiting_in_two_projects() -> Vec<WaitingMessage> {
         sender_title: "Absender".to_owned(),
         from_user: false,
         subject: Some("Betreff".to_owned()),
+        text: "Text".to_owned(),
         created_at: 0.0,
         entry_seq: None,
         waits_for: WaitsFor::TurnEnd,

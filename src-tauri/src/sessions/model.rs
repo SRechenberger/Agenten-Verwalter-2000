@@ -187,6 +187,9 @@ pub struct WaitingMessage {
     /// Betreff einer Nachricht, die über eine Referenz zugestellt wird.
     #[serde(default)]
     pub subject: Option<String>,
+    /// Der Text der Nachricht; der Chat des Empfängers zeigt ihn gestrichelt, bis sie zugestellt ist.
+    #[serde(default)]
+    pub text: String,
     #[ts(type = "number")]
     pub created_at: f64,
     /// Der Eintrag im Chat einer eigenen Nachricht; fremde haben keinen.

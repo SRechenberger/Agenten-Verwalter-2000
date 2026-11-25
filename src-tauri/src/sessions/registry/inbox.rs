@@ -82,6 +82,7 @@ impl SessionRegistry {
                 sender_number: row.sender.number,
                 sender_title: row.sender.title,
                 subject: row.subject,
+                text: row.text,
                 created_at: row.created_at,
                 entry_seq: row.entry_seq,
                 waits_for,

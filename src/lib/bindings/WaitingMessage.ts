@@ -9,7 +9,11 @@ export type WaitingMessage = { id: number, sessionId: string, recipientNumber: n
 /**
  * Betreff einer Nachricht, die über eine Referenz zugestellt wird.
  */
-subject: string | null, createdAt: number, 
+subject: string | null, 
+/**
+ * Der Text der Nachricht; der Chat des Empfängers zeigt ihn gestrichelt, bis sie zugestellt ist.
+ */
+text: string, createdAt: number, 
 /**
  * Der Eintrag im Chat einer eigenen Nachricht; fremde haben keinen.
  */

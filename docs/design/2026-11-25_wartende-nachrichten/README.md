@@ -14,6 +14,4 @@
 - **N8 Popover** der Warteschlange: Reiter „Plätze“ (wie bisher) und „Nachrichten“ (Von → An, Betreff, Grund, seit). Je Host ein Abschnitt.
 - **N9 Gast.** Er verwirft in übernommenen Vorhaben (`chat_discard_queued`, Klasse C); `inbox_list` ist Klasse F und gefiltert wie `agent_queue`.
 
-## Abweichung vom Prototyp
-
-`WaitingMessage` (Vertrag V3) trägt keinen Text. Die fremde wartende Nachricht zeigt deshalb Absender, Betreff und Marke, aber nicht den Text, den der Prototyp zeigt.
+`WaitingMessage` trägt den Text (`text`), damit N6 ihn zeigt; der Reiter „Nachrichten“ zeigt ihn nicht.
