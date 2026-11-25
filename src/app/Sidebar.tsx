@@ -812,6 +812,20 @@ export function Sidebar({
     return owner !== undefined && isRemote(owner.access);
   }
 
+  // Ein Klick tauscht den Knopf aus; der Fokus folgt auf den Gegenknopf (Strg+B lässt ihn).
+  const toggleButtonRef = useRef<HTMLButtonElement>(null);
+  const focusToggleRef = useRef(false);
+  useEffect(() => {
+    if (focusToggleRef.current) {
+      focusToggleRef.current = false;
+      toggleButtonRef.current?.focus();
+    }
+  }, [isMinimized]);
+  function toggleFromButton(): void {
+    focusToggleRef.current = true;
+    onToggleMinimized();
+  }
+
   function rowClassName(row: SidebarRow | undefined): string {
     const isDropTarget: boolean = row !== undefined && row.dropGroup === dropTarget;
     const isDragged: boolean = dragged !== null && row?.key === `project:${dragged.id}`;
@@ -828,7 +842,8 @@ export function Sidebar({
           className="sidebar__tool"
           aria-label="Seitenleiste aufklappen (Strg+B)"
           title="Seitenleiste aufklappen (Strg+B)"
-          onClick={onToggleMinimized}
+          ref={toggleButtonRef}
+          onClick={toggleFromButton}
         >
           {PANEL_ICON}
         </button>
@@ -896,7 +911,7 @@ export function Sidebar({
           )}
           {needsEnvironmentAttention && (
             <span
-              className="sidebar__settings-dot sidebar__settings-dot--environment sidebar__tool-dot sidebar__tool-dot--second"
+              className={`sidebar__settings-dot sidebar__settings-dot--environment sidebar__tool-dot${hasAppUpdate ? ' sidebar__tool-dot--second' : ''}`}
               role="img"
               aria-label="Umgebung braucht Aufmerksamkeit"
             />
@@ -929,7 +944,8 @@ export function Sidebar({
           className="sidebar__tool"
           aria-label="Seitenleiste minimieren (Strg+B)"
           title="Seitenleiste minimieren (Strg+B)"
-          onClick={onToggleMinimized}
+          ref={toggleButtonRef}
+          onClick={toggleFromButton}
         >
           {PANEL_ICON}
         </button>
