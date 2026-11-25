@@ -12,6 +12,7 @@ pub const GET_SESSIONS: &str = "verwalter_get_sessions";
 pub const GET_TLDR: &str = "verwalter_get_session_tldr";
 pub const READ_MESSAGE: &str = "verwalter_read_message";
 pub const NOTIFY_USER: &str = "verwalter_notify_user";
+pub const COMPACT_READY: &str = "verwalter_compact_ready";
 /// Längster Betreff einer Nachricht (ADR 072).
 pub const MAX_SUBJECT_CHARS: usize = 120;
 
@@ -148,6 +149,14 @@ impl ToolSet for SessionTools {
                     "required": ["kind", "line"],
                 }),
             },
+            ToolSpec {
+                name: COMPACT_READY,
+                description: "Meldet dem Verwalter, dass du dich auf /compact vorbereitet hast, nachdem er \
+                    dich darum gebeten hat. Sichere vorher, was du nach dem Compact brauchst. Der Compact \
+                    folgt, wenn dein Zug endet. Ohne Bitte des Verwalters antwortet das Werkzeug, dass gerade \
+                    kein Compact ansteht.",
+                input_schema: json!({ "type": "object", "properties": {} }),
+            },
         ]
     }
 
@@ -209,6 +218,9 @@ fn handle(call: &ToolCall) -> ToolReply {
         READ_MESSAGE => registry.tool_read_message(call.session_id, &text(arguments, "reference")?),
         GET_TLDR => registry.tool_get_tldr(app, call, &text(arguments, "session_id")?),
         NOTIFY_USER => registry.tool_notify_user(app, call),
+        COMPACT_READY => registry
+            .tool_compact_ready(app, call.session_id)
+            .map(Value::String),
         other => Err(format!("Unbekanntes Werkzeug: {other}")),
     }
 }

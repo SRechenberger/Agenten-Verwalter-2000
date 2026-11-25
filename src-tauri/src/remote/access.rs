@@ -93,6 +93,8 @@ const TABLE: &[(Class, Option<IdKind>, &[&str])] = &[
             "chat_send",
             "chat_send_now",
             "chat_discard_queued",
+            "chat_compact_now",
+            "chat_compact_abort",
             "chat_answer",
             "dashboard_dismiss",
             "dashboard_undismiss",

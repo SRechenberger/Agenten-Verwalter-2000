@@ -6,6 +6,7 @@ import { StatusIcon } from '@/components/StatusIcon';
 import { TwinFoldersIcon } from '@/components/TwinFoldersIcon';
 import { formatDuration } from '@/features/background/backgroundLabels';
 import { useNow } from '@/features/background/useNow';
+import { compactPhaseOf } from '@/features/chat/compactTexts';
 import { messageWaitShort, messageWaitText } from '@/features/queue/queueTexts';
 import type { DisplayStatus } from '@/features/sessions/sessionStatus';
 import type { SessionSummary } from '@/lib/bindings/SessionSummary';
@@ -105,6 +106,16 @@ export function SidebarItem({
         {status === 'script' && session.awaitedScript !== null && (
           <span className="sidebar-item__clock" title={session.awaitedScript.title}>
             {formatDuration(now - session.awaitedScript.startedAt)}
+          </span>
+        )}
+        {compactPhaseOf(session) !== null && (
+          <span
+            className="sidebar-item__compact"
+            role="img"
+            aria-label="Compact in Arbeit"
+            title="Compact in Arbeit: Nachrichten an diese Session warten, bis er fertig ist"
+          >
+            ⧗ Compact
           </span>
         )}
         {messageWait !== null && (

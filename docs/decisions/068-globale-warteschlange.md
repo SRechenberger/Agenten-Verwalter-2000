@@ -136,3 +136,7 @@ Anlass: Das Kontingent war von 10:42 bis 13:30 leer, und der Balken zeigte „4/
 ### Nachtrag 2026-11-25: Wartende Nachrichten sichtbar (Taiga Story 218)
 
 Die Liste der Warteschlange hat zwei Reiter: „Plätze“ (wie bisher) und „Nachrichten“ mit jeder Zeile aus `session_inbox` (Von → An, Betreff, Grund, seit), auch für Sessions, die laufen, fragen oder pausiert sind. `QueueEntry` bleibt unverändert; die Nachrichten kommen aus `inbox_list`. Eine eigene wartende Nachricht lässt sich verwerfen. Siehe [ADR 078](078-wartende-nachrichten.md).
+
+### Nachtrag 2026-11-25: Compact sperrt den Empfang (Taiga #215)
+
+Steht ein Master im Compact mit Vorbereitung ([ADR 070](070-master-session.md), Nachtrag), nimmt der Durchgang keine Nachricht an ihn ab: `waiters` lässt `takes_oldest` und `takes_user_messages` für ihn aus, und `inbox_list` nennt als Grund `compact`. Nach der Meldung steht die Session selbst als Wartende der Art `Resume` in der Warteschlange (Vorrang eines Fortsetzens, E3), weil der Compact-Zug einen Platz braucht und nicht mehr entfallen soll; die Erinnerung nach einem Zug ohne Meldung geht denselben Weg. Fällt die Sperre, folgt ein Durchgang, der die wartenden Nachrichten abholt: eigene zusammen (Story 190), fremde je Zugende.

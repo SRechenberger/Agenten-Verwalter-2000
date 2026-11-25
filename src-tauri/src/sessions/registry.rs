@@ -79,8 +79,8 @@ use crate::review::{
 use crate::session_tools::model::SelfRelease;
 use crate::sessions::auto_resume::{self, ArmedResume};
 use crate::sessions::model::{
-    AwaitedScript, ChatEntryEvent, ChatPage, HandoffLine, PauseReason, SendOutcome, SessionOverlap,
-    SessionStatus, SessionSummary, WaitingMessage,
+    AwaitedScript, ChatEntryEvent, ChatPage, CompactPhase, HandoffLine, PauseReason, SendOutcome,
+    SessionOverlap, SessionStatus, SessionSummary, WaitingMessage,
 };
 use crate::sessions::{MAX_NAME_CHARS, handoff, name_from_task};
 use crate::settings;
@@ -113,6 +113,8 @@ mod side;
 mod terminal;
 mod tldr;
 
+/// Die Texte der Bitte und der Erinnerung; die Probe `compact-probe` misst genau sie (ADR 070, Nachtrag).
+pub use self::compact::{READY_REPLY, REMINDER_TEXT, request_text};
 use self::implementation::ReportUpdate;
 pub use self::inbox::INBOX_CHANGED_EVENT;
 pub use self::queue::{AGENT_QUEUE_CHANGED_EVENT, schedule_pass};
@@ -137,6 +139,11 @@ const MAX_LOG_LINES: usize = 300;
 const MAX_LOG_LINE_CHARS: usize = 500;
 const MAX_HISTORY_PAGE: u32 = 500;
 const RESUME_MESSAGE: &str = "Mach weiter.";
+
+/// Der Text des Fortsetzens, von Hand oder mit „Automatisch fortsetzen“.
+fn is_resume_text(text: &str) -> bool {
+    text == RESUME_MESSAGE || text == auto_resume::RESUME_TEXT
+}
 const EMPTY_MESSAGE: &str = "Leere Nachricht: Text, Anhang oder Kommentar fehlt.";
 const PLAN_NEEDS_TASK: &str = "„Plane Vorhaben“ braucht einen Auftrag.";
 const PLAN_NEEDS_CLAUDE: &str = "„Plane Vorhaben“ gibt es nur in der Betriebsart „Claude“: Nur dort \
@@ -340,6 +347,9 @@ struct SessionState {
     /// Die laufende Eingabe des Benutzers ist nur `/compact` (Knopf oder getippt): keine Antwort;
     /// nur im Speicher.
     compact_by_hand: bool,
+    /// Der Master-Compact mit Vorbereitung läuft (ADR 070, Nachtrag „Compact mit Vorbereitung“): Solange
+    /// es eine Phase gibt, geht keine Nachricht in die Session. Nur im Speicher.
+    compact_phase: Option<CompactPhase>,
     /// Modell, auf das Claude ausgewichen ist, bis der User wählt oder der Agent neu startet;
     /// nur im Speicher.
     fallback_model: Option<String>,
@@ -605,6 +615,9 @@ struct Outbox {
     /// Ein Zug endete abgeschlossen: nach dem Freigeben der Sperre prüft ein Thread, ob die Session
     /// `/compact` bekommt (ADR 070).
     compact: bool,
+    /// Die Phase des Compacts hat gewechselt: Die wartenden Nachrichten der Session nennen einen neuen
+    /// Grund (`waitsFor`), also meldet die Registry `inbox://changed`, auch ohne Durchgang.
+    inbox_changed: bool,
 }
 
 /// Modell, Codex-Modell und Denkaufwand einer neuen Session (Taiga 47): die Einstellungen. Ein
@@ -1530,7 +1543,7 @@ impl SessionRegistry {
                     .plan_guard
                     .as_ref()
                     .is_some_and(|guard: &PlanGuard| !guard.called);
-                if !is_waiting || !state.rests() {
+                if !is_waiting || !state.rests() || state.compact_locked() {
                     return Ok(());
                 }
                 start_turn(
@@ -1678,6 +1691,19 @@ impl SessionRegistry {
                     state.push_user(outbox, text, Vec::new(), skill, Vec::new(), device);
                     return Ok(());
                 }
+                // Die übrigen Wege (Plan, Station, Erinnerung) gehen nie hinein; nur das Fortsetzen einer
+                // pausierten Session, mit dem sich der Compact fortsetzt (`send_resume`).
+                if route == InputRoute::Start
+                    && compact::refuses_start(
+                        state.compact_locked(),
+                        state.status,
+                        is_resume_text(text),
+                    )
+                {
+                    return Err(CommandError::Implementation(
+                        compact::COMPACT_LOCKED.to_owned(),
+                    ));
+                }
                 if route == InputRoute::Queue {
                     queue_user_turn(
                         &attachments::staging_dir(app)?,
@@ -1785,7 +1811,29 @@ impl SessionRegistry {
         if status != SessionStatus::Paused {
             return Ok(());
         }
-        self.send(app, session_id, RESUME_MESSAGE, &[], &[], None)
+        self.send_resume(app, session_id, RESUME_MESSAGE)
+    }
+
+    /// Fortsetzen einer pausierten Session, von Hand oder mit dem Zeitgeber. Pausierte der Compact in der
+    /// Phase `Ready` oder `Compacting`, nimmt der Compact-Zug den Faden wieder auf (Zustandsdiagramm,
+    /// „Fortsetzen nach der Meldung“); davor geht der Fortsetz-Text wie sonst.
+    pub(crate) fn send_resume(
+        &self,
+        app: &AppHandle,
+        session_id: &str,
+        text: &str,
+    ) -> Result<(), CommandError> {
+        let session = self.get(session_id)?;
+        let compacts = session
+            .lock()
+            .compact_phase
+            .is_some_and(CompactPhase::is_after_report);
+        if compacts {
+            self.start_phase_turn(app, &session)
+                .map(|_started: bool| ())
+        } else {
+            self.send(app, session_id, text, &[], &[], None)
+        }
     }
 
     pub fn cancel(&self, app: &AppHandle, session_id: &str) -> Result<(), CommandError> {
@@ -2733,6 +2781,7 @@ impl SessionState {
             compact_seq: None,
             compact_turn: false,
             compact_by_hand: false,
+            compact_phase: None,
             fallback_model: None,
             last_total_cost: 0.0,
             context_breakdown: None,
@@ -3315,6 +3364,10 @@ impl SessionState {
             self.pause_reason = None;
         }
         self.fresh_error = status == SessionStatus::Error;
+        // Ein Fehler oder Abbruch beendet den Compact: Die Sperre geht weg (ADR 070, Nachtrag).
+        if matches!(status, SessionStatus::Error | SessionStatus::Cancelled) {
+            self.compact_phase = None;
+        }
         if matches!(
             status,
             SessionStatus::Completed
@@ -4148,6 +4201,12 @@ impl SessionState {
                 // Der Benutzer wollte pausieren: der gewöhnliche Pausenweg, er setzt den Merker zurück.
                 if self.pause_requested {
                     self.pause_after_interrupt(outbox);
+                } else if let (Some(_), TurnEnd::QuotaExhausted { text, resets_at }, true) =
+                    (self.compact_phase, &end, self.is_claude_process())
+                {
+                    // Im Compact mit Vorbereitung hält das Kontingent die Session an, die Sperre bleibt;
+                    // Fortsetzen nimmt den Compact wieder auf (ADR 070, Nachtrag).
+                    self.pause_for_quota(outbox, text.clone(), *resets_at);
                 } else {
                     self.end_failed_compact(outbox, &reason);
                 }
@@ -4182,6 +4241,8 @@ impl SessionState {
             // Der Zug des Verwalters ist keine Antwort: nichts einordnen, nichts ungelesen machen,
             // keine Prüfung des Wächters, kein weiterer Compact (ADR 070).
             TurnEnd::Completed if was_compact => {
+                // Fertig: Die Sperre geht weg, ein Durchgang spielt die wartenden Nachrichten ein.
+                self.compact_phase = None;
                 let (last_activity_at, seen_at) = (self.last_activity_at, self.seen_at);
                 self.set_status(outbox, SessionStatus::Completed);
                 self.last_activity_at = last_activity_at;
@@ -4591,7 +4652,15 @@ fn update<R>(
     let result = {
         let mut state = session.lock_loaded()?;
         let held_slot = state.holds_slot();
+        let held_phase = state.compact_phase;
         let result = change(&mut state, &mut outbox);
+        // Der Wechsel in oder aus der Sperre ändert, worauf die Nachrichten warten; fällt die Sperre,
+        // folgt ein Durchgang, der sie einspielt (ADR 070, Nachtrag).
+        if held_phase != state.compact_phase {
+            outbox.summary_dirty = true;
+            outbox.inbox_changed = true;
+            outbox.slots_changed |= state.compact_phase.is_none();
+        }
         // Vorher und nachher, nicht je Statuswechsel: Auch ein endender Subagent oder ein
         // ausgeschalteter Zeitgeber gibt einen Platz frei (ADR 068).
         outbox.slots_changed |= held_slot != state.holds_slot();
@@ -4613,6 +4682,11 @@ fn update<R>(
         result
     };
     outbox.emit(app, session);
+    if outbox.inbox_changed
+        && let Some(registry) = app.try_state::<SessionRegistry>()
+    {
+        registry.announce_inbox_if_changed(app);
+    }
     if let Some(names) = outbox.slash_commands.take()
         && let Err(error) = skills::builtin::remember_claude_commands(&session.database, &names)
     {
@@ -4804,6 +4878,7 @@ fn summarize(session: &Session, state: &SessionState) -> SessionSummary {
         } else {
             state.status
         },
+        compact_phase: state.compact_phase,
         awaiting_subagent,
         model: state.model,
         codex_model: state.codex_model.clone(),
@@ -5096,6 +5171,10 @@ fn route_input(
     let Some(claimed) = claimed else {
         return Ok(InputRoute::Start);
     };
+    // Im Compact mit Vorbereitung wartet jede neue Nachricht, bis er fertig ist (ADR 070, Nachtrag).
+    if state.compact_locked() {
+        return Ok(InputRoute::Queue);
+    }
     let has_waiting = session
         .database
         .with(|connection| session_inbox::oldest_from_user(connection, &session.id))?
@@ -9026,5 +9105,728 @@ mod tests {
         assert_eq!(state.card_dismissed_at, Some(50.0));
         state.undismiss_card();
         assert_eq!(state.card_dismissed_at, None, "kein Vorwert mehr gemerkt");
+    }
+
+
+    // ----- Compact mit Vorbereitung (ADR 070, Nachtrag; Taiga-Story 215) -----
+
+    fn in_phase(phase: CompactPhase) -> SessionState {
+        let mut state = state();
+        state.status = SessionStatus::Completed;
+        state.compact_phase = Some(phase);
+        state
+    }
+
+    fn last_note(state: &SessionState) -> Option<&str> {
+        match state.entries.last() {
+            Some(ChatEntry::Notice {
+                notice: Notice::Info { text },
+                ..
+            }) => Some(text.as_str()),
+            _ => None,
+        }
+    }
+
+    /// Ein Zug der Session in der Phase: Er läuft und endet wie `end_turn`.
+    fn end_with(state: &mut SessionState, end: TurnEnd) -> Outbox {
+        let mut outbox = Outbox::default();
+        state.end_turn(&mut outbox, end, None, Vec::new(), None);
+        outbox
+    }
+
+    #[test]
+    fn the_request_names_the_limit_in_groups_and_the_full_tool_name() {
+        assert_eq!(
+            compact::request_text(150_000),
+            "Du bist über dem Limit von 150 000 Tokens Kontext. Bereite dich auf /compact vor und melde dich mit einem Aufruf von mcp__verwalter__verwalter_compact_ready beim Verwalter zurück."
+        );
+        assert!(compact::request_text(50_000).contains("Limit von 50 000 Tokens"));
+        assert!(compact::request_text(2_000_000).contains("Limit von 2 000 000 Tokens"));
+        assert!(compact::request_text(999).contains("Limit von 999 Tokens"));
+        assert!(compact::REMINDER_TEXT.contains("mcp__verwalter__verwalter_compact_ready"));
+    }
+
+    #[test]
+    fn normal_to_preparation_when_a_resting_master_is_over_the_limit_and_the_request_is_out() {
+        assert!(compact::wanted(&compact_facts()));
+        let mut state = state();
+        state.status = SessionStatus::Completed;
+        assert!(!state.compact_locked(), "vor der Bitte ist nichts gesperrt");
+        state.begin_preparation();
+        assert_eq!(state.compact_phase, Some(CompactPhase::Preparing));
+        assert!(state.compact_locked());
+    }
+
+    #[test]
+    fn no_second_preparation_while_the_session_is_in_the_compact() {
+        let registry = registry_with_one_slot();
+        let session = registry.get("m").expect("Session");
+        session.lock().context_used = 10;
+        let decide = || {
+            let state = session.lock();
+            compact::decide_under_lock(&session, &state, true, Some(1), OperatingMode::Claude)
+                .expect("Prüfung")
+        };
+        assert!(decide());
+        for phase in [
+            CompactPhase::Preparing,
+            CompactPhase::Reminded,
+            CompactPhase::Ready,
+            CompactPhase::Compacting,
+        ] {
+            session.lock().compact_phase = Some(phase);
+            assert!(!decide(), "{phase:?}: keine zweite Bitte");
+        }
+    }
+
+    #[test]
+    fn preparation_to_ready_when_the_agent_calls_compact_ready() {
+        let mut state = in_phase(CompactPhase::Preparing);
+        let mut outbox = Outbox::default();
+        assert_eq!(state.call_compact_ready(&mut outbox), compact::READY_REPLY);
+        assert_eq!(state.compact_phase, Some(CompactPhase::Ready));
+        assert!(outbox.summary_dirty);
+    }
+
+    #[test]
+    fn reminded_to_ready_when_the_agent_calls_compact_ready() {
+        let mut state = in_phase(CompactPhase::Reminded);
+        assert_eq!(
+            state.call_compact_ready(&mut Outbox::default()),
+            compact::READY_REPLY
+        );
+        assert_eq!(state.compact_phase, Some(CompactPhase::Ready));
+    }
+
+    #[test]
+    fn compact_ready_outside_the_preparation_says_no_compact_is_due() {
+        let mut outbox = Outbox::default();
+        assert_eq!(
+            state().call_compact_ready(&mut outbox),
+            "Gerade steht kein Compact an."
+        );
+        let mut compacting = in_phase(CompactPhase::Compacting);
+        assert_eq!(
+            compacting.call_compact_ready(&mut outbox),
+            "Gerade steht kein Compact an."
+        );
+        assert_eq!(compacting.compact_phase, Some(CompactPhase::Compacting));
+    }
+
+    #[test]
+    fn preparation_to_reminded_when_the_turn_ends_without_a_report() {
+        use compact::{Step, step_after_turn};
+        assert_eq!(
+            step_after_turn(CompactPhase::Preparing, true, false),
+            Step::Remind
+        );
+        let mut state = in_phase(CompactPhase::Preparing);
+        state.begin_reminder(&mut Outbox::default());
+        assert_eq!(state.compact_phase, Some(CompactPhase::Reminded));
+        assert_eq!(last_note(&state), Some("Zug beendet ohne Meldung"));
+    }
+
+    #[test]
+    fn reminded_to_compact_when_the_second_turn_ends_without_a_report() {
+        use compact::{Step, step_after_turn};
+        assert_eq!(
+            step_after_turn(CompactPhase::Reminded, true, false),
+            Step::Compact
+        );
+        let mut state = in_phase(CompactPhase::Reminded);
+        state.begin_compacting(&mut Outbox::default());
+        assert_eq!(state.compact_phase, Some(CompactPhase::Compacting));
+        assert_eq!(
+            last_note(&state),
+            Some("Wieder keine Meldung – der Verwalter fasst trotzdem zusammen")
+        );
+    }
+
+    #[test]
+    fn ready_to_compact_when_the_turn_ends_and_a_slot_is_free() {
+        use compact::{Step, step_after_turn};
+        assert_eq!(
+            step_after_turn(CompactPhase::Ready, true, false),
+            Step::Compact
+        );
+        let mut state = in_phase(CompactPhase::Ready);
+        state.begin_compacting(&mut Outbox::default());
+        assert_eq!(state.compact_phase, Some(CompactPhase::Compacting));
+        assert!(state.entries.is_empty(), "nach einer Meldung kein Hinweis");
+    }
+
+    #[test]
+    fn no_step_while_the_session_does_not_rest_or_the_compact_runs() {
+        use compact::{Step, step_after_turn};
+        for phase in [
+            CompactPhase::Preparing,
+            CompactPhase::Reminded,
+            CompactPhase::Ready,
+            CompactPhase::Compacting,
+        ] {
+            assert_eq!(
+                step_after_turn(phase, false, false),
+                Step::Nothing,
+                "{phase:?}"
+            );
+        }
+        assert_eq!(
+            step_after_turn(CompactPhase::Compacting, true, false),
+            Step::Nothing
+        );
+    }
+
+    #[test]
+    fn compact_to_replay_when_the_compact_turn_ends() {
+        let mut state = in_phase(CompactPhase::Compacting);
+        state.begin_compact_turn(&mut Outbox::default());
+        let outbox = end_with(&mut state, TurnEnd::Completed);
+        assert_eq!(state.compact_phase, None, "die Sperre ist weg");
+        assert!(
+            outbox.turn_completed,
+            "ein Durchgang spielt die Nachrichten ein"
+        );
+        assert!(!outbox.compact, "kein weiterer Compact");
+    }
+
+    #[test]
+    fn compact_to_replay_when_the_compact_fails_with_the_note_of_today() {
+        let mut state = in_phase(CompactPhase::Compacting);
+        state.begin_compact_turn(&mut Outbox::default());
+        end_with(&mut state, TurnEnd::Failed("kaputt".to_owned()));
+        assert_eq!(state.compact_phase, None);
+        assert_eq!(state.status, SessionStatus::Completed);
+        assert_eq!(
+            last_note(&state),
+            Some("Zusammenfassen gescheitert: kaputt")
+        );
+    }
+
+    #[test]
+    fn preparation_to_replay_when_the_user_aborts() {
+        for phase in [
+            CompactPhase::Preparing,
+            CompactPhase::Reminded,
+            CompactPhase::Ready,
+        ] {
+            let mut state = in_phase(phase);
+            state
+                .abort_compact(&mut Outbox::default())
+                .expect("abbrechen");
+            assert_eq!(state.compact_phase, None, "{phase:?}");
+            assert_eq!(last_note(&state), Some("Compact abgebrochen (von dir)"));
+        }
+        let mut idle = state();
+        assert!(
+            idle.abort_compact(&mut Outbox::default()).is_ok(),
+            "ohne Compact: nichts"
+        );
+    }
+
+    #[test]
+    fn a_running_compact_cannot_be_aborted() {
+        let mut state = in_phase(CompactPhase::Compacting);
+        state.status = SessionStatus::Running;
+        assert!(state.abort_compact(&mut Outbox::default()).is_err());
+        assert_eq!(state.compact_phase, Some(CompactPhase::Compacting));
+    }
+
+    #[test]
+    fn paused_to_replay_when_the_user_aborts() {
+        for phase in [
+            CompactPhase::Preparing,
+            CompactPhase::Reminded,
+            CompactPhase::Ready,
+            CompactPhase::Compacting,
+        ] {
+            let mut state = in_phase(phase);
+            state.status = SessionStatus::Paused;
+            state
+                .abort_compact(&mut Outbox::default())
+                .expect("abbrechen");
+            assert_eq!(state.compact_phase, None, "{phase:?}");
+        }
+    }
+
+    #[test]
+    fn preparation_to_compact_when_the_user_says_now() {
+        for phase in [CompactPhase::Preparing, CompactPhase::Reminded] {
+            let mut state = in_phase(phase);
+            assert!(state.compact_now(&mut Outbox::default()), "{phase:?}");
+            assert_eq!(state.compact_phase, Some(CompactPhase::Ready));
+            assert_eq!(last_note(&state), Some("Jetzt zusammenfassen (von dir)"));
+        }
+        for phase in [CompactPhase::Ready, CompactPhase::Compacting] {
+            let mut state = in_phase(phase);
+            assert!(
+                !state.compact_now(&mut Outbox::default()),
+                "{phase:?}: schon frei"
+            );
+            assert_eq!(state.compact_phase, Some(phase));
+        }
+    }
+
+    #[test]
+    fn preparation_to_replay_when_an_error_ends_the_turn() {
+        for phase in [CompactPhase::Preparing, CompactPhase::Reminded] {
+            let mut state = in_phase(phase);
+            state.status = SessionStatus::Running;
+            end_with(&mut state, TurnEnd::Failed("Prozess beendet".to_owned()));
+            assert_eq!(state.status, SessionStatus::Error);
+            assert_eq!(state.compact_phase, None, "{phase:?}: die Sperre geht weg");
+        }
+    }
+
+    #[test]
+    fn a_cancelled_session_leaves_the_compact() {
+        let mut state = in_phase(CompactPhase::Ready);
+        state.set_status(&mut Outbox::default(), SessionStatus::Cancelled);
+        assert_eq!(state.compact_phase, None);
+    }
+
+    #[test]
+    fn preparation_to_replay_when_the_implementation_ends_but_a_running_compact_ends_first() {
+        for phase in [
+            CompactPhase::Preparing,
+            CompactPhase::Reminded,
+            CompactPhase::Ready,
+        ] {
+            let mut state = in_phase(phase);
+            state.end_compact_unless_running(&mut Outbox::default(), "Fertig");
+            assert_eq!(state.compact_phase, None, "{phase:?}");
+            assert_eq!(last_note(&state), Some("Fertig"));
+        }
+        let mut compacting = in_phase(CompactPhase::Compacting);
+        compacting.end_compact_unless_running(&mut Outbox::default(), "Fertig");
+        assert_eq!(compacting.compact_phase, Some(CompactPhase::Compacting));
+    }
+
+    #[test]
+    fn preparation_to_paused_when_the_quota_or_the_user_pauses_and_the_lock_stays() {
+        let quota = || TurnEnd::QuotaExhausted {
+            text: "Kontingent".to_owned(),
+            resets_at: None,
+        };
+        for phase in [
+            CompactPhase::Preparing,
+            CompactPhase::Reminded,
+            CompactPhase::Ready,
+        ] {
+            // Kontingent
+            let mut state = in_phase(phase);
+            state.status = SessionStatus::Running;
+            end_with(&mut state, quota());
+            assert_eq!(state.status, SessionStatus::Paused, "{phase:?}");
+            assert_eq!(state.compact_phase, Some(phase), "{phase:?}: Sperre bleibt");
+            // Pause des Nutzers
+            let mut state = in_phase(phase);
+            state.status = SessionStatus::Running;
+            state.pause_requested = true;
+            end_with(&mut state, TurnEnd::Aborted);
+            assert_eq!(state.status, SessionStatus::Paused, "{phase:?}");
+            assert_eq!(state.compact_phase, Some(phase), "{phase:?}: Sperre bleibt");
+        }
+    }
+
+    #[test]
+    fn compact_to_paused_when_the_quota_or_the_user_pauses_and_the_lock_stays() {
+        let mut state = in_phase(CompactPhase::Compacting);
+        state.begin_compact_turn(&mut Outbox::default());
+        end_with(
+            &mut state,
+            TurnEnd::QuotaExhausted {
+                text: "Kontingent".to_owned(),
+                resets_at: None,
+            },
+        );
+        assert_eq!(state.status, SessionStatus::Paused);
+        assert_eq!(state.compact_phase, Some(CompactPhase::Compacting));
+        let mut state = in_phase(CompactPhase::Compacting);
+        state.begin_compact_turn(&mut Outbox::default());
+        state.pause_requested = true;
+        end_with(&mut state, TurnEnd::Aborted);
+        assert_eq!(state.status, SessionStatus::Paused);
+        assert_eq!(state.compact_phase, Some(CompactPhase::Compacting));
+    }
+
+    #[test]
+    fn paused_to_preparation_when_resumed_before_the_report() {
+        use compact::{Step, refuses_start, step_after_turn};
+        // Vor der Meldung setzt das Fortsetzen den Zug fort: kein Schritt, der Fortsetz-Text darf hinein.
+        for phase in [CompactPhase::Preparing, CompactPhase::Reminded] {
+            assert_eq!(
+                step_after_turn(phase, false, true).eq(&Step::Compact),
+                phase == CompactPhase::Reminded
+            );
+        }
+        assert_eq!(
+            step_after_turn(CompactPhase::Preparing, false, true),
+            Step::Nothing
+        );
+        assert!(!refuses_start(true, SessionStatus::Paused, true));
+        assert!(!CompactPhase::Preparing.is_after_report());
+        assert!(!CompactPhase::Reminded.is_after_report());
+    }
+
+    #[test]
+    fn paused_to_compact_when_resumed_after_the_report() {
+        use compact::{Step, step_after_turn};
+        assert!(CompactPhase::Ready.is_after_report());
+        assert!(CompactPhase::Compacting.is_after_report());
+        for phase in [CompactPhase::Ready, CompactPhase::Compacting] {
+            assert_eq!(
+                step_after_turn(phase, false, true),
+                Step::Compact,
+                "{phase:?}"
+            );
+        }
+    }
+
+    // ----- Die Sperre: keine Nachricht geht hinein (je Sperrstelle) -----
+
+    #[test]
+    fn no_message_of_the_user_goes_in_during_the_compact_it_waits() {
+        let base = temp_base("compact-user");
+        let (registry, session) = registry_with_full_limit(&base);
+        // Ein Platz ist frei, die Session ruht, keine Nachricht wartet: sonst ginge sie sofort hinein.
+        registry.get("anderer").expect("Session").lock().status = SessionStatus::Completed;
+        assert_eq!(
+            route_input(&session, &session.lock(), Some(true)).expect("Weg"),
+            InputRoute::Start
+        );
+        for phase in [
+            CompactPhase::Preparing,
+            CompactPhase::Reminded,
+            CompactPhase::Ready,
+            CompactPhase::Compacting,
+        ] {
+            session.lock().compact_phase = Some(phase);
+            for status in [
+                SessionStatus::Running,
+                SessionStatus::Completed,
+                SessionStatus::Paused,
+            ] {
+                session.lock().status = status;
+                assert_eq!(
+                    route_input(&session, &session.lock(), Some(true)).expect("Weg"),
+                    InputRoute::Queue,
+                    "{phase:?} {status:?}"
+                );
+            }
+        }
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn an_answer_to_an_open_question_still_goes_in_during_the_compact() {
+        let base = temp_base("compact-answer");
+        let (_registry, session) = registry_with_full_limit(&base);
+        session.lock().compact_phase = Some(CompactPhase::Preparing);
+        session.lock().ask(
+            &mut Outbox::default(),
+            "r".to_owned(),
+            QuestionKind::AskUser,
+            Vec::new(),
+            Value::Null,
+            None,
+        );
+        assert_eq!(
+            route_input(&session, &session.lock(), Some(true)).expect("Weg"),
+            InputRoute::Answer
+        );
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn no_automatic_send_goes_in_during_the_compact_but_a_resume_of_a_paused_session_does() {
+        use compact::refuses_start;
+        for status in [
+            SessionStatus::Completed,
+            SessionStatus::Running,
+            SessionStatus::Paused,
+        ] {
+            assert!(
+                refuses_start(true, status, false),
+                "{status:?}: Plan, Station, Erinnerung"
+            );
+        }
+        assert!(
+            refuses_start(true, SessionStatus::Completed, true),
+            "nur pausiert setzt fort"
+        );
+        assert!(!refuses_start(true, SessionStatus::Paused, true));
+        assert!(
+            !refuses_start(false, SessionStatus::Completed, false),
+            "ohne Compact: frei"
+        );
+        assert!(is_resume_text(RESUME_MESSAGE));
+        assert!(is_resume_text(auto_resume::RESUME_TEXT));
+        assert!(!is_resume_text("Mach etwas anderes."));
+    }
+
+    #[test]
+    fn a_message_of_another_session_or_the_verwalter_waits_during_the_compact() {
+        use session_tools::{Route, route_message};
+        let open = || session_tools::Delivery {
+            status: SessionStatus::Completed,
+            rests: true,
+            has_waiting: false,
+            claimed: true,
+            timer_armed: false,
+            from_master: false,
+        };
+        assert_eq!(route_message(&open()), Route::Now);
+        assert_eq!(
+            compact::locked_route(route_message(&open()), true),
+            Route::Queue { nudge: false },
+            "kein Anstoß: Der Durchgang holt sie nicht ab"
+        );
+        assert_eq!(
+            compact::locked_route(Route::Queue { nudge: true }, true),
+            Route::Queue { nudge: false }
+        );
+        assert_eq!(
+            compact::locked_route(route_message(&open()), false),
+            Route::Now
+        );
+        assert_eq!(
+            compact::locked_route(Route::Undeliverable("weg"), true),
+            Route::Undeliverable("weg")
+        );
+    }
+
+    #[test]
+    fn the_pass_collects_no_waiting_message_of_a_session_in_the_compact() {
+        use crate::agents::event::SessionRef;
+        let base = temp_base("compact-pass");
+        let (registry, session) = registry_with_full_limit(&base);
+        registry.get("anderer").expect("Session").lock().status = SessionStatus::Completed;
+        let sender = SessionRef {
+            id: "m".to_owned(),
+            number: 1,
+            title: "Master".to_owned(),
+        };
+        session
+            .database
+            .with(|connection| session_inbox::insert(connection, "q", &sender, "Fremd", 0, 1.0))
+            .expect("eingefügt");
+        let waiting = |registry: &SessionRegistry| {
+            registry
+                .waiters(now_ms())
+                .iter()
+                .filter(|waiter| waiter.entry.session_id.as_deref() == Some("q"))
+                .count()
+        };
+        assert_eq!(
+            waiting(&registry),
+            1,
+            "ohne Compact holt der Durchgang sie ab"
+        );
+        for phase in [
+            CompactPhase::Preparing,
+            CompactPhase::Reminded,
+            CompactPhase::Ready,
+            CompactPhase::Compacting,
+        ] {
+            session.lock().compact_phase = Some(phase);
+            session.lock().status = SessionStatus::Completed;
+            let own = registry
+                .waiters(now_ms())
+                .into_iter()
+                .filter(|waiter| waiter.entry.session_id.as_deref() == Some("q"))
+                .count();
+            // Nur im Zustand `Ready` steht die Session selbst als Wartende für den Compact in der Schlange.
+            assert_eq!(
+                own,
+                usize::from(phase != CompactPhase::Compacting),
+                "{phase:?}"
+            );
+            assert!(
+                registry
+                    .waiters(now_ms())
+                    .iter()
+                    .filter(|waiter| waiter.entry.session_id.as_deref() == Some("q"))
+                    .all(|waiter| waiter.entry.kind
+                        == crate::implementation::slots::QueueKind::Resume),
+                "{phase:?}: nie als Nachricht"
+            );
+        }
+        session.lock().status = SessionStatus::Paused;
+        assert_eq!(
+            waiting(&registry),
+            0,
+            "pausiert im Compact holt der Durchgang nichts"
+        );
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn a_waiting_message_of_the_user_is_not_released_during_the_compact_nor_by_send_now() {
+        let base = temp_base("compact-release");
+        let (_registry, session) = registry_with_full_limit(&base);
+        queue_text(&session, &base.join("staging"), "Warte", &[]);
+        session.lock().status = SessionStatus::Completed;
+        assert_eq!(
+            session_tools::user_release(&session.lock(), 0),
+            session_tools::UserRelease::Sent
+        );
+        session.lock().compact_phase = Some(CompactPhase::Preparing);
+        assert_eq!(
+            session_tools::user_release(&session.lock(), 0),
+            session_tools::UserRelease::Later
+        );
+        // „Jetzt senden“ gibt es nicht.
+        assert!(compact::refuse_send_now(true).is_err());
+        assert!(compact::refuse_send_now(false).is_ok());
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn the_messages_in_the_inbox_name_the_compact_as_their_reason() {
+        use crate::agents::event::SessionRef;
+        use crate::sessions::model::WaitsFor;
+        let base = temp_base("compact-reason");
+        let (registry, session) = registry_with_full_limit(&base);
+        let sender = SessionRef {
+            id: "m".to_owned(),
+            number: 1,
+            title: "Master".to_owned(),
+        };
+        session
+            .database
+            .with(|connection| session_inbox::insert(connection, "q", &sender, "Fremd", 0, 1.0))
+            .expect("eingefügt");
+        let reasons = |registry: &SessionRegistry| -> Vec<WaitsFor> {
+            registry
+                .inbox_list()
+                .expect("Liste")
+                .iter()
+                .map(|message| message.waits_for)
+                .collect()
+        };
+        assert_eq!(reasons(&registry), vec![WaitsFor::Slot]);
+        for status in [
+            SessionStatus::Running,
+            SessionStatus::Completed,
+            SessionStatus::Paused,
+        ] {
+            session.lock().status = status;
+            session.lock().compact_phase = Some(CompactPhase::Preparing);
+            assert_eq!(reasons(&registry), vec![WaitsFor::Compact], "{status:?}");
+        }
+        assert_eq!(
+            summarize(&session, &session.lock()).compact_phase,
+            Some(CompactPhase::Preparing),
+            "die Zusammenfassung trägt die Phase"
+        );
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    // ----- Nach dem Ende: Reihenfolge, Platz, Neustart -----
+
+    #[test]
+    fn after_the_compact_the_own_messages_go_together_before_the_foreign_ones() {
+        use crate::agents::event::SessionRef;
+        let base = temp_base("compact-order");
+        let (registry, session) = registry_with_full_limit(&base);
+        registry.get("anderer").expect("Session").lock().status = SessionStatus::Completed;
+        let sender = SessionRef {
+            id: "m".to_owned(),
+            number: 1,
+            title: "Master".to_owned(),
+        };
+        session.lock().compact_phase = Some(CompactPhase::Preparing);
+        // Im Compact: erst eine fremde, dann zwei eigene Nachrichten.
+        session
+            .database
+            .with(|connection| session_inbox::insert(connection, "q", &sender, "Fremd", 0, 1.0))
+            .expect("eingefügt");
+        queue_text(&session, &base.join("staging"), "Eins", &[]);
+        queue_text(&session, &base.join("staging"), "Zwei", &[]);
+        let own_of = |registry: &SessionRegistry| -> Vec<bool> {
+            registry
+                .waiters(now_ms())
+                .iter()
+                .filter(|waiter| {
+                    waiter.entry.session_id.as_deref() == Some("q")
+                        && waiter.entry.kind == crate::implementation::slots::QueueKind::Message
+                })
+                .map(|waiter| waiter.entry.from_user)
+                .collect()
+        };
+        assert!(own_of(&registry).is_empty(), "gesperrt: nichts holt sie ab");
+        // Das Ende: Die Sperre fällt, ein Durchgang sieht einen Eintrag für die Session.
+        let mut outbox = Outbox::default();
+        session.lock().release_compact(&mut outbox, "Fertig");
+        assert_eq!(
+            own_of(&registry),
+            vec![true],
+            "die eigenen zuerst, zusammen in einem Eintrag"
+        );
+        // Die Freigabe nimmt zuerst die älteste eigene; die fremde Nachricht (älter!) bleibt bis zum nächsten Zugende.
+        let oldest = session
+            .database
+            .with(|connection| session_inbox::oldest_from_user(connection, "q"))
+            .expect("lesen")
+            .expect("eine eigene");
+        assert_eq!(oldest.text, "Eins");
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn the_compact_after_the_report_waits_for_a_slot_like_a_resume() {
+        use crate::implementation::slots::QueueKind;
+        let base = temp_base("compact-slot");
+        let (registry, session) = registry_with_full_limit(&base);
+        session.lock().compact_phase = Some(CompactPhase::Ready);
+        assert!(session.lock().compact_waits_for_slot());
+        // Kein Platz: Der Tor-Anspruch scheitert, die Session steht als Fortsetzen in der Warteschlange.
+        assert!(!registry.claim_session_slot("q"));
+        let entries: Vec<_> = registry
+            .waiters(now_ms())
+            .into_iter()
+            .filter(|waiter| waiter.entry.session_id.as_deref() == Some("q"))
+            .collect();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].entry.kind, QueueKind::Resume);
+        assert!(!entries[0].entry.from_user);
+        // Der Platz wird frei: Der Anspruch gelingt.
+        registry.get("anderer").expect("Session").lock().status = SessionStatus::Completed;
+        assert!(registry.claim_session_slot("q"));
+        registry.release_session_slot("q");
+        // Läuft die Session oder pausiert sie, braucht sie keinen Platz aus der Warteschlange.
+        session.lock().status = SessionStatus::Running;
+        assert!(!session.lock().compact_waits_for_slot());
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn a_restart_lifts_the_lock_because_the_phase_lives_only_in_memory() {
+        // Die Phase gehört weder zur gespeicherten Zeile noch wird sie beim Anlegen einer
+        // wiederhergestellten Session gesetzt: Nach dem Neustart gibt es keine Sperre.
+        let fresh = SessionState::new(
+            "Master".to_owned(),
+            ModelId::Sonnet,
+            Effort::Medium,
+            Mode::Manual,
+        );
+        assert_eq!(fresh.compact_phase, None);
+        assert!(!fresh.compact_locked());
+        // Der Zusammenfassung sieht man sie an, der gespeicherten Zeile nicht: Sie hat kein Feld dafür.
+        let locked = in_phase(CompactPhase::Preparing);
+        let row = row_of_state(&locked);
+        assert_eq!(row.status, SessionStatus::Completed);
+    }
+
+    #[test]
+    fn the_compact_tool_and_the_prompt_name_each_other() {
+        // `verwalter_compact_ready` steht im Werkzeug-Satz und im ersten Satz des Prompts (V1).
+        use crate::mcp_access::tools::ToolSet;
+        assert!(
+            crate::session_tools::tools::SessionTools
+                .tools()
+                .iter()
+                .any(|spec| spec.name == "verwalter_compact_ready")
+        );
     }
 }

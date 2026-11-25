@@ -810,6 +810,8 @@ impl SessionRegistry {
                 );
             }
         }
+        // Steht der Master im Compact, braucht er ihn nicht mehr (ADR 070, Nachtrag).
+        self.end_compact_of_implementation(app, id);
         // Die beendeten Countdowns geben ihre Plätze frei (ADR 068); die Umsetzung selbst wartet nicht.
         self.run_pass(app);
         self.implementation_view(id)
