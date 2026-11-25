@@ -432,6 +432,8 @@ fn two_projects() -> Snapshot {
             name: format!("Name {project}"),
             group_name: Some(format!("Gruppe {project}")),
         });
+        // Die Tabelle des Hosts: Der Gast bekommt sie nur mit der Karte.
+        snapshot.seen.insert(format!("session:{session}"), 150.0);
         snapshot.sessions.push(SessionFacts {
             id: session.to_owned(),
             number: 1,
@@ -666,4 +668,58 @@ fn the_project_list_of_a_guest_holds_the_members_of_a_shared_group_and_not_the_r
         vec![listed("in-group"), listed("also-in-group")],
     );
     assert_eq!(kept, vec![listed("also-in-group")]);
+}
+
+#[test]
+fn a_guest_gets_the_same_seen_at_for_a_card_as_the_view_of_the_host() {
+    let (view, value, _) = dashboard_of("a");
+    let host_view = crate::dashboard::build(&two_projects(), now_ms());
+    let card = |view: &DashboardView| {
+        view.tasks
+            .iter()
+            .find(|task| task.id == format!("session:{OWN_SESSION}"))
+            .expect("Karte")
+            .seen_at
+    };
+    assert_eq!(card(&view), Some(150.0));
+    assert_eq!(card(&view), card(&host_view));
+    // Die Tabelle selbst, auch die Zeile der fremden Karte, geht nicht hinaus.
+    assert!(!value.to_string().contains("foreign"), "{value}");
+}
+
+#[test]
+fn a_guest_marks_cards_of_a_held_project_seen_through_the_host() {
+    let host = Stub::new(&Scratch::new());
+    let args = json!({ "projectId": PROJECT, "cardIds": ["session:own-session"] });
+    call(&host, &held_by_a(), "a", "dashboard_seen", args.clone()).expect("gesehen");
+    let invoked = host.invoked();
+    assert_eq!(invoked.len(), 1, "{invoked:?}");
+    assert_eq!(invoked[0].0, "dashboard_seen");
+    assert_eq!(invoked[0].1["cardIds"], args["cardIds"]);
+}
+
+#[test]
+fn a_guest_may_not_mark_cards_of_a_project_it_does_not_hold() {
+    let host = Stub::new(&Scratch::new());
+    let args = json!({ "projectId": "foreign-project", "cardIds": ["session:x"] });
+    assert!(call(&host, &held_by_a(), "a", "dashboard_seen", args.clone()).is_err());
+    assert!(call(&host, &held_by_a(), "b", "dashboard_seen", args).is_err());
+    assert!(host.invoked().is_empty());
+}
+
+#[test]
+fn dashboard_seen_and_undismiss_are_host_write_commands_with_their_id() {
+    assert_eq!(
+        access::class_of("dashboard_seen"),
+        Some(access::Class::HostWrite)
+    );
+    assert_eq!(
+        access::class_of("dashboard_undismiss"),
+        Some(access::Class::HostWrite)
+    );
+    let ids = access::ids_of("dashboard_seen", &json!({ "projectId": PROJECT }));
+    assert_eq!(ids.len(), 1);
+    assert_eq!(ids[0].kind, access::IdKind::Project);
+    let ids = access::ids_of("dashboard_undismiss", &json!({ "sessionId": OWN_SESSION }));
+    assert_eq!(ids[0].kind, access::IdKind::Session);
 }

@@ -32,6 +32,7 @@ function task(
     offer: null,
     link: null,
     reported: false,
+    seenAt: null,
     ...extra,
   };
 }

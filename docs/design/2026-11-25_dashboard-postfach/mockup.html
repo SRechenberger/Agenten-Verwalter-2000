@@ -1,0 +1,697 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Postfach Runde 2</title>
+<style>
+:root{color-scheme:dark;--bg:#1f1f1f;--side:#181818;--surf:#252526;--hover:#2e2e30;--sel:#37373d;--bds:#2b2b2b;--bd:#3c3c3c;--fg:#d4d4d4;--fg2:#b0b0b0;--fgm:#8f8f8f;--acc:#e0825c;--acct:#f0a888;--onacc:#1d130e;--accsub:rgba(224,130,92,.16);--run:#5b9dff;--wait:#f2b33d;--waitsub:rgba(242,179,61,.14);--err:#f47067;--ok:#4cc38a;--master:#8ab8ea;--shadow:0 10px 30px rgb(0 0 0/.45);--font:'Segoe UI Variable Text','Segoe UI',system-ui,sans-serif;--mono:'Cascadia Code',Consolas,ui-monospace,monospace}
+:root[data-theme=light]{color-scheme:light;--bg:#fff;--side:#f8f8f8;--surf:#fff;--hover:#f0f0f0;--sel:#e6e8f0;--bds:#e6e6e6;--bd:#cecece;--fg:#3c3c3c;--fg2:#5f5f5f;--fgm:#6e6e6e;--acc:#c4572f;--acct:#a3401c;--onacc:#fff;--accsub:rgba(196,87,47,.1);--run:#2563eb;--wait:#a86a00;--waitsub:rgba(168,106,0,.1);--err:#d23b33;--ok:#16803c;--master:#3d6fa8;--shadow:0 10px 30px rgb(0 0 0/.14)}
+*{box-sizing:border-box}
+body{margin:0;background:var(--side);color:var(--fg);font:13px/1.45 var(--font)}
+main{max-width:1480px;margin:0 auto;padding:16px}
+h1{font-size:15px;margin:0 0 4px}
+.lead{color:var(--fg2);margin:0 0 10px;max-width:980px}
+button,input,select,textarea{font:inherit;color:inherit}
+code{font-family:var(--mono);font-size:12px}
+#sim{display:flex;flex-wrap:wrap;gap:8px 10px;align-items:center;margin:0 0 8px;padding:8px 10px;border:1px dashed var(--bd);border-radius:6px;color:var(--fgm);font-size:12px}
+#sim button{border:1px solid var(--bd);background:transparent;border-radius:6px;padding:3px 10px;cursor:pointer}
+#sim button[aria-pressed=true]{background:var(--sel);color:var(--fg)}
+#sim .sp{margin-left:12px}
+kbd{font-family:var(--mono);font-size:11px;padding:0 4px;border:1px solid var(--bd);border-bottom-width:2px;border-radius:4px;color:var(--fg2)}
+
+/* App-Fenster */
+.app{position:relative;display:flex;height:680px;border:1px solid var(--bd);border-radius:10px;overflow:hidden;background:var(--bg)}
+.side{width:236px;flex:none;background:var(--side);border-right:1px solid var(--bds);display:flex;flex-direction:column;min-height:0}
+.shead{padding:10px 12px 8px;border-bottom:1px solid var(--bds);font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--fgm)}
+.slist{flex:1;overflow:auto;min-height:0}
+.sfoot{border-top:1px solid var(--bds);padding:6px 10px;display:flex;align-items:center;gap:8px;font-size:12px;color:var(--fg2)}
+.sfoot .q{padding:1px 8px;border:1px solid var(--bd);border-radius:99px;font-size:11.5px}
+.sfoot .db{margin-left:auto;display:inline-flex;align-items:center;gap:5px;padding:2px 8px;border:1px solid var(--bd);border-radius:6px;background:transparent;cursor:pointer;font-size:12px}
+.sfoot .db[aria-pressed=true]{background:var(--sel)}
+.pill{padding:0 6px;border-radius:99px;background:var(--acc);color:var(--onacc);font-size:10.5px;font-weight:700}
+.vh{display:flex;align-items:center;gap:6px;padding:6px 10px 2px;font-weight:600;font-size:12.5px}
+.vs{display:flex;align-items:center;gap:8px;padding:3px 10px 3px 22px;font-size:12.5px;color:var(--fg2);cursor:default}
+.vs .nm,.ses .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.vs .st,.ses .st{font-size:11px;color:var(--tone);white-space:nowrap}
+.dot{width:7px;height:7px;border-radius:50%;background:var(--tone,var(--fgm));flex:none}
+.run{--tone:var(--run)}.wt{--tone:var(--wait)}.er{--tone:var(--err)}.mu{--tone:var(--fgm)}
+.prio{font-size:10.5px;color:var(--acct)}.prio.low{color:var(--fgm)}
+.rm{color:var(--acc);flex:none}
+.seg{display:inline-flex;overflow:hidden;border:1px solid var(--bd);border-radius:6px}
+.seg button{padding:3px 11px;border:0;border-left:1px solid var(--bd);background:transparent;color:var(--fg2);font-size:12px;white-space:nowrap;cursor:pointer}
+.seg button:first-child{border-left:0}
+.seg button[aria-pressed=true]{background:var(--sel);color:var(--fg)}
+
+/* Variante A: Dashboard mit drei Spalten */
+.dash{flex:1;display:grid;grid-template-columns:200px minmax(320px,1fr) minmax(340px,430px);min-width:0;min-height:0}
+.folders{border-right:1px solid var(--bds);overflow:auto;padding:8px 6px;min-height:0}
+.fo{display:flex;align-items:center;gap:7px;width:100%;padding:4px 8px;border:0;border-radius:6px;background:transparent;text-align:left;cursor:pointer;font-size:12.5px;color:var(--fg2)}
+.fo:hover{background:var(--hover)}
+.fo[aria-current=true]{background:var(--sel);color:var(--fg)}
+.fo .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fo .n{color:var(--fgm);font-size:11.5px;font-variant-numeric:tabular-nums}
+.fo .n.w{color:var(--wait);font-weight:600}
+.fo .sq{width:9px;height:9px;border:1.6px solid var(--tone);border-radius:2px;flex:none}
+.fsec{font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--fgm);margin:12px 8px 4px}
+.ses{display:flex;align-items:center;gap:7px;padding:3px 8px;font-size:12px;color:var(--fg2)}
+
+.listcol{display:flex;flex-direction:column;min-width:0;min-height:0;border-right:1px solid var(--bds)}
+.tool{display:flex;align-items:center;gap:8px;min-height:41px;padding:6px 10px;border-bottom:1px solid var(--bds);flex-wrap:wrap}
+.tool input[type=checkbox],.row .cb{accent-color:var(--acc);margin:0}
+.search{flex:1;min-width:110px;padding:3px 8px;border:1px solid var(--bd);border-radius:6px;background:var(--bg);font-size:12px}
+.chk{display:inline-flex;align-items:center;gap:5px;color:var(--fg2);font-size:12px;white-space:nowrap}
+.selc{font-size:12px;font-weight:600}
+.btn{border:1px solid var(--bd);background:transparent;border-radius:6px;padding:3px 10px;cursor:pointer;font-size:12px;white-space:nowrap}
+.btn:hover:not(:disabled){background:var(--hover)}
+.btn:disabled{opacity:.45;cursor:default}
+.btn.pri{background:var(--acc);border-color:var(--acc);color:var(--onacc);font-weight:600}
+.btn.pri:hover:not(:disabled){background:var(--acc);filter:brightness(1.08)}
+.link{border:0;background:none;color:var(--acct);cursor:pointer;padding:0;font-size:12px}
+.list{flex:1;overflow:auto;min-height:0}
+.tier{position:sticky;top:0;z-index:1;display:flex;gap:6px;padding:5px 12px 4px;background:var(--bg);border-bottom:1px solid var(--bds);font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--fgm)}
+.tier span{color:var(--fg2)}
+.row{position:relative;display:flex;align-items:stretch;border-bottom:1px solid var(--bds);border-left:3px solid transparent}
+.row.blk{border-left-color:var(--k)}
+.row:hover{background:var(--hover)}
+.row.sel{background:var(--sel)}
+.row .cb{align-self:flex-start;margin:8px 0 0 8px;width:13px;height:13px}
+.row .main{flex:1;min-width:0;display:flex;flex-direction:column;gap:1px;padding:6px 10px 6px 8px;border:0;background:transparent;text-align:left;cursor:pointer}
+.row.child .main{padding-left:8px}
+.row.child .xt{margin-left:18px}
+.xt{align-self:flex-start;margin:8px 0 0 4px;width:18px;height:13px;border:0;border-radius:4px;background:transparent;color:var(--fgm);cursor:pointer;flex:none;padding:0;font-size:11px;line-height:13px}
+.xt:hover{background:var(--hover);color:var(--fg)}
+.row.xo{border-bottom-color:transparent}
+.rowx{display:flex;flex-direction:column;gap:14px;padding:10px 22px 20px 56px;border-bottom:1px solid var(--bds);border-left:3px solid transparent;font-size:13px;line-height:1.55;background:color-mix(in srgb,var(--surf) 55%,transparent)}
+.rowx>*{max-width:780px}
+/* Flach wie im Chat (neue Story, Regel F1–F5): Zeile und Lesebereich ohne runde Kästen, die Farbe der Art als Linie links */
+:is(.rowx,.pane) .box,:is(.rowx,.pane) .box.k{border:0;border-left:2px solid var(--bds);border-radius:0;background:transparent;padding:2px 0 2px 14px;gap:8px}
+:is(.rowx,.pane) .box.k{border-left-color:var(--k)}
+:is(.rowx,.pane) .lb{margin-bottom:0}
+:is(.rowx,.pane) .opt{border:0;border-bottom:1px solid var(--bds);border-radius:0;background:transparent;padding:7px 6px}
+:is(.rowx,.pane) .opt:first-of-type{border-top:1px solid var(--bds)}
+:is(.rowx,.pane) .opt+.opt{margin-top:-8px}
+:is(.rowx,.pane) .opt:hover{background:var(--hover);border-color:var(--bds)}
+:is(.rowx,.pane) .ta{min-height:64px;border:1px solid var(--bds);border-radius:0;background:var(--bg)}
+:is(.rowx,.pane) .btn{border-radius:2px}
+:is(.rowx,.pane) .diff,:is(.rowx,.pane) .lnk,:is(.rowx,.pane) .pre{border-radius:0;border-color:var(--bds)}
+:is(.rowx,.pane) .offer{border-radius:0;border:0;border-left:2px solid var(--ok);padding:4px 0 4px 10px}
+:is(.rowx,.pane) .sys{border:0;border-radius:0;padding:0}
+:is(.rowx,.pane) .rel{border-radius:2px}
+.row.xo .main{padding-bottom:8px}
+.rowx.child{padding-left:72px}
+.rowx.blk{border-left-color:var(--k)}
+.rowx .pa{display:flex;gap:12px;align-items:center}
+.l1{display:flex;align-items:center;gap:6px;font-size:11.5px;min-width:0}
+.kind{color:var(--k);font-weight:600;white-space:nowrap;flex:none}
+.from{color:var(--fg2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:0 1 auto}
+.proj{color:var(--fgm);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:0 1 auto}
+.since{margin-left:auto;padding-left:6px;color:var(--fgm);white-space:nowrap;flex:none;font-variant-numeric:tabular-nums}
+.l2{display:flex;gap:5px;font-size:12.5px;min-width:0;white-space:nowrap;overflow:hidden}
+.l2 .t{overflow:hidden;text-overflow:ellipsis;flex:0 1 auto;min-width:0}
+.l2 .ex{color:var(--fgm);overflow:hidden;text-overflow:ellipsis;flex:1 1 0;min-width:0}
+.udot{width:6px;height:6px;border-radius:50%;background:var(--acc);flex:none;visibility:hidden}
+.row.unread .udot{visibility:visible}
+.row.unread .t{font-weight:600;color:var(--fg)}
+.rel{padding:0 6px;border:1px solid var(--master);border-radius:99px;color:var(--master);font-size:10px;font-weight:600;white-space:nowrap;flex:none}
+.cnt{padding:0 6px;border-radius:99px;background:var(--hover);color:var(--fg2);font-size:10.5px;font-weight:600;flex:none}
+.row.sel .cnt{background:var(--bg)}
+.tw{display:inline-block;width:10px;flex:none;color:var(--fgm);transition:transform .12s}
+.row.open .tw{transform:rotate(90deg)}
+.hov{position:absolute;right:8px;top:4px;display:none;gap:4px}
+.row:hover .hov{display:flex}
+.row:hover .since{visibility:hidden}
+.hov button{min-width:22px;height:20px;padding:0 5px;border:1px solid var(--bd);border-radius:5px;background:var(--surf);cursor:pointer;font-size:11px;color:var(--fg2)}
+.hov button:hover{color:var(--fg);border-color:var(--fgm)}
+.empty{margin:auto;padding:30px;text-align:center;color:var(--fgm)}
+
+/* Lesebereich und Inhalte */
+.pane{overflow:auto;min-height:0;padding:14px 16px 20px;display:flex;flex-direction:column;gap:12px}
+.ph .k{display:flex;align-items:center;gap:8px;font-size:11.5px;font-weight:600;color:var(--k)}
+.ph h3{margin:3px 0 4px;font-size:15px;line-height:1.35;overflow-wrap:anywhere}
+.ph .o{font-size:12px;color:var(--fgm)}
+.box{border:1px solid var(--bd);border-radius:8px;background:var(--surf);padding:10px 12px;display:flex;flex-direction:column;gap:8px}
+.box.k{border-color:var(--k)}
+.lb{margin:0;font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--fgm)}
+.box p{margin:0}
+.txt{white-space:pre-wrap;overflow-wrap:anywhere}
+.ta{width:100%;min-height:62px;resize:vertical;padding:6px 8px;border:1px solid var(--bd);border-radius:6px;background:var(--bg)}
+.acts{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.acts .sp{flex:1}
+.opt{display:flex;gap:8px;width:100%;text-align:left;padding:6px 10px;border:1px solid var(--bd);border-radius:6px;background:var(--bg);cursor:pointer}
+.opt:hover{border-color:var(--wait)}
+.opt .num{color:var(--fgm);font-variant-numeric:tabular-nums}
+.badge{padding:0 6px;border-radius:99px;background:var(--waitsub);color:var(--wait);font-size:10.5px;font-weight:600}
+.diff{font-family:var(--mono);font-size:12px;white-space:pre-wrap;border:1px solid var(--bds);border-radius:6px;padding:6px 8px;background:var(--bg)}
+.diff .m{color:var(--err)}.diff .p{color:var(--ok)}.diff .c{color:var(--fgm)}
+.pre{font-family:var(--mono);font-size:12px;white-space:pre-wrap;color:var(--err)}
+.ai{color:var(--fgm);font-size:11.5px}
+select.sel{padding:3px 6px;border:1px solid var(--bd);border-radius:6px;background:var(--bg)}
+.tlist{display:flex;flex-direction:column;border:1px solid var(--bds);border-radius:8px;overflow:hidden}
+.tl{display:flex;align-items:center;gap:8px;padding:6px 10px;border-bottom:1px solid var(--bds);font-size:12.5px}
+.tl:last-child{border-bottom:0}
+.tl .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tl .pj{color:var(--fgm);font-size:11.5px;white-space:nowrap}
+.tl .ag{color:var(--fgm);font-size:11.5px;width:44px;text-align:right}
+
+.toast{position:absolute;left:50%;bottom:14px;transform:translateX(-50%);display:flex;gap:14px;align-items:center;padding:7px 14px;border:1px solid var(--bd);border-radius:8px;background:var(--surf);box-shadow:var(--shadow);font-size:12.5px;z-index:5;white-space:nowrap}
+
+/* Erläuterungen unter dem Fenster */
+.doc{margin-top:22px;display:grid;grid-template-columns:1fr 1fr;gap:10px 34px;color:var(--fg2)}
+.doc h2{font-size:13.5px;color:var(--fg);margin:14px 0 4px}
+.doc ul,.doc ol{margin:0;padding-left:20px}
+.doc li{margin:3px 0}
+.doc b{color:var(--fg)}
+.rec{grid-column:1/-1;padding:10px 14px;border:1px solid var(--ok);border-radius:8px;background:color-mix(in srgb,var(--ok) 10%,transparent)}
+.rec h2{margin-top:0}
+.ask{grid-column:1/-1;padding:10px 14px;border:1px solid var(--wait);border-radius:8px;background:var(--waitsub)}
+.ask h2{margin-top:0}
+.new{outline:1.5px dashed var(--acc);outline-offset:2px;border-radius:6px}
+.rep{color:var(--ok);font-size:11.5px}
+.fgrp{display:flex;align-items:center;gap:6px;width:100%;margin:6px 0 1px;padding:2px 8px;border:0;background:transparent;font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--fgm);cursor:pointer;text-align:left}
+.fgrp .tw{width:10px}
+.fo.sub{padding-left:20px}
+.fo .ms{color:var(--master);font-size:11px;white-space:nowrap}
+.offer{display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px dashed var(--ok);border-radius:6px}
+.offer p{flex:1}
+.lnk{font-family:var(--mono);font-size:12px;padding:4px 8px;border:1px solid var(--bds);border-radius:6px;background:var(--bg);overflow-wrap:anywhere}
+.sys{font-size:11.5px;color:var(--fgm);padding:2px 10px;border:1px solid var(--bds);border-radius:99px;margin:0}
+@media (max-width:1250px){.app .side{display:none}}
+@media (max-width:980px){.dash{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}.folders{display:none}.doc{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<main>
+<h1>Dashboard als Postfach · Runde 2 (Taiga #187 mit #235 und #217)</h1>
+<p class="lead">Stand 2026-11-24 (Planung 0.78.0). Variante A, wie gewählt, mit drei Neuerungen: Die Arten aus #235 kommen per Werkzeug vom Agenten („vom Agenten gemeldet“ statt „✦ eingeordnet“), neu sind <b>Blockiert</b>, <b>Zum Ansehen</b> und <b>Fertig mit Angebot</b>. Ein Vorhaben kann mehrere Abläufe haben, je mit seinem Master (#217). Die Gruppen der Leiste ordnen die Vorhaben im Ordner-Rand und ersetzen „Gruppiert nach“. Der Inhalt jedes Eintrags lässt sich in der Liste auf- und zuklappen, mehrere zugleich. Neu Gezeigtes ist gestrichelt umrandet. Alles ist klickbar wie in Runde 1. Die gestrichelte Leiste oben ist Simulation.</p>
+<div id="sim">
+  <span>Farbschema</span><button data-sim="theme" data-val="dark">Dunkel</button><button data-sim="theme" data-val="light">Hell</button>
+  <span class="sp"></span><button data-sim="reset">Beispieldaten zurücksetzen</button>
+  <span class="sp">Tastatur: <kbd>j</kbd>/<kbd>k</kbd> wählen · <kbd>o</kbd> oder <kbd>→</kbd>/<kbd>←</kbd> auf-/zuklappen · <kbd>x</kbd> markieren · <kbd>e</kbd> gelesen · <kbd>r</kbd> antworten · <kbd>1</kbd>–<kbd>4</kbd> Option · <kbd>/</kbd> suchen</span>
+</div>
+<div class="app" id="app"></div>
+
+<div class="doc">
+  <div class="rec">
+    <h2>Steht fest (Nutzer, 2026-11-24, Runde 1)</h2>
+    <ol>
+      <li>Variante A: Postfach mit Ordnern, Liste und Lesebereich; die Karten entfallen ohne Schalter zurück.</li>
+      <li>„Noch nicht angesehen“ speichert der Kern je Karte; Ansehen räumt nichts ab, nur „Gelesen“; Rückgängig nach „Gelesen“.</li>
+      <li>Gleiche zusammenfassen (Standard an), „Wichtigste zuerst“ und „Neueste zuerst“, Abläufe als Ordner, Sammelaktionen „Gelesen“, „Fortsetzen“, „Starten“, Tastatur.</li>
+      <li>Aus #235: ein Werkzeug für alle Arten, Einordnung per Modell entfällt, neu „Fertig mit Angebot“, „Zum Ansehen“, „Blockiert“; Stationen nur blockierende Rückfrage.</li>
+      <li><b>Auf- und zuklappen (Runde 2):</b> Der Inhalt eines Eintrags lässt sich in der Liste aufklappen (▸ vorn in der Zeile, <kbd>o</kbd> oder <kbd>→</kbd>/<kbd>←</kbd>, „Alle aufklappen“), mehrere zugleich. Aufgeklappt bietet ein Eintrag dasselbe wie der Lesebereich rechts: Inhalt, Antwortfeld, Optionen und alle Aktionen seiner Art. Aufklappen zählt als angesehen.</li>
+      <li><b>Flacher Stil (#236, immer):</b> Inhalte ohne runde Kästen, die Farbe der Art als Linie links, Optionen als Zeilen mit Haarlinien – in aufgeklappten Zeilen, im Lesebereich und im Chat.</li>
+    </ol>
+  </div>
+  <div class="ask">
+    <h2>Neu in Runde 2 – zur Entscheidung (Empfehlung jeweils so gebaut)</h2>
+    <ol>
+      <li><b>P2 Gruppen statt „Gruppiert nach“:</b> Die Gruppen der Leiste ordnen die Vorhaben im Ordner-Rand (aufklappbar). Die Einstellung „Gruppiert nach“ (#186) entfällt, „Nur, was einen Agenten anhält“ ist der Ordner „Hält Agenten an“.</li>
+      <li><b>P3 Abläufe mit Master:</b> Jeder Ablauf nennt seinen Master (◆). Agenten-Verwalter-2000 hat hier zwei Abläufe zugleich, je mit eigener Master-Session (#217).</li>
+      <li><b>K3 Rang:</b> „Blockiert“ direkt nach den blockierenden Anfragen, vor „Fragt“; „Zum Ansehen“ direkt nach „Bittet“. Beide in der Stufe „Wartet auf dich“.</li>
+      <li><b>K4 Aktionen:</b> „Ja, mach X“ sendet „Ja, bitte: X“ als deine Nachricht. „Zum Ansehen“ öffnet ein Artefakt im Reiter „Artefakte“ oder eine URL im Browser.</li>
+      <li><b>K5 Rückfall:</b> Ruft der Agent das Werkzeug nicht, bleibt „Antwort liegt vor“, im Lesebereich „nicht gemeldet“.</li>
+      <li><b>P4 Chat:</b> Die Karten im Chat behalten ihr Popup; der Lesebereich nutzt dieselben Inhalte.</li>
+    </ol>
+  </div>
+  <div>
+    <h2>Zum Ausprobieren</h2>
+    <ul>
+      <li><b>Aufklappen:</b> ▸ vorn an mehreren Zeilen, oder „Alle aufklappen“ in der Werkzeugleiste; <kbd>o</kbd> schaltet den gewählten Eintrag um, bei einer zusammengefassten Zeile alle darin.</li>
+      <li><b>Blockiert</b> (Session 18 · Deploy-Skript): fehlende Zugangsdaten, Antwort im Lesebereich.</li>
+      <li><b>Zum Ansehen</b> (Session 41): „Artefakt öffnen“ springt in den Reiter „Artefakte“.</li>
+      <li><b>Fertig mit Angebot</b> (Session 44): Knopf „Ja, mach X“.</li>
+      <li><b>Abbruch-Anfrage</b> und <b>Station fragt</b> (Rückfrage einer Station, blockierend): fehlten in Runde 1.</li>
+      <li>Ordner „Abläufe“ und die Gruppen <b>Arbeit</b> und <b>Privat</b> links; ein Klick auf den Gruppenkopf klappt sie zu.</li>
+    </ul>
+  </div>
+  <div>
+    <h2>Tastatur</h2>
+    <p><kbd>j</kbd>/<kbd>k</kbd> oder Pfeile wählen · <kbd>x</kbd> markieren · <kbd>e</kbd> gelesen · <kbd>r</kbd>/Enter antworten bzw. aufklappen · <kbd>1</kbd>–<kbd>9</kbd> Option einer Rückfrage · <kbd>/</kbd> suchen · Strg+Enter sendet · Esc verlässt ein Feld.</p>
+    <h2>Bezug</h2>
+    <p>Stories #187, #235, #217; Plan 0.78.0, Entscheidungen P1–P6 und K1–K6. Runde 1: Anhang <code>dashboard-postfach-prototyp.html</code> an #187.</p>
+  </div>
+</div>
+</main>
+
+<script>
+'use strict';
+const P = {
+  avw:  {name:'Agenten-Verwalter-2000', prio:'high', grp:'Arbeit'},
+  amcp: {name:'agda-mcp-server', prio:'normal', grp:'Arbeit'},
+  fca:  {name:'FreeCHR-Agda', prio:'normal', host:'kropotkin', grp:''},
+  atl:  {name:'atelier', prio:'low', grp:'Privat'},
+  vlt:  {name:'dev-vault', prio:'normal', grp:''},
+};
+const GROUPS = ['Arbeit','Privat',''];
+// Art: [Beschriftung, Farbe, Stufe] in der Reihenfolge des Kerns (ADR 071, neu mit #235: blocked, review)
+const K = {
+  question:['Rückfrage','wait',0], permission:['Rechte-Abfrage','wait',0], sessionTool:['Vorschlag','wait',0],
+  blocked:['Blockiert','error',1], asks:['Fragt','wait',1], requests:['Bittet','wait',1], review:['Zum Ansehen','accent',1], answer:['Antwort liegt vor','muted',1],
+  planChange:['Plan ändern?','accent',1], cancelRequest:['Abbruch-Anfrage','accent',1], byYou:['Durch dich','accent',1], returnsExhausted:['Zurückgeben ausgeschöpft','accent',1],
+  masterMissing:['Master ausgefallen','error',1], error:['Fehler','error',2], paused:['Unterbrochen','muted',2],
+  ready:['Bereit','run',3], done:['Fertig','ok',4],
+};
+const ORDER = Object.keys(K);
+const TIERS = ['Hält einen Agenten an','Wartet auf dich','Fehler und Pausen','Bereit zum Start','Fertig'];
+const TONE = {wait:'var(--wait)',accent:'var(--acc)',error:'var(--err)',muted:'var(--fgm)',run:'var(--run)',ok:'var(--ok)'};
+const DISMISS = new Set(['blocked','asks','requests','review','answer','done','error','paused']);
+const BLOCKING = new Set(['question','permission','sessionTool']);
+const NEWKINDS = new Set(['blocked','review','cancelRequest']);
+
+function baseItems(){
+  const it = [
+    {id:'i1',kind:'question',p:'avw',ses:'Session 41 · Vault-Werkzeuge planen',min:3,title:'Wo sollen Prompt-Vorlagen im Vault liegen?',ex:'Rückfrage mit drei Optionen',
+     q:{text:'Wo sollen Prompt-Vorlagen im Vault liegen?',options:['agentic/prompt-templates/ (Empfohlen)','_meta/prompt-templates/','projects/<slug>/prompt-templates/']},
+     chat:[['u','Plane Schritt 3 der Story #140: Agententypen und Prompt-Vorlagen ziehen in den Vault.'],['a','Die Agententypen gehen nach agentic/agents/, wie in E1 entschieden. Für die Vorlagen sehe ich drei Orte – das entscheidest du.']]},
+    {id:'i1b',kind:'question',p:'avw',impl:'Postfach #187',station:'postfach-1 Umsetzung',min:4,title:'Tabelle dashboard_seen oder Spalte an sessions?',ex:'Station fragt, wartet blockierend',
+     q:{text:'Wo speichere ich „angesehen“ je Karte?',options:['Tabelle dashboard_seen (Empfohlen im Brief)','Spalte seen_at an sessions']},
+     chat:[['a','Der Brief nennt die Tabelle; ein Review-Befund schlägt die Spalte vor. Ich frage, bevor ich die Migration schreibe.']]},
+    {id:'i2',kind:'permission',p:'amcp',ses:'Session 12 · Snapshot-Tests',min:6,title:'Bash: npm run test:unit -- --update-snapshots',ex:'Rechte-Abfrage',
+     cmd:'npm run test:unit -- --update-snapshots',
+     chat:[['u','Die Snapshot-Tests schlagen nach dem Umbau fehl, bitte prüfen.'],['a','Die Abweichung ist gewollt (neues Feld `range`). Ich aktualisiere die Snapshots.']]},
+    {id:'i3',kind:'sessionTool',label:'Vorschlag Vorlage',p:'avw',ses:'Session 38 · Vorlagen pflegen',min:9,title:'Vorlage „Bugfix mit Ticket“ ändern',ex:'eine Zeile geändert',
+     diff:[['c','  Arbeite am Ticket {{ticket}}.'],['m','- Lies zuerst das Ticket.'],['p','+ Lies zuerst das Ticket und seine Kommentare.'],['c','  Schreibe einen Test, der den Fehler zeigt.']],
+     chat:[['u','Die Vorlage für Bugfixes soll auch die Kommentare im Ticket lesen lassen.'],['a','Ich schlage dafür eine Änderung der Vorlage vor.']]},
+    {id:'i30',kind:'blocked',rep:true,p:'atl',ses:'Session 18 · Deploy-Skript',min:7,title:'Zugangsdaten für den Staging-Server fehlen',ex:'SSH-Schlüssel staging-deploy nicht im Agenten erreichbar',
+     chat:[['u','Spiel die neue Version auf Staging auf.'],['a','Das Deploy-Skript ist fertig und getestet. Der Schlüssel `staging-deploy` liegt nicht in ~/.ssh, und ich darf ihn nicht anlegen. Leg ihn bitte ab oder sag mir, wo er liegt.']]},
+    {id:'i4',kind:'asks',rep:true,p:'fca',ses:'Session 7 · Lemma-Plan',min:12,title:'Lemma ⊆-trans per Induktion über die Ableitung oder über die Normalform beweisen?',ex:'Normalform braucht zwei Hilfslemmata mehr',
+     chat:[['u','Beweise ⊆-trans für die Ableitungsrelation.'],['a','Zwei Wege:\n(a) Induktion über die Ableitung: direkt, aber drei Fälle mit Umbenennung.\n(b) Über die Normalform: kürzer im Hauptbeweis, braucht aber nf-sound und nf-complete.\n\nWelchen Weg soll ich nehmen?']]},
+    {id:'i5',kind:'requests',rep:true,p:'atl',ses:'Session 3 · Startseite',min:25,title:'pnpm dev starten und melden, ob die Startseite ohne Konsolenfehler lädt',ex:'Browser in der Session nicht verfügbar',
+     chat:[['u','Bau die neue Startseite fertig.'],['a','Die Startseite ist umgebaut. Den Browser kann ich hier nicht öffnen: Bitte starte `pnpm dev`, öffne http://localhost:5173 und sag mir, ob die Seite ohne Fehler in der Konsole lädt.']]},
+    {id:'i31',kind:'review',rep:true,p:'avw',ses:'Session 41 · Vault-Werkzeuge planen',min:16,title:'Prototyp der neuen Vorlagen-Ansicht',ex:'prototyp-vorlagen.html',link:'prototyp-vorlagen.html',
+     chat:[['u','Bau mir einen Klick-Prototyp für die Vorlagen-Ansicht.'],['a','Der Prototyp liegt in den Artefakten. Zwei Varianten der Liste; ich empfehle B.']]},
+    {id:'i6',kind:'answer',p:'vlt',ses:'Session 5 · Skills umstellen',min:40,title:'Ich habe die Skills auf die neuen Werkzeuge umgestellt; drei Stellen brauchen noch …',ex:'',
+     chat:[['u','Stell die Skills auf die neuen Werkzeuge um.'],['a','Ich habe die Skills auf die neuen Werkzeuge umgestellt; drei Stellen brauchen noch eine Entscheidung zur Benennung:\n– session-note: „Notiz“ oder „Protokoll“\n– learn: Ordnername\n– curator: Rückfall ohne Werkzeuge']]},
+    {id:'i7',kind:'planChange',p:'avw',impl:'Folgetickets 0.77.0',min:18,title:'Station „plaetze-8 Nachprüfung“ nach plaetze-7 einfügen',ex:'Vorschlag des Masters',
+     plan:[['c','  plaetze-7 Review'],['p','+ plaetze-8 Nachprüfung (reviewer): prüft den Fix der Runde 1'],['c','  release-1 Merge']],why:'Der Fix aus Runde 1 hat keine eigene Prüfung.'},
+    {id:'i32',kind:'cancelRequest',p:'amcp',impl:'Agda-Highlighting #230',min:22,title:'Umsetzung abbrechen?',ex:'der Master bittet um Abbruch',
+     why:'#230 ist mit PR 131 schon auf dev; die restlichen Stationen wären doppelt.'},
+    {id:'i8',kind:'byYou',p:'fca',impl:'FreeCHR-Agda: offene Lemmata',station:'Abnahme Lemma-Liste',released:true,min:1,title:'Abnahme Lemma-Liste',ex:'Liste der offenen Lemmata gegen das Paper prüfen',
+     brief:'Prüfe die Liste der offenen Lemmata in docs/lemmas.md gegen Abschnitt 4 des Papers und trag fehlende ein.'},
+    {id:'i9',kind:'returnsExhausted',p:'avw',impl:'Postfach #187',station:'postfach-2 Review',min:50,title:'postfach-2 Review gemeldet, keine Rückgabe übrig',ex:'zwei Befunde offen',
+     report:'Zwei Befunde offen: „Gelesen“ setzt seen_at nicht; die Taste x markiert im Suchfeld. Rückgaben: 0 von 3 übrig.'},
+    {id:'i10',kind:'masterMissing',p:'amcp',impl:'Agda-Highlighting #230',min:125,title:'Master ausgefallen',ex:'Session 15 wurde gelöscht',
+     cands:['Session 16 · Agda-Grammatik','Session 17 · Selbsttest','Neue Session']},
+    {id:'i11',kind:'error',p:'amcp',ses:'Session 14 · Goal-Parser',min:65,title:'Prozess beendet (Exit 137)',ex:'vermutlich vom System wegen Speicher beendet',
+     err:'claude: Prozess beendet (Exit 137)\nletzter Befehl: cargo test --workspace',
+     chat:[['u','Bau den Goal-Parser für verschachtelte Ziele.'],['a','Ich starte die volle Testsuite.'],['s','Prozess beendet (Exit 137)']]},
+    {id:'i24',kind:'paused',p:'atl',ses:'Session 9 · Farben',min:210,title:'Nach App-Neustart',ex:'war aktiv, als die App beendet wurde',
+     chat:[['a','Ich passe die Farbtokens für das helle Schema an …'],['s','Die App wurde beendet, während die Session lief – pausiert']]},
+    {id:'i25',kind:'ready',p:'avw',impl:'Folgetickets 0.77.0',station:'release-2 PR',min:15,title:'release-2 PR',ex:'startet nicht automatisch'},
+    {id:'i26',kind:'done',rep:true,p:'avw',ses:'Session 44 · Tickets',min:5,title:'Issue #231 angelegt: Die Art bricht nicht mehr um, Marken weichen aus',ex:'',offer:'die zwei verwandten Issues #183 und #229 verlinken',
+     chat:[['u','Leg ein Ticket für den Umbruch der Kartenart an.'],['a','Issue #231 angelegt: Die Art bricht nicht mehr um; reicht der Platz nicht, rutscht die Marke in die nächste Zeile. Soll ich noch die zwei verwandten Issues #183 und #229 verlinken?']]},
+    {id:'i27',kind:'done',rep:true,p:'amcp',ses:'Session 11 · Tests',min:30,title:'Alle 212 Tests grün; Snapshots aktualisiert',ex:'',
+     chat:[['u','Lass die Tests laufen.'],['a','Alle 212 Tests grün; die Snapshots sind aktualisiert.']]},
+  ];
+  [['avw','Session 30 · Dashboard-Karten'],['avw','Session 31 · Kontingent-Anzeige'],['avw','Session 33 · Release 0.77.0'],['avw','Session 35 · Menüs'],
+   ['fca','Session 4 · Normalform'],['fca','Session 5 · Beweis ⊆-refl'],['amcp','Session 9 · MCP-Protokoll'],['amcp','Session 10 · Fehlertexte'],
+   ['atl','Session 1 · Layout'],['atl','Session 2 · Bilder'],['vlt','Session 2 · Distill'],['vlt','Session 3 · Link-Notes']]
+  .forEach(([p,ses],i)=>it.push({id:'q'+i,kind:'paused',p,ses,min:195-i*6,title:'Kontingent aufgebraucht',ex:'pausiert ohne Zeitgeber · wieder frei ab 17:00',
+    chat:[['a','Ich schreibe gerade die Tests für den neuen Abschnitt …'],['s','Kontingent aufgebraucht – pausiert, „Automatisch fortsetzen“ ist aus']]}));
+  return it;
+}
+// #217: Abläufe je Master-Session, mehrere je Vorhaben
+const IMPLS = [
+  {name:'Folgetickets 0.77.0',p:'avw',master:'Session 33',done:7,total:10},
+  {name:'Postfach #187',p:'avw',master:'Session 41',done:2,total:5},
+  {name:'FreeCHR-Agda: offene Lemmata',p:'fca',master:'Session 6',done:2,total:5},
+  {name:'Agda-Highlighting #230',p:'amcp',master:'—',done:0,total:3},
+];
+const LOOSE = [['Session 44 · Tickets','läuft','run'],['Session 12 · Snapshot-Tests','fragt','wt'],['Session 14 · Goal-Parser','Fehler','er'],['Session 18 · Deploy-Skript','blockiert','er']];
+const FOLDERS = [
+  ['all','Alles',()=>true],
+  ['halt','Hält Agenten an',it=>BLOCKING.has(it.kind)||it.kind==='paused'],
+  ['talk','Fragt und bittet',it=>['blocked','asks','requests','review','answer'].includes(it.kind)],
+  ['flow','Abläufe',it=>!!it.impl],
+  ['err','Fehler und Pausen',it=>it.kind==='error'||it.kind==='paused'],
+  ['done','Fertig',it=>it.kind==='done'],
+];
+
+let ITEMS, S;
+function reset(keep){
+  ITEMS = baseItems();
+  S = Object.assign({theme:'dark'}, keep||{}, {
+    folder:'all', q:'', merge:true, order:'core', sel:null,
+    checked:new Set(), fold:new Set(), exp:new Set(), seen:new Set(ITEMS.filter(i=>i.min>45).map(i=>i.id)), gone:new Set(), open:new Set(), drafts:{},
+  });
+  S.sel = navIds()[0] || null;
+  S.seen.add(S.sel);
+}
+
+const $ = s=>document.querySelector(s);
+const esc = s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const byId = id=>ITEMS.find(i=>i.id===id);
+const label = it=>it.label||K[it.kind][0];
+const tone = kind=>TONE[K[kind][1]];
+const ago = m=>m<60?`${m} min`:m<1440?`${Math.floor(m/60)} h`:`${Math.floor(m/1440)} d`;
+const host = it=>P[it.p].host?`<span class="rm" title="Vorhaben auf dem Host ${P[it.p].host}">⇄</span>`:'';
+const origin = it=>it.impl?`${it.impl}${it.station?' › '+it.station:''}`:it.ses;
+const live = ()=>ITEMS.filter(i=>!S.gone.has(i.id));
+function folderTest(f){
+  if(f.startsWith('impl:')) return it=>it.impl===f.slice(5);
+  if(f.startsWith('proj:')) return it=>it.p===f.slice(5);
+  return (FOLDERS.find(x=>x[0]===f)||FOLDERS[0])[2];
+}
+function visible(){
+  const t = folderTest(S.folder), q = S.q.trim().toLowerCase();
+  return live().filter(t).filter(it=>!q||[it.title,it.ex,it.ses,it.impl,it.station,P[it.p].name,label(it)].join(' ').toLowerCase().includes(q));
+}
+function sorted(items){
+  return items.slice().sort((a,b)=>{
+    const ta=K[a.kind][2], tb=K[b.kind][2];
+    if(ta!==tb) return ta-tb;
+    if(S.order==='new') return a.min-b.min;
+    return ORDER.indexOf(a.kind)-ORDER.indexOf(b.kind) || b.min-a.min || a.id.localeCompare(b.id);
+  });
+}
+function entries(){
+  const list = sorted(visible()), out = [], groups = new Map(), shown = new Set();
+  if(S.merge) for(const it of list){const k=it.kind+'|'+it.title; if(!groups.has(k)) groups.set(k,[]); groups.get(k).push(it);}
+  let tier = -1;
+  for(const it of list){
+    const t = K[it.kind][2];
+    if(t!==tier){tier=t; out.push({type:'tier',tier:t,count:list.filter(x=>K[x.kind][2]===t).length});}
+    const k = it.kind+'|'+it.title, g = S.merge?groups.get(k):null;
+    if(g && g.length>1){
+      if(shown.has(k)) continue;
+      shown.add(k);
+      const open = S.open.has(k);
+      out.push({type:'thread',key:k,items:g,open});
+      if(open) g.forEach(c=>out.push({type:'item',it:c,child:true}));
+    } else out.push({type:'item',it});
+  }
+  return out;
+}
+const navIds = ()=>entries().filter(e=>e.type!=='tier').map(e=>e.type==='thread'?'t:'+e.key:e.it.id);
+const threadItems = id=>live().filter(i=>i.kind+'|'+i.title===id.slice(2));
+
+/* ---------- Zeilen ---------- */
+function rowHTML(e){
+  if(e.type==='tier') return `<div class="tier">${TIERS[e.tier]} <span>${e.count}</span></div>`;
+  if(e.type==='thread'){
+    const its=e.items, id='t:'+e.key, first=its[0], projs=[...new Set(its.map(i=>P[i.p].name))], mins=its.map(i=>i.min);
+    const all = its.every(i=>S.checked.has(i.id));
+    const span = `${ago(Math.min(...mins))} – ${ago(Math.max(...mins))}`;
+    const hov = first.kind==='paused'?`<span class="hov"><button data-act="threadResume" data-id="${esc(id)}" title="Alle fortsetzen">▶ alle</button><button data-act="threadDismiss" data-id="${esc(id)}" title="Alle als gelesen markieren">✓ alle</button></span>`:'';
+    return `<div class="row thread${e.open?' open':''}${S.sel===id?' sel':''}" style="--k:${tone(first.kind)}">
+      <input type="checkbox" class="cb" data-check="${esc(id)}" ${all?'checked':''} aria-label="Alle ${its.length} auswählen">
+      <button class="main" data-sel="${esc(id)}" aria-expanded="${e.open}">
+        <span class="l1"><span class="tw">▸</span><span class="kind">${esc(label(first))}</span><span class="cnt">${its.length}</span><span class="from">${projs.length} Vorhaben</span><span class="since">${span}</span></span>
+        <span class="l2"><span class="t">${esc(first.title)}</span><span class="ex">— ${esc(projs.slice(0,3).join(', '))}${projs.length>3?' +'+(projs.length-3):''}</span></span>
+      </button>${hov}</div>`;
+  }
+  const it=e.it, unread=!S.seen.has(it.id);
+  const rel = it.released?`<span class="rel" title="Der Master hat die Station freigegeben">✓ freigegeben</span>`:'';
+  let hov = '';
+  if(it.kind==='paused') hov += `<button data-act="resume" data-id="${it.id}" title="Fortsetzen">▶</button>`;
+  if(it.kind==='ready') hov += `<button data-act="start" data-id="${it.id}" title="Jetzt starten">▶</button>`;
+  if(DISMISS.has(it.kind)) hov += `<button data-act="dismiss" data-id="${it.id}" title="Gelesen (e)">✓</button>`;
+  const xo = S.exp.has(it.id);
+  const cls = `row${unread?' unread':''}${S.sel===it.id?' sel':''}${BLOCKING.has(it.kind)?' blk':''}${e.child?' child':''}${xo?' xo':''}`;
+  return `<div class="${cls}" style="--k:${tone(it.kind)}">
+    <input type="checkbox" class="cb" data-check="${it.id}" ${S.checked.has(it.id)?'checked':''} aria-label="Auswählen">
+    <button class="xt new" data-exp="${it.id}" aria-expanded="${xo}" title="${xo?'Inhalt zuklappen (o, ←)':'Inhalt aufklappen (o, →)'}">${xo?'▾':'▸'}</button>
+    <button class="main" data-sel="${it.id}">
+      <span class="l1"><span class="udot"></span><span class="kind${NEWKINDS.has(it.kind)||it.offer?' new':''}">${esc(label(it))}${it.offer?' · Angebot':''}</span>${rel}<span class="from">${esc(origin(it))}</span><span class="proj">· ${esc(P[it.p].name)}</span>${host(it)}<span class="since">${ago(it.min)}</span></span>
+      <span class="l2"><span class="t">${esc(it.title)}</span>${it.ex?`<span class="ex">— ${esc(it.ex)}</span>`:''}</span>
+    </button>${hov?`<span class="hov">${hov}</span>`:''}</div>${xo?previewHTML(it,e.child):''}`;
+}
+// Inhalt einer aufgeklappten Zeile: dasselbe wie der Lesebereich ohne Kopf, also auch Antworten und Aktionen
+function previewHTML(it, child){
+  return `<div class="rowx${child?' child':''}${BLOCKING.has(it.kind)?' blk':''}" data-for="${it.id}" style="--k:${tone(it.kind)}">${bodyHTML(it, `<button class="link" data-exp="${it.id}">▴ Zuklappen</button>`)}</div>`;
+}
+function setExp(ids, on){ ids.forEach(id=>{ if(on){ S.exp.add(id); S.seen.add(id); } else S.exp.delete(id); }); }
+function listHTML(){
+  const es = entries();
+  if(!es.length) return `<div class="empty">${live().length?'Nichts passt zu Ordner oder Suche.':'Gerade wartet niemand auf dich.'}</div>`;
+  return es.map(rowHTML).join('');
+}
+
+/* ---------- Sammelaktionen ---------- */
+function checkedItems(){ return [...S.checked].map(byId).filter(i=>i&&!S.gone.has(i.id)); }
+function bulkHTML(){
+  const its=checkedItems(), nd=its.filter(i=>DISMISS.has(i.kind)).length, nr=its.filter(i=>i.kind==='paused').length, ns=its.filter(i=>i.kind==='ready').length;
+  return `<span class="selc">${its.length} ausgewählt</span>
+    <button class="btn" data-act="bulk" data-k="dismiss" ${nd?'':'disabled'} title="${nd<its.length?'Nur Einträge mit Session lassen sich als gelesen markieren':''}">✓ Gelesen${nd?` (${nd})`:''}</button>
+    <button class="btn" data-act="bulk" data-k="resume" ${nr?'':'disabled'}>▶ Fortsetzen${nr?` (${nr})`:''}</button>
+    <button class="btn" data-act="bulk" data-k="start" ${ns?'':'disabled'}>▶ Starten${ns?` (${ns})`:''}</button>
+    <button class="link" data-act="clear">Auswahl aufheben</button>`;
+}
+
+/* ---------- Inhalte ---------- */
+function replyBox(it, sendLabel){
+  const d = S.drafts[it.id]||'';
+  return `<textarea class="ta" data-reply="${it.id}" placeholder="Antwort an ${esc(it.ses||it.station||it.impl||'')} … (Strg+Enter sendet)">${esc(d)}</textarea>
+    <div class="acts"><button class="btn pri" data-act="send" data-id="${it.id}" ${d.trim()?'':'disabled'}>${sendLabel||'Senden'}</button>${DISMISS.has(it.kind)?`<button class="btn" data-act="dismiss" data-id="${it.id}">✓ Gelesen</button>`:''}</div>`;
+}
+function actionHTML(it){
+  switch(it.kind){
+    case 'question': return `<div class="box k" style="--k:${tone(it.kind)}"><p class="lb">Claude wartet auf deine Entscheidung</p><p>${esc(it.q.text)}</p>
+      ${it.q.options.map((o,i)=>`<button class="opt" data-act="answer" data-id="${it.id}" data-val="${esc(o)}"><span class="num">${i+1}</span>${esc(o)}</button>`).join('')}
+      ${replyBox(it,'Eigene Antwort senden')}</div>`;
+    case 'permission': return `<div class="box k" style="--k:${tone(it.kind)}"><p class="lb">Rechte-Abfrage</p><p>Darf Claude diesen Befehl ausführen?</p><code class="diff">${esc(it.cmd)}</code>
+      <div class="acts"><button class="btn pri" data-act="do" data-id="${it.id}" data-msg="Erlaubt">Erlauben</button><button class="btn" data-act="do" data-id="${it.id}" data-msg="Für diese Session erlaubt">Immer erlauben</button><button class="btn" data-act="do" data-id="${it.id}" data-msg="Abgelehnt">Ablehnen</button></div></div>`;
+    case 'sessionTool': return `<div class="box k" style="--k:${tone(it.kind)}"><p class="lb">Vorschlag Vorlage · wartet auf dich</p><div class="diff">${it.diff.map(([c,t])=>`<div class="${c}">${esc(t)}</div>`).join('')}</div>
+      <div class="acts"><button class="btn pri" data-act="do" data-id="${it.id}" data-msg="Vorlage übernommen">Übernehmen</button><button class="btn" data-act="toast" data-msg="Öffnet den Dialog „Vorschlag bearbeiten“">Bearbeiten …</button><button class="btn" data-act="do" data-id="${it.id}" data-msg="Vorschlag verworfen">Verwerfen</button></div></div>`;
+    case 'blocked': return `<div class="box k new" style="--k:${tone(it.kind)}"><p class="lb">Blockiert · der Agent kommt ohne dich nicht weiter</p><p>${esc(it.title)}</p><p class="rep">✓ vom Agenten gemeldet</p>${replyBox(it,'Antworten')}</div>`;
+    case 'review': return `<div class="box k new" style="--k:${tone(it.kind)}"><p class="lb">Zum Ansehen</p><div class="lnk">${esc(it.link)}</div>
+      <div class="acts"><button class="btn pri" data-act="openLink" data-id="${it.id}">${/^https?:/.test(it.link)?'Im Browser öffnen ↗':'Artefakt öffnen'}</button><span class="sp"></span><span class="rep">✓ vom Agenten gemeldet</span></div>${replyBox(it)}</div>`;
+    case 'cancelRequest': return `<div class="box k new" style="--k:${tone(it.kind)}"><p class="lb">Abbruch-Anfrage · ${esc(it.impl)}</p><p>${esc(it.why)}</p>
+      <div class="acts"><button class="btn pri" data-act="do" data-id="${it.id}" data-msg="Umsetzung abgebrochen">Abbrechen bestätigen</button><button class="btn" data-act="do" data-id="${it.id}" data-msg="Abbruch abgelehnt">Ablehnen</button></div></div>`;
+    case 'asks': case 'requests': case 'answer': case 'done':
+      return `<div class="box">${it.offer?`<div class="offer new"><p>Angebot: ${esc(it.offer)}</p><button class="btn pri" data-act="offer" data-id="${it.id}">Ja, mach das</button></div>`:''}
+        <p class="${it.rep?'rep':'ai'}">${it.rep?'✓ vom Agenten gemeldet':'nicht gemeldet – der Agent hat das Werkzeug nicht gerufen'}</p>${replyBox(it)}</div>`;
+    case 'planChange': return `<div class="box k" style="--k:${tone(it.kind)}"><p class="lb">Plan ändern? · ${esc(it.impl)}</p><p>${esc(it.why)}</p><div class="diff">${it.plan.map(([c,t])=>`<div class="${c}">${esc(t)}</div>`).join('')}</div>
+      <div class="acts"><button class="btn pri" data-act="do" data-id="${it.id}" data-msg="Plan geändert">Übernehmen</button><button class="btn" data-act="toast" data-msg="Öffnet „Übernehmen mit Änderungen“">Mit Änderungen …</button><button class="btn" data-act="do" data-id="${it.id}" data-msg="Änderung verworfen">Verwerfen</button></div></div>`;
+    case 'byYou': return `<div class="box k" style="--k:${tone(it.kind)}"><p class="lb">Auftrag der Station</p><p>${esc(it.brief)}</p>${it.released?'<p><span class="rel">✓ vom Master freigegeben</span></p>':''}
+      <textarea class="ta" data-reply="${it.id}" placeholder="Ergebnis (nach Wahl)">${esc(S.drafts[it.id]||'')}</textarea>
+      <div class="acts"><button class="btn pri" data-act="do" data-id="${it.id}" data-msg="Station erledigt">Erledigt</button></div></div>`;
+    case 'returnsExhausted': return `<div class="box k" style="--k:${tone(it.kind)}"><p class="lb">Meldung von ${esc(it.station)}</p><p>${esc(it.report)}</p>
+      <div class="acts"><button class="btn pri" data-act="do" data-id="${it.id}" data-msg="Meldung angenommen">Annehmen</button><button class="btn" disabled title="Keine Rückgabe übrig">Zurückgeben</button></div></div>`;
+    case 'masterMissing': return `<div class="box k" style="--k:${tone(it.kind)}"><p class="lb">Die Umsetzung hat keinen Master</p><p>${esc(it.ex)}. Wähle einen neuen Master, sonst wird niemand geweckt.</p>
+      <div class="acts"><select class="sel" aria-label="Neuer Master">${it.cands.map(c=>`<option>${esc(c)}</option>`).join('')}</select><button class="btn pri" data-act="do" data-id="${it.id}" data-msg="Neuer Master gesetzt">Als Master setzen</button></div></div>`;
+    case 'error': return `<div class="box k" style="--k:${tone(it.kind)}"><p class="lb">Fehler</p><div class="pre">${esc(it.err)}</div>
+      <div class="acts"><button class="btn pri" data-act="do" data-id="${it.id}" data-msg="Agent neu gestartet">Agent neu starten</button><button class="btn" data-act="dismiss" data-id="${it.id}">✓ Gelesen</button></div></div>`;
+    case 'paused': return `<div class="box"><p class="lb">Unterbrochen</p><p>${esc(it.title)}: ${esc(it.ex)}.</p>
+      <div class="acts"><button class="btn pri" data-act="resume" data-id="${it.id}">▶ Fortsetzen</button><button class="btn" data-act="dismiss" data-id="${it.id}">✓ Gelesen</button></div></div>`;
+    case 'ready': return `<div class="box"><p class="lb">Bereite Station</p><p>${esc(it.station)} startet nicht automatisch.</p>
+      <div class="acts"><button class="btn pri" data-act="start" data-id="${it.id}">▶ Jetzt starten</button></div></div>`;
+  }
+  return '';
+}
+function headHTML(it){
+  return `<div class="ph" style="--k:${tone(it.kind)}"><div class="k">${esc(label(it))}${it.released?'<span class="rel">✓ vom Master freigegeben</span>':''}</div>
+    <h3>${esc(it.title)}</h3><div class="o">${esc(origin(it))} · ${esc(P[it.p].name)} ${host(it)} · wartet seit ${ago(it.min)}</div></div>`;
+}
+function exchangeHTML(it){
+  if(!it.chat) return '';
+  const u=[...it.chat].reverse().find(c=>c[0]==='u'), a=[...it.chat].reverse().find(c=>c[0]==='a'), s=it.chat.find(c=>c[0]==='s');
+  return `${u?`<div class="box"><p class="lb">Deine Nachricht davor</p><p class="txt">${esc(u[1])}</p></div>`:''}
+    ${a?`<div class="box${['blocked','asks','requests','review','answer','done'].includes(it.kind)?' k':''}" style="--k:${tone(it.kind)}"><p class="lb">Letzte Antwort</p><p class="txt">${esc(a[1])}</p></div>`:''}
+    ${s?`<p class="sys" style="align-self:flex-start">${esc(s[1])}</p>`:''}`;
+}
+function threadPane(id){
+  const its = sorted(threadItems(id));
+  if(!its.length) return '';
+  const first = its[0];
+  return `<div class="ph" style="--k:${tone(first.kind)}"><div class="k">${esc(label(first))} · ${its.length} Einträge</div><h3>${esc(first.title)}</h3><div class="o">${esc(first.ex)}</div></div>
+    <div class="tlist">${its.map(i=>`<div class="tl"><input type="checkbox" class="cb" data-check="${i.id}" ${S.checked.has(i.id)?'checked':''} aria-label="Auswählen"><span class="nm">${esc(origin(i))}</span><span class="pj">${esc(P[i.p].name)} ${host(i)}</span><span class="ag">${ago(i.min)}</span>${i.kind==='paused'?`<button class="btn" data-act="resume" data-id="${i.id}">▶</button>`:''}</div>`).join('')}</div>
+    <div class="acts">${first.kind==='paused'?`<button class="btn pri" data-act="threadResume" data-id="${esc(id)}">▶ Alle ${its.length} fortsetzen</button>`:''}${DISMISS.has(first.kind)?`<button class="btn" data-act="threadDismiss" data-id="${esc(id)}">✓ Alle als gelesen markieren</button>`:''}</div>
+    <p class="ai">Zusammengefasst, weil Art und Titel gleich sind. „Gleiche zusammenfassen“ ausschalten zeigt sie einzeln.</p>`;
+}
+function paneA(){
+  if(!S.sel) return `<div class="empty">${live().length?'Wähle einen Eintrag.':'Gerade wartet niemand auf dich.'}</div>`;
+  if(S.sel.startsWith('t:')) return threadPane(S.sel);
+  const it = byId(S.sel);
+  return headHTML(it)+bodyHTML(it);
+}
+function bodyHTML(it, extra=''){
+  return exchangeHTML(it)+actionHTML(it)+
+    `<div class="acts"><button class="link" data-act="toast" data-msg="${it.impl?'Öffnet die Umsetzung':'Öffnet den Chat der Session'}">${it.impl?'Umsetzung öffnen':'Session öffnen'} ↗</button>${extra?`<span class="sp"></span>${extra}`:''}</div>`;
+}
+
+/* ---------- Dashboard ---------- */
+function sideTree(){
+  const tree = [['avw',[['Session 41 · Vault-Werkzeuge planen','fragt','wt'],['Session 44 · Tickets','läuft','run'],['Session 38 · Vorlagen pflegen','wartet','wt']]],
+    ['fca',[['Session 7 · Lemma-Plan','wartet','wt']]],['amcp',[['Session 12 · Snapshot-Tests','fragt','wt'],['Session 14 · Goal-Parser','Fehler','er']]],
+    ['vlt',[['Session 5 · Skills umstellen','wartet','mu']]],['atl',[['Session 3 · Startseite','wartet','wt']]]];
+  return tree.map(([p,ss])=>`<div class="vh">${P[p].prio==='high'?'<span class="prio">▲</span>':P[p].prio==='low'?'<span class="prio low">▼</span>':''}${esc(P[p].name)} ${P[p].host?'<span class="rm">⇄</span>':''}</div>`+
+    ss.map(([n,st,t])=>`<div class="vs ${t}"><span class="dot"></span><span class="nm">${esc(n)}</span><span class="st">${st}</span></div>`).join('')).join('');
+}
+function footHTML(){
+  return `<div class="sfoot"><span class="q">Warteschlange 4/4</span><button class="db" aria-pressed="true" title="Dashboard (geöffnet)">▦ <span class="pill">${live().length}</span></button></div>`;
+}
+function renderA(){
+  const all = live();
+  const fo = (key,name,n,extra='',warn=false)=>`<button class="fo" data-folder="${esc(key)}" aria-current="${S.folder===key}">${extra}<span class="nm">${name}</span><span class="n${warn&&n?' w':''}">${n||''}</span></button>`;
+  const projFo = ([k,p],sub)=>fo('proj:'+k,`${esc(p.name)} ${p.host?'<span class="rm">⇄</span>':''}`,all.filter(i=>i.p===k).length,p.prio==='high'?'<span class="prio">▲</span>':p.prio==='low'?'<span class="prio low">▼</span>':'<span style="width:9px"></span>').replace('class="fo"',`class="fo${sub?' sub':''}"`);
+  const folders = FOLDERS.map(([k,n,t])=>fo(k,n,all.filter(t).length,'',k==='halt')).join('')+
+    `<p class="fsec">Abläufe</p><div class="new">`+IMPLS.map(im=>{const n=all.filter(i=>i.impl===im.name).length;return fo('impl:'+im.name,`${esc(im.name)}<br><span class="ms">${im.master==='—'?'Master ausgefallen':'◆ '+esc(im.master)} · ${esc(P[im.p].name)}</span>`,n,`<span class="sq ${n?'wt':'run'}"></span>`);}).join('')+`</div>`+
+    `<p class="fsec">Vorhaben</p><div class="new">`+GROUPS.map(g=>{
+      const ps=Object.entries(P).filter(([,p])=>p.grp===g);
+      if(!g) return `<p class="fgrp" style="cursor:default"><span class="tw"></span>Ohne Gruppe</p>`+ps.map(e=>projFo(e,true)).join('');
+      const open=!S.fold.has(g);
+      return `<button class="fgrp" data-fgrp="${esc(g)}" aria-expanded="${open}"><span class="tw">${open?'▾':'▸'}</span>${esc(g)}<span style="margin-left:auto">${all.filter(i=>P[i.p].grp===g).length||''}</span></button>`+(open?ps.map(e=>projFo(e,true)).join(''):'');
+    }).join('')+`</div>`+
+    `<p class="fsec">Sessions ohne Ablauf</p>`+LOOSE.map(([n,st,t])=>`<div class="ses ${t}"><span class="dot"></span><span class="nm">${esc(n)}</span><span class="st">${st}</span></div>`).join('');
+  const vis = visible(), allChecked = vis.length && vis.every(i=>S.checked.has(i.id));
+  const tool = S.checked.size
+    ? `<input type="checkbox" data-check="all" ${allChecked?'checked':''} aria-label="Alle sichtbaren auswählen">${bulkHTML()}`
+    : `<input type="checkbox" data-check="all" aria-label="Alle sichtbaren auswählen">
+       <input class="search" data-keep="search" placeholder="Suchen  /" value="${esc(S.q)}">
+       <label class="chk"><input type="checkbox" data-act="merge" ${S.merge?'checked':''}> Gleiche zusammenfassen</label>
+       <button class="btn new" data-act="expAll" title="Inhalt aller sichtbaren Einträge auf- oder zuklappen">${vis.length&&vis.every(i=>S.exp.has(i.id))?'▾ Alle zuklappen':'▸ Alle aufklappen'}</button>
+       <span class="seg"><button data-act="order" data-o="core" aria-pressed="${S.order==='core'}">Wichtigste zuerst</button><button data-act="order" data-o="new" aria-pressed="${S.order==='new'}">Neueste zuerst</button></span>`;
+  return `<aside class="side"><div class="shead">Leiste der App, wie heute</div><div class="slist">${sideTree()}</div>${footHTML()}</aside>
+    <section class="dash"><nav class="folders" data-scroll="folders">${folders}</nav>
+      <div class="listcol"><div class="tool">${tool}</div><div class="list" data-scroll="list">${listHTML()}</div></div>
+      <div class="pane" data-scroll="pane:${esc(S.sel||'')}">${paneA()}</div></section>`;
+}
+
+/* ---------- Zeichnen ---------- */
+let toastTimer;
+function toast(text, undoIds){
+  clearTimeout(toastTimer);
+  $('.toast')?.remove();
+  const t = document.createElement('div');
+  t.className='toast';
+  t.innerHTML = `<span>${esc(text)}</span>${undoIds?`<button class="link" data-act="undo">Rückgängig</button>`:''}`;
+  t._undo = undoIds;
+  $('#app').appendChild(t);
+  toastTimer = setTimeout(()=>t.remove(), 6000);
+}
+function render(){
+  document.documentElement.dataset.theme = S.theme;
+  document.querySelectorAll('#sim [data-sim]').forEach(b=>b.setAttribute('aria-pressed', b.dataset.val!==undefined && S[b.dataset.sim]===b.dataset.val));
+  const app = $('#app'), keepToast = $('.toast');
+  const scroll = {}; app.querySelectorAll('[data-scroll]').forEach(el=>scroll[el.dataset.scroll]=el.scrollTop);
+  const act = document.activeElement, keep = act?.dataset?.keep, caret = keep?act.selectionStart:0;
+  app.innerHTML = renderA();
+  if(keepToast) app.appendChild(keepToast);
+  app.querySelectorAll('[data-scroll]').forEach(el=>{ if(scroll[el.dataset.scroll]!=null) el.scrollTop=scroll[el.dataset.scroll]; });
+  if(keep){ const el=app.querySelector(`[data-keep="${keep}"]`); if(el){el.focus(); el.setSelectionRange(caret,caret);} }
+}
+function select(id, scrollIntoView){
+  if(!id) return;
+  S.sel = id;
+  if(!id.startsWith('t:')) S.seen.add(id);
+  render();
+  if(scrollIntoView) $('.row.sel')?.scrollIntoView({block:'nearest'});
+}
+function removeIds(ids, msg, undoable){
+  const before = navIds(), cur = S.sel;
+  ids.forEach(id=>{S.gone.add(id); S.checked.delete(id);});
+  const now = navIds();
+  if(cur && !now.includes(cur)){
+    const i = before.indexOf(cur);
+    S.sel = before.slice(i+1).find(x=>now.includes(x)) || before.slice(0,i).reverse().find(x=>now.includes(x)) || now[0] || null;
+    if(S.sel && !S.sel.startsWith('t:')) S.seen.add(S.sel);
+  }
+  render();
+  toast(msg, undoable?ids:null);
+}
+function toggleCheck(id){
+  if(!id) return;
+  const ids = id==='all' ? visible().map(i=>i.id) : id.startsWith('t:') ? threadItems(id).map(i=>i.id) : [id];
+  const on = !ids.every(x=>S.checked.has(x));
+  ids.forEach(x=>on?S.checked.add(x):S.checked.delete(x));
+  render();
+}
+
+document.addEventListener('click', ev=>{
+  const sim = ev.target.closest('[data-sim]');
+  if(sim){
+    if(sim.dataset.sim==='reset'){ reset({theme:S.theme}); render(); toast('Beispieldaten zurückgesetzt'); return; }
+    S[sim.dataset.sim] = sim.dataset.val;
+    history.replaceState(null,'',`#theme=${S.theme}`);
+    render(); return;
+  }
+  const cb = ev.target.closest('[data-check]');
+  if(cb){ toggleCheck(cb.dataset.check); return; }
+  const xb = ev.target.closest('[data-exp]');
+  if(xb){ const id=xb.dataset.exp; setExp([id], !S.exp.has(id)); render(); return; }
+  const fg = ev.target.closest('[data-fgrp]');
+  if(fg){ const g=fg.dataset.fgrp; S.fold.has(g)?S.fold.delete(g):S.fold.add(g); render(); return; }
+  const f = ev.target.closest('[data-folder]');
+  if(f){ S.folder=f.dataset.folder; S.checked.clear(); const n=navIds(); if(!n.includes(S.sel)) S.sel=n[0]||null; render(); return; }
+  const sel = ev.target.closest('[data-sel]');
+  if(sel){
+    const id = sel.dataset.sel;
+    if(ev.shiftKey){ toggleCheck(id); return; }
+    if(id.startsWith('t:')){ const k=id.slice(2); S.open.has(k)?S.open.delete(k):S.open.add(k); }
+    select(id); return;
+  }
+  const a = ev.target.closest('[data-act]');
+  if(!a) return;
+  const id = a.dataset.id, it = id && byId(id);
+  switch(a.dataset.act){
+    case 'dismiss': removeIds([id],'Als gelesen markiert',true); break;
+    case 'resume': removeIds([id],`${it.ses} läuft weiter`); break;
+    case 'start': removeIds([id],`${it.station} gestartet`); break;
+    case 'do': removeIds([id], a.dataset.msg); break;
+    case 'answer': removeIds([id], `Antwort gesendet: ${a.dataset.val}`); break;
+    case 'send': { const t=(S.drafts[id]||'').trim(); if(!t) return; delete S.drafts[id]; removeIds([id], 'Gesendet'); break; }
+    case 'threadResume': { const ids=threadItems(id).map(i=>i.id); removeIds(ids, `${ids.length} Sessions laufen weiter`); break; }
+    case 'threadDismiss': { const ids=threadItems(id).map(i=>i.id); removeIds(ids, `${ids.length} als gelesen markiert`, true); break; }
+    case 'bulk': {
+      const k=a.dataset.k, its=checkedItems().filter(i=>k==='dismiss'?DISMISS.has(i.kind):k==='resume'?i.kind==='paused':i.kind==='ready');
+      removeIds(its.map(i=>i.id), k==='dismiss'?`${its.length} als gelesen markiert`:k==='resume'?`${its.length} Sessions laufen weiter`:`${its.length} Stationen gestartet`, k==='dismiss');
+      break;
+    }
+    case 'clear': S.checked.clear(); render(); break;
+    case 'undo': { const t=a.closest('.toast'); (t._undo||[]).forEach(x=>S.gone.delete(x)); t.remove(); render(); break; }
+    case 'merge': S.merge=!S.merge; { const n=navIds(); if(!n.includes(S.sel)) S.sel=n[0]||null; } render(); break;
+    case 'order': S.order=a.dataset.o; render(); break;
+    case 'expAll': { const ids=visible().map(i=>i.id), on=!ids.every(x=>S.exp.has(x)); setExp(ids,on); render(); toast(on?`${ids.length} Einträge aufgeklappt`:'Alle zugeklappt'); break; }
+    case 'toast': toast(a.dataset.msg); break;
+    case 'offer': removeIds([id], `Gesendet: „Ja, bitte: ${it.offer}“`); break;
+    case 'openLink': toast(/^https?:/.test(it.link)?`Öffnet ${it.link} im Browser`:`Wechselt in den Reiter „Artefakte“ und zeigt ${it.link}`); break;
+  }
+});
+document.addEventListener('input', ev=>{
+  const t = ev.target;
+  if(t.dataset.keep==='search'){ S.q=t.value; const n=navIds(); if(!n.includes(S.sel)) S.sel=n[0]||null; render(); return; }
+  if(t.dataset.reply){
+    S.drafts[t.dataset.reply]=t.value;
+    const b = t.parentElement.querySelector(`[data-act="send"][data-id="${t.dataset.reply}"]`);
+    if(b) b.disabled = !t.value.trim();
+  }
+});
+document.addEventListener('keydown', ev=>{
+  const t = ev.target, typing = t.tagName==='TEXTAREA' || t.tagName==='SELECT' || (t.tagName==='INPUT' && t.type!=='checkbox');
+  if(typing){
+    if(ev.key==='Escape') t.blur();
+    if(ev.key==='Enter' && (ev.ctrlKey||ev.metaKey) && t.dataset.reply) t.parentElement.querySelector('[data-act="send"]')?.click();
+    return;
+  }
+  if(ev.ctrlKey||ev.metaKey||ev.altKey) return;
+  const nav = navIds(), i = nav.indexOf(S.sel), cur = S.sel && !S.sel.startsWith('t:') ? byId(S.sel) : null;
+  switch(ev.key){
+    case 'j': case 'ArrowDown': select(nav[Math.min(nav.length-1,i+1)], true); break;
+    case 'k': case 'ArrowUp': select(nav[Math.max(0,i-1)], true); break;
+    case 'x': toggleCheck(S.sel); break;
+    case 'o': if(cur){ setExp([cur.id], !S.exp.has(cur.id)); render(); } else if(S.sel?.startsWith('t:')){ const ids=threadItems(S.sel).map(i=>i.id), on=!ids.every(x=>S.exp.has(x)); setExp(ids,on); const k=S.sel.slice(2); if(on) S.open.add(k); render(); } break;
+    case 'e': if(cur && DISMISS.has(cur.kind)) removeIds([cur.id],'Als gelesen markiert',true); else if(S.sel?.startsWith('t:') && DISMISS.has(threadItems(S.sel)[0]?.kind)) $('[data-act="threadDismiss"]')?.click(); break;
+    case 'r': case 'Enter':
+      if(S.sel?.startsWith('t:')){ const k=S.sel.slice(2); S.open.has(k)?S.open.delete(k):S.open.add(k); render(); }
+      else ($(`.rowx[data-for="${S.sel}"] [data-reply]`)||$('.pane [data-reply]'))?.focus();
+      break;
+    case 'ArrowRight': case 'ArrowLeft':
+      if(S.sel?.startsWith('t:')){ const k=S.sel.slice(2); ev.key==='ArrowRight'?S.open.add(k):S.open.delete(k); render(); }
+      else if(cur){ setExp([cur.id], ev.key==='ArrowRight'); render(); }
+      break;
+    case '/': $('[data-keep="search"]')?.focus(); break;
+    default:
+      if(cur?.kind==='question' && /^[1-9]$/.test(ev.key)){ const o=cur.q.options[+ev.key-1]; if(o) removeIds([cur.id],`Antwort gesendet: ${o}`); break; }
+      return;
+  }
+  ev.preventDefault();
+});
+
+const h = Object.fromEntries(location.hash.slice(1).split('&').filter(Boolean).map(p=>p.split('=')));
+reset({theme:h.theme==='light'?'light':'dark'});
+render();
+</script>
+</body>
+</html>

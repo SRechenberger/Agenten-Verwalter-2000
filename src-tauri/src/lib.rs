@@ -178,6 +178,8 @@ pub fn run() {
             commands::projects::project_list,
             commands::dashboard::dashboard_get,
             commands::dashboard::dashboard_dismiss,
+            commands::dashboard::dashboard_undismiss,
+            commands::dashboard::dashboard_seen,
             commands::projects::project_create,
             commands::projects::project_rename,
             commands::projects::project_set_self_release,

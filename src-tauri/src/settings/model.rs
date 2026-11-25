@@ -45,24 +45,6 @@ pub struct PanelWidths {
     pub background: Option<u32>,
 }
 
-// Die Wahl im Kopf des Dashboards (ADR 071, Nachtrag 2026-11-21): welche Ebenen geschachtelt sind
-// (immer Gruppe, Vorhaben, Art in dieser Reihenfolge) und ob nur steht, was einen Agenten anhält.
-// Alles aus = flach wie vor der Story 186. `default`: Ein fehlendes Feld gilt als aus.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
-#[serde(rename_all = "camelCase", default)]
-pub struct DashboardChoice {
-    pub by_group: bool,
-    pub by_project: bool,
-    pub by_kind: bool,
-    pub blocking_only: bool,
-}
-
-impl Default for DashboardChoice {
-    fn default() -> Self {
-        crate::settings::DEFAULT_SETTINGS.dashboard
-    }
-}
-
 /// Woher die Modellanfragen der Agenten kommen (ADR 016). `ClaudeCodeLocal` startet dieselbe
 /// Claude-Kommandozeile, schickt die Anfragen aber an LM Studio. `Standalone` („Autark“, ADR 017)
 /// startet statt der Claude-Kommandozeile den eigenen Agenten des Verwalters. `Codex` (ADR 031)
@@ -120,8 +102,6 @@ pub struct Settings {
     pub terminal_width: u32,
     /// Breite je Leiste in Pixeln; `None` = Standardbreite der Oberfläche (ADR 056).
     pub panel_widths: PanelWidths,
-    // Gespeichert bei jeder Änderung im Dashboard, nicht auf der Einstellungsseite.
-    pub dashboard: DashboardChoice,
 }
 
 /// Was die Einstellungsseite zeigt: die Werte und die Ordner, die sie nur anzeigt.
@@ -208,9 +188,5 @@ pub enum SettingsChange {
     PanelWidth {
         panel: PanelId,
         value: Option<u32>,
-    },
-    // Die ganze Wahl im Kopf des Dashboards.
-    Dashboard {
-        value: DashboardChoice,
     },
 }

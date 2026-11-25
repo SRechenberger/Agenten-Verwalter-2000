@@ -2,10 +2,8 @@
 // ihre Reihenfolge, `blocking`, `open` und der Zustand eines Ablaufs kommen vom Core; hier steht nur, wie sie
 // aussehen. Importiert Werte nur relativ aus Dateien, die selbst nur Typen importieren: `pnpm selftest` fährt
 // `dashboardTexts.selftest.ts` direkt mit Node.
-import { PRIORITY_ORDER } from '../queue/queueTexts.ts';
 import { hostNameOf } from '../remote/projectAccess.ts';
 import type { ChatEntry } from '@/lib/bindings/ChatEntry';
-import type { DashboardChoice } from '@/lib/bindings/DashboardChoice';
 import type { DashboardFlow } from '@/lib/bindings/DashboardFlow';
 import type { DashboardFlowState } from '@/lib/bindings/DashboardFlowState';
 import type { DashboardSessionState } from '@/lib/bindings/DashboardSessionState';
@@ -14,11 +12,6 @@ import type { DashboardTaskKind } from '@/lib/bindings/DashboardTaskKind';
 import type { ProjectPriority } from '@/lib/bindings/ProjectPriority';
 import type { ProjectSummary } from '@/lib/bindings/ProjectSummary';
 import type { ToolRequest } from '@/lib/bindings/ToolRequest';
-
-/** Eine Ebene der Gruppierung: nach Vorhaben, nach Art oder nach Gruppe des Vorhabens (#11). */
-export type GroupBy = 'project' | 'kind' | 'group';
-
-export const NO_GROUP_LABEL = 'Ohne Gruppe';
 
 /** Farbfamilie einer Karte oder eines Zustands; das Stylesheet ordnet ihr ein vorhandenes Zustandstoken zu. */
 export type Tone = 'wait' | 'accent' | 'error' | 'muted' | 'run' | 'ok' | 'master';
@@ -51,21 +44,16 @@ const TOOL_LABEL: Record<Exclude<ToolRequest['kind'], 'sendMessage'>, string> = 
   promptTemplate: 'Vorschlag Vorlage',
 };
 
-/** Schlüssel und Beschriftung einer Karte: `task.kind` und `KIND_LABEL`, bei einem Kasten eines Session-Werkzeugs
- *  die Art der Anfrage (Taiga #224). Ohne Eintrag oder ohne `toolRequest` und bei `sendMessage` bleibt es bei
- *  `sessionTool` und „Freigabe Nachricht“; die übrigen Arten bekommen einen eigenen Schlüssel. */
-function cardKind(task: DashboardTask): { key: string; label: string } {
+/** Beschriftung einer Karte: `KIND_LABEL`, bei einem Kasten eines Session-Werkzeugs die Art der Anfrage (Taiga
+ *  #224). Ohne Eintrag oder ohne `toolRequest` und bei `sendMessage` bleibt es bei „Freigabe Nachricht“. */
+export function taskLabel(task: DashboardTask): string {
   if (task.kind === 'sessionTool' && task.entry?.kind === 'question') {
     const request: ToolRequest | null = task.entry.toolRequest;
     if (request !== null && request.kind !== 'sendMessage') {
-      return { key: `${task.kind}:${request.kind}`, label: TOOL_LABEL[request.kind] };
+      return TOOL_LABEL[request.kind];
     }
   }
-  return { key: task.kind, label: KIND_LABEL[task.kind] };
-}
-
-export function taskLabel(task: DashboardTask): string {
-  return cardKind(task).label;
+  return KIND_LABEL[task.kind];
 }
 
 const KIND_TONE: Record<DashboardTaskKind, Tone> = {
@@ -104,78 +92,9 @@ export function isAnswerKind(kind: DashboardTaskKind): boolean {
   );
 }
 
-/** „Nur, was einen Agenten anhält“: `blocking` und pausierte Karten; die Reihenfolge bleibt die des Core. */
-export function filterTasks(
-  tasks: readonly DashboardTask[],
-  blockingOnly: boolean,
-): DashboardTask[] {
-  return blockingOnly
-    ? tasks.filter((task: DashboardTask) => task.blocking || task.kind === 'paused')
-    : [...tasks];
-}
-
 /** Zahl am Eintrag der Leiste: alle Karten, nicht die gefilterten; bei 0 keine Zahl. */
 export function badgeCount(tasks: readonly DashboardTask[]): number | null {
   return tasks.length === 0 ? null : tasks.length;
-}
-
-export interface TaskGroup {
-  key: string;
-  label: string;
-  tasks: DashboardTask[];
-}
-
-function groupOf(task: DashboardTask, by: GroupBy): { key: string; label: string } {
-  if (by === 'project') {
-    return { key: task.projectId, label: task.projectName };
-  }
-  if (by === 'kind') {
-    return cardKind(task);
-  }
-  const name: string = task.groupName ?? NO_GROUP_LABEL;
-  return { key: `group:${name}`, label: name };
-}
-
-/** Gruppen in der Reihenfolge, in der ihre erste Karte beim Core steht; in der Gruppe bleibt die Reihenfolge. */
-export function groupTasks(tasks: readonly DashboardTask[], by: GroupBy): TaskGroup[] {
-  const groups: TaskGroup[] = [];
-  for (const task of tasks) {
-    const { key, label } = groupOf(task, by);
-    const existing: TaskGroup | undefined = groups.find((group: TaskGroup) => group.key === key);
-    if (existing === undefined) {
-      groups.push({ key, label, tasks: [task] });
-    } else {
-      existing.tasks.push(task);
-    }
-  }
-  return groups;
-}
-
-/** Ebenen der Schachtelung in fester Reihenfolge (Story 186), gleich welche Schalter an sind. */
-export const NEST_ORDER: readonly GroupBy[] = ['group', 'project', 'kind'];
-
-export const NEST_LABEL: Record<GroupBy, string> = {
-  group: 'Gruppe',
-  project: 'Vorhaben',
-  kind: 'Art',
-};
-
-/** Ob der Schalter einer Ebene an ist. */
-export function isNested(choice: DashboardChoice, by: GroupBy): boolean {
-  return by === 'group' ? choice.byGroup : by === 'project' ? choice.byProject : choice.byKind;
-}
-
-/** Die eingeschalteten Ebenen in der Reihenfolge Gruppe → Vorhaben → Art; leer = flach. */
-export function levelsOf(choice: DashboardChoice): GroupBy[] {
-  return NEST_ORDER.filter((by: GroupBy) => isNested(choice, by));
-}
-
-export interface TaskNode extends TaskGroup {
-  by: GroupBy;
-  /** Kennung über alle Ebenen (`/group:Verwalter/p1/question`), Schlüssel des Einklapp-Zustands. */
-  path: string;
-  /** `null` auf der untersten Ebene: Dort stehen die Karten. */
-  children: TaskNode[] | null;
 }
 
 /** Priorität eines Vorhabens; ein unbekanntes gilt als normal. */
@@ -184,31 +103,6 @@ export function priorityOf(
   projects: readonly ProjectSummary[],
 ): ProjectPriority {
   return projects.find((project: ProjectSummary) => project.id === projectId)?.priority ?? 'normal';
-}
-
-/** Schachtelt die Karten über `groupTasks` je Ebene. Vorhaben stehen nach Priorität, bei gleicher nach ihrer
- *  ersten Karte; Gruppe und Art nach ihrer ersten Karte. Ohne Ebene `null`: Die Liste bleibt flach. */
-export function nestTasks(
-  tasks: readonly DashboardTask[],
-  levels: readonly GroupBy[],
-  projects: readonly ProjectSummary[],
-  parent = '',
-): TaskNode[] | null {
-  const [by, ...rest] = levels;
-  if (by === undefined) {
-    return null;
-  }
-  const groups: TaskGroup[] = groupTasks(tasks, by);
-  if (by === 'project') {
-    const rank = (group: TaskGroup): number =>
-      PRIORITY_ORDER.indexOf(priorityOf(group.key, projects));
-    // `sort` ist stabil: Bei gleicher Priorität bleibt die Reihenfolge der ersten Karte.
-    groups.sort((left: TaskGroup, right: TaskGroup) => rank(left) - rank(right));
-  }
-  return groups.map((group: TaskGroup) => {
-    const path = `${parent}/${group.key}`;
-    return { ...group, by, path, children: nestTasks(group.tasks, rest, projects, path) };
-  });
 }
 
 /** Host eines entfernten Vorhabens, allein aus der `projectId` (Issue 198); `null` bei eigenen und unbekannten. */
@@ -382,4 +276,22 @@ export function lastExchange(entries: readonly ChatEntry[]): LastExchange {
 /** „Senden“ bleibt gesperrt, solange nur Leerzeichen im Feld stehen (B13). */
 export function isMessageEmpty(text: string): boolean {
   return text.trim() === '';
+}
+
+/** Meldung im Postfach nach „Senden“. */
+export const SENT_TEXT = 'Gesendet';
+
+/** Meldung im Postfach nach „Ja, mach das“: die Nachricht, die hinausging. */
+export function sentOfferText(offer: string): string {
+  return `Gesendet: „${offerMessage(offer)}“`;
+}
+
+/** Untertitel der Art im Lesebereich; nur „Blockiert“ hat einen. */
+export function kindSubtitle(task: DashboardTask): string | null {
+  return task.kind === 'blocked' ? 'der Agent kommt ohne dich nicht weiter' : null;
+}
+
+/** Beschriftung der Art in der Liste: eine fertige Karte mit Angebot trägt den Zusatz „· Angebot“. */
+export function listKindLabel(task: DashboardTask): string {
+  return task.offer === null ? taskLabel(task) : `${taskLabel(task)} · Angebot`;
 }

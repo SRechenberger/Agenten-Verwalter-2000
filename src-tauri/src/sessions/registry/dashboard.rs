@@ -17,6 +17,7 @@ use crate::dashboard::flow_facts;
 use crate::dashboard::model::{
     AnswerKind, FlowFacts, ProjectFacts, RequestFacts, SessionFacts, Snapshot,
 };
+use crate::db::dashboard as seen_rows;
 use crate::error::CommandError;
 use crate::implementation::model::ImplementationView;
 use crate::projects::model::ProjectGroup;
@@ -35,6 +36,10 @@ impl SessionRegistry {
             .into_iter()
             .map(|group: ProjectGroup| (group.id, group.name))
             .collect();
+        // Vor jeder Session-Sperre gelesen (Sperren-Regel im Kopf).
+        let seen: HashMap<String, f64> = self
+            .database
+            .with(|connection| seen_rows::seen_map(connection))?;
         let views: Vec<ImplementationView> = self.implementation_views()?;
         let projects: Vec<ProjectFacts> = self
             .lock_projects()
@@ -56,6 +61,7 @@ impl SessionRegistry {
                 .map(|session: &Arc<Session>| facts_of(session, &session.lock()))
                 .collect(),
             flows: views.iter().map(flow_facts).collect::<Vec<FlowFacts>>(),
+            seen,
         })
     }
 
@@ -66,11 +72,38 @@ impl SessionRegistry {
             app,
             &session,
             |state: &mut SessionState, outbox: &mut super::Outbox| {
-                state.card_dismissed_at = Some(now_ms());
+                state.dismiss_card_at(now_ms());
                 outbox.summary_dirty = true;
                 Ok(())
             },
         )
+    }
+
+    /// „Rückgängig“ nach „Gelesen“: die Karten der Session kommen zurück.
+    pub fn undismiss_card(&self, app: &AppHandle, session_id: &str) -> Result<(), CommandError> {
+        let session = self.get(session_id)?;
+        update(
+            app,
+            &session,
+            |state: &mut SessionState, outbox: &mut super::Outbox| {
+                state.undismiss_card();
+                outbox.summary_dirty = true;
+                Ok(())
+            },
+        )
+    }
+}
+
+impl SessionState {
+    /// „Gelesen“ zum Zeitpunkt `at`; der Wert davor bleibt für „Rückgängig“ im Speicher.
+    pub(super) fn dismiss_card_at(&mut self, at: f64) {
+        self.card_dismissed_prev = Some(self.card_dismissed_at);
+        self.card_dismissed_at = Some(at);
+    }
+
+    /// Stellt `card_dismissed_at` auf den Wert vor dem letzten „Gelesen“; ohne gemerkten Wert auf `None`.
+    pub(super) fn undismiss_card(&mut self) {
+        self.card_dismissed_at = self.card_dismissed_prev.take().flatten();
     }
 }
 
