@@ -80,7 +80,7 @@ use crate::session_tools::model::SelfRelease;
 use crate::sessions::auto_resume::{self, ArmedResume};
 use crate::sessions::model::{
     AwaitedScript, ChatEntryEvent, ChatPage, HandoffLine, PauseReason, SendOutcome, SessionOverlap,
-    SessionStatus, SessionSummary,
+    SessionStatus, SessionSummary, WaitingMessage,
 };
 use crate::sessions::{MAX_NAME_CHARS, handoff, name_from_task};
 use crate::settings;
@@ -98,6 +98,7 @@ mod commit_scan;
 mod compact;
 mod dashboard;
 mod implementation;
+mod inbox;
 mod mcp;
 mod overlaps;
 mod queue;
@@ -113,6 +114,7 @@ mod terminal;
 mod tldr;
 
 use self::implementation::ReportUpdate;
+pub use self::inbox::INBOX_CHANGED_EVENT;
 pub use self::queue::{AGENT_QUEUE_CHANGED_EVENT, schedule_pass};
 
 const SESSION_CHANGED_EVENT: &str = "session://changed";
@@ -168,6 +170,8 @@ pub struct SessionRegistry {
     implementation_countdowns: Mutex<Countdowns>,
     /// Das Steuerrecht je Vorhaben (ADR 059), geteilt mit dem Tauri-State.
     remote: Arc<RemoteControl>,
+    /// Die Liste der wartenden Nachrichten bei der letzten Meldung von `inbox://changed`.
+    inbox_seen: Mutex<Vec<WaitingMessage>>,
 }
 
 /// Was ein Vorhaben selbst trägt; Workspace und Repositories liegen gleich an jeder seiner Sessions.
@@ -619,6 +623,7 @@ impl SessionRegistry {
             database,
             implementation_countdowns: Mutex::new(Countdowns::default()),
             remote,
+            inbox_seen: Mutex::new(Vec::new()),
         }
     }
 
@@ -3337,6 +3342,7 @@ impl SessionState {
             comments,
             origin: device.map(str::to_owned),
             queued: false,
+            discarded: false,
         });
         self.note_input(outbox);
         self.auto_chain = 0;
@@ -3402,6 +3408,24 @@ impl SessionState {
             self.entries.get(seq as usize),
             Some(ChatEntry::User { queued: true, .. })
         )
+    }
+
+    /// Verwirft die wartende eigene Nachricht `seq` (Taiga-Story 218): kein `queued` mehr, dafür
+    /// `discarded`. `false`, wenn der Eintrag nicht mehr wartet.
+    pub(super) fn discard_queued(&mut self, outbox: &mut Outbox, seq: u32) -> bool {
+        if !self.is_queued(seq) {
+            return false;
+        }
+        self.set_queued(outbox, seq, false);
+        if let Some(entry) = self.entries.get_mut(seq as usize) {
+            if let ChatEntry::User { discarded, .. } = entry {
+                *discarded = true;
+            }
+            if let Some(last) = outbox.entries.last_mut() {
+                *last = entry.clone();
+            }
+        }
+        true
     }
 
     fn set_queued(&mut self, outbox: &mut Outbox, seq: u32, value: bool) {
@@ -6319,6 +6343,7 @@ mod tests {
             comments: Vec::new(),
             origin: None,
             queued: false,
+            discarded: false,
         });
         say(&mut state, &mut outbox, "Geprüft.");
         (state, outbox)
@@ -8328,6 +8353,181 @@ mod tests {
             InputRoute::Queue
         );
         let _ = fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn discarding_a_queued_message_deletes_its_row_and_marks_the_entry_discarded() {
+        let base = temp_base("discard");
+        let (_registry, session) = registry_with_full_limit(&base);
+        queue_text(&session, &base.join("staging"), "Nie senden", &[]);
+        let mut outbox = Outbox::default();
+        assert!(session.lock().discard_queued(&mut outbox, 0));
+        session
+            .database
+            .with(|connection| session_inbox::delete_user_entry(connection, &session.id, 0))
+            .expect("Zeile gelöscht");
+        assert!(user_rows(&session).is_empty(), "die Zeile ist weg");
+        let state = session.lock();
+        assert!(!state.is_queued(0), "kein queued mehr");
+        assert!(matches!(
+            state.entries.first(),
+            Some(ChatEntry::User {
+                queued: false,
+                discarded: true,
+                ..
+            })
+        ));
+        assert!(matches!(
+            outbox.entries.as_slice(),
+            [ChatEntry::User {
+                discarded: true,
+                ..
+            }]
+        ));
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn a_discarded_message_never_goes_out_because_the_release_finds_it_stale() {
+        let base = temp_base("never");
+        let (_registry, session) = registry_with_full_limit(&base);
+        queue_text(&session, &base.join("staging"), "Nie senden", &[]);
+        let mut state = session.lock();
+        let mut outbox = Outbox::default();
+        assert!(state.discard_queued(&mut outbox, 0));
+        // Wer danach freigeben will (`deliver_user_messages`), sieht `Stale`, löscht nur die Zeile und sendet nichts.
+        assert_eq!(
+            session_tools::user_release(&state, 0),
+            session_tools::UserRelease::Stale
+        );
+        assert!(release_queued(&session, &mut state, &mut outbox, 0, &[], None).is_err());
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn discarding_a_message_that_was_already_sent_reports_already_sent() {
+        let base = temp_base("race");
+        let (_registry, session) = registry_with_full_limit(&base);
+        queue_text(&session, &base.join("staging"), "Schon draußen", &[]);
+        let mut state = session.lock();
+        let mut outbox = Outbox::default();
+        // „Jetzt senden“ hat gewonnen: Die Freigabe hat `queued` zurückgesetzt.
+        release_queued(&session, &mut state, &mut outbox, 0, &[], None).expect("freigegeben");
+        let mut discard = Outbox::default();
+        assert!(!state.discard_queued(&mut discard, 0), "alreadySent");
+        assert!(discard.entries.is_empty(), "nichts verändert");
+        assert!(matches!(
+            state.entries.first(),
+            Some(ChatEntry::User {
+                discarded: false,
+                ..
+            })
+        ));
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn inbox_list_names_sender_recipient_subject_and_reason_even_for_a_running_session() {
+        use crate::agents::event::SessionRef;
+        use crate::sessions::model::WaitsFor;
+        let base = temp_base("inbox-list");
+        let (registry, session) = registry_with_full_limit(&base);
+        let sender = SessionRef {
+            id: "m".to_owned(),
+            number: 1,
+            title: "Master".to_owned(),
+        };
+        let insert = |subject: Option<&str>| {
+            session
+                .database
+                .with(|connection| {
+                    session_inbox::insert_referenced(
+                        connection,
+                        "q",
+                        &sender,
+                        "Text",
+                        0,
+                        1.0,
+                        subject.map(|subject| Reference {
+                            subject,
+                            note: None,
+                        }),
+                    )
+                })
+                .expect("eingefügt");
+        };
+        insert(Some("Betreff"));
+        let reason = |registry: &SessionRegistry| {
+            let list = registry.inbox_list().expect("Liste");
+            assert_eq!(list.len(), 1);
+            list.into_iter().next().expect("eine")
+        };
+        // Läuft: bis der Zug endet.
+        session.lock().status = SessionStatus::Running;
+        let message = reason(&registry);
+        assert_eq!(message.waits_for, WaitsFor::TurnEnd);
+        assert_eq!(
+            (message.sender_number, message.sender_title.as_str()),
+            (1, "Master")
+        );
+        assert_eq!(
+            (message.recipient_number, message.recipient_title.as_str()),
+            (2, "Session 2")
+        );
+        assert_eq!(message.subject.as_deref(), Some("Betreff"));
+        assert!(!message.from_user);
+        // Pausiert, ruhend, neu.
+        session.lock().status = SessionStatus::Paused;
+        assert_eq!(reason(&registry).waits_for, WaitsFor::Paused);
+        session.lock().status = SessionStatus::Completed;
+        assert_eq!(reason(&registry).waits_for, WaitsFor::Slot);
+        session.lock().status = SessionStatus::New;
+        assert_eq!(reason(&registry).waits_for, WaitsFor::Start);
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn inbox_changed_reports_an_insert_and_a_delete_once_each() {
+        use crate::agents::event::SessionRef;
+        let base = temp_base("inbox-changed");
+        let (registry, session) = registry_with_full_limit(&base);
+        assert!(!registry.inbox_changed(), "leer wie beim Start");
+        let sender = SessionRef {
+            id: "m".to_owned(),
+            number: 1,
+            title: "Master".to_owned(),
+        };
+        session
+            .database
+            .with(|connection| session_inbox::insert(connection, "q", &sender, "Text", 0, 1.0))
+            .expect("eingefügt");
+        assert!(registry.inbox_changed(), "Einfügen");
+        assert!(
+            !registry.inbox_changed(),
+            "unverändert: keine zweite Meldung"
+        );
+        let id = registry.inbox_list().expect("Liste")[0].id;
+        session
+            .database
+            .with(|connection| session_inbox::delete(connection, id))
+            .expect("gelöscht");
+        assert!(registry.inbox_changed(), "Löschen");
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn inbox_waits_for_answer_while_a_question_is_open_and_names_own_messages() {
+        use super::inbox::waits_for;
+        use crate::sessions::model::WaitsFor;
+        assert_eq!(
+            waits_for(SessionStatus::Waiting, true, false, None),
+            (WaitsFor::Answer, None)
+        );
+        assert_eq!(
+            waits_for(SessionStatus::Completed, false, true, Some(3)),
+            (WaitsFor::Slot, Some(3)),
+            "wer in der Warteschlange steht, wartet auf den Platz"
+        );
     }
 
     #[test]

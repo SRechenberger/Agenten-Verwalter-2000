@@ -15,10 +15,14 @@ use super::dispatch::project_of;
 use super::guest::{self, GuestTerminals};
 use super::server::RemoteServer;
 use super::wire::Frame;
-use super::{AGENT_QUEUE_CHANGED_EVENT, CHANGED_EVENT, RemoteControl, USAGE_CHANGED_EVENT};
+use super::{
+    AGENT_QUEUE_CHANGED_EVENT, CHANGED_EVENT, INBOX_CHANGED_EVENT, RemoteControl,
+    USAGE_CHANGED_EVENT,
+};
 use crate::db::Database;
 use crate::implementation::IMPLEMENTATION_REMOVED_EVENT as REMOVED_EVENT;
 use crate::sessions::registry::AGENT_QUEUE_CHANGED_EVENT as HOST_QUEUE_EVENT;
+use crate::sessions::registry::INBOX_CHANGED_EVENT as HOST_INBOX_EVENT;
 use crate::sessions::registry::{SessionRegistry, now_ms};
 use crate::usage::USAGE_CHANGED_EVENT as HOST_USAGE_EVENT;
 
@@ -58,6 +62,8 @@ pub(super) const FORWARDED: &[(&str, Owner)] = &[
     (HOST_USAGE_EVENT, Owner::EveryDevice),
     // Ohne Inhalt: Was ein Gast davon sehen darf, filtert der Host bei `agent_queue`.
     (HOST_QUEUE_EVENT, Owner::EveryDevice),
+    // Ebenso ohne Inhalt: `inbox_list` filtert der Host für den Gast.
+    (HOST_INBOX_EVENT, Owner::EveryDevice),
 ];
 
 /// Hört die Ereignisse mit und gibt sie über einen eigenen Thread weiter: Ein `emit` kann unter
@@ -201,6 +207,10 @@ pub fn on_guest_frame(app: &AppHandle, host_id: &str, frame: Frame) {
             // Nie unter dem eigenen Namen: Sonst läse der Gast seine eigene Warteschlange neu.
             if name == HOST_QUEUE_EVENT {
                 let _ = app.emit(AGENT_QUEUE_CHANGED_EVENT, json!({ "hostId": host_id }));
+                return;
+            }
+            if name == HOST_INBOX_EVENT {
+                let _ = app.emit(INBOX_CHANGED_EVENT, json!({ "hostId": host_id }));
                 return;
             }
             clients.learn(host_id, &payload);

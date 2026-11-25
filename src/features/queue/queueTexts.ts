@@ -3,6 +3,8 @@
 // `queueTexts.selftest.ts` direkt mit Node.
 import type { AgentQueue } from '@/lib/bindings/AgentQueue';
 import type { ProjectPriority } from '@/lib/bindings/ProjectPriority';
+import type { WaitingMessage } from '@/lib/bindings/WaitingMessage';
+import type { WaitsFor } from '@/lib/bindings/WaitsFor';
 import type { QueueEntry } from '@/lib/bindings/QueueEntry';
 
 /** Mehr Kästchen zeigt der Füllstand nicht; die Zahl daneben stimmt trotzdem. */
@@ -307,4 +309,66 @@ export function slotCells(queue: AgentQueue): SlotCell[] {
     }
     return queue.limit !== null && index >= queue.limit ? 'over' : 'on';
   });
+}
+
+// Wartende Nachrichten (Taiga-Story 218, ADR 078).
+
+export const DISCARD_LABEL = 'Verwerfen';
+export const DISCARD_TITLE = 'Verwirft diese wartende Nachricht: Sie geht nie an den Agenten.';
+export const DISCARDED_MARK = 'verworfen';
+export const ADOPT_LABEL = 'Text übernehmen';
+export const ADOPT_TITLE = 'Kopiert den Text ins leere Eingabefeld.';
+export const ALREADY_SENT_TEXT = 'Schon gesendet';
+export const TAB_SLOTS_LABEL = 'Plätze';
+export const TAB_MESSAGES_LABEL = 'Nachrichten';
+export const MESSAGES_NOTHING_WAITING = 'Keine Nachricht wartet.';
+
+/** Was ein verworfener Eintrag über seine Anhänge sagt; `null` ohne Anhänge (N3). */
+export function discardedAttachmentsText(count: number): string | null {
+  if (count === 0) {
+    return null;
+  }
+  return count === 1
+    ? '1 Anhang bleibt im Workspace (.anhaenge/).'
+    : `${String(count)} Anhänge bleiben im Workspace (.anhaenge/).`;
+}
+
+const WAITS_FOR_TEXT: Record<Exclude<WaitsFor, 'slot'>, string> = {
+  turnEnd: 'bis der Zug endet',
+  answer: 'bis die Rückfrage beantwortet ist',
+  paused: 'pausiert',
+  start: 'bis die Session startet',
+};
+
+/** Marke einer wartenden Nachricht mit ihrem Grund: „Platz 2“, „bis der Zug endet“, … */
+export function waitsForText(message: Pick<WaitingMessage, 'waitsFor' | 'position'>): string {
+  if (message.waitsFor !== 'slot') {
+    return WAITS_FOR_TEXT[message.waitsFor];
+  }
+  return message.position === null ? 'wartet auf einen Platz' : `Platz ${String(message.position)}`;
+}
+
+/** Hinweis im Chat: „2 Nachrichten anderer Sessions warten auf diese Session“. */
+export function foreignWaitingNoticeText(count: number): string {
+  return count === 1
+    ? '1 Nachricht einer anderen Session wartet auf diese Session'
+    : `${String(count)} Nachrichten anderer Sessions warten auf diese Session`;
+}
+
+/** Die Nachrichten anderer Sessions (nicht die eigenen des Nutzers), die auf diese Session warten. */
+export function foreignWaitingOf(
+  messages: readonly WaitingMessage[],
+  sessionId: string,
+): WaitingMessage[] {
+  return messages.filter(
+    (message: WaitingMessage) => message.sessionId === sessionId && !message.fromUser,
+  );
+}
+
+/** Spalte „Von → An“ des Reiters „Nachrichten“: „Session 2 „Titel“ → Session 1 „Titel““, eigene „Du → …“. */
+export function inboxRouteText(message: WaitingMessage): string {
+  const from: string = message.fromUser
+    ? 'Du'
+    : `Session ${String(message.senderNumber)} „${message.senderTitle}“`;
+  return `${from} → Session ${String(message.recipientNumber)} „${message.recipientTitle}“`;
 }

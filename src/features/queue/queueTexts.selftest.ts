@@ -2,6 +2,11 @@
 // (`pnpm selftest`). Je Fall `PASS`/`FAIL`, Exit 1 bei einem Fehlschlag. Node streicht die Typen; die geprüfte
 // Datei importiert nur Typen.
 import {
+  discardedAttachmentsText,
+  foreignWaitingNoticeText,
+  foreignWaitingOf,
+  inboxRouteText,
+  waitsForText,
   entrySinceText,
   entryStage,
   entryWhat,
@@ -32,6 +37,7 @@ import {
 } from './queueTexts.ts';
 import type { AgentQueue } from '@/lib/bindings/AgentQueue';
 import type { QueueEntry } from '@/lib/bindings/QueueEntry';
+import type { WaitingMessage } from '@/lib/bindings/WaitingMessage';
 
 function entry(fields: Partial<QueueEntry>): QueueEntry {
   return {
@@ -63,7 +69,88 @@ const ENTRIES: QueueEntry[] = [
 
 const HELD: AgentQueue = { ...queue(4, 1, 1), quotaUntil: '2026-11-22T14:30:00Z' };
 
+function waiting(fields: Partial<WaitingMessage>): WaitingMessage {
+  return {
+    id: 1,
+    sessionId: 's1',
+    recipientNumber: 1,
+    recipientTitle: 'Ziel',
+    projectId: 'p',
+    senderId: 'x',
+    senderNumber: 2,
+    senderTitle: 'Quelle',
+    fromUser: false,
+    subject: null,
+    createdAt: 0,
+    entrySeq: null,
+    waitsFor: 'turnEnd',
+    position: null,
+    ...fields,
+  };
+}
+
 const CASES: { name: string; actual: () => unknown; expected: unknown }[] = [
+  // Taiga-Story 218: wartende Nachrichten nennen ihren Grund.
+  {
+    name: 'waits_for_slot_names_the_place',
+    actual: () => waitsForText({ waitsFor: 'slot', position: 3 }),
+    expected: 'Platz 3',
+  },
+  {
+    name: 'waits_for_turn_end_says_until_the_turn_ends',
+    actual: () => waitsForText({ waitsFor: 'turnEnd', position: null }),
+    expected: 'bis der Zug endet',
+  },
+  {
+    name: 'waits_for_answer_says_until_the_question_is_answered',
+    actual: () => waitsForText({ waitsFor: 'answer', position: null }),
+    expected: 'bis die Rückfrage beantwortet ist',
+  },
+  {
+    name: 'waits_for_paused_says_paused',
+    actual: () => waitsForText({ waitsFor: 'paused', position: null }),
+    expected: 'pausiert',
+  },
+  {
+    name: 'foreign_waiting_notice_counts_the_messages',
+    actual: () => foreignWaitingNoticeText(2),
+    expected: '2 Nachrichten anderer Sessions warten auf diese Session',
+  },
+  {
+    name: 'foreign_waiting_keeps_only_other_sessions_messages_to_this_session',
+    actual: () =>
+      foreignWaitingOf(
+        [
+          waiting({ id: 1 }),
+          waiting({ id: 2, fromUser: true }),
+          waiting({ id: 3, sessionId: 's2' }),
+        ],
+        's1',
+      )
+        .map((message: WaitingMessage) => String(message.id))
+        .join(','),
+    expected: '1',
+  },
+  {
+    name: 'inbox_route_names_sender_and_recipient',
+    actual: () => inboxRouteText(waiting({})),
+    expected: 'Session 2 „Quelle“ → Session 1 „Ziel“',
+  },
+  {
+    name: 'inbox_route_of_an_own_message_starts_with_you',
+    actual: () => inboxRouteText(waiting({ fromUser: true })),
+    expected: 'Du → Session 1 „Ziel“',
+  },
+  {
+    name: 'discarded_entry_names_its_attachments',
+    actual: () => discardedAttachmentsText(2),
+    expected: '2 Anhänge bleiben im Workspace (.anhaenge/).',
+  },
+  {
+    name: 'discarded_entry_without_attachments_says_nothing',
+    actual: () => discardedAttachmentsText(0),
+    expected: null,
+  },
   // Taiga-Story 190: eigene Nachrichten warten auf einen Platz.
   {
     name: 'queued_mark_names_the_place',

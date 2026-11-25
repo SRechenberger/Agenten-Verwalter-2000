@@ -5,6 +5,7 @@ import { ChatTaskRow, type ChatTaskActions } from '@/features/chat/ChatTaskRow';
 import { chatTasks, type ChatCard, type ChatTasks } from '@/features/chat/chatTasks';
 import { ChatTimeline, type JumpRequest } from '@/features/chat/ChatTimeline';
 import { Composer } from '@/features/chat/Composer';
+import { ForeignWaiting } from '@/features/chat/ForeignWaiting';
 import { useChatEntries } from '@/features/chat/useChatEntries';
 import { useNow } from '@/features/background/useNow';
 import { TaskPopup } from '@/features/dashboard/TaskPopup';
@@ -233,6 +234,7 @@ export function ChatView({
         )}
       </div>
       <div ref={bottomRef} className="chat-view__bottom">
+        <ForeignWaiting sessionId={session.id} sessions={sessions} />
         <Composer
           session={session}
           onSessionCreated={onSessionCreated}

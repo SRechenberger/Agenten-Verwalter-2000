@@ -374,6 +374,8 @@ export function ChatTimeline({
             comments={entry.comments}
             origin={entry.origin}
             queued={entry.queued}
+            entrySeq={entry.seq}
+            discarded={entry.discarded}
           />
         );
       case 'text': {
