@@ -56,15 +56,10 @@ export function RemoteShareBlock({
         type="button"
         className="remote-block__button"
         onClick={(): void => {
-          // Gibt eine Gruppe das Vorhaben frei, beendet dieser Knopf nichts (G2): Er öffnet die Gruppe.
-          if (viaGroup === null) {
-            setIsEndOpen(true);
-          } else {
-            setIsGroupEndOpen(true);
-          }
+          setIsEndOpen(true);
         }}
       >
-        {viaGroup === null ? 'Freigabe beenden' : `Gruppe „${viaGroup.name}“ bearbeiten …`}
+        Freigabe beenden
       </button>
     );
   }
@@ -111,7 +106,7 @@ export function RemoteShareBlock({
             </>
           )}
         </div>
-        {renderEnd()}
+        {viaGroup === null && renderEnd()}
       </div>
     );
   }
