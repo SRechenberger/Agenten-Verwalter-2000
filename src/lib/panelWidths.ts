@@ -15,6 +15,7 @@ export const PANEL_BOUNDS: Readonly<Record<PanelId, PanelBounds>> = {
   changesTree: { initial: 360, min: 240 },
   artifactsList: { initial: 300, min: 220 },
   background: { initial: 440, min: 320 },
+  settingsNav: { initial: 216, min: 160 },
 };
 
 /** Klemmt auf `[min, max]`; ist `max < min`, gilt `min`. */
@@ -34,6 +35,7 @@ const NO_WIDTHS: PanelWidths = {
   changesTree: null,
   artifactsList: null,
   background: null,
+  settingsNav: null,
 };
 
 /** Spiegel der Datenbank, den die Leisten beim ersten Rendern lesen — sonst springen sie beim Start von der Standardbreite. */
@@ -65,6 +67,7 @@ export function readRememberedPanelWidths(): PanelWidths {
       changesTree: numberOrNull(record.changesTree),
       artifactsList: numberOrNull(record.artifactsList),
       background: numberOrNull(record.background),
+      settingsNav: numberOrNull(record.settingsNav),
     };
   } catch {
     return NO_WIDTHS;

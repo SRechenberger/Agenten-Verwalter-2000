@@ -40,6 +40,7 @@ import { SelectButton } from '@/features/settings/SelectButton';
 import { SelfReleaseRow } from '@/features/settings/SelfReleaseSettings';
 import type { SelfReleaseRowId } from '@/features/settings/SelfReleaseSettings';
 import { SettingRow } from '@/features/settings/SettingRow';
+import { ResizeHandle } from '@/components/ResizeHandle';
 import { SettingsNav } from '@/features/settings/SettingsNav';
 import { SettingsSearchContext } from '@/features/settings/SettingsSearchContext';
 import { SettingsSearchField } from '@/features/settings/SettingsSearchField';
@@ -81,6 +82,7 @@ import {
 } from '@/lib/labels';
 import { useRemoteStore } from '@/stores/remote';
 import { useSettingsStore } from '@/stores/settings';
+import { usePanelWidth } from '@/lib/usePanelWidth';
 import { useSettingsNavStore } from '@/stores/settingsNav';
 import './SettingsView.css';
 
@@ -115,6 +117,7 @@ export function SettingsView({
     initialCategory(attention, storedCategory),
   );
   const [query, setQuery] = useState<string>('');
+  const navWidth = usePanelWidth('settingsNav');
   const contentRef = useRef<HTMLDivElement>(null);
   const { repositories, isLoading: areRepositoriesLoading } = useKnownRepositories();
   const { save, error: saveError } = useSettingsUpdate();
@@ -617,8 +620,10 @@ export function SettingsView({
           attention={attention}
           counts={isShowingHits ? countByCategory(hits) : null}
           onSelect={selectCategory}
+          width={navWidth.width}
         />
-        <div ref={contentRef} className="settings-view__scroll">
+        <ResizeHandle edge="end" label="Breite der Kategorien-Leiste" {...navWidth.handleProps} />
+        <div ref={contentRef} className="settings-view__scroll" data-resize-fill>
           <SettingsSearchContext.Provider value={terms}>
             <div className="settings-view__content">
               {renderErrors()}
