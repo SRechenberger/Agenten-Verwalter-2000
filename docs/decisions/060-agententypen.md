@@ -331,6 +331,18 @@ Gebaut ist alles, was Vertrag und Plan nennen: sieben Phasen mit je einem PR, di
 - **Story 55:** Sie kennt die Vorgabe U1 (Kriterien 22 bis 26) nicht, und „`effort` als Feld von `implementation_create`“ steht dort unter „Nicht Teil dieser Story“. Das Ticket nachzuführen ist Sache des Nutzers.
 - **Grenzen der Oberfläche** (Entwurfsordner, „Bekannte Grenzen“): Tab aus dem letzten Eintrag des losgelösten Modellmenüs verlässt den Dialog; löst der Countdown eine Station aus, während ihr Dialog offen ist, verschwindet er mit den ungespeicherten Eingaben; Kopfzeile und Seitenleiste zeigen bei einem Startfehler „bereit“ statt „Fehler“ (die Dringlichkeit kommt vom Core, der den Startfehler dort nicht kennt); nach „Speichern“ bleibt ein alter Startfehler auf der Karte, bis ▶ die Station startet (N5); drei Texte der Oberfläche stehen außerhalb von `agentTypeTexts.ts`.
 
+## Nachtrag: Länge beim Anlegen und Ändern prüfen (Taiga 266)
+
+Der Start lehnte einen Systemprompt über 16 000 Zeichen ab, aber erst dann: Die Station ließ sich anlegen und blieb mit Startfehler stehen. Jetzt prüfen schon Anlegen und Ändern. Der Start prüft weiter, weil sich Dateien eines Typs nach dem Anlegen ändern können.
+
+- **Eine Zählregel (S4):** Gezählt wird in `agent_types/length.rs` mit `prompt::compose`, derselben Funktion wie beim Start. Die Oberfläche rechnet die Gesamtlänge nie selbst, sie zeigt nur die Ablehnung.
+- **Station (S1):** `implementation_create`, `implementation_set_phases`, `implementation_edit`, Plan-Änderung und neue Lane der Oberfläche und `set_station_agent` lösen den Typ der Station auf (`resolve`) und zählen mit den Ordnern des Vorhabens (`SessionRegistry::check_row_lengths`). Über 16 000: abgelehnt, nichts gespeichert. Die Meldung beginnt mit der Kennung der Station und nennt Zahl, Grenze und Teile („Typ „reviewer“ mit Dateien 14 000, Zusatztext 3 200“). Eine nicht lesbare oder zu lange Datei lehnt mit dem Text des Starts ab.
+- **Typ allein (S2):** Anlegen, Ändern und Übernehmen eines Vorschlags prüfen Text und Dateien mit absolutem Pfad oder `~/` gegen 16 000 (`FieldError` am Feld `files`). Relative Pfade hängen am Vorhaben und zählen erst je Station. Eine fehlende oder nicht lesbare Datei verhindert das Speichern nicht; das meldet der Start.
+- **Wartende Stationen (S3):** Beim Speichern eines Typs, auch beim Anlegen und Umbenennen, löst sich jede wartende Station gegen die neue Liste auf. Wartend: keine Session und eine Umsetzung, die weder fertig noch abgebrochen ist. Führt eine davon den Typ und käme über 16 000, ist das Speichern abgelehnt (`FieldError` am Feld `prompt`); die Meldung nennt höchstens fünf Stationen mit Umsetzung und Länge, dann „und N weitere“. Gestartete, fertige und abgebrochene Stationen zählen nicht.
+- **Werkzeuge (S5):** `agent_type_propose_create` und `agent_type_propose_update` prüfen S2 und S3 schon beim Vorschlag, `agent_type_proposal_answer` noch einmal beim Übernehmen. Die Schemas tragen `maxLength` (Name 40, Beschreibung 500, Prompt 16 000; Zusatztext in `implementation_edit` 4 000).
+- **Oberfläche (S6):** Mehrzeilige Felder mit Grenze schneiden nicht mehr still ab (kein `maxLength`): Der Zähler „n / Grenze“ wird über der Grenze rot, und „Speichern“ bzw. „Übernehmen“ ist gesperrt, der Grund steht als `title`. Gilt für Beschreibung und Prompt des Typs, Text der Vorlage, Zusatztext und Auftrag der Station (Karte, Plan-Änderung, neue Lane).
+- **Grenze:** Prüfen und Speichern eines Typs liegen nicht in einer Transaktion; eine Station, die dazwischen entsteht, prüft ihr Anlegen und der Start. Keine Migration.
+
 ## Konsequenzen
 
 - Die vier Befehle stehen in Klasse G: Gäste erreichen sie nicht, und das Ereignis geht nicht über das Netz.

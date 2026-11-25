@@ -124,9 +124,10 @@ fn proposal_schema(is_update: bool) -> Value {
     };
     let texts = |description: &str| json!({ "type": "array", "items": { "type": "string" }, "description": description });
     let mut properties = json!({
-        "name": { "type": "string", "description": "1 bis 40 Zeichen, eindeutig." },
+        "name": { "type": "string", "maxLength": 40, "description": "1 bis 40 Zeichen, eindeutig." },
         "description": {
             "type": "string",
+            "maxLength": 500,
             "description": "Bis 500 Zeichen; der Planer liest sie für seine Empfehlung.",
         },
         "stages": texts("Stationsnamen, die der Typ führt (etwa „Review“); höchstens 20."),
@@ -134,6 +135,7 @@ fn proposal_schema(is_update: bool) -> Value {
         "effort": choice(&EFFORTS, "Ohne Angabe „Standard“; nur zusammen mit model."),
         "prompt": {
             "type": "string",
+            "maxLength": 16_000,
             "description": "Systemprompt der Stationen dieses Typs, bis 16 000 Zeichen.",
         },
         "files": texts("Höchstens 10 Dateien, deren Text an den Systemprompt angehängt wird."),
@@ -180,11 +182,13 @@ fn handle(call: &ToolCall) -> Result<Value, String> {
         GET => get_answer(call.arguments, &types),
         PROPOSE_CREATE => {
             let proposal = checked(&create_input(call.arguments)?, &types, None)?;
+            length_checked(&registry, None, &proposal)?;
             registry.tool_propose_agent_type(call.app, call, None, proposal)
         }
         PROPOSE_UPDATE => {
             let (base, input) = update_input(call.arguments, &types)?;
             let proposal = checked(&input, &types, Some(&base.id))?;
+            length_checked(&registry, Some(&base.id), &proposal)?;
             registry.tool_propose_agent_type(call.app, call, Some(base), proposal)
         }
         other => Err(format!("Unbekanntes Werkzeug: {other}")),
@@ -301,6 +305,33 @@ pub(crate) fn update_input(
     Ok((base, input))
 }
 
+/// Die Längenprüfung beim Speichern (S2, S3) schon beim Vorschlag; Meldungen wie bei `checked`.
+fn length_checked(
+    registry: &SessionRegistry,
+    own_id: Option<&str>,
+    input: &AgentTypeInput,
+) -> Result<(), String> {
+    let errors = registry
+        .type_length_errors(own_id, input)
+        .map_err(|error: CommandError| error.to_string())?;
+    if errors.is_empty() {
+        return Ok(());
+    }
+    Err(errors_text(&errors))
+}
+
+/// Eine Zeile je Fehler: `<feld>: <Meldung>`.
+fn errors_text(errors: &[FieldError]) -> String {
+    errors
+        .iter()
+        .map(|error: &FieldError| {
+            let field = serde_json::to_value(error.field).unwrap_or(Value::Null);
+            format!("{}: {}", field.as_str().unwrap_or_default(), error.message)
+        })
+        .collect::<Vec<String>>()
+        .join("\n")
+}
+
 /// Dieselbe Prüfung wie Anlegen und Ändern im Dialog; Meldungen als eine Zeile je Fehler
 /// `<feld>: <Meldung>`, dann gibt es keinen Kasten.
 pub(crate) fn checked(
@@ -308,16 +339,7 @@ pub(crate) fn checked(
     types: &[AgentType],
     own_id: Option<&str>,
 ) -> Result<AgentTypeInput, String> {
-    validate(input, types, own_id).map_err(|errors: Vec<FieldError>| {
-        errors
-            .iter()
-            .map(|error: &FieldError| {
-                let field = serde_json::to_value(error.field).unwrap_or(Value::Null);
-                format!("{}: {}", field.as_str().unwrap_or_default(), error.message)
-            })
-            .collect::<Vec<String>>()
-            .join("\n")
-    })
+    validate(input, types, own_id).map_err(|errors: Vec<FieldError>| errors_text(&errors))
 }
 
 /// Ergebnis eines übernommenen Vorschlags. `edited`: Der Benutzer hat vor dem Speichern geändert.

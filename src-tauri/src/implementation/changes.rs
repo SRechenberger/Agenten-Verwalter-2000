@@ -360,7 +360,8 @@ pub fn propose(app: &AppHandle, session_id: &str, inputs: &[PhaseInput]) -> Resu
     let rows = registry
         .station_rows(&view.id)
         .map_err(|error: CommandError| error.to_string())?;
-    let (_, _, named) = replanned(&view, inputs, &rows)?;
+    let (_, replanned_rows, named) = replanned(&view, inputs, &rows)?;
+    registry.check_row_lengths(&view.project_id, &replanned_rows)?;
     let pending = PendingChange {
         session_id: session_id.to_owned(),
         session_number: registry.session_number(session_id),
@@ -457,6 +458,19 @@ pub fn replacement(
     })
 }
 
+/// `replacement`, dazu S1 (Taiga 266): Jede neue Station bliebe beim Start unter 16 000 Zeichen.
+pub(super) fn checked_replacement(
+    registry: &SessionRegistry,
+    view: &ImplementationView,
+    inputs: &[PhaseInput],
+    rows: &[StationRow],
+    record: Option<&Record>,
+) -> Result<Replacement, String> {
+    let replaced = replacement(view, inputs, rows, record)?;
+    registry.check_row_lengths(&view.project_id, &replaced.stations)?;
+    Ok(replaced)
+}
+
 /// Ersetzt die kommenden Phasen, vermerkt die Änderung (mit `record`) und plant die Stationen, die
 /// danach starten dürfen. Gibt die neuen Stationen für den Planer zurück (`assigned_text`). Die
 /// Rechnung steht in `replacement`; hier bleiben Countdowns, Schreiben, Ankündigen und Planen.
@@ -476,7 +490,8 @@ fn apply(
         stations,
         change,
         named,
-    } = replacement(view, inputs, &rows, record.as_ref()).map_err(CommandError::Implementation)?;
+    } = checked_replacement(registry, view, inputs, &rows, record.as_ref())
+        .map_err(CommandError::Implementation)?;
     // Erst nach der Prüfung: Eine abgelehnte Änderung lässt die Countdowns stehen.
     for station in upcoming(view)
         .iter()

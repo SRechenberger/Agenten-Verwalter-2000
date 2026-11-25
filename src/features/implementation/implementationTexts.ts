@@ -566,9 +566,9 @@ export function cycleText(names: readonly string[]): string {
 export const BRIEF_LABEL = 'Auftrag';
 export const INSTRUCTION_LABEL = 'Anweisung an dich';
 
-/** „120/1000 Zeichen · bis zum Start änderbar“. */
-export function briefCounter(length: number, max: number, isOpen: boolean): string {
-  return `${String(length)}/${String(max)} Zeichen · ${isOpen ? 'bis zum Start änderbar' : 'gesendet, festgeschrieben 🔒'}`;
+/** Grund, den „Speichern“ bzw. „Übernehmen“ als `title` nennt, solange ein Feld über seiner Grenze liegt. */
+export function overLimitReason(label: string, max: number): string {
+  return `${label} ist länger als ${String(max)} Zeichen.`;
 }
 
 export const PREDECESSORS_MAY_LABEL = 'Vorgänger dürfen';

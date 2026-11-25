@@ -172,7 +172,7 @@ fn read_file(
 }
 
 /// Tausender durch ein Leerzeichen getrennt, wie „16 000“ in der Meldung.
-fn grouped(number: usize) -> String {
+pub(super) fn grouped(number: usize) -> String {
     let digits = number.to_string();
     let mut text = String::new();
     for (index, digit) in digits.chars().enumerate() {
