@@ -8,7 +8,7 @@
   &__badge {
     align-self: center;
     padding: 0 var(--space-md);
-    border-radius: var(--radius-full);
+    border-radius: var(--radius-flat);
     background: var(--color-accent);
     color: var(--color-fg-on-accent);
     font-size: var(--font-size-2xs);
@@ -40,7 +40,7 @@
     gap: var(--space-xs);
     padding: var(--space-md) var(--space-lg);
     border: 1px solid var(--color-border-subtle);
-    border-radius: var(--radius-lg);
+    border-radius: var(--radius-flat);
     background: var(--color-bg-base);
     font-size: var(--font-size-xs);
   }
@@ -59,7 +59,7 @@
   box-sizing: border-box;
   padding: var(--space-md) var(--space-lg);
   border: 1px solid var(--color-border-subtle);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-flat);
   background: var(--color-bg-surface);
   color: var(--color-fg-secondary);
   font-family: var(--font-mono);
@@ -72,11 +72,11 @@
    steht, ein Fokusring. Zwei Klassen, denn `.station-card` setzt Rand und Grund sonst bei gleicher
    Spezifität zurück, je nach Reihenfolge der Stylesheets im Bundle. */
 .station-card.plan-change-card--proposal {
-  border: 1.5px solid var(--color-accent);
-  border-left-width: 5px;
-  background:
-    linear-gradient(var(--color-accent-subtle), var(--color-accent-subtle)), var(--color-bg-surface);
-  box-shadow: 0 0 0 3px var(--color-accent-subtle);
+  border: 0;
+  border-left: 2px solid var(--color-accent);
+  border-radius: 0;
+  background: var(--color-accent-subtle);
+  box-shadow: none;
   outline: 2px solid var(--color-accent);
   outline-offset: 3px;
 

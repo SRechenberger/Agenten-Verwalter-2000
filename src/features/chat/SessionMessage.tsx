@@ -48,6 +48,7 @@ export function SessionMessage({
         skill={null}
         comments={[]}
         origin={null}
+        fromSession
       />
     </div>
   );

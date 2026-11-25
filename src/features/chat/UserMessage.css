@@ -12,6 +12,10 @@
     border-left: 2px solid var(--color-border);
   }
 
+  &__box--session {
+    border-left-color: var(--color-status-reported);
+  }
+
   /* Wartet auf einen freien Platz (Taiga-Story 190, Marke B): ohne Farbe lesbar an Wort, Uhr und Strichen. */
   &__box--queued {
     border-left-style: dashed;

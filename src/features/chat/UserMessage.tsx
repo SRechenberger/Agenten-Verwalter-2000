@@ -23,6 +23,8 @@ interface UserMessageProps {
   origin: string | null;
   /** Wartet auf einen freien Platz (Taiga-Story 190): Marke „wartet · Platz n“ im Kopf, Rahmen gestrichelt. */
   queued?: boolean;
+  /** Nachricht einer anderen Session: Linie links in der Farbe des Masters. */
+  fromSession?: boolean;
 }
 
 export function UserMessage({
@@ -33,6 +35,7 @@ export function UserMessage({
   comments,
   origin,
   queued = false,
+  fromSession = false,
 }: UserMessageProps): ReactElement {
   const openViewer = useAttachmentsStore((state) => state.openViewer);
   // Den Platz liefert die Warteschlange; alle wartenden Nachrichten der Session teilen ihn.
@@ -40,7 +43,7 @@ export function UserMessage({
   const hasComments: boolean = comments.length > 0;
   const boxClass = `user-message__box${hasComments ? ' user-message__box--with-comments' : ''}${
     queued ? ' user-message__box--queued' : ''
-  }`;
+  }${fromSession ? ' user-message__box--session' : ''}`;
   const commentCount: string =
     comments.length === 1 ? '1 Review-Kommentar' : `${String(comments.length)} Review-Kommentare`;
   const skillMark: string | null = skill === null ? null : `/${skill.name}`;
