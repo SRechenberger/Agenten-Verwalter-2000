@@ -190,7 +190,8 @@ export function DashboardView({
   }
 
   function dismiss(cards: readonly DashboardTask[]): void {
-    const sessionIds: string[] = sessionsOf(cards.filter(canDismiss));
+    const dismissable: DashboardTask[] = cards.filter(canDismiss);
+    const sessionIds: string[] = sessionsOf(dismissable);
     if (sessionIds.length === 0) {
       return;
     }
@@ -210,6 +211,14 @@ export function DashboardView({
           run(async () => {
             for (const sessionId of sessionIds) {
               await undismissCard(sessionId);
+            }
+            // Die Karte kommt zurück; der Nutzer hat sie gerade gelesen, also gilt sie als angesehen.
+            const byProject = new Map<string, string[]>();
+            for (const task of dismissable) {
+              byProject.set(task.projectId, [...(byProject.get(task.projectId) ?? []), task.id]);
+            }
+            for (const [projectId, cardIds] of byProject) {
+              await markCardsSeen(projectId, cardIds);
             }
             setToast(null);
           }, 'Rückgängig fehlgeschlagen');
@@ -295,6 +304,16 @@ export function DashboardView({
     if (action === null) {
       return;
     }
+    // Enter geht nur an das Postfach, wenn es ein Textfeld gibt; sonst bleibt es für `useQuestionKeys`.
+    const field: HTMLElement | null =
+      action.type === 'reply' && !isThreadId(action.id)
+        ? (document.querySelector<HTMLElement>(
+            `[data-expanded="${CSS.escape(action.id)}"] textarea`,
+          ) ?? document.querySelector<HTMLElement>('[data-reader] textarea'))
+        : null;
+    if (action.type === 'reply' && !isThreadId(action.id) && field === null) {
+      return;
+    }
     event.preventDefault();
     switch (action.type) {
       case 'select':
@@ -326,11 +345,7 @@ export function DashboardView({
           const key: string = action.id.slice(2);
           store.setThreadOpen(key, openThreads[key] !== true);
         } else {
-          (
-            document.querySelector<HTMLElement>(
-              `[data-expanded="${CSS.escape(action.id)}"] textarea`,
-            ) ?? document.querySelector<HTMLElement>('[data-reader] textarea')
-          )?.focus();
+          field?.focus();
         }
         break;
       case 'search':
