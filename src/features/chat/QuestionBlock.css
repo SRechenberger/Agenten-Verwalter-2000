@@ -346,6 +346,10 @@
     &--done {
       color: var(--color-fg-primary);
     }
+    /* Die Zeile unter einer offenen Frage hat deren untere Haarlinie schon. */
+    &:first-child {
+      border-top: 1px solid var(--color-border-subtle);
+    }
   }
 
   &__row-icon {
