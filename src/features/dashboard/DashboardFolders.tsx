@@ -58,6 +58,8 @@ interface DashboardFoldersProps {
   onFolder: (folder: FolderKey) => void;
   onToggleGroup: (groupId: string) => void;
   onOpenSession: (sessionId: string) => void;
+  /** Gezogene Breite in Pixeln (ADR 056). */
+  width: number;
 }
 
 function PriorityGlyph({ priority }: { priority: ProjectSummary['priority'] }): ReactElement {
@@ -92,6 +94,7 @@ export function DashboardFolders({
   onFolder,
   onToggleGroup,
   onOpenSession,
+  width,
 }: DashboardFoldersProps): ReactElement {
   function renderFolder(
     key: FolderKey,
@@ -161,7 +164,7 @@ export function DashboardFolders({
   }
 
   return (
-    <nav className="postfach__folders" aria-label="Ordner">
+    <nav className="postfach__folders" aria-label="Ordner" style={{ width }}>
       {FOLDERS.map((entry: Folder) =>
         renderFolder(entry.key, entry.label, folderCount(tasks, entry.key), null, {
           warns: entry.warns,

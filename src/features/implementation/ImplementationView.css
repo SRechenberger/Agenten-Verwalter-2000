@@ -1,9 +1,6 @@
 .implementation-view {
-  display: grid;
+  display: flex;
   flex-grow: 1;
-  /* Die Zeitleiste trägt Lane, Modell, Marken und Kanten-Chips je Zeile: so breit wie die Kartei. */
-  grid-template-columns: minmax(380px, 1fr) minmax(0, 1fr);
-  grid-template-rows: minmax(0, 1fr);
   min-height: 0;
 
   &__error {
@@ -14,13 +11,21 @@
     font-size: 12px;
   }
 
+  /* Die Zeitleiste trägt Lane, Modell, Marken und Kanten-Chips je Zeile: Standardbreite 640 px, mindestens 380 px
+     (gleich PANEL_BOUNDS.implementationTimeline.min). */
   &__timeline {
+    box-sizing: border-box;
+    flex-shrink: 1;
+    width: var(--timeline-width);
+    min-width: 380px;
     min-height: 0;
     overflow-y: auto;
     border-right: 1px solid var(--color-border-subtle);
   }
 
   &__cards {
+    flex: 1 1 0;
+    min-width: 0;
     min-height: 0;
     overflow-y: auto;
   }
@@ -38,18 +43,24 @@
 
   /* Schmal: die Kartei steht unter der Zeitleiste, die ganze Fläche rollt als eine. */
   @container main (max-width: 900px) {
-    grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: none;
-    align-content: start;
+    flex-direction: column;
     overflow-y: auto;
 
+    & > .resize-handle {
+      display: none;
+    }
+
     &__timeline {
+      flex: none;
+      width: auto;
+      min-width: 0;
       overflow-y: visible;
       border-right: 0;
       border-bottom: 1px solid var(--color-border-subtle);
     }
 
     &__cards {
+      flex: none;
       overflow-y: visible;
     }
   }

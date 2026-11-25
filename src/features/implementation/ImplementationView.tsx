@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import type { ReactElement, ReactNode } from 'react';
+import type { CSSProperties, ReactElement, ReactNode } from 'react';
+import { ResizeHandle } from '@/components/ResizeHandle';
 import { useAgentTypes } from '@/features/agenttypes/useAgentTypes';
 import { useNow } from '@/features/background/useNow';
 import { countChangedFiles } from '@/features/changes/changesScope';
@@ -50,6 +51,7 @@ import {
   startStation,
 } from '@/lib/implementation';
 import { useActionError } from '@/lib/useActionError';
+import { usePanelWidth } from '@/lib/usePanelWidth';
 import { useImplementationStore } from '@/stores/implementation';
 import { useSessionsStore, type ImplementationViewKind } from '@/stores/sessions';
 import './ImplementationView.css';
@@ -131,6 +133,7 @@ export function ImplementationView({
   const [isInquiryBusy, setIsInquiryBusy] = useState<boolean>(false);
   const [isNewLaneOpen, setIsNewLaneOpen] = useState<boolean>(false);
   const timelineRef = useRef<HTMLDivElement>(null);
+  const timelineWidth = usePanelWidth('implementationTimeline');
   const storedFocus: string | undefined = useImplementationStore(
     (state) => state.focused[implementation.id],
   );
@@ -368,7 +371,10 @@ export function ImplementationView({
       return artifacts;
     }
     return (
-      <div className="implementation-view">
+      <div
+        className="implementation-view"
+        style={{ '--timeline-width': `${String(timelineWidth.width)}px` } as CSSProperties}
+      >
         <div ref={timelineRef} className="implementation-view__timeline">
           <Timeline
             implementation={implementation}
@@ -394,7 +400,10 @@ export function ImplementationView({
             }}
           />
         </div>
-        <div className="implementation-view__cards">{renderCards()}</div>
+        <ResizeHandle edge="end" label="Breite der Zeitleiste" {...timelineWidth.handleProps} />
+        <div className="implementation-view__cards" data-resize-fill>
+          {renderCards()}
+        </div>
       </div>
     );
   }

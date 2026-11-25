@@ -21,7 +21,7 @@ pub enum TerminalPlacement {
     Right,
 }
 
-/// Eine der fünf seitlichen Leisten, deren Breite die Oberfläche verschieben lässt (ADR 056).
+/// Eine der acht seitlichen Leisten, deren Breite die Oberfläche verschieben lässt (ADR 056).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub enum PanelId {
@@ -35,6 +35,12 @@ pub enum PanelId {
     Background,
     /// Kategorien-Leiste der Einstellungen.
     SettingsNav,
+    /// Ordnerspalte des Dashboards.
+    DashboardFolders,
+    /// Lesebereich des Dashboards.
+    DashboardReader,
+    /// Zeitleiste der Umsetzung.
+    ImplementationTimeline,
 }
 
 /// Gezogene Breite je Leiste in Pixeln; `None` = Standardbreite der Oberfläche.
@@ -46,6 +52,9 @@ pub struct PanelWidths {
     pub artifacts_list: Option<u32>,
     pub background: Option<u32>,
     pub settings_nav: Option<u32>,
+    pub dashboard_folders: Option<u32>,
+    pub dashboard_reader: Option<u32>,
+    pub implementation_timeline: Option<u32>,
 }
 
 /// Woher die Modellanfragen der Agenten kommen (ADR 016). `ClaudeCodeLocal` startet dieselbe

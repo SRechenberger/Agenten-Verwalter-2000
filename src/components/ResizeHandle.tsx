@@ -26,8 +26,8 @@ interface DragState {
   hasMoved: boolean;
 }
 
-/** Die Füllfläche neben der Leiste (`data-resize-fill`) darf bis auf null schrumpfen; Leiste plus Füllfläche
- *  ergibt die Obergrenze. Gelesen beim Anfassen, nicht beim Rendern. */
+/** Die Füllfläche neben der Leiste (`data-resize-fill`) schrumpft bis auf ihr `min-width` (sonst bis auf null);
+ *  Leiste plus Füllfläche minus dieses Minimum ergibt die Obergrenze. Gelesen beim Anfassen, nicht beim Rendern. */
 function measureMax(handle: HTMLElement, edge: 'start' | 'end', fallback: number): number {
   return measurePanel(handle, edge, fallback).max;
 }
@@ -46,7 +46,11 @@ function measurePanel(
   if (!(panel instanceof HTMLElement) || !(fill instanceof HTMLElement)) {
     return { current: fallback, max: fallback };
   }
-  return { current: panel.offsetWidth, max: panel.offsetWidth + fill.offsetWidth };
+  const fillMin: number = parseFloat(getComputedStyle(fill).minWidth) || 0;
+  return {
+    current: panel.offsetWidth,
+    max: Math.max(panel.offsetWidth, panel.offsetWidth + fill.offsetWidth - fillMin),
+  };
 }
 
 export function ResizeHandle({
