@@ -273,7 +273,10 @@ export function App(): ReactElement {
       // Im Terminal verarbeitet xterm die Taste selbst und gibt sie nicht weiter; sie geht an die Shell.
       if (event.ctrlKey && !event.shiftKey && !event.altKey && event.key.toLowerCase() === 'b') {
         event.preventDefault();
-        toggleSidebar();
+        // Gehaltene Taste wiederholt das Ereignis; nur der erste Druck schaltet um.
+        if (!event.repeat) {
+          toggleSidebar();
+        }
       }
     }
     window.addEventListener('keydown', handleKeyDown);

@@ -11,14 +11,19 @@
     display: flex;
     align-items: center;
     flex-shrink: 0;
-    gap: var(--space-lg);
+    gap: var(--space-md);
     box-sizing: border-box;
     height: 48px;
-    padding: 0 var(--space-2xl);
+    /* Rechts enger, damit der Name bei 256 px in eine Zeile passt. */
+    padding: 0 var(--space-md) 0 var(--space-2xl);
   }
 
   &__brand-name {
     flex-grow: 1;
+    min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
     font-size: var(--font-size-md);
     font-weight: 600;
   }
