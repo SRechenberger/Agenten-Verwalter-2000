@@ -4,6 +4,7 @@ import type { Effort } from "./Effort";
 import type { Mode } from "./Mode";
 import type { ModelId } from "./ModelId";
 import type { OperatingMode } from "./OperatingMode";
+import type { PanelId } from "./PanelId";
 import type { PanelWidths } from "./PanelWidths";
 import type { SelfRelease } from "./SelfRelease";
 import type { TerminalPlacement } from "./TerminalPlacement";
@@ -45,4 +46,8 @@ terminalWidth: number,
 /**
  * Breite je Leiste in Pixeln; `None` = Standardbreite der Oberfläche (ADR 056).
  */
-panelWidths: PanelWidths, };
+panelWidths: PanelWidths, 
+/**
+ * Leisten, die der Benutzer eingeklappt oder minimiert hat (ADR 056).
+ */
+collapsedPanels: Array<PanelId>, };

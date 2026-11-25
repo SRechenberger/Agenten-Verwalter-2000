@@ -76,6 +76,7 @@ import type { SessionSummary } from '@/lib/bindings/SessionSummary';
 import type { TerminalInfo } from '@/lib/bindings/TerminalInfo';
 import type { TerminalPlacement } from '@/lib/bindings/TerminalPlacement';
 import { setProjectGroupCollapsed } from '@/lib/projectGroups';
+import { usePanelCollapsed } from '@/lib/usePanelCollapsed';
 import { usePanelWidth } from '@/lib/usePanelWidth';
 import { useArtifactsStore } from '@/stores/artifacts';
 import { useBackgroundStore } from '@/stores/background';
@@ -152,6 +153,8 @@ export function App(): ReactElement {
     (state) => (state.settings?.operatingMode ?? 'claude') === 'claude',
   );
   const sidebarWidth = usePanelWidth('sidebar');
+  const sidebarCollapsed = usePanelCollapsed('sidebar');
+  const toggleSidebar = sidebarCollapsed.toggle;
   const backgroundWidth = usePanelWidth('background');
   useVoiceModel();
   useRetroProgress();
@@ -267,12 +270,20 @@ export function App(): ReactElement {
         event.preventDefault();
         openNewSession();
       }
+      // Im Terminal verarbeitet xterm die Taste selbst und gibt sie nicht weiter; sie geht an die Shell.
+      if (event.ctrlKey && !event.shiftKey && !event.altKey && event.key.toLowerCase() === 'b') {
+        event.preventDefault();
+        // Gehaltene Taste wiederholt das Ereignis; nur der erste Druck schaltet um.
+        if (!event.repeat) {
+          toggleSidebar();
+        }
+      }
     }
     window.addEventListener('keydown', handleKeyDown);
     return (): void => {
       window.removeEventListener('keydown', handleKeyDown);
     };
-  }, [openNewSession]);
+  }, [openNewSession, toggleSidebar]);
 
   // Ohne gewählte Session öffnet sich die neueste (Sessions kommen neueste zuerst) — nach einem Neustart
   // steht sonst der Leerzustand vor einer vollen Sidebar.
@@ -809,6 +820,8 @@ export function App(): ReactElement {
       <CloseGuard />
       <Sidebar
         width={sidebarWidth.width}
+        isMinimized={sidebarCollapsed.isCollapsed}
+        onToggleMinimized={sidebarCollapsed.toggle}
         projects={projects}
         groups={groups}
         sessions={sessions}
@@ -833,7 +846,9 @@ export function App(): ReactElement {
         onProjectChanged={upsertProject}
         onSessionDeleted={handleSessionDeleted}
       />
-      <ResizeHandle edge="end" label="Breite der Seitenleiste" {...sidebarWidth.handleProps} />
+      {!sidebarCollapsed.isCollapsed && (
+        <ResizeHandle edge="end" label="Breite der Seitenleiste" {...sidebarWidth.handleProps} />
+      )}
       <main className="app__main" data-resize-fill>
         <div className={`app__content${isDockFilling ? ' app__content--hidden' : ''}`}>
           {renderMain()}

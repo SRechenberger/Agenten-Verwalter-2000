@@ -2,6 +2,7 @@ import type { PanelId } from '@/lib/bindings/PanelId';
 import type { PanelWidths } from '@/lib/bindings/PanelWidths';
 
 const STORAGE_KEY = 'verwalter.panelWidths';
+const COLLAPSED_STORAGE_KEY = 'verwalter.collapsedPanels';
 
 interface PanelBounds {
   /** Standardbreite in Pixeln. */
@@ -80,5 +81,27 @@ export function readRememberedPanelWidths(): PanelWidths {
     };
   } catch {
     return NO_WIDTHS;
+  }
+}
+
+/** Spiegel der eingeklappten Leisten, gelesen beim ersten Rendern, damit eine minimierte Leiste beim Start nicht aufblitzt. */
+export function rememberCollapsedPanels(panels: readonly PanelId[]): void {
+  try {
+    localStorage.setItem(COLLAPSED_STORAGE_KEY, JSON.stringify(panels));
+  } catch (reason: unknown) {
+    console.error('Eingeklappte Leisten nicht gemerkt', reason);
+  }
+}
+
+export function readRememberedCollapsedPanels(): PanelId[] {
+  try {
+    const parsed: unknown = JSON.parse(localStorage.getItem(COLLAPSED_STORAGE_KEY) ?? '[]');
+    return Array.isArray(parsed)
+      ? (parsed as unknown[]).filter(
+          (entry: unknown): entry is PanelId => typeof entry === 'string' && entry in PANEL_BOUNDS,
+        )
+      : [];
+  } catch {
+    return [];
   }
 }

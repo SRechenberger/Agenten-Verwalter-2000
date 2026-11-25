@@ -114,6 +114,8 @@ pub struct Settings {
     pub terminal_width: u32,
     /// Breite je Leiste in Pixeln; `None` = Standardbreite der Oberfläche (ADR 056).
     pub panel_widths: PanelWidths,
+    /// Leisten, die der Benutzer eingeklappt oder minimiert hat (ADR 056).
+    pub collapsed_panels: Vec<PanelId>,
 }
 
 /// Was die Einstellungsseite zeigt: die Werte und die Ordner, die sie nur anzeigt.
@@ -200,5 +202,10 @@ pub enum SettingsChange {
     PanelWidth {
         panel: PanelId,
         value: Option<u32>,
+    },
+    /// `collapsed: false` löscht den Schlüssel; die gezogene Breite bleibt unberührt.
+    PanelCollapsed {
+        panel: PanelId,
+        collapsed: bool,
     },
 }
