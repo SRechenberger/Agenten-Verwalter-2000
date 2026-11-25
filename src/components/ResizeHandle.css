@@ -5,6 +5,8 @@
   flex-shrink: 0;
   width: 0;
   outline: none;
+  -webkit-user-select: none; /* WebKitGTK kennt die Eigenschaft nur mit Präfix */
+  user-select: none;
 
   &::before {
     content: '';
