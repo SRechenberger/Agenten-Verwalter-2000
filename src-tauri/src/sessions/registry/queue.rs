@@ -197,6 +197,7 @@ impl SessionRegistry {
         if current != previous {
             let _ = app.emit(AGENT_QUEUE_CHANGED_EVENT, ());
         }
+        self.announce_inbox_if_changed(app);
         claimed
     }
 
@@ -243,7 +244,7 @@ impl SessionRegistry {
     /// (unter der Sperre der Session) und Senden sind getrennt: Eine Nachricht des Users genau dazwischen
     /// ist akzeptiert, der Agent bekommt den Text dann zusätzlich. Die Prüfung muss vor `send` liegen,
     /// weil `send` eine beendete Session neu startet und dabei die Begründung löscht.
-    fn resume_claimed(&self, app: &AppHandle, session_id: &str) {
+    pub(super) fn resume_claimed(&self, app: &AppHandle, session_id: &str) {
         let waits = self
             .get(session_id)
             .is_ok_and(|session: Arc<Session>| session.lock().waits_for_resume());
@@ -275,7 +276,7 @@ impl SessionRegistry {
                 return;
             }
         }
-        if let Err(error) = self.send(app, session_id, RESUME_TEXT, &[], &[], None) {
+        if let Err(error) = self.send_resume(app, session_id, RESUME_TEXT) {
             self.fail_auto_resume(app, session_id, error.to_string());
         }
     }
@@ -319,17 +320,19 @@ impl SessionRegistry {
             let has_message = with_messages.contains(&session.id);
             // Vor der Session-Sperre: erst die Session kurz, dann die Datenbank.
             let master_waits = has_message && self.master_message_waits(&session);
-            let (title, takes_user, takes_message, resume_due_at) = {
-                let state = session.lock();
+            let (title, takes_user, takes_message, resume_due_at, compact_waits) = {
+                let mut state = session.lock();
                 (
                     state.name.clone(),
                     has_message
+                        && !state.compact_locked()
                         && takes_user_messages(
                             state.status,
                             !state.pending.is_empty(),
                             state.holds_slot(),
                         ),
                     has_message
+                        && !state.compact_locked()
                         && takes_oldest(
                             state.status,
                             state.rests(),
@@ -338,6 +341,7 @@ impl SessionRegistry {
                             master_waits,
                         ),
                     state.resume_due_at().filter(|due_at: &f64| *due_at <= now),
+                    state.compact_waiting_since(now),
                 )
             };
             let entry = |kind: QueueKind, since_ms: f64| QueueEntry {
@@ -394,6 +398,15 @@ impl SessionRegistry {
                     start: Start::Session,
                     master_message: false,
                 });
+            } else if let Some(since) = compact_waits {
+                // Der Compact nach der Meldung wartet wie ein Fortsetzen auf einen Platz (C9), seit der
+                // Schritt fällig wurde.
+                waiters.push(Waiter {
+                    entry: entry(QueueKind::Resume, since),
+                    key: session.id.clone(),
+                    start: Start::Session,
+                    master_message: false,
+                });
             }
         }
         waiters
@@ -423,7 +436,7 @@ fn start_waiter(app: &AppHandle, waiter: &Waiter, token: u64) {
             spawn_start(app, waiter, move |thread_app: &AppHandle| {
                 let registry = thread_app.state::<SessionRegistry>();
                 if kind == QueueKind::Resume {
-                    registry.resume_claimed(thread_app, &session_id);
+                    registry.resume_or_compact_claimed(thread_app, &session_id);
                 } else if let Ok(session) = registry.get(&session_id)
                     && !(if from_user {
                         registry

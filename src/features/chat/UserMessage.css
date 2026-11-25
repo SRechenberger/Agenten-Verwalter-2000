@@ -8,16 +8,18 @@
     display: flex;
     flex-direction: column;
     gap: var(--space-md);
-    padding: var(--space-lg) var(--space-xl);
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius-lg);
-    background: var(--color-bg-surface);
+    padding: var(--space-xs) 0 var(--space-xs) var(--space-xl);
+    border-left: 2px solid var(--color-border);
+  }
+
+  &__box--session {
+    border-left-color: var(--color-status-reported);
   }
 
   /* Wartet auf einen freien Platz (Taiga-Story 190, Marke B): ohne Farbe lesbar an Wort, Uhr und Strichen. */
   &__box--queued {
-    border-style: dashed;
-    border-color: var(--color-status-waiting);
+    border-left-style: dashed;
+    border-left-color: var(--color-status-waiting);
   }
 
   &__queued {
@@ -27,12 +29,70 @@
     gap: var(--space-xs);
     padding: 0 var(--space-md);
     border: 1px solid var(--color-status-waiting);
-    border-radius: var(--radius-full);
+    border-radius: var(--radius-flat);
     background: var(--color-status-waiting-subtle);
     color: var(--color-status-waiting);
     font-size: var(--font-size-2xs);
     line-height: 16px;
     white-space: nowrap;
+  }
+
+  /* Verworfen (Taiga-Story 218): grau, ohne Farbe lesbar am Wort und am durchgestrichenen Text. */
+  &__box--discarded {
+    border-style: dashed;
+    border-color: var(--color-border);
+
+    & .user-message__text {
+      color: var(--color-fg-muted);
+      text-decoration: line-through;
+    }
+  }
+
+  &__discarded {
+    align-self: flex-start;
+    padding: 0 var(--space-md);
+    border: 1px solid var(--color-border);
+    border-radius: 2px;
+    color: var(--color-fg-muted);
+    font-size: var(--font-size-2xs);
+    line-height: 16px;
+  }
+
+  &__actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-md);
+  }
+
+  &__action {
+    padding: var(--space-xs) var(--space-lg);
+    border: 1px solid var(--color-border);
+    border-radius: 2px;
+    background: transparent;
+    color: var(--color-fg-secondary);
+    font: inherit;
+    font-size: var(--font-size-xs);
+    cursor: pointer;
+
+    &:hover:not(:disabled) {
+      background: var(--color-bg-hover);
+    }
+
+    &:disabled {
+      color: var(--color-fg-muted);
+      cursor: default;
+    }
+
+    &:focus-visible {
+      outline: 2px solid var(--color-accent);
+      outline-offset: 2px;
+    }
+  }
+
+  &__note {
+    color: var(--color-fg-muted);
+    font-size: var(--font-size-xs);
   }
 
   &__box--with-comments {
@@ -62,7 +122,7 @@
   &__mark,
   &__skill-name {
     padding: 0 var(--space-sm);
-    border-radius: var(--radius-sm);
+    border-radius: var(--radius-flat);
     background: var(--color-accent-subtle);
     color: var(--color-accent-text);
     font-family: var(--font-mono);

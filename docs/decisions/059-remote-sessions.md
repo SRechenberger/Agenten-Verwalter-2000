@@ -189,3 +189,28 @@ Gebaut ist alles, was Vertrag und Plan nennen. Belegt ist es in drei Stufen.
 - Die Oberfläche des Hosts trägt ab jetzt `ProjectSummary.access`. Alte Daten ohne das Feld gelten als eigenes Vorhaben.
 - Dass der Inhaber nach fünf Minuten abläuft, braucht einen Zeitgeber; er läuft am Host neben der Weitergabe der Ereignisse.
 - Ein Gast hat über das Terminal und den Agenten eine Shell am Host (E9).
+
+## Nachtrag: Freigabe je Gruppe (Version 0.78.0, Taiga 137)
+
+Die Freigabe hängt jetzt auch an der Gruppe (Migration 37: `project_groups.remote_shared`, Standard 0). Die Entwürfe stehen in `docs/design/2026-11-25_remote-gruppen/` (G1 bis G6).
+
+- **Wirksame Freigabe:** Ein Vorhaben ist für Gäste freigegeben, wenn es selbst freigegeben ist (`projects.remote_shared`) **oder** seine Gruppe es ist, und nicht archiviert. Eine Abfrage entscheidet das (`db::remote::effective_shared_project_ids`); `Control.shared` hält nur ihr Ergebnis, und `Control::set_shared` gleicht es nach jeder Änderung ab (Freigabe, Gruppe, Zuordnung, Löschen, Anlegen, Archiv, Wiederherstellen). Alle Leser (`filter_list`, `forward.rs`, `access`) gehen weiter über `Control::is_shared`.
+- **Ein Vorhaben aus der Gruppe nehmen** beendet seine Freigabe aus der Gruppe und wirft einen haltenden Gast hinaus (E10); seine eigene Freigabe bleibt. Dasselbe gilt für „Freigabe der Gruppe beenden“ und „Gruppe löschen“. Hält ein Gast das Vorhaben, fragt die Oberfläche mit „Freigabe beenden?“ und „Laufende Agenten anhalten“; `stopAgents` gilt für die Vorhaben, deren Freigabe tatsächlich endet.
+- **Hineinziehen** in eine freigegebene Gruppe gibt ohne Dialog frei. Wiederherstellen aus dem Archiv in einer freigegebenen Gruppe gibt wieder frei; ein archiviertes Vorhaben ist nie freigegeben.
+- **Der Gast** übernimmt weiter je Vorhaben (E5) und sieht die Gruppe des Hosts nicht (G5).
+- **Befehle:** `remote_group_share_set(groupId, shared, stopAgents)`, Klasse E, ohne ID-Art (der Gast darf nichts freigeben); `remote_group_share_list` liefert die IDs der freigegebenen Gruppen, `remote_own_share_list` die der Vorhaben mit eigener Freigabe (beide Klasse G); die Oberfläche warnt beim Herausnehmen und Beenden nur bei gehaltenen Vorhaben ohne eigene Freigabe. `project_set_group` und `project_group_delete` nehmen zusätzlich `stopAgents` (optional).
+- **Nicht gemessen:** Das Verhalten mit zwei echten Instanzen steht im Probelauf der Lane, nicht hier.
+
+## Nachtrag: Gast legt Vorhaben an (Version 0.78.0, Taiga 193)
+
+Der Host erlaubt einzelnen Geräten, Vorhaben bei ihm anzulegen (Migration 39: `remote_devices.create_allowed`, Standard 0, und `create_group`, die Gruppe des Hosts). Die Entwürfe stehen in `docs/design/2026-11-25_remote-vorhaben-anlegen/` (A1 bis A8).
+
+- **E9 gilt weiter und wird enger gefasst:** Wer ein Vorhaben beim Host anlegt, hat dort dieselbe Shell wie jeder Inhaber. Deshalb ist „nicht erlaubt“ der Standard, das Recht gilt je Gerät, und der Host setzt es allein: `remote_device_set_create` ist Klasse E, ein Gast kann es nie ändern.
+- **Prüfung im Kern:** `dispatch::answer` beantwortet `remote_project_create` und `remote_repository_list` vor der Klassenprüfung, aber nur mit Recht des Geräts (`Host::create_right`, aus der Datenbank; ein Gerät ohne Eintrag oder gesperrt hat keins). Die Oberfläche prüft nichts.
+- **Ablauf am Host:** jedes Repository muss in `repository_list` des Hosts stehen; die Gruppe des Gastes im Aufruf wird durch die des Rechts ersetzt; dann `project_create` wie von der Oberfläche, Freigabe (über die Gruppe, wenn sie freigegeben ist, sonst einzeln), Übernahme durch das Gerät, `project://changed`. Die Antwort ist `ProjectCreated`.
+- **Am Gast:** `remote_project_create(hostId, …)` und `remote_repository_list(hostId)` sind Klasse G wie `remote_agent_queue`; Anhänge gehen erst über `attachment_add_bytes` zum Host. Die lokale Gruppe steht in `remote_project_groups`. `HostProfile.canCreate` (`#[serde(default)]`; ein älterer Host schickt es nicht, dann gilt „nein“) steuert „Anlegen auf“ auf der Seite „Neues Vorhaben“.
+- **Recht ändert sich bei verbundenem Gast:** `remote_device_set_create` sendet zusätzlich `host://profile-changed` (ohne Inhalt, `EveryDevice` in `FORWARDED`); der Gast meldet es lokal als `remote://changed`, `useRemoteSync` lädt die Profile neu, „Anlegen auf“ stimmt ohne Neuverbinden. Der Host prüft das Recht bei jedem Aufruf weiter.
+- **Betriebsart:** Der Gast wählt keine; es gilt die des Hosts (eine Einstellung des ganzen Hosts, wie in freigegebenen Vorhaben). Bei LM Studio zeigt der Gast „Modell des Hosts“, nicht sein eigenes Modell.
+- **Scheitert Freigabe oder Übernahme nach dem Anlegen,** gibt es keinen Rückbau: Scheitert die Freigabe, bleibt das Vorhaben unfreigegeben; scheitert nur die Übernahme, ist es freigegeben, aber von niemandem gehalten. Der Gast erhält in beiden Fällen den Fehler.
+- **Grenzen:** keine Zahl begrenzt die Vorhaben (die Warteschlange begrenzt die Agenten). Archivieren und Löschen bleiben Klasse D auch für Vorhaben, die der Gast angelegt hat. Kein `repository_add`, kein Ordnerdialog, kein /-Menü mit Skills des Hosts.
+- **Nicht gemessen:** Das Verhalten mit zwei echten Instanzen steht im Probelauf der Lane, nicht hier.

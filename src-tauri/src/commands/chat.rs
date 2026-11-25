@@ -1,7 +1,7 @@
 use crate::agents::event::QuestionAnswer;
 use crate::error::CommandError;
 use crate::review::model::ReviewComment;
-use crate::sessions::model::{ChatPage, SendOutcome};
+use crate::sessions::model::{ChatPage, DiscardOutcome, SendOutcome, WaitingMessage};
 use crate::sessions::registry::SessionRegistry;
 
 #[tauri::command]
@@ -46,6 +46,49 @@ pub async fn chat_send_now(
     session_id: String,
 ) -> Result<(), CommandError> {
     registry.send_queued_now(&app, &session_id)
+}
+
+/// „Jetzt zusammenfassen“ (ADR 070, Nachtrag „Compact mit Vorbereitung“): gibt den Compact frei, ohne die
+/// Meldung der Session abzuwarten.
+#[tauri::command]
+pub async fn chat_compact_now(
+    app: tauri::AppHandle,
+    registry: tauri::State<'_, SessionRegistry>,
+    session_id: String,
+) -> Result<(), CommandError> {
+    registry.compact_now(&app, &session_id)
+}
+
+/// „Compact abbrechen“ (ADR 070, Nachtrag): Die Sperre geht weg, die wartenden Nachrichten gehen
+/// hinaus.
+#[tauri::command]
+pub async fn chat_compact_abort(
+    app: tauri::AppHandle,
+    registry: tauri::State<'_, SessionRegistry>,
+    session_id: String,
+) -> Result<(), CommandError> {
+    registry.compact_abort(&app, &session_id)
+}
+
+/// Verwirft die wartende eigene Nachricht im Eintrag `entry_seq` (Taiga-Story 218): Sie geht nie an den
+/// Agenten. `alreadySent`, wenn sie schon gesendet ist.
+#[tauri::command]
+pub async fn chat_discard_queued(
+    app: tauri::AppHandle,
+    registry: tauri::State<'_, SessionRegistry>,
+    session_id: String,
+    entry_seq: u32,
+) -> Result<DiscardOutcome, CommandError> {
+    registry.discard_queued(&app, &session_id, entry_seq)
+}
+
+/// Alle wartenden Nachrichten, auch die an laufende Sessions (Taiga-Story 218); Änderungen meldet
+/// `inbox://changed`. Am Gast filtert der Host auf die übernommenen Vorhaben.
+#[tauri::command]
+pub async fn inbox_list(
+    registry: tauri::State<'_, SessionRegistry>,
+) -> Result<Vec<WaitingMessage>, CommandError> {
+    registry.inbox_list()
 }
 
 /// `origin`: wie bei `chat_send`.

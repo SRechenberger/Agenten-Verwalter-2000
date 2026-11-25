@@ -3,12 +3,18 @@ import type { MouseEvent, ReactElement } from 'react';
 import { RenameField } from '@/app/SidebarItem';
 import { Popover } from '@/components/Popover';
 import { StatusIcon } from '@/components/StatusIcon';
+import { RemoteMark } from '@/features/remote/RemoteMark';
 import type { DisplayStatus } from '@/features/sessions/sessionStatus';
 import type { ProjectGroup } from '@/lib/bindings/ProjectGroup';
 import './SidebarGroup.css';
 
 const DELETE_TITLE =
   'Löscht nur die Gruppe. Die Vorhaben bleiben und stehen danach ohne Gruppe in der Liste.';
+
+const SHARE_HINT = 'Gibt alle Vorhaben der Gruppe frei, auch neue.';
+
+const SHARE_TITLE =
+  'Jedes Vorhaben der Gruppe ist für Gäste freigegeben, auch eines, das später hineinkommt.';
 
 interface SidebarGroupProps {
   group: ProjectGroup;
@@ -17,11 +23,17 @@ interface SidebarGroupProps {
   /** Dringendster Status der Gruppe; `null` ohne Sessions. Der Kopf zeigt ihn nur eingeklappt. */
   urgentStatus: DisplayStatus | null;
   isRenaming: boolean;
+  /** Die Gruppe gibt ihren Mitgliedern die Freigabe für Gäste. */
+  isShared: boolean;
+  /** Der Server ist an: Das Menü bietet die Freigabe an. */
+  canShare: boolean;
   onToggle: () => void;
   onStartRename: () => void;
   onCommitRename: (name: string) => void;
   onCancelRename: () => void;
   onDelete: () => void;
+  onShare: () => void;
+  onEndShare: () => void;
 }
 
 /** Kopf einer Gruppe in der Sidebar; ein Klick klappt die Gruppe ein oder aus. */
@@ -30,11 +42,15 @@ export function SidebarGroup({
   count,
   urgentStatus,
   isRenaming,
+  isShared,
+  canShare,
   onToggle,
   onStartRename,
   onCommitRename,
   onCancelRename,
   onDelete,
+  onShare,
+  onEndShare,
 }: SidebarGroupProps): ReactElement {
   const [isMenuOpen, setIsMenuOpen] = useState<boolean>(false);
   const isExpanded: boolean = !group.collapsed;
@@ -84,6 +100,11 @@ export function SidebarGroup({
           <path d="M4.5 2.5 8 6l-3.5 3.5" />
         </svg>
         <span className="sidebar-group__name">{group.name}</span>
+        {isShared && (
+          <span className="sidebar-group__remote" title="Für Gäste freigegeben">
+            <RemoteMark />
+          </span>
+        )}
         {shownStatus !== null && (
           <span className="sidebar-group__status">
             <StatusIcon status={shownStatus} size={10} />
@@ -102,6 +123,28 @@ export function SidebarGroup({
             setIsMenuOpen(false);
           }}
         >
+          {(canShare || isShared) && (
+            <button
+              type="button"
+              role="menuitem"
+              className="sidebar-group__menu-item sidebar-group__menu-item--hinted"
+              title={SHARE_TITLE}
+              onClick={(): void => {
+                setIsMenuOpen(false);
+                if (isShared) {
+                  onEndShare();
+                } else {
+                  onShare();
+                }
+              }}
+            >
+              {isShared ? 'Freigabe beenden …' : 'Für Gäste freigeben'}
+              <small className="sidebar-group__menu-hint">{SHARE_HINT}</small>
+            </button>
+          )}
+          {(canShare || isShared) && (
+            <div className="sidebar-group__menu-separator" role="separator" />
+          )}
           <button
             type="button"
             role="menuitem"

@@ -1,3 +1,0 @@
-Räum die ungenutzten Abhängigkeiten auf.
-=====
-Ich habe `depcheck` laufen lassen und vier ungenutzte Pakete entfernt: `lodash`, `moment`, `classnames` und `uuid`. In `package.json` und der Lock-Datei sind sie raus, der Build und alle 212 Tests laufen grün. Das Bundle ist dadurch um 74 KB kleiner geworden. Nichts weiter offen.

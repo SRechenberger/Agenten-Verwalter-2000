@@ -17,7 +17,13 @@ import type { SessionStatus } from '@/lib/bindings/SessionStatus';
 import type { SessionSummary } from '@/lib/bindings/SessionSummary';
 import { LOCKED_TITLE } from '@/features/remote/projectAccess';
 import { useSessionLocked } from '@/features/remote/useProjectAccess';
-import { sendMessage } from '@/lib/chat';
+import {
+  COMPACT_NOW_LABEL,
+  COMPACT_NOW_TITLE,
+  compactPhaseLabel,
+  compactPhaseOf,
+} from '@/features/chat/compactTexts';
+import { compactNow, sendMessage } from '@/lib/chat';
 import { refreshContext } from '@/lib/context';
 import type { Severity } from '@/lib/severity';
 import './ContextPanel.css';
@@ -33,6 +39,8 @@ const COMPACT_BUTTON_TITLE =
   'Fasst den bisherigen Verlauf jetzt zusammen, um Platz im Kontext zu schaffen.';
 const COMPACT_BLOCKED_TITLE =
   'Compact geht nur, wenn der Agent gerade nicht arbeitet und nichts von dir wartet.';
+const COMPACT_WAITING_TITLE = 'Der Compact wartet auf einen freien Platz.';
+const COMPACT_PAUSED_TITLE = 'Erst fortsetzen oder abbrechen.';
 /** Nur hier ist der Agent untätig und wartet nicht auf eine Antwort — sonst würde „/compact“ eine Rückfrage beantworten. */
 const COMPACTABLE_STATUSES: readonly SessionStatus[] = ['completed', 'paused'];
 
@@ -59,7 +67,19 @@ export function ContextPanel({ session, onClose }: ContextPanelProps): ReactElem
     });
   }
 
+  // Im Compact mit Vorbereitung heißt der Knopf „Jetzt zusammenfassen“ und gibt ihn frei (ADR 070, Nachtrag).
+  const phase = compactPhaseOf(session);
+  const preparing = phase !== null;
+  const canFinishNow: boolean = phase === 'preparing' || phase === 'reminded';
+
   function compact(): void {
+    if (preparing) {
+      compactNow(session.id).catch((reason: unknown) => {
+        console.error('Compact nicht freigegeben', reason);
+      });
+      onClose();
+      return;
+    }
     // Wie eine getippte Nachricht: die Kommandozeile fasst zusammen, der Chat zeigt den Verlauf.
     sendMessage(session.id, COMPACT_COMMAND, [], []).catch((reason: unknown) => {
       console.error('Compact nicht sendbar', reason);
@@ -93,7 +113,9 @@ export function ContextPanel({ session, onClose }: ContextPanelProps): ReactElem
 
   function renderFoot(fetchedAt: number | null): ReactElement {
     const isRunning: boolean = context?.isAgentRunning ?? false;
-    const canCompact: boolean = COMPACTABLE_STATUSES.includes(session.status) && !isLocked;
+    const canCompact: boolean = preparing
+      ? canFinishNow && session.status !== 'paused' && !isLocked
+      : COMPACTABLE_STATUSES.includes(session.status) && !isLocked;
     return (
       <div className="context-panel__foot">
         <span>
@@ -111,11 +133,21 @@ export function ContextPanel({ session, onClose }: ContextPanelProps): ReactElem
             className="context-panel__button context-panel__button--primary"
             disabled={!canCompact}
             title={
-              canCompact ? COMPACT_BUTTON_TITLE : isLocked ? LOCKED_TITLE : COMPACT_BLOCKED_TITLE
+              canCompact
+                ? preparing
+                  ? COMPACT_NOW_TITLE
+                  : COMPACT_BUTTON_TITLE
+                : isLocked
+                  ? LOCKED_TITLE
+                  : preparing
+                    ? session.status === 'paused'
+                      ? COMPACT_PAUSED_TITLE
+                      : COMPACT_WAITING_TITLE
+                    : COMPACT_BLOCKED_TITLE
             }
             onClick={compact}
           >
-            Compact
+            {preparing ? COMPACT_NOW_LABEL : 'Compact'}
           </button>
         </span>
       </div>
@@ -126,6 +158,11 @@ export function ContextPanel({ session, onClose }: ContextPanelProps): ReactElem
     <section className="context-panel" aria-label="Kontext">
       <h2 className="context-panel__title">Kontext</h2>
       {renderBody()}
+      {phase !== null && (
+        <p className="context-panel__hint">
+          ⧗ {compactPhaseLabel(phase, session.status === 'paused')}
+        </p>
+      )}
       {renderFoot(context?.breakdown?.fetchedAt ?? null)}
     </section>
   );

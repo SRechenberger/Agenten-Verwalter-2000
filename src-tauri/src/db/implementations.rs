@@ -326,16 +326,19 @@ pub fn project_of(connection: &Connection, id: &str) -> Result<Option<String>, C
     Ok(project_id)
 }
 
-/// Die unfertige Umsetzung des Vorhabens; es gibt höchstens eine.
-pub fn unfinished_of_project(
+/// Die unfertige Umsetzung, die die Session als Master führt (ADR 076); es gibt höchstens eine (Index
+/// `implementations_one_unfinished_per_master`). `except` nimmt eine Umsetzung aus, für den Masterwechsel.
+pub fn unfinished_led_by(
     connection: &Connection,
-    project_id: &str,
+    session_id: &str,
+    except: Option<&str>,
 ) -> Result<Option<(String, String)>, CommandError> {
     let found = connection
         .query_row(
             "SELECT id, name FROM implementations \
-             WHERE project_id = ?1 AND finished_at IS NULL ORDER BY created_at DESC LIMIT 1",
-            params![project_id],
+             WHERE master_session_id = ?1 AND finished_at IS NULL AND id IS NOT ?2 \
+             ORDER BY created_at DESC LIMIT 1",
+            params![session_id, except],
             |row| Ok((row.get(0)?, row.get(1)?)),
         )
         .optional()?;
@@ -360,16 +363,16 @@ pub fn latest_open_led_by(
     Ok(found)
 }
 
-/// Die neueste Umsetzung des Vorhabens, fertig oder nicht.
-pub fn latest_of_project(
+/// Die zuletzt angelegte Umsetzung, die die Session als Master führt, auch eine fertige oder abgebrochene.
+pub fn latest_led_by(
     connection: &Connection,
-    project_id: &str,
+    session_id: &str,
 ) -> Result<Option<String>, CommandError> {
     let found = connection
         .query_row(
-            "SELECT id FROM implementations WHERE project_id = ?1 \
+            "SELECT id FROM implementations WHERE master_session_id = ?1 \
              ORDER BY created_at DESC LIMIT 1",
-            params![project_id],
+            params![session_id],
             |row| row.get(0),
         )
         .optional()?;

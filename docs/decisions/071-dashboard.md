@@ -13,7 +13,7 @@ Vom Benutzer entschieden (B1 bis B14, Nachtrag in der Story vom 2026-11-17):
 - **B1/B2:** Alles, was auf dich wartet, wird eine **Karte**; der Kern erzeugt sie aus seinen Zuständen, nicht die Oberfläche. Eine Aufforderung per Werkzeug gibt es nicht.
 - **B3/B4:** Die Arten und die Reihenfolge stehen unten; blockierende Karten (ein Agent hängt an der Antwort) kommen zuerst, „Fertig“ zuletzt, innerhalb einer Stufe die am längsten wartende vorn.
 - **B5:** Eine Karte verschwindet, wenn der Zustand dahinter endet. Karten aus Textantworten, Fehlern und Pausen einer Session, auch „Unterbrochen“ und „Fehler“ einer Station mit Session, gehen außerdem mit „Gelesen“; die Session zu öffnen genügt nicht.
-- **B6:** Ein Modell ordnet die letzte Antwort ein (`asks`, `requests`, `done` samt Einzeiler); ohne Einordnung bleibt die Karte `answer` (Phase 102.2, Abschnitt „Einordnung“).
+- **B6:** Ein Modell ordnet die letzte Antwort ein (`asks`, `requests`, `done` samt Einzeiler); ohne Einordnung bleibt die Karte `answer` (Phase 102.2, Abschnitt „Einordnung“). **Überholt durch [ADR 077](077-karten-per-werkzeug.md):** Der Agent meldet die Art selbst mit `verwalter_notify_user`.
 - **B7/B8:** Stationen bekommen keine eingeordneten Karten; eine Antwort ohne Meldung geht an den Master („wartet auf Master“). Ein Fehler einer Station bleibt eine Karte für dich.
 - **B9:** Rechts stehen die Abläufe und die aktiven Sessions ohne Station.
 - **B13:** Keine leeren Nachrichten.
@@ -83,6 +83,8 @@ Endet ein Zug einer Session ohne Station mit `TurnEnd::Completed`, setzt `end_tu
 [`docs/PROJECT.md`](../PROJECT.md) nennt „keine KPI-Dashboards“ als Nicht-Ziel: keine Kennzahlen, keine Verläufe, keine Auslastung. Das Dashboard hier zeigt keine Zahl über die Arbeit, sondern **die Arbeit, die auf dich wartet**: Karten, die verschwinden, wenn sie erledigt sind. Es ist eine Arbeitsliste, kein Messinstrument; „Chat first“ bleibt, denn eine Karte öffnet das Popup oder den Chat, sie ersetzt ihn nicht.
 
 ## Einordnung
+
+**Überholt (Taiga 235, [ADR 077](077-karten-per-werkzeug.md)):** Die Einordnung durch ein Modell, die Einstellung `answer_model`, die Probe `answer-probe` und die Messung unten sind entfallen; die Arten kommen per Werkzeug vom Agenten. Der Abschnitt bleibt als Begründung stehen, warum sie vorher so lief.
 
 Eine Karte `answer` („Antwort liegt vor“) zeigt nur den Anfang der Antwort. Ein kleines Modell ordnet sie ein: `asks` (der Agent fragt oder verlangt eine Entscheidung), `requests` (der Agent bittet um eine Handlung außerhalb der Session) oder `done` (Bericht, nichts erwartet), dazu ein deutscher Einzeiler für die Karte. Aus `answer` wird dann `asks`, `requests` oder `done` mit dem Einzeiler als `title` (B6).
 
@@ -240,3 +242,14 @@ Die Karte eines Kastens aus den Session-Werkzeugen (`sessionTool`) hieß immer �
 - **Gruppierung „nach Art“:** `groupOf` bildet je Beschriftung eine Gruppe, Schlüssel und Text kommen aus derselben Funktion. Die fünf Arten stehen also in fünf Gruppen, nicht mehr in einer. Der Schlüssel bleibt `task.kind` (so stehen die Pfade der Einklapp-Zustände von Gruppe und Vorhaben unverändert, `dashboardNest.selftest.ts`); nur die Arten außer „Freigabe Nachricht“ tragen `sessionTool:<Art>`.
 - **Unverändert:** Ton (`kindTone`: „wartet“), `blocking`, Reihenfolge und die Zählung; der Kern kennt die Beschriftung nicht.
 - **Tests:** `dashboardTexts.selftest.ts` (`a_prompt_template_proposal_reads_vorschlag_vorlage`, `a_card_without_entry_stays_freigabe_nachricht`, `group_by_kind_splits_the_five_approvals` und je Art ein Fall).
+
+## Nachtrag 2026-11-25: Karten per Werkzeug (Taiga #235, ADR 077)
+
+- **Entfallen:** B6 und der Abschnitt „Einordnung“: `dashboard/classify.rs`, `sessions/registry/classify.rs`, `Outbox.classify` mit dem Wächter `classify_running`, die Einstellung „Modell der Einordnung“ (`answer_model`), die Probe `answer-probe` mit ihren 14 Fällen und in der Oberfläche `isClassified` und `classifiedText`. `ask_model` bleibt für TL;DR und Retro.
+- **Neu:** `DashboardTaskKind` hat `blocked` und `review`; `DashboardTask` hat `offer`, `link` und `reported`. Der Rang in `level` ist blockierend, `blocked`, `asks`, `requests`, `review`, `answer`, `planChange`, `cancelRequest`, `byYou`, `returnsExhausted`, `masterMissing`, `error`, `paused`, `ready`, `done`.
+- **Karten-Regel „Antwort“:** Eine Session ohne Station mit abgeschlossenem Zug zeigt die Art, die der Agent mit `verwalter_notify_user` gemeldet hat (`answer_kind`, `answer_line`); ohne Aufruf bleibt `answer` mit dem Auszug, im Popup „nicht gemeldet“. Die Kennung `session:<Session>` bleibt wie vorher beim Wechsel der Art stehen.
+
+## Nachtrag 2026-11-25: Postfach (Taiga #187, ADR 079)
+
+- **Entfallen:** die Kacheln, die Schachtelung „Gruppiert nach“ samt Einstellung (`DashboardChoice`, Taiga 186), der Filter „Nur, was einen Agenten anhält“ (jetzt der Ordner „Hält Agenten an“), die rechte Spalte der Abläufe (jetzt Ordner im Rand) und das Popup im Dashboard (jetzt der Lesebereich). Die Karten im Chat behalten ihr Popup.
+- **Neu:** `DashboardTask.seen_at` („angesehen“ je Karte, Tabelle `dashboard_seen`, Migration 38), die Befehle `dashboard_seen` und `dashboard_undismiss`, die Oberfläche als Postfach. Die Regeln der Karten, ihr Rang und „Gelesen“ bleiben.

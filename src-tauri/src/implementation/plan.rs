@@ -45,7 +45,8 @@ pub const MAX_PLAN_REMINDERS: u8 = 2;
 /// Person wie `plan_prompt`.
 pub const PLAN_REMINDER_TEXT: &str = "Ich sehe noch keinen Plan im Umsetzungstool. Leg ihn bitte \
      jetzt mit mcp__verwalter__implementation_create an, nicht als Fließtext im Chat. Fehlt dir \
-     dafür noch eine Angabe von mir, frag mich mit AskUserQuestion.";
+     dafür noch eine Angabe von mir, frag mich mit AskUserQuestion oder mit \
+     mcp__verwalter__verwalter_notify_user (kind asks, Feld questions).";
 
 /// Der Wächter eines Planungszugs; nur im Speicher der Session, nach einem Neustart weg.
 #[derive(Debug, Clone, PartialEq, Eq)]

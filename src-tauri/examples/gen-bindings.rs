@@ -71,12 +71,12 @@ use verwalter_lib::{
     review::model::{CommentTarget, ReviewComment},
     session_tools::model::SelfRelease,
     sessions::model::{
-        AwaitedScript, ChatEntryEvent, ChatPage, SendOutcome, SessionOverlap, SessionStatus,
-        SessionSummary,
+        AwaitedScript, ChatEntryEvent, ChatPage, DiscardOutcome, SendOutcome, SessionOverlap,
+        SessionStatus, SessionSummary, WaitingMessage, WaitsFor,
     },
     settings::model::{
-        ColorScheme, DashboardChoice, OperatingMode, PanelId, PanelWidths, Settings,
-        SettingsChange, SettingsOverview, TerminalPlacement,
+        ColorScheme, OperatingMode, PanelId, PanelWidths, Settings, SettingsChange,
+        SettingsOverview, TerminalPlacement,
     },
     side::model::{SideChangedEvent, SideQuestion, SideState, SideUsage},
     skills::model::{SkillInfo, SkillKind, SkillOrigin, SkillRef, SkillUse},
@@ -136,6 +136,9 @@ fn main() -> Result<(), ts_rs::ExportError> {
     SessionOverlap::export_all(&cfg)?;
     ChatPage::export_all(&cfg)?;
     SendOutcome::export_all(&cfg)?;
+    DiscardOutcome::export_all(&cfg)?;
+    WaitingMessage::export_all(&cfg)?;
+    WaitsFor::export_all(&cfg)?;
     ChatEntryEvent::export_all(&cfg)?;
     DeviceRef::export_all(&cfg)?;
     HostProfile::export_all(&cfg)?;
@@ -217,7 +220,6 @@ fn main() -> Result<(), ts_rs::ExportError> {
     TerminalPlacement::export_all(&cfg)?;
     PanelId::export_all(&cfg)?;
     PanelWidths::export_all(&cfg)?;
-    DashboardChoice::export_all(&cfg)?;
     LocalModelKind::export_all(&cfg)?;
     LocalModel::export_all(&cfg)?;
     LocalModels::export_all(&cfg)?;

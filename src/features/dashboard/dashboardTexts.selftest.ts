@@ -1,21 +1,24 @@
-// Selbsttest der Texte, Gruppen und Filter des Dashboards: `node src/features/dashboard/dashboardTexts.selftest.ts`
+// Selbsttest der Texte des Dashboards: `node src/features/dashboard/dashboardTexts.selftest.ts`
 // (`pnpm selftest`). Je Fall `PASS`/`FAIL`, Exit 1 bei einem Fehlschlag. Node streicht die Typen; die geprüfte
 // Datei importiert nur Typen.
 import {
   ageText,
   badgeCount,
-  filterTasks,
   flowOpenText,
   flowPercent,
-  groupTasks,
   isAnswerKind,
-  isClassified,
+  kindSubtitle,
   kindTone,
+  listKindLabel,
+  linkLabel,
+  linkTarget,
+  offerMessage,
   originText,
-  classifiedText,
+  postfachOriginText,
+  reportedText,
+  sentOfferText,
   lastExchange,
   isMessageEmpty,
-  NO_GROUP_LABEL,
   KIND_LABEL,
   taskLabel,
 } from './dashboardTexts.ts';
@@ -49,6 +52,10 @@ function task(
     requestId: null,
     entry: null,
     released: false,
+    offer: null,
+    link: null,
+    reported: false,
+    seenAt: null,
     ...extra,
   };
 }
@@ -74,67 +81,27 @@ function flow(done: number, total: number, open: number): DashboardFlow {
   };
 }
 
-function ids(groups: ReturnType<typeof groupTasks>): string {
-  return groups.map((group) => `${group.label}:${group.tasks.map((t) => t.id).join('')}`).join('|');
-}
-
 const CASES: { name: string; actual: () => unknown; expected: unknown }[] = [
-  {
-    name: 'filter_blocking_keeps_core_order',
-    actual: () =>
-      filterTasks(TASKS, true)
-        .map((t) => t.id)
-        .join(''),
-    expected: 'ac',
-  },
-  {
-    name: 'filter_blocking_also_keeps_paused_cards_in_place',
-    actual: () =>
-      filterTasks([task('a', 'question'), task('b', 'asks'), task('c', 'paused')], true)
-        .map((t) => t.id)
-        .join(''),
-    expected: 'ac',
-  },
-  {
-    name: 'filter_off_keeps_all',
-    actual: () =>
-      filterTasks(TASKS, false)
-        .map((t) => t.id)
-        .join(''),
-    expected: 'abcd',
-  },
-  {
-    name: 'group_by_project_first_appearance_keeps_order',
-    actual: () => ids(groupTasks(TASKS, 'project')),
-    expected: 'agda:ac|Verwalter:bd',
-  },
-  {
-    name: 'group_by_kind_one_group_per_kind',
-    actual: () => ids(groupTasks(TASKS, 'kind')),
-    expected: 'Rückfrage:a|Fragt:b|Rechte-Abfrage:c|Fertig:d',
-  },
-  {
-    name: 'group_by_group_without_group_is_named',
-    actual: () => ids(groupTasks(TASKS, 'group')),
-    expected: `Sonstiges:ac|${NO_GROUP_LABEL}:b|Verwalter:d`,
-  },
-  {
-    name: 'group_of_empty_list_is_empty',
-    actual: () => groupTasks([], 'project').length,
-    expected: 0,
-  },
   { name: 'badge_zero_shows_no_number', actual: () => badgeCount([]), expected: null },
   { name: 'badge_counts_all_cards', actual: () => badgeCount(TASKS), expected: 4 },
   {
-    name: 'classified_only_asks_requests_done',
+    name: 'answer_kinds_are_the_five_reported_kinds_and_the_fallback',
     actual: () =>
-      (['asks', 'requests', 'done', 'answer', 'error'] as const).map(isClassified).join(),
-    expected: 'true,true,true,false,false',
+      (['asks', 'requests', 'done', 'review', 'blocked', 'answer', 'error'] as const)
+        .map(isAnswerKind)
+        .join(),
+    expected: 'true,true,true,true,true,true,false',
   },
   {
-    name: 'answer_kind_includes_unclassified',
-    actual: () => isAnswerKind('answer'),
-    expected: true,
+    name: 'new_kinds_have_their_labels_and_tones',
+    actual: () =>
+      [KIND_LABEL.blocked, KIND_LABEL.review, kindTone('blocked'), kindTone('review')].join(),
+    expected: 'Blockiert,Zum Ansehen,error,accent',
+  },
+  {
+    name: 'a_reported_card_is_labelled_by_its_kind',
+    actual: () => taskLabel(task('x', 'review', { reported: true })),
+    expected: 'Zum Ansehen',
   },
   { name: 'answer_kind_excludes_error', actual: () => isAnswerKind('error'), expected: false },
   { name: 'tone_of_blocking_is_wait', actual: () => kindTone('sessionTool'), expected: 'wait' },
@@ -170,6 +137,17 @@ const CASES: { name: string; actual: () => unknown; expected: unknown }[] = [
     actual: () => originText(task('x', 'planChange', { implementationName: 'Warteschlange' })),
     expected: 'Verwalter · Warteschlange',
   },
+  {
+    name: 'postfach_origin_names_the_session_before_the_project',
+    actual: () =>
+      postfachOriginText(task('x', 'asks', { sessionNumber: 4, sessionTitle: 'Beweis' })),
+    expected: '#4 Beweis · Verwalter',
+  },
+  {
+    name: 'postfach_origin_without_session_or_station_is_the_project',
+    actual: () => postfachOriginText(task('x', 'planChange', { sessionNumber: null })),
+    expected: 'Verwalter',
+  },
   { name: 'flow_percent', actual: () => flowPercent(flow(7, 11, 0)).toFixed(1), expected: '63.6' },
   { name: 'flow_percent_without_stations', actual: () => flowPercent(flow(0, 0, 0)), expected: 0 },
   { name: 'flow_open_text', actual: () => flowOpenText(flow(1, 2, 3)), expected: '3 offen' },
@@ -204,14 +182,42 @@ const MORE: { name: string; actual: () => unknown; expected: unknown }[] = [
   { name: 'empty_message_blank', actual: () => isMessageEmpty(' \n\t '), expected: true },
   { name: 'empty_message_text', actual: () => isMessageEmpty(' x '), expected: false },
   {
-    name: 'classified_asks',
-    actual: () => classifiedText(task('x', 'asks', { title: 'Frage?' })),
-    expected: '✦ Eingeordnet als „fragt“ aus der letzten Antwort: Frage?',
+    name: 'reported_text_names_the_agent',
+    actual: () => reportedText(task('x', 'asks', { title: 'Frage?', reported: true })),
+    expected: '✓ vom Agenten gemeldet',
   },
   {
-    name: 'classified_answer_is_not_classified',
-    actual: () => classifiedText(task('x', 'answer')).startsWith('Nicht eingeordnet'),
+    name: 'an_answer_without_a_call_is_not_reported',
+    actual: () => reportedText(task('x', 'answer')).startsWith('Nicht gemeldet'),
     expected: true,
+  },
+  {
+    name: 'the_offer_goes_out_as_yes_please',
+    actual: () => offerMessage('die zwei Issues verlinken'),
+    expected: 'Ja, bitte: die zwei Issues verlinken',
+  },
+  {
+    name: 'a_link_is_a_browser_address_or_an_artifact',
+    actual: () =>
+      [
+        'https://example.org/a',
+        'entwurf.html',
+        './entwurf.html',
+        '/ws/.artefakte/entwurf/index.html',
+        'C:\\ws\\.artefakte\\mockup.html',
+      ]
+        .map((link) => JSON.stringify(linkTarget(link)))
+        .join(' '),
+    expected:
+      '{"kind":"url","url":"https://example.org/a"} {"kind":"artifact","file":"entwurf.html"} ' +
+      '{"kind":"artifact","file":"entwurf.html"} {"kind":"artifact","file":"entwurf"} ' +
+      '{"kind":"artifact","file":"mockup.html"}',
+  },
+  {
+    name: 'the_link_button_says_browser_or_artifact',
+    actual: () =>
+      [linkTarget('https://example.org'), linkTarget('x.html')].map(linkLabel).join(' | '),
+    expected: 'Im Browser öffnen ↗ | Artefakt öffnen',
   },
   {
     name: 'exchange_last_answer_and_its_message',
@@ -295,21 +301,34 @@ const LABELS: { name: string; actual: () => unknown; expected: unknown }[] = [
     expected: 'Rückfrage',
   },
   {
-    name: 'group_by_kind_splits_the_five_approvals',
+    name: 'the_approvals_carry_their_own_label_each',
     actual: () =>
-      groupTasks(
-        [
-          toolCard('{"kind":"sendMessage","recipients":[],"message":"x","subject":null}'),
-          toolCard('{"kind":"getTldr","target":{"id":"s","number":1,"title":"t"}}'),
-          toolCard('{"kind":"promptTemplate","base":null,"proposal":{}}'),
-          toolCard('{"kind":"promptTemplate","base":null,"proposal":{}}'),
-          task('q', 'question'),
-        ],
-        'kind',
-      )
-        .map((group) => `${group.label}:${String(group.tasks.length)}`)
+      [
+        toolCard('{"kind":"sendMessage","recipients":[],"message":"x","subject":null}'),
+        toolCard('{"kind":"getTldr","target":{"id":"s","number":1,"title":"t"}}'),
+        toolCard('{"kind":"promptTemplate","base":null,"proposal":{}}'),
+        task('q', 'question'),
+      ]
+        .map(taskLabel)
         .join(),
-    expected: 'Freigabe Nachricht:1,Freigabe TL;DR:1,Vorschlag Vorlage:2,Rückfrage:1',
+    expected: 'Freigabe Nachricht,Freigabe TL;DR,Vorschlag Vorlage,Rückfrage',
+  },
+  {
+    name: 'a_done_card_with_an_offer_reads_angebot_in_the_list',
+    actual: () =>
+      `${listKindLabel(task('d', 'done', { offer: 'x' }))}|${listKindLabel(task('d', 'done'))}`,
+    expected: 'Fertig · Angebot|Fertig',
+  },
+  {
+    name: 'only_blocked_has_a_subtitle_in_the_reader',
+    actual: () =>
+      `${String(kindSubtitle(task('b', 'blocked')))}|${String(kindSubtitle(task('a', 'asks')))}`,
+    expected: 'der Agent kommt ohne dich nicht weiter|null',
+  },
+  {
+    name: 'sending_the_offer_reports_the_message_that_went_out',
+    actual: () => sentOfferText('die Issues verlinken'),
+    expected: 'Gesendet: „Ja, bitte: die Issues verlinken“',
   },
 ];
 CASES.push(...LABELS);

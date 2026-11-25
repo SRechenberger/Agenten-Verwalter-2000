@@ -167,3 +167,72 @@ Prüfung: `a_declined_compact_lets_the_waiting_message_through`, `a_failed_compa
 - **Rückfrage ohne Freigabe:** Hat die Umsetzung einen Master und hat er die Station nicht freigegeben, fragt jeder Weg zu „Erledigt“ einmal nach: „Der Master hat diese Station nicht freigegeben. Trotzdem erledigt?“, gleich in Zeile, Kartei und Popup (`asksBeforeDone` in `stationControls.ts`, Selbsttest). Ohne Master fragt keiner. Der Core prüft weiter nur, dass die Station „durch dich“ ist.
 - **Marke der Freigabe:** „✓ freigegeben“ als Chip in der zweiten Zeile der Station in der Leiste, „✓ vom Master freigegeben“ an der Karte im Dashboard (Variante A des Entwurfs).
 - **Antwort auf `accept`:** Der bisherige Text bleibt; dahinter nennt `CompleteOutcome::text` die Stationen „durch dich“, die jetzt an der Reihe sind, mit Lane, Stufe und `id` (`due_for_user`, dieselbe Regel wie `release`), damit der Master sie freigeben kann. Prüfung: `acceptance_names_the_stations_by_you_that_are_due_with_id_and_stage`.
+
+## Nachtrag 2026-11-25: Umsetzungen je Session ([ADR 076](076-umsetzungen-je-session.md), Taiga #217)
+
+- **D9:** `verwalter_open_session` gibt es nicht mehr (ADR 076); die Sperre `open_refusal` entfällt. Stattdessen legt eine Station keine Umsetzung an: `implementation_create` lehnt mit „Eine Station legt keine Umsetzung an. Melde dein Ergebnis mit implementation_complete_station.“ ab.
+- **D11:** Ein Masterwechsel auf eine Session, die schon eine unfertige Umsetzung führt, wird abgelehnt („Die Session führt schon die Umsetzung „…“.“); der `MasterPicker` sperrt sie mit „führt schon „…““.
+
+## Nachtrag 2026-11-25: Compact mit Vorbereitung (Taiga #215)
+
+Der Compact aus dem Nachtrag „Compact der ruhenden Master-Session“ kam ohne Vorwarnung: Die Session konnte ihren Stand nicht sichern, und Nachrichten, die während des Compact-Zugs eintrafen, gingen ohne Ordnung in den laufenden Zug. Jetzt bittet der Verwalter den Master zuerst, sich vorzubereiten, und sperrt bis zum Ende des Compacts den Empfang. Entscheidungen des Benutzers und Empfehlungen der Planung 0.78.0 (C1 bis C9); Entwurf und Klick-Prototyp in `docs/design/2026-11-25_compact-vorbereitung/`.
+
+- **C1, nur ruhend:** Der Ablauf beginnt wie die Regel `wanted`: Zugende `completed`, kein Compact-Zug, Master einer unfertigen Umsetzung, `rests()`, leerer Posteingang, `context_used` über der Grenze. Statt `/compact` schickt der Verwalter die Bitte als Zug (Absender „Verwalter“, Nr. 0, wie die Weck-Nachrichten, aber ohne Referenz, damit der Text selbst ankommt): „Du bist über dem Limit von {L} Tokens Kontext. Bereite dich auf /compact vor und melde dich mit einem Aufruf von mcp__verwalter__verwalter_compact_ready beim Verwalter zurück.“ Mit der Bitte beginnt die **Sperre**.
+- **C2, Werkzeug:** `verwalter_compact_ready` in `SessionTools`, für alle Sessions der Betriebsart Claude sichtbar, Teil von Satz 1 in `session_tools_prompt` (V1). In der Vorbereitung antwortet es „Gemeldet. Der Compact folgt, wenn dein Zug endet.“, sonst „Gerade steht kein Compact an.“ Eine Nebenfrage darf es nicht rufen.
+- **C3, keine Meldung:** Endet der Vorbereitungszug ohne Meldung, kommt einmal die Erinnerung („Du hast dich noch nicht mit mcp__verwalter__verwalter_compact_ready gemeldet. Sichere deinen Stand und ruf das Werkzeug auf; endet dieser Zug ohne Aufruf, fasse ich trotzdem zusammen.“). Endet auch dieser Zug ohne Meldung, fasst der Verwalter trotzdem zusammen. Der Vorbereitungszug löst keine zweite Bitte aus: `decide_under_lock` sieht die Phase (`after_compact`). Im Chat tragen Bitte und Erinnerung die Betreffe „Compact vorbereiten“ und „Erinnerung: Compact“ (`TurnOrigin::Session::chat_subject`); der Text an den Agenten bleibt der gemessene, ohne Referenz. Bricht ein Fehler die Vorbereitung ab, nennt der Chat es („Die Vorbereitung ist abgebrochen“).
+- **C4, Compact scheitert:** Notiz „Zusammenfassen gescheitert: …“ wie bisher; die Sperre geht trotzdem weg.
+- **C5, Sperre:** Ab dem Senden der Bitte geht keine Nachricht mehr in die Session, weder vom Nutzer noch von Sessions noch vom Verwalter, auch kein automatisches `send`. Die Zeilen bleiben in `session_inbox` (`waitsFor: compact`, V3 aus ADR 078). Die Sperrstellen sind `route_input` (eigene Nachricht: `InputRoute::Queue`; die Antwort auf eine offene Rückfrage geht weiter), `route_message` über `compact::locked_route` (kein Anstoß), `takes_oldest` und `takes_user_messages` (der Durchgang holt nichts ab), `user_release` (`Later`), „Jetzt senden“ (`refuse_send_now` mit dem Satz der Leiste), die automatischen `send`-Wege über `refuses_start` (Plan, Station, Erinnerung des Wächters) und der Plan-Wächter selbst. Nur das Fortsetzen einer pausierten Session darf hinein. Die Oberfläche: Leiste über dem Eingabefeld statt `QueuedHint` (ohne „Jetzt senden“), Marke „wartet · bis der Compact fertig ist“ an der eigenen Blase, im Kontext-Panel heißt „Compact“ „Jetzt zusammenfassen“, Kopfzeile und Sidebar zeigen „⧗ …“.
+- **C6, Einspielen:** Es gibt keinen eigenen Puffer. Wenn die Phase endet, ruft `update` einen Durchgang der Warteschlange und meldet `inbox://changed`. Eigene Nachrichten gehen zusammen hinaus, fremde je Zugende. Fertig, gescheitert, abgebrochen, Fehler, Abbruch der Session und Ende der Umsetzung (`end_compact_of_implementation`, auch beim Abbruch) heben die Sperre auf; ein laufender Compact-Zug endet erst.
+- **C7, Betriebsart:** Nur Claude (`OperatingMode::Claude`). Claude Code + LM Studio hat die Session-Werkzeuge nicht; es bekommt wie bisher gleich `/compact` ohne Sperre.
+- **C8, Zustand:** Die Phase liegt nur im Speicher (`SessionState::compact_phase`) und geht als `compactPhase` an `SessionSummary` (`#[serde(default)]`, im TS-Typ optional); `SessionStatus` bekommt keine Variante. Nach einem Neustart ist sie weg, die Nachrichten gehen hinaus, die Regel greift beim nächsten Zugende neu.
+- **C9, Platz:** Nach der Meldung geht der Compact nicht mehr verloren, weil kein Platz frei ist: `compact_waits_for_slot` macht die Session zum Wartenden der Art `Resume` in der Warteschlange (Vorrang eines Fortsetzens, ADR 068, Nachtrag E3), und `resume_or_compact_claimed` startet den Schritt mit dem Platz des Durchgangs. Dasselbe gilt für die Erinnerung. Der Beginn des Wartens ist fest (`compact_waiting_since`, je Phase der Zeitpunkt, an dem der erste Durchgang den Wartenden sah): Ein Wartender, dessen Beginn jeder Durchgang auf „jetzt“ setzte, wäre immer der jüngste seiner Gruppe und käme nie vor eine später eingegangene Nachricht. Die Bitte selbst entfällt ohne Platz wie bisher der Compact und kommt beim nächsten Zugende.
+- **Pause:** Kontingent oder Nutzer halten die Session an, die Sperre bleibt (auch bei einem Compact-Zug im Kontingent; ohne Phase bleibt dort das Verhalten von heute). Fortsetzen (von Hand oder mit dem Zeitgeber) kehrt in den Zustand davor zurück: vor der Meldung geht der Fortsetz-Text, danach startet der Compact-Zug (`send_resume`); ein pausierter Erinnerungszug endet erst im Ruhen, dann folgt der Compact (`step_after_turn`).
+- **Nutzer:** „Jetzt zusammenfassen“ (`chat_compact_now`) gibt den Compact frei, ohne die Meldung abzuwarten; „Compact abbrechen“ (`chat_compact_abort`) hebt die Sperre auf, auch in der Pause. Beide Befehle sind Klasse C für Gäste. Ein laufender Compact-Zug lässt sich nicht abbrechen. Läuft beim Abbruch ein Zug der Vorbereitung (auch pausiert), löst dessen Ende keine neue Bitte aus: Ein Merker (`compact_abort_pending`, nur im Speicher) gilt für dieses eine Zugende; danach gilt die Regel wieder wie im Diagramm (Normal → Vorbereitung beim nächsten Ruhen über der Grenze).
+
+### Zustandsdiagramm
+
+```mermaid
+stateDiagram-v2
+    [*] --> Normal
+    Normal --> Vorbereitung: Zugende ruhend, Master, Kontext > L<br/>Nachricht senden, Empfang sperren
+    state "Vorbereitung (Empfang gesperrt)" as Vorbereitung
+    Vorbereitung --> Bereit: compact_ready im Zug
+    Vorbereitung --> Erinnert: Zugende ohne Meldung<br/>Erinnerung senden
+    Erinnert --> Bereit: compact_ready im Zug
+    Erinnert --> Compact: Zugende ohne Meldung<br/>trotzdem zusammenfassen
+    Bereit --> Compact: Zugende, Platz frei
+    Compact --> Einspielen: Compact fertig
+    Compact --> Einspielen: Compact gescheitert<br/>Notiz
+    Einspielen --> Normal: Flag aus, Durchgang der Warteschlange
+    Vorbereitung --> Einspielen: Nutzer bricht ab / Fehler / Umsetzung endet
+    Erinnert --> Einspielen: Nutzer bricht ab / Fehler / Umsetzung endet
+    Vorbereitung --> Pausiert: Kontingent oder Pause
+    Erinnert --> Pausiert: Kontingent oder Pause
+    Compact --> Pausiert: Kontingent oder Pause
+    state "Pausiert (Empfang bleibt gesperrt)" as Pausiert
+    Pausiert --> Vorbereitung: Fortsetzen (vor der Meldung)
+    Pausiert --> Compact: Fortsetzen (nach der Meldung)
+    Pausiert --> Einspielen: Nutzer bricht ab
+    Vorbereitung --> Compact: Nutzer „Jetzt zusammenfassen“
+    Erinnert --> Compact: Nutzer „Jetzt zusammenfassen“
+    Normal --> [*]
+    note right of Einspielen: App-Neustart in jedem Zustand → Normal,\nder Puffer wird zugestellt
+```
+
+### Messung (F4)
+
+Die Bitte und die Erinnerung sind mit `compact-probe` an Haiku gemessen (Claude Code 2.1.296, Modell `claude-haiku-5-5`, je Lauf zwei Züge: ein Arbeitsstand ohne Werkzeug, dann die Nachricht mit der Kopfzeile des Core; das Werkzeug beantwortet ein MCP-Stand-in mit dem Satz der App): **Bitte 18 von 18**: Alle 18 Läufe riefen `verwalter_compact_ready` ohne Verweigerung. **Erinnerung 18 von 18**, ebenso. Keine Fehler, keine Zeitüberschreitung, Kosten 0,147 USD für die 36 Läufe. Wortlaut der Bitte (L = 150 000): „Du bist über dem Limit von 150 000 Tokens Kontext. Bereite dich auf /compact vor und melde dich mit einem Aufruf von mcp__verwalter__verwalter_compact_ready beim Verwalter zurück.“ Wortlaut der Erinnerung wie unter C3. Der volle Name des Werkzeugs steht in beiden Texten, weil Haiku aufgeschobene Werkzeuge sonst erst laden müsste. Die Läufe stehen in `docs/design/2026-11-25_compact-vorbereitung/umsetzung/` (`haiku-messung.txt`, `haiku-messung-runs.jsonl`).
+
+Bei der Erinnerung fehlt dem Agenten die Bitte im Verlauf; in der App steht sie davor. Der Wortlaut stützt sich nicht auf sie.
+
+### Bekannte Grenzen
+
+- Die Phase gilt nur im Speicher; stürzt die App im Compact ab, ist der Empfang danach offen, und der Compact-Zug, der läuft, endet mit dem Prozess.
+- Die Notizen des Prototyps beim Einspielen („n eigene Nachrichten zusammen zugestellt“, „Zugestellt: … · n weitere mit den nächsten Zugenden“) gibt es nicht: Sie bräuchten einen eigenen Weg an der Zustellung.
+- „Jetzt zusammenfassen“ steht während der Pause nicht zur Verfügung; der Nutzer setzt fort oder bricht ab.
+- Die Notizen des Verwalters zum Compact sind `Notice::Verwalter`, ohne den Absender „Hinweis von Claude Code“.
+- Ein Abbruch in den Millisekunden zwischen dem Zugende und `send_compact` kann sofort eine neue Bitte auslösen.
+- Die Ausnahme fürs Fortsetzen hängt am Text des Fortsetzens („Mach weiter.“), nicht am Weg.
+- Meldet sich ein Master in der Vorbereitung mit `verwalter_notify_user` und fragt (`questions`), wartet seine Rückfrage auf die Antwort; die Antwort geht hinein, jede andere Nachricht wartet.
+
+Prüfung: Tests unter `sessions::registry::tests::` (`cargo test --manifest-path src-tauri/Cargo.toml --lib sessions::registry`): je Übergang des Diagramms einer, dessen Name den Übergang nennt (`normal_to_preparation_…`, `preparation_to_ready_…`, `preparation_to_reminded_…`, `reminded_to_ready_…`, `reminded_to_compact_…`, `ready_to_compact_…`, `compact_to_replay_…`, `preparation_to_replay_…`, `paused_to_…`, `preparation_to_paused_…`, `compact_to_paused_…`, `reminded_to_replay_…`, `reminded_to_paused_…`, `reminded_to_compact_when_the_user_says_now`, `replay_to_normal_…`, `preparation_to_compact_when_the_user_says_now`), `the_waiting_compact_keeps_its_due_time_and_goes_before_a_later_message`, `an_aborted_preparation_turn_ends_without_a_new_request_once`, keine Nachricht geht während der Sperre hinein je Sperrstelle (`no_message_of_the_user_goes_in_…`, `a_message_of_another_session_or_the_verwalter_waits_…`, `the_pass_collects_no_waiting_message_…`, `a_waiting_message_of_the_user_is_not_released_…`, `no_automatic_send_goes_in_…`, `the_messages_in_the_inbox_name_the_compact_…`), `after_the_compact_the_own_messages_go_together_before_the_foreign_ones`, `no_second_preparation_while_the_session_is_in_the_compact`, `the_compact_after_the_report_waits_for_a_slot_like_a_resume`, `a_restart_lifts_the_lock_because_the_phase_lives_only_in_memory`, `the_request_names_the_limit_in_groups_and_the_full_tool_name`; dazu `compactTexts.selftest.ts` (`pnpm selftest`) und `compact-probe --selftest`.

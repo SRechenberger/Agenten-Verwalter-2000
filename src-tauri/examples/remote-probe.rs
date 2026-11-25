@@ -27,13 +27,14 @@ use verwalter_lib::remote::access::{IdKind, TargetId};
 use verwalter_lib::remote::client::{ClientHooks, RemoteClients, SavedHost};
 use verwalter_lib::remote::content::MAX_BYTES;
 use verwalter_lib::remote::dispatch::{self, MERGED_LISTS};
-use verwalter_lib::remote::model::RemoteHostStatus;
+use verwalter_lib::remote::model::{CreateRight, RemoteHostStatus};
 use verwalter_lib::remote::peer::{INVITATION_TTL, Invitation};
 use verwalter_lib::remote::server::{Dispatch, RemoteServer, ServerSetup};
 use verwalter_lib::remote::tls;
 use verwalter_lib::remote::wire::{
     self, Frame, LineBuffer, MAX_LINE, Outcome, PROTOCOL, RefuseReason, Timing,
 };
+use verwalter_lib::sessions::model::WaitingMessage;
 use verwalter_lib::settings::DEFAULT_SETTINGS;
 use verwalter_lib::settings::model::{OperatingMode, Settings, SettingsOverview};
 use verwalter_lib::terminal::model::TerminalOutput;
@@ -726,6 +727,7 @@ const SHARED_PROJECT: &str = "projekt-frei";
 const SHARED_SESSION: &str = "session-frei";
 const OTHER_PROJECT: &str = "projekt-nicht-frei";
 const OTHER_SESSION: &str = "session-nicht-frei";
+const CREATED_PROJECT: &str = "projekt-vom-gast";
 const SHARED_TERMINAL: &str = "terminal-frei";
 const OTHER_TERMINAL: &str = "terminal-nicht-frei";
 const TERMINAL_BUFFER: &str = "puffer bis jetzt";
@@ -739,6 +741,8 @@ struct StubHost {
     workspace: PathBuf,
     /// Die Kanäle, die `terminal_attach` angehängt hat, je Gerät; wie die Zuschauer im Core.
     terminals: Mutex<Vec<(String, Channel<TerminalOutput>)>>,
+    /// Das Recht, das der Stub jedem Gerät zuspricht; vorgegeben: nicht erlaubt.
+    create_right: Mutex<CreateRight>,
 }
 
 impl StubHost {
@@ -825,9 +829,28 @@ impl dispatch::Host for StubHost {
         AgentQueue::default()
     }
 
+    fn inbox_list(&self) -> Result<Vec<WaitingMessage>, CommandError> {
+        Ok(Vec::new())
+    }
+
+    fn create_right(&self, _: &str) -> Result<CreateRight, CommandError> {
+        Ok(self
+            .create_right
+            .lock()
+            .map_err(|error| CommandError::Internal(error.to_string()))?
+            .clone())
+    }
+
+    fn share_created(&self, project_id: &str) -> Result<(), CommandError> {
+        self.control.with(|control| control.share(project_id));
+        Ok(())
+    }
+
     fn invoke(&self, command: &str, args: Value) -> Result<Value, CommandError> {
         self.invoked.fetch_add(1, Ordering::SeqCst);
         Ok(match command {
+            "repository_list" => json!([{ "id": "r1" }]),
+            "project_create" => json!({ "project": { "id": CREATED_PROJECT }, "args": args }),
             "settings_load" => settings_overview(),
             "settings_local_models" => {
                 json!({ "baseUrl": "http://localhost:1234", "models": [], "error": null })
@@ -863,6 +886,7 @@ fn dispatched(folder: &Path) -> Result<bool, String> {
             invoked: AtomicUsize::new(0),
             workspace: workspace.clone(),
             terminals: Mutex::new(Vec::new()),
+            create_right: Mutex::new(CreateRight::default()),
         });
         stub = Some(Arc::clone(&host));
         Arc::new(move |device, link, command: &str, args: Value| {
@@ -911,6 +935,7 @@ fn dispatched(folder: &Path) -> Result<bool, String> {
             "settings_update",
             "project_archive",
             "remote_share_set",
+            "remote_group_share_set",
             "gibt_es_nicht",
         ]
         .iter()
@@ -1011,6 +1036,106 @@ fn dispatched(folder: &Path) -> Result<bool, String> {
                 || format!("{command}: erster {first_seen}, zweiter {second_seen}"),
             )
         })
+    });
+
+    all &= report("gruppenfreigabe", {
+        // Die Registry gleicht `Control` nach jeder Änderung mit der wirksamen Freigabe ab (V5): Ein
+        // Mitglied einer freigegebenen Gruppe erscheint in der Liste des Gastes, nach dem
+        // Herausnehmen nicht mehr.
+        let listed = || {
+            second
+                .call(&host_id, "project_list", Value::Null)
+                .map_err(text)
+        };
+        host.control.with(|control| {
+            control.set_shared([SHARED_PROJECT.to_owned(), OTHER_PROJECT.to_owned()].into())
+        });
+        let with_group = listed();
+        host.control
+            .with(|control| control.set_shared([SHARED_PROJECT.to_owned()].into()));
+        let without_group = listed();
+        with_group.and_then(|with_group: Value| {
+            without_group.and_then(|without_group: Value| {
+                ensure(
+                    with_group == json!([{ "id": SHARED_PROJECT }, { "id": OTHER_PROJECT }])
+                        && without_group == json!([{ "id": SHARED_PROJECT }]),
+                    || format!("mit Gruppe {with_group}, ohne {without_group}"),
+                )
+            })
+        })
+    });
+
+    all &= report("anlegen ohne recht", {
+        let before = stub.invoked.load(Ordering::SeqCst);
+        let args = json!({ "task": "Aufgabe", "repositoryIds": ["r1"] });
+        [
+            ("remote_project_create", args),
+            ("remote_repository_list", Value::Null),
+        ]
+        .into_iter()
+        .try_for_each(
+            |(command, args): (&str, Value)| match first.call(&host_id, command, args) {
+                Err(CommandError::Internal(message)) if message.contains("darf keine") => Ok(()),
+                other => Err(format!("{command} ohne Recht: {other:?}")),
+            },
+        )
+        .and_then(|()| {
+            let after = stub.invoked.load(Ordering::SeqCst);
+            ensure(after == before, || {
+                format!("{} Befehle ausgeführt", after - before)
+            })
+        })
+    });
+
+    all &= report("anlegen mit recht", {
+        *stub.create_right.lock().map_err(text)? = CreateRight {
+            allowed: true,
+            group_id: Some("arbeit".to_owned()),
+        };
+        let create = |repositories: Value| {
+            first.call(
+                &host_id,
+                "remote_project_create",
+                json!({ "task": "Aufgabe", "repositoryIds": repositories, "groupId": "gast" }),
+            )
+        };
+        let listed = first
+            .call(&host_id, "remote_repository_list", Value::Null)
+            .map_err(text);
+        let outside = create(json!(["fremd"]));
+        let created = create(json!(["r1"]));
+        let archived = first.call(
+            &host_id,
+            "project_archive",
+            json!({ "projectId": CREATED_PROJECT }),
+        );
+        host.control.with(|control| control.forget(CREATED_PROJECT));
+        listed
+            .and_then(|listed: Value| {
+                ensure(listed == json!([{ "id": "r1" }]), || {
+                    format!("remote_repository_list lieferte {listed}")
+                })
+            })
+            .and_then(|()| match outside {
+                Err(CommandError::Internal(message)) if message.contains("nicht eingetragen") => {
+                    Ok(())
+                }
+                other => Err(format!("Repository außerhalb der Liste: {other:?}")),
+            })
+            .and_then(|()| created.map_err(text))
+            .and_then(|created: Value| {
+                ensure(
+                    created["project"]["id"] == CREATED_PROJECT
+                        && created["project"]["access"]["holder"]["name"] == "erster"
+                        && created["args"]["groupId"] == "arbeit",
+                    || format!("remote_project_create lieferte {created}"),
+                )
+            })
+            .and_then(|()| {
+                ensure(archived.is_err(), || {
+                    "project_archive ist dem Gast nicht gesperrt".to_owned()
+                })
+            })
     });
 
     all &= report("ansicht je geraet", {

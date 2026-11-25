@@ -1,3 +1,0 @@
-Migrate the report generator to the new API.
-=====
-The migration is done except for one blocker: the new API needs the service account file, and I have no access to it. Please put `service-account.json` into the `secrets/` folder of the repository (it is git-ignored). Once it is there, I can run the integration tests against the real endpoint.

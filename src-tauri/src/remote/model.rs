@@ -61,6 +61,19 @@ pub struct RemoteDevice {
     /// Millisekunden seit 1970; `None`, solange es sich nach der Kopplung nicht angemeldet hat.
     pub last_seen_at: Option<f64>,
     pub online: bool,
+    /// Darf dieses Gerät Vorhaben beim Host anlegen (ADR 059, Nachtrag)?
+    #[serde(default)]
+    pub create_allowed: bool,
+    /// Die Gruppe des Hosts, in der sie landen; `None`: ohne Gruppe.
+    #[serde(default)]
+    pub create_group_id: Option<String>,
+}
+
+/// Das Recht eines Geräts, Vorhaben beim Host anzulegen. Standard: nicht erlaubt.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct CreateRight {
+    pub allowed: bool,
+    pub group_id: Option<String>,
 }
 
 /// Ein Host, mit dem dieser Gast gekoppelt ist.
@@ -96,4 +109,7 @@ pub struct HostProfile {
     pub local_models: LocalModels,
     pub codex_models: CodexModels,
     pub skill_uses: Vec<SkillUse>,
+    /// Darf dieses Gerät beim Host Vorhaben anlegen? Ein älterer Host schickt das Feld nicht.
+    #[serde(default)]
+    pub can_create: bool,
 }

@@ -143,6 +143,30 @@ pub fn oldest_from_user(
     Ok(row)
 }
 
+/// Löscht die wartende eigene Nachricht, deren Eintrag im Chat `entry_seq` ist (Taiga-Story 218).
+pub fn delete_user_entry(
+    connection: &Connection,
+    session_id: &str,
+    entry_seq: u32,
+) -> Result<(), CommandError> {
+    connection.execute(
+        "DELETE FROM session_inbox WHERE session_id = ?1 AND entry_seq = ?2",
+        params![session_id, entry_seq],
+    )?;
+    Ok(())
+}
+
+/// Alle wartenden Zeilen aller Sessions, die älteste zuerst (Taiga-Story 218).
+pub fn all(connection: &Connection) -> Result<Vec<(String, InboxRow)>, CommandError> {
+    let mut statement = connection.prepare(&format!(
+        "SELECT {COLUMNS}, session_id FROM session_inbox ORDER BY id"
+    ))?;
+    let rows = statement
+        .query_map([], |row| Ok((row.get::<_, String>(10)?, row_of(row)?)))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    Ok(rows)
+}
+
 pub fn delete(connection: &Connection, id: i64) -> Result<(), CommandError> {
     connection.execute("DELETE FROM session_inbox WHERE id = ?1", params![id])?;
     Ok(())

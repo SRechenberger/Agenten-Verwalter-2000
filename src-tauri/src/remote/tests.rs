@@ -7,7 +7,7 @@ use serde_json::json;
 
 use super::RemoteControl;
 use super::control::Refused;
-use super::model::{DeviceRef, ProjectAccess};
+use super::model::{CreateRight, DeviceRef, ProjectAccess};
 use crate::db::implementations::{
     self as implementation_rows, ImplementationRow, PhaseRow, StationRow,
 };
@@ -458,6 +458,15 @@ fn a_removed_implementation_reaches_only_the_guest_that_holds_its_project() {
 }
 
 #[test]
+fn a_seen_mark_reaches_the_guest_that_holds_the_project_with_its_project_id() {
+    use super::forward::{FORWARDED, Owner};
+    assert!(
+        FORWARDED.contains(&(crate::dashboard::SEEN_EVENT, Owner::Project)),
+        "{FORWARDED:?}"
+    );
+}
+
+#[test]
 fn a_change_of_the_agent_queue_reaches_every_connected_device_without_content() {
     use super::forward::{FORWARDED, Owner};
     assert!(
@@ -468,5 +477,251 @@ fn a_change_of_the_agent_queue_reaches_every_connected_device_without_content() 
         super::AGENT_QUEUE_CHANGED_EVENT,
         "agent_queue://changed",
         "am Gast nie unter dem eigenen Namen"
+    );
+}
+
+#[test]
+fn a_change_of_the_device_right_reaches_every_connected_device_without_content() {
+    use super::forward::{FORWARDED, Owner};
+    assert!(
+        FORWARDED.contains(&(super::PROFILE_CHANGED_EVENT, Owner::EveryDevice)),
+        "{FORWARDED:?}"
+    );
+}
+
+// Freigabe je Gruppe (ADR 059, Nachtrag): Die Datenbank entscheidet, `Control` hält das Ergebnis.
+
+const SECOND_PROJECT: &str = "second";
+
+fn device_ref(id: &str) -> DeviceRef {
+    DeviceRef {
+        id: id.to_owned(),
+        name: id.to_owned(),
+    }
+}
+
+fn insert_project(connection: &Connection, id: &str, group_id: Option<&str>) {
+    connection
+        .execute(
+            "INSERT INTO projects (id, name, created_at, group_id) VALUES (?1, 'Vorhaben', 1.0, ?2)",
+            params![id, group_id],
+        )
+        .expect("Vorhaben angelegt");
+}
+
+fn effective(connection: &Connection) -> Vec<String> {
+    remote_rows::effective_shared_project_ids(connection).expect("lesbar")
+}
+
+/// Was die Registry nach jeder Änderung tut: `Control` mit der wirksamen Freigabe abgleichen.
+fn sync(
+    control: &mut super::control::Control,
+    connection: &Connection,
+) -> (Vec<String>, Vec<String>) {
+    control.set_shared(effective(connection).into_iter().collect())
+}
+
+#[test]
+fn a_shared_group_shares_every_member_also_one_added_later() {
+    let connection = database();
+    insert_group(&connection, "arbeit");
+    project_rows::set_group(&connection, PROJECT, Some("arbeit")).expect("zugewiesen");
+    assert!(
+        effective(&connection).is_empty(),
+        "die Gruppe gibt noch nicht frei"
+    );
+    remote_rows::set_group_shared(&connection, "arbeit", true).expect("schreibbar");
+    assert_eq!(effective(&connection), vec![PROJECT.to_owned()]);
+    insert_project(&connection, SECOND_PROJECT, Some("arbeit"));
+    assert_eq!(
+        effective(&connection),
+        vec![PROJECT.to_owned(), SECOND_PROJECT.to_owned()]
+    );
+}
+
+#[test]
+fn taking_a_project_out_of_a_shared_group_ends_its_sharing_and_throws_out_the_holding_guest() {
+    let connection = database();
+    insert_group(&connection, "arbeit");
+    remote_rows::set_group_shared(&connection, "arbeit", true).expect("schreibbar");
+    project_rows::set_group(&connection, PROJECT, Some("arbeit")).expect("zugewiesen");
+    let mut control = super::control::Control::default();
+    sync(&mut control, &connection);
+    control.take(PROJECT, device_ref("a")).expect("freigegeben");
+    project_rows::set_group(&connection, PROJECT, None).expect("herausgenommen");
+    let (added, removed) = sync(&mut control, &connection);
+    assert!(added.is_empty());
+    assert_eq!(removed, vec![PROJECT.to_owned()]);
+    assert!(!control.is_shared(PROJECT));
+    assert!(control.holder(PROJECT).is_none());
+}
+
+#[test]
+fn the_own_sharing_stays_when_the_project_leaves_a_shared_group() {
+    let connection = database();
+    insert_group(&connection, "arbeit");
+    remote_rows::set_group_shared(&connection, "arbeit", true).expect("schreibbar");
+    remote_rows::set_shared(&connection, PROJECT, true).expect("schreibbar");
+    project_rows::set_group(&connection, PROJECT, Some("arbeit")).expect("zugewiesen");
+    let mut control = super::control::Control::default();
+    sync(&mut control, &connection);
+    control.take(PROJECT, device_ref("a")).expect("freigegeben");
+    project_rows::set_group(&connection, PROJECT, None).expect("herausgenommen");
+    let (added, removed) = sync(&mut control, &connection);
+    assert!(added.is_empty() && removed.is_empty());
+    assert!(control.holder(PROJECT).is_some(), "der Gast behält es");
+}
+
+#[test]
+fn deleting_a_shared_group_ends_the_sharing_of_its_members() {
+    let mut connection = database();
+    insert_group(&connection, "arbeit");
+    remote_rows::set_group_shared(&connection, "arbeit", true).expect("schreibbar");
+    project_rows::set_group(&connection, PROJECT, Some("arbeit")).expect("zugewiesen");
+    let mut control = super::control::Control::default();
+    sync(&mut control, &connection);
+    control.take(PROJECT, device_ref("a")).expect("freigegeben");
+    project_groups::delete(&mut connection, "arbeit").expect("gelöscht");
+    let (_, removed) = sync(&mut control, &connection);
+    assert_eq!(removed, vec![PROJECT.to_owned()]);
+    assert!(control.holder(PROJECT).is_none());
+}
+
+#[test]
+fn an_archived_project_is_not_shared_not_even_in_a_shared_group() {
+    let mut connection = database();
+    insert_group(&connection, "arbeit");
+    remote_rows::set_group_shared(&connection, "arbeit", true).expect("schreibbar");
+    project_rows::set_group(&connection, PROJECT, Some("arbeit")).expect("zugewiesen");
+    project_rows::archive(&mut connection, PROJECT, 2.0).expect("archiviert");
+    assert!(effective(&connection).is_empty());
+    project_rows::restore(&mut connection, PROJECT).expect("zurückgeholt");
+    assert_eq!(
+        effective(&connection),
+        vec![PROJECT.to_owned()],
+        "wieder in der freigegebenen Gruppe: wieder freigegeben"
+    );
+}
+
+#[test]
+fn ending_the_group_sharing_leaves_a_project_with_its_own_sharing_shared() {
+    let connection = database();
+    insert_group(&connection, "arbeit");
+    remote_rows::set_group_shared(&connection, "arbeit", true).expect("schreibbar");
+    insert_project(&connection, SECOND_PROJECT, Some("arbeit"));
+    remote_rows::set_shared(&connection, SECOND_PROJECT, true).expect("schreibbar");
+    remote_rows::set_group_shared(&connection, "arbeit", false).expect("schreibbar");
+    assert_eq!(effective(&connection), vec![SECOND_PROJECT.to_owned()]);
+}
+
+#[test]
+fn a_restart_restores_the_effective_sharing_of_a_shared_group() {
+    let database = Database::open(Path::new(":memory:")).expect("Datenbank im Speicher");
+    database
+        .with(|connection| {
+            insert_group(connection, "arbeit");
+            insert_project(connection, PROJECT, Some("arbeit"));
+            remote_rows::set_group_shared(connection, "arbeit", true)
+        })
+        .expect("schreibbar");
+    let remote = RemoteControl::restore(&database).expect("lesbar");
+    assert!(remote.with(|control| control.is_shared(PROJECT)));
+}
+
+#[test]
+fn setting_the_sharing_of_an_unknown_group_is_refused() {
+    let connection = database();
+    assert!(remote_rows::set_group_shared(&connection, "fehlt", true).is_err());
+}
+
+#[test]
+fn migration_37_adds_the_group_sharing_to_a_database_of_version_36() {
+    let mut connection = Connection::open_in_memory().expect("Datenbank");
+    for script in migrations::first(36) {
+        connection.execute_batch(script).expect("alte Migration");
+    }
+    connection
+        .execute_batch(
+            "PRAGMA user_version = 36; \
+             INSERT INTO project_groups (id, name, collapsed, created_at) VALUES ('g', 'G', 0, 1.0);",
+        )
+        .expect("Bestand");
+    migrations::run(&mut connection).expect("wandert");
+    let version: u32 = connection
+        .query_row("PRAGMA user_version", [], |row| row.get(0))
+        .expect("Version");
+    assert_eq!(version, migrations::LATEST);
+    assert!(
+        remote_rows::shared_group_ids(&connection)
+            .expect("lesbar")
+            .is_empty(),
+        "bestehende Gruppen geben nichts frei"
+    );
+}
+
+#[test]
+fn the_own_sharing_list_names_a_project_whose_group_shares_it_too_and_not_one_shared_only_by_its_group()
+ {
+    let connection = database();
+    insert_group(&connection, "arbeit");
+    remote_rows::set_group_shared(&connection, "arbeit", true).expect("schreibbar");
+    project_rows::set_group(&connection, PROJECT, Some("arbeit")).expect("zugewiesen");
+    insert_project(&connection, SECOND_PROJECT, Some("arbeit"));
+    remote_rows::set_shared(&connection, SECOND_PROJECT, true).expect("schreibbar");
+    assert_eq!(effective(&connection).len(), 2);
+    assert_eq!(
+        remote_rows::shared_project_ids(&connection).expect("lesbar"),
+        vec![SECOND_PROJECT.to_owned()]
+    );
+}
+
+#[test]
+fn migration_39_adds_the_create_right_to_a_database_of_version_38_and_defaults_to_not_allowed() {
+    let mut connection = Connection::open_in_memory().expect("Datenbank");
+    for script in migrations::first(38) {
+        connection.execute_batch(script).expect("alte Migration");
+    }
+    connection
+        .execute_batch(
+            "PRAGMA user_version = 38; \
+             INSERT INTO remote_devices (id, name, token_hash, created_at) VALUES ('d', 'D', 'h', 1.0);",
+        )
+        .expect("Bestand");
+    migrations::run(&mut connection).expect("wandert");
+    let version: u32 = connection
+        .query_row("PRAGMA user_version", [], |row| row.get(0))
+        .expect("Version");
+    assert_eq!(version, migrations::LATEST);
+    assert_eq!(
+        remote_rows::device_create_right(&connection, "d").expect("lesbar"),
+        CreateRight::default(),
+        "bestehende Geräte dürfen nichts anlegen"
+    );
+}
+
+#[test]
+fn the_create_right_keeps_its_group_and_loses_it_when_the_group_is_deleted() {
+    let connection = database();
+    insert_group(&connection, "arbeit");
+    remote_rows::insert_device(&connection, &device_row("d")).expect("gekoppelt");
+    let right = CreateRight {
+        allowed: true,
+        group_id: Some("arbeit".to_owned()),
+    };
+    remote_rows::set_device_create_right(&connection, "d", &right).expect("gesetzt");
+    assert_eq!(
+        remote_rows::device_create_right(&connection, "d").expect("lesbar"),
+        right
+    );
+    connection
+        .execute("DELETE FROM project_groups WHERE id = 'arbeit'", [])
+        .expect("gelöscht");
+    let after = remote_rows::device_create_right(&connection, "d").expect("lesbar");
+    assert!(after.allowed && after.group_id.is_none());
+    remote_rows::revoke_device(&connection, "d", 2.0).expect("gesperrt");
+    assert_eq!(
+        remote_rows::device_create_right(&connection, "d").expect("lesbar"),
+        CreateRight::default(),
+        "ein gesperrtes Gerät hat kein Recht"
     );
 }

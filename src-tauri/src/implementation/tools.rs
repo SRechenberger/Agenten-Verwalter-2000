@@ -81,8 +81,8 @@ impl ToolSet for ImplementationTools {
             },
             ToolSpec {
                 name: GET,
-                description: "Liefert den Lagebericht der Umsetzung, zu der diese Session gehört \
-                              (sonst der neuesten des Vorhabens): Stand, Warteschlange (app-weit), \
+                description: "Liefert den Lagebericht der Umsetzung, die diese Session führt \
+                              (sonst der ihrer Station oder Rückfrage, sonst der zuletzt geführten): Stand, Warteschlange (app-weit), \
                               Startstationen, was läuft, was fertig ist, was offen ist, und je \
                               Station ihre Lane, Stufe, Vorgänger und Nachfolger.",
                 input_schema: json!({
@@ -267,8 +267,9 @@ impl ToolSet for ImplementationTools {
             },
             ToolSpec {
                 name: CANCEL,
-                description: "Fragt beim Benutzer an, die Umsetzung dieser Session (sonst die \
-                              neueste des Vorhabens) abzubrechen und mit `delete` danach zu \
+                description: "Fragt beim Benutzer an, die Umsetzung dieser Session (die sie führt, \
+                              sonst die ihrer Station oder Rückfrage, zuletzt die zuletzt \
+                              geführte, auch eine fertige) abzubrechen und mit `delete` danach zu \
                               löschen. Wirkt nicht sofort: Der Benutzer bestätigt oder verwirft \
                               auf der Karte „Umsetzung abbrechen?“; bis dahin startet keine \
                               Station. Bestätigt er, stoppen die arbeitenden Stationen, auch diese \

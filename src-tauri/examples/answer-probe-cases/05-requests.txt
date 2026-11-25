@@ -1,3 +1,0 @@
-Prüf, ob die neue Startseite im Browser korrekt lädt.
-=====
-Die Änderungen an der Startseite sind fertig und gebaut. Ich kann den Browser von hier aus nicht öffnen. Bitte starte den Dev-Server mit `pnpm dev`, öffne http://localhost:5173 und sag mir, ob die Seite ohne Fehler in der Konsole lädt.

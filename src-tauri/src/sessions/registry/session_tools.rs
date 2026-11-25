@@ -9,16 +9,18 @@ use std::sync::mpsc;
 use serde_json::{Value, json};
 use tauri::{AppHandle, Emitter};
 
+use super::compact;
 use super::{
-    Outbox, PROJECT_CHANGED_EVENT, PendingRequest, QUEUED_ANSWER_FIRST, Session, SessionRegistry,
-    SessionState, TurnOrigin, now_ms, project_not_found, schedule_pass, start_turn, update,
+    ANSWER_SEPARATOR, Outbox, PROJECT_CHANGED_EVENT, PendingRequest, QUEUED_ANSWER_FIRST, Session,
+    SessionRegistry, SessionState, TurnOrigin, now_ms, project_not_found, schedule_pass,
+    start_turn, update,
 };
 use crate::agent_types::model::{AgentType, AgentTypeInput};
 use crate::agent_types::tools as agent_type_tools;
 use crate::agents::event::{
-    ChatEntry, Effort, Mode, ModelId, Question, QuestionAnswer, QuestionKind, QuestionOption,
-    SessionRef, ToolRequest,
+    ChatEntry, Question, QuestionAnswer, QuestionKind, QuestionOption, SessionRef, ToolRequest,
 };
+use crate::dashboard::notify::{self, Call, Notification};
 use crate::db::projects as project_rows;
 use crate::db::session_inbox::{self, InboxRow, Reference};
 use crate::db::session_messages;
@@ -33,7 +35,6 @@ use crate::session_tools::model::SelfRelease;
 use crate::session_tools::reference as message_text;
 use crate::session_tools::tools::ToolReply;
 use crate::sessions::model::SessionStatus;
-use crate::settings;
 
 /// Kettenbremse: So viele selbst freigegebene Aufrufe in Folge, danach erscheint der Kasten (ADR 052).
 const CHAIN_LIMIT: u32 = 6;
@@ -92,7 +93,8 @@ impl ProposalKind {
             ToolRequest::PromptTemplate { .. } => Some(ProposalKind::PromptTemplate),
             ToolRequest::SendMessage { .. }
             | ToolRequest::GetTldr { .. }
-            | ToolRequest::OpenSession { .. } => None,
+            | ToolRequest::OpenSession { .. }
+            | ToolRequest::AskUser => None,
         }
     }
 
@@ -119,8 +121,6 @@ enum Gate {
     Allowed,
     Edited {
         message: String,
-        model: Option<ModelId>,
-        effort: Option<Effort>,
     },
     Denied(String),
 }
@@ -286,107 +286,69 @@ impl SessionRegistry {
         Ok(json!({ "decision": decision, "tldr": tldr, "reused": reused }))
     }
 
-    pub fn tool_open_session(
+    /// `verwalter_notify_user` (ADR 077): Ein Aufruf ohne `questions` merkt die Karte vor und antwortet
+    /// sofort; erst ein abgeschlossenes Zugende macht daraus `answer_kind` und `answer_line`, und der
+    /// letzte Aufruf des Zugs gilt. Mit `questions` öffnet er eine Rückfrage und blockiert bis zur Antwort
+    /// (ADR 045); abgebrochen oder verworfen endet er mit einem Fehler. Eine Station darf nur das.
+    pub fn tool_notify_user(&self, app: &AppHandle, call: &ToolCall) -> ToolReply {
+        let caller = self.get(call.session_id).map_err(text_of)?;
+        let is_station = caller.lock().station_of.is_some();
+        match notify::parse_for(call.arguments, is_station)? {
+            Call::Card(notification) => {
+                let noted = notify::noted_text(notification.kind);
+                update(
+                    app,
+                    &caller,
+                    |state: &mut SessionState, _outbox: &mut Outbox| {
+                        // Läuft kein Agent mehr, ist der Aufruf hinfällig.
+                        if !state.is_listening() {
+                            return Err(CommandError::AgentStopped);
+                        }
+                        note_call(state, notification);
+                        Ok(())
+                    },
+                )
+                .map_err(|error: CommandError| match error {
+                    CommandError::AgentStopped => AGENT_GONE.to_owned(),
+                    other => text_of(other),
+                })?;
+                Ok(Value::String(noted))
+            }
+            Call::Ask(questions) => self.tool_ask_user(app, &caller, call, questions),
+        }
+    }
+
+    /// Die Rückfrage von `verwalter_notify_user`: eine Karte „Rückfrage“ wie bei `AskUserQuestion`; die
+    /// Antworten gehen als Ergebnis des Aufrufs zurück.
+    fn tool_ask_user(
         &self,
         app: &AppHandle,
+        caller: &Arc<Session>,
         call: &ToolCall,
-        subject: &str,
-        message: &str,
-        model: Option<ModelId>,
+        questions: Vec<Question>,
     ) -> ToolReply {
-        let caller = self.get(call.session_id).map_err(text_of)?;
-        // Vor dem Kasten (ADR 070, D9): Eine Station öffnet nie eine Session.
-        if let Some(master) = self.station_lock(&caller) {
-            return Err(master::open_refusal(master.as_ref()));
-        }
-        if message.trim().is_empty() {
-            return Err(EMPTY_MESSAGE.to_owned());
-        }
-        let mode: Mode = caller.lock().mode;
-        // Modell, Codex-Modell und Denkaufwand kommen aus den Einstellungen; nur ein genanntes Modell
-        // gewinnt (Taiga 47).
-        let (model, codex_model, default_effort) =
-            super::new_session_defaults(&settings::load(&self.database).map_err(text_of)?, model);
-        let release = self.self_release(&caller)?;
-        let gate = self.gate(
+        refuse_repeated(caller, call)?;
+        let (reply, answers) = mpsc::channel::<QuestionAnswer>();
+        let asked = questions.clone();
+        update(
             app,
-            &caller,
-            call,
-            ToolRequest::OpenSession {
-                message: message.to_owned(),
-                subject: Some(subject.to_owned()),
-                model,
-                effort: default_effort,
-            },
-            Release::Chained(release.open_session),
-        )?;
-        let (decision, message, model, effort, chain): (&str, String, ModelId, Effort, u32) =
-            match gate {
-                Gate::Auto(chain) => ("auto", message.to_owned(), model, default_effort, chain),
-                Gate::Allowed => ("allowed", message.to_owned(), model, default_effort, 0),
-                Gate::Edited {
-                    message,
-                    model: edited_model,
-                    effort,
-                } => (
-                    "edited",
-                    message,
-                    edited_model.unwrap_or(model),
-                    effort.unwrap_or(default_effort),
-                    0,
-                ),
-                Gate::Denied(reason) => {
-                    return Ok(json!({ "decision": "denied", "denyReason": reason }));
+            caller,
+            |state: &mut SessionState, outbox: &mut Outbox| {
+                if !state.is_listening() {
+                    return Err(CommandError::AgentStopped);
                 }
-            };
-        let session = self
-            .insert_new_session(&caller.project_id, |number: u32| {
-                let mut state = SessionState::new(format!("Session {number}"), model, effort, mode);
-                state.codex_model = codex_model;
-                state.status = SessionStatus::New;
-                state.auto_chain = chain;
-                state
-            })
-            .map_err(text_of)?;
-        let sender = session_ref(&caller);
-        // Durch das Tor (ADR 068): Ist kein Platz frei, wartet die erste Nachricht im Posteingang der
-        // neuen Session, und ein Durchgang startet sie, sobald sie dran ist.
-        let reference = Reference {
-            subject,
-            note: None,
-        };
-        let started = if self.claim_session_slot(&session.id) {
-            let started = self.start_first_turn(app, &session, &sender, &message, reference);
-            self.release_session_slot(&session.id);
-            started
-        } else {
-            session
-                .database
-                .with(|connection| {
-                    session_inbox::insert_referenced(
-                        connection,
-                        &session.id,
-                        &sender,
-                        &message,
-                        chain,
-                        now_ms(),
-                        Some(reference),
-                    )
-                })
-                .map(|()| schedule_pass(app))
-        };
-        if let Err(error) = started {
-            // Keine leere Session zurücklassen: Ergebnis und Seitenleiste sollen dasselbe sagen.
-            let _ = self.delete_session(app, &session.id);
-            return Err(text_of(error));
+                open_ask(state, outbox, call.call_id, questions, reply);
+                Ok(())
+            },
+        )
+        .map_err(|error: CommandError| match error {
+            CommandError::AgentStopped => AGENT_GONE.to_owned(),
+            other => text_of(other),
+        })?;
+        match answers.recv() {
+            Ok(QuestionAnswer::Options { answers }) => Ok(answers_result(&asked, answers)),
+            _ => Err(NO_ANSWER.to_owned()),
         }
-        self.start_auto_title(app, &session.id, &message);
-        Ok(json!({
-            "decision": decision,
-            "sessionId": session.id,
-            "model": model,
-            "effort": effort,
-        }))
     }
 
     /// `notifications/cancelled` oder abgerissene Verbindung: Der Kasten schließt sich. Unbekannte
@@ -553,15 +515,7 @@ impl SessionRegistry {
         }
         match answers.recv() {
             Ok(QuestionAnswer::Allow) => Ok(Gate::Allowed),
-            Ok(QuestionAnswer::Edit {
-                message,
-                model,
-                effort,
-            }) => Ok(Gate::Edited {
-                message,
-                model,
-                effort,
-            }),
+            Ok(QuestionAnswer::Edit { message, .. }) => Ok(Gate::Edited { message }),
             Ok(QuestionAnswer::Deny { message }) => Ok(Gate::Denied(message)),
             // `Options` weist `tool_answer_label` schon ab.
             Ok(QuestionAnswer::Options { .. }) | Err(_) => Err(NO_ANSWER.to_owned()),
@@ -753,14 +707,17 @@ impl SessionRegistry {
                     .database
                     .with(|connection| session_inbox::oldest(connection, &target.id))?
                     .is_some();
-                let route = route_message(&Delivery {
-                    status: state.status,
-                    rests: state.rests(),
-                    has_waiting,
-                    claimed,
-                    timer_armed: state.waits_for_resume(),
-                    from_master: is_from_master,
-                });
+                let route = compact::locked_route(
+                    route_message(&Delivery {
+                        status: state.status,
+                        rests: state.rests(),
+                        has_waiting,
+                        claimed,
+                        timer_armed: state.waits_for_resume(),
+                        from_master: is_from_master,
+                    }),
+                    state.compact_locked(),
+                );
                 match route {
                     Route::Undeliverable(reason) => {
                         return Ok(("undeliverable", Some(reason.to_owned())));
@@ -789,7 +746,11 @@ impl SessionRegistry {
                     outbox,
                     input,
                     text,
-                    TurnOrigin::Session { sender, reference },
+                    TurnOrigin::Session {
+                        sender,
+                        reference,
+                        chat_subject: None,
+                    },
                 )?;
                 state.auto_chain = max(state.auto_chain, chain);
                 Ok(("delivered", None))
@@ -801,37 +762,12 @@ impl SessionRegistry {
         if needs_nudge {
             schedule_pass(app);
         }
+        // Auch ohne Anstoß (laufendes Ziel): Kein Durchgang folgt, die neue Zeile soll trotzdem sofort
+        // sichtbar sein. Ein Anstoß meldet sie im Durchgang; die Meldung kommt nur bei Änderung.
+        if matches!(delivered, Ok(("queued", _))) {
+            self.announce_inbox_if_changed(app);
+        }
         delivered.unwrap_or_else(|error: CommandError| ("undeliverable", Some(text_of(error))))
-    }
-
-    fn start_first_turn(
-        &self,
-        app: &AppHandle,
-        session: &Arc<Session>,
-        sender: &SessionRef,
-        message: &str,
-        reference: Reference<'_>,
-    ) -> Result<(), CommandError> {
-        let input = self.prepare_turn(session, message);
-        update(
-            app,
-            session,
-            |state: &mut SessionState, outbox: &mut Outbox| {
-                start_turn(
-                    app,
-                    session,
-                    state,
-                    outbox,
-                    input,
-                    message,
-                    TurnOrigin::Session {
-                        sender,
-                        reference: Some(reference),
-                    },
-                )
-                .map(|_titled: bool| ())
-            },
-        )
     }
 
     /// Die älteste wartende Nachricht, falls die Session ruht, als geöffnete Session noch nie lief oder
@@ -860,13 +796,14 @@ impl SessionRegistry {
                 let current = session
                     .database
                     .with(|connection| session_inbox::oldest(connection, &session.id))?;
-                let takes = takes_oldest(
-                    state.status,
-                    state.rests(),
-                    slots::waits_for_slot(state.status, current.is_some()),
-                    state.waits_for_resume(),
-                    master_waits,
-                );
+                let takes = !state.compact_locked()
+                    && takes_oldest(
+                        state.status,
+                        state.rests(),
+                        slots::waits_for_slot(state.status, current.is_some()),
+                        state.waits_for_resume(),
+                        master_waits,
+                    );
                 if !takes || current.as_ref().map(|row: &InboxRow| row.id) != Some(row.id) {
                     return Ok(false);
                 }
@@ -883,6 +820,7 @@ impl SessionRegistry {
                             subject,
                             note: row.note.as_deref(),
                         }),
+                        chat_subject: None,
                     },
                 )?;
                 state.auto_chain = max(state.auto_chain, row.chain);
@@ -941,6 +879,10 @@ impl SessionRegistry {
                 session,
                 |state: &mut SessionState, outbox: &mut Outbox| {
                     let release = user_release(state, seq);
+                    // „Jetzt senden“ gibt es im Compact nicht: Die Nachricht wartet bis nach ihm.
+                    if now {
+                        compact::refuse_send_now(state.compact_locked())?;
+                    }
                     if now && release == UserRelease::Later {
                         return Err(refuses_now(state.status, !state.pending.is_empty()));
                     }
@@ -1001,6 +943,8 @@ pub(super) fn refuses_now(status: SessionStatus, has_pending: bool) -> CommandEr
 pub(super) fn user_release(state: &SessionState, seq: u32) -> UserRelease {
     if !state.is_queued(seq) {
         UserRelease::Stale
+    } else if state.compact_locked() {
+        UserRelease::Later
     } else if releases_user_message(state.status, !state.pending.is_empty()) {
         UserRelease::Sent
     } else {
@@ -1054,12 +998,20 @@ pub(super) fn apply_tool_answer(
     let Some((
         _,
         PendingRequest {
-            tool: Some(tool), ..
+            tool: Some(tool),
+            questions,
+            ..
         },
     )) = state.pending.get(position)
     else {
         return Err(CommandError::Internal(WRONG_ANSWER.to_owned()));
     };
+    // Die Rückfrage von `verwalter_notify_user` braucht eine Antwort je Frage.
+    if let (ToolRequest::AskUser, QuestionAnswer::Options { answers }) = (&tool.request, answer)
+        && answers.len() != questions.len()
+    {
+        return Err(CommandError::Internal(WRONG_ANSWER.to_owned()));
+    }
     let label = tool_answer_label(&tool.request, answer)?;
     let (_, request) = state.pending.remove(position);
     if matches!(answer, QuestionAnswer::Allow | QuestionAnswer::Edit { .. }) {
@@ -1079,12 +1031,64 @@ pub(super) fn apply_tool_answer(
     Ok(())
 }
 
+/// Der Aufruf von `verwalter_notify_user` ohne `questions` ist angekommen: Er gilt bis zum Zugende, ein
+/// späterer ersetzt ihn.
+fn note_call(state: &mut SessionState, notification: Notification) {
+    state.notified = Some(notification);
+}
+
+/// Die Rückfrage von `verwalter_notify_user` öffnet dieselbe Karte wie `AskUserQuestion` (Art `AskUser`);
+/// ihre Antwort geht über `reply` an den wartenden Aufruf statt an den Agenten.
+fn open_ask(
+    state: &mut SessionState,
+    outbox: &mut Outbox,
+    call_id: &str,
+    questions: Vec<Question>,
+    reply: mpsc::Sender<QuestionAnswer>,
+) {
+    state.ask(
+        outbox,
+        format!("ask-{}", uuid::Uuid::new_v4().simple()),
+        QuestionKind::AskUser,
+        questions,
+        Value::Null,
+        Some(PendingTool {
+            reply: Waiter::Answer(reply),
+            call_id: call_id.to_owned(),
+            request: ToolRequest::AskUser,
+            chain_limited: false,
+        }),
+    );
+}
+
+/// Das Ergebnis des Aufrufs: je Frage ihre Antwort, wie `AskUserQuestion` sie zurückgibt.
+fn answers_result(asked: &[Question], answers: Vec<String>) -> Value {
+    let answered: serde_json::Map<String, Value> = asked
+        .iter()
+        .zip(answers)
+        .map(|(question, choice)| (question.question.clone(), Value::String(choice)))
+        .collect();
+    json!({ "answers": answered })
+}
+
+/// Die Antwort auf die Rückfrage von `verwalter_notify_user`: nur eine Auswahl je Frage, so wie bei
+/// einer Rückfrage des Agenten. Freier Text im Eingabefeld kommt schon als `Options` an.
+fn ask_answer_label(answer: &QuestionAnswer) -> Result<String, CommandError> {
+    match answer {
+        QuestionAnswer::Options { answers } => Ok(answers.join(ANSWER_SEPARATOR)),
+        _ => Err(CommandError::Internal(WRONG_ANSWER.to_owned())),
+    }
+}
+
 /// Prüft die Antwort und liefert den Text, den der Chat als Antwort anzeigt. Eine abgelehnte Eingabe
 /// lässt den Kasten offen.
 pub(crate) fn tool_answer_label(
     request: &ToolRequest,
     answer: &QuestionAnswer,
 ) -> Result<String, CommandError> {
+    if matches!(request, ToolRequest::AskUser) {
+        return ask_answer_label(answer);
+    }
     if let Some(kind) = ProposalKind::of(request) {
         return Err(CommandError::Internal(kind.by_command().to_owned()));
     }
@@ -1258,6 +1262,8 @@ fn subject_line(subject: Option<&str>) -> String {
 /// Der Text für Transkript und TL;DR; der Kasten zeigt die Felder aus `ToolRequest`.
 fn tool_question(request: &ToolRequest) -> Question {
     let question = match request {
+        // Die Rückfrage von `verwalter_notify_user` hat ihre Fragen schon und kommt nie hierher.
+        ToolRequest::AskUser => String::new(),
         ToolRequest::SendMessage {
             recipients,
             message,
@@ -1459,5 +1465,7 @@ fn text_of(error: CommandError) -> String {
 
 #[cfg(test)]
 mod agent_types;
+#[cfg(test)]
+mod notify_user;
 #[cfg(test)]
 mod prompt_templates;

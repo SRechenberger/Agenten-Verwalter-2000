@@ -1,0 +1,477 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Wartende Nachrichten</title>
+<style>
+/* Gemeinsame Stile der Klick-Prototypen 0.78.0. Farben, Schriften und Maße aus src/styles/theme.css, Sidebar.css, UserMessage.css, Composer.css der App. */
+:root{color-scheme:dark;--bg:#1f1f1f;--side:#181818;--surf:#252526;--hover:#2e2e30;--sel:#37373d;--bds:#2b2b2b;--bd:#3c3c3c;--fg:#d4d4d4;--fg2:#b0b0b0;--fgm:#8f8f8f;--acc:#e0825c;--acct:#f0a888;--onacc:#1d130e;--accsub:rgba(224,130,92,.16);--run:#5b9dff;--wait:#f2b33d;--waitsub:rgba(242,179,61,.14);--err:#f47067;--errsub:rgba(244,112,103,.12);--ok:#4cc38a;--master:#8ab8ea;--shadow:0 10px 30px rgb(0 0 0/.45);--font:'Segoe UI Variable Text','Segoe UI',system-ui,sans-serif;--mono:'Cascadia Code','Cascadia Mono',Consolas,ui-monospace,monospace}
+:root[data-theme=light]{color-scheme:light;--bg:#fff;--side:#f8f8f8;--surf:#fff;--hover:#f0f0f0;--sel:#e4e6f1;--bds:#e5e5e5;--bd:#cecece;--fg:#3c3c3c;--fg2:#555;--fgm:#6e6e6e;--acc:#c4572f;--acct:#a8461f;--onacc:#fff;--accsub:rgba(196,87,47,.1);--run:#2563eb;--wait:#a86a00;--waitsub:rgba(168,106,0,.1);--err:#d23b33;--errsub:#fdeceb;--ok:#16803c;--master:#3d6fa8;--shadow:0 10px 30px rgb(0 0 0/.14)}
+*{box-sizing:border-box}
+body{margin:0;background:var(--side);color:var(--fg);font:13px/1.45 var(--font)}
+main{max-width:1480px;margin:0 auto;padding:16px}
+h1{font-size:15px;margin:0 0 4px}
+.lead{color:var(--fg2);margin:0 0 10px;max-width:1020px}
+button,input,select,textarea{font:inherit;color:inherit}
+code{font-family:var(--mono);font-size:12px}
+kbd{font-family:var(--mono);font-size:11px;padding:0 4px;border:1px solid var(--bd);border-bottom-width:2px;border-radius:4px;color:var(--fg2)}
+
+/* Simulationsleiste (nicht Teil der App) */
+#sim{display:flex;flex-wrap:wrap;gap:6px 8px;align-items:center;margin:0 0 8px;padding:8px 10px;border:1px dashed var(--bd);border-radius:6px;color:var(--fgm);font-size:12px}
+#sim button{border:1px solid var(--bd);background:transparent;border-radius:6px;padding:3px 10px;cursor:pointer}
+#sim button:hover{background:var(--hover)}
+#sim button[aria-pressed=true]{background:var(--sel);color:var(--fg)}
+#sim button:disabled{opacity:.4;cursor:default}
+#sim .sp{margin-left:10px}
+#sim .lbl{color:var(--fg2)}
+
+/* App-Fenster */
+.app{position:relative;display:flex;height:720px;border:1px solid var(--bd);border-radius:10px;overflow:hidden;background:var(--bg)}
+.side{width:256px;flex:none;background:var(--side);border-right:1px solid var(--bds);display:flex;flex-direction:column;min-height:0}
+.brand{display:flex;align-items:center;gap:8px;padding:14px 16px 10px;font-weight:600;font-size:13px}
+.newp{display:flex;align-items:center;gap:8px;margin:0 10px 10px;padding:4px 10px;border:1px solid var(--bd);border-radius:6px;background:transparent;cursor:pointer;text-align:left}
+.newp:hover{background:var(--hover)}
+.newp kbd{margin-left:auto;border:0;color:var(--fgm)}
+.tree{flex:1;overflow:auto;min-height:0;padding:0 10px 10px}
+.grp{display:flex;align-items:center;gap:6px;margin:12px 0 2px;padding:3px 6px;border-radius:6px;font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--fgm);cursor:default;user-select:none}
+.grp:hover{background:var(--hover)}
+.grp .n{margin-left:auto;font-variant-numeric:tabular-nums}
+.grp .rm{text-transform:none}
+.vrow{display:flex;gap:6px;padding:4px 6px;border-radius:6px;cursor:pointer;align-items:flex-start}
+.vrow:hover{background:var(--hover)}
+.vrow.sel{background:var(--sel)}
+.vrow .chev{width:12px;color:var(--fgm);flex:none;line-height:20px}
+.vrow .ic{width:14px;flex:none;line-height:20px;text-align:center}
+.vrow .tx{flex:1;min-width:0}
+.vrow .nm{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block}
+.vrow .meta{display:block;font-size:12px;color:var(--fgm);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.kids{margin-left:12px;padding-left:8px;border-left:1px solid var(--bds)}
+.srow{display:flex;align-items:center;gap:6px;padding:3px 6px;border-radius:6px;cursor:pointer;font-size:12.5px;color:var(--fg2);min-width:0}
+.srow:hover{background:var(--hover)}
+.srow.sel{background:var(--sel);color:var(--fg)}
+.srow .num{font-family:var(--mono);font-size:11px;color:var(--fgm);flex:none}
+.srow .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.srow .aux{font-size:11px;color:var(--fgm);white-space:nowrap;flex:none}
+.srow .aux.w{color:var(--wait)}
+.srow .mono{font-family:var(--mono);font-size:11px;color:var(--fgm)}
+.ok{color:var(--ok)}.wt{color:var(--wait)}.er{color:var(--err)}.mu{color:var(--fgm)}.ru{color:var(--run)}
+.rm{color:var(--acc);flex:none}
+.dia{color:var(--master);flex:none;font-size:11px}
+.udot{width:6px;height:6px;border-radius:50%;background:var(--acc);flex:none}
+.foot{border-top:1px solid var(--bds);padding:8px 10px;display:flex;flex-direction:column;gap:2px}
+.foot .nav{display:flex;align-items:center;gap:10px;padding:4px 8px;border-radius:6px;color:var(--fg2);cursor:pointer}
+.foot .nav:hover{background:var(--hover)}
+.foot .nav.sel{background:var(--sel);color:var(--fg)}
+.qbar{display:flex;align-items:center;gap:8px;padding:2px 6px 6px}
+.cells{display:flex;gap:2px;flex:1}
+.cells i{flex:1;height:4px;border-radius:2px;background:var(--bd)}
+.cells i.on{background:var(--run)}
+.cells i.over{background:var(--wait)}
+.qbar .t{font-family:var(--mono);font-size:11px;color:var(--fgm)}
+.qrow{display:flex;align-items:center;gap:6px;padding:0 6px 4px}
+.chip{display:inline-flex;align-items:center;gap:5px;padding:1px 8px;border:1px solid var(--bd);border-radius:99px;font-size:11.5px;background:transparent;white-space:nowrap;color:var(--fg2)}
+button.chip{cursor:pointer}
+button.chip:hover{background:var(--hover)}
+.chip.w{border-color:var(--wait);color:var(--wait);background:var(--waitsub)}
+.chip.a{border-color:var(--acc);color:var(--acct);background:var(--accsub)}
+.chip.m{border-color:var(--master);color:var(--master)}
+.chip.e{border-color:var(--err);color:var(--err);background:var(--errsub)}
+.pill{padding:0 6px;border-radius:99px;background:var(--acc);color:var(--onacc);font-size:10.5px;font-weight:700}
+
+/* Hauptbereich */
+.mainc{flex:1;display:flex;flex-direction:column;min-width:0;min-height:0;position:relative}
+.hdr{display:flex;align-items:center;gap:10px;height:48px;flex:none;padding:0 14px 0 20px;border-bottom:1px solid var(--bds)}
+.crumb{color:var(--fgm);white-space:nowrap}
+.crumb+.crumb::before{content:'›';margin-right:10px;color:var(--fgm)}
+.title{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.title .num{color:var(--fgm);font-weight:400;margin-right:6px;font-size:12px}
+.tabs{display:inline-flex;gap:2px;padding:2px;border:1px solid var(--bds);border-radius:8px;margin:0 auto}
+.tabs button{border:0;background:transparent;border-radius:6px;padding:3px 12px;cursor:pointer;color:var(--fg2)}
+.tabs button[aria-pressed=true]{background:var(--sel);color:var(--fg)}
+.hdr .right{display:flex;gap:6px;align-items:center;margin-left:auto}
+.body{flex:1;overflow:auto;min-height:0}
+
+/* Chat */
+.chat{max-width:960px;margin:0 auto;padding:18px 28px 12px;display:flex;flex-direction:column;gap:12px}
+.umsg{align-self:stretch;border:1px solid var(--bd);border-radius:8px;padding:9px 12px;background:var(--surf);white-space:pre-wrap;overflow-wrap:anywhere;position:relative}
+.umsg.queued{border-style:dashed;border-color:var(--wait)}
+.umsg.discarded{opacity:.55;border-style:dashed}
+.umsg.discarded .txt{text-decoration:line-through}
+.umsg .head{display:flex;align-items:center;gap:8px;margin:-2px 0 4px;font-size:11.5px;color:var(--fgm);white-space:normal}
+.umsg .head .sp{flex:1}
+.qmark{display:inline-flex;align-items:center;gap:4px;padding:0 7px;border-radius:99px;background:var(--waitsub);color:var(--wait);font-size:11px;font-weight:600}
+.dmark{display:inline-flex;align-items:center;gap:4px;padding:0 7px;border-radius:99px;background:var(--hover);color:var(--fgm);font-size:11px;font-weight:600}
+.amsg{white-space:pre-wrap;overflow-wrap:anywhere}
+.smsg .from{font-size:12px;color:var(--fg2);margin-bottom:3px}
+.smsg .from a{color:var(--acct);text-decoration:none;cursor:pointer}
+.smsg .subj{font-size:12px;color:var(--fgm);margin-bottom:4px}
+.note{align-self:center;font-size:11.5px;color:var(--fgm);padding:2px 10px;border:1px solid var(--bds);border-radius:99px}
+.note.e{color:var(--err);border-color:var(--err)}
+.tool{align-self:stretch;font-size:12px;color:var(--fgm);font-family:var(--mono);padding:4px 10px;border-left:2px solid var(--bd)}
+.tool b{color:var(--fg2);font-weight:600}
+.tool.err{border-left-color:var(--err)}
+.compwrap{flex:none;padding:0 28px 14px;max-width:1016px;width:100%;margin:0 auto}
+.hintbar{display:flex;align-items:center;gap:10px;padding:6px 10px 6px 12px;border:1px solid var(--wait);border-bottom:0;border-radius:10px 10px 0 0;background:var(--waitsub);font-size:12.5px}
+.hintbar .sp{flex:1}
+.hintbar+.comp{border-top-left-radius:0;border-top-right-radius:0}
+.comp{border:1px solid var(--bd);border-radius:10px;background:var(--surf)}
+.comp textarea{display:block;width:100%;min-height:46px;max-height:140px;resize:none;border:0;background:transparent;padding:10px 14px 4px;outline:none}
+.comp .row{display:flex;align-items:center;gap:10px;padding:4px 8px 8px 10px;color:var(--fgm);font-size:12px}
+.comp .row .sp{flex:1}
+.send{width:30px;height:30px;border:0;border-radius:6px;background:var(--acc);color:var(--onacc);cursor:pointer;font-weight:700}
+.send:disabled{opacity:.45;cursor:default}
+
+/* Bedienelemente */
+.btn{border:1px solid var(--bd);background:transparent;border-radius:6px;padding:3px 10px;cursor:pointer;font-size:12px;white-space:nowrap}
+.btn:hover:not(:disabled){background:var(--hover)}
+.btn:disabled{opacity:.45;cursor:default}
+.btn.pri{background:var(--acc);border-color:var(--acc);color:var(--onacc);font-weight:600}
+.btn.pri:hover:not(:disabled){background:var(--acc);filter:brightness(1.08)}
+.btn.dng{border-color:var(--err);color:var(--err)}
+.btn.sm{padding:1px 7px;font-size:11.5px}
+.link{border:0;background:none;color:var(--acct);cursor:pointer;padding:0;font-size:12px}
+.link:disabled{color:var(--fgm);cursor:default}
+.sw{position:relative;width:34px;height:20px;border-radius:99px;border:0;background:var(--bd);cursor:pointer;flex:none;padding:0}
+.sw::after{content:'';position:absolute;left:3px;top:3px;width:14px;height:14px;border-radius:50%;background:#fff;transition:left .12s}
+.sw[aria-checked=true]{background:var(--acc)}
+.sw[aria-checked=true]::after{left:17px}
+.sw:disabled{opacity:.5;cursor:default}
+select.sel,input.inp{padding:4px 8px;border:1px solid var(--bd);border-radius:6px;background:var(--bg)}
+.lbl{font-size:10.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--fgm);margin:0}
+.muted{color:var(--fgm)}
+.small{font-size:12px}
+
+/* Übersicht und Karten */
+.ov{max-width:740px;margin:0 auto;padding:22px 20px;display:flex;flex-direction:column;gap:14px}
+.card{border:1px solid var(--bds);border-radius:8px;background:var(--surf);padding:12px 14px;display:flex;flex-direction:column;gap:8px}
+.card.new{outline:1.5px dashed var(--acc);outline-offset:3px}
+.line{display:flex;align-items:center;gap:12px}
+.line .tx{flex:1;min-width:0}
+.line .tx .s{display:block;font-size:12px;color:var(--fgm)}
+
+/* Menü, Popover, Dialog, Meldung */
+.menu{position:absolute;z-index:20;min-width:220px;padding:4px;border:1px solid var(--bd);border-radius:8px;background:var(--surf);box-shadow:var(--shadow)}
+.menu button{display:flex;width:100%;align-items:center;gap:8px;padding:5px 10px;border:0;border-radius:5px;background:transparent;text-align:left;cursor:pointer;font-size:12.5px}
+.menu button:hover:not(:disabled){background:var(--hover)}
+.menu button:disabled{color:var(--fgm);cursor:default}
+.menu hr{border:0;border-top:1px solid var(--bds);margin:4px 0}
+.menu .hint{padding:4px 10px;font-size:11.5px;color:var(--fgm);max-width:260px}
+.pop{position:absolute;z-index:15;border:1px solid var(--bd);border-radius:10px;background:var(--surf);box-shadow:var(--shadow);display:flex;flex-direction:column;min-height:0}
+.backdrop{position:absolute;inset:0;z-index:30;background:rgb(0 0 0/.45);display:flex;align-items:center;justify-content:center}
+.dlg{width:440px;max-width:calc(100% - 32px);border:1px solid var(--bd);border-radius:10px;background:var(--surf);box-shadow:var(--shadow);padding:16px 18px;display:flex;flex-direction:column;gap:10px}
+.dlg h3{margin:0;font-size:14px}
+.dlg .acts{display:flex;justify-content:flex-end;gap:8px;margin-top:4px}
+.chk{display:inline-flex;align-items:center;gap:6px;font-size:12.5px}
+.chk input{accent-color:var(--acc)}
+.toast{position:absolute;left:50%;bottom:16px;transform:translateX(-50%);display:flex;gap:14px;align-items:center;padding:7px 14px;border:1px solid var(--bd);border-radius:8px;background:var(--surf);box-shadow:var(--shadow);font-size:12.5px;z-index:40;white-space:nowrap}
+.newmark{outline:1.5px dashed var(--acc);outline-offset:2px;border-radius:6px}
+
+/* Erläuterungen unter dem Fenster */
+.doc{margin-top:22px;display:grid;grid-template-columns:1fr 1fr;gap:10px 34px;color:var(--fg2)}
+.doc h2{font-size:13.5px;color:var(--fg);margin:14px 0 4px}
+.doc ul,.doc ol{margin:0;padding-left:20px}
+.doc li{margin:3px 0}
+.doc b{color:var(--fg)}
+.rec{grid-column:1/-1;padding:10px 14px;border:1px solid var(--ok);border-radius:8px;background:color-mix(in srgb,var(--ok) 10%,transparent)}
+.rec h2{margin-top:0}
+.ask{grid-column:1/-1;padding:10px 14px;border:1px solid var(--wait);border-radius:8px;background:var(--waitsub)}
+.ask h2{margin-top:0}
+@media (max-width:1100px){.app .side{display:none}}
+@media (max-width:860px){.doc{grid-template-columns:1fr}}
+
+</style>
+<style>
+.qpop{left:12px;bottom:92px;width:min(900px,calc(100% - 24px));max-height:480px}
+.qpop .ph{display:flex;align-items:center;gap:10px;padding:10px 12px 8px;border-bottom:1px solid var(--bds)}
+.qpop .ph .tabs{margin:0}
+.qpop .ph .sp{flex:1}
+.qpop .lst{overflow:auto;min-height:0;padding:4px 0 8px}
+.qsec{padding:8px 12px 4px;font-size:10.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--fgm)}
+table.q{width:100%;border-collapse:collapse;font-size:12.5px}
+table.q th{font-weight:600;font-size:11px;color:var(--fgm);text-align:left;padding:3px 12px;border-bottom:1px solid var(--bds)}
+table.q td{padding:5px 12px;border-bottom:1px solid var(--bds);vertical-align:top}
+table.q tr:last-child td{border-bottom:0}
+table.q .who{min-width:220px}
+table.q .arrow{color:var(--fgm);padding:0 4px}
+table.q .ex{color:var(--fgm);font-size:12px;display:block;max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+table.q .rs{white-space:nowrap}
+table.q .tm{white-space:nowrap;color:var(--fgm);font-variant-numeric:tabular-nums}
+table.q tr.mine td:first-child{box-shadow:inset 3px 0 0 var(--wait)}
+.why{font-size:11px;padding:0 6px;border-radius:99px;background:var(--hover);color:var(--fg2);white-space:nowrap}
+.why.w{background:var(--waitsub);color:var(--wait)}
+.smsg.queued .umsg{border-style:dashed;border-color:var(--wait)}
+.smsg.queued{padding:4px 6px}
+.drow{display:flex;gap:8px;align-items:center;margin-top:6px;font-size:12px;color:var(--fgm);white-space:normal}
+.att{font-size:11.5px;color:var(--fgm);white-space:normal}
+.vmark{position:absolute;right:-6px;top:-9px;font-size:10px;padding:0 5px;border-radius:4px;background:var(--acc);color:var(--onacc);font-weight:700}
+</style>
+</head>
+<body>
+<main>
+<h1>Wartende Nachrichten sichtbar, eigene verwerfen · Klick-Prototyp (Taiga #218)</h1>
+<p class="lead">Stand 2026-11-24 (Planung 0.78.0). Der Chat einer Session zeigt <b>alle</b> Nachrichten, die an sie warten: deine eigenen (wie seit #190) und die anderer Sessions und des Verwalters, mit dem Grund des Wartens. Deine eigenen kannst du einzeln <b>verwerfen</b>. Das Popover der Warteschlange bekommt den Reiter <b>„Nachrichten“</b>: jede wartende Nachricht mit Von → An. Neu Gezeigtes ist gestrichelt umrandet. Alle Namen und Zahlen sind Beispieldaten; die gestrichelte Leiste oben ist Simulation.</p>
+<div id="sim">
+  <span>Farbschema</span><button data-theme-btn="dark">Dunkel</button><button data-theme-btn="light">Hell</button>
+  <span class="sp lbl">Szenario</span><button data-sim="scen" data-v="rest">1 · Session ruht, alle Plätze belegt</button><button data-sim="scen" data-v="run">2 · Session läuft</button>
+  <span class="sp lbl">Verwerfen</span><button data-sim="variant" data-v="A">A · bleibt als „verworfen“</button><button data-sim="variant" data-v="B">B · Text zurück ins Feld</button>
+  <span class="sp"></span><button data-sim="free">Platz wird frei</button><button data-sim="race">Wettlauf beim nächsten Verwerfen</button>
+</div>
+<div class="app" id="app"></div>
+
+<div class="doc">
+  <div class="ask">
+    <h2>Zur Entscheidung (Empfehlung jeweils so gebaut)</h2>
+    <ol>
+      <li><b>N1 Wo verwerfen:</b> an jeder eigenen wartenden Blase (einzeln) und im Reiter „Nachrichten“. Die Leiste über dem Eingabefeld behält nur „Jetzt senden“.</li>
+      <li><b>N2 Was bleibt:</b> Variante <b>A</b> (empfohlen): Der Eintrag bleibt grau als „verworfen“ stehen, mit „Text übernehmen“. Variante <b>B</b>: Der Text wandert sofort ins Eingabefeld, der Eintrag bleibt ebenfalls als „verworfen“. Löschen geht nicht, weil der Verlauf keine Lücken kennt.</li>
+      <li><b>N3 Anhänge</b> bleiben im Workspace (<code>.anhaenge/</code>); der verworfene Eintrag nennt sie.</li>
+      <li><b>N4 Wettlauf:</b> Wer zuerst die wartende Zeile löscht, gewinnt. Kommt „Verwerfen“ zu spät, steht „Schon gesendet“.</li>
+      <li><b>N5 Nur eigene</b> lassen sich verwerfen. Fremde Nachrichten und Weck-Nachrichten des Verwalters zeigt der Chat nur an, sonst könnte eine Umsetzung stehen bleiben.</li>
+      <li><b>N6/N7 Fremde Nachricht im Chat:</b> sieht aus wie eine zugestellte (Absender, Betreff, Text), gestrichelt, mit dem Grund: „Platz n“, „bis der Zug endet“, „bis die Rückfrage beantwortet ist“, „pausiert“, „bis der Compact fertig ist“ (#215).</li>
+      <li><b>N8 Übersicht:</b> zwei Reiter im Popover über „n warten“: „Plätze“ (wie heute) und „Nachrichten“ (Von → An, Betreff, Grund, seit). Je Host ein Abschnitt wie heute.</li>
+      <li><b>N9 Gast:</b> verwirft eigene wartende Nachrichten in übernommenen Vorhaben; die Übersicht zeigt nur diese Vorhaben.</li>
+    </ol>
+  </div>
+  <div>
+    <h2>Zum Ausprobieren</h2>
+    <ul>
+      <li>„Verwerfen“ an einer der beiden eigenen Blasen; danach „Text übernehmen“.</li>
+      <li>Unten links „6 warten“ → Reiter „Nachrichten“; dort ebenfalls „Verwerfen“ an eigenen Zeilen.</li>
+      <li>„Platz wird frei“: deine Nachrichten gehen zusammen hinaus, die erste fremde mit dem nächsten Zug.</li>
+      <li>„Wettlauf …“, dann „Verwerfen“: Die Nachricht ging gerade hinaus.</li>
+      <li>Szenario 2: Die Session läuft, fremde Nachrichten warten „bis der Zug endet“; was du schreibst, geht sofort hinein (wie heute).</li>
+    </ul>
+  </div>
+  <div>
+    <h2>Technik (Vertrag V3 im Plan)</h2>
+    <ul>
+      <li><code>inbox_list</code> liefert jede Zeile in <code>session_inbox</code> mit Absender, Empfänger, Betreff und Grund (<code>waitsFor</code>); Ereignis <code>inbox://changed</code>.</li>
+      <li><code>chat_discard_queued(sessionId, entrySeq)</code> → <code>discarded</code> oder <code>alreadySent</code>; der Eintrag bekommt <code>discarded</code>.</li>
+    </ul>
+  </div>
+</div>
+</main>
+<script>
+// Gemeinsame Helfer der Klick-Prototypen 0.78.0: Auswahl, Escaping, Farbschema, Meldung, Menü schließen.
+'use strict';
+const $ = s => document.querySelector(s);
+const $$ = s => [...document.querySelectorAll(s)];
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const ago = m => m < 1 ? 'gerade' : m < 60 ? `${m} min` : m < 1440 ? `${Math.floor(m / 60)} h` : `${Math.floor(m / 1440)} d`;
+
+// Farbschema aus der Sprungmarke #theme=light, umschaltbar über [data-theme-btn]
+const Proto = {
+  theme: /theme=light/.test(location.hash) ? 'light' : 'dark',
+  applyTheme() {
+    document.documentElement.dataset.theme = this.theme;
+    $$('[data-theme-btn]').forEach(b => b.setAttribute('aria-pressed', b.dataset.themeBtn === this.theme));
+  },
+  toastTimer: 0,
+  toast(text, undo) {
+    clearTimeout(this.toastTimer);
+    $('.toast')?.remove();
+    const t = document.createElement('div');
+    t.className = 'toast';
+    t.innerHTML = `<span>${esc(text)}</span>${undo ? '<button class="link" data-toast-undo>Rückgängig</button>' : ''}`;
+    t._undo = undo;
+    ($('#app') || document.body).appendChild(t);
+    this.toastTimer = setTimeout(() => t.remove(), 6000);
+  },
+};
+document.addEventListener('click', ev => {
+  const tb = ev.target.closest('[data-theme-btn]');
+  if (tb) { Proto.theme = tb.dataset.themeBtn; history.replaceState(null, '', `#theme=${Proto.theme}`); Proto.applyTheme(); return; }
+  const u = ev.target.closest('[data-toast-undo]');
+  if (u) { const t = u.closest('.toast'); t._undo?.(); t.remove(); }
+}, true);
+Proto.applyTheme();
+
+</script>
+<script>
+'use strict';
+const SES = {
+  s41:{num:41,title:'Vault-Werkzeuge planen',p:'Agenten-Verwalter-2000',master:true},
+  s38:{num:38,title:'Vorlagen pflegen',p:'Agenten-Verwalter-2000'},
+  s44:{num:44,title:'Tickets',p:'Agenten-Verwalter-2000'},
+  s33:{num:33,title:'Release 0.77.0',p:'Agenten-Verwalter-2000',master:true},
+  s12:{num:12,title:'Snapshot-Tests',p:'agda-mcp-server'},
+  s1:{num:1,title:'Layout',p:'atelier'},
+  s3:{num:3,title:'Startseite',p:'atelier'},
+  s6:{num:6,title:'Lemma-Plan',p:'FreeCHR-Agda',master:true},
+  verwalter:{num:0,title:'Verwalter',p:''},
+};
+const WHY = {slot:n=>`Platz ${n}`, turnEnd:()=>'bis der Zug endet', answer:()=>'bis die Rückfrage beantwortet ist', paused:()=>'pausiert', compact:()=>'bis der Compact fertig ist'};
+let S, nextId = 100;
+
+function reset(scen){
+  const rest = scen==='rest';
+  S = {scen, variant:S?.variant||'A', race:false, pop:false, tab:'msgs', draft:'', sent:0,
+    chat:[
+      {t:'u', text:'Plane Schritt 3 der Story #140: Agententypen und Prompt-Vorlagen ziehen in den Vault.'},
+      {t:'a', text:'Plan steht. Die Agententypen gehen nach agentic/agents/, die Vorlagen nach agentic/prompt-templates/. Ich warte auf deine Freigabe.'},
+    ],
+    inbox:[]};
+  if(rest){
+    addOwn('Freigegeben. Nimm bitte auch die Skills unter agentic/skills/ mit.', 4, ['notizen-140.md']);
+    addOwn('Und denk an die Agententypen im Plan der Station „Abschluss“.', 2);
+  }
+  S.inbox.push(
+    {id:1,to:'s41',from:'s38',subj:'Pfad der Vorlagen',text:'Ich habe die Vorlage „Bugfix mit Ticket“ geändert. Liegt sie nach deinem Plan unter agentic/prompt-templates/bugfix.md?',min:6,why:rest?'slot':'turnEnd'},
+    {id:2,to:'s41',from:'verwalter',subj:'Gemeldet: postfach-1 Umsetzung',text:'[Verwalter] Station postfach-1 hat gemeldet. Lies die Meldung mit verwalter_read_message (msg-512).',min:3,why:rest?'slot':'turnEnd'},
+    {id:3,to:'s1',from:'s3',subj:'Farben der Startseite',text:'Die Startseite braucht die neuen Tokens --surface-2 und --accent-soft. Hast du sie schon?',min:11,why:'turnEnd'},
+    {id:4,to:'s6',from:'verwalter',subj:'Station fragt: Abnahme Lemma-Liste',text:'[Verwalter] Die Station „Abnahme Lemma-Liste“ fragt dich etwas.',min:9,why:'answer'},
+    {id:5,to:'s12',from:'user',subj:'',text:'Bitte die Snapshots erst nach dem Review aktualisieren.',min:14,why:'slot',pos:3,entry:true},
+    {id:6,to:'s33',from:'s44',subj:'Issue #231 angelegt',text:'Issue #231 ist angelegt, verlinke es bitte im Release-Text.',min:1,why:'compact'},
+  );
+}
+function addOwn(text, min, att){
+  const id = nextId++;
+  S.chat.push({t:'u', id, text, queued:true, att});
+  S.inbox.push({id, to:'s41', from:'user', text, min, why:'slot', pos:2, entry:true, att});
+}
+const own = r => r.from==='user';
+const inboxOf = sid => S.inbox.filter(r=>r.to===sid);
+const whyText = r => WHY[r.why](r.pos||2);
+const who = id => id==='user' ? 'Du' : id==='verwalter' ? 'Verwalter' : `Session ${SES[id].num} „${SES[id].title}“`;
+
+/* ---------- Leiste ---------- */
+function sideHTML(){
+  const w41 = inboxOf('s41').length, rest = S.scen==='rest';
+  const row = (num,title,aux,cls,sel,dia) => `<div class="srow${sel?' sel':''}"><span class="${cls}">${cls==='ru'?'◌':cls==='wt'?'?':'✓'}</span><span class="num">#${num}</span><span class="nm">${title}</span>${dia?'<span class="dia">◆</span>':''}${aux?`<span class="aux${aux.startsWith('✉')?' w':''}">${aux}</span>`:''}</div>`;
+  const total = S.inbox.length;
+  return `<aside class="side"><div class="brand">⧉ Agenten Verwalter 2000</div><button class="newp">＋ Neues Vorhaben <kbd>Ctrl N</kbd></button>
+  <div class="tree">
+    <div class="grp">⌄ Arbeit <span class="n">2</span></div>
+    <div class="vrow sel"><span class="chev">⌄</span><span class="ic ru">◌</span><span class="tx"><span class="nm">Agenten-Verwalter-2000</span><span class="meta">4 Sessions · #41 ${rest?'wartet auf Platz':'läuft'}</span></span></div>
+    <div class="kids">
+      ${row(41,'Vault-Werkzeuge planen', w41?(rest?`✉ Platz 2`:`✉ ${w41}`):'', rest?'ok':'ru', true, true)}
+      ${row(38,'Vorlagen pflegen','', 'ru')}
+      ${row(44,'Tickets','', 'ok')}
+      ${row(33,'Release 0.77.0', inboxOf('s33').length?'✉ Compact':'', 'ru', false, true)}
+    </div>
+    <div class="vrow"><span class="chev">›</span><span class="ic ok">✓</span><span class="tx"><span class="nm">agda-mcp-server</span><span class="meta">#12 ✉ Platz 3</span></span></div>
+    <div class="grp">⌄ Privat <span class="n">1</span></div>
+    <div class="vrow"><span class="chev">›</span><span class="ic ru">◌</span><span class="tx"><span class="nm">atelier</span><span class="meta">#1 läuft · ✉ 1</span></span></div>
+    <div class="vrow"><span class="chev">›</span><span class="ic wt">?</span><span class="tx"><span class="nm">FreeCHR-Agda</span><span class="meta">#6 fragt · ✉ 1</span></span></div>
+  </div>
+  <div class="foot">
+    <div class="qbar"><span class="cells">${'<i class="on"></i>'.repeat(4)}</span><span class="t">4/4</span></div>
+    <div class="qrow"><button class="chip w" data-act="pop" aria-expanded="${S.pop}">${total} warten</button><span style="flex:1"></span><button class="chip">▦ Dashboard</button></div>
+    <div class="nav">◔ Kontingent</div><div class="nav">▤ Archiv</div><div class="nav">⚙ Einstellungen</div>
+  </div></aside>`;
+}
+
+/* ---------- Chat ---------- */
+function ownBubble(e){
+  if(e.discarded) return `<div class="umsg discarded"><div class="head"><span class="dmark">✕ verworfen</span><span class="sp"></span>${S.variant==='A'?`<button class="link" data-act="take" data-id="${e.id}">Text übernehmen</button>`:''}</div><span class="txt">${esc(e.text)}</span>${e.att?`<div class="att">Anhang bleibt im Workspace: .anhaenge/${e.id}/${esc(e.att[0])}</div>`:''}</div>`;
+  const r = S.inbox.find(x=>x.id===e.id);
+  if(e.queued && r) return `<div class="umsg queued"><div class="head"><span class="qmark">⏱ wartet · ${esc(whyText(r))}</span><span class="sp"></span><button class="link newmark" data-act="discard" data-id="${e.id}">Verwerfen</button></div>${esc(e.text)}${e.att?`<div class="att">📎 ${esc(e.att[0])}</div>`:''}</div>`;
+  return `<div class="umsg">${esc(e.text)}${e.att?`<div class="att">📎 ${esc(e.att[0])}</div>`:''}</div>`;
+}
+function foreign(r, waiting){
+  return `<div class="smsg${waiting?' queued newmark':''}"><div class="from">Von <a>${esc(who(r.from))}</a>${waiting?` · <span class="qmark">⏱ wartet · ${esc(whyText(r))}</span>`:''}</div>${r.subj?`<div class="subj">Betreff: ${esc(r.subj)}</div>`:''}<div class="umsg">${esc(r.text)}</div></div>`;
+}
+function chatHTML(){
+  const items = S.chat.map(e=> e.t==='u' ? ownBubble(e) : e.t==='a' ? `<div class="amsg">${esc(e.text)}</div>` : e.t==='s' ? foreign(e.r,false) : `<div class="note">${esc(e.text)}</div>`);
+  const foreignWaiting = inboxOf('s41').filter(r=>!own(r));
+  if(foreignWaiting.length) items.push(`<div class="note newmark">${foreignWaiting.length} Nachricht${foreignWaiting.length>1?'en':''} anderer Sessions warten auf diese Session</div>`, ...foreignWaiting.map(r=>foreign(r,true)));
+  if(S.scen==='run') items.push(`<div class="tool"><b>Bash</b> pnpm check …</div>`);
+  const ownWaiting = inboxOf('s41').filter(own);
+  const hint = ownWaiting.length ? `<div class="hintbar"><span>⏱ ${ownWaiting.length>1?`Deine ${ownWaiting.length} Nachrichten warten`:'Deine Nachricht wartet'} auf einen freien Platz (Platz 2).</span><span class="sp"></span><button class="btn sm" data-act="now" title="Schickt die wartenden Nachrichten dieser Session sofort ab, auch über der Grenze.">Jetzt senden</button></div>` : '';
+  return `<div class="body" data-scroll="chat"><div class="chat">${items.join('')}</div></div>
+    <div class="compwrap">${hint}<div class="comp"><textarea data-keep="draft" placeholder="Nachricht an Claude … (/ für Skills)">${esc(S.draft)}</textarea>
+    <div class="row"><span>＋</span><span>⌘</span><span style="color:var(--fg)">Opus 5.5</span><span>Hoch</span><span class="sp"></span><span>ϟ Auto</span><button class="send" data-act="send" ${S.draft.trim()?'':'disabled'}>↑</button></div></div></div>`;
+}
+
+/* ---------- Warteschlange ---------- */
+function popHTML(){
+  if(!S.pop) return '';
+  const msgs = S.inbox.slice().sort((a,b)=>b.min-a.min);
+  const tabs = `<span class="tabs"><button data-tab="slots" aria-pressed="${S.tab==='slots'}">Plätze</button><button data-tab="msgs" aria-pressed="${S.tab==='msgs'}" class="newmark">Nachrichten (${msgs.length})</button></span>`;
+  let body;
+  if(S.tab==='slots'){
+    body = `<div class="qsec">Dieser Rechner · Plätze 4 von 4 (App)</div><table class="q"><tr><th>Rang</th><th>Was</th><th>Vorhaben</th><th>Stufe</th><th>wartet</th></tr>
+      <tr><td>1</td><td>Station postfach-2 Review</td><td>Agenten-Verwalter-2000</td><td>▲</td><td class="tm">8 min</td></tr>
+      <tr><td>2</td><td>Eigene Nachricht · Vault-Werkzeuge planen</td><td>Agenten-Verwalter-2000</td><td>▲</td><td class="tm">4 min</td></tr>
+      <tr><td>3</td><td>Eigene Nachricht · Snapshot-Tests</td><td>agda-mcp-server</td><td>·</td><td class="tm">14 min</td></tr></table>
+      <p class="muted small" style="padding:6px 12px">Nachrichten an laufende, fragende oder pausierte Sessions belegen keinen Platz; sie stehen im Reiter „Nachrichten“.</p>`;
+  } else {
+    body = `<div class="qsec">Dieser Rechner · ${msgs.length} wartende Nachrichten</div><table class="q"><tr><th>Von → An</th><th>Betreff / Text</th><th>Grund</th><th>seit</th><th></th></tr>`+
+      msgs.map(r=>`<tr class="${own(r)?'mine':''}"><td class="who">${esc(who(r.from))}<span class="arrow">→</span>${esc(who(r.to))}<span class="ex">${esc(SES[r.to].p)}</span></td>
+        <td>${r.subj?esc(r.subj):'<span class="muted">(ohne Betreff)</span>'}<span class="ex">${esc(r.text)}</span></td>
+        <td class="rs"><span class="why${r.why==='slot'?' w':''}">${esc(whyText(r))}</span></td><td class="tm">${ago(r.min)}</td>
+        <td class="rs">${own(r)?`<button class="btn sm" data-act="discard" data-id="${r.id}">Verwerfen</button>`:`<button class="link" data-act="open" data-id="${r.id}">Öffnen</button>`}</td></tr>`).join('')+`</table>
+      <div class="qsec">kropotkin (Host) · 1 wartende Nachricht in übernommenen Vorhaben</div><table class="q"><tr class="mine"><td class="who">Du<span class="arrow">→</span>Session 2 „Normalform“<span class="ex">FreeCHR-Agda</span></td><td><span class="muted">(ohne Betreff)</span><span class="ex">Nimm Variante b.</span></td><td class="rs"><span class="why w">Platz 1</span></td><td class="tm">2 min</td><td class="rs"><button class="btn sm" data-act="toast" data-msg="Verworfen auf kropotkin">Verwerfen</button></td></tr></table>`;
+  }
+  return `<div class="pop qpop newmark"><div class="ph">${tabs}<span class="sp"></span><button class="link">Grenze in den Einstellungen</button><button class="btn sm" data-act="pop">✕</button></div><div class="lst">${body}</div></div>`;
+}
+
+function render(){
+  $$('#sim [data-sim]').forEach(b=>b.setAttribute('aria-pressed', (b.dataset.sim==='scen'&&b.dataset.v===S.scen)||(b.dataset.sim==='variant'&&b.dataset.v===S.variant)||(b.dataset.sim==='race'&&S.race)));
+  const sc = $('[data-scroll="chat"]')?.scrollTop, act = document.activeElement?.dataset?.keep;
+  $('#app').querySelectorAll(':scope > :not(.toast)').forEach(n=>n.remove());
+  $('#app').insertAdjacentHTML('afterbegin', sideHTML()+`<section class="mainc"><div class="hdr"><span class="crumb">Agenten-Verwalter-2000</span><span class="title"><span class="num">#41</span>Vault-Werkzeuge planen</span><span class="chip m">◆ Master</span>
+    <span class="tabs"><button aria-pressed="true">Chat</button><button>Changes</button></span><span class="right"><button class="chip">${S.scen==='rest'?'✓ ruht':'◌ läuft'}</button><button class="chip">&gt;_</button></span></div>${chatHTML()}</section>${popHTML()}`);
+  const c = $('[data-scroll="chat"]'); if(c) c.scrollTop = sc ?? c.scrollHeight;
+  if(act){ const t=$('[data-keep="draft"]'); t.focus(); t.setSelectionRange(t.value.length,t.value.length); }
+}
+
+function discard(id){
+  const r = S.inbox.find(x=>x.id===id); if(!r) return;
+  if(S.race){ S.race=false; S.inbox = S.inbox.filter(x=>x!==r); const e=S.chat.find(x=>x.id===id); if(e) e.queued=false; render(); Proto.toast('Schon gesendet – die Nachricht ging gerade hinaus.'); return; }
+  S.inbox = S.inbox.filter(x=>x!==r);
+  const e = S.chat.find(x=>x.id===id);
+  if(e){ e.queued=false; e.discarded=true; if(S.variant==='B' && !S.draft.trim()) S.draft=e.text; }
+  render();
+  Proto.toast(e ? (S.variant==='B'?'Verworfen – der Text steht im Eingabefeld':'Verworfen – sie wird nicht gesendet') : `Verworfen: Nachricht an ${who(r.to)}`);
+}
+function freeSlot(){
+  const mine = inboxOf('s41').filter(own), others = inboxOf('s41').filter(r=>!own(r));
+  if(!mine.length && !others.length){ Proto.toast('An diese Session wartet nichts'); return; }
+  if(mine.length){
+    mine.forEach(r=>{ const e=S.chat.find(x=>x.id===r.id); if(e) e.queued=false; });
+    S.inbox = S.inbox.filter(r=>!mine.includes(r));
+    S.chat.push({t:'a', text:'Verstanden: Skills unter agentic/skills/ und die Agententypen der Station „Abschluss“ kommen in den Plan.'});
+    render(); Proto.toast(`${mine.length} eigene Nachricht${mine.length>1?'en':''} zusammen gesendet`); return;
+  }
+  const r = others[0];
+  S.inbox = S.inbox.filter(x=>x!==r);
+  S.chat.push({t:'s', r}, {t:'a', text: r.from==='verwalter' ? 'Ich lese die Meldung von postfach-1 …' : 'Ja, unter agentic/prompt-templates/bugfix.md. Ich antworte Session 38.'});
+  render(); Proto.toast(`Zugestellt: ${r.subj}`);
+}
+
+document.addEventListener('click', ev=>{
+  const sim = ev.target.closest('[data-sim]');
+  if(sim){
+    const k=sim.dataset.sim;
+    if(k==='scen') reset(sim.dataset.v);
+    if(k==='variant') S.variant=sim.dataset.v;
+    if(k==='free') return freeSlot();
+    if(k==='race') S.race=!S.race;
+    return render();
+  }
+  const tab = ev.target.closest('[data-tab]'); if(tab){ S.tab=tab.dataset.tab; return render(); }
+  const a = ev.target.closest('[data-act]'); if(!a) return;
+  const id = +a.dataset.id;
+  switch(a.dataset.act){
+    case 'pop': S.pop=!S.pop; render(); break;
+    case 'discard': discard(id); break;
+    case 'take': { const e=S.chat.find(x=>x.id===id); S.draft=e.text; render(); $('[data-keep="draft"]').focus(); break; }
+    case 'now': freeSlot(); break;
+    case 'open': { const r=S.inbox.find(x=>x.id===id); Proto.toast(`Öffnet den Chat von ${who(r.to)}`); break; }
+    case 'toast': Proto.toast(a.dataset.msg); break;
+    case 'send': {
+      const t=S.draft.trim(); if(!t) return; S.draft='';
+      if(S.scen==='rest'){ addOwn(t, 0); render(); Proto.toast('Kein Platz frei – deine Nachricht wartet'); }
+      else { S.chat.push({t:'u', text:t}); render(); Proto.toast('Gesendet – geht in den laufenden Zug'); }
+      break;
+    }
+  }
+});
+document.addEventListener('input', ev=>{ if(ev.target.dataset.keep==='draft'){ S.draft=ev.target.value; $('[data-act="send"]').disabled=!S.draft.trim(); } });
+document.addEventListener('keydown', ev=>{ if(ev.target.dataset.keep==='draft' && ev.key==='Enter' && !ev.shiftKey){ ev.preventDefault(); $('[data-act="send"]').click(); } });
+reset('rest'); render();
+</script>
+</body>
+</html>

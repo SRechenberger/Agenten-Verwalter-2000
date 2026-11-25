@@ -12,6 +12,8 @@ interface SessionMessageProps {
   subject: string | null;
   /** Der Absender steht noch in der Liste; sonst gibt es keinen Sprung. */
   canJump: boolean;
+  /** Wartet noch (Taiga-Story 218): gestrichelt, mit dem Grund als Marke. */
+  waitMark?: string;
 }
 
 /** Nachricht einer anderen Session: Absender als Kopf, darunter der Betreff, Text wie eine Nutzernachricht. */
@@ -21,6 +23,7 @@ export function SessionMessage({
   sender,
   subject,
   canJump,
+  waitMark,
 }: SessionMessageProps): ReactElement {
   const selectSession = useSessionsStore((state) => state.selectSession);
   const from = `Von Session ${String(sender.number)} „${sender.title}“`;
@@ -48,6 +51,8 @@ export function SessionMessage({
         skill={null}
         comments={[]}
         origin={null}
+        fromSession
+        {...(waitMark === undefined ? {} : { waitMark })}
       />
     </div>
   );

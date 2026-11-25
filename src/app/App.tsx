@@ -25,6 +25,7 @@ import { StationTrail } from '@/features/implementation/StationTrail';
 import { useInquiry } from '@/features/implementation/useInquiry';
 import { useImplementations } from '@/features/implementation/useImplementations';
 import { useAgentQueueSync } from '@/features/queue/useAgentQueueSync';
+import { useInboxSync } from '@/features/queue/useInboxSync';
 import { countChangedFiles } from '@/features/changes/changesScope';
 import { ChangesView } from '@/features/changes/ChangesView';
 import { useSessionChanges } from '@/features/changes/useSessionChanges';
@@ -101,11 +102,12 @@ export function App(): ReactElement {
   } = useImplementations();
   // Die globale Warteschlange für Leiste, Marke „n warten“ und Zeilen (ADR 068).
   useAgentQueueSync();
+  useInboxSync();
   // Aufgaben, Abläufe und Sessions des Dashboards; das Löschen einer Session sendet kein Ereignis.
   const reloadDashboard = useDashboard();
   // Fernsteuerung: Geräte und Hosts für Einstellungen, Leiste und Köpfe; die Rechte der Listen für gesperrte Bedienelemente.
   useRemoteSync();
-  useProjectAccessSync(projects, sessions);
+  useProjectAccessSync(projects, sessions, groups);
   const { ended: endedShares, projectOfEntry }: EndedShares = useEndedShares(
     projects,
     sessions,
@@ -582,6 +584,7 @@ export function App(): ReactElement {
             )
           }
           sessions={sessions}
+          implementations={implementations}
           changes={
             <ChangesView
               key={latestSession.id}
@@ -648,6 +651,8 @@ export function App(): ReactElement {
         onOpenSession={selectSession}
         onSessionCreated={handleSessionCreated}
         onProjectChanged={upsertProject}
+        projects={projects}
+        groups={groups}
       />
     );
   }
@@ -717,6 +722,7 @@ export function App(): ReactElement {
     if (showDashboard) {
       return (
         <DashboardView
+          groups={groups}
           sessions={sessions}
           implementations={implementations}
           projects={projects}

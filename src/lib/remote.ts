@@ -1,7 +1,12 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import type { UnlistenFn } from '@tauri-apps/api/event';
+import type { Effort } from '@/lib/bindings/Effort';
 import type { HostProfile } from '@/lib/bindings/HostProfile';
+import type { KnownRepository } from '@/lib/bindings/KnownRepository';
+import type { Mode } from '@/lib/bindings/Mode';
+import type { ModelId } from '@/lib/bindings/ModelId';
+import type { ProjectCreated } from '@/lib/bindings/ProjectCreated';
 import type { ProjectSummary } from '@/lib/bindings/ProjectSummary';
 import type { RemoteDevice } from '@/lib/bindings/RemoteDevice';
 import type { RemoteHostStatus } from '@/lib/bindings/RemoteHostStatus';
@@ -41,6 +46,17 @@ export function listRemoteDevices(): Promise<RemoteDevice[]> {
  *  @throws {import('@/lib/bindings/CommandError').CommandError} `internal` (unbekanntes Gerät) */
 export async function revokeRemoteDevice(deviceId: string): Promise<void> {
   await invoke('remote_device_revoke', { deviceId });
+}
+
+/** Erlaubt dem Gerät, Vorhaben beim Host anzulegen, oder nimmt es zurück; `groupId` ist die Gruppe des
+ *  Hosts, in der sie landen (`null`: ohne Gruppe). Am Host.
+ *  @throws {import('@/lib/bindings/CommandError').CommandError} `internal` (unbekanntes Gerät oder Gruppe) */
+export async function setDeviceCreateRight(
+  deviceId: string,
+  allowed: boolean,
+  groupId: string | null,
+): Promise<void> {
+  await invoke('remote_device_set_create', { deviceId, allowed, groupId });
 }
 
 /** Koppelt mit der Einladung und verbindet sich mit dem Host.
@@ -83,6 +99,29 @@ export function setProjectShared(
   return invoke<ProjectSummary>('remote_share_set', { projectId, shared, stopAgents });
 }
 
+/** Gibt eine ganze Gruppe für Gäste frei oder beendet es: Jedes Vorhaben darin, auch ein später
+ *  hinzukommendes, ist dann freigegeben. Das Beenden wirft jeden Gast hinaus, der ein Mitglied hält;
+ *  mit `stopAgents` hält es danach deren laufende Sessions an. Am Host.
+ *  @throws {import('@/lib/bindings/CommandError').CommandError} `internal` (unbekannte Gruppe) */
+export async function setGroupShared(
+  groupId: string,
+  shared: boolean,
+  stopAgents: boolean,
+): Promise<void> {
+  await invoke('remote_group_share_set', { groupId, shared, stopAgents });
+}
+
+/** Die IDs der Gruppen, die ihren Mitgliedern die Freigabe geben. Am Host. */
+export function listSharedGroupIds(): Promise<string[]> {
+  return invoke<string[]>('remote_group_share_list');
+}
+
+/** Die IDs der Vorhaben mit eigener Freigabe: Sie bleiben freigegeben, auch wenn sie eine freigegebene
+ *  Gruppe verlassen. Am Host. */
+export function listOwnSharedIds(): Promise<string[]> {
+  return invoke<string[]>('remote_own_share_list');
+}
+
 /** Übernimmt ein freigegebenes Vorhaben eines Hosts. Am Gast.
  *  @throws {import('@/lib/bindings/CommandError').CommandError} `controlledBy` (ein anderes Gerät
  *    hält es), `hostUnreachable`, `internal` (nicht mehr freigegeben) */
@@ -100,6 +139,42 @@ export function giveBackRemoteProject(projectId: string): Promise<ProjectSummary
  *  @throws {import('@/lib/bindings/CommandError').CommandError} `hostUnreachable`, `internal` (unbekannter Host) */
 export function loadRemoteHostProfile(hostId: string): Promise<HostProfile> {
   return invoke<HostProfile>('remote_host_profile', { hostId });
+}
+
+/** Die Repositories des Hosts; nur für ein Gerät, das dort Vorhaben anlegen darf. Am Gast.
+ *  @throws {import('@/lib/bindings/CommandError').CommandError} `hostUnreachable`, `internal` (kein Recht) */
+export function listRemoteRepositories(hostId: string): Promise<KnownRepository[]> {
+  return invoke<KnownRepository[]>('remote_repository_list', { hostId });
+}
+
+/** Legt ein Vorhaben beim Host an und übernimmt es; `groupId` ist eine lokale Gruppe dieses Geräts, die
+ *  Gruppe beim Host kommt aus seinem Recht. Anhänge gehen vorher zum Host. Am Gast.
+ *  @throws {import('@/lib/bindings/CommandError').CommandError} `hostUnreachable`, `internal` (kein
+ *    Recht, Repository nicht beim Host eingetragen), `claudeNotFound` (am Host) */
+export function createRemoteProject(
+  hostId: string,
+  task: string,
+  name: string | null,
+  attachmentIds: string[],
+  repositoryIds: string[],
+  model: ModelId,
+  codexModel: string | null,
+  effort: Effort,
+  mode: Mode,
+  groupId: string | null,
+): Promise<ProjectCreated> {
+  return invoke<ProjectCreated>('remote_project_create', {
+    hostId,
+    task,
+    name,
+    attachmentIds,
+    repositoryIds,
+    model,
+    codexModel,
+    effort,
+    mode,
+    groupId,
+  });
 }
 
 /** Das Kontingent des Hosts, wie er es zuletzt gelesen hat. Am Gast.

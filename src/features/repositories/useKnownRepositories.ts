@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { KnownRepository } from '@/lib/bindings/KnownRepository';
 import { commandErrorText } from '@/lib/errors';
+import { listRemoteRepositories } from '@/lib/remote';
 import { addRepository, listRepositories, removeRepository } from '@/lib/repositories';
 
 interface KnownRepositories {
@@ -12,25 +13,34 @@ interface KnownRepositories {
   remove: (id: string) => Promise<void>;
 }
 
-export function useKnownRepositories(): KnownRepositories {
+/** Die Repositories dieses Rechners; mit `hostId` die des Hosts (nur lesen, `add` und `remove` ändern dort nichts). */
+export function useKnownRepositories(hostId: string | null = null): KnownRepositories {
+  const list = useCallback(
+    (): Promise<KnownRepository[]> =>
+      hostId === null ? listRepositories() : listRemoteRepositories(hostId),
+    [hostId],
+  );
   const [repositories, setRepositories] = useState<KnownRepository[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
 
   const reload = useCallback(async (): Promise<void> => {
     try {
-      setRepositories(await listRepositories());
+      setRepositories(await list());
       setError(null);
     } catch (reason: unknown) {
       console.error('Repositories konnten nicht geladen werden', reason);
       setRepositories([]);
       setError(`Repositories nicht ladbar: ${commandErrorText(reason)}`);
     }
-  }, []);
+  }, [list]);
 
   useEffect((): void => {
-    listRepositories()
-      .then(setRepositories)
+    list()
+      .then((loaded: KnownRepository[]): void => {
+        setRepositories(loaded);
+        setError(null);
+      })
       .catch((reason: unknown) => {
         console.error('Repositories konnten nicht geladen werden', reason);
         setError(`Repositories nicht ladbar: ${commandErrorText(reason)}`);
@@ -38,7 +48,7 @@ export function useKnownRepositories(): KnownRepositories {
       .finally((): void => {
         setIsLoading(false);
       });
-  }, []);
+  }, [list]);
 
   const add = useCallback(
     async (path: string): Promise<KnownRepository> => {

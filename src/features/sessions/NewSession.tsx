@@ -43,6 +43,10 @@ import { TemplateForm } from '@/features/prompttemplates/TemplateForm';
 import type { TemplateValues } from '@/features/prompttemplates/TemplateFields';
 import { TemplateMenu } from '@/features/prompttemplates/TemplateMenu';
 import { usePromptTemplates } from '@/features/prompttemplates/usePromptTemplates';
+import { useHostProfileOf } from '@/features/remote/useOperatingMode';
+import { deriveCreateTarget } from '@/features/remote/createTarget';
+import { useCreateTargets } from '@/features/remote/useCreateTargets';
+import { useRemoteStore } from '@/stores/remote';
 import { RepositoryPicker } from '@/features/repositories/RepositoryPicker';
 import { VoiceButton } from '@/features/voice/VoiceButton';
 import type { Attachment } from '@/lib/bindings/Attachment';
@@ -66,6 +70,8 @@ import {
   repositoryCountLabel,
 } from '@/lib/labels';
 import { createProject } from '@/lib/projects';
+import { createRemoteProject } from '@/lib/remote';
+import type { RemoteHostStatus } from '@/lib/bindings/RemoteHostStatus';
 import { NEW_SESSION_KEY, useAttachmentsStore } from '@/stores/attachments';
 import { useSessionsStore } from '@/stores/sessions';
 import type { NewSessionPrefill } from '@/stores/sessions';
@@ -81,6 +87,8 @@ const GIT_NOT_FOUND_MESSAGE =
 
 const NO_ATTACHMENTS: Attachment[] = [];
 const NO_CODEX_MODELS: readonly CodexModel[] = [];
+
+const THIS_COMPUTER = 'Dieser Rechner';
 
 type OpenMenu = 'model' | 'mode' | 'group' | 'plus' | 'command' | 'template' | null;
 
@@ -124,6 +132,19 @@ export function NewSession({ groups, onCreated, onCancel }: NewSessionProps): Re
     () => useSettingsStore.getState().settings?.defaultMode ?? 'auto',
   );
   const [repositoryIds, setRepositoryIds] = useState<string[]>(prefill?.repositoryIds ?? []);
+  // „Anlegen auf“ (ADR 059, Nachtrag): `null` ist dieser Rechner, sonst die ID eines Hosts, der es erlaubt.
+  const [chosenHostId, setChosenHostId] = useState<string | null>(null);
+  const createTargets = useCreateTargets();
+  const derived = deriveCreateTarget(chosenHostId, createTargets.allowed);
+  const target: RemoteHostStatus | null = derived.kind === 'host' ? derived.host : null;
+  // Die Wahl eines Hosts fällt nie still auf diesen Rechner zurück: Erlaubt er es nicht mehr, ist sie verloren.
+  const isTargetLost: boolean = derived.kind === 'lost';
+  const hostNames: RemoteHostStatus[] = useRemoteStore((state) => state.hosts);
+  const lostHostName: string =
+    hostNames.find((host: RemoteHostStatus) => host.hostId === chosenHostId)?.hostName ??
+    'Der Host';
+  const hostProfile = useHostProfileOf(target?.hostId ?? null);
+  const isRemote: boolean = target !== null;
   // Die Seite startet immer ohne Gruppe, auch aus einer Einstiegszeile.
   const [groupId, setGroupId] = useState<string | null>(null);
   const [openMenu, setOpenMenu] = useState<OpenMenu>(null);
@@ -146,11 +167,18 @@ export function NewSession({ groups, onCreated, onCancel }: NewSessionProps): Re
     (state) => state.pending[NEW_SESSION_KEY] ?? NO_ATTACHMENTS,
   );
   const removeAttachment = useAttachmentsStore((state) => state.remove);
-  const operatingMode = useSettingsStore((state) => state.settings?.operatingMode ?? 'claude');
+  const ownOperatingMode = useSettingsStore((state) => state.settings?.operatingMode ?? 'claude');
+  // Am Host gelten Betriebsart und Modelle seines Profils.
+  const operatingMode = isRemote ? (hostProfile?.operatingMode ?? 'claude') : ownOperatingMode;
   const localModel: string | null = useSettingsStore((state) => state.settings?.localModel ?? null);
   const isLocal: boolean = isLocalOperatingMode(operatingMode);
+  // Das gewählte Modell des Hosts trägt sein Profil nicht: Am Gast steht kein fremdes lokales Modell.
+  const localLabel: string = isRemote ? 'Modell des Hosts' : localModelLabel(localModel);
   const isCodex: boolean = operatingMode === 'codex';
-  const codexModels = useCodexModels(isCodex);
+  const ownCodexModels = useCodexModels(isCodex && !isRemote);
+  const codexModels = {
+    models: isRemote ? (hostProfile?.codexModels ?? null) : ownCodexModels.models,
+  };
   const codexList: readonly CodexModel[] = codexModels.models?.models ?? NO_CODEX_MODELS;
   const chosenCodexModel: CodexModel | null = selectedCodexModel(codexList, codexModel);
   const codexEmptyText: string =
@@ -167,7 +195,8 @@ export function NewSession({ groups, onCreated, onCancel }: NewSessionProps): Re
     (state) => state.owner === NEW_SESSION_OWNER && state.phase !== 'idle',
   );
   const isFormOpen: boolean = form !== null;
-  const canStart: boolean = text.trim() !== '' && !isStarting && !isDictating && !isFormOpen;
+  const canStart: boolean =
+    text.trim() !== '' && !isStarting && !isDictating && !isFormOpen && !isTargetLost;
   const hasTemplates: boolean = promptTemplates !== null && promptTemplates.length > 0;
   const currentMode = modeOption(mode);
   // Eine inzwischen gelöschte Gruppe zählt nicht mehr: das Vorhaben startet dann ohne Gruppe.
@@ -182,10 +211,10 @@ export function NewSession({ groups, onCreated, onCancel }: NewSessionProps): Re
   const commandMenu = useCommandMenu({
     draft: text,
     isButtonOpen: openMenu === 'command',
-    isSuppressed: isStarting || openMenu !== null || isFormOpen,
+    isSuppressed: isStarting || openMenu !== null || isFormOpen || isRemote,
     buttonScope: 'skills',
     slashScope: 'skills',
-    skillSource: { repositoryIds },
+    skillSource: { repositoryIds: isTargetLost ? [] : repositoryIds },
     session: null,
   });
 
@@ -304,17 +333,32 @@ export function NewSession({ groups, onCreated, onCancel }: NewSessionProps): Re
     const attachmentIds: string[] = pending.map((attachment: Attachment) => attachment.id);
     const name: string | null =
       projectName === null || projectName.trim() === '' ? null : projectName;
-    createProject(
-      text.trim(),
-      name,
-      attachmentIds,
-      repositoryIds,
-      model,
-      codexModel,
-      effort,
-      mode,
-      group?.id ?? null,
-    )
+    const created: Promise<ProjectCreated> =
+      target === null
+        ? createProject(
+            text.trim(),
+            name,
+            attachmentIds,
+            repositoryIds,
+            model,
+            codexModel,
+            effort,
+            mode,
+            group?.id ?? null,
+          )
+        : createRemoteProject(
+            target.hostId,
+            text.trim(),
+            name,
+            attachmentIds,
+            repositoryIds,
+            model,
+            codexModel,
+            effort,
+            mode,
+            group?.id ?? null,
+          );
+    created
       .then((created: ProjectCreated) => {
         // Die Dateien liegen jetzt im Workspace des Vorhabens.
         useAttachmentsStore.getState().clear(NEW_SESSION_KEY);
@@ -360,6 +404,64 @@ export function NewSession({ groups, onCreated, onCancel }: NewSessionProps): Re
         <h1 className="new-session__title">Neues Vorhaben</h1>
       </header>
       <form className="new-session__form" onSubmit={handleSubmit}>
+        {(createTargets.allowed.length > 0 || createTargets.denied.length > 0 || isTargetLost) && (
+          <section className="new-session__section new-session__target">
+            <div className="new-session__target-row">
+              <span className="new-session__target-label" id="new-session-target">
+                Anlegen auf
+              </span>
+              <div
+                className="new-session__target-choices"
+                role="radiogroup"
+                aria-labelledby="new-session-target"
+              >
+                {[null, ...createTargets.allowed].map(
+                  (host: RemoteHostStatus | null): ReactElement => {
+                    const isChosen: boolean =
+                      !isTargetLost && (host?.hostId ?? null) === (target?.hostId ?? null);
+                    return (
+                      <button
+                        key={host?.hostId ?? 'local'}
+                        type="button"
+                        role="radio"
+                        aria-checked={isChosen}
+                        className={`new-session__target-choice${isChosen ? ' new-session__target-choice--on' : ''}`}
+                        disabled={isStarting}
+                        onClick={(): void => {
+                          if (!isChosen) {
+                            setChosenHostId(host?.hostId ?? null);
+                            // Jede Seite hat ihre eigene Liste von Repositories.
+                            setRepositoryIds([]);
+                          }
+                        }}
+                      >
+                        {host?.hostName ?? THIS_COMPUTER}
+                      </button>
+                    );
+                  },
+                )}
+              </div>
+              {!isTargetLost && createTargets.denied.length > 0 && (
+                <span className="new-session__target-denied">
+                  {createTargets.denied.map((host: RemoteHostStatus) => host.hostName).join(', ')}{' '}
+                  erlaubt diesem Gerät keine neuen Vorhaben.
+                </span>
+              )}
+            </div>
+            {isTargetLost && (
+              <p className="new-session__note" role="alert">
+                {lostHostName} erlaubt diesem Gerät gerade keine neuen Vorhaben. Wähle „
+                {THIS_COMPUTER}“, um hier anzulegen.
+              </p>
+            )}
+            {target !== null && (
+              <p className="new-session__note">
+                Das Vorhaben entsteht auf {target.hostName} und wird von diesem Gerät gesteuert.
+                Repositories, Modelle und Betriebsart sind die des Hosts.
+              </p>
+            )}
+          </section>
+        )}
         <section className="new-session__section">
           <label className="new-session__heading" htmlFor="new-session-task">
             <span className="new-session__step">1</span>
@@ -445,7 +547,7 @@ export function NewSession({ groups, onCreated, onCancel }: NewSessionProps): Re
                 aria-expanded={openMenu === 'command'}
                 aria-label="Befehle und Skills"
                 title={isDictating ? COMMAND_TITLE_DICTATING : 'Befehle und Skills'}
-                disabled={isStarting || isFormOpen || isDictating}
+                disabled={isStarting || isFormOpen || isDictating || isRemote}
                 onClick={(): void => {
                   toggleMenu('command');
                 }}
@@ -491,7 +593,9 @@ export function NewSession({ groups, onCreated, onCancel }: NewSessionProps): Re
                     : DICTATION_HINT
                   : hasTemplates
                     ? BAR_HINT
-                    : 'Bilder und Dateien hineinziehen oder einfügen. Mit / startest du direkt mit einem Skill.'}
+                    : isRemote
+                      ? 'Bilder und Dateien hineinziehen oder einfügen. Skills des Hosts gibt es hier nicht.'
+                      : 'Bilder und Dateien hineinziehen oder einfügen. Mit / startest du direkt mit einem Skill.'}
               </span>
             </div>
             {commandMenu.isOpen && (
@@ -551,7 +655,24 @@ export function NewSession({ groups, onCreated, onCancel }: NewSessionProps): Re
               : 'Der erste Satz wird zum Namen des Vorhabens und seiner ersten Session (später per Rechtsklick änderbar), der ganze Text samt Anhängen zur ersten Nachricht an den Agenten.'}
           </p>
         </section>
-        <RepositoryPicker selectedIds={repositoryIds} onChange={setRepositoryIds} />
+        {isTargetLost ? (
+          <fieldset className="repository-picker">
+            <legend className="repository-picker__heading">
+              <span className="repository-picker__step">2</span>
+              Repositories
+            </legend>
+            <p className="repository-picker__empty">
+              Erst wieder wählbar, wenn {lostHostName} es erlaubt.
+            </p>
+          </fieldset>
+        ) : (
+          <RepositoryPicker
+            key={target?.hostId ?? 'local'}
+            selectedIds={repositoryIds}
+            onChange={setRepositoryIds}
+            host={target === null ? null : { id: target.hostId, name: target.hostName }}
+          />
+        )}
         <section className="new-session__section">
           <div className="new-session__heading">
             <span className="new-session__step">3</span>
@@ -560,7 +681,7 @@ export function NewSession({ groups, onCreated, onCancel }: NewSessionProps): Re
           <div className="new-session__pickers">
             {isLocal ? (
               <span className="new-session__model new-session__model--static">
-                LM Studio · {localModelLabel(localModel)}
+                LM Studio · {localLabel}
               </span>
             ) : (
               <div className="new-session__anchor">
@@ -673,7 +794,9 @@ export function NewSession({ groups, onCreated, onCancel }: NewSessionProps): Re
         </section>
         <div className="new-session__footer">
           <button type="submit" className="new-session__start" disabled={!canStart}>
-            Vorhaben starten
+            {target === null && !isTargetLost
+              ? 'Vorhaben starten'
+              : `Auf ${target?.hostName ?? lostHostName} anlegen`}
           </button>
           <button type="button" className="new-session__cancel" onClick={cancel}>
             Abbrechen
@@ -681,7 +804,7 @@ export function NewSession({ groups, onCreated, onCancel }: NewSessionProps): Re
           <span className="new-session__summary">
             {isStarting && repositoryIds.length > 0
               ? 'Session wird angelegt …'
-              : `${repositoryCountLabel(repositoryIds.length)} · ${isLocal ? localModelLabel(localModel) : modelText} · ${currentMode.label}${group === null ? '' : ` · ${group.name}`}`}
+              : `${repositoryCountLabel(isTargetLost ? 0 : repositoryIds.length)} · ${isLocal ? localLabel : modelText} · ${currentMode.label}${group === null ? '' : ` · ${group.name}`}`}
           </span>
         </div>
         {isFormOpen && (

@@ -68,6 +68,10 @@ pub struct SessionSummary {
     pub station_of: Option<String>,
     /// Umsetzung, zu der diese Session eine Rückfrage ist (ADR 048).
     pub inquiry_of: Option<String>,
+    /// Der Master-Compact mit Vorbereitung läuft; der Empfang ist gesperrt (ADR 070). Nur im Speicher.
+    #[serde(default)]
+    #[ts(optional)]
+    pub compact_phase: Option<CompactPhase>,
 }
 
 /// Begründung des Status `Paused` (ADR 051). Gelöscht bei jeder neuen Nachricht, jedem Status außer
@@ -142,6 +146,90 @@ pub struct AwaitedScript {
 pub enum SendOutcome {
     Sent,
     Queued,
+}
+
+/// Was `chat_discard_queued` mit einer wartenden eigenen Nachricht getan hat (Taiga-Story 218):
+/// verworfen, oder sie war schon beim Agenten.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub enum DiscardOutcome {
+    Discarded,
+    AlreadySent,
+}
+
+/// Worauf eine wartende Nachricht wartet (Taiga-Story 218, Taiga-Story 215).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub enum WaitsFor {
+    /// Ein freier Platz der Warteschlange (`position`).
+    Slot,
+    /// Das Ende des laufenden Zugs.
+    TurnEnd,
+    /// Die Antwort auf eine offene Rückfrage.
+    Answer,
+    /// Das Ende der Pause.
+    Paused,
+    /// Der erste Start einer neuen Session.
+    Start,
+    /// Das Ende des Compacts, auf den sich die Session vorbereitet (ADR 070, Nachtrag „Compact mit
+    /// Vorbereitung“).
+    Compact,
+}
+
+/// Wo der Master-Compact mit Vorbereitung steht (ADR 070, Nachtrag „Compact mit Vorbereitung“). Solange
+/// es eine Phase gibt, ist der Empfang der Session gesperrt: Alle Nachrichten warten in `session_inbox`.
+/// Nur im Speicher; `None` = kein Compact in Arbeit.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub enum CompactPhase {
+    /// Der Verwalter hat gebeten, sich vorzubereiten; die Session hat sich noch nicht gemeldet.
+    Preparing,
+    /// Der Zug endete ohne Meldung: die eine Erinnerung ist unterwegs oder läuft.
+    Reminded,
+    /// Gemeldet (oder vom Nutzer freigegeben): der Compact folgt, wenn der Zug endet und ein Platz frei ist.
+    Ready,
+    /// Der Compact-Zug läuft.
+    Compacting,
+}
+
+impl CompactPhase {
+    /// Die Session hat sich gemeldet oder der Nutzer hat freigegeben: Von hier an geht es nur noch
+    /// zum Compact.
+    pub fn is_after_report(self) -> bool {
+        matches!(self, CompactPhase::Ready | CompactPhase::Compacting)
+    }
+}
+
+/// Eine Zeile aus `session_inbox`, wie `inbox_list` sie zeigt (Taiga-Story 218). Der Absender einer
+/// eigenen Nachricht ist `user` (`from_user`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct WaitingMessage {
+    #[ts(type = "number")]
+    pub id: i64,
+    pub session_id: String,
+    pub recipient_number: u32,
+    pub recipient_title: String,
+    pub project_id: String,
+    pub sender_id: String,
+    pub sender_number: u32,
+    pub sender_title: String,
+    pub from_user: bool,
+    /// Betreff einer Nachricht, die über eine Referenz zugestellt wird.
+    #[serde(default)]
+    pub subject: Option<String>,
+    /// Der Text der Nachricht; der Chat des Empfängers zeigt ihn gestrichelt, bis sie zugestellt ist.
+    #[serde(default)]
+    pub text: String,
+    #[ts(type = "number")]
+    pub created_at: f64,
+    /// Der Eintrag im Chat einer eigenen Nachricht; fremde haben keinen.
+    #[serde(default)]
+    pub entry_seq: Option<u32>,
+    pub waits_for: WaitsFor,
+    /// Platz in der Warteschlange, nur bei `slot`.
+    #[serde(default)]
+    pub position: Option<u32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]

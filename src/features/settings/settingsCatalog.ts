@@ -125,7 +125,7 @@ const ENTRY_DATA = {
     category: 'agent',
     section: 'Agent',
     label: 'Master zusammenfassen ab … Tokens',
-    info: 'Eine ruhende Master-Session einer unfertigen Umsetzung, deren Kontext über dieser Grenze liegt, bekommt vom Verwalter /compact als eigenen Zug. Der Zug ist keine Eingabe: Dashboard und Ungelesen bleiben, im Chat steht nur „Verlauf zusammengefasst“. Erlaubt 50 000 bis 2 000 000, leer = Aus, Standard 150 000. Nur über die Claude-Kommandozeile (Claude, Claude Code + LM Studio); Autark fasst selbst zusammen. Gilt für die ganze App.',
+    info: 'Eine ruhende Master-Session einer unfertigen Umsetzung, deren Kontext über dieser Grenze liegt, wird vom Verwalter zuerst gebeten, sich vorzubereiten: Sie sichert ihren Stand und meldet sich mit verwalter_compact_ready zurück. Bis der Compact fertig ist, warten alle Nachrichten an sie (deine, die anderer Sessions, die des Verwalters) und gehen danach in ihrer Reihenfolge hinaus; „Jetzt zusammenfassen“ und „Compact abbrechen“ stehen über dem Eingabefeld. Meldet sie sich nicht, folgt eine Erinnerung, danach fasst der Verwalter trotzdem zusammen. Der Compact-Zug ist keine Eingabe: Dashboard und Ungelesen bleiben, im Chat steht nur „Verlauf zusammengefasst“. Erlaubt 50 000 bis 2 000 000, leer = Aus, Standard 150 000. Die Vorbereitung gibt es nur in der Betriebsart Claude; Claude Code + LM Studio bekommt wie bisher gleich /compact, Autark fasst selbst zusammen. Gilt für die ganze App.',
   },
   commandPrograms: {
     category: 'agent',
@@ -194,23 +194,11 @@ const ENTRY_DATA = {
     label: 'Selbstfreigabe für TL;DR',
     info: 'Ein Agent liest das TL;DR einer anderen Session des Vorhabens ohne Kasten.',
   },
-  selfReleaseOpenSession: {
-    category: 'agent',
-    section: 'Selbstfreigabe',
-    label: 'Selbstfreigabe für neue Sessions',
-    info: `Ein Agent öffnet neue Sessions im Vorhaben ohne Kasten. ${CHAIN_BRAKE_INFO}`,
-  },
   selfReleaseTldrModel: {
     category: 'agent',
     section: 'Selbstfreigabe',
     label: 'Modell des TL;DR',
     info: 'Mit diesem Modell entsteht das TL;DR, das ein Agent über das Session-Werkzeug abruft.',
-  },
-  answerModel: {
-    category: 'agent',
-    section: 'Dashboard',
-    label: 'Modell der Einordnung',
-    info: 'Am Ende eines Zugs ordnet dieses Modell die Textantwort einer Session ohne Station ein: fragt, bittet oder fertig, mit einem Einzeiler für die Karte im Dashboard. Ein Aufruf kostet unter 0,01 $ mit Haiku. „Aus“ lässt die Karte bei „Antwort liegt vor“, ebenso ein gescheiterter Aufruf. In LM Studio, Autark und Codex antwortet das lokale Modell. Gilt für die ganze App.',
   },
   userSkills: {
     category: 'skills',

@@ -6,6 +6,8 @@ import { AttachMenu } from '@/features/attachments/AttachMenu';
 import { AttachmentRow } from '@/features/attachments/AttachmentRow';
 import { useAttachmentInput } from '@/features/attachments/useAttachmentInput';
 import { CommandMenu } from '@/features/chat/CommandMenu';
+import { CompactHint } from '@/features/chat/CompactHint';
+import { compactPhaseOf } from '@/features/chat/compactTexts';
 import { QueuedHint } from '@/features/chat/QueuedHint';
 import { applySkillToDraft } from '@/features/chat/commandMenuRows';
 import type { CommandRow, SessionCommand } from '@/features/chat/commandMenuRows';
@@ -425,7 +427,11 @@ function ComposerForm({
       <SideWindow session={session} />
       <div className={boxClass}>
         {taskHint}
-        <QueuedHint sessionId={session.id} count={queuedCount} />
+        {compactPhaseOf(session) === null ? (
+          <QueuedHint sessionId={session.id} count={queuedCount} />
+        ) : (
+          <CompactHint session={session} />
+        )}
         <CacheColdHint session={session} onSessionCreated={onSessionCreated} />
         <ReviewCommentList sessionId={session.id} />
         {pending.length > 0 && (

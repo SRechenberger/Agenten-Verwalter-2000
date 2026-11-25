@@ -8,7 +8,7 @@
   &__badge {
     align-self: center;
     padding: 0 var(--space-md);
-    border-radius: var(--radius-full);
+    border-radius: var(--radius-flat);
     background: var(--color-accent);
     color: var(--color-fg-on-accent);
     font-size: var(--font-size-2xs);
@@ -40,9 +40,14 @@
     gap: var(--space-xs);
     padding: var(--space-md) var(--space-lg);
     border: 1px solid var(--color-border-subtle);
-    border-radius: var(--radius-lg);
+    border-radius: var(--radius-flat);
     background: var(--color-bg-base);
     font-size: var(--font-size-xs);
+  }
+
+  /* Segmentknöpfe und Marke „Standard“ im Vorschlag flach (#236); die Picker anderswo bleiben unberührt. */
+  & .segment-group {
+    border-radius: var(--radius-flat);
   }
 }
 
@@ -59,7 +64,7 @@
   box-sizing: border-box;
   padding: var(--space-md) var(--space-lg);
   border: 1px solid var(--color-border-subtle);
-  border-radius: var(--radius-md);
+  border-radius: 0;
   background: var(--color-bg-surface);
   color: var(--color-fg-secondary);
   font-family: var(--font-mono);
@@ -68,15 +73,15 @@
   word-break: break-all;
 }
 
-/* Der Vorschlag hebt sich ab (#132): getönter Grund, kräftiger Rahmen und, weil er nur als Karte vorn
-   steht, ein Fokusring. Zwei Klassen, denn `.station-card` setzt Rand und Grund sonst bei gleicher
+/* Der Vorschlag hebt sich ab (#132): Akzentlinie links auf transparentem Grund (flacher Stil) und, weil
+   er nur als Karte vorn steht, ein Fokusring. Zwei Klassen, denn `.station-card` setzt Rand und Grund sonst bei gleicher
    Spezifität zurück, je nach Reihenfolge der Stylesheets im Bundle. */
 .station-card.plan-change-card--proposal {
-  border: 1.5px solid var(--color-accent);
-  border-left-width: 5px;
-  background:
-    linear-gradient(var(--color-accent-subtle), var(--color-accent-subtle)), var(--color-bg-surface);
-  box-shadow: 0 0 0 3px var(--color-accent-subtle);
+  border: 0;
+  border-left: 2px solid var(--color-accent);
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
   outline: 2px solid var(--color-accent);
   outline-offset: 3px;
 

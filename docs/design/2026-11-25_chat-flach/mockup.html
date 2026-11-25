@@ -1,0 +1,408 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Chat im flachen Stil</title>
+<style>
+/* Gemeinsame Stile der Klick-Prototypen 0.78.0. Farben, Schriften und Maße aus src/styles/theme.css, Sidebar.css, UserMessage.css, Composer.css der App. */
+:root{color-scheme:dark;--bg:#1f1f1f;--side:#181818;--surf:#252526;--hover:#2e2e30;--sel:#37373d;--bds:#2b2b2b;--bd:#3c3c3c;--fg:#d4d4d4;--fg2:#b0b0b0;--fgm:#8f8f8f;--acc:#e0825c;--acct:#f0a888;--onacc:#1d130e;--accsub:rgba(224,130,92,.16);--run:#5b9dff;--wait:#f2b33d;--waitsub:rgba(242,179,61,.14);--err:#f47067;--errsub:rgba(244,112,103,.12);--ok:#4cc38a;--master:#8ab8ea;--shadow:0 10px 30px rgb(0 0 0/.45);--font:'Segoe UI Variable Text','Segoe UI',system-ui,sans-serif;--mono:'Cascadia Code','Cascadia Mono',Consolas,ui-monospace,monospace}
+:root[data-theme=light]{color-scheme:light;--bg:#fff;--side:#f8f8f8;--surf:#fff;--hover:#f0f0f0;--sel:#e4e6f1;--bds:#e5e5e5;--bd:#cecece;--fg:#3c3c3c;--fg2:#555;--fgm:#6e6e6e;--acc:#c4572f;--acct:#a8461f;--onacc:#fff;--accsub:rgba(196,87,47,.1);--run:#2563eb;--wait:#a86a00;--waitsub:rgba(168,106,0,.1);--err:#d23b33;--errsub:#fdeceb;--ok:#16803c;--master:#3d6fa8;--shadow:0 10px 30px rgb(0 0 0/.14)}
+*{box-sizing:border-box}
+body{margin:0;background:var(--side);color:var(--fg);font:13px/1.45 var(--font)}
+main{max-width:1480px;margin:0 auto;padding:16px}
+h1{font-size:15px;margin:0 0 4px}
+.lead{color:var(--fg2);margin:0 0 10px;max-width:1020px}
+button,input,select,textarea{font:inherit;color:inherit}
+code{font-family:var(--mono);font-size:12px}
+kbd{font-family:var(--mono);font-size:11px;padding:0 4px;border:1px solid var(--bd);border-bottom-width:2px;border-radius:4px;color:var(--fg2)}
+
+/* Simulationsleiste (nicht Teil der App) */
+#sim{display:flex;flex-wrap:wrap;gap:6px 8px;align-items:center;margin:0 0 8px;padding:8px 10px;border:1px dashed var(--bd);border-radius:6px;color:var(--fgm);font-size:12px}
+#sim button{border:1px solid var(--bd);background:transparent;border-radius:6px;padding:3px 10px;cursor:pointer}
+#sim button:hover{background:var(--hover)}
+#sim button[aria-pressed=true]{background:var(--sel);color:var(--fg)}
+#sim button:disabled{opacity:.4;cursor:default}
+#sim .sp{margin-left:10px}
+#sim .lbl{color:var(--fg2)}
+
+/* App-Fenster */
+.app{position:relative;display:flex;height:720px;border:1px solid var(--bd);border-radius:10px;overflow:hidden;background:var(--bg)}
+.side{width:256px;flex:none;background:var(--side);border-right:1px solid var(--bds);display:flex;flex-direction:column;min-height:0}
+.brand{display:flex;align-items:center;gap:8px;padding:14px 16px 10px;font-weight:600;font-size:13px}
+.newp{display:flex;align-items:center;gap:8px;margin:0 10px 10px;padding:4px 10px;border:1px solid var(--bd);border-radius:6px;background:transparent;cursor:pointer;text-align:left}
+.newp:hover{background:var(--hover)}
+.newp kbd{margin-left:auto;border:0;color:var(--fgm)}
+.tree{flex:1;overflow:auto;min-height:0;padding:0 10px 10px}
+.grp{display:flex;align-items:center;gap:6px;margin:12px 0 2px;padding:3px 6px;border-radius:6px;font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--fgm);cursor:default;user-select:none}
+.grp:hover{background:var(--hover)}
+.grp .n{margin-left:auto;font-variant-numeric:tabular-nums}
+.grp .rm{text-transform:none}
+.vrow{display:flex;gap:6px;padding:4px 6px;border-radius:6px;cursor:pointer;align-items:flex-start}
+.vrow:hover{background:var(--hover)}
+.vrow.sel{background:var(--sel)}
+.vrow .chev{width:12px;color:var(--fgm);flex:none;line-height:20px}
+.vrow .ic{width:14px;flex:none;line-height:20px;text-align:center}
+.vrow .tx{flex:1;min-width:0}
+.vrow .nm{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block}
+.vrow .meta{display:block;font-size:12px;color:var(--fgm);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.kids{margin-left:12px;padding-left:8px;border-left:1px solid var(--bds)}
+.srow{display:flex;align-items:center;gap:6px;padding:3px 6px;border-radius:6px;cursor:pointer;font-size:12.5px;color:var(--fg2);min-width:0}
+.srow:hover{background:var(--hover)}
+.srow.sel{background:var(--sel);color:var(--fg)}
+.srow .num{font-family:var(--mono);font-size:11px;color:var(--fgm);flex:none}
+.srow .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.srow .aux{font-size:11px;color:var(--fgm);white-space:nowrap;flex:none}
+.srow .aux.w{color:var(--wait)}
+.srow .mono{font-family:var(--mono);font-size:11px;color:var(--fgm)}
+.ok{color:var(--ok)}.wt{color:var(--wait)}.er{color:var(--err)}.mu{color:var(--fgm)}.ru{color:var(--run)}
+.rm{color:var(--acc);flex:none}
+.dia{color:var(--master);flex:none;font-size:11px}
+.udot{width:6px;height:6px;border-radius:50%;background:var(--acc);flex:none}
+.foot{border-top:1px solid var(--bds);padding:8px 10px;display:flex;flex-direction:column;gap:2px}
+.foot .nav{display:flex;align-items:center;gap:10px;padding:4px 8px;border-radius:6px;color:var(--fg2);cursor:pointer}
+.foot .nav:hover{background:var(--hover)}
+.foot .nav.sel{background:var(--sel);color:var(--fg)}
+.qbar{display:flex;align-items:center;gap:8px;padding:2px 6px 6px}
+.cells{display:flex;gap:2px;flex:1}
+.cells i{flex:1;height:4px;border-radius:2px;background:var(--bd)}
+.cells i.on{background:var(--run)}
+.cells i.over{background:var(--wait)}
+.qbar .t{font-family:var(--mono);font-size:11px;color:var(--fgm)}
+.qrow{display:flex;align-items:center;gap:6px;padding:0 6px 4px}
+.chip{display:inline-flex;align-items:center;gap:5px;padding:1px 8px;border:1px solid var(--bd);border-radius:99px;font-size:11.5px;background:transparent;white-space:nowrap;color:var(--fg2)}
+button.chip{cursor:pointer}
+button.chip:hover{background:var(--hover)}
+.chip.w{border-color:var(--wait);color:var(--wait);background:var(--waitsub)}
+.chip.a{border-color:var(--acc);color:var(--acct);background:var(--accsub)}
+.chip.m{border-color:var(--master);color:var(--master)}
+.chip.e{border-color:var(--err);color:var(--err);background:var(--errsub)}
+.pill{padding:0 6px;border-radius:99px;background:var(--acc);color:var(--onacc);font-size:10.5px;font-weight:700}
+
+/* Hauptbereich */
+.mainc{flex:1;display:flex;flex-direction:column;min-width:0;min-height:0;position:relative}
+.hdr{display:flex;align-items:center;gap:10px;height:48px;flex:none;padding:0 14px 0 20px;border-bottom:1px solid var(--bds)}
+.crumb{color:var(--fgm);white-space:nowrap}
+.crumb+.crumb::before{content:'›';margin-right:10px;color:var(--fgm)}
+.title{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.title .num{color:var(--fgm);font-weight:400;margin-right:6px;font-size:12px}
+.tabs{display:inline-flex;gap:2px;padding:2px;border:1px solid var(--bds);border-radius:8px;margin:0 auto}
+.tabs button{border:0;background:transparent;border-radius:6px;padding:3px 12px;cursor:pointer;color:var(--fg2)}
+.tabs button[aria-pressed=true]{background:var(--sel);color:var(--fg)}
+.hdr .right{display:flex;gap:6px;align-items:center;margin-left:auto}
+.body{flex:1;overflow:auto;min-height:0}
+
+/* Chat */
+.chat{max-width:960px;margin:0 auto;padding:18px 28px 12px;display:flex;flex-direction:column;gap:12px}
+.umsg{align-self:stretch;border:1px solid var(--bd);border-radius:8px;padding:9px 12px;background:var(--surf);white-space:pre-wrap;overflow-wrap:anywhere;position:relative}
+.umsg.queued{border-style:dashed;border-color:var(--wait)}
+.umsg.discarded{opacity:.55;border-style:dashed}
+.umsg.discarded .txt{text-decoration:line-through}
+.umsg .head{display:flex;align-items:center;gap:8px;margin:-2px 0 4px;font-size:11.5px;color:var(--fgm);white-space:normal}
+.umsg .head .sp{flex:1}
+.qmark{display:inline-flex;align-items:center;gap:4px;padding:0 7px;border-radius:99px;background:var(--waitsub);color:var(--wait);font-size:11px;font-weight:600}
+.dmark{display:inline-flex;align-items:center;gap:4px;padding:0 7px;border-radius:99px;background:var(--hover);color:var(--fgm);font-size:11px;font-weight:600}
+.amsg{white-space:pre-wrap;overflow-wrap:anywhere}
+.smsg .from{font-size:12px;color:var(--fg2);margin-bottom:3px}
+.smsg .from a{color:var(--acct);text-decoration:none;cursor:pointer}
+.smsg .subj{font-size:12px;color:var(--fgm);margin-bottom:4px}
+.note{align-self:center;font-size:11.5px;color:var(--fgm);padding:2px 10px;border:1px solid var(--bds);border-radius:99px}
+.note.e{color:var(--err);border-color:var(--err)}
+.tool{align-self:stretch;font-size:12px;color:var(--fgm);font-family:var(--mono);padding:4px 10px;border-left:2px solid var(--bd)}
+.tool b{color:var(--fg2);font-weight:600}
+.tool.err{border-left-color:var(--err)}
+.compwrap{flex:none;padding:0 28px 14px;max-width:1016px;width:100%;margin:0 auto}
+.hintbar{display:flex;align-items:center;gap:10px;padding:6px 10px 6px 12px;border:1px solid var(--wait);border-bottom:0;border-radius:10px 10px 0 0;background:var(--waitsub);font-size:12.5px}
+.hintbar .sp{flex:1}
+.hintbar+.comp{border-top-left-radius:0;border-top-right-radius:0}
+.comp{border:1px solid var(--bd);border-radius:10px;background:var(--surf)}
+.comp textarea{display:block;width:100%;min-height:46px;max-height:140px;resize:none;border:0;background:transparent;padding:10px 14px 4px;outline:none}
+.comp .row{display:flex;align-items:center;gap:10px;padding:4px 8px 8px 10px;color:var(--fgm);font-size:12px}
+.comp .row .sp{flex:1}
+.send{width:30px;height:30px;border:0;border-radius:6px;background:var(--acc);color:var(--onacc);cursor:pointer;font-weight:700}
+.send:disabled{opacity:.45;cursor:default}
+
+/* Bedienelemente */
+.btn{border:1px solid var(--bd);background:transparent;border-radius:6px;padding:3px 10px;cursor:pointer;font-size:12px;white-space:nowrap}
+.btn:hover:not(:disabled){background:var(--hover)}
+.btn:disabled{opacity:.45;cursor:default}
+.btn.pri{background:var(--acc);border-color:var(--acc);color:var(--onacc);font-weight:600}
+.btn.pri:hover:not(:disabled){background:var(--acc);filter:brightness(1.08)}
+.btn.dng{border-color:var(--err);color:var(--err)}
+.btn.sm{padding:1px 7px;font-size:11.5px}
+.link{border:0;background:none;color:var(--acct);cursor:pointer;padding:0;font-size:12px}
+.link:disabled{color:var(--fgm);cursor:default}
+.sw{position:relative;width:34px;height:20px;border-radius:99px;border:0;background:var(--bd);cursor:pointer;flex:none;padding:0}
+.sw::after{content:'';position:absolute;left:3px;top:3px;width:14px;height:14px;border-radius:50%;background:#fff;transition:left .12s}
+.sw[aria-checked=true]{background:var(--acc)}
+.sw[aria-checked=true]::after{left:17px}
+.sw:disabled{opacity:.5;cursor:default}
+select.sel,input.inp{padding:4px 8px;border:1px solid var(--bd);border-radius:6px;background:var(--bg)}
+.lbl{font-size:10.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--fgm);margin:0}
+.muted{color:var(--fgm)}
+.small{font-size:12px}
+
+/* Übersicht und Karten */
+.ov{max-width:740px;margin:0 auto;padding:22px 20px;display:flex;flex-direction:column;gap:14px}
+.card{border:1px solid var(--bds);border-radius:8px;background:var(--surf);padding:12px 14px;display:flex;flex-direction:column;gap:8px}
+.card.new{outline:1.5px dashed var(--acc);outline-offset:3px}
+.line{display:flex;align-items:center;gap:12px}
+.line .tx{flex:1;min-width:0}
+.line .tx .s{display:block;font-size:12px;color:var(--fgm)}
+
+/* Menü, Popover, Dialog, Meldung */
+.menu{position:absolute;z-index:20;min-width:220px;padding:4px;border:1px solid var(--bd);border-radius:8px;background:var(--surf);box-shadow:var(--shadow)}
+.menu button{display:flex;width:100%;align-items:center;gap:8px;padding:5px 10px;border:0;border-radius:5px;background:transparent;text-align:left;cursor:pointer;font-size:12.5px}
+.menu button:hover:not(:disabled){background:var(--hover)}
+.menu button:disabled{color:var(--fgm);cursor:default}
+.menu hr{border:0;border-top:1px solid var(--bds);margin:4px 0}
+.menu .hint{padding:4px 10px;font-size:11.5px;color:var(--fgm);max-width:260px}
+.pop{position:absolute;z-index:15;border:1px solid var(--bd);border-radius:10px;background:var(--surf);box-shadow:var(--shadow);display:flex;flex-direction:column;min-height:0}
+.backdrop{position:absolute;inset:0;z-index:30;background:rgb(0 0 0/.45);display:flex;align-items:center;justify-content:center}
+.dlg{width:440px;max-width:calc(100% - 32px);border:1px solid var(--bd);border-radius:10px;background:var(--surf);box-shadow:var(--shadow);padding:16px 18px;display:flex;flex-direction:column;gap:10px}
+.dlg h3{margin:0;font-size:14px}
+.dlg .acts{display:flex;justify-content:flex-end;gap:8px;margin-top:4px}
+.chk{display:inline-flex;align-items:center;gap:6px;font-size:12.5px}
+.chk input{accent-color:var(--acc)}
+.toast{position:absolute;left:50%;bottom:16px;transform:translateX(-50%);display:flex;gap:14px;align-items:center;padding:7px 14px;border:1px solid var(--bd);border-radius:8px;background:var(--surf);box-shadow:var(--shadow);font-size:12.5px;z-index:40;white-space:nowrap}
+.newmark{outline:1.5px dashed var(--acc);outline-offset:2px;border-radius:6px}
+
+/* Erläuterungen unter dem Fenster */
+.doc{margin-top:22px;display:grid;grid-template-columns:1fr 1fr;gap:10px 34px;color:var(--fg2)}
+.doc h2{font-size:13.5px;color:var(--fg);margin:14px 0 4px}
+.doc ul,.doc ol{margin:0;padding-left:20px}
+.doc li{margin:3px 0}
+.doc b{color:var(--fg)}
+.rec{grid-column:1/-1;padding:10px 14px;border:1px solid var(--ok);border-radius:8px;background:color-mix(in srgb,var(--ok) 10%,transparent)}
+.rec h2{margin-top:0}
+.ask{grid-column:1/-1;padding:10px 14px;border:1px solid var(--wait);border-radius:8px;background:var(--waitsub)}
+.ask h2{margin-top:0}
+@media (max-width:1100px){.app .side{display:none}}
+@media (max-width:860px){.doc{grid-template-columns:1fr}}
+
+</style>
+<style>
+.app{height:760px}
+.chat{gap:14px}
+/* ---------- Heute: Kästen mit runden Ecken (Maße aus UserMessage.css, QuestionBlock.css, SessionToolBlock.css, ErrorBlock.css, ChatTasks.css, ToolGroup.css, CodeBlock.css) ---------- */
+.code{font-family:var(--mono);font-size:12px;white-space:pre;overflow:auto;padding:8px 12px;border:1px solid var(--bds);border-radius:6px;background:var(--bg);color:var(--fg2)}
+.code .kw{color:#569cd6}.code .st{color:#ce9178}.code .cm{color:#6a9955}
+:root[data-theme=light] .code .kw{color:#0000ff}:root[data-theme=light] .code .st{color:#a31515}:root[data-theme=light] .code .cm{color:#008000}
+.icode{font-family:var(--mono);font-size:12px;padding:0 4px;border-radius:4px;background:var(--hover)}
+.tg{display:flex;align-items:center;gap:8px;border:0;background:transparent;padding:0;cursor:pointer;color:var(--fgm);font-size:12px;text-align:left}
+.tg .pip{display:inline-flex;gap:3px}
+.tg .pip i{width:7px;height:7px;border-radius:99px;background:var(--ok)}
+.tg .sum{padding:1px 9px;border:1px solid var(--bds);border-radius:99px}
+.tds{display:flex;flex-direction:column;gap:4px;margin-top:6px}
+.td{display:flex;gap:10px;align-items:baseline;padding:5px 10px;border:1px solid var(--bds);border-radius:6px;background:var(--bg);font-family:var(--mono);font-size:12px;color:var(--fg2)}
+.td b{color:var(--fg);font-weight:600}
+.td .r{margin-left:auto;color:var(--fgm)}
+.qb{display:flex;flex-direction:column;gap:10px;padding:14px;border:1px solid var(--wait);border-radius:8px;background:var(--surf)}
+.qb.done{border-color:var(--bd)}
+.qb .h{display:flex;align-items:center;gap:8px;color:var(--wait);font-size:12px;font-weight:600}
+.qb.done .h{color:var(--fgm)}
+.qb .hd{padding:0 8px;border-radius:99px;background:var(--hover);color:var(--fg2);font-size:11px;font-weight:600}
+.qo{display:flex;gap:10px;align-items:flex-start;width:100%;text-align:left;padding:8px 12px;border:1px solid var(--bd);border-radius:6px;background:var(--bg);cursor:pointer}
+.qo:hover{border-color:var(--wait)}
+.qo[aria-pressed=true]{border-color:var(--wait);background:var(--waitsub)}
+.qo .rd{width:12px;height:12px;border-radius:50%;border:1.5px solid var(--fgm);flex:none;margin-top:3px}
+.qo[aria-pressed=true] .rd{border-color:var(--wait);background:var(--wait);box-shadow:inset 0 0 0 2px var(--bg)}
+.qo .s{display:block;font-size:12px;color:var(--fgm)}
+.qb textarea{width:100%;min-height:46px;padding:6px 8px;border:1px solid var(--bd);border-radius:6px;background:var(--bg);resize:vertical}
+.qa{display:grid;grid-template-columns:auto 1fr;gap:2px 12px;font-size:12.5px}
+.qa .a{color:var(--fg)}
+.pb{display:flex;flex-direction:column;gap:8px;padding:12px 14px;border:1px solid var(--acc);border-radius:8px;background:var(--surf)}
+.pb .h{color:var(--acct);font-size:12px;font-weight:600}
+.diff{font-family:var(--mono);font-size:12px;white-space:pre-wrap;border:1px solid var(--bds);border-radius:6px;padding:6px 8px;background:var(--bg)}
+.diff .m{color:var(--err)}.diff .p{color:var(--ok)}.diff .c{color:var(--fgm)}
+.eb{display:flex;flex-direction:column;gap:8px;padding:12px 14px;border:1px solid var(--err);border-radius:8px;background:var(--surf)}
+.eb .h{color:var(--err);font-weight:600;font-size:12.5px}
+.eb pre{margin:0;font-family:var(--mono);font-size:12px;padding:6px 8px;border:1px solid var(--bd);border-radius:6px;white-space:pre-wrap;color:var(--fg2)}
+.todo{display:flex;flex-direction:column;gap:3px;font-size:12.5px}
+.todo .t{display:flex;gap:8px;align-items:center}
+.todo .ck{padding:0 7px;border-radius:99px;border:1px solid var(--bd);font-size:10.5px;color:var(--fgm)}
+.todo .ck.ok{border-color:var(--ok);color:var(--ok)}
+.todo .ck.ru{border-color:var(--run);color:var(--run)}
+.tasks{display:flex;flex-direction:column;gap:0;margin-bottom:8px}
+.task{display:flex;align-items:center;gap:10px;padding:7px 12px;border:1px solid var(--wait);border-left-width:3px;border-radius:8px;background:var(--surf);font-size:12.5px}
+.task .k{color:var(--wait);font-weight:600}
+.task .sp{flex:1}
+.ab{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.ab .sp{flex:1}
+.lb2{font-size:10.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--fgm)}
+
+/* ---------- Neu: flach (Regel F1–F6) ---------- */
+.flat .umsg{border:0;border-left:2px solid var(--bd);border-radius:0;background:transparent;padding:2px 0 2px 14px}
+.flat .umsg.queued{border-left:2px dashed var(--wait)}
+.flat .smsg .umsg{border-left-color:var(--master)}
+.flat .qmark,.flat .dmark,.flat .chip,.flat .qb .hd,.flat .todo .ck,.flat .tg .sum,.flat .icode{border-radius:2px}
+.flat .code,.flat .diff,.flat .td,.flat .eb pre{border-radius:0}
+.flat .tds{gap:0;margin-top:4px;border-top:1px solid var(--bds)}
+.flat .td{border:0;border-bottom:1px solid var(--bds);background:transparent;padding:5px 6px}
+.flat .qb,.flat .pb,.flat .eb{border:0;border-left:2px solid var(--wait);border-radius:0;background:transparent;padding:2px 0 2px 14px}
+.flat .qb.done{border-left-color:var(--bd)}
+.flat .pb{border-left-color:var(--acc)}
+.flat .eb{border-left-color:var(--err)}
+.flat .qos{display:flex;flex-direction:column;border-top:1px solid var(--bds)}
+.flat .qo{border:0;border-bottom:1px solid var(--bds);border-radius:0;background:transparent;padding:8px 6px}
+.flat .qo:hover{background:var(--hover)}
+.flat .qo[aria-pressed=true]{background:var(--waitsub)}
+.flat .qb textarea{border-radius:0;border-color:var(--bds)}
+.flat .btn{border-radius:2px}
+.flat .tasks{border-top:1px solid var(--bds)}
+.flat .task{border:0;border-bottom:1px solid var(--bds);border-left:2px solid var(--wait);border-radius:0;background:transparent}
+.flat .comp{border-radius:2px}
+.flat .send{border-radius:2px}
+.flat .note{border-radius:0;border:0;padding:0}
+.flat .note::before,.flat .note::after{content:'—';margin:0 8px;color:var(--bd)}
+.qos{display:flex;flex-direction:column;gap:6px}
+</style>
+</head>
+<body>
+<main>
+<h1>Chat im flachen Stil · Klick-Prototyp (Taiga, neue Story unter 0.78.0)</h1>
+<p class="lead">Stand 2026-11-24. Der flache Stil aus dem aufgeklappten Postfach gilt <b>immer</b> im Chat: keine runden Kästen; Abschnitte trennt eine Linie links in der Farbe ihrer Art; Listen (Optionen, Werkzeuge, Karten) sind Zeilen mit Haarlinien; Code, Diffs und Eingabefelder sind eckig; Knöpfe und Marken haben 2 px Rundung; nur Punkte bleiben rund. Oben schaltest du zwischen <b>Heute</b> und <b>Neu</b>. Alles ist klickbar: Werkzeuge aufklappen, Rückfrage beantworten, Vorschlag übernehmen, Nachricht senden. Die gestrichelte Leiste ist Simulation.</p>
+<div id="sim">
+  <span>Farbschema</span><button data-theme-btn="dark">Dunkel</button><button data-theme-btn="light">Hell</button>
+  <span class="sp lbl">Stil</span><button data-style="round">Heute (rund)</button><button data-style="flat">Neu (flach)</button>
+  <span class="sp"></span><button data-sim="reset">Zurücksetzen</button>
+</div>
+<div class="app" id="app"></div>
+<div class="doc">
+  <div class="rec">
+    <h2>Regel (Nutzer, 2026-11-24: „Wende diesen Stil auch auf den Chat an. Immer.“)</h2>
+    <ol>
+      <li><b>F1</b> Kein Eintrag im Chat ist ein Kasten mit runden Ecken und eigener Fläche. Ein Abschnitt hat eine 2-px-Linie links: Nutzer neutral, Session-Nachricht in der Farbe des Masters, Rückfrage in der Wartefarbe, Vorschlag in der Akzentfarbe, Fehler rot.</li>
+      <li><b>F2</b> Listen sind Zeilen mit Haarlinien wie die Liste des Postfachs: Optionen einer Rückfrage, Werkzeug-Details, die Karten über dem Eingabefeld.</li>
+      <li><b>F3</b> Code, Diffs, Fehlertexte und Eingabefelder sind eckig mit Haarlinie.</li>
+      <li><b>F4</b> Knöpfe, Marken und Chips haben 2 px Rundung; Punkte (Status, Auswahl) bleiben rund.</li>
+      <li><b>F5</b> Gilt ohne Schalter und Einstellung, in hell und dunkel, für jede Art von Eintrag; dieselben Bausteine im Postfach (Lesebereich und aufgeklappte Zeilen) folgen derselben Regel.</li>
+    </ol>
+  </div>
+  <div class="ask">
+    <h2>Zur Entscheidung (Empfehlung so gebaut)</h2>
+    <ol>
+      <li><b>F6 Eingabefeld:</b> behält seinen Rahmen (es ist ein Feld, kein Eintrag), aber mit 2 px statt 10 px Rundung.</li>
+      <li><b>F7 Lesebereich des Postfachs:</b> wird ebenfalls flach, weil er dieselben Bausteine nutzt; im Prototyp „Postfach Runde 2“ so nachgezogen.</li>
+      <li><b>F8 Umfang:</b> der Chat-Verlauf mit allen Einträgen, die Karten und Hinweise über dem Eingabefeld und das Eingabefeld. Menüs, Dialoge und Popover außerhalb des Chats bleiben, wie sie sind.</li>
+    </ol>
+  </div>
+</div>
+</main>
+<script>
+// Gemeinsame Helfer der Klick-Prototypen 0.78.0: Auswahl, Escaping, Farbschema, Meldung, Menü schließen.
+'use strict';
+const $ = s => document.querySelector(s);
+const $$ = s => [...document.querySelectorAll(s)];
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const ago = m => m < 1 ? 'gerade' : m < 60 ? `${m} min` : m < 1440 ? `${Math.floor(m / 60)} h` : `${Math.floor(m / 1440)} d`;
+
+// Farbschema aus der Sprungmarke #theme=light, umschaltbar über [data-theme-btn]
+const Proto = {
+  theme: /theme=light/.test(location.hash) ? 'light' : 'dark',
+  applyTheme() {
+    document.documentElement.dataset.theme = this.theme;
+    $$('[data-theme-btn]').forEach(b => b.setAttribute('aria-pressed', b.dataset.themeBtn === this.theme));
+  },
+  toastTimer: 0,
+  toast(text, undo) {
+    clearTimeout(this.toastTimer);
+    $('.toast')?.remove();
+    const t = document.createElement('div');
+    t.className = 'toast';
+    t.innerHTML = `<span>${esc(text)}</span>${undo ? '<button class="link" data-toast-undo>Rückgängig</button>' : ''}`;
+    t._undo = undo;
+    ($('#app') || document.body).appendChild(t);
+    this.toastTimer = setTimeout(() => t.remove(), 6000);
+  },
+};
+document.addEventListener('click', ev => {
+  const tb = ev.target.closest('[data-theme-btn]');
+  if (tb) { Proto.theme = tb.dataset.themeBtn; history.replaceState(null, '', `#theme=${Proto.theme}`); Proto.applyTheme(); return; }
+  const u = ev.target.closest('[data-toast-undo]');
+  if (u) { const t = u.closest('.toast'); t._undo?.(); t.remove(); }
+}, true);
+Proto.applyTheme();
+
+</script>
+<script>
+'use strict';
+let S;
+function reset(){ S = {style:S?.style||'flat', tools:false, pick:null, answered:false, full:false, proposal:'open', draft:'', sent:[]}; }
+
+function chatHTML(){
+  const q = S.answered
+    ? `<div class="qb done"><div class="h">✓ Claude hat gefragt <span class="hd">Ablage</span></div>
+        <div class="qa"><span class="muted">Frage</span><span>Wo sollen die Prompt-Vorlagen liegen?</span><span class="muted">Antwort</span><span class="a">${esc(S.pick)}</span></div>
+        ${S.full?`<div class="qos">${OPTS.map(o=>`<div class="qo" aria-pressed="${o[0]===S.pick}"><span class="rd"></span><span>${esc(o[0])}<span class="s">${esc(o[1])}</span></span></div>`).join('')}</div>`:''}
+        <div class="ab"><button class="link" data-act="full">${S.full?'Weniger zeigen':'Ganze Rückfrage zeigen'}</button></div></div>`
+    : `<div class="qb"><div class="h">? Claude fragt <span class="hd">Ablage</span></div><div>Wo sollen die Prompt-Vorlagen liegen?</div>
+        <div class="qos">${OPTS.map(o=>`<button class="qo" data-pick="${esc(o[0])}" aria-pressed="${S.pick===o[0]}"><span class="rd"></span><span>${esc(o[0])}<span class="s">${esc(o[1])}</span></span></button>`).join('')}</div>
+        <textarea placeholder="Oder eigene Antwort …"></textarea>
+        <div class="ab"><button class="btn pri" data-act="answer" ${S.pick?'':'disabled'}>Antworten</button><span class="sp"></span><span class="muted small">1–3 wählt eine Option</span></div></div>`;
+  const prop = S.proposal==='open'
+    ? `<div class="pb"><div class="h">Vorschlag · Vorlage „Bugfix mit Ticket“ ändern</div><div class="diff"><div class="c">  Arbeite am Ticket {{ticket}}.</div><div class="m">- Lies zuerst das Ticket.</div><div class="p">+ Lies zuerst das Ticket und seine Kommentare.</div></div>
+        <div class="ab"><button class="btn pri" data-act="prop" data-v="Übernommen">Übernehmen</button><button class="btn" data-act="toast" data-msg="Öffnet „Vorschlag bearbeiten“">Bearbeiten …</button><button class="btn" data-act="prop" data-v="Verworfen">Verwerfen</button></div></div>`
+    : `<div class="pb" style="opacity:.75"><div class="h">Vorschlag · Vorlage „Bugfix mit Ticket“ ändern · ${esc(S.proposal)}</div></div>`;
+  return `
+    <div class="umsg">Plane Schritt 3 der Story #140: Agententypen und Prompt-Vorlagen ziehen in den Vault. Prüf vorher, wo die Skills heute liegen.</div>
+    <div>
+      <button class="tg" data-act="tools"><span>${S.tools?'▾':'▸'}</span><span class="pip"><i></i><i></i><i></i></span><span class="sum">3 Werkzeuge · Read, Grep, Bash</span></button>
+      ${S.tools?`<div class="tds"><div class="td"><b>Read</b>agentic/skills/architect-workflow/SKILL.md<span class="r">480 Zeilen</span></div><div class="td"><b>Grep</b>"prompt-templates" in agentic/<span class="r">0 Treffer</span></div><div class="td"><b>Bash</b>ls agentic/<span class="r">agents  skills</span></div></div>`:''}
+    </div>
+    <div class="amsg">Die Skills liegen unter <span class="icode">agentic/skills/</span>, einen Ort für Vorlagen gibt es noch nicht. Die Agententypen kommen nach E1 in einen eigenen Ordner:</div>
+    <div class="code"><span class="cm"># agentic/agents/reviewer.md</span>
+<span class="kw">name</span>: reviewer
+<span class="kw">model</span>: <span class="st">opus</span>
+<span class="kw">skills</span>: [<span class="st">vault:role-code-reviewer</span>]</div>
+    <div class="todo"><div class="t"><span class="ck ok">erledigt</span>Skills und Agententypen finden</div><div class="t"><span class="ck ru">läuft</span>Ort der Vorlagen klären</div><div class="t"><span class="ck">offen</span>Plan schreiben</div></div>
+    <div class="smsg"><div class="from">Von <a>Session 38 „Vorlagen pflegen“</a></div><div class="subj">Betreff: Vorlage geändert</div><div class="umsg">Ich habe „Bugfix mit Ticket“ angepasst und einen Vorschlag an den Verwalter geschickt.</div></div>
+    ${prop}
+    ${q}
+    <div class="eb"><div class="h">Prozess beendet (Exit 137)</div><pre>claude: Prozess beendet (Exit 137)
+letzter Befehl: cargo test --workspace</pre><div class="ab"><button class="btn pri" data-act="toast" data-msg="Agent neu gestartet">Agent neu starten</button><button class="btn" data-act="toast" data-msg="Als erledigt markiert">Als erledigt markieren</button></div></div>
+    <div class="note">Kontext zusammengefasst (vom Verwalter) · 162 000 → 21 000 Tokens</div>
+    <div class="umsg queued"><div class="head"><span class="qmark">⏱ wartet · Platz 2</span></div>Und nimm die Agententypen gleich mit in den Plan.</div>
+    ${S.sent.map(t=>`<div class="umsg">${esc(t)}</div><div class="amsg">Verstanden.</div>`).join('')}`;
+}
+const OPTS = [['agentic/prompt-templates/ (Empfohlen)','neben agents/ und skills/'],['_meta/prompt-templates/','bei den Konventionen des Vaults'],['projects/<slug>/prompt-templates/','je Projekt getrennt']];
+function render(){
+  $$('[data-style]').forEach(b=>b.setAttribute('aria-pressed', b.dataset.style===S.style));
+  const app = $('#app'); app.classList.toggle('flat', S.style==='flat');
+  const sc = $('[data-scroll=chat]')?.scrollTop, keep=document.activeElement?.dataset?.keep;
+  app.querySelectorAll(':scope > :not(.toast)').forEach(n=>n.remove());
+  app.insertAdjacentHTML('afterbegin', `<aside class="side"><div class="brand">⧉ Agenten Verwalter 2000</div><button class="newp">＋ Neues Vorhaben <kbd>Ctrl N</kbd></button>
+    <div class="tree"><div class="grp">⌄ Arbeit <span class="n">1</span></div><div class="vrow sel"><span class="chev">⌄</span><span class="ic wt">?</span><span class="tx"><span class="nm">dev-vault</span><span class="meta">2 Sessions · #41 fragt</span></span></div>
+    <div class="kids"><div class="srow sel"><span class="wt">?</span><span class="num">#41</span><span class="nm">Vault-Werkzeuge planen</span><span class="aux w">✉ Platz 2</span></div><div class="srow"><span class="ru">◌</span><span class="num">#38</span><span class="nm">Vorlagen pflegen</span></div></div></div>
+    <div class="foot"><div class="nav">◔ Kontingent</div><div class="nav">▤ Archiv</div><div class="nav">⚙ Einstellungen</div></div></aside>
+    <section class="mainc"><div class="hdr"><span class="crumb">dev-vault</span><span class="title"><span class="num">#41</span>Vault-Werkzeuge planen</span><span class="tabs"><button aria-pressed="true">Chat</button><button>Changes</button></span><span class="right"><span class="chip">Kontext 21 k</span><button class="chip">&gt;_</button></span></div>
+    <div class="body" data-scroll="chat"><div class="chat">${chatHTML()}</div></div>
+    <div class="compwrap"><div class="tasks">${S.answered?'':`<div class="task"><span class="k">Rückfrage</span><span>Wo sollen die Prompt-Vorlagen liegen?</span><span class="sp"></span><button class="link" data-act="jump">Zur Stelle</button></div>`}${S.proposal==='open'?`<div class="task" style="--wait:var(--acc);border-left-color:var(--acc)"><span class="k" style="color:var(--acct)">Vorschlag</span><span>Vorlage „Bugfix mit Ticket“ ändern</span><span class="sp"></span><button class="link" data-act="jump">Zur Stelle</button></div>`:''}</div>
+      <div class="comp"><textarea data-keep="draft" placeholder="Nachricht an Claude … (/ für Skills)">${esc(S.draft)}</textarea><div class="row"><span>＋</span><span>⌘</span><span style="color:var(--fg)">Opus 5.5</span><span>Hoch</span><span class="sp"></span><span>ϟ Auto</span><button class="send" data-act="send" ${S.draft.trim()?'':'disabled'}>↑</button></div></div></div></section>`);
+  const c=$('[data-scroll=chat]'); if(c) c.scrollTop = sc ?? c.scrollHeight;
+  if(keep){ const t=$('[data-keep=draft]'); t.focus(); t.setSelectionRange(t.value.length,t.value.length); }
+}
+document.addEventListener('click', ev=>{
+  const st=ev.target.closest('[data-style]'); if(st){ S.style=st.dataset.style; return render(); }
+  if(ev.target.closest('[data-sim=reset]')){ reset(); return render(); }
+  const pk=ev.target.closest('[data-pick]'); if(pk){ S.pick=pk.dataset.pick; return render(); }
+  const a=ev.target.closest('[data-act]'); if(!a) return;
+  switch(a.dataset.act){
+    case 'tools': S.tools=!S.tools; render(); break;
+    case 'answer': S.answered=true; render(); Proto.toast(`Antwort gesendet: ${S.pick}`); break;
+    case 'full': S.full=!S.full; render(); break;
+    case 'prop': S.proposal=a.dataset.v; render(); Proto.toast(`Vorschlag ${a.dataset.v.toLowerCase()}`); break;
+    case 'jump': $('.qb, .pb')?.scrollIntoView({block:'center'}); break;
+    case 'toast': Proto.toast(a.dataset.msg); break;
+    case 'send': { const t=S.draft.trim(); if(!t) return; S.draft=''; S.sent.push(t); render(); break; }
+  }
+});
+document.addEventListener('keydown', ev=>{
+  if(ev.target.dataset?.keep==='draft'){ if(ev.key==='Enter' && !ev.shiftKey){ ev.preventDefault(); $('[data-act=send]').click(); } return; }
+  if(!S.answered && /^[1-3]$/.test(ev.key)){ S.pick=OPTS[+ev.key-1][0]; render(); }
+});
+document.addEventListener('input', ev=>{ if(ev.target.dataset.keep==='draft'){ S.draft=ev.target.value; $('[data-act=send]').disabled=!S.draft.trim(); } });
+reset(); render();
+</script>
+</body>
+</html>

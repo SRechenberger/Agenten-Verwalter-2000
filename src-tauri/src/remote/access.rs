@@ -68,7 +68,7 @@ const TABLE: &[(Class, Option<IdKind>, &[&str])] = &[
     (
         Class::HostRead,
         Some(IdKind::Project),
-        &["terminal_list", "tldr_project_load"],
+        &["dashboard_seen", "terminal_list", "tldr_project_load"],
     ),
     (
         Class::HostRead,
@@ -92,8 +92,12 @@ const TABLE: &[(Class, Option<IdKind>, &[&str])] = &[
             "background_stop",
             "chat_send",
             "chat_send_now",
+            "chat_discard_queued",
+            "chat_compact_now",
+            "chat_compact_abort",
             "chat_answer",
             "dashboard_dismiss",
+            "dashboard_undismiss",
             "agent_type_proposal_answer",
             "prompt_template_proposal_answer",
             "git_commit",
@@ -210,6 +214,18 @@ const TABLE: &[(Class, Option<IdKind>, &[&str])] = &[
         &["project_set_group", "remote_share_set"],
     ),
     (
+        // Die Gruppe ist keine Vorhaben-ID: Der Host entscheidet allein, ein Gast gibt nichts frei.
+        Class::NeverGuestOpen,
+        None,
+        &["remote_group_share_set"],
+    ),
+    (
+        // Das Recht eines Geräts, Vorhaben anzulegen, ist Steuerrecht: nur der Host entscheidet.
+        Class::NeverGuestOpen,
+        None,
+        &["remote_device_set_create"],
+    ),
+    (
         Class::Reachable,
         None,
         &[
@@ -225,6 +241,7 @@ const TABLE: &[(Class, Option<IdKind>, &[&str])] = &[
             "session_overlaps",
             "dashboard_get",
             "agent_queue",
+            "inbox_list",
         ],
     ),
     (
@@ -262,6 +279,8 @@ const TABLE: &[(Class, Option<IdKind>, &[&str])] = &[
             "project_group_rename",
             "project_group_delete",
             "project_group_set_collapsed",
+            "remote_group_share_list",
+            "remote_own_share_list",
             "skill_list_for_repositories",
             "attachment_add_files",
             "attachment_discard",
@@ -287,6 +306,10 @@ const TABLE: &[(Class, Option<IdKind>, &[&str])] = &[
             "remote_usage_load",
             "remote_usage_refresh",
             "remote_agent_queue",
+            // Am Gast lokal; der Host beantwortet die Namen vor der Prüfung, nach dem Recht des Geräts.
+            "remote_repository_list",
+            "remote_project_create",
+            "remote_inbox_list",
             "remote_asset_base",
         ],
     ),

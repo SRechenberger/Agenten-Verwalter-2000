@@ -1,6 +1,9 @@
 import { useState } from 'react';
 import type { ReactElement } from 'react';
-import { EndShareDialog } from '@/features/remote/EndShareDialog';
+import { EndShareDialog, GroupEndDialog } from '@/features/remote/EndShareDialog';
+import { useViaGroup } from '@/features/remote/useProjectAccess';
+import type { ProjectSummary } from '@/lib/bindings/ProjectSummary';
+import { useProjectAccessStore } from '@/stores/projectAccess';
 import type { DeviceRef } from '@/lib/bindings/DeviceRef';
 
 interface EndShareButtonProps {
@@ -10,7 +13,8 @@ interface EndShareButtonProps {
   className: string;
 }
 
-/** Der Knopf „Freigabe beenden“ samt seinem Dialog; `className` gibt der Stelle ihre Form. */
+/** Der Knopf „Freigabe beenden“ samt seinem Dialog; `className` gibt der Stelle ihre Form. Gibt eine Gruppe das
+ *  Vorhaben frei, beendet der Knopf nichts (G2): Er öffnet statt dessen den Dialog der Gruppe. */
 export function EndShareButton({
   projectId,
   projectName,
@@ -18,6 +22,8 @@ export function EndShareButton({
   className,
 }: EndShareButtonProps): ReactElement {
   const [isOpen, setIsOpen] = useState<boolean>(false);
+  const viaGroup = useViaGroup(projectId);
+  const projects: readonly ProjectSummary[] = useProjectAccessStore((state) => state.projects);
   return (
     <>
       <button
@@ -27,9 +33,18 @@ export function EndShareButton({
           setIsOpen(true);
         }}
       >
-        Freigabe beenden
+        {viaGroup === null ? 'Freigabe beenden' : `Gruppe „${viaGroup.name}“ bearbeiten …`}
       </button>
-      {isOpen && (
+      {isOpen && viaGroup !== null && (
+        <GroupEndDialog
+          group={viaGroup}
+          projects={projects}
+          onClose={(): void => {
+            setIsOpen(false);
+          }}
+        />
+      )}
+      {isOpen && viaGroup === null && (
         <EndShareDialog
           projectId={projectId}
           projectName={projectName}

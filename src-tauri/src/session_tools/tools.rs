@@ -3,8 +3,6 @@
 use serde_json::{Value, json};
 use tauri::{AppHandle, Manager};
 
-use crate::agents::event::ModelId;
-use crate::db::enum_from_text;
 use crate::mcp_access::ProcessKind;
 use crate::mcp_access::tools::{ToolCall, ToolResult, ToolSet, ToolSpec};
 use crate::sessions::registry::SessionRegistry;
@@ -12,8 +10,9 @@ use crate::sessions::registry::SessionRegistry;
 pub const SEND_MESSAGE: &str = "verwalter_send_message_to";
 pub const GET_SESSIONS: &str = "verwalter_get_sessions";
 pub const GET_TLDR: &str = "verwalter_get_session_tldr";
-pub const OPEN_SESSION: &str = "verwalter_open_session";
 pub const READ_MESSAGE: &str = "verwalter_read_message";
+pub const NOTIFY_USER: &str = "verwalter_notify_user";
+pub const COMPACT_READY: &str = "verwalter_compact_ready";
 /// Längster Betreff einer Nachricht (ADR 072).
 pub const MAX_SUBJECT_CHARS: usize = 120;
 
@@ -75,32 +74,6 @@ impl ToolSet for SessionTools {
                 }),
             },
             ToolSpec {
-                name: OPEN_SESSION,
-                description: "Öffnet eine neue Session im selben Vorhaben, die sofort mit der Nachricht \
-                    losarbeitet. Bei voller Grenze „Gleichzeitige Agenten max.“ wartet die Session auf \
-                    einen Platz; verwalter_get_sessions nennt sie dann mit waitsForSlot. \
-                    Der Nutzer kann das erlauben, ablehnen oder ändern. Die neue Session sieht \
-                    deine ID als Absender und kann sich bei dir melden.",
-                input_schema: json!({
-                    "type": "object",
-                    "properties": {
-                        "subject": {
-                            "type": "string",
-                            "minLength": 1,
-                            "maxLength": MAX_SUBJECT_CHARS,
-                            "description": "Betreff in einer Zeile: Worum es geht.",
-                        },
-                        "message": { "type": "string", "description": "Die erste Nachricht, nicht leer." },
-                        "model": {
-                            "type": "string",
-                            "enum": ["fable", "opus", "opusplan", "sonnet", "haiku"],
-                            "description": "Ohne Angabe das Standardmodell aus den Einstellungen.",
-                        },
-                    },
-                    "required": ["subject", "message"],
-                }),
-            },
-            ToolSpec {
                 name: READ_MESSAGE,
                 description: "Liest den Inhalt einer Nachricht, die als Betreff mit Referenz msg-<id> bei dir \
                     ankam. Liefert reference, from (id, number, title), subject, text und sentAt. Nur der \
@@ -113,13 +86,88 @@ impl ToolSet for SessionTools {
                     "required": ["reference"],
                 }),
             },
+            ToolSpec {
+                name: NOTIFY_USER,
+                description: "Sagt dem Nutzer, was er nach deinem Zug tun kann oder muss; daraus entsteht seine \
+                    Karte im Dashboard. kind: asks, wenn du eine Frage stellst oder eine Entscheidung \
+                    verlangst; requests, wenn du ihn bittest, selbst etwas außerhalb der Session zu tun; \
+                    done, wenn du ein Ergebnis berichtest und nichts von ihm erwartest (optional offer: \
+                    was du ihm als Nächstes anbietest); review, wenn er etwas ansehen soll (Pflicht: link); \
+                    blocked, wenn du ohne ihn nicht weiterkommst. Mit asks und questions (1 bis 4 Fragen \
+                    wie bei AskUserQuestion) wartet der Aufruf auf die Antworten des Nutzers und gibt sie \
+                    zurück. Jeder andere Aufruf antwortet sofort; die Karte erscheint, wenn dein Zug \
+                    endet, und der letzte Aufruf des Zugs gilt. Eine Station meldet nur Rückfragen mit \
+                    questions; ihr Ergebnis meldet sie mit implementation_complete_station.",
+                input_schema: json!({
+                    "type": "object",
+                    "properties": {
+                        "kind": {
+                            "type": "string",
+                            "enum": ["asks", "requests", "done", "review", "blocked"],
+                        },
+                        "line": {
+                            "type": "string",
+                            "description": "Ein Satz für die Karte, höchstens 120 Zeichen: bei asks die Frage, bei requests die Bitte, bei done das Ergebnis, bei review was zu sehen ist, bei blocked das Hindernis.",
+                        },
+                        "questions": {
+                            "type": "array",
+                            "minItems": 1,
+                            "maxItems": 4,
+                            "description": "Nur bei asks: Rückfragen mit Auswahl, der Aufruf wartet auf die Antworten.",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "question": { "type": "string" },
+                                    "header": { "type": "string", "description": "Kurzname der Frage." },
+                                    "multiSelect": { "type": "boolean" },
+                                    "options": {
+                                        "type": "array",
+                                        "minItems": 2,
+                                        "maxItems": 4,
+                                        "items": {
+                                            "type": "object",
+                                            "properties": {
+                                                "label": { "type": "string" },
+                                                "description": { "type": "string" },
+                                            },
+                                            "required": ["label"],
+                                        },
+                                    },
+                                },
+                                "required": ["question", "options"],
+                            },
+                        },
+                        "offer": {
+                            "type": "string",
+                            "description": "Nur bei done: was du anbietest, höchstens 120 Zeichen. „Ja, mach das“ sendet „Ja, bitte: <offer>“ an dich.",
+                        },
+                        "link": {
+                            "type": "string",
+                            "description": "Nur bei review: der Pfad eines Artefakts oder eine https-Adresse.",
+                        },
+                    },
+                    "required": ["kind", "line"],
+                }),
+            },
+            ToolSpec {
+                name: COMPACT_READY,
+                description: "Meldet dem Verwalter, dass du dich auf /compact vorbereitet hast, nachdem er \
+                    dich darum gebeten hat. Sichere vorher, was du nach dem Compact brauchst. Der Compact \
+                    folgt, wenn dein Zug endet. Ohne Bitte des Verwalters antwortet das Werkzeug, dass gerade \
+                    kein Compact ansteht.",
+                input_schema: json!({ "type": "object", "properties": {} }),
+            },
         ]
     }
 
     fn call(&self, call: &ToolCall) -> ToolResult {
         match handle(call) {
             Ok(value) => ToolResult::Ok {
-                text: value.to_string(),
+                // Ein Satz geht ohne Anführungszeichen hinaus.
+                text: match value {
+                    Value::String(sentence) => sentence,
+                    other => other.to_string(),
+                },
                 structured: None,
             },
             Err(sentence) => ToolResult::Err(sentence),
@@ -169,13 +217,10 @@ fn handle(call: &ToolCall) -> ToolReply {
         ),
         READ_MESSAGE => registry.tool_read_message(call.session_id, &text(arguments, "reference")?),
         GET_TLDR => registry.tool_get_tldr(app, call, &text(arguments, "session_id")?),
-        OPEN_SESSION => registry.tool_open_session(
-            app,
-            call,
-            &subject(arguments)?,
-            &text(arguments, "message")?,
-            model(arguments)?,
-        ),
+        NOTIFY_USER => registry.tool_notify_user(app, call),
+        COMPACT_READY => registry
+            .tool_compact_ready(app, call.session_id)
+            .map(Value::String),
         other => Err(format!("Unbekanntes Werkzeug: {other}")),
     }
 }
@@ -219,14 +264,4 @@ fn text_list(arguments: &Value, field: &str) -> Result<Vec<String>, String> {
         .iter()
         .map(|item: &Value| item.as_str().map(str::to_owned).ok_or_else(missing))
         .collect()
-}
-
-fn model(arguments: &Value) -> Result<Option<ModelId>, String> {
-    match arguments.get("model") {
-        None | Some(Value::Null) => Ok(None),
-        Some(Value::String(name)) => enum_from_text::<ModelId>(name)
-            .map(Some)
-            .map_err(|_| format!("Unbekanntes Modell: {name}")),
-        Some(other) => Err(format!("Unbekanntes Modell: {other}")),
-    }
 }

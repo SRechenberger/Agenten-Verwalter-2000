@@ -908,6 +908,8 @@ fn after_completion(
             Some(now_ms()),
         )?;
         outcome.is_finished = true;
+        // Steht der Master im Compact, braucht er ihn nicht mehr (ADR 070, Nachtrag).
+        registry.end_compact_of_implementation(app, implementation_id);
     } else if view.stop_after_current {
         consume_halt(registry, &view, None)?;
         outcome.waits_for_user = true;

@@ -21,6 +21,8 @@ interface SettingsNavProps {
   /** Trefferzahl je Kategorie während einer Suche, sonst `null`. */
   counts: Record<SettingsCategoryId, number> | null;
   onSelect: (id: SettingsCategoryId) => void;
+  /** Gezogene Breite in Pixeln (ADR 056). */
+  width: number;
 }
 
 /** Die Leiste links auf der Einstellungsseite: eine Schaltfläche je Kategorie. */
@@ -29,6 +31,7 @@ export function SettingsNav({
   attention,
   counts,
   onSelect,
+  width,
 }: SettingsNavProps): ReactElement {
   function renderDot(category: SettingsCategory): ReactElement | null {
     const kind: SettingsAttention | undefined = attention[category.id];
@@ -51,7 +54,7 @@ export function SettingsNav({
   }
 
   return (
-    <nav className="settings-nav" aria-label="Kategorien der Einstellungen">
+    <nav className="settings-nav" aria-label="Kategorien der Einstellungen" style={{ width }}>
       {SETTINGS_CATEGORIES.map((category: SettingsCategory) => {
         const isActive: boolean = category.id === active;
         const count: number = counts?.[category.id] ?? 0;

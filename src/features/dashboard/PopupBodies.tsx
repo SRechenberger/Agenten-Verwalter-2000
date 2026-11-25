@@ -11,7 +11,18 @@ import {
   type QuestionAnswering,
 } from '@/features/chat/useQuestionAnswering';
 import type { QuestionEntry } from '@/features/chat/questionDraft';
-import { classifiedText, isMessageEmpty } from '@/features/dashboard/dashboardTexts';
+import { openUrl } from '@tauri-apps/plugin-opener';
+import {
+  isMessageEmpty,
+  linkLabel,
+  linkTarget,
+  OFFER_YES_LABEL,
+  offerMessage,
+  reportedText,
+  SENT_TEXT,
+  sentOfferText,
+  type LinkTarget,
+} from '@/features/dashboard/dashboardTexts';
 import { useLastExchange } from '@/features/dashboard/useLastExchange';
 import { stationsAfterProposal } from '@/features/implementation/CardStack';
 import { CancelRequestCard } from '@/features/implementation/CancelRequestCard';
@@ -45,6 +56,9 @@ import type { DashboardTask } from '@/lib/bindings/DashboardTask';
 import type { ImplementationView } from '@/lib/bindings/ImplementationView';
 import type { ProjectSummary } from '@/lib/bindings/ProjectSummary';
 import type { SessionSummary } from '@/lib/bindings/SessionSummary';
+import { useArtifactsStore } from '@/stores/artifacts';
+import { useDashboardStore } from '@/stores/dashboard';
+import { useSessionsStore } from '@/stores/sessions';
 import { sendMessage } from '@/lib/chat';
 import { dismissCard } from '@/lib/dashboard';
 import {
@@ -67,6 +81,12 @@ export interface PopupProps {
   run: ActionError['run'];
   report: ActionError['report'];
   open: ReactElement | null;
+  /** Nur ein Ort je Karte antwortet auf Ziffern der Rückfrage (`useQuestionKeys`): das Popup und der Lesebereich;
+   *  eine aufgeklappte Zeile setzt `false`, sonst sendete die Ziffer doppelt. Ohne Angabe gilt `true`. */
+  keys?: boolean | undefined;
+  /** Nach „Senden“ und „Ja, mach das“: Das Postfach meldet es in seiner Leiste; im Popup bleibt es leer, und das
+   *  Popup bleibt offen. */
+  onSent?: ((text: string) => void) | undefined;
 }
 
 const NOT_OPEN_ANYMORE = 'Diese Sache ist nicht mehr offen.';
@@ -142,11 +162,12 @@ function OpenRequestBody({
   sessions,
   projects,
   open,
+  keys = true,
   sessionId,
   entry,
 }: PopupProps & { sessionId: string; entry: QuestionEntry }): ReactElement {
   const answering: QuestionAnswering = useQuestionAnswering(sessionId, task.projectId);
-  useQuestionKeys(entry, answering);
+  useQuestionKeys(keys ? entry : null, answering);
   const request = entry.toolRequest;
   const agent: string = agentName(useOperatingMode(task.projectId));
   const sessionNumber: number | null =
@@ -289,7 +310,8 @@ export function CancelRequestBody(props: PopupProps): ReactElement {
 /** Station „durch dich“: der Auftrag, ein Ergebnis nach Wahl und „Erledigt“. */
 export function ByYouBody(props: PopupProps): ReactElement {
   const { task, isLocked, run, open } = props;
-  const [result, setResult] = useState<string>('');
+  const result: string = useDashboardStore((state) => state.drafts[task.id] ?? '');
+  const setDraft = useDashboardStore((state) => state.setDraft);
   const [isAskingDone, setIsAskingDone] = useState<boolean>(false);
   const implementation: ImplementationView | undefined = implementationOf(props);
   const ref: StationRef | undefined =
@@ -344,7 +366,7 @@ export function ByYouBody(props: PopupProps): ReactElement {
         aria-label={RESULT_LABEL}
         value={result}
         onChange={(event): void => {
-          setResult(event.target.value);
+          setDraft(task.id, event.target.value);
         }}
       />
       {isAskingDone && (
@@ -395,6 +417,7 @@ export function MasterMissingBody(props: PopupProps): ReactElement {
       <MasterWarning implementation={implementation} sessions={sessions} />
       <MasterPicker
         implementation={implementation}
+        implementations={props.implementations}
         sessions={sessions}
         isLocked={isLocked}
         run={run}
@@ -532,7 +555,20 @@ export function ReadyBody(props: PopupProps): ReactElement {
   );
 }
 
-/** `asks`, `requests`, `done`, `answer`: die letzte Antwort, die Nachricht davor und ein Antwortfeld. */
+/** „Zum Ansehen“: ein Artefakt wählt der Reiter „Artefakte“ der Session aus, eine Adresse geht in den Browser. */
+function openLink(task: DashboardTask, sessionId: string, target: LinkTarget): Promise<void> {
+  if (target.kind === 'url') {
+    return openUrl(target.url);
+  }
+  useArtifactsStore.getState().select(task.projectId, target.file);
+  const sessions = useSessionsStore.getState();
+  sessions.selectSession(sessionId);
+  sessions.showView('artifacts');
+  return Promise.resolve();
+}
+
+/** `asks`, `requests`, `done`, `review`, `blocked`, `answer`: die letzte Antwort, die Nachricht davor und ein
+ *  Antwortfeld; „Ja, mach das“ bei einem Angebot, „Artefakt öffnen“ bei „Zum Ansehen“ (ADR 077). */
 export function AnswerBody(props: PopupProps): ReactElement {
   const { task, open } = props;
   if (task.sessionId === null) {
@@ -546,11 +582,21 @@ function OpenAnswerBody({
   isLocked,
   run,
   open,
+  onSent,
   sessionId,
 }: PopupProps & { sessionId: string }): ReactElement {
-  const [text, setText] = useState<string>('');
+  // Der Entwurf gehört der Karte: Lesebereich, aufgeklappte Zeile und Popup im Chat zeigen denselben.
+  const text: string = useDashboardStore((state) => state.drafts[task.id] ?? '');
+  const setDraft = useDashboardStore((state) => state.setDraft);
   const { exchange, error } = useLastExchange(sessionId);
   const isEmpty: boolean = isMessageEmpty(text);
+  const send = (): void => {
+    run(async () => {
+      await sendMessage(sessionId, text.trim(), [], []);
+      setDraft(task.id, '');
+      onSent?.(SENT_TEXT);
+    }, 'Senden fehlgeschlagen');
+  };
   return (
     <Layout
       open={open}
@@ -562,18 +608,49 @@ function OpenAnswerBody({
             className="popup-button popup-button--primary"
             disabled={isLocked || isEmpty}
             title={isEmpty ? 'Leere Nachricht: erst Text eingeben' : undefined}
-            onClick={(): void => {
-              run(async () => {
-                await sendMessage(sessionId, text.trim(), [], []);
-              }, 'Senden fehlgeschlagen');
-            }}
+            onClick={send}
           >
             Senden
           </button>
         </>
       }
     >
-      <p className="popup-note">{classifiedText(task)}</p>
+      {/* Gemeldet steht schon im Kopf; hier nur der Hinweis, dass der Agent das Werkzeug nicht gerufen hat. */}
+      {!task.reported && <p className="popup-note">{reportedText(task)}</p>}
+      {task.offer !== null && (
+        <div className="popup-offer">
+          <span>Angebot: {task.offer}</span>
+          <button
+            type="button"
+            className="popup-button popup-button--primary"
+            disabled={isLocked}
+            onClick={(): void => {
+              const offer: string = task.offer ?? '';
+              run(async () => {
+                await sendMessage(sessionId, offerMessage(offer), [], []);
+                onSent?.(sentOfferText(offer));
+              }, 'Senden fehlgeschlagen');
+            }}
+          >
+            {OFFER_YES_LABEL}
+          </button>
+        </div>
+      )}
+      {task.link !== null && (
+        <div className="popup-offer">
+          <span className="popup-offer__link">{task.link}</span>
+          <button
+            type="button"
+            className="popup-button popup-button--primary"
+            onClick={(): void => {
+              const target: LinkTarget = linkTarget(task.link ?? '');
+              run(() => openLink(task, sessionId, target), 'Öffnen fehlgeschlagen');
+            }}
+          >
+            {linkLabel(linkTarget(task.link))}
+          </button>
+        </div>
+      )}
       {error !== null && <p role="alert">{error}</p>}
       <FileLinkSessionContext.Provider value={sessionId}>
         {exchange !== null && exchange.before !== null && (
@@ -592,7 +669,14 @@ function OpenAnswerBody({
         aria-label="Antwort"
         value={text}
         onChange={(event): void => {
-          setText(event.target.value);
+          setDraft(task.id, event.target.value);
+        }}
+        onKeyDown={(event): void => {
+          // Strg+Enter sendet, wie im Chat.
+          if (event.key === 'Enter' && (event.ctrlKey || event.metaKey) && !isLocked && !isEmpty) {
+            event.preventDefault();
+            send();
+          }
         }}
       />
     </Layout>

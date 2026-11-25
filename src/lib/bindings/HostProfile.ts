@@ -8,4 +8,8 @@ import type { SkillUse } from "./SkillUse";
  * Was die Oberfläche eines Gastes über die Betriebsart und die Modelle seines Hosts wissen muss,
  * solange sie ein Vorhaben des Hosts zeigt: Menüs und Betriebsart gelten dort, nicht lokal.
  */
-export type HostProfile = { operatingMode: OperatingMode, localModels: LocalModels, codexModels: CodexModels, skillUses: Array<SkillUse>, };
+export type HostProfile = { operatingMode: OperatingMode, localModels: LocalModels, codexModels: CodexModels, skillUses: Array<SkillUse>, 
+/**
+ * Darf dieses Gerät beim Host Vorhaben anlegen? Ein älterer Host schickt das Feld nicht.
+ */
+canCreate: boolean, };

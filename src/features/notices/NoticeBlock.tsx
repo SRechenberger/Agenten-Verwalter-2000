@@ -140,6 +140,8 @@ export function NoticeBlock({
           text={notice.text}
         />
       );
+    case 'verwalter':
+      return <NoticeLine variant="info" icon={<InfoIcon size={ICON_SIZE} />} text={notice.text} />;
     case 'quotaExhausted':
       return (
         <NoticeLine

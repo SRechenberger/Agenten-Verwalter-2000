@@ -288,3 +288,32 @@ fn held_by_lists_only_the_projects_of_that_device_also_while_lost() {
     );
     assert!(control.held_by("c").is_empty());
 }
+
+#[test]
+fn syncing_the_effective_sharing_drops_the_holder_of_a_project_that_falls_out() {
+    let mut control = held_by_a();
+    control.share(OTHER_PROJECT);
+    let wanted: HashSet<String> = [OTHER_PROJECT.to_owned()].into();
+    let (added, removed) = control.set_shared(wanted);
+    assert!(added.is_empty());
+    assert_eq!(removed, vec![PROJECT.to_owned()]);
+    assert!(!control.is_shared(PROJECT));
+    assert!(control.holder(PROJECT).is_none());
+    assert!(control.is_shared(OTHER_PROJECT));
+}
+
+#[test]
+fn syncing_the_effective_sharing_offers_a_new_member_without_a_holder() {
+    let mut control = held_by_a();
+    let wanted: HashSet<String> = [PROJECT.to_owned(), OTHER_PROJECT.to_owned()].into();
+    let (added, removed) = control.set_shared(wanted);
+    assert_eq!(added, vec![OTHER_PROJECT.to_owned()]);
+    assert!(removed.is_empty());
+    assert!(is_host_again(&control, OTHER_PROJECT));
+    assert_eq!(
+        control
+            .holder(PROJECT)
+            .map(|holder| holder.device.id.as_str()),
+        Some("a")
+    );
+}

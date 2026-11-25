@@ -1,0 +1,385 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Umsetzungen je Session</title>
+<style>
+/* Gemeinsame Stile der Klick-Prototypen 0.78.0. Farben, Schriften und Maße aus src/styles/theme.css, Sidebar.css, UserMessage.css, Composer.css der App. */
+:root{color-scheme:dark;--bg:#1f1f1f;--side:#181818;--surf:#252526;--hover:#2e2e30;--sel:#37373d;--bds:#2b2b2b;--bd:#3c3c3c;--fg:#d4d4d4;--fg2:#b0b0b0;--fgm:#8f8f8f;--acc:#e0825c;--acct:#f0a888;--onacc:#1d130e;--accsub:rgba(224,130,92,.16);--run:#5b9dff;--wait:#f2b33d;--waitsub:rgba(242,179,61,.14);--err:#f47067;--errsub:rgba(244,112,103,.12);--ok:#4cc38a;--master:#8ab8ea;--shadow:0 10px 30px rgb(0 0 0/.45);--font:'Segoe UI Variable Text','Segoe UI',system-ui,sans-serif;--mono:'Cascadia Code','Cascadia Mono',Consolas,ui-monospace,monospace}
+:root[data-theme=light]{color-scheme:light;--bg:#fff;--side:#f8f8f8;--surf:#fff;--hover:#f0f0f0;--sel:#e4e6f1;--bds:#e5e5e5;--bd:#cecece;--fg:#3c3c3c;--fg2:#555;--fgm:#6e6e6e;--acc:#c4572f;--acct:#a8461f;--onacc:#fff;--accsub:rgba(196,87,47,.1);--run:#2563eb;--wait:#a86a00;--waitsub:rgba(168,106,0,.1);--err:#d23b33;--errsub:#fdeceb;--ok:#16803c;--master:#3d6fa8;--shadow:0 10px 30px rgb(0 0 0/.14)}
+*{box-sizing:border-box}
+body{margin:0;background:var(--side);color:var(--fg);font:13px/1.45 var(--font)}
+main{max-width:1480px;margin:0 auto;padding:16px}
+h1{font-size:15px;margin:0 0 4px}
+.lead{color:var(--fg2);margin:0 0 10px;max-width:1020px}
+button,input,select,textarea{font:inherit;color:inherit}
+code{font-family:var(--mono);font-size:12px}
+kbd{font-family:var(--mono);font-size:11px;padding:0 4px;border:1px solid var(--bd);border-bottom-width:2px;border-radius:4px;color:var(--fg2)}
+
+/* Simulationsleiste (nicht Teil der App) */
+#sim{display:flex;flex-wrap:wrap;gap:6px 8px;align-items:center;margin:0 0 8px;padding:8px 10px;border:1px dashed var(--bd);border-radius:6px;color:var(--fgm);font-size:12px}
+#sim button{border:1px solid var(--bd);background:transparent;border-radius:6px;padding:3px 10px;cursor:pointer}
+#sim button:hover{background:var(--hover)}
+#sim button[aria-pressed=true]{background:var(--sel);color:var(--fg)}
+#sim button:disabled{opacity:.4;cursor:default}
+#sim .sp{margin-left:10px}
+#sim .lbl{color:var(--fg2)}
+
+/* App-Fenster */
+.app{position:relative;display:flex;height:720px;border:1px solid var(--bd);border-radius:10px;overflow:hidden;background:var(--bg)}
+.side{width:256px;flex:none;background:var(--side);border-right:1px solid var(--bds);display:flex;flex-direction:column;min-height:0}
+.brand{display:flex;align-items:center;gap:8px;padding:14px 16px 10px;font-weight:600;font-size:13px}
+.newp{display:flex;align-items:center;gap:8px;margin:0 10px 10px;padding:4px 10px;border:1px solid var(--bd);border-radius:6px;background:transparent;cursor:pointer;text-align:left}
+.newp:hover{background:var(--hover)}
+.newp kbd{margin-left:auto;border:0;color:var(--fgm)}
+.tree{flex:1;overflow:auto;min-height:0;padding:0 10px 10px}
+.grp{display:flex;align-items:center;gap:6px;margin:12px 0 2px;padding:3px 6px;border-radius:6px;font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--fgm);cursor:default;user-select:none}
+.grp:hover{background:var(--hover)}
+.grp .n{margin-left:auto;font-variant-numeric:tabular-nums}
+.grp .rm{text-transform:none}
+.vrow{display:flex;gap:6px;padding:4px 6px;border-radius:6px;cursor:pointer;align-items:flex-start}
+.vrow:hover{background:var(--hover)}
+.vrow.sel{background:var(--sel)}
+.vrow .chev{width:12px;color:var(--fgm);flex:none;line-height:20px}
+.vrow .ic{width:14px;flex:none;line-height:20px;text-align:center}
+.vrow .tx{flex:1;min-width:0}
+.vrow .nm{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block}
+.vrow .meta{display:block;font-size:12px;color:var(--fgm);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.kids{margin-left:12px;padding-left:8px;border-left:1px solid var(--bds)}
+.srow{display:flex;align-items:center;gap:6px;padding:3px 6px;border-radius:6px;cursor:pointer;font-size:12.5px;color:var(--fg2);min-width:0}
+.srow:hover{background:var(--hover)}
+.srow.sel{background:var(--sel);color:var(--fg)}
+.srow .num{font-family:var(--mono);font-size:11px;color:var(--fgm);flex:none}
+.srow .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.srow .aux{font-size:11px;color:var(--fgm);white-space:nowrap;flex:none}
+.srow .aux.w{color:var(--wait)}
+.srow .mono{font-family:var(--mono);font-size:11px;color:var(--fgm)}
+.ok{color:var(--ok)}.wt{color:var(--wait)}.er{color:var(--err)}.mu{color:var(--fgm)}.ru{color:var(--run)}
+.rm{color:var(--acc);flex:none}
+.dia{color:var(--master);flex:none;font-size:11px}
+.udot{width:6px;height:6px;border-radius:50%;background:var(--acc);flex:none}
+.foot{border-top:1px solid var(--bds);padding:8px 10px;display:flex;flex-direction:column;gap:2px}
+.foot .nav{display:flex;align-items:center;gap:10px;padding:4px 8px;border-radius:6px;color:var(--fg2);cursor:pointer}
+.foot .nav:hover{background:var(--hover)}
+.foot .nav.sel{background:var(--sel);color:var(--fg)}
+.qbar{display:flex;align-items:center;gap:8px;padding:2px 6px 6px}
+.cells{display:flex;gap:2px;flex:1}
+.cells i{flex:1;height:4px;border-radius:2px;background:var(--bd)}
+.cells i.on{background:var(--run)}
+.cells i.over{background:var(--wait)}
+.qbar .t{font-family:var(--mono);font-size:11px;color:var(--fgm)}
+.qrow{display:flex;align-items:center;gap:6px;padding:0 6px 4px}
+.chip{display:inline-flex;align-items:center;gap:5px;padding:1px 8px;border:1px solid var(--bd);border-radius:99px;font-size:11.5px;background:transparent;white-space:nowrap;color:var(--fg2)}
+button.chip{cursor:pointer}
+button.chip:hover{background:var(--hover)}
+.chip.w{border-color:var(--wait);color:var(--wait);background:var(--waitsub)}
+.chip.a{border-color:var(--acc);color:var(--acct);background:var(--accsub)}
+.chip.m{border-color:var(--master);color:var(--master)}
+.chip.e{border-color:var(--err);color:var(--err);background:var(--errsub)}
+.pill{padding:0 6px;border-radius:99px;background:var(--acc);color:var(--onacc);font-size:10.5px;font-weight:700}
+
+/* Hauptbereich */
+.mainc{flex:1;display:flex;flex-direction:column;min-width:0;min-height:0;position:relative}
+.hdr{display:flex;align-items:center;gap:10px;height:48px;flex:none;padding:0 14px 0 20px;border-bottom:1px solid var(--bds)}
+.crumb{color:var(--fgm);white-space:nowrap}
+.crumb+.crumb::before{content:'›';margin-right:10px;color:var(--fgm)}
+.title{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.title .num{color:var(--fgm);font-weight:400;margin-right:6px;font-size:12px}
+.tabs{display:inline-flex;gap:2px;padding:2px;border:1px solid var(--bds);border-radius:8px;margin:0 auto}
+.tabs button{border:0;background:transparent;border-radius:6px;padding:3px 12px;cursor:pointer;color:var(--fg2)}
+.tabs button[aria-pressed=true]{background:var(--sel);color:var(--fg)}
+.hdr .right{display:flex;gap:6px;align-items:center;margin-left:auto}
+.body{flex:1;overflow:auto;min-height:0}
+
+/* Chat */
+.chat{max-width:960px;margin:0 auto;padding:18px 28px 12px;display:flex;flex-direction:column;gap:12px}
+.umsg{align-self:stretch;border:1px solid var(--bd);border-radius:8px;padding:9px 12px;background:var(--surf);white-space:pre-wrap;overflow-wrap:anywhere;position:relative}
+.umsg.queued{border-style:dashed;border-color:var(--wait)}
+.umsg.discarded{opacity:.55;border-style:dashed}
+.umsg.discarded .txt{text-decoration:line-through}
+.umsg .head{display:flex;align-items:center;gap:8px;margin:-2px 0 4px;font-size:11.5px;color:var(--fgm);white-space:normal}
+.umsg .head .sp{flex:1}
+.qmark{display:inline-flex;align-items:center;gap:4px;padding:0 7px;border-radius:99px;background:var(--waitsub);color:var(--wait);font-size:11px;font-weight:600}
+.dmark{display:inline-flex;align-items:center;gap:4px;padding:0 7px;border-radius:99px;background:var(--hover);color:var(--fgm);font-size:11px;font-weight:600}
+.amsg{white-space:pre-wrap;overflow-wrap:anywhere}
+.smsg .from{font-size:12px;color:var(--fg2);margin-bottom:3px}
+.smsg .from a{color:var(--acct);text-decoration:none;cursor:pointer}
+.smsg .subj{font-size:12px;color:var(--fgm);margin-bottom:4px}
+.note{align-self:center;font-size:11.5px;color:var(--fgm);padding:2px 10px;border:1px solid var(--bds);border-radius:99px}
+.note.e{color:var(--err);border-color:var(--err)}
+.tool{align-self:stretch;font-size:12px;color:var(--fgm);font-family:var(--mono);padding:4px 10px;border-left:2px solid var(--bd)}
+.tool b{color:var(--fg2);font-weight:600}
+.tool.err{border-left-color:var(--err)}
+.compwrap{flex:none;padding:0 28px 14px;max-width:1016px;width:100%;margin:0 auto}
+.hintbar{display:flex;align-items:center;gap:10px;padding:6px 10px 6px 12px;border:1px solid var(--wait);border-bottom:0;border-radius:10px 10px 0 0;background:var(--waitsub);font-size:12.5px}
+.hintbar .sp{flex:1}
+.hintbar+.comp{border-top-left-radius:0;border-top-right-radius:0}
+.comp{border:1px solid var(--bd);border-radius:10px;background:var(--surf)}
+.comp textarea{display:block;width:100%;min-height:46px;max-height:140px;resize:none;border:0;background:transparent;padding:10px 14px 4px;outline:none}
+.comp .row{display:flex;align-items:center;gap:10px;padding:4px 8px 8px 10px;color:var(--fgm);font-size:12px}
+.comp .row .sp{flex:1}
+.send{width:30px;height:30px;border:0;border-radius:6px;background:var(--acc);color:var(--onacc);cursor:pointer;font-weight:700}
+.send:disabled{opacity:.45;cursor:default}
+
+/* Bedienelemente */
+.btn{border:1px solid var(--bd);background:transparent;border-radius:6px;padding:3px 10px;cursor:pointer;font-size:12px;white-space:nowrap}
+.btn:hover:not(:disabled){background:var(--hover)}
+.btn:disabled{opacity:.45;cursor:default}
+.btn.pri{background:var(--acc);border-color:var(--acc);color:var(--onacc);font-weight:600}
+.btn.pri:hover:not(:disabled){background:var(--acc);filter:brightness(1.08)}
+.btn.dng{border-color:var(--err);color:var(--err)}
+.btn.sm{padding:1px 7px;font-size:11.5px}
+.link{border:0;background:none;color:var(--acct);cursor:pointer;padding:0;font-size:12px}
+.link:disabled{color:var(--fgm);cursor:default}
+.sw{position:relative;width:34px;height:20px;border-radius:99px;border:0;background:var(--bd);cursor:pointer;flex:none;padding:0}
+.sw::after{content:'';position:absolute;left:3px;top:3px;width:14px;height:14px;border-radius:50%;background:#fff;transition:left .12s}
+.sw[aria-checked=true]{background:var(--acc)}
+.sw[aria-checked=true]::after{left:17px}
+.sw:disabled{opacity:.5;cursor:default}
+select.sel,input.inp{padding:4px 8px;border:1px solid var(--bd);border-radius:6px;background:var(--bg)}
+.lbl{font-size:10.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--fgm);margin:0}
+.muted{color:var(--fgm)}
+.small{font-size:12px}
+
+/* Übersicht und Karten */
+.ov{max-width:740px;margin:0 auto;padding:22px 20px;display:flex;flex-direction:column;gap:14px}
+.card{border:1px solid var(--bds);border-radius:8px;background:var(--surf);padding:12px 14px;display:flex;flex-direction:column;gap:8px}
+.card.new{outline:1.5px dashed var(--acc);outline-offset:3px}
+.line{display:flex;align-items:center;gap:12px}
+.line .tx{flex:1;min-width:0}
+.line .tx .s{display:block;font-size:12px;color:var(--fgm)}
+
+/* Menü, Popover, Dialog, Meldung */
+.menu{position:absolute;z-index:20;min-width:220px;padding:4px;border:1px solid var(--bd);border-radius:8px;background:var(--surf);box-shadow:var(--shadow)}
+.menu button{display:flex;width:100%;align-items:center;gap:8px;padding:5px 10px;border:0;border-radius:5px;background:transparent;text-align:left;cursor:pointer;font-size:12.5px}
+.menu button:hover:not(:disabled){background:var(--hover)}
+.menu button:disabled{color:var(--fgm);cursor:default}
+.menu hr{border:0;border-top:1px solid var(--bds);margin:4px 0}
+.menu .hint{padding:4px 10px;font-size:11.5px;color:var(--fgm);max-width:260px}
+.pop{position:absolute;z-index:15;border:1px solid var(--bd);border-radius:10px;background:var(--surf);box-shadow:var(--shadow);display:flex;flex-direction:column;min-height:0}
+.backdrop{position:absolute;inset:0;z-index:30;background:rgb(0 0 0/.45);display:flex;align-items:center;justify-content:center}
+.dlg{width:440px;max-width:calc(100% - 32px);border:1px solid var(--bd);border-radius:10px;background:var(--surf);box-shadow:var(--shadow);padding:16px 18px;display:flex;flex-direction:column;gap:10px}
+.dlg h3{margin:0;font-size:14px}
+.dlg .acts{display:flex;justify-content:flex-end;gap:8px;margin-top:4px}
+.chk{display:inline-flex;align-items:center;gap:6px;font-size:12.5px}
+.chk input{accent-color:var(--acc)}
+.toast{position:absolute;left:50%;bottom:16px;transform:translateX(-50%);display:flex;gap:14px;align-items:center;padding:7px 14px;border:1px solid var(--bd);border-radius:8px;background:var(--surf);box-shadow:var(--shadow);font-size:12.5px;z-index:40;white-space:nowrap}
+.newmark{outline:1.5px dashed var(--acc);outline-offset:2px;border-radius:6px}
+
+/* Erläuterungen unter dem Fenster */
+.doc{margin-top:22px;display:grid;grid-template-columns:1fr 1fr;gap:10px 34px;color:var(--fg2)}
+.doc h2{font-size:13.5px;color:var(--fg);margin:14px 0 4px}
+.doc ul,.doc ol{margin:0;padding-left:20px}
+.doc li{margin:3px 0}
+.doc b{color:var(--fg)}
+.rec{grid-column:1/-1;padding:10px 14px;border:1px solid var(--ok);border-radius:8px;background:color-mix(in srgb,var(--ok) 10%,transparent)}
+.rec h2{margin-top:0}
+.ask{grid-column:1/-1;padding:10px 14px;border:1px solid var(--wait);border-radius:8px;background:var(--waitsub)}
+.ask h2{margin-top:0}
+@media (max-width:1100px){.app .side{display:none}}
+@media (max-width:860px){.doc{grid-template-columns:1fr}}
+
+</style>
+<style>
+.app{height:680px}
+.impl{display:flex;align-items:center;gap:6px;padding:3px 6px;border-radius:6px;cursor:pointer;font-size:12.5px;color:var(--fg2)}
+.impl:hover{background:var(--hover)}
+.impl.sel{background:var(--sel);color:var(--fg)}
+.impl .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.flow{display:grid;grid-template-columns:260px 1fr;min-height:100%}
+.flow .left{border-right:1px solid var(--bds);padding:14px 12px}
+.flow .right{padding:14px 18px}
+.st{display:flex;align-items:center;gap:8px;padding:4px 8px;border-radius:6px;font-size:12.5px}
+.st .o{width:9px;height:9px;border-radius:50%;border:1.5px solid var(--fgm);flex:none}
+.st .o.ok{background:var(--ok);border-color:var(--ok)}
+.st .o.ru{border-color:var(--run)}
+.ph{font-weight:600;padding:8px 8px 2px}
+.sub{display:flex;align-items:center;gap:8px;padding:6px 20px;border-bottom:1px solid var(--bds);font-size:12px;color:var(--fg2)}
+.pick button{display:flex;flex-direction:column;align-items:flex-start;width:100%;padding:6px 10px;border:1px solid var(--bds);border-radius:6px;background:transparent;cursor:pointer;text-align:left;margin-bottom:6px}
+.pick button:hover:not(:disabled){background:var(--hover)}
+.pick button:disabled{opacity:.55;cursor:default}
+.pick button .s{font-size:11.5px;color:var(--fgm)}
+.pick button[aria-pressed=true]{border-color:var(--acc)}
+.gone{text-decoration:line-through;opacity:.5}
+.prompt{font-family:var(--mono);font-size:12px;white-space:pre-wrap;padding:10px 12px;border:1px solid var(--bd);border-radius:8px;background:var(--bg);color:var(--fg2)}
+.prompt del{color:var(--err)}
+.prompt ins{color:var(--ok);text-decoration:none}
+</style>
+</head>
+<body>
+<main>
+<h1>Umsetzungen je Session, keine Sessions außerhalb eines Ablaufs · Klick-Prototyp (Taiga #217, #216)</h1>
+<p class="lead">Stand 2026-11-24 (Planung 0.78.0). <b>#217:</b> Ein Vorhaben kann mehrere Umsetzungen zugleich haben; jede gehört zu genau einer Session, ihrer Master-Session, und eine Session führt höchstens eine unfertige. <b>#216:</b> Agenten öffnen keine Sessions mehr selbst; Arbeit für andere Sessions läuft nur über Stationen. Klick in der Leiste auf Sessions und Umsetzungen; oben simulierst du, was Agenten aufrufen. Neu Gezeigtes ist gestrichelt umrandet.</p>
+<div id="sim">
+  <span>Farbschema</span><button data-theme-btn="dark">Dunkel</button><button data-theme-btn="light">Hell</button>
+  <span class="sp lbl">#44 ruft</span><button data-call="get">implementation_get</button><button data-call="create">implementation_create</button><button data-call="open">verwalter_open_session</button>
+  <span class="sp lbl">Station ruft</span><button data-call="station">implementation_create</button>
+  <span class="sp lbl">Rückfrage #45 ruft</span><button data-call="inquiry">implementation_get</button>
+  <span class="sp"></span><button data-call="reset">Zurücksetzen</button>
+</div>
+<div class="app" id="app"></div>
+<div class="doc">
+  <div class="ask">
+    <h2>Zur Entscheidung (Empfehlung jeweils so gebaut)</h2>
+    <ol>
+      <li><b>S2</b> <code>verwalter_open_session</code> verschwindet aus dem Werkzeugsatz (statt immer abzulehnen). Die zwei Wege nennt der Systemprompt (unten). Die Zeile „Selbstfreigabe für neue Sessions“ entfällt in Übersicht und Einstellungen.</li>
+      <li><b>S3</b> höchstens <b>eine unfertige</b> Umsetzung je Session; nach dem Ende darf dieselbe Session eine neue anlegen. Die Grenze „eine je Vorhaben“ fällt.</li>
+      <li><b>S4</b> Masterwechsel auf eine Session, die schon eine unfertige Umsetzung führt: gesperrt, mit Grund.</li>
+      <li><b>S5</b> Gelöschter oder archivierter Master bleibt „Master ausgefallen“ wie heute.</li>
+      <li><b>S6</b> Eine Station legt keine Umsetzung an.</li>
+      <li><b>S7</b> Eine Session findet „ihre“ Umsetzung: geführte unfertige → ihre Station → ihre Rückfrage → zuletzt geführte, auch fertige; kein Rückfall mehr auf die neueste des Vorhabens.</li>
+      <li><b>S8</b> Der Reiter „Changes“ einer Umsetzung zeigt weiter das ganze Vorhaben und heißt „Changes im Vorhaben“; eine Reichweite nur über die Sessions der Umsetzung wird ein Folge-Ticket.</li>
+    </ol>
+  </div>
+  <div style="grid-column:1/-1">
+    <h2>Systemprompt der Session-Werkzeuge (Ausschnitt, Vorschlag; wird mit Haiku gemessen)</h2>
+    <div class="prompt">Mit anderen Sessions dieses Vorhabens sprichst du über diese Werkzeuge: mcp__verwalter__verwalter_get_sessions, mcp__verwalter__verwalter_send_message_to, mcp__verwalter__verwalter_get_session_tldr, <del>mcp__verwalter__verwalter_open_session, </del>mcp__verwalter__verwalter_read_message.
+<ins>Neue Sessions legst du nicht selbst an. Soll eine andere Session arbeiten, leg mit mcp__verwalter__implementation_create eine Umsetzung an; führst du schon eine, schlag mit mcp__verwalter__implementation_edit eine Änderung ihres Plans vor.</ins>
+…
+Hast du eine Umsetzung angelegt, bist du ihr Master: …</div>
+  </div>
+</div>
+</main>
+<script>
+// Gemeinsame Helfer der Klick-Prototypen 0.78.0: Auswahl, Escaping, Farbschema, Meldung, Menü schließen.
+'use strict';
+const $ = s => document.querySelector(s);
+const $$ = s => [...document.querySelectorAll(s)];
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const ago = m => m < 1 ? 'gerade' : m < 60 ? `${m} min` : m < 1440 ? `${Math.floor(m / 60)} h` : `${Math.floor(m / 1440)} d`;
+
+// Farbschema aus der Sprungmarke #theme=light, umschaltbar über [data-theme-btn]
+const Proto = {
+  theme: /theme=light/.test(location.hash) ? 'light' : 'dark',
+  applyTheme() {
+    document.documentElement.dataset.theme = this.theme;
+    $$('[data-theme-btn]').forEach(b => b.setAttribute('aria-pressed', b.dataset.themeBtn === this.theme));
+  },
+  toastTimer: 0,
+  toast(text, undo) {
+    clearTimeout(this.toastTimer);
+    $('.toast')?.remove();
+    const t = document.createElement('div');
+    t.className = 'toast';
+    t.innerHTML = `<span>${esc(text)}</span>${undo ? '<button class="link" data-toast-undo>Rückgängig</button>' : ''}`;
+    t._undo = undo;
+    ($('#app') || document.body).appendChild(t);
+    this.toastTimer = setTimeout(() => t.remove(), 6000);
+  },
+};
+document.addEventListener('click', ev => {
+  const tb = ev.target.closest('[data-theme-btn]');
+  if (tb) { Proto.theme = tb.dataset.themeBtn; history.replaceState(null, '', `#theme=${Proto.theme}`); Proto.applyTheme(); return; }
+  const u = ev.target.closest('[data-toast-undo]');
+  if (u) { const t = u.closest('.toast'); t._undo?.(); t.remove(); }
+}, true);
+Proto.applyTheme();
+
+</script>
+<script>
+'use strict';
+let S;
+function reset(){
+  S = {view:'impl:pf', dlg:false, pick:null,
+    impls:{
+      pf:{name:'Postfach #187', master:'s41', done:2, total:5, stations:[['postfach-1 Umsetzung','ok'],['postfach-2 Review','ru'],['postfach-3 Probelauf',''],['postfach-4 PR',''],['postfach-5 Merge','']]},
+      ft:{name:'Folgetickets 0.77.0', master:'s33', done:7, total:10, stations:[['plaetze-7 Review','ok'],['release-1 Rebase','ru'],['release-2 PR','']]},
+    },
+    ses:{s41:{num:41,title:'Postfach planen'}, s33:{num:33,title:'Release 0.77.0'}, s44:{num:44,title:'Tickets'}, s45:{num:45,title:'Rückfrage zu Postfach', inquiry:'pf'}},
+    chats:{s44:[{t:'u',text:'Räum die offenen Tickets der Epic 0.78.0 auf und verteile die Nacharbeit.'},{t:'a',text:'Ich sehe mir zuerst an, ob es schon einen Ablauf gibt.'}],
+           s45:[{t:'u',text:'Wie weit ist das Review von Postfach?'}], st:[{t:'a',text:'Review läuft. Ich würde die zwei Befunde gern in einer eigenen Umsetzung abarbeiten lassen …'}]},
+    created:0};
+}
+const ledBy = sid => Object.entries(S.impls).find(([,i])=>i.master===sid && i.done<i.total);
+
+function sideHTML(){
+  const sesRow = (sid, cls) => { const s=S.ses[sid], led=Object.entries(S.impls).filter(([,i])=>i.master===sid);
+    return `<div class="srow${S.view==='ses:'+sid?' sel':''}" data-view="ses:${sid}"><span class="${cls}">${cls==='ru'?'◌':'✓'}</span><span class="num">#${s.num}</span><span class="nm">${esc(s.title)}</span>${led.length?'<span class="dia">◆</span>':''}${s.inquiry?'<span class="aux">Rückfrage</span>':''}</div>`+
+      led.map(([k,i])=>`<div class="kids${k==='pf'||k==='ft'?'':' newmark'}"><div class="impl${S.view==='impl:'+k?' sel':''}" data-view="impl:${k}"><span class="${i.done<i.total?'ru':'ok'}">${i.done<i.total?'◌':'✓'}</span><span class="nm">${esc(i.name)}</span><span class="mono">${i.done}/${i.total}</span></div>
+        ${S.view==='impl:'+k?i.stations.map(([n,c])=>`<div class="srow" data-view="st"><span class="${c||'mu'}">${c==='ok'?'✓':c==='ru'?'◌':'○'}</span><span class="nm">${esc(n)}</span></div>`).join(''):''}</div>`).join(''); };
+  return `<aside class="side"><div class="brand">⧉ Agenten Verwalter 2000</div><button class="newp">＋ Neues Vorhaben <kbd>Ctrl N</kbd></button>
+    <div class="tree"><div class="grp">⌄ Arbeit <span class="n">1</span></div>
+      <div class="vrow${S.view==='ov'?' sel':''}" data-view="ov"><span class="chev">⌄</span><span class="ic ru">◌</span><span class="tx"><span class="nm">Agenten-Verwalter-2000</span><span class="meta newmark" style="padding:0 3px">4 Sessions · ${Object.values(S.impls).filter(i=>i.done<i.total).length} Umsetzungen laufen</span></span></div>
+      <div class="kids">${Object.keys(S.ses).map(k=>sesRow(k,k==='s33'?'ru':'ok')).join('')}</div></div>
+    <div class="foot"><div class="nav">◔ Kontingent</div><div class="nav">▤ Archiv</div><div class="nav">⚙ Einstellungen</div></div></aside>`;
+}
+function implHTML(k){
+  const i=S.impls[k], m=S.ses[i.master];
+  return `<div class="hdr"><span class="crumb">Agenten-Verwalter-2000</span><span class="title">Umsetzung ${esc(i.name)}</span><span class="tabs"><button aria-pressed="true">Ablauf</button><button class="newmark" title="Zeigt alle Changes des Vorhabens, auch die anderer Umsetzungen">Changes im Vorhaben</button><button>Artefakte</button></span>
+    <span class="right"><button class="chip m" data-act="master" data-k="${k}">◆ Master: #${m.num} ${esc(m.title)} · Wechseln …</button></span></div>
+    <div class="sub">Phase 1 von 1 · ${i.done} von ${i.total} Stationen fertig<span style="flex:1"></span><button class="btn sm">Lagebericht</button><button class="btn sm">Neue Rückfrage</button></div>
+    <div class="body"><div class="flow"><div class="left">${i.stations.map(([n,c])=>`<div class="st"><span class="o ${c}"></span>${esc(n)}</div>`).join('')}</div>
+      <div class="right"><p class="lbl">Kartei</p><div class="card"><b>${esc(i.stations.find(s=>s[1]==='ru')?.[0]||i.stations[0][0])}</b><span class="muted small">läuft · meldet an #${m.num}</span></div>
+      <p class="muted small newmark" style="padding:6px">Das Vorhaben hat ${Object.keys(S.impls).length} Umsetzungen; jede steht in der Leiste unter ihrem Master.</p></div></div></div>`;
+}
+function overviewHTML(){
+  return `<div class="hdr"><span class="title">Agenten-Verwalter-2000</span><span class="tabs"><button aria-pressed="true">Übersicht</button></span></div>
+    <div class="body"><div class="ov"><div class="card"><p class="lbl">Sessions</p>
+      <div class="line"><span class="tx">Selbstfreigabe für Nachrichten</span><button class="sw" role="switch" aria-checked="false"></button></div>
+      <div class="line"><span class="tx">Selbstfreigabe für TL;DR</span><button class="sw" role="switch" aria-checked="false"></button></div>
+      <div class="line newmark gone"><span class="tx">Selbstfreigabe für neue Sessions<span class="s">entfällt mit #216: Agenten öffnen keine Sessions mehr</span></span><button class="sw" role="switch" aria-checked="false" disabled></button></div>
+      <div class="line"><span class="tx">Modell des TL;DR</span><select class="sel"><option>Haiku 5.5</option></select></div></div>
+      <p class="muted small">Neue Sessions legst du weiter über „Neue Session“, „In neuer Session weiter“, Retro und „Neue Rückfrage“ an.</p></div></div>`;
+}
+function chatHTML(sid){
+  const s = sid==='st' ? {num:'',title:'postfach-2 Review'} : S.ses[sid];
+  const items = (S.chats[sid]||[]).map(e=> e.t==='u'?`<div class="umsg">${esc(e.text)}</div>`: e.t==='a'?`<div class="amsg">${esc(e.text)}</div>`:`<div class="tool${e.err?' err':''} newmark"><b>${esc(e.tool)}</b> → ${esc(e.text)}</div>`);
+  return `<div class="hdr">${sid==='st'?'<span class="crumb">Postfach #187</span>':'<span class="crumb">Agenten-Verwalter-2000</span>'}<span class="title">${s.num?`<span class="num">#${s.num}</span>`:''}${esc(s.title)}</span>${ledBy(sid)?'<span class="chip m">◆ Master</span>':''}<span class="tabs"><button aria-pressed="true">Chat</button></span></div>
+    <div class="body"><div class="chat">${items.join('')}</div></div>
+    <div class="compwrap"><div class="comp"><textarea placeholder="Nachricht an Claude …"></textarea><div class="row"><span>＋</span><span class="sp"></span><button class="send" disabled>↑</button></div></div></div>`;
+}
+function dlgHTML(){
+  if(!S.dlg) return '';
+  const k=S.dlg, i=S.impls[k];
+  const cand = [['s44',''],['s45',''],['s33',''],['s41','']].map(([sid])=>{
+    const s=S.ses[sid], other=ledBy(sid), self=i.master===sid;
+    const why = self ? 'ist schon Master dieser Umsetzung' : other ? `führt schon „${S.impls[other[0]].name}“` : s.inquiry ? 'Rückfrage zu dieser Umsetzung' : 'führt keine Umsetzung';
+    return `<button data-pick="${sid}" ${self||other?'disabled':''} aria-pressed="${S.pick===sid}" class="${other&&!self?'newmark':''}">#${s.num} ${esc(s.title)}<span class="s">${esc(why)}</span></button>`;
+  }).join('');
+  return `<div class="backdrop"><div class="dlg"><h3>Master von „${esc(i.name)}“ wechseln</h3>
+    <div class="pick">${cand}<button disabled>postfach-2 Review<span class="s">Station – kann nicht Master sein</span></button><button data-pick="new" aria-pressed="${S.pick==='new'}">＋ Neue Session<span class="s">wird Master und bekommt die Übergabe</span></button></div>
+    <div class="acts"><button class="btn" data-act="close">Abbrechen</button><button class="btn pri" data-act="setMaster" ${S.pick?'':'disabled'}>Als Master setzen</button></div></div></div>`;
+}
+function render(){
+  $('#app').querySelectorAll(':scope > :not(.toast)').forEach(n=>n.remove());
+  const v=S.view;
+  const main = v==='ov'?overviewHTML(): v.startsWith('impl:')?implHTML(v.slice(5)): v==='st'?chatHTML('st'): chatHTML(v.slice(4));
+  $('#app').insertAdjacentHTML('afterbegin', sideHTML()+`<section class="mainc">${main}</section>${dlgHTML()}`);
+}
+function call(kind){
+  const add = (sid, tool, text, err) => { S.chats[sid].push({t:'tool', tool, text, err}); S.view = sid==='st'?'st':'ses:'+sid; };
+  switch(kind){
+    case 'get': { const l=ledBy('s44'); add('s44','implementation_get', l?`Lagebericht „${S.impls[l[0]].name}“ …`:'„Du führst keine Umsetzung. Leg eine mit implementation_create an.“', !l); break; }
+    case 'create': {
+      const l=ledBy('s44');
+      if(l) add('s44','implementation_create',`„Du führst schon die Umsetzung „${S.impls[l[0]].name}“. Ändere ihren Plan mit implementation_edit, oder leg eine neue an, wenn sie fertig ist.“`, true);
+      else { S.impls.tk={name:'Tickets 0.78.0 aufräumen', master:'s44', done:0, total:3, stations:[['tickets-1 Umsetzung',''],['tickets-2 Review',''],['tickets-3 Merge','']]}; add('s44','implementation_create','„Umsetzung „Tickets 0.78.0 aufräumen“ angelegt. Du bist ihr Master.“'); S.chats.s44.push({t:'a',text:'Die Umsetzung steht; sie startet mit „Umsetzung starten“.'}); }
+      break;
+    }
+    case 'open': add('s44','verwalter_open_session','Fehler der Kommandozeile: „No such tool available: mcp__verwalter__verwalter_open_session“ – das Werkzeug gibt es nicht mehr; der Systemprompt nennt implementation_create und implementation_edit.', true); break;
+    case 'station': add('st','implementation_create','„Eine Station legt keine Umsetzung an. Melde dein Ergebnis mit implementation_complete_station.“', true); break;
+    case 'inquiry': add('s45','implementation_get','Lagebericht „Postfach #187“ (über die Rückfrage gefunden) …'); break;
+  }
+  render();
+}
+document.addEventListener('click', ev=>{
+  const c=ev.target.closest('[data-call]'); if(c){ if(c.dataset.call==='reset'){ reset(); render(); } else call(c.dataset.call); return; }
+  const v=ev.target.closest('[data-view]'); if(v){ S.view=v.dataset.view; return render(); }
+  const p=ev.target.closest('[data-pick]'); if(p && !p.disabled){ S.pick=p.dataset.pick; return render(); }
+  const a=ev.target.closest('[data-act]'); if(!a) return;
+  switch(a.dataset.act){
+    case 'master': S.dlg=a.dataset.k; S.pick=null; render(); break;
+    case 'close': S.dlg=false; render(); break;
+    case 'setMaster': {
+      const i=S.impls[S.dlg];
+      if(S.pick==='new'){ S.ses.s46={num:46,title:'Master Postfach'}; i.master='s46'; Proto.toast('Neue Session #46 ist Master'); }
+      else { i.master=S.pick; Proto.toast(`#${S.ses[S.pick].num} ist jetzt Master von „${i.name}“`); }
+      S.dlg=false; render(); break;
+    }
+  }
+});
+reset(); render();
+</script>
+</body>
+</html>

@@ -66,6 +66,20 @@
     text-overflow: ellipsis;
   }
 
+  /* Der Master bereitet einen Compact vor (ADR 070, Nachtrag): Marke in der Farbe des Masters, 2 px. */
+  &__compact {
+    display: inline-flex;
+    align-items: center;
+    flex-shrink: 0;
+    height: 22px;
+    padding: 0 var(--space-md);
+    border: 1px solid var(--color-status-reported);
+    border-radius: var(--radius-flat);
+    font-size: var(--font-size-xs);
+    color: var(--color-status-reported);
+    white-space: nowrap;
+  }
+
   &__status {
     display: inline-flex;
     align-items: center;

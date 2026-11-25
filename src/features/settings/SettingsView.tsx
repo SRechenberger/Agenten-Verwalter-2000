@@ -3,6 +3,7 @@ import { useMemo, useRef, useState } from 'react';
 import type { ReactElement } from 'react';
 import { ModeMenu } from '@/components/ModeMenu';
 import { ModelMenu } from '@/components/ModelMenu';
+import { ResizeHandle } from '@/components/ResizeHandle';
 import { Switch } from '@/components/Switch';
 import { AccountRow } from '@/features/account/AccountRow';
 import { AgentTypesRow } from '@/features/agenttypes/AgentTypesRow';
@@ -71,6 +72,7 @@ import type { SessionSummary } from '@/lib/bindings/SessionSummary';
 import type { Settings } from '@/lib/bindings/Settings';
 import type { SettingsOverview } from '@/lib/bindings/SettingsOverview';
 import { commandErrorText } from '@/lib/errors';
+import { usePanelWidth } from '@/lib/usePanelWidth';
 import {
   effortLabel,
   isLocalOperatingMode,
@@ -79,7 +81,6 @@ import {
   modeOption,
   modelName,
 } from '@/lib/labels';
-import type { ModelOption } from '@/lib/labels';
 import { useRemoteStore } from '@/stores/remote';
 import { useSettingsStore } from '@/stores/settings';
 import { useSettingsNavStore } from '@/stores/settingsNav';
@@ -87,14 +88,7 @@ import './SettingsView.css';
 
 const NO_CODEX_MODELS: readonly CodexModel[] = [];
 
-/** „Aus“ im Menü der Einordnung; gespeichert wird `null`. */
-const OFF = 'off';
-const ANSWER_MODEL_OPTIONS: readonly ModelOption<ModelId | typeof OFF>[] = [
-  ...MODEL_OPTIONS,
-  { id: OFF, name: 'Aus', hint: 'Keine Einordnung; die Karte bleibt „Antwort liegt vor“' },
-];
-
-type OpenMenu = 'model' | 'mode' | 'localModel' | 'selfReleaseModel' | 'answerModel' | null;
+type OpenMenu = 'model' | 'mode' | 'localModel' | 'selfReleaseModel' | null;
 
 interface SettingsViewProps {
   /** Alle Sessions; ein Update des Verwalters unterbricht die laufenden. */
@@ -123,6 +117,7 @@ export function SettingsView({
     initialCategory(attention, storedCategory),
   );
   const [query, setQuery] = useState<string>('');
+  const navWidth = usePanelWidth('settingsNav');
   const contentRef = useRef<HTMLDivElement>(null);
   const { repositories, isLoading: areRepositoriesLoading } = useKnownRepositories();
   const { save, error: saveError } = useSettingsUpdate();
@@ -400,34 +395,6 @@ export function SettingsView({
             </SelectButton>
           </SettingRow>
         );
-      case 'answerModel':
-        return (
-          <SettingRow id={id}>
-            <SelectButton
-              label="Modell der Einordnung"
-              value={current.answerModel === null ? 'Aus' : modelName(current.answerModel)}
-              isOpen={openMenu === 'answerModel'}
-              onToggle={(): void => {
-                toggleMenu('answerModel');
-              }}
-            >
-              <ModelMenu
-                options={ANSWER_MODEL_OPTIONS}
-                value={current.answerModel ?? OFF}
-                onChange={(model: ModelId | typeof OFF): void => {
-                  closeMenu();
-                  save({ kind: 'answerModel', value: model === OFF ? null : model }).catch(
-                    () => undefined,
-                  );
-                }}
-                onClose={closeMenu}
-                placement="below"
-                title="Modell der Einordnung"
-                note="Gilt ab dem nächsten Zugende."
-              />
-            </SelectButton>
-          </SettingRow>
-        );
       case 'defaultMode':
         return (
           <SettingRow id={id}>
@@ -507,7 +474,6 @@ export function SettingsView({
           </>
         );
       case 'selfReleaseTldr':
-      case 'selfReleaseOpenSession':
       case 'selfReleaseTldrModel':
         return renderSelfReleaseRow(id, current);
       case 'userSkills':
@@ -654,8 +620,10 @@ export function SettingsView({
           attention={attention}
           counts={isShowingHits ? countByCategory(hits) : null}
           onSelect={selectCategory}
+          width={navWidth.width}
         />
-        <div ref={contentRef} className="settings-view__scroll">
+        <ResizeHandle edge="end" label="Breite der Kategorien-Leiste" {...navWidth.handleProps} />
+        <div ref={contentRef} className="settings-view__scroll" data-resize-fill>
           <SettingsSearchContext.Provider value={terms}>
             <div className="settings-view__content">
               {renderErrors()}

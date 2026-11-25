@@ -37,7 +37,12 @@ origin: string | null,
  * Wartet auf einen freien Platz (Taiga-Story 190): steht schon im Chat, ist aber noch nicht beim
  * Agenten. Die Freigabe setzt es zurück; Einträge von vorher haben das Feld nicht.
  */
-queued: boolean, } | { "kind": "text", seq: number, text: string, 
+queued: boolean, 
+/**
+ * Verworfen, solange sie wartete (Taiga-Story 218): Die Nachricht ging nie an den Agenten, der
+ * Eintrag bleibt als „verworfen“ stehen (`queued` ist dann zurückgesetzt).
+ */
+discarded: boolean, } | { "kind": "text", seq: number, text: string, 
 /**
  * Pfade, Datei:Zeile-Angaben und Zahlen des Textes ohne Fundstelle (ADR 036), so
  * geschrieben wie im Text; Einträge von vorher haben das Feld nicht.

@@ -228,10 +228,11 @@ fn create(database_path: &Path, session_id: &str, json_file: &Path) -> Result<St
             check_agents(&input.phases, &agent_type_rows::list(connection)?)
                 .map_err(CommandError::Implementation)?;
             if let Some((_, running)) =
-                implementations::unfinished_of_project(connection, &row.project_id)?
+                implementations::unfinished_led_by(connection, session_id, None)?
             {
                 return Err(CommandError::Implementation(format!(
-                    "Im Vorhaben läuft schon die Umsetzung „{running}“."
+                    "Du führst schon die Umsetzung „{running}“. Ändere ihren Plan mit \
+                     implementation_edit, oder leg eine neue an, wenn sie fertig ist."
                 )));
             }
             let (implementation, phases, stations) = new_rows(

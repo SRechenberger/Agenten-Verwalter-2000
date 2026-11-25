@@ -1,0 +1,41 @@
+Modell claude-haiku-5-5 · Version 2.1.296 (Claude Code)
+lauf | szenario    | gerufen | treu | verweigert | ende      |   s |   usd
+   1 | bitte       |       1 | ja   | nein       | completed |  11 |  0.004
+   2 | erinnerung  |       1 | ja   | nein       | completed |   8 |  0.005
+   3 | bitte       |       1 | ja   | nein       | completed |   8 |  0.005
+   4 | erinnerung  |       1 | ja   | nein       | completed |   9 |  0.005
+   5 | bitte       |       1 | ja   | nein       | completed |   9 |  0.004
+   6 | erinnerung  |       1 | ja   | nein       | completed |   8 |  0.004
+   7 | bitte       |       1 | ja   | nein       | completed |   8 |  0.004
+   8 | erinnerung  |       1 | ja   | nein       | completed |   8 |  0.004
+   9 | bitte       |       1 | ja   | nein       | completed |   7 |  0.004
+  10 | erinnerung  |       1 | ja   | nein       | completed |   8 |  0.004
+  11 | bitte       |       1 | ja   | nein       | completed |  13 |  0.005
+  12 | erinnerung  |       1 | ja   | nein       | completed |   8 |  0.004
+  13 | bitte       |       1 | ja   | nein       | completed |   7 |  0.004
+  14 | erinnerung  |       1 | ja   | nein       | completed |   7 |  0.004
+  15 | bitte       |       1 | ja   | nein       | completed |   8 |  0.004
+  16 | erinnerung  |       1 | ja   | nein       | completed |   8 |  0.004
+  17 | bitte       |       1 | ja   | nein       | completed |   9 |  0.004
+  18 | erinnerung  |       1 | ja   | nein       | completed |   9 |  0.004
+  19 | bitte       |       1 | ja   | nein       | completed |   7 |  0.004
+  20 | erinnerung  |       1 | ja   | nein       | completed |   8 |  0.005
+  21 | bitte       |       1 | ja   | nein       | completed |   7 |  0.004
+  22 | erinnerung  |       1 | ja   | nein       | completed |   9 |  0.004
+  23 | bitte       |       1 | ja   | nein       | completed |   7 |  0.004
+  24 | erinnerung  |       1 | ja   | nein       | completed |  11 |  0.005
+  25 | bitte       |       1 | ja   | nein       | completed |   6 |  0.004
+  26 | erinnerung  |       1 | ja   | nein       | completed |   9 |  0.004
+  27 | bitte       |       1 | ja   | nein       | completed |   6 |  0.004
+  28 | erinnerung  |       1 | ja   | nein       | completed |   7 |  0.004
+  29 | bitte       |       1 | ja   | nein       | completed |   7 |  0.004
+  30 | erinnerung  |       1 | ja   | nein       | completed |   8 |  0.004
+  31 | bitte       |       1 | ja   | nein       | completed |   8 |  0.004
+  32 | erinnerung  |       1 | ja   | nein       | completed |   8 |  0.005
+  33 | bitte       |       1 | ja   | nein       | completed |   7 |  0.004
+  34 | erinnerung  |       1 | ja   | nein       | completed |   8 |  0.004
+  35 | bitte       |       1 | ja   | nein       | completed |   7 |  0.005
+  36 | erinnerung  |       1 | ja   | nein       | completed |   7 |  0.004
+bitte: 18 Läufe, Werkzeug gerufen 18, davon ohne Verweigerung 18, Verweigerungen 0, Fehler/Zeit 0
+erinnerung: 18 Läufe, Werkzeug gerufen 18, davon ohne Verweigerung 18, Verweigerungen 0, Fehler/Zeit 0
+Kosten 0.147 USD

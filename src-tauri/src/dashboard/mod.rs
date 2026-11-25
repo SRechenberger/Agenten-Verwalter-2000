@@ -1,14 +1,16 @@
 //! Das Dashboard (ADR 071): eine Arbeitsliste aus den Zuständen des Kerns. `build` bildet die
 //! Karten, die Abläufe und die aktiven Sessions als reine Funktion über einer Momentaufnahme; die
 //! Oberfläche rechnet nichts nach. Die Momentaufnahme liest `SessionRegistry::dashboard_snapshot`.
-pub mod classify;
 pub mod model;
+pub mod notify;
 #[cfg(test)]
 mod tests;
 
 use std::collections::{HashMap, HashSet};
 
 use crate::agents::event::QuestionKind;
+use crate::db::Database;
+use crate::db::dashboard as seen_rows;
 use crate::implementation::model::{ImplementationView, StationState, station_label};
 use crate::sessions::model::{PauseReason, SessionStatus};
 use model::{
@@ -19,13 +21,15 @@ use model::{
 
 /// Höchstlänge des Auszugs der letzten Antwort in Zeichen, samt „…“.
 pub const EXCERPT_CHARS: usize = 160;
+
+/// Nach `dashboard_seen`: Der Inhalt ist nur `projectId`; wer die Liste zeigt, lädt sie neu (ADR 079).
+pub const SEEN_EVENT: &str = "dashboard://seen";
 /// So lange nach dem Ende steht eine fertige Umsetzung noch bei den Abläufen.
 const RECENT_FINISH_MS: f64 = 24.0 * 60.0 * 60.0 * 1000.0;
 
 const ERROR_TITLE: &str = "Die Session ist im Fehler.";
 const STATION_ERROR_TITLE: &str = "Die Station ist im Fehler.";
 const PAUSED_TITLE: &str = "Angehalten";
-const BY_YOU_TITLE: &str = "Du bist an der Reihe";
 const RETURNS_EXHAUSTED_TITLE: &str = "Meldung wartet auf deine Entscheidung";
 const MASTER_MISSING_TITLE: &str = "Der Master fehlt";
 const READY_TITLE: &str = "Bereit, startet nicht von selbst";
@@ -52,7 +56,27 @@ fn is_open(dismissed_at: Option<f64>, since: f64) -> bool {
     dismissed_at.is_none_or(|dismissed: f64| dismissed < since)
 }
 
-/// Stufe der Reihenfolge: erst blockierende, dann die Stufen der Aufgabe, `ready`, zuletzt `done`.
+/// Räumt `dashboard_seen` ab: Zeilen von Karten, die nicht mehr in der Ansicht stehen, verschwinden mit
+/// ihnen. Ein Fehler hier darf die Ansicht nicht verhindern; er wird nur gemeldet.
+pub fn prune_seen(database: &Database, view: &DashboardView) {
+    let keep: HashSet<String> = view
+        .tasks
+        .iter()
+        .map(|task: &DashboardTask| task.id.clone())
+        .collect();
+    if let Err(error) = database.with(|connection| seen_rows::prune_seen(connection, &keep)) {
+        eprintln!("Gesehen-Zeitpunkte des Dashboards nicht aufgeräumt: {error}");
+    }
+}
+
+/// Ungelesen: nie gesehen oder vor dem Zustand der Karte. Die Oberfläche spiegelt die Regel; ein neuer
+/// Zustand derselben Kennung (`since` später) ist wieder ungelesen.
+pub fn is_unread(seen_at: Option<f64>, since: f64) -> bool {
+    seen_at.is_none_or(|seen: f64| seen < since)
+}
+
+/// Stufe der Reihenfolge: erst blockierende Anfragen, dann `blocked`, `asks`, `requests`, `review` und die
+/// übrigen Stufen der Aufgabe, `ready`, zuletzt `done` (ADR 077).
 fn level(task: &DashboardTask) -> u8 {
     if task.blocking {
         return 0;
@@ -61,18 +85,20 @@ fn level(task: &DashboardTask) -> u8 {
         DashboardTaskKind::Question
         | DashboardTaskKind::Permission
         | DashboardTaskKind::SessionTool => 0,
-        DashboardTaskKind::Asks => 1,
-        DashboardTaskKind::Requests => 2,
-        DashboardTaskKind::Answer => 3,
-        DashboardTaskKind::PlanChange => 4,
-        DashboardTaskKind::CancelRequest => 5,
-        DashboardTaskKind::ByYou => 6,
-        DashboardTaskKind::ReturnsExhausted => 7,
-        DashboardTaskKind::MasterMissing => 8,
-        DashboardTaskKind::Error => 9,
-        DashboardTaskKind::Paused => 10,
-        DashboardTaskKind::Ready => 11,
-        DashboardTaskKind::Done => 12,
+        DashboardTaskKind::Blocked => 1,
+        DashboardTaskKind::Asks => 2,
+        DashboardTaskKind::Requests => 3,
+        DashboardTaskKind::Review => 4,
+        DashboardTaskKind::Answer => 5,
+        DashboardTaskKind::PlanChange => 6,
+        DashboardTaskKind::CancelRequest => 7,
+        DashboardTaskKind::ByYou => 8,
+        DashboardTaskKind::ReturnsExhausted => 9,
+        DashboardTaskKind::MasterMissing => 10,
+        DashboardTaskKind::Error => 11,
+        DashboardTaskKind::Paused => 12,
+        DashboardTaskKind::Ready => 13,
+        DashboardTaskKind::Done => 14,
     }
 }
 
@@ -141,6 +167,10 @@ impl<'a> Context<'a> {
             request_id: None,
             entry: None,
             released: false,
+            offer: None,
+            link: None,
+            reported: false,
+            seen_at: None,
         }
     }
 
@@ -213,6 +243,9 @@ pub fn build(snapshot: &Snapshot, now: f64) -> DashboardView {
     // Zustand und Zahl eines Ablaufs zählen die gelesenen Karten mit.
     let flows = flows_of(snapshot, &context, &tasks, now);
     tasks.retain(|task: &DashboardTask| !read.contains(&task.id));
+    for task in &mut tasks {
+        task.seen_at = snapshot.seen.get(&task.id).copied();
+    }
     DashboardView {
         flows,
         sessions: sessions_of(snapshot, &context, &tasks),
@@ -301,19 +334,29 @@ fn session_card_of(
     project: &ProjectFacts,
     session: &SessionFacts,
 ) -> Option<DashboardTask> {
+    // `reported`: Der Agent hat die Art mit `verwalter_notify_user` gemeldet; Angebot und Verweis stehen
+    // mit der Zeile in `answer_line`.
+    let mut reported: Option<(Option<String>, Option<String>)> = None;
     let (kind, since, title) = match session.status {
         SessionStatus::Completed if !session.awaits_script && !session.awaits_subagent => {
             let at = session.answer_at?;
             match session.answer_kind {
-                Some(kind) => (
-                    match kind {
-                        AnswerKind::Asks => DashboardTaskKind::Asks,
-                        AnswerKind::Requests => DashboardTaskKind::Requests,
-                        AnswerKind::Done => DashboardTaskKind::Done,
-                    },
-                    at,
-                    session.answer_line.clone().unwrap_or_default(),
-                ),
+                Some(kind) => {
+                    let (line, offer, link) =
+                        notify::from_stored(session.answer_line.as_deref().unwrap_or_default());
+                    reported = Some((offer, link));
+                    (
+                        match kind {
+                            AnswerKind::Asks => DashboardTaskKind::Asks,
+                            AnswerKind::Requests => DashboardTaskKind::Requests,
+                            AnswerKind::Done => DashboardTaskKind::Done,
+                            AnswerKind::Review => DashboardTaskKind::Review,
+                            AnswerKind::Blocked => DashboardTaskKind::Blocked,
+                        },
+                        at,
+                        line,
+                    )
+                }
                 None => (
                     DashboardTaskKind::Answer,
                     at,
@@ -333,8 +376,15 @@ fn session_card_of(
         ),
         _ => return None,
     };
-    is_open(session.dismissed_at, since)
-        .then(|| context.session_card(project, session, kind, since, title))
+    is_open(session.dismissed_at, since).then(|| {
+        let mut task = context.session_card(project, session, kind, since, title);
+        if let Some((offer, link)) = reported {
+            task.reported = true;
+            task.offer = offer;
+            task.link = link;
+        }
+        task
+    })
 }
 
 /// Pausiert am Kontingent mit scharfem Zeitgeber von „Automatisch fortsetzen“ (ADR 064).
@@ -454,7 +504,8 @@ fn station_card_of(
         _ if waits_for_you && station.by_user => (
             DashboardTaskKind::ByYou,
             flow.last_activity_at,
-            BY_YOU_TITLE.to_owned(),
+            // Der Titel ist der Name der Station, nicht ein fester Satz (Story 187).
+            station.label.clone(),
         ),
         _ if waits_for_you && station.returns_left == 0 && station.reported_at.is_some() => (
             DashboardTaskKind::ReturnsExhausted,

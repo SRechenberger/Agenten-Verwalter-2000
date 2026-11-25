@@ -8,6 +8,7 @@ use crate::dashboard::model::DashboardView;
 use crate::implementation::slots::QueueKind;
 use crate::projects::model::ProjectPriority;
 use crate::remote::model::HostProfile;
+use crate::sessions::model::WaitsFor;
 
 const PROJECT: &str = "project";
 const OWN_SESSION: &str = "own-session";
@@ -75,6 +76,10 @@ impl Host for Stub {
 
     fn agent_queue(&self) -> AgentQueue {
         queue_of_two_projects()
+    }
+
+    fn inbox_list(&self) -> Result<Vec<WaitingMessage>, CommandError> {
+        Ok(waiting_in_two_projects())
     }
 
     fn invoke(&self, command: &str, args: Value) -> Result<Value, CommandError> {
@@ -427,6 +432,8 @@ fn two_projects() -> Snapshot {
             name: format!("Name {project}"),
             group_name: Some(format!("Gruppe {project}")),
         });
+        // Die Tabelle des Hosts: Der Gast bekommt sie nur mit der Karte.
+        snapshot.seen.insert(format!("session:{session}"), 150.0);
         snapshot.sessions.push(SessionFacts {
             id: session.to_owned(),
             number: 1,
@@ -506,6 +513,60 @@ fn dashboard_get_is_reachable_for_guests_without_an_id() {
     );
 }
 
+/// Je eine wartende Nachricht in `PROJECT` und im fremden Vorhaben.
+fn waiting_in_two_projects() -> Vec<WaitingMessage> {
+    let message = |id: i64, project_id: &str| WaitingMessage {
+        id,
+        session_id: format!("{project_id}-session"),
+        recipient_number: 1,
+        recipient_title: format!("{project_id} Empfänger"),
+        project_id: project_id.to_owned(),
+        sender_id: "sender".to_owned(),
+        sender_number: 2,
+        sender_title: "Absender".to_owned(),
+        from_user: false,
+        subject: Some("Betreff".to_owned()),
+        text: "Text".to_owned(),
+        created_at: 0.0,
+        entry_seq: None,
+        waits_for: WaitsFor::TurnEnd,
+        position: None,
+    };
+    vec![message(1, PROJECT), message(2, "foreign-project")]
+}
+
+#[test]
+fn inbox_list_gives_a_guest_only_the_messages_of_projects_it_holds() {
+    let host = Stub::new(&Scratch::new());
+    let value = call(&host, &held_by_a(), "a", "inbox_list", Value::Null).expect("Liste");
+    let messages: Vec<WaitingMessage> = serde_json::from_value(value.clone()).expect("Liste");
+    assert_eq!(messages.len(), 1, "{messages:?}");
+    assert_eq!(messages[0].project_id, PROJECT);
+    assert!(!value.to_string().contains("foreign"), "{value}");
+    assert!(
+        host.invoked().is_empty(),
+        "aus der Registry, nie über den Befehl"
+    );
+    let held_nothing = call(&host, &held_by_a(), "b", "inbox_list", Value::Null).expect("Liste");
+    assert_eq!(held_nothing, serde_json::json!([]));
+}
+
+#[test]
+fn inbox_commands_have_their_classes_in_the_access_table() {
+    assert_eq!(
+        access::class_of("inbox_list"),
+        Some(access::Class::Reachable)
+    );
+    assert_eq!(
+        access::class_of("chat_discard_queued"),
+        Some(access::Class::HostWrite)
+    );
+    assert_eq!(
+        access::class_of("remote_inbox_list"),
+        Some(access::Class::LocalOnly)
+    );
+}
+
 /// Vier Plätze, drei belegt; Wartende auf den Rängen 1 und 3 in `PROJECT`, auf 2 im fremden Vorhaben.
 fn queue_of_two_projects() -> AgentQueue {
     let entry = |position: u32, project_id: &str| QueueEntry {
@@ -579,4 +640,86 @@ fn agent_queue_is_reachable_for_guests_and_remote_agent_queue_stays_local() {
         access::class_of("remote_agent_queue"),
         Some(access::Class::LocalOnly)
     );
+}
+
+#[test]
+fn the_project_list_of_a_guest_holds_the_members_of_a_shared_group_and_not_the_rest() {
+    let host = Stub::new(&Scratch::new());
+    let control = RemoteControl::default();
+    control.with(|control| {
+        control.set_shared(["in-group".to_owned(), "also-in-group".to_owned()].into());
+    });
+    let listed = |id: &str| json!({ "id": id });
+    let kept = filter_list(
+        &host,
+        &control,
+        &device("a"),
+        "project_list",
+        vec![listed("in-group"), listed("alone"), listed("also-in-group")],
+    );
+    assert_eq!(kept, vec![listed("in-group"), listed("also-in-group")]);
+    // Das Mitglied verlässt die Gruppe: Der Gast sieht es nicht mehr.
+    control.with(|control| control.set_shared(["also-in-group".to_owned()].into()));
+    let kept = filter_list(
+        &host,
+        &control,
+        &device("a"),
+        "project_list",
+        vec![listed("in-group"), listed("also-in-group")],
+    );
+    assert_eq!(kept, vec![listed("also-in-group")]);
+}
+
+#[test]
+fn a_guest_gets_the_same_seen_at_for_a_card_as_the_view_of_the_host() {
+    let (view, value, _) = dashboard_of("a");
+    let host_view = crate::dashboard::build(&two_projects(), now_ms());
+    let card = |view: &DashboardView| {
+        view.tasks
+            .iter()
+            .find(|task| task.id == format!("session:{OWN_SESSION}"))
+            .expect("Karte")
+            .seen_at
+    };
+    assert_eq!(card(&view), Some(150.0));
+    assert_eq!(card(&view), card(&host_view));
+    // Die Tabelle selbst, auch die Zeile der fremden Karte, geht nicht hinaus.
+    assert!(!value.to_string().contains("foreign"), "{value}");
+}
+
+#[test]
+fn a_guest_marks_cards_of_a_held_project_seen_through_the_host() {
+    let host = Stub::new(&Scratch::new());
+    let args = json!({ "projectId": PROJECT, "cardIds": ["session:own-session"] });
+    call(&host, &held_by_a(), "a", "dashboard_seen", args.clone()).expect("gesehen");
+    let invoked = host.invoked();
+    assert_eq!(invoked.len(), 1, "{invoked:?}");
+    assert_eq!(invoked[0].0, "dashboard_seen");
+    assert_eq!(invoked[0].1["cardIds"], args["cardIds"]);
+}
+
+#[test]
+fn a_guest_may_not_mark_cards_of_a_project_it_does_not_hold() {
+    let host = Stub::new(&Scratch::new());
+    let args = json!({ "projectId": "foreign-project", "cardIds": ["session:x"] });
+    assert!(call(&host, &held_by_a(), "a", "dashboard_seen", args.clone()).is_err());
+    assert!(call(&host, &held_by_a(), "b", "dashboard_seen", args).is_err());
+    assert!(host.invoked().is_empty());
+}
+
+#[test]
+fn dashboard_seen_is_a_host_read_command_and_undismiss_a_host_write_command_with_their_id() {
+    assert_eq!(
+        access::class_of("dashboard_seen"),
+        Some(access::Class::HostRead)
+    );
+    assert_eq!(
+        access::class_of("dashboard_undismiss"),
+        Some(access::Class::HostWrite)
+    );
+    let ids = access::ids_of("dashboard_seen", &json!({ "projectId": PROJECT }));
+    assert_eq!(ids.len(), 1);
+    assert_eq!(ids[0].kind, access::IdKind::Project);
+    let ids = access::ids_of("dashboard_undismiss", &json!({ "sessionId": OWN_SESSION }));
+    assert_eq!(ids[0].kind, access::IdKind::Session);
 }

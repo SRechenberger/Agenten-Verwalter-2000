@@ -1,0 +1,450 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Master-Compact mit Vorbereitung</title>
+<style>
+/* Gemeinsame Stile der Klick-Prototypen 0.78.0. Farben, Schriften und Maße aus src/styles/theme.css, Sidebar.css, UserMessage.css, Composer.css der App. */
+:root{color-scheme:dark;--bg:#1f1f1f;--side:#181818;--surf:#252526;--hover:#2e2e30;--sel:#37373d;--bds:#2b2b2b;--bd:#3c3c3c;--fg:#d4d4d4;--fg2:#b0b0b0;--fgm:#8f8f8f;--acc:#e0825c;--acct:#f0a888;--onacc:#1d130e;--accsub:rgba(224,130,92,.16);--run:#5b9dff;--wait:#f2b33d;--waitsub:rgba(242,179,61,.14);--err:#f47067;--errsub:rgba(244,112,103,.12);--ok:#4cc38a;--master:#8ab8ea;--shadow:0 10px 30px rgb(0 0 0/.45);--font:'Segoe UI Variable Text','Segoe UI',system-ui,sans-serif;--mono:'Cascadia Code','Cascadia Mono',Consolas,ui-monospace,monospace}
+:root[data-theme=light]{color-scheme:light;--bg:#fff;--side:#f8f8f8;--surf:#fff;--hover:#f0f0f0;--sel:#e4e6f1;--bds:#e5e5e5;--bd:#cecece;--fg:#3c3c3c;--fg2:#555;--fgm:#6e6e6e;--acc:#c4572f;--acct:#a8461f;--onacc:#fff;--accsub:rgba(196,87,47,.1);--run:#2563eb;--wait:#a86a00;--waitsub:rgba(168,106,0,.1);--err:#d23b33;--errsub:#fdeceb;--ok:#16803c;--master:#3d6fa8;--shadow:0 10px 30px rgb(0 0 0/.14)}
+*{box-sizing:border-box}
+body{margin:0;background:var(--side);color:var(--fg);font:13px/1.45 var(--font)}
+main{max-width:1480px;margin:0 auto;padding:16px}
+h1{font-size:15px;margin:0 0 4px}
+.lead{color:var(--fg2);margin:0 0 10px;max-width:1020px}
+button,input,select,textarea{font:inherit;color:inherit}
+code{font-family:var(--mono);font-size:12px}
+kbd{font-family:var(--mono);font-size:11px;padding:0 4px;border:1px solid var(--bd);border-bottom-width:2px;border-radius:4px;color:var(--fg2)}
+
+/* Simulationsleiste (nicht Teil der App) */
+#sim{display:flex;flex-wrap:wrap;gap:6px 8px;align-items:center;margin:0 0 8px;padding:8px 10px;border:1px dashed var(--bd);border-radius:6px;color:var(--fgm);font-size:12px}
+#sim button{border:1px solid var(--bd);background:transparent;border-radius:6px;padding:3px 10px;cursor:pointer}
+#sim button:hover{background:var(--hover)}
+#sim button[aria-pressed=true]{background:var(--sel);color:var(--fg)}
+#sim button:disabled{opacity:.4;cursor:default}
+#sim .sp{margin-left:10px}
+#sim .lbl{color:var(--fg2)}
+
+/* App-Fenster */
+.app{position:relative;display:flex;height:720px;border:1px solid var(--bd);border-radius:10px;overflow:hidden;background:var(--bg)}
+.side{width:256px;flex:none;background:var(--side);border-right:1px solid var(--bds);display:flex;flex-direction:column;min-height:0}
+.brand{display:flex;align-items:center;gap:8px;padding:14px 16px 10px;font-weight:600;font-size:13px}
+.newp{display:flex;align-items:center;gap:8px;margin:0 10px 10px;padding:4px 10px;border:1px solid var(--bd);border-radius:6px;background:transparent;cursor:pointer;text-align:left}
+.newp:hover{background:var(--hover)}
+.newp kbd{margin-left:auto;border:0;color:var(--fgm)}
+.tree{flex:1;overflow:auto;min-height:0;padding:0 10px 10px}
+.grp{display:flex;align-items:center;gap:6px;margin:12px 0 2px;padding:3px 6px;border-radius:6px;font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--fgm);cursor:default;user-select:none}
+.grp:hover{background:var(--hover)}
+.grp .n{margin-left:auto;font-variant-numeric:tabular-nums}
+.grp .rm{text-transform:none}
+.vrow{display:flex;gap:6px;padding:4px 6px;border-radius:6px;cursor:pointer;align-items:flex-start}
+.vrow:hover{background:var(--hover)}
+.vrow.sel{background:var(--sel)}
+.vrow .chev{width:12px;color:var(--fgm);flex:none;line-height:20px}
+.vrow .ic{width:14px;flex:none;line-height:20px;text-align:center}
+.vrow .tx{flex:1;min-width:0}
+.vrow .nm{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block}
+.vrow .meta{display:block;font-size:12px;color:var(--fgm);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.kids{margin-left:12px;padding-left:8px;border-left:1px solid var(--bds)}
+.srow{display:flex;align-items:center;gap:6px;padding:3px 6px;border-radius:6px;cursor:pointer;font-size:12.5px;color:var(--fg2);min-width:0}
+.srow:hover{background:var(--hover)}
+.srow.sel{background:var(--sel);color:var(--fg)}
+.srow .num{font-family:var(--mono);font-size:11px;color:var(--fgm);flex:none}
+.srow .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.srow .aux{font-size:11px;color:var(--fgm);white-space:nowrap;flex:none}
+.srow .aux.w{color:var(--wait)}
+.srow .mono{font-family:var(--mono);font-size:11px;color:var(--fgm)}
+.ok{color:var(--ok)}.wt{color:var(--wait)}.er{color:var(--err)}.mu{color:var(--fgm)}.ru{color:var(--run)}
+.rm{color:var(--acc);flex:none}
+.dia{color:var(--master);flex:none;font-size:11px}
+.udot{width:6px;height:6px;border-radius:50%;background:var(--acc);flex:none}
+.foot{border-top:1px solid var(--bds);padding:8px 10px;display:flex;flex-direction:column;gap:2px}
+.foot .nav{display:flex;align-items:center;gap:10px;padding:4px 8px;border-radius:6px;color:var(--fg2);cursor:pointer}
+.foot .nav:hover{background:var(--hover)}
+.foot .nav.sel{background:var(--sel);color:var(--fg)}
+.qbar{display:flex;align-items:center;gap:8px;padding:2px 6px 6px}
+.cells{display:flex;gap:2px;flex:1}
+.cells i{flex:1;height:4px;border-radius:2px;background:var(--bd)}
+.cells i.on{background:var(--run)}
+.cells i.over{background:var(--wait)}
+.qbar .t{font-family:var(--mono);font-size:11px;color:var(--fgm)}
+.qrow{display:flex;align-items:center;gap:6px;padding:0 6px 4px}
+.chip{display:inline-flex;align-items:center;gap:5px;padding:1px 8px;border:1px solid var(--bd);border-radius:99px;font-size:11.5px;background:transparent;white-space:nowrap;color:var(--fg2)}
+button.chip{cursor:pointer}
+button.chip:hover{background:var(--hover)}
+.chip.w{border-color:var(--wait);color:var(--wait);background:var(--waitsub)}
+.chip.a{border-color:var(--acc);color:var(--acct);background:var(--accsub)}
+.chip.m{border-color:var(--master);color:var(--master)}
+.chip.e{border-color:var(--err);color:var(--err);background:var(--errsub)}
+.pill{padding:0 6px;border-radius:99px;background:var(--acc);color:var(--onacc);font-size:10.5px;font-weight:700}
+
+/* Hauptbereich */
+.mainc{flex:1;display:flex;flex-direction:column;min-width:0;min-height:0;position:relative}
+.hdr{display:flex;align-items:center;gap:10px;height:48px;flex:none;padding:0 14px 0 20px;border-bottom:1px solid var(--bds)}
+.crumb{color:var(--fgm);white-space:nowrap}
+.crumb+.crumb::before{content:'›';margin-right:10px;color:var(--fgm)}
+.title{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.title .num{color:var(--fgm);font-weight:400;margin-right:6px;font-size:12px}
+.tabs{display:inline-flex;gap:2px;padding:2px;border:1px solid var(--bds);border-radius:8px;margin:0 auto}
+.tabs button{border:0;background:transparent;border-radius:6px;padding:3px 12px;cursor:pointer;color:var(--fg2)}
+.tabs button[aria-pressed=true]{background:var(--sel);color:var(--fg)}
+.hdr .right{display:flex;gap:6px;align-items:center;margin-left:auto}
+.body{flex:1;overflow:auto;min-height:0}
+
+/* Chat */
+.chat{max-width:960px;margin:0 auto;padding:18px 28px 12px;display:flex;flex-direction:column;gap:12px}
+.umsg{align-self:stretch;border:1px solid var(--bd);border-radius:8px;padding:9px 12px;background:var(--surf);white-space:pre-wrap;overflow-wrap:anywhere;position:relative}
+.umsg.queued{border-style:dashed;border-color:var(--wait)}
+.umsg.discarded{opacity:.55;border-style:dashed}
+.umsg.discarded .txt{text-decoration:line-through}
+.umsg .head{display:flex;align-items:center;gap:8px;margin:-2px 0 4px;font-size:11.5px;color:var(--fgm);white-space:normal}
+.umsg .head .sp{flex:1}
+.qmark{display:inline-flex;align-items:center;gap:4px;padding:0 7px;border-radius:99px;background:var(--waitsub);color:var(--wait);font-size:11px;font-weight:600}
+.dmark{display:inline-flex;align-items:center;gap:4px;padding:0 7px;border-radius:99px;background:var(--hover);color:var(--fgm);font-size:11px;font-weight:600}
+.amsg{white-space:pre-wrap;overflow-wrap:anywhere}
+.smsg .from{font-size:12px;color:var(--fg2);margin-bottom:3px}
+.smsg .from a{color:var(--acct);text-decoration:none;cursor:pointer}
+.smsg .subj{font-size:12px;color:var(--fgm);margin-bottom:4px}
+.note{align-self:center;font-size:11.5px;color:var(--fgm);padding:2px 10px;border:1px solid var(--bds);border-radius:99px}
+.note.e{color:var(--err);border-color:var(--err)}
+.tool{align-self:stretch;font-size:12px;color:var(--fgm);font-family:var(--mono);padding:4px 10px;border-left:2px solid var(--bd)}
+.tool b{color:var(--fg2);font-weight:600}
+.tool.err{border-left-color:var(--err)}
+.compwrap{flex:none;padding:0 28px 14px;max-width:1016px;width:100%;margin:0 auto}
+.hintbar{display:flex;align-items:center;gap:10px;padding:6px 10px 6px 12px;border:1px solid var(--wait);border-bottom:0;border-radius:10px 10px 0 0;background:var(--waitsub);font-size:12.5px}
+.hintbar .sp{flex:1}
+.hintbar+.comp{border-top-left-radius:0;border-top-right-radius:0}
+.comp{border:1px solid var(--bd);border-radius:10px;background:var(--surf)}
+.comp textarea{display:block;width:100%;min-height:46px;max-height:140px;resize:none;border:0;background:transparent;padding:10px 14px 4px;outline:none}
+.comp .row{display:flex;align-items:center;gap:10px;padding:4px 8px 8px 10px;color:var(--fgm);font-size:12px}
+.comp .row .sp{flex:1}
+.send{width:30px;height:30px;border:0;border-radius:6px;background:var(--acc);color:var(--onacc);cursor:pointer;font-weight:700}
+.send:disabled{opacity:.45;cursor:default}
+
+/* Bedienelemente */
+.btn{border:1px solid var(--bd);background:transparent;border-radius:6px;padding:3px 10px;cursor:pointer;font-size:12px;white-space:nowrap}
+.btn:hover:not(:disabled){background:var(--hover)}
+.btn:disabled{opacity:.45;cursor:default}
+.btn.pri{background:var(--acc);border-color:var(--acc);color:var(--onacc);font-weight:600}
+.btn.pri:hover:not(:disabled){background:var(--acc);filter:brightness(1.08)}
+.btn.dng{border-color:var(--err);color:var(--err)}
+.btn.sm{padding:1px 7px;font-size:11.5px}
+.link{border:0;background:none;color:var(--acct);cursor:pointer;padding:0;font-size:12px}
+.link:disabled{color:var(--fgm);cursor:default}
+.sw{position:relative;width:34px;height:20px;border-radius:99px;border:0;background:var(--bd);cursor:pointer;flex:none;padding:0}
+.sw::after{content:'';position:absolute;left:3px;top:3px;width:14px;height:14px;border-radius:50%;background:#fff;transition:left .12s}
+.sw[aria-checked=true]{background:var(--acc)}
+.sw[aria-checked=true]::after{left:17px}
+.sw:disabled{opacity:.5;cursor:default}
+select.sel,input.inp{padding:4px 8px;border:1px solid var(--bd);border-radius:6px;background:var(--bg)}
+.lbl{font-size:10.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--fgm);margin:0}
+.muted{color:var(--fgm)}
+.small{font-size:12px}
+
+/* Übersicht und Karten */
+.ov{max-width:740px;margin:0 auto;padding:22px 20px;display:flex;flex-direction:column;gap:14px}
+.card{border:1px solid var(--bds);border-radius:8px;background:var(--surf);padding:12px 14px;display:flex;flex-direction:column;gap:8px}
+.card.new{outline:1.5px dashed var(--acc);outline-offset:3px}
+.line{display:flex;align-items:center;gap:12px}
+.line .tx{flex:1;min-width:0}
+.line .tx .s{display:block;font-size:12px;color:var(--fgm)}
+
+/* Menü, Popover, Dialog, Meldung */
+.menu{position:absolute;z-index:20;min-width:220px;padding:4px;border:1px solid var(--bd);border-radius:8px;background:var(--surf);box-shadow:var(--shadow)}
+.menu button{display:flex;width:100%;align-items:center;gap:8px;padding:5px 10px;border:0;border-radius:5px;background:transparent;text-align:left;cursor:pointer;font-size:12.5px}
+.menu button:hover:not(:disabled){background:var(--hover)}
+.menu button:disabled{color:var(--fgm);cursor:default}
+.menu hr{border:0;border-top:1px solid var(--bds);margin:4px 0}
+.menu .hint{padding:4px 10px;font-size:11.5px;color:var(--fgm);max-width:260px}
+.pop{position:absolute;z-index:15;border:1px solid var(--bd);border-radius:10px;background:var(--surf);box-shadow:var(--shadow);display:flex;flex-direction:column;min-height:0}
+.backdrop{position:absolute;inset:0;z-index:30;background:rgb(0 0 0/.45);display:flex;align-items:center;justify-content:center}
+.dlg{width:440px;max-width:calc(100% - 32px);border:1px solid var(--bd);border-radius:10px;background:var(--surf);box-shadow:var(--shadow);padding:16px 18px;display:flex;flex-direction:column;gap:10px}
+.dlg h3{margin:0;font-size:14px}
+.dlg .acts{display:flex;justify-content:flex-end;gap:8px;margin-top:4px}
+.chk{display:inline-flex;align-items:center;gap:6px;font-size:12.5px}
+.chk input{accent-color:var(--acc)}
+.toast{position:absolute;left:50%;bottom:16px;transform:translateX(-50%);display:flex;gap:14px;align-items:center;padding:7px 14px;border:1px solid var(--bd);border-radius:8px;background:var(--surf);box-shadow:var(--shadow);font-size:12.5px;z-index:40;white-space:nowrap}
+.newmark{outline:1.5px dashed var(--acc);outline-offset:2px;border-radius:6px}
+
+/* Erläuterungen unter dem Fenster */
+.doc{margin-top:22px;display:grid;grid-template-columns:1fr 1fr;gap:10px 34px;color:var(--fg2)}
+.doc h2{font-size:13.5px;color:var(--fg);margin:14px 0 4px}
+.doc ul,.doc ol{margin:0;padding-left:20px}
+.doc li{margin:3px 0}
+.doc b{color:var(--fg)}
+.rec{grid-column:1/-1;padding:10px 14px;border:1px solid var(--ok);border-radius:8px;background:color-mix(in srgb,var(--ok) 10%,transparent)}
+.rec h2{margin-top:0}
+.ask{grid-column:1/-1;padding:10px 14px;border:1px solid var(--wait);border-radius:8px;background:var(--waitsub)}
+.ask h2{margin-top:0}
+@media (max-width:1100px){.app .side{display:none}}
+@media (max-width:860px){.doc{grid-template-columns:1fr}}
+
+</style>
+<style>
+.app{height:660px}
+.cbar{border-color:var(--master);background:color-mix(in srgb,var(--master) 12%,transparent)}
+.cbar.e{border-color:var(--err);background:var(--errsub)}
+.phase{display:inline-flex;align-items:center;gap:5px;padding:1px 8px;border-radius:99px;border:1px solid var(--master);color:var(--master);font-size:11.5px;white-space:nowrap}
+.gauge{font-family:var(--mono);font-size:11.5px;color:var(--fg2);white-space:nowrap}
+.gauge b{color:var(--wait);font-weight:600}
+.cpanel{position:absolute;right:14px;top:52px;width:300px;z-index:12;padding:12px 14px;display:flex;flex-direction:column;gap:8px}
+.bar{height:6px;border-radius:3px;background:var(--bd);position:relative;overflow:visible}
+.bar i{position:absolute;left:0;top:0;bottom:0;border-radius:3px;background:var(--run)}
+.bar u{position:absolute;top:-3px;bottom:-3px;width:2px;background:var(--wait)}
+.wrap2{display:flex;flex-direction:column-reverse;gap:16px;margin-top:16px}
+.diag{border:1px solid var(--bd);border-radius:10px;background:var(--bg);padding:10px;overflow:auto}
+.diag pre{font-size:11px;white-space:pre-wrap;margin:0;color:var(--fg2)}
+.log{border:1px solid var(--bd);border-radius:10px;background:var(--bg);padding:10px 12px;font-size:12px;max-height:520px;overflow:auto}
+.log div{padding:2px 0;border-bottom:1px solid var(--bds)}
+.log b{color:var(--master)}
+#sim .ev{border-color:var(--master)}
+@media (max-width:1200px){.wrap2{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<main>
+<h1>Master-Compact mit Vorbereitung · Klick-Prototyp (Taiga #215)</h1>
+<p class="lead">Stand 2026-11-25 (Umsetzung 0.78.0). Ruht eine Master-Session über der Grenze „Master zusammenfassen ab“, schickt der Verwalter nicht mehr gleich <code>/compact</code>, sondern bittet sie, sich vorzubereiten. Bis sie sich mit <code>verwalter_compact_ready</code> meldet und der Compact durch ist, <b>warten alle Nachrichten an sie</b> (deine, die anderer Sessions, die des Verwalters); danach gehen sie in ihrer Reihenfolge hinaus. Oben in der Simulationsleiste stehen die Ereignisse, die gerade möglich sind; die Knöpfe im Fenster sind die der App. Rechts unten das Zustandsdiagramm mit dem aktuellen Zustand. Neu Gezeigtes ist gestrichelt umrandet.</p>
+<div id="sim">
+  <span>Farbschema</span><button data-theme-btn="dark">Dunkel</button><button data-theme-btn="light">Hell</button>
+  <span class="sp lbl">Ereignisse</span><span id="evs"></span>
+  <span class="sp"></span><button data-ev="foreign">Station meldet sich (Nachricht an den Master)</button><button data-ev="restart">App-Neustart</button><button data-ev="reset">Zurücksetzen</button>
+</div>
+<div class="app" id="app"></div>
+<div class="wrap2">
+  <div class="doc" style="margin-top:0;grid-template-columns:1fr">
+    <div class="ask">
+      <h2>Zur Entscheidung (Empfehlung jeweils so gebaut)</h2>
+      <ol>
+        <li><b>C2 Werkzeug</b> <code>verwalter_compact_ready</code>, für alle sichtbar; außerhalb der Vorbereitung: „Gerade steht kein Compact an.“ Die Nachricht nennt den vollen Namen.</li>
+        <li><b>C3 Keine Meldung:</b> eine Erinnerung; endet auch dieser Zug ohne Meldung, fasst der Verwalter trotzdem zusammen. Du kannst jederzeit „Jetzt zusammenfassen“ oder „Compact abbrechen“.</li>
+        <li><b>C4 Compact scheitert:</b> Notiz wie heute, Puffer wird trotzdem eingespielt.</li>
+        <li><b>C5 Deine Nachrichten:</b> Blase „wartet · bis der Compact fertig ist“, Leiste über dem Eingabefeld mit „Compact abbrechen“; „Jetzt senden“ gibt es in diesem Zustand nicht. „Compact“ im Kontext-Panel heißt hier „Jetzt zusammenfassen“.</li>
+        <li><b>C6 Einspielen:</b> kein eigener Puffer; die Nachrichten liegen ohnehin im Posteingang. Freischalten = Sperre aus und ein Durchgang der Warteschlange; Neues reiht sich hinter Älteres. Eigene gehen zusammen, fremde je Zugende.</li>
+        <li><b>C8 Neustart:</b> Der Zustand liegt nur im Speicher; nach einem Neustart ist er weg, die Nachrichten gehen hinaus, die Regel greift beim nächsten Zugende neu.</li>
+        <li><b>C9 Platz:</b> Nach der Meldung geht der Compact nicht mehr verloren, weil kein Platz frei ist; er wartet mit dem Vorrang eines Fortsetzens.</li>
+        <li><b>Wortlaut</b> (Ticket, Werkzeugname ergänzt; wird mit Haiku gemessen): „Du bist über dem Limit von 150 000 Tokens Kontext. Bereite dich auf /compact vor und melde dich mit einem Aufruf von mcp__verwalter__verwalter_compact_ready beim Verwalter zurück.“</li>
+      </ol>
+    </div>
+    <div>
+      <h2>Verlauf der Simulation</h2>
+      <div class="log" id="log"></div>
+    </div>
+  </div>
+  <div>
+    <div class="diag" id="diag"><pre id="mm"></pre></div>
+    <p class="muted small">Das Diagramm steht hier als Mermaid-Quelle (ohne Renderer, damit die Seite eigenständig bleibt); gezeichnet steht es in der README dieses Ordners und im Nachtrag zu ADR 070.</p>
+  </div>
+</div>
+</main>
+<script>
+// Gemeinsame Helfer der Klick-Prototypen 0.78.0: Auswahl, Escaping, Farbschema, Meldung, Menü schließen.
+'use strict';
+const $ = s => document.querySelector(s);
+const $$ = s => [...document.querySelectorAll(s)];
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const ago = m => m < 1 ? 'gerade' : m < 60 ? `${m} min` : m < 1440 ? `${Math.floor(m / 60)} h` : `${Math.floor(m / 1440)} d`;
+
+// Farbschema aus der Sprungmarke #theme=light, umschaltbar über [data-theme-btn]
+const Proto = {
+  theme: /theme=light/.test(location.hash) ? 'light' : 'dark',
+  applyTheme() {
+    document.documentElement.dataset.theme = this.theme;
+    $$('[data-theme-btn]').forEach(b => b.setAttribute('aria-pressed', b.dataset.themeBtn === this.theme));
+  },
+  toastTimer: 0,
+  toast(text, undo) {
+    clearTimeout(this.toastTimer);
+    $('.toast')?.remove();
+    const t = document.createElement('div');
+    t.className = 'toast';
+    t.innerHTML = `<span>${esc(text)}</span>${undo ? '<button class="link" data-toast-undo>Rückgängig</button>' : ''}`;
+    t._undo = undo;
+    ($('#app') || document.body).appendChild(t);
+    this.toastTimer = setTimeout(() => t.remove(), 6000);
+  },
+};
+document.addEventListener('click', ev => {
+  const tb = ev.target.closest('[data-theme-btn]');
+  if (tb) { Proto.theme = tb.dataset.themeBtn; history.replaceState(null, '', `#theme=${Proto.theme}`); Proto.applyTheme(); return; }
+  const u = ev.target.closest('[data-toast-undo]');
+  if (u) { const t = u.closest('.toast'); t._undo?.(); t.remove(); }
+}, true);
+Proto.applyTheme();
+
+</script>
+<script>
+'use strict';
+const PHASE = {
+  normal:{label:'', st:'Normal'}, prep:{label:'bereitet Compact vor', st:'Vorbereitung'}, reminded:{label:'erinnert', st:'Erinnert'},
+  ready:{label:'bereit gemeldet', st:'Bereit'}, compact:{label:'fasst zusammen', st:'Compact'}, paused:{label:'pausiert', st:'Pausiert'}, replay:{label:'spielt Nachrichten ein', st:'Einspielen'},
+};
+const PREP = 'Du bist über dem Limit von 150 000 Tokens Kontext. Bereite dich auf /compact vor und melde dich mit einem Aufruf von mcp__verwalter__verwalter_compact_ready beim Verwalter zurück.';
+const REMIND = 'Du hast dich noch nicht mit mcp__verwalter__verwalter_compact_ready gemeldet. Sichere deinen Stand und ruf das Werkzeug auf; endet dieser Zug ohne Aufruf, fasse ich trotzdem zusammen.';
+let S, nid = 1;
+function reset(){
+  S = {phase:'normal', before:null, ctx:162000, panel:false, draft:'', log:[],
+    chat:[
+      {t:'u', text:'Starte die Umsetzung, ich bin bis morgen weg. Halt mich über das Dashboard auf dem Laufenden.'},
+      {t:'a', text:'Umsetzung „Postfach #187“ läuft. postfach-1 ist gemeldet und angenommen, postfach-2 (Review) startet.'},
+      {t:'note', text:'Zug beendet · Kontext 162 000 Tokens'},
+    ]};
+  log('Ausgang: Master ruht, Kontext 162 000 > Grenze 150 000.');
+}
+const buffered = () => S.phase!=='normal';
+function log(t){ S.log.unshift(`<b>${new Date().toLocaleTimeString('de-DE')}</b> ${esc(t)}`); }
+
+/* ---------- Zustandsübergänge ---------- */
+const EVENTS = {
+  normal:[['overLimit','Zug endet über der Grenze']],
+  prep:[['ready','Agent ruft compact_ready'],['noReport','Zug endet ohne Meldung'],['pause','Kontingent-Pause'],['error','Fehler im Zug'],['implDone','Umsetzung endet']],
+  reminded:[['ready','Agent ruft compact_ready'],['noReport','Zug endet ohne Meldung'],['pause','Kontingent-Pause'],['error','Fehler im Zug']],
+  ready:[['turnEnd','Zug endet']],
+  compact:[['compacted','Compact fertig'],['compactFail','Compact scheitert'],['pause','Kontingent-Pause']],
+  paused:[['resume','Fortsetzen']],
+  replay:[['replayed','Nachrichten eingespielt']],
+};
+function go(ev){
+  const p = S.phase;
+  switch(ev){
+    case 'overLimit':
+      S.chat.push({t:'s', from:'Verwalter', subj:'Compact vorbereiten', text:PREP, newm:true}, {t:'a', text:'Ich sichere den Stand: Plan-Notiz aktualisiert (Stationen, offene Befunde, nächste Schritte) …', run:true});
+      S.phase='prep'; log('Verwalter schickt die Bitte um Vorbereitung; Empfang gesperrt.'); break;
+    case 'ready':
+      S.chat.push({t:'tool', text:'verwalter_compact_ready → „Gemeldet. Der Compact folgt, wenn dein Zug endet.“'});
+      S.phase='ready'; log('Agent meldet sich bereit.'); break;
+    case 'noReport':
+      if(p==='prep'){ S.chat.push({t:'note', text:'Zug beendet ohne Meldung'}, {t:'s', from:'Verwalter', subj:'Erinnerung: Compact', text:REMIND, newm:true}, {t:'a', text:'Stand ist gesichert …', run:true}); S.phase='reminded'; log('Keine Meldung: eine Erinnerung.'); }
+      else { S.chat.push({t:'note', text:'Wieder keine Meldung – der Verwalter fasst trotzdem zusammen'}); S.phase='compact'; log('Keine Meldung nach der Erinnerung: Compact trotzdem.'); }
+      break;
+    case 'turnEnd': S.chat.push({t:'note', text:'Zug beendet'}); S.phase='compact'; log('Compact startet (wartet nötigenfalls auf einen Platz, Vorrang wie Fortsetzen).'); break;
+    case 'compacted': S.chat.push({t:'note', text:'Kontext zusammengefasst (vom Verwalter) · 162 000 → 21 000 Tokens'}); S.ctx=21000; replay(); break;
+    case 'compactFail': S.chat.push({t:'note', e:true, text:'Zusammenfassen gescheitert: Die Kommandozeile hat den Compact abgebrochen.'}); replay(); break;
+    case 'pause': S.before=p; S.chat.push({t:'note', text:'Kontingent aufgebraucht – pausiert, „Automatisch fortsetzen“ ab 17:00'}); S.phase='paused'; log('Pause: Empfang bleibt gesperrt.'); break;
+    case 'resume': S.phase=S.before==='compact'||S.before==='ready'?'compact':S.before; S.chat.push({t:'note', text:'Fortgesetzt'}); log(`Fortgesetzt in „${PHASE[S.phase].st}“.`); break;
+    case 'error': S.chat.push({t:'note', e:true, text:'Prozess beendet (Exit 1) – die Vorbereitung ist abgebrochen'}); replay(); break;
+    case 'implDone': S.chat.push({t:'note', text:'Die Umsetzung ist fertig – kein Compact nötig'}); replay(); break;
+    case 'cancel': S.chat.push({t:'note', text:'Compact abgebrochen (von dir)'}); replay(); break;
+    case 'now': S.chat.push({t:'note', text:'Jetzt zusammenfassen (von dir)'}); S.phase='compact'; log('Nutzer: Jetzt zusammenfassen.'); break;
+    case 'replayed': finish(); break;
+    case 'foreign':
+      S.chat.push({t:'s', from:'Verwalter', subj:'Gemeldet: postfach-2 Review', text:'[Verwalter] Station postfach-2 hat gemeldet. Lies die Meldung mit verwalter_read_message (msg-530).', queued:buffered(), id:nid++});
+      log(buffered()?'Meldung von postfach-2 wartet im Posteingang.':'Meldung von postfach-2 zugestellt.'); break;
+    case 'restart': S.chat.push({t:'note', text:'App neu gestartet'}); log('Neustart: Zustand weg, wartende Nachrichten gehen hinaus.'); S.phase='replay'; finish(); break;
+  }
+  render();
+}
+function replay(){ S.phase='replay'; log('Einspielen: Sperre aus, Durchgang der Warteschlange.'); }
+function finish(){
+  const own = S.chat.filter(e=>e.t==='u' && e.queued), foreign = S.chat.filter(e=>e.t==='s' && e.queued);
+  own.forEach(e=>e.queued=false);
+  if(own.length) S.chat.push({t:'note', text:`${own.length} eigene Nachricht${own.length>1?'en':''} zusammen zugestellt`});
+  if(foreign.length){ foreign[0].queued=false; S.chat.push({t:'note', text:`Zugestellt: ${foreign[0].subj}${foreign.length>1?` · ${foreign.length-1} weitere mit den nächsten Zugenden`:''}`}); foreign.slice(1).forEach(e=>e.queued=false); }
+  S.phase='normal'; log('Empfang wieder frei.');
+}
+
+/* ---------- Ansicht ---------- */
+function chatHTML(){
+  const w = buffered();
+  const items = S.chat.map(e=>{
+    if(e.t==='u') return `<div class="umsg${e.queued?' queued newmark':''}">${e.queued?`<div class="head"><span class="qmark">⏱ wartet · bis der Compact fertig ist</span></div>`:''}${esc(e.text)}</div>`;
+    if(e.t==='a') return `<div class="amsg">${esc(e.text)}</div>`;
+    if(e.t==='tool') return `<div class="tool newmark"><b>mcp__verwalter__</b>${esc(e.text)}</div>`;
+    if(e.t==='s') return `<div class="smsg${e.newm||e.queued?' newmark':''}" style="padding:2px 4px"><div class="from">Von <a>${esc(e.from)}</a>${e.queued?' · <span class="qmark">⏱ wartet · bis der Compact fertig ist</span>':''}</div><div class="subj">Betreff: ${esc(e.subj)}</div><div class="umsg${e.queued?' queued':''}">${esc(e.text)}</div></div>`;
+    return `<div class="note${e.e?' e':''}">${esc(e.text)}</div>`;
+  });
+  if(['prep','reminded','ready','compact','replay'].includes(S.phase) && S.phase!=='replay') items.push(`<div class="tool">${S.phase==='compact'?'<b>/compact</b> läuft …':'<b>Edit</b> plans/2026-11-24-planung-0-78-0.md …'}</div>`);
+  const canAct = ['prep','reminded','paused'].includes(S.phase);
+  const bar = w ? `<div class="hintbar cbar newmark"><span>⧗ ${S.phase==='compact'?'Die Session fasst zusammen.':S.phase==='replay'?'Nachrichten werden eingespielt.':S.phase==='paused'?'Pausiert während des Compacts.':'Die Session bereitet einen Compact vor.'} Nachrichten warten, bis er fertig ist.</span><span class="sp"></span>
+      ${['prep','reminded'].includes(S.phase)?'<button class="btn sm" data-act="now">Jetzt zusammenfassen</button>':''}${canAct?'<button class="btn sm" data-act="cancel">Compact abbrechen</button>':''}</div>` : '';
+  return `<div class="body" data-scroll="chat"><div class="chat">${items.join('')}</div></div>
+    <div class="compwrap">${bar}<div class="comp"><textarea data-keep="draft" placeholder="Nachricht an Claude … (/ für Skills)">${esc(S.draft)}</textarea>
+    <div class="row"><span>＋</span><span>⌘</span><span style="color:var(--fg)">Opus 5.5</span><span>Hoch</span><span class="sp"></span><span>ϟ Auto</span><button class="send" data-act="send" ${S.draft.trim()?'':'disabled'}>↑</button></div></div></div>`;
+}
+function panelHTML(){
+  if(!S.panel) return '';
+  const pct = Math.min(100, S.ctx/200000*100);
+  return `<div class="pop cpanel"><p class="lbl">Kontext</p><div class="bar"><i style="width:${pct}%"></i><u style="left:75%" title="Grenze 150 000"></u></div>
+    <div class="small">${S.ctx.toLocaleString('de-DE')} von 200 000 Tokens · Grenze „Master zusammenfassen ab“ 150 000</div>
+    ${buffered()?`<div class="small newmark" style="padding:4px 6px">⧗ ${esc(PHASE[S.phase].label)}</div>`:''}
+    <div style="display:flex;gap:8px"><button class="btn${buffered()?' pri newmark':''}" data-act="${buffered()?'now':'manual'}" ${S.phase==='compact'||S.phase==='replay'?'disabled':''}>${buffered()?'Jetzt zusammenfassen':'Compact'}</button></div></div>`;
+}
+function sideHTML(){
+  const ph = PHASE[S.phase].label, waits = S.chat.filter(e=>e.queued).length;
+  return `<aside class="side"><div class="brand">⧉ Agenten Verwalter 2000</div><button class="newp">＋ Neues Vorhaben <kbd>Ctrl N</kbd></button>
+  <div class="tree"><div class="grp">⌄ Arbeit <span class="n">1</span></div>
+    <div class="vrow sel"><span class="chev">⌄</span><span class="ic ru">◌</span><span class="tx"><span class="nm">Agenten-Verwalter-2000</span><span class="meta">3 Sessions · Postfach #187 2/5</span></span></div>
+    <div class="kids">
+      <div class="srow sel"><span class="${S.phase==='normal'?'ok':'ru'}">${S.phase==='normal'?'✓':'◌'}</span><span class="num">#41</span><span class="nm">Postfach planen</span><span class="dia">◆</span>${ph?`<span class="aux newmark" style="color:var(--master)">⧗ Compact</span>`:''}${waits?`<span class="aux w">✉ ${waits}</span>`:''}</div>
+      <div class="kids"><div class="srow"><span class="ok">✓</span><span class="nm">postfach-1 Umsetzung</span><span class="aux mono">fertig</span></div><div class="srow"><span class="ru">◌</span><span class="nm">postfach-2 Review</span><span class="aux mono">läuft</span></div></div>
+      <div class="srow"><span class="ok">✓</span><span class="num">#44</span><span class="nm">Tickets</span></div>
+    </div></div>
+  <div class="foot"><div class="qbar"><span class="cells"><i class="on"></i><i class="on"></i><i></i><i></i></span><span class="t">2/4</span></div>
+    <div class="qrow"><button class="chip${waits?' w':''}">${waits} warten</button><span style="flex:1"></span><button class="chip">▦ Dashboard</button></div>
+    <div class="nav">◔ Kontingent</div><div class="nav">▤ Archiv</div><div class="nav">⚙ Einstellungen</div></div></aside>`;
+}
+function render(){
+  $('#evs').innerHTML = (EVENTS[S.phase]||[]).map(([k,l])=>`<button class="ev" data-ev="${k}">${l}</button>`).join(' ');
+  const sc=$('[data-scroll="chat"]'), keep=document.activeElement?.dataset?.keep;
+  $('#app').querySelectorAll(':scope > :not(.toast)').forEach(n=>n.remove());
+  const ph = PHASE[S.phase].label;
+  $('#app').insertAdjacentHTML('afterbegin', sideHTML()+`<section class="mainc"><div class="hdr"><span class="crumb">Agenten-Verwalter-2000</span><span class="title"><span class="num">#41</span>Postfach planen</span><span class="chip m">◆ Master</span>${ph?`<span class="phase newmark">⧗ ${esc(ph)}</span>`:''}
+    <span class="tabs"><button aria-pressed="true">Chat</button><button>Changes</button></span><span class="right"><button class="chip" data-act="panel"><span class="gauge">Kontext <b>${Math.round(S.ctx/1000)} k</b> / 150 k</span></button><button class="chip">&gt;_</button></span></div>${chatHTML()}</section>${panelHTML()}`);
+  const c=$('[data-scroll="chat"]'); c.scrollTop=c.scrollHeight;
+  if(keep){ const t=$('[data-keep="draft"]'); t.focus(); t.setSelectionRange(t.value.length,t.value.length); }
+  $('#log').innerHTML = S.log.map(l=>`<div>${l}</div>`).join('');
+  drawDiagram();
+}
+
+/* ---------- Diagramm ---------- */
+const MM = `stateDiagram-v2
+  direction TB
+  [*] --> Normal
+  Normal --> Vorbereitung: Zugende ruhend, Kontext über L
+  Vorbereitung --> Bereit: compact_ready
+  Vorbereitung --> Erinnert: Zugende ohne Meldung
+  Erinnert --> Bereit: compact_ready
+  Erinnert --> Compact: Zugende ohne Meldung
+  Bereit --> Compact: Zugende
+  Vorbereitung --> Compact: Jetzt zusammenfassen
+  Compact --> Einspielen: fertig / gescheitert
+  Vorbereitung --> Einspielen: Abbruch, Fehler, Umsetzung endet
+  Erinnert --> Einspielen: Abbruch, Fehler
+  Vorbereitung --> Pausiert: Kontingent, Pause
+  Compact --> Pausiert: Kontingent, Pause
+  Pausiert --> Vorbereitung: Fortsetzen
+  Pausiert --> Compact: Fortsetzen nach Meldung
+  Pausiert --> Einspielen: Abbruch
+  Einspielen --> Normal: Sperre aus, Durchgang
+  classDef cur fill:#e0825c,color:#1d130e,stroke:#e0825c`;
+// Eigenständig, ohne Mermaid-Skript aus dem Netz: Das Diagramm steht als Quelltext mit dem aktuellen Zustand.
+function drawDiagram(){
+  $('#mm').textContent = MM + `\n  class ${PHASE[S.phase].st} cur`;
+}
+
+document.addEventListener('click', ev=>{
+  if(ev.target.closest('[data-theme-btn]')){ setTimeout(render); return; }
+  const e = ev.target.closest('[data-ev]');
+  if(e){ if(e.dataset.ev==='reset'){ reset(); render(); } else go(e.dataset.ev); return; }
+  const a = ev.target.closest('[data-act]'); if(!a) return;
+  switch(a.dataset.act){
+    case 'panel': S.panel=!S.panel; render(); break;
+    case 'cancel': go('cancel'); break;
+    case 'now': S.panel=false; go('now'); break;
+    case 'manual': Proto.toast('Manueller Compact wie heute (über chat_send)'); break;
+    case 'send': {
+      const t=S.draft.trim(); if(!t) return; S.draft='';
+      S.chat.push({t:'u', text:t, queued:buffered(), id:nid++});
+      if(buffered()){ log('Deine Nachricht wartet bis nach dem Compact.'); render(); Proto.toast('Deine Nachricht wartet, bis der Compact fertig ist'); }
+      else { S.chat.push({t:'a', text:'Verstanden.'}); render(); }
+      break;
+    }
+  }
+});
+document.addEventListener('input', ev=>{ if(ev.target.dataset.keep==='draft'){ S.draft=ev.target.value; $('[data-act="send"]').disabled=!S.draft.trim(); } });
+document.addEventListener('keydown', ev=>{ if(ev.target.dataset.keep==='draft' && ev.key==='Enter' && !ev.shiftKey){ ev.preventDefault(); $('[data-act="send"]').click(); } });
+reset(); render();
+</script>
+</body>
+</html>

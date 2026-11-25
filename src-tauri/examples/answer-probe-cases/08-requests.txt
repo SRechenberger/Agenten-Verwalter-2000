@@ -1,3 +1,0 @@
-Fix the crash on startup when the settings file is empty.
-=====
-The fix is in: an empty settings file now falls back to the defaults and logs one warning. I rebuilt the app, but I cannot run it in this environment. Please restart the app with an empty settings file and check that it starts and that the warning shows up in the log.

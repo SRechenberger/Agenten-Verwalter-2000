@@ -1,3 +1,0 @@
-Lass die Tests laufen.
-=====
-Alle 42 Tests sind grün (Dauer 8,3 s).

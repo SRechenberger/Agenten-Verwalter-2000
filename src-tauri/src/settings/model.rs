@@ -21,7 +21,7 @@ pub enum TerminalPlacement {
     Right,
 }
 
-/// Eine der vier seitlichen Leisten, deren Breite die Oberfläche verschieben lässt (ADR 056).
+/// Eine der acht seitlichen Leisten, deren Breite die Oberfläche verschieben lässt (ADR 056).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub enum PanelId {
@@ -33,6 +33,14 @@ pub enum PanelId {
     ArtifactsList,
     /// Hintergrund-Leiste.
     Background,
+    /// Kategorien-Leiste der Einstellungen.
+    SettingsNav,
+    /// Ordnerspalte des Dashboards.
+    DashboardFolders,
+    /// Lesebereich des Dashboards.
+    DashboardReader,
+    /// Zeitleiste der Umsetzung.
+    ImplementationTimeline,
 }
 
 /// Gezogene Breite je Leiste in Pixeln; `None` = Standardbreite der Oberfläche.
@@ -43,24 +51,10 @@ pub struct PanelWidths {
     pub changes_tree: Option<u32>,
     pub artifacts_list: Option<u32>,
     pub background: Option<u32>,
-}
-
-// Die Wahl im Kopf des Dashboards (ADR 071, Nachtrag 2026-11-21): welche Ebenen geschachtelt sind
-// (immer Gruppe, Vorhaben, Art in dieser Reihenfolge) und ob nur steht, was einen Agenten anhält.
-// Alles aus = flach wie vor der Story 186. `default`: Ein fehlendes Feld gilt als aus.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
-#[serde(rename_all = "camelCase", default)]
-pub struct DashboardChoice {
-    pub by_group: bool,
-    pub by_project: bool,
-    pub by_kind: bool,
-    pub blocking_only: bool,
-}
-
-impl Default for DashboardChoice {
-    fn default() -> Self {
-        crate::settings::DEFAULT_SETTINGS.dashboard
-    }
+    pub settings_nav: Option<u32>,
+    pub dashboard_folders: Option<u32>,
+    pub dashboard_reader: Option<u32>,
+    pub implementation_timeline: Option<u32>,
 }
 
 /// Woher die Modellanfragen der Agenten kommen (ADR 016). `ClaudeCodeLocal` startet dieselbe
@@ -100,9 +94,6 @@ pub struct Settings {
     // „Automatisch fortsetzen“, das eine neue Umsetzung übernimmt; bestehende bleiben unverändert
     // (ADR 064).
     pub default_auto_resume: bool,
-    // Modell der Einordnung von Textantworten am Zugende (Dashboard, ADR 071); `None` = aus. Gilt
-    // für die ganze App.
-    pub answer_model: Option<ModelId>,
     // „Gleichzeitige Agenten max.“ (ADR 068): so viele Agenten startet der Verwalter höchstens von
     // selbst; `None` = unbegrenzt, sonst mindestens 1.
     pub max_agents: Option<u32>,
@@ -123,8 +114,6 @@ pub struct Settings {
     pub terminal_width: u32,
     /// Breite je Leiste in Pixeln; `None` = Standardbreite der Oberfläche (ADR 056).
     pub panel_widths: PanelWidths,
-    // Gespeichert bei jeder Änderung im Dashboard, nicht auf der Einstellungsseite.
-    pub dashboard: DashboardChoice,
 }
 
 /// Was die Einstellungsseite zeigt: die Werte und die Ordner, die sie nur anzeigt.
@@ -182,10 +171,6 @@ pub enum SettingsChange {
     DefaultAutoResume {
         value: bool,
     },
-    /// `None` schaltet die Einordnung aus (ADR 071).
-    AnswerModel {
-        value: Option<ModelId>,
-    },
     // `None` = aus; sonst 50 000 bis 2 000 000 (ADR 070).
     MasterCompactTokens {
         value: Option<u32>,
@@ -215,9 +200,5 @@ pub enum SettingsChange {
     PanelWidth {
         panel: PanelId,
         value: Option<u32>,
-    },
-    // Die ganze Wahl im Kopf des Dashboards.
-    Dashboard {
-        value: DashboardChoice,
     },
 }
