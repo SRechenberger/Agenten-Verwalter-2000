@@ -23,6 +23,7 @@ import {
   PROPOSAL_DIALOG_TITLE,
   SAVE_BLOCKED,
   SAVE_LABEL,
+  TEXT_OVER_REASON,
   SAVING_LABEL,
   SYNTAX_HINT,
   TEXT_LABEL,
@@ -367,7 +368,8 @@ export function PromptTemplateDialog({
           type="button"
           className="settings-view__button agent-type-dialog__primary"
           onClick={save}
-          disabled={isSaving || !parsed.ok}
+          disabled={isSaving || !parsed.ok || textUnits > MAX_TEXT_UNITS}
+          title={textUnits > MAX_TEXT_UNITS ? TEXT_OVER_REASON : undefined}
         >
           {saveLabel()}
         </button>

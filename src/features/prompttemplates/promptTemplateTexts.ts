@@ -39,6 +39,7 @@ export const PREVIEW_BLOCKED = 'Erst ohne Syntaxfehler zeigt die Vorschau das Fo
 export const SAVE_BLOCKED = 'Speichern geht erst ohne Syntaxfehler.';
 export const CANCEL_LABEL = 'Abbrechen';
 export const SAVE_LABEL = 'Speichern';
+export const TEXT_OVER_REASON = 'Der Text ist länger als 16 000 Zeichen.';
 export const SAVING_LABEL = 'Speichert …';
 export const DISCARD_TEXT = 'Die Eingaben sind nicht gespeichert. Verwerfen?';
 export const KEEP_EDITING_LABEL = 'Weiter bearbeiten';

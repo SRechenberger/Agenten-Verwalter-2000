@@ -33,6 +33,9 @@ pub async fn agent_type_create(
     database: tauri::State<'_, Arc<Database>>,
     input: AgentTypeInput,
 ) -> Result<AgentTypeSaved, CommandError> {
+    if let Some(rejected) = length_refusal(&app, None, &input)? {
+        return Ok(rejected);
+    }
     let saved = agent_types::create(&database, &input)?;
     if saved.agent_type.is_some() {
         emit_changed(&app, &database)?;
@@ -47,6 +50,9 @@ pub async fn agent_type_update(
     id: String,
     input: AgentTypeInput,
 ) -> Result<AgentTypeSaved, CommandError> {
+    if let Some(rejected) = length_refusal(&app, Some(&id), &input)? {
+        return Ok(rejected);
+    }
     let saved = agent_types::update(&database, &id, &input)?;
     if saved.agent_type.is_some() {
         emit_changed(&app, &database)?;
@@ -108,6 +114,12 @@ pub async fn agent_type_proposal_answer(
         }
         ProposalDecision::Accept { input } => input,
     };
+    // Seit dem Vorschlag können sich Stationen geändert haben: noch einmal prüfen.
+    if let Some(rejected) =
+        length_refusal(&app, base.as_ref().map(|base| base.id.as_str()), &input)?
+    {
+        return Ok(rejected);
+    }
     let saved = match &base {
         None => agent_types::create(&database, &input)?,
         Some(base) => agent_types::update_if_unchanged(&database, base, &input)?,
@@ -133,6 +145,23 @@ pub async fn agent_type_proposal_answer(
     );
     emitted?;
     Ok(saved)
+}
+
+/// S2 und S3 (Taiga 266) vor dem Speichern: `Some` mit den Meldungen, wenn der Typ nicht gespeichert
+/// werden darf. ponytail: Prüfen und Speichern liegen nicht in einer Transaktion; eine Station, die
+/// dazwischen angelegt wird, prüft der Start (und `implementation_create`) ohnehin.
+fn length_refusal(
+    app: &tauri::AppHandle,
+    own_id: Option<&str>,
+    input: &AgentTypeInput,
+) -> Result<Option<AgentTypeSaved>, CommandError> {
+    let errors = app
+        .state::<SessionRegistry>()
+        .type_length_errors(own_id, input)?;
+    Ok((!errors.is_empty()).then_some(AgentTypeSaved {
+        agent_type: None,
+        errors,
+    }))
 }
 
 /// Immer die ganze Liste: Die Oberfläche ersetzt ihre Typen, statt Änderungen einzuarbeiten. Dazu

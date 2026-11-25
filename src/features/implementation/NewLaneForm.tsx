@@ -31,6 +31,7 @@ import {
   LANE_TITLE_PLACEHOLDER,
   laneKeyHint,
   MAX_BRIEF_CHARS,
+  overLimitReason,
   MISSING_STAGE,
   MISSING_TITLE,
   MODEL_LABEL,
@@ -60,6 +61,7 @@ import {
   TYPE_LABEL,
   WAITS_ON_LABEL,
 } from '@/features/implementation/implementationTexts';
+import { LimitCounter } from '@/features/implementation/LimitCounter';
 import { SegmentGroup, type SegmentOption } from '@/features/implementation/SegmentGroup';
 import {
   draftValue,
@@ -267,6 +269,16 @@ export function NewLaneForm({
         found.push(duplicateStage(name));
       }
     });
+    for (const station of stations) {
+      if (station.brief.length > MAX_BRIEF_CHARS) {
+        found.push(
+          overLimitReason(
+            station.worker.kind === 'you' ? INSTRUCTION_LABEL : BRIEF_LABEL,
+            MAX_BRIEF_CHARS,
+          ),
+        );
+      }
+    }
     const nodes: PlanNode[] = nodesOf(refs);
     for (const waiter of succs) {
       const ref: StationRef | undefined = byPlanId.get(waiter);
@@ -467,13 +479,13 @@ export function NewLaneForm({
         <textarea
           className="station-card__textarea"
           rows={2}
-          maxLength={MAX_BRIEF_CHARS}
           aria-label={isUser ? INSTRUCTION_LABEL : BRIEF_LABEL}
           value={station.brief}
           onChange={(event): void => {
             update(index, { brief: event.target.value });
           }}
         />
+        <LimitCounter length={station.brief.length} max={MAX_BRIEF_CHARS} />
         {!isUser && (
           <>
             <div className="station-card__line">
@@ -634,6 +646,7 @@ export function NewLaneForm({
           type="button"
           className="station-card__button station-card__button--primary"
           disabled={isLocked || problems.length > 0}
+          title={problems.length > 0 ? problems.join(' ') : undefined}
           onClick={create}
         >
           {CREATE_LANE_LABEL}

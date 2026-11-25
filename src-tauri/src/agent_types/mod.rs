@@ -1,6 +1,7 @@
 //! Agententypen aus den Einstellungen: Speicher, Prüfung, Auflösung von Typ, Modell und Denkaufwand
 //! einer Station und ihr Systemprompt (ADR 060). Ohne Tauri; das Ereignis sendet der Command. Nur
 //! `tools` (Vorschläge per MCP, ADR 063) erreicht über die Registry die Oberfläche.
+pub mod length;
 pub mod model;
 pub mod prompt;
 pub mod resolve;

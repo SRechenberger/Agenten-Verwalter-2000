@@ -339,8 +339,18 @@ pub(super) fn plan_of(
     registry
         .check_commands(&view.project_id, &edit.new_stations(), &edit.change)
         .map_err(CommandError::Implementation)?;
-    edited_plan_after(&view.id, &view.phases, &rows, &view.changes, edit, &types)
-        .map_err(CommandError::Implementation)
+    let edited = edited_plan_after(&view.id, &view.phases, &rows, &view.changes, edit, &types)
+        .map_err(CommandError::Implementation)?;
+    let changed: Vec<StationRow> = edited
+        .inserted
+        .iter()
+        .chain(edited.updated.iter())
+        .cloned()
+        .collect();
+    registry
+        .check_row_lengths(&view.project_id, &rows, &changed)
+        .map_err(CommandError::Implementation)?;
+    Ok(edited)
 }
 
 /// `implementation_edit`: prüft das Delta gegen den heutigen Plan und legt es als Vorschlag ab; es

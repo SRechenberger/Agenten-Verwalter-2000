@@ -108,6 +108,8 @@ export const SKILLS_HINT =
 
 export const CANCEL_LABEL = 'Abbrechen';
 export const SAVE_LABEL = 'Speichern';
+export const DESCRIPTION_OVER_REASON = 'Die Beschreibung ist länger als 500 Zeichen.';
+export const PROMPT_OVER_REASON = 'Der Text ist länger als 16 000 Zeichen.';
 export const SAVING_LABEL = 'Speichert …';
 
 export const DISCARD_TEXT = 'Die Eingaben sind nicht gespeichert. Verwerfen?';

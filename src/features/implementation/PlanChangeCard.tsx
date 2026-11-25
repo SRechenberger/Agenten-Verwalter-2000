@@ -12,6 +12,7 @@ import {
   EFFORT_LABEL,
   keysText,
   MAX_BRIEF_CHARS,
+  overLimitReason,
   MODEL_LABEL,
   NO_TYPE_LABEL,
   OPEN_CHAT_LABEL,
@@ -41,6 +42,7 @@ import {
   stepsTitle,
 } from '@/features/implementation/commandStation';
 import type { StationRef } from '@/features/implementation/implementationOrder';
+import { LimitCounter } from '@/features/implementation/LimitCounter';
 import { SegmentGroup, type SegmentOption } from '@/features/implementation/SegmentGroup';
 import {
   draftValue,
@@ -307,7 +309,6 @@ export function PlanChangeCard({
         <textarea
           className="station-card__textarea"
           rows={2}
-          maxLength={MAX_BRIEF_CHARS}
           aria-label={BRIEF_LABEL}
           value={draft.brief}
           disabled={isLocked}
@@ -315,6 +316,7 @@ export function PlanChangeCard({
             update(index, { brief: event.target.value });
           }}
         />
+        <LimitCounter length={draft.brief.length} max={MAX_BRIEF_CHARS} />
         {renderWas(
           draft.brief !== original.brief,
           original.brief === '' ? PROPOSAL_EMPTY_BRIEF : original.brief,
@@ -438,6 +440,10 @@ export function PlanChangeCard({
     );
   }
 
+  const isBriefOver: boolean = drafts.some(
+    (draft: ProposedValues) => draft.brief.length > MAX_BRIEF_CHARS,
+  );
+
   function renderActions(): ReactElement | null {
     if (isProposal && onApply !== undefined) {
       return (
@@ -445,8 +451,8 @@ export function PlanChangeCard({
           <button
             type="button"
             className="station-card__button station-card__button--primary"
-            title={APPLY_CHANGE_TITLE}
-            disabled={isLocked}
+            title={isBriefOver ? overLimitReason(BRIEF_LABEL, MAX_BRIEF_CHARS) : APPLY_CHANGE_TITLE}
+            disabled={isLocked || isBriefOver}
             onClick={(): void => {
               const changed: ProposalOverride[] = overrides();
               if (changed.length === 0 || onApplyEdited === undefined) {
