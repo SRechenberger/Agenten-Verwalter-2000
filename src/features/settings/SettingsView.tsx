@@ -507,7 +507,6 @@ export function SettingsView({
           </>
         );
       case 'selfReleaseTldr':
-      case 'selfReleaseOpenSession':
       case 'selfReleaseTldrModel':
         return renderSelfReleaseRow(id, current);
       case 'userSkills':

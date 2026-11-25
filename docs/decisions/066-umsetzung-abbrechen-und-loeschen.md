@@ -6,7 +6,7 @@ Aus Upstream übernommen (dort ADR 060, Migration 019) und auf den Kern aus [ADR
 
 ## Kontext
 
-Ein Vorhaben hat höchstens eine unfertige Umsetzung ([ADR 048](048-umsetzung.md), `db::implementations::unfinished_of_project`). Eine ungewollte oder falsch angelegte Umsetzung ließ sich weder beenden noch entfernen; ausschalten ließen sich nur die Automatik und „Automatisch starten“ je Station. Sie blockierte damit jede neue Umsetzung im Vorhaben.
+Ein Vorhaben hatte höchstens eine unfertige Umsetzung ([ADR 048](048-umsetzung.md)); seit [ADR 076](076-umsetzungen-je-session.md) führt jede Master-Session höchstens eine (`db::implementations::unfinished_led_by`). Eine ungewollte oder falsch angelegte Umsetzung ließ sich weder beenden noch entfernen; ausschalten ließen sich nur die Automatik und „Automatisch starten“ je Station. Sie blockierte damit jede neue Umsetzung im Vorhaben.
 
 ## Optionen
 

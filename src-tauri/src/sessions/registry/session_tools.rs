@@ -16,8 +16,7 @@ use super::{
 use crate::agent_types::model::{AgentType, AgentTypeInput};
 use crate::agent_types::tools as agent_type_tools;
 use crate::agents::event::{
-    ChatEntry, Effort, Mode, ModelId, Question, QuestionAnswer, QuestionKind, QuestionOption,
-    SessionRef, ToolRequest,
+    ChatEntry, Question, QuestionAnswer, QuestionKind, QuestionOption, SessionRef, ToolRequest,
 };
 use crate::db::projects as project_rows;
 use crate::db::session_inbox::{self, InboxRow, Reference};
@@ -33,7 +32,6 @@ use crate::session_tools::model::SelfRelease;
 use crate::session_tools::reference as message_text;
 use crate::session_tools::tools::ToolReply;
 use crate::sessions::model::SessionStatus;
-use crate::settings;
 
 /// Kettenbremse: So viele selbst freigegebene Aufrufe in Folge, danach erscheint der Kasten (ADR 052).
 const CHAIN_LIMIT: u32 = 6;
@@ -119,8 +117,6 @@ enum Gate {
     Allowed,
     Edited {
         message: String,
-        model: Option<ModelId>,
-        effort: Option<Effort>,
     },
     Denied(String),
 }
@@ -284,109 +280,6 @@ impl SessionRegistry {
         };
         let (tldr, reused) = self.session_tldr_now(app, &target, release.tldr_model)?;
         Ok(json!({ "decision": decision, "tldr": tldr, "reused": reused }))
-    }
-
-    pub fn tool_open_session(
-        &self,
-        app: &AppHandle,
-        call: &ToolCall,
-        subject: &str,
-        message: &str,
-        model: Option<ModelId>,
-    ) -> ToolReply {
-        let caller = self.get(call.session_id).map_err(text_of)?;
-        // Vor dem Kasten (ADR 070, D9): Eine Station öffnet nie eine Session.
-        if let Some(master) = self.station_lock(&caller) {
-            return Err(master::open_refusal(master.as_ref()));
-        }
-        if message.trim().is_empty() {
-            return Err(EMPTY_MESSAGE.to_owned());
-        }
-        let mode: Mode = caller.lock().mode;
-        // Modell, Codex-Modell und Denkaufwand kommen aus den Einstellungen; nur ein genanntes Modell
-        // gewinnt (Taiga 47).
-        let (model, codex_model, default_effort) =
-            super::new_session_defaults(&settings::load(&self.database).map_err(text_of)?, model);
-        let release = self.self_release(&caller)?;
-        let gate = self.gate(
-            app,
-            &caller,
-            call,
-            ToolRequest::OpenSession {
-                message: message.to_owned(),
-                subject: Some(subject.to_owned()),
-                model,
-                effort: default_effort,
-            },
-            Release::Chained(release.open_session),
-        )?;
-        let (decision, message, model, effort, chain): (&str, String, ModelId, Effort, u32) =
-            match gate {
-                Gate::Auto(chain) => ("auto", message.to_owned(), model, default_effort, chain),
-                Gate::Allowed => ("allowed", message.to_owned(), model, default_effort, 0),
-                Gate::Edited {
-                    message,
-                    model: edited_model,
-                    effort,
-                } => (
-                    "edited",
-                    message,
-                    edited_model.unwrap_or(model),
-                    effort.unwrap_or(default_effort),
-                    0,
-                ),
-                Gate::Denied(reason) => {
-                    return Ok(json!({ "decision": "denied", "denyReason": reason }));
-                }
-            };
-        let session = self
-            .insert_new_session(&caller.project_id, |number: u32| {
-                let mut state = SessionState::new(format!("Session {number}"), model, effort, mode);
-                state.codex_model = codex_model;
-                state.status = SessionStatus::New;
-                state.auto_chain = chain;
-                state
-            })
-            .map_err(text_of)?;
-        let sender = session_ref(&caller);
-        // Durch das Tor (ADR 068): Ist kein Platz frei, wartet die erste Nachricht im Posteingang der
-        // neuen Session, und ein Durchgang startet sie, sobald sie dran ist.
-        let reference = Reference {
-            subject,
-            note: None,
-        };
-        let started = if self.claim_session_slot(&session.id) {
-            let started = self.start_first_turn(app, &session, &sender, &message, reference);
-            self.release_session_slot(&session.id);
-            started
-        } else {
-            session
-                .database
-                .with(|connection| {
-                    session_inbox::insert_referenced(
-                        connection,
-                        &session.id,
-                        &sender,
-                        &message,
-                        chain,
-                        now_ms(),
-                        Some(reference),
-                    )
-                })
-                .map(|()| schedule_pass(app))
-        };
-        if let Err(error) = started {
-            // Keine leere Session zurücklassen: Ergebnis und Seitenleiste sollen dasselbe sagen.
-            let _ = self.delete_session(app, &session.id);
-            return Err(text_of(error));
-        }
-        self.start_auto_title(app, &session.id, &message);
-        Ok(json!({
-            "decision": decision,
-            "sessionId": session.id,
-            "model": model,
-            "effort": effort,
-        }))
     }
 
     /// `notifications/cancelled` oder abgerissene Verbindung: Der Kasten schließt sich. Unbekannte
@@ -553,15 +446,7 @@ impl SessionRegistry {
         }
         match answers.recv() {
             Ok(QuestionAnswer::Allow) => Ok(Gate::Allowed),
-            Ok(QuestionAnswer::Edit {
-                message,
-                model,
-                effort,
-            }) => Ok(Gate::Edited {
-                message,
-                model,
-                effort,
-            }),
+            Ok(QuestionAnswer::Edit { message, .. }) => Ok(Gate::Edited { message }),
             Ok(QuestionAnswer::Deny { message }) => Ok(Gate::Denied(message)),
             // `Options` weist `tool_answer_label` schon ab.
             Ok(QuestionAnswer::Options { .. }) | Err(_) => Err(NO_ANSWER.to_owned()),
@@ -802,36 +687,6 @@ impl SessionRegistry {
             schedule_pass(app);
         }
         delivered.unwrap_or_else(|error: CommandError| ("undeliverable", Some(text_of(error))))
-    }
-
-    fn start_first_turn(
-        &self,
-        app: &AppHandle,
-        session: &Arc<Session>,
-        sender: &SessionRef,
-        message: &str,
-        reference: Reference<'_>,
-    ) -> Result<(), CommandError> {
-        let input = self.prepare_turn(session, message);
-        update(
-            app,
-            session,
-            |state: &mut SessionState, outbox: &mut Outbox| {
-                start_turn(
-                    app,
-                    session,
-                    state,
-                    outbox,
-                    input,
-                    message,
-                    TurnOrigin::Session {
-                        sender,
-                        reference: Some(reference),
-                    },
-                )
-                .map(|_titled: bool| ())
-            },
-        )
     }
 
     /// Die älteste wartende Nachricht, falls die Session ruht, als geöffnete Session noch nie lief oder

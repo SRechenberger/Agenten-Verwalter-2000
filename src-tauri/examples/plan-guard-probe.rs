@@ -697,7 +697,7 @@ fn call(params: &Value, state: &MockState) -> Value {
 }
 
 /// Die Prüfung von `create` in `implementation/tools.rs`, soweit sie ohne App läuft: Felder, Graph
-/// (`new_rows`), Agententypen, nur eine Umsetzung je Vorhaben; nichts wird gespeichert.
+/// (`new_rows`), Agententypen, nur eine unfertige Umsetzung je Session; nichts wird gespeichert.
 fn create(arguments: &Value, state: &MockState) -> Result<String, String> {
     #[derive(serde::Deserialize)]
     struct Arguments {
@@ -731,7 +731,8 @@ fn create(arguments: &Value, state: &MockState) -> Result<String, String> {
         .unwrap_or_else(|error| error.into_inner());
     if let Some(running) = created.as_deref() {
         return Err(format!(
-            "Im Vorhaben läuft schon die Umsetzung „{running}“."
+            "Du führst schon die Umsetzung „{running}“. Ändere ihren Plan mit \
+             implementation_edit, oder leg eine neue an, wenn sie fertig ist."
         ));
     }
     *created = Some(arguments.name.trim().to_owned());

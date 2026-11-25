@@ -7480,7 +7480,7 @@ mod tests {
     fn subject_is_required_single_line_and_at_most_120_characters() {
         use crate::mcp_access::tools::ToolSet;
         use crate::session_tools::tools::{
-            MAX_SUBJECT_CHARS, OPEN_SESSION, SEND_MESSAGE, SessionTools, check_subject,
+            MAX_SUBJECT_CHARS, SEND_MESSAGE, SessionTools, check_subject,
         };
         assert_eq!(
             check_subject("  Plan prüfen  "),
@@ -7503,9 +7503,9 @@ mod tests {
             check_subject(&"ä".repeat(MAX_SUBJECT_CHARS + 1)),
             Err("Der Betreff ist zu lang: höchstens 120 Zeichen.".to_owned())
         );
-        // Pflicht im Schema beider Werkzeuge.
+        // Pflicht im Schema der Nachricht (`verwalter_open_session` gibt es seit ADR 076 nicht mehr).
         for spec in SessionTools.tools() {
-            if spec.name == SEND_MESSAGE || spec.name == OPEN_SESSION {
+            if spec.name == SEND_MESSAGE {
                 let required = spec.input_schema["required"].to_string();
                 assert!(
                     required.contains("\"subject\""),
@@ -7530,11 +7530,11 @@ mod tests {
     #[test]
     fn read_message_is_allowed_in_side_questions() {
         use crate::session_tools::tools::{
-            GET_SESSIONS, GET_TLDR, OPEN_SESSION, READ_MESSAGE, SEND_MESSAGE, is_read_only,
+            GET_SESSIONS, GET_TLDR, READ_MESSAGE, SEND_MESSAGE, is_read_only,
         };
         assert!(is_read_only(READ_MESSAGE));
         assert!(is_read_only(GET_SESSIONS));
-        for name in [SEND_MESSAGE, OPEN_SESSION, GET_TLDR] {
+        for name in [SEND_MESSAGE, GET_TLDR] {
             assert!(!is_read_only(name), "{name}");
         }
     }

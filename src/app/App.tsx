@@ -582,6 +582,7 @@ export function App(): ReactElement {
             )
           }
           sessions={sessions}
+          implementations={implementations}
           changes={
             <ChangesView
               key={latestSession.id}

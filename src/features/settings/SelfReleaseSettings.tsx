@@ -11,24 +11,19 @@ import { commandErrorText } from '@/lib/errors';
 import { MODEL_OPTIONS, modelName } from '@/lib/labels';
 import './SelfReleaseSettings.css';
 
-/** Die vier Zeilen der Selbstfreigabe im Katalog, in Anzeigereihenfolge. */
+/** Die drei Zeilen der Selbstfreigabe im Katalog, in Anzeigereihenfolge. */
 export const SELF_RELEASE_ROW_IDS = [
   'selfReleaseMessages',
   'selfReleaseTldr',
-  'selfReleaseOpenSession',
   'selfReleaseTldrModel',
 ] as const;
 
 export type SelfReleaseRowId = (typeof SELF_RELEASE_ROW_IDS)[number];
 
 /** Welchen Schalter von `SelfRelease` eine Zeile setzt; die Zeile des Modells hat keinen. */
-const SWITCH_KEY: Record<
-  Exclude<SelfReleaseRowId, 'selfReleaseTldrModel'>,
-  'messages' | 'tldr' | 'openSession'
-> = {
+const SWITCH_KEY: Record<Exclude<SelfReleaseRowId, 'selfReleaseTldrModel'>, 'messages' | 'tldr'> = {
   selfReleaseMessages: 'messages',
   selfReleaseTldr: 'tldr',
-  selfReleaseOpenSession: 'openSession',
 };
 
 interface SelfReleaseRowProps {

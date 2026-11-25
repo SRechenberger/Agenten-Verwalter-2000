@@ -3,8 +3,6 @@
 use serde_json::{Value, json};
 use tauri::{AppHandle, Manager};
 
-use crate::agents::event::ModelId;
-use crate::db::enum_from_text;
 use crate::mcp_access::ProcessKind;
 use crate::mcp_access::tools::{ToolCall, ToolResult, ToolSet, ToolSpec};
 use crate::sessions::registry::SessionRegistry;
@@ -12,7 +10,6 @@ use crate::sessions::registry::SessionRegistry;
 pub const SEND_MESSAGE: &str = "verwalter_send_message_to";
 pub const GET_SESSIONS: &str = "verwalter_get_sessions";
 pub const GET_TLDR: &str = "verwalter_get_session_tldr";
-pub const OPEN_SESSION: &str = "verwalter_open_session";
 pub const READ_MESSAGE: &str = "verwalter_read_message";
 /// Längster Betreff einer Nachricht (ADR 072).
 pub const MAX_SUBJECT_CHARS: usize = 120;
@@ -72,32 +69,6 @@ impl ToolSet for SessionTools {
                     "type": "object",
                     "properties": { "session_id": { "type": "string" } },
                     "required": ["session_id"],
-                }),
-            },
-            ToolSpec {
-                name: OPEN_SESSION,
-                description: "Öffnet eine neue Session im selben Vorhaben, die sofort mit der Nachricht \
-                    losarbeitet. Bei voller Grenze „Gleichzeitige Agenten max.“ wartet die Session auf \
-                    einen Platz; verwalter_get_sessions nennt sie dann mit waitsForSlot. \
-                    Der Nutzer kann das erlauben, ablehnen oder ändern. Die neue Session sieht \
-                    deine ID als Absender und kann sich bei dir melden.",
-                input_schema: json!({
-                    "type": "object",
-                    "properties": {
-                        "subject": {
-                            "type": "string",
-                            "minLength": 1,
-                            "maxLength": MAX_SUBJECT_CHARS,
-                            "description": "Betreff in einer Zeile: Worum es geht.",
-                        },
-                        "message": { "type": "string", "description": "Die erste Nachricht, nicht leer." },
-                        "model": {
-                            "type": "string",
-                            "enum": ["fable", "opus", "opusplan", "sonnet", "haiku"],
-                            "description": "Ohne Angabe das Standardmodell aus den Einstellungen.",
-                        },
-                    },
-                    "required": ["subject", "message"],
                 }),
             },
             ToolSpec {
@@ -169,13 +140,6 @@ fn handle(call: &ToolCall) -> ToolReply {
         ),
         READ_MESSAGE => registry.tool_read_message(call.session_id, &text(arguments, "reference")?),
         GET_TLDR => registry.tool_get_tldr(app, call, &text(arguments, "session_id")?),
-        OPEN_SESSION => registry.tool_open_session(
-            app,
-            call,
-            &subject(arguments)?,
-            &text(arguments, "message")?,
-            model(arguments)?,
-        ),
         other => Err(format!("Unbekanntes Werkzeug: {other}")),
     }
 }
@@ -219,14 +183,4 @@ fn text_list(arguments: &Value, field: &str) -> Result<Vec<String>, String> {
         .iter()
         .map(|item: &Value| item.as_str().map(str::to_owned).ok_or_else(missing))
         .collect()
-}
-
-fn model(arguments: &Value) -> Result<Option<ModelId>, String> {
-    match arguments.get("model") {
-        None | Some(Value::Null) => Ok(None),
-        Some(Value::String(name)) => enum_from_text::<ModelId>(name)
-            .map(Some)
-            .map_err(|_| format!("Unbekanntes Modell: {name}")),
-        Some(other) => Err(format!("Unbekanntes Modell: {other}")),
-    }
 }

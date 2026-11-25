@@ -44,7 +44,7 @@ use crate::sessions::model::{PauseReason, SessionStatus};
 use crate::settings::{self, model::OperatingMode};
 use crate::worktrees::SessionRepository;
 
-const NO_IMPLEMENTATION: &str = "In diesem Vorhaben gibt es keine Umsetzung.";
+const NO_IMPLEMENTATION: &str = "Du führst keine Umsetzung. Leg eine mit implementation_create an.";
 const NOT_DELETABLE: &str = "Nur abgebrochene oder nie gestartete Umsetzungen lassen sich löschen.";
 const NO_CANCEL_REQUEST: &str = "Es liegt keine Anfrage zum Abbrechen vor.";
 const CANCEL_REQUESTED: &str = "Es liegt schon eine Anfrage vor.";
@@ -130,22 +130,26 @@ impl SessionRegistry {
         Ok(settings::load(&self.database)?.operating_mode)
     }
 
-    /// Die neueste offene Umsetzung, die die Session als Master führt; sonst für eine Station ihre
-    /// Umsetzung, sonst die neueste des Vorhabens der Session (ADR 048). Alle Werkzeuge wählen hier.
+    /// Die Umsetzung der Session (ADR 076, S7), der Reihe nach: die unfertige, die sie als Master führt;
+    /// die ihrer Station; die ihrer Rückfrage; die zuletzt geführte, auch eine fertige. Kein Rückfall auf
+    /// das Vorhaben: Es kann mehrere Umsetzungen haben. Alle Werkzeuge wählen hier.
     pub fn implementation_of_session(
         &self,
         session_id: &str,
     ) -> Result<Option<ImplementationView>, CommandError> {
         let session = self.get(session_id)?;
-        let station_of: Option<String> = session.lock().station_of.clone();
+        let (station_of, inquiry_of): (Option<String>, Option<String>) = {
+            let state = session.lock();
+            (state.station_of.clone(), state.inquiry_of.clone())
+        };
         let led = self
             .database
             .with(|connection| implementation_rows::latest_open_led_by(connection, session_id))?;
-        let id = match (led, station_of) {
-            (Some(id), _) | (None, Some(id)) => Some(id),
-            (None, None) => self.database.with(|connection| {
-                implementation_rows::latest_of_project(connection, &session.project_id)
-            })?,
+        let id = match led.or(station_of).or(inquiry_of) {
+            Some(id) => Some(id),
+            None => self
+                .database
+                .with(|connection| implementation_rows::latest_led_by(connection, session_id))?,
         };
         id.map(|id: String| self.implementation_view(&id))
             .transpose()
@@ -160,10 +164,10 @@ impl SessionRegistry {
             .ok_or_else(|| CommandError::Implementation(NO_IMPLEMENTATION.to_owned()))
     }
 
-    /// Legt im Vorhaben der Session eine Umsetzung an; `phases` sind schon geprüft
-    /// (`model::validate`). Prüfung der Agententypen, Prüfung auf eine unfertige Umsetzung und
-    /// Anlegen laufen unter derselben Datenbank-Sperre, damit zwei gleichzeitige Aufrufe nicht beide
-    /// durchkommen.
+    /// Legt im Vorhaben der Session eine Umsetzung an, die die Session führt; `phases` sind schon geprüft
+    /// (`model::validate`). Eine Station legt keine an, und eine Session führt höchstens eine unfertige
+    /// (ADR 076). Prüfung der Agententypen, Prüfung auf eine unfertige Umsetzung und Anlegen laufen
+    /// unter derselben Datenbank-Sperre, damit zwei gleichzeitige Aufrufe nicht beide durchkommen.
     pub fn create_implementation(
         &self,
         session_id: &str,
@@ -171,10 +175,17 @@ impl SessionRegistry {
         source: &str,
         phases: &[PhaseInput],
     ) -> Result<ImplementationView, CommandError> {
-        let project_id = self.get(session_id)?.project_id.clone();
+        let session = self.get(session_id)?;
+        let project_id = session.project_id.clone();
         let default_auto_resume = settings::load(&self.database)?.default_auto_resume;
         self.check_commands(&project_id, &stations_in("phases", phases), &[])
             .map_err(CommandError::Implementation)?;
+        // Nach den Befehlen: ein Plan mit einem Fehler nennt zuerst den Fehler im Plan.
+        if session.lock().station_of.is_some() {
+            return Err(CommandError::Implementation(
+                master::STATION_CREATES_NONE.to_owned(),
+            ));
+        }
         let (row, phase_rows, station_rows) = new_rows(
             &project_id,
             session_id,
@@ -189,10 +200,10 @@ impl SessionRegistry {
             check_agents(phases, &agent_type_rows::list(connection)?)
                 .map_err(CommandError::Implementation)?;
             if let Some((_, running)) =
-                implementation_rows::unfinished_of_project(connection, &project_id)?
+                implementation_rows::unfinished_led_by(connection, session_id, None)?
             {
-                return Err(CommandError::Implementation(format!(
-                    "Im Vorhaben läuft schon die Umsetzung „{running}“."
+                return Err(CommandError::Implementation(master::already_leads(
+                    &running,
                 )));
             }
             implementation_rows::insert(connection, &row, &phase_rows, &station_rows)
@@ -565,6 +576,14 @@ impl SessionRegistry {
             return Err(CommandError::Implementation(refusal.to_owned()));
         }
         self.database.with(|connection| {
+            // Dieselbe Sperre wie das Setzen, damit der Index nie als Datenbankfehler ankommt (ADR 076, S4).
+            if let Some((_, leads)) = implementation_rows::unfinished_led_by(
+                connection,
+                session_id,
+                Some(implementation_id),
+            )? {
+                return Err(CommandError::Implementation(master::already_led_by(&leads)));
+            }
             implementation_rows::set_master(connection, implementation_id, session_id)
         })
     }
@@ -967,6 +986,15 @@ impl SessionRegistry {
             .expect("eben angelegt")
             .lock()
             .station_of = None;
+    }
+
+    /// Nur für Tests: die Session ist eine Rückfrage zur Umsetzung.
+    #[cfg(test)]
+    pub(crate) fn set_inquiry_for_test(&self, session_id: &str, implementation_id: &str) {
+        self.get(session_id)
+            .expect("Session vorhanden")
+            .lock()
+            .inquiry_of = Some(implementation_id.to_owned());
     }
 
     /// Nur für Tests: der Status der Session.

@@ -194,12 +194,6 @@ const ENTRY_DATA = {
     label: 'Selbstfreigabe für TL;DR',
     info: 'Ein Agent liest das TL;DR einer anderen Session des Vorhabens ohne Kasten.',
   },
-  selfReleaseOpenSession: {
-    category: 'agent',
-    section: 'Selbstfreigabe',
-    label: 'Selbstfreigabe für neue Sessions',
-    info: `Ein Agent öffnet neue Sessions im Vorhaben ohne Kasten. ${CHAIN_BRAKE_INFO}`,
-  },
   selfReleaseTldrModel: {
     category: 'agent',
     section: 'Selbstfreigabe',
