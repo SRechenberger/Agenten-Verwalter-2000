@@ -72,6 +72,32 @@ fn panel_key(panel: PanelId) -> &'static str {
     }
 }
 
+/// Alle Leisten in der Reihenfolge von `PanelId`.
+const ALL_PANELS: [PanelId; 8] = [
+    PanelId::Sidebar,
+    PanelId::ChangesTree,
+    PanelId::ArtifactsList,
+    PanelId::Background,
+    PanelId::SettingsNav,
+    PanelId::DashboardFolders,
+    PanelId::DashboardReader,
+    PanelId::ImplementationTimeline,
+];
+
+/// Schlüssel der eingeklappten Leiste: `panel_collapsed.<Name wie in panel_width.*>`; fehlt er, ist sie offen.
+fn collapsed_key(panel: PanelId) -> &'static str {
+    match panel {
+        PanelId::Sidebar => "panel_collapsed.sidebar",
+        PanelId::ChangesTree => "panel_collapsed.changes_tree",
+        PanelId::ArtifactsList => "panel_collapsed.artifacts_list",
+        PanelId::Background => "panel_collapsed.background",
+        PanelId::SettingsNav => "panel_collapsed.settings_nav",
+        PanelId::DashboardFolders => "panel_collapsed.dashboard_folders",
+        PanelId::DashboardReader => "panel_collapsed.dashboard_reader",
+        PanelId::ImplementationTimeline => "panel_collapsed.implementation_timeline",
+    }
+}
+
 fn stored_panel_width(stored: &HashMap<String, String>, panel: PanelId) -> Option<u32> {
     stored
         .get(panel_key(panel))
@@ -109,6 +135,7 @@ pub const DEFAULT_SETTINGS: Settings = Settings {
         dashboard_reader: None,
         implementation_timeline: None,
     },
+    collapsed_panels: Vec::new(),
 };
 
 pub fn load(database: &Database) -> Result<Settings, CommandError> {
@@ -189,6 +216,14 @@ pub fn load(database: &Database) -> Result<Settings, CommandError> {
             dashboard_reader: stored_panel_width(&stored, PanelId::DashboardReader),
             implementation_timeline: stored_panel_width(&stored, PanelId::ImplementationTimeline),
         },
+        collapsed_panels: ALL_PANELS
+            .into_iter()
+            .filter(|panel: &PanelId| {
+                stored
+                    .get(collapsed_key(*panel))
+                    .is_some_and(|text| text == "true")
+            })
+            .collect(),
     })
 }
 
@@ -324,6 +359,13 @@ pub fn update(database: &Database, change: SettingsChange) -> Result<Settings, C
                 }
                 None => setting_rows::delete(&transaction, panel_key(panel))?,
             },
+            SettingsChange::PanelCollapsed { panel, collapsed } => {
+                if collapsed {
+                    setting_rows::write(&transaction, collapsed_key(panel), "true")?;
+                } else {
+                    setting_rows::delete(&transaction, collapsed_key(panel))?;
+                }
+            }
         }
         transaction.commit()?;
         Ok(())
@@ -479,8 +521,74 @@ mod tests {
     use std::path::Path;
 
     use super::load;
-    use super::model::SettingsChange;
+    use super::model::{PanelId, SettingsChange};
+    use super::update;
     use crate::db::Database;
+
+    fn collapse(database: &Database, panel: PanelId, collapsed: bool) {
+        update(
+            database,
+            SettingsChange::PanelCollapsed { panel, collapsed },
+        )
+        .expect("speichern");
+    }
+
+    #[test]
+    fn a_collapsed_panel_survives_reload() {
+        let database = Database::open(Path::new(":memory:")).expect("Datenbank im Speicher");
+        assert!(load(&database).expect("laden").collapsed_panels.is_empty());
+        collapse(&database, PanelId::Sidebar, true);
+        assert_eq!(
+            load(&database).expect("laden").collapsed_panels,
+            vec![PanelId::Sidebar]
+        );
+    }
+
+    #[test]
+    fn expanding_a_panel_deletes_its_key() {
+        let database = Database::open(Path::new(":memory:")).expect("Datenbank im Speicher");
+        collapse(&database, PanelId::Sidebar, true);
+        collapse(&database, PanelId::Sidebar, false);
+        assert!(load(&database).expect("laden").collapsed_panels.is_empty());
+        let rows = database
+            .with(|connection| crate::db::settings::read_all(connection))
+            .expect("lesen");
+        assert!(!rows.contains_key("panel_collapsed.sidebar"), "{rows:?}");
+    }
+
+    #[test]
+    fn collapsed_panels_come_in_panel_id_order() {
+        let database = Database::open(Path::new(":memory:")).expect("Datenbank im Speicher");
+        collapse(&database, PanelId::ChangesTree, true);
+        collapse(&database, PanelId::Sidebar, true);
+        assert_eq!(
+            load(&database).expect("laden").collapsed_panels,
+            vec![PanelId::Sidebar, PanelId::ChangesTree]
+        );
+    }
+
+    #[test]
+    fn collapsing_keeps_the_dragged_width() {
+        let database = Database::open(Path::new(":memory:")).expect("Datenbank im Speicher");
+        update(
+            &database,
+            SettingsChange::PanelWidth {
+                panel: PanelId::Sidebar,
+                value: Some(300),
+            },
+        )
+        .expect("speichern");
+        collapse(&database, PanelId::Sidebar, true);
+        assert_eq!(
+            load(&database).expect("laden").panel_widths.sidebar,
+            Some(300)
+        );
+        collapse(&database, PanelId::Sidebar, false);
+        assert_eq!(
+            load(&database).expect("laden").panel_widths.sidebar,
+            Some(300)
+        );
+    }
 
     #[test]
     fn the_answer_model_setting_is_gone() {

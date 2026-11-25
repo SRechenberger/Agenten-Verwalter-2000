@@ -73,6 +73,24 @@ const NEW_GROUP = Symbol('new group');
 /** So lange darf die Zeile eines Umbenennens fehlen, bevor es endet. */
 const RENAME_ROW_WAIT_MS = 1000;
 
+const ICON_PROPS = {
+  width: 14,
+  height: 14,
+  viewBox: '0 0 14 14',
+  fill: 'none',
+  stroke: 'currentColor',
+  strokeLinecap: 'round',
+  'aria-hidden': true,
+} as const;
+
+/** Rechteck mit abgesetzter Seitenleiste links. */
+const PANEL_ICON: ReactElement = (
+  <svg {...ICON_PROPS} strokeWidth="1.4" strokeLinejoin="round">
+    <rect x="1.5" y="2" width="11" height="10" />
+    <path d="M5.5 2v10" />
+  </svg>
+);
+
 interface RankedProject extends SidebarProjectEntry {
   /** Jüngste Aktivität im Vorhaben — bestimmt die Reihenfolge der Vorhaben. */
   activity: number;
@@ -81,6 +99,9 @@ interface RankedProject extends SidebarProjectEntry {
 interface SidebarProps {
   /** Gezogene Breite in Pixeln. */
   width: number;
+  /** Nur die schmale Symbolleiste (Taiga 261); die gezogene Breite bleibt gemerkt. */
+  isMinimized: boolean;
+  onToggleMinimized: () => void;
   projects: readonly ProjectSummary[];
   /** Alle Gruppen in Anlegereihenfolge. */
   groups: readonly ProjectGroup[];
@@ -112,6 +133,8 @@ interface SidebarProps {
 
 export function Sidebar({
   width,
+  isMinimized,
+  onToggleMinimized,
   projects,
   groups,
   sessions,
@@ -797,6 +820,92 @@ export function Sidebar({
     }`;
   }
 
+  if (isMinimized) {
+    return (
+      <nav className="sidebar sidebar--minimized" aria-label="Vorhaben">
+        <button
+          type="button"
+          className="sidebar__tool"
+          aria-label="Seitenleiste aufklappen (Strg+B)"
+          title="Seitenleiste aufklappen (Strg+B)"
+          onClick={onToggleMinimized}
+        >
+          {PANEL_ICON}
+        </button>
+        <button
+          type="button"
+          className="sidebar__tool"
+          aria-label="Neues Vorhaben (Strg+N)"
+          title="Neues Vorhaben (Strg+N)"
+          onClick={onNew}
+        >
+          <svg {...ICON_PROPS} strokeWidth="1.5">
+            <path d="M7 2.5v9M2.5 7h9" />
+          </svg>
+        </button>
+        <button
+          type="button"
+          className={`sidebar__tool${isDashboardOpen ? ' sidebar__tool--active' : ''}`}
+          aria-current={isDashboardOpen ? 'page' : undefined}
+          aria-label={dashboardLabel}
+          title={dashboardLabel}
+          onClick={onOpenDashboard}
+        >
+          <svg {...ICON_PROPS} strokeWidth="1.5" strokeLinejoin="round">
+            <rect x="1.5" y="1.5" width="4.5" height="4.5" rx="1" />
+            <rect x="8" y="1.5" width="4.5" height="4.5" rx="1" />
+            <rect x="1.5" y="8" width="4.5" height="4.5" rx="1" />
+            <rect x="8" y="8" width="4.5" height="4.5" rx="1" />
+          </svg>
+          {cardCount !== null && (
+            <span className="sidebar__dashboard-count sidebar__tool-count" aria-hidden="true">
+              {cardCount}
+            </span>
+          )}
+        </button>
+        <button
+          type="button"
+          className="sidebar__tool"
+          aria-label="Archiv"
+          title="Archiv"
+          onClick={onOpenArchive}
+        >
+          <svg {...ICON_PROPS} strokeWidth="1.5" strokeLinejoin="round">
+            <path d="M1.5 3h11v2.5h-11zM2.5 5.5V12h9V5.5M5.5 8h3" />
+          </svg>
+        </button>
+        <button
+          type="button"
+          className={`sidebar__tool sidebar__tool--end${isSettingsOpen ? ' sidebar__tool--active' : ''}`}
+          aria-current={isSettingsOpen ? 'page' : undefined}
+          aria-label="Einstellungen"
+          title="Einstellungen"
+          onClick={onOpenSettings}
+        >
+          <svg {...ICON_PROPS} strokeWidth="1.5">
+            <path d="M2 4h5.5M10.5 4H12M2 10h1.5M6.5 10H12" />
+            <circle cx="9" cy="4" r="1.5" />
+            <circle cx="5" cy="10" r="1.5" />
+          </svg>
+          {hasAppUpdate && (
+            <span
+              className="sidebar__settings-dot sidebar__settings-dot--update sidebar__tool-dot"
+              role="img"
+              aria-label="Neue Version verfügbar"
+            />
+          )}
+          {needsEnvironmentAttention && (
+            <span
+              className="sidebar__settings-dot sidebar__settings-dot--environment sidebar__tool-dot sidebar__tool-dot--second"
+              role="img"
+              aria-label="Umgebung braucht Aufmerksamkeit"
+            />
+          )}
+        </button>
+      </nav>
+    );
+  }
+
   return (
     <nav className="sidebar" aria-label="Vorhaben" style={{ width }}>
       <div className="sidebar__brand">
@@ -815,6 +924,15 @@ export function Sidebar({
           <rect x="5.5" y="5.5" width="7" height="7" rx="2" />
         </svg>
         <span className="sidebar__brand-name">Agenten Verwalter 2000</span>
+        <button
+          type="button"
+          className="sidebar__tool"
+          aria-label="Seitenleiste minimieren (Strg+B)"
+          title="Seitenleiste minimieren (Strg+B)"
+          onClick={onToggleMinimized}
+        >
+          {PANEL_ICON}
+        </button>
       </div>
       <div className="sidebar__actions">
         <button type="button" className="sidebar__new" onClick={onNew}>

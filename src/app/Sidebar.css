@@ -18,8 +18,75 @@
   }
 
   &__brand-name {
+    flex-grow: 1;
     font-size: var(--font-size-md);
     font-weight: 600;
+  }
+
+  /* Symbolleiste (Taiga 261): so breit wie die minimierte Leiste; die gezogene Breite bleibt gemerkt. */
+  --sidebar-minimized-width: 44px;
+
+  &--minimized {
+    align-items: center;
+    gap: var(--space-xs);
+    width: var(--sidebar-minimized-width);
+    min-width: var(--sidebar-minimized-width);
+    padding-top: var(--space-md);
+    box-sizing: border-box;
+    flex-shrink: 0;
+  }
+
+  &__tool {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    border: 0;
+    border-radius: var(--radius-flat);
+    background: transparent;
+    color: var(--color-fg-secondary);
+    cursor: pointer;
+
+    &:hover {
+      background: var(--color-bg-hover);
+    }
+
+    &:focus-visible {
+      outline: 2px solid var(--color-accent);
+      outline-offset: 2px;
+    }
+
+    &--active,
+    &--active:hover {
+      background: var(--color-bg-selected);
+    }
+
+    &--end {
+      margin-top: auto;
+      margin-bottom: var(--space-md);
+    }
+  }
+
+  &__tool-count {
+    position: absolute;
+    top: 0;
+    right: 0;
+  }
+
+  /* Zwei Klassen, damit `margin` die Regel des Punkts in der offenen Leiste schlägt. */
+  &__tool &__tool-dot {
+    position: absolute;
+    top: 3px;
+    right: 3px;
+    margin: 0;
+
+    &--second {
+      right: 13px;
+    }
   }
 
   &__actions {
