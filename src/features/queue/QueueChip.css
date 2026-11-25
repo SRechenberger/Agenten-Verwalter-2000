@@ -110,6 +110,12 @@
     }
   }
 
+  &__project {
+    display: block;
+    color: var(--color-fg-muted);
+    font-size: var(--font-size-xs);
+  }
+
   &__note {
     margin: var(--space-md) 6px var(--space-xs);
     color: var(--color-fg-muted);

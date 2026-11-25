@@ -27,6 +27,8 @@ import { useRemoteStore } from '@/stores/remote';
 import './QueueFooter.css';
 
 const LIST_WIDTH = 540;
+/** Der Reiter „Nachrichten“ braucht Platz für Grund und „Von → An“ (Breite des Prototyps, mit Rand zum Fenster). */
+const messagesWidth = (): number => Math.min(900, window.innerWidth - 32);
 
 interface QueueFooterProps {
   /** Für die Spalte „Vorhaben“ der Liste. */
@@ -40,6 +42,7 @@ interface QueueFooterProps {
  *  seinem Namen (Nachtrag Story 188), und darunter die Zeile mit der Marke „n warten“. Alle öffnen dieselbe Liste. */
 export function QueueFooter({ projects, children }: QueueFooterProps): ReactElement {
   const [isOpen, setIsOpen] = useState<boolean>(false);
+  const [tab, setTab] = useState<'slots' | 'messages'>('slots');
   const queue: AgentQueue | null = useAgentQueueStore((state) => state.queue);
   const hostQueues: Readonly<Record<string, AgentQueue>> = useAgentQueueStore(
     (state) => state.hostQueues,
@@ -71,6 +74,7 @@ export function QueueFooter({ projects, children }: QueueFooterProps): ReactElem
   function toggle(): void {
     if (!isOpen) {
       refreshHostQueues();
+      setTab(waiting > 0 ? 'slots' : 'messages');
     }
     setIsOpen(!isOpen);
   }
@@ -132,14 +136,15 @@ export function QueueFooter({ projects, children }: QueueFooterProps): ReactElem
           label={QUEUE_LIST_LABEL}
           placement="above"
           align="start"
-          width={LIST_WIDTH}
+          width={tab === 'messages' ? messagesWidth() : LIST_WIDTH}
           onClose={(): void => {
             setIsOpen(false);
           }}
         >
           <QueueList
             sections={sections}
-            initialTab={waiting > 0 ? 'slots' : 'messages'}
+            initialTab={tab}
+            onTabChange={setTab}
             projects={projects}
             onClose={(): void => {
               setIsOpen(false);

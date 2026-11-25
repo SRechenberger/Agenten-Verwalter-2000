@@ -62,6 +62,8 @@ interface QueueListProps {
   onClose: () => void;
   /** Der Reiter beim Öffnen: „Nachrichten“, wenn kein Platz wartet. */
   initialTab?: 'slots' | 'messages';
+  /** Meldet den gewählten Reiter, damit das Fenster für „Nachrichten“ breiter werden kann. */
+  onTabChange?: (tab: 'slots' | 'messages') => void;
 }
 
 /** Inhalt der Liste: je Warteschlange oben die Belegung, darunter die Wartenden in der Reihenfolge ihres Cores
@@ -71,6 +73,7 @@ export function QueueList({
   projects,
   onClose,
   initialTab = 'slots',
+  onTabChange,
 }: QueueListProps): ReactElement {
   const [tab, setTab] = useState<'slots' | 'messages'>(initialTab);
   const messageCount: number = useInboxStore(
@@ -90,6 +93,7 @@ export function QueueList({
             className="queue-chip__tab"
             onClick={(): void => {
               setTab(id);
+              onTabChange?.(id);
             }}
           >
             {id === 'slots' ? TAB_SLOTS_LABEL : tabMessagesLabel(messageCount)}
@@ -160,7 +164,9 @@ function MessagesTab({
     <>
       {shown.map((part) => (
         <div key={part.key}>
-          <p className="queue-chip__note">{messagesSectionHead(part.name, part.messages.length)}</p>
+          <div className="queue-chip__head">
+            {messagesSectionHead(part.name, part.messages.length)}
+          </div>
           <table className="queue-chip__table">
             <thead>
               <tr>
@@ -174,9 +180,16 @@ function MessagesTab({
             <tbody>
               {part.messages.map((message: WaitingMessage) => (
                 <tr key={message.id} title={projects.find((p) => p.id === message.projectId)?.name}>
-                  <td>{inboxRouteText(message)}</td>
+                  <td>
+                    {inboxRouteText(message)}
+                    <span className="queue-chip__project">
+                      {projects.find((p) => p.id === message.projectId)?.name ?? '–'}
+                    </span>
+                  </td>
                   <td>{message.subject ?? '–'}</td>
-                  <td>{waitsForText(message)}</td>
+                  <td>
+                    <span className="user-message__queued">{waitsForText(message)}</span>
+                  </td>
                   <td className="queue-chip__since">{waitingSinceText(message.createdAt, now)}</td>
                   <td>
                     {message.fromUser && message.entrySeq !== null && (
