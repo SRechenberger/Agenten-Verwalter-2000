@@ -6,6 +6,8 @@ import { commandErrorText } from '@/lib/errors';
 import {
   listRemoteDevices,
   listRemoteHosts,
+  listOwnSharedIds,
+  listSharedGroupIds,
   loadRemoteAssetBase,
   loadRemoteHostProfile,
   loadRemoteServerStatus,
@@ -40,6 +42,8 @@ export function useRemoteSync(): void {
   const setServer = useRemoteStore((state) => state.setServer);
   const setDevices = useRemoteStore((state) => state.setDevices);
   const setHosts = useRemoteStore((state) => state.setHosts);
+  const setSharedGroupIds = useRemoteStore((state) => state.setSharedGroupIds);
+  const setOwnSharedIds = useRemoteStore((state) => state.setOwnSharedIds);
   const setProfiles = useRemoteStore((state) => state.setProfiles);
   const setAssetBase = useRemoteStore((state) => state.setAssetBase);
 
@@ -53,14 +57,22 @@ export function useRemoteSync(): void {
       request += 1;
       const current: number = request;
       const isOutdated = (): boolean => controller.signal.aborted || request !== current;
-      Promise.all([loadRemoteServerStatus(), listRemoteDevices(), listRemoteHosts()])
-        .then(async ([server, devices, hosts]) => {
+      Promise.all([
+        loadRemoteServerStatus(),
+        listRemoteDevices(),
+        listRemoteHosts(),
+        listSharedGroupIds(),
+        listOwnSharedIds(),
+      ])
+        .then(async ([server, devices, hosts, sharedGroupIds, ownSharedIds]) => {
           if (isOutdated()) {
             return;
           }
           setServer(server);
           setDevices(devices);
           setHosts(hosts);
+          setSharedGroupIds(sharedGroupIds);
+          setOwnSharedIds(ownSharedIds);
           setError(null);
           const profiles: Record<string, HostProfile> = await loadProfiles(hosts);
           if (!isOutdated()) {
@@ -106,5 +118,14 @@ export function useRemoteSync(): void {
         unlisten();
       }
     };
-  }, [setServer, setDevices, setHosts, setProfiles, setAssetBase, setError]);
+  }, [
+    setServer,
+    setDevices,
+    setSharedGroupIds,
+    setOwnSharedIds,
+    setHosts,
+    setProfiles,
+    setAssetBase,
+    setError,
+  ]);
 }

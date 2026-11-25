@@ -211,6 +211,12 @@ const TABLE: &[(Class, Option<IdKind>, &[&str])] = &[
         &["project_set_group", "remote_share_set"],
     ),
     (
+        // Die Gruppe ist keine Vorhaben-ID: Der Host entscheidet allein, ein Gast gibt nichts frei.
+        Class::NeverGuestOpen,
+        None,
+        &["remote_group_share_set"],
+    ),
+    (
         Class::Reachable,
         None,
         &[
@@ -264,6 +270,8 @@ const TABLE: &[(Class, Option<IdKind>, &[&str])] = &[
             "project_group_rename",
             "project_group_delete",
             "project_group_set_collapsed",
+            "remote_group_share_list",
+            "remote_own_share_list",
             "skill_list_for_repositories",
             "attachment_add_files",
             "attachment_discard",

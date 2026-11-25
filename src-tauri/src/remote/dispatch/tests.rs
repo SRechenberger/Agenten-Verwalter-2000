@@ -639,3 +639,31 @@ fn agent_queue_is_reachable_for_guests_and_remote_agent_queue_stays_local() {
         Some(access::Class::LocalOnly)
     );
 }
+
+#[test]
+fn the_project_list_of_a_guest_holds_the_members_of_a_shared_group_and_not_the_rest() {
+    let host = Stub::new(&Scratch::new());
+    let control = RemoteControl::default();
+    control.with(|control| {
+        control.set_shared(["in-group".to_owned(), "also-in-group".to_owned()].into());
+    });
+    let listed = |id: &str| json!({ "id": id });
+    let kept = filter_list(
+        &host,
+        &control,
+        &device("a"),
+        "project_list",
+        vec![listed("in-group"), listed("alone"), listed("also-in-group")],
+    );
+    assert_eq!(kept, vec![listed("in-group"), listed("also-in-group")]);
+    // Das Mitglied verlässt die Gruppe: Der Gast sieht es nicht mehr.
+    control.with(|control| control.set_shared(["also-in-group".to_owned()].into()));
+    let kept = filter_list(
+        &host,
+        &control,
+        &device("a"),
+        "project_list",
+        vec![listed("in-group"), listed("also-in-group")],
+    );
+    assert_eq!(kept, vec![listed("also-in-group")]);
+}

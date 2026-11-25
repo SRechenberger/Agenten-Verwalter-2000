@@ -28,6 +28,34 @@ pub async fn remote_share_set(
     registry.set_project_shared(&app, &project_id, shared, stop_agents)
 }
 
+/// Gibt eine ganze Gruppe für Gäste frei oder nimmt die Freigabe zurück (ADR 059, Nachtrag).
+#[tauri::command]
+pub async fn remote_group_share_set(
+    app: tauri::AppHandle,
+    registry: tauri::State<'_, SessionRegistry>,
+    group_id: String,
+    shared: bool,
+    stop_agents: bool,
+) -> Result<(), CommandError> {
+    registry.set_group_shared(&app, &group_id, shared, stop_agents)
+}
+
+/// Die IDs der Gruppen, die ihren Mitgliedern die Freigabe geben.
+#[tauri::command]
+pub async fn remote_group_share_list(
+    registry: tauri::State<'_, SessionRegistry>,
+) -> Result<Vec<String>, CommandError> {
+    registry.shared_group_ids()
+}
+
+/// Die IDs der Vorhaben mit eigener Freigabe, auch wenn ihre Gruppe sie ebenfalls gibt.
+#[tauri::command]
+pub async fn remote_own_share_list(
+    registry: tauri::State<'_, SessionRegistry>,
+) -> Result<Vec<String>, CommandError> {
+    registry.own_shared_project_ids()
+}
+
 #[tauri::command]
 pub async fn remote_server_status(
     server: tauri::State<'_, Arc<RemoteServer>>,

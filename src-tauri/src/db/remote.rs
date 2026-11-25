@@ -95,6 +95,47 @@ pub fn set_shared(
     Ok(())
 }
 
+/// Ob die Gruppe ihren Mitgliedern die Freigabe gibt; unbekannte Gruppe → Fehler.
+pub fn set_group_shared(
+    connection: &Connection,
+    group_id: &str,
+    shared: bool,
+) -> Result<(), CommandError> {
+    let changed = connection.execute(
+        "UPDATE project_groups SET remote_shared = ?2 WHERE id = ?1",
+        params![group_id, shared],
+    )?;
+    if changed == 0 {
+        return Err(CommandError::Internal(format!(
+            "Gruppe nicht gefunden: {group_id}"
+        )));
+    }
+    Ok(())
+}
+
+pub fn shared_group_ids(connection: &Connection) -> Result<Vec<String>, CommandError> {
+    let mut statement =
+        connection.prepare("SELECT id FROM project_groups WHERE remote_shared = 1 ORDER BY id")?;
+    let ids = statement
+        .query_map([], |row| row.get(0))?
+        .collect::<rusqlite::Result<Vec<String>>>()?;
+    Ok(ids)
+}
+
+/// Die wirksame Freigabe (ADR 059, Nachtrag): eigene Freigabe oder freigegebene Gruppe, und nicht
+/// archiviert. Die einzige Stelle, die das entscheidet; `Control` hält nur ihr Ergebnis.
+pub fn effective_shared_project_ids(connection: &Connection) -> Result<Vec<String>, CommandError> {
+    let mut statement = connection.prepare(
+        "SELECT id FROM projects WHERE archived_at IS NULL AND (remote_shared = 1 OR group_id IN \
+         (SELECT id FROM project_groups WHERE remote_shared = 1)) ORDER BY id",
+    )?;
+    let ids = statement
+        .query_map([], |row| row.get(0))?
+        .collect::<rusqlite::Result<Vec<String>>>()?;
+    Ok(ids)
+}
+
+/// Nur die eigene Freigabe, ohne Gruppe und Archiv.
 pub fn shared_project_ids(connection: &Connection) -> Result<Vec<String>, CommandError> {
     let mut statement =
         connection.prepare("SELECT id FROM projects WHERE remote_shared = 1 ORDER BY id")?;

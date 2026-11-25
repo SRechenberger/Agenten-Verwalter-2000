@@ -1,5 +1,7 @@
 import { create } from 'zustand';
 import type { ProjectAccess } from '@/lib/bindings/ProjectAccess';
+import type { ProjectGroup } from '@/lib/bindings/ProjectGroup';
+import type { ProjectSummary } from '@/lib/bindings/ProjectSummary';
 
 interface ProjectAccessState {
   /** Vorhaben-ID → wem es aus Sicht dieser Instanz gehört (ADR 059). Ein Vorhaben ohne Eintrag ist eigen. */
@@ -8,10 +10,15 @@ interface ProjectAccessState {
   names: Readonly<Record<string, string>>;
   /** Session-ID → Vorhaben-ID, für Stellen, die nur die Session kennen. */
   projectOfSession: Readonly<Record<string, string>>;
+  /** Die Vorhaben und Gruppen, damit der Chat den Dialog der Gruppe öffnen kann. */
+  projects: readonly ProjectSummary[];
+  groups: readonly ProjectGroup[];
   set: (
     access: Readonly<Record<string, ProjectAccess>>,
     names: Readonly<Record<string, string>>,
     projectOfSession: Readonly<Record<string, string>>,
+    projects: readonly ProjectSummary[],
+    groups: readonly ProjectGroup[],
   ) => void;
 }
 
@@ -21,7 +28,9 @@ export const useProjectAccessStore = create<ProjectAccessState>((set) => ({
   access: {},
   names: {},
   projectOfSession: {},
-  set: (access, names, projectOfSession): void => {
-    set({ access, names, projectOfSession });
+  projects: [],
+  groups: [],
+  set: (access, names, projectOfSession, projects, groups): void => {
+    set({ access, names, projectOfSession, projects, groups });
   },
 }));

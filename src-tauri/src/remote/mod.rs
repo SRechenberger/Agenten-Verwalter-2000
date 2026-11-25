@@ -48,7 +48,7 @@ impl RemoteControl {
     pub fn restore(database: &Database) -> Result<RemoteControl, CommandError> {
         let (shared, revoked) = database.with(|connection| {
             Ok((
-                remote_rows::shared_project_ids(connection)?,
+                remote_rows::effective_shared_project_ids(connection)?,
                 remote_rows::revoked_device_ids(connection)?,
             ))
         })?;

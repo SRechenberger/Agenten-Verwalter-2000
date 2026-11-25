@@ -15,6 +15,7 @@ import { RetroButton } from '@/features/retro/RetroButton';
 import { SelfReleaseSettings } from '@/features/settings/SelfReleaseSettings';
 import { ProjectTldrCard } from '@/features/tldr/ProjectTldrCard';
 import { useProjectTldr } from '@/features/tldr/useProjectTldr';
+import type { ProjectGroup } from '@/lib/bindings/ProjectGroup';
 import type { ProjectSessionTldr } from '@/lib/bindings/ProjectSessionTldr';
 import type { ProjectSummary } from '@/lib/bindings/ProjectSummary';
 import type { SelfRelease } from '@/lib/bindings/SelfRelease';
@@ -25,6 +26,7 @@ import { commandErrorText } from '@/lib/errors';
 import { effortLabel, modeOption, modelName } from '@/lib/labels';
 import { setProjectSelfRelease } from '@/lib/projects';
 import { createSessionInProject } from '@/lib/sessions';
+import { useRemoteStore } from '@/stores/remote';
 import './ProjectOverview.css';
 
 /** Ein Agent in diesen Zuständen kennt ein angehängtes Repository erst nach seinem nächsten Start. */
@@ -43,6 +45,9 @@ interface ProjectOverviewProps {
   onSessionCreated: (summary: SessionSummary) => void;
   /** Rückgabe des Core nach einer Änderung am Vorhaben — schneller als dessen Ereignis. */
   onProjectChanged: (summary: ProjectSummary) => void;
+  /** Alle Vorhaben und Gruppen: Die Freigabe über eine Gruppe nennt sie und ihre gehaltenen Vorhaben. */
+  projects: readonly ProjectSummary[];
+  groups: readonly ProjectGroup[];
 }
 
 export function ProjectOverview({
@@ -52,12 +57,22 @@ export function ProjectOverview({
   onOpenSession,
   onSessionCreated,
   onProjectChanged,
+  projects,
+  groups,
 }: ProjectOverviewProps): ReactElement {
   const [isCreating, setIsCreating] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const { view: tldrView, error: tldrError } = useProjectTldr(project.id);
   const isLocked: boolean = useProjectLocked(project.id);
   const showsShareBlock: boolean = useShowsShareBlock(project.access);
+  const sharedGroupIds: string[] = useRemoteStore((state) => state.sharedGroupIds);
+  const viaGroup: ProjectGroup | null =
+    project.access.kind === 'shared'
+      ? (groups.find(
+          (group: ProjectGroup) =>
+            group.id === project.groupId && sharedGroupIds.includes(group.id),
+        ) ?? null)
+      : null;
 
   function tldrOfSession(sessionId: string): ProjectSessionTldr | null {
     return (
@@ -153,7 +168,12 @@ export function ProjectOverview({
         )}
         {renderRepositories()}
         {showsShareBlock && (
-          <RemoteShareBlock project={project} onProjectChanged={onProjectChanged} />
+          <RemoteShareBlock
+            project={project}
+            viaGroup={viaGroup}
+            projects={projects}
+            onProjectChanged={onProjectChanged}
+          />
         )}
         <section className="project-overview__sessions">
           <div className="project-overview__sessions-head">

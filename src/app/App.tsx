@@ -107,7 +107,7 @@ export function App(): ReactElement {
   const reloadDashboard = useDashboard();
   // Fernsteuerung: Geräte und Hosts für Einstellungen, Leiste und Köpfe; die Rechte der Listen für gesperrte Bedienelemente.
   useRemoteSync();
-  useProjectAccessSync(projects, sessions);
+  useProjectAccessSync(projects, sessions, groups);
   const { ended: endedShares, projectOfEntry }: EndedShares = useEndedShares(
     projects,
     sessions,
@@ -651,6 +651,8 @@ export function App(): ReactElement {
         onOpenSession={selectSession}
         onSessionCreated={handleSessionCreated}
         onProjectChanged={upsertProject}
+        projects={projects}
+        groups={groups}
       />
     );
   }

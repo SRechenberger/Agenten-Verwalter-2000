@@ -1,7 +1,7 @@
 //! Freigabe eines Vorhabens für Gäste (ADR 059). Das Steuerrecht selbst steht in `crate::remote`;
 //! hier steht nur, was die Registry beisteuert.
-use std::collections::HashMap;
-use std::sync::Arc;
+use std::collections::{HashMap, HashSet};
+use std::sync::{Arc, PoisonError};
 
 use tauri::{AppHandle, Emitter, Manager};
 
@@ -15,7 +15,8 @@ use crate::remote::wire::Frame;
 use crate::terminal::TerminalService;
 
 impl SessionRegistry {
-    /// Schaltet die Freigabe um; Ausschalten wirft einen steuernden Gast sofort hinaus. Erst danach
+    /// Schaltet die eigene Freigabe um; Ausschalten wirft einen steuernden Gast sofort hinaus, es
+    /// sei denn, die Gruppe des Vorhabens gibt es weiter frei (dann ändert sich nichts). Erst danach
     /// hält `stop_agents` die laufenden Sessions an: Scheitert das bei einer, ist die Freigabe
     /// trotzdem beendet, die übrigen werden noch angehalten und der erste Fehler kommt zurück.
     pub fn set_project_shared(
@@ -30,34 +31,89 @@ impl SessionRegistry {
         }
         self.database
             .with(|connection| remote_rows::set_shared(connection, project_id, shared))?;
-        self.remote.with(|control| {
-            if shared {
-                control.share(project_id);
-            } else {
-                control.unshare(project_id);
-            }
-        });
-        self.release_terminals(app, &[project_id.to_owned()]);
+        let result = self.sync_shared(app, stop_agents);
         let summary = self.project_summary(project_id)?;
-        // Wie die übrigen Ereignisse ohne Session-Protokoll: ein Sendefehler ändert nichts am Zustand.
         let _ = app.emit(PROJECT_CHANGED_EVENT, &summary);
-        if shared {
-            let _ = app.emit(REMOTE_CHANGED_EVENT, ());
-        } else {
+        result.map(|()| summary)
+    }
+
+    /// Gibt eine ganze Gruppe frei oder nimmt die Freigabe zurück (Taiga 137): Jedes Mitglied, auch
+    /// ein später hinzukommendes, ist freigegeben, solange die Gruppe es ist. Beenden wirft jeden
+    /// Gast heraus, der ein Mitglied hält, ohne eigene Freigabe des Vorhabens.
+    pub fn set_group_shared(
+        &self,
+        app: &AppHandle,
+        group_id: &str,
+        shared: bool,
+        stop_agents: bool,
+    ) -> Result<(), CommandError> {
+        self.database
+            .with(|connection| remote_rows::set_group_shared(connection, group_id, shared))?;
+        let result = self.sync_shared(app, stop_agents);
+        // Auch ohne geänderte Vorhaben: Die Leiste liest die Gruppen mit Freigabe über `remote://changed`.
+        let _ = app.emit(REMOTE_CHANGED_EVENT, ());
+        self.emit_project_groups(app)?;
+        result
+    }
+
+    /// Die Gruppen, die ihren Mitgliedern die Freigabe geben.
+    pub fn shared_group_ids(&self) -> Result<Vec<String>, CommandError> {
+        self.database
+            .with(|connection| remote_rows::shared_group_ids(connection))
+    }
+
+    /// Die Vorhaben mit eigener Freigabe: Sie bleiben freigegeben, wenn sie ihre Gruppe verlassen.
+    pub fn own_shared_project_ids(&self) -> Result<Vec<String>, CommandError> {
+        self.database
+            .with(|connection| remote_rows::shared_project_ids(connection))
+    }
+
+    /// Gleicht `Control` mit der wirksamen Freigabe der Datenbank ab (V5), nach jeder Änderung an
+    /// Freigabe, Gruppe, Mitgliedschaft oder Archiv. Wer wegfällt, verliert den Inhaber und bekommt
+    /// `access`; `stop_agents` hält danach seine Sessions an (erster Fehler kommt zurück).
+    pub(super) fn sync_shared(
+        &self,
+        app: &AppHandle,
+        stop_agents: bool,
+    ) -> Result<(), CommandError> {
+        let (added, removed) = {
+            let _guard = self
+                .share_sync
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner);
+            let wanted: HashSet<String> = self
+                .database
+                .with(|connection| remote_rows::effective_shared_project_ids(connection))?
+                .into_iter()
+                .collect();
+            self.remote.with(|control| control.set_shared(wanted))
+        };
+        if added.is_empty() && removed.is_empty() {
+            return Ok(());
+        }
+        self.release_terminals(app, &removed);
+        for project_id in added.iter().chain(&removed) {
+            if let Ok(summary) = self.project_summary(project_id) {
+                let _ = app.emit(PROJECT_CHANGED_EVENT, &summary);
+            }
+        }
+        for project_id in &removed {
             announce_unshared(app, project_id);
         }
-        if !shared && stop_agents {
-            let mut first_error: Option<CommandError> = None;
-            for session in self.project_members(project_id) {
-                if let Err(error) = self.pause(app, &session.id) {
-                    first_error.get_or_insert(error);
+        if !added.is_empty() {
+            let _ = app.emit(REMOTE_CHANGED_EVENT, ());
+        }
+        let mut first_error: Option<CommandError> = None;
+        if stop_agents {
+            for project_id in &removed {
+                for session in self.project_members(project_id) {
+                    if let Err(error) = self.pause(app, &session.id) {
+                        first_error.get_or_insert(error);
+                    }
                 }
             }
-            if let Some(error) = first_error {
-                return Err(error);
-            }
         }
-        Ok(summary)
+        first_error.map_or(Ok(()), Err)
     }
 
     /// Meldet Vorhaben, deren Inhaber sich geändert hat (Übernahme, Zurückgeben, Frist, Gerät

@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use verwalter_lib::db::projects::{self, ProjectRow};
-use verwalter_lib::db::{Database, project_groups};
+use verwalter_lib::db::{Database, project_groups, remote};
 use verwalter_lib::error::CommandError;
 use verwalter_lib::projects::model::{ProjectGroup, ProjectPriority};
 use verwalter_lib::session_tools::model::SelfRelease;
@@ -147,6 +147,28 @@ fn selftest(path: &Path) -> Result<bool, CommandError> {
             && created.is_err()
             && missing.is_none()
             && group_of(&database, "p-b")?.is_none(),
+    );
+
+    // Fall 5: Eine freigegebene Gruppe gibt jedes Mitglied frei, auch ein später hinzugekommenes;
+    // Löschen der Gruppe beendet die Freigabe, ein archiviertes Mitglied ist nie freigegeben.
+    database.with(|connection| {
+        project_groups::insert(connection, &group("g-frei"), 10.0)?;
+        projects::insert(connection, &project("p-frei-1", 10.0, Some("g-frei")))?;
+        remote::set_group_shared(connection, "g-frei", true)
+    })?;
+    database.with(|connection| {
+        projects::insert(connection, &project("p-frei-2", 11.0, Some("g-frei")))
+    })?;
+    database.with(|connection| {
+        projects::insert(connection, &project("p-frei-3", 12.0, Some("g-frei")))
+    })?;
+    database.with(|connection| projects::archive(connection, "p-frei-3", 13.0))?;
+    let shared = database.with(|connection| remote::effective_shared_project_ids(connection))?;
+    database.with(|connection| project_groups::delete(connection, "g-frei"))?;
+    let after = database.with(|connection| remote::effective_shared_project_ids(connection))?;
+    all &= report(
+        "freigegebene gruppe gibt mitglieder frei und loeschen beendet es",
+        shared == ["p-frei-1", "p-frei-2"] && after.is_empty(),
     );
 
     Ok(all)

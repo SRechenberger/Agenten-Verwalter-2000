@@ -1,0 +1,457 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Remote-Gruppen und Anlegen</title>
+<style>
+/* Gemeinsame Stile der Klick-Prototypen 0.78.0. Farben, Schriften und Maße aus src/styles/theme.css, Sidebar.css, UserMessage.css, Composer.css der App. */
+:root{color-scheme:dark;--bg:#1f1f1f;--side:#181818;--surf:#252526;--hover:#2e2e30;--sel:#37373d;--bds:#2b2b2b;--bd:#3c3c3c;--fg:#d4d4d4;--fg2:#b0b0b0;--fgm:#8f8f8f;--acc:#e0825c;--acct:#f0a888;--onacc:#1d130e;--accsub:rgba(224,130,92,.16);--run:#5b9dff;--wait:#f2b33d;--waitsub:rgba(242,179,61,.14);--err:#f47067;--errsub:rgba(244,112,103,.12);--ok:#4cc38a;--master:#8ab8ea;--shadow:0 10px 30px rgb(0 0 0/.45);--font:'Segoe UI Variable Text','Segoe UI',system-ui,sans-serif;--mono:'Cascadia Code','Cascadia Mono',Consolas,ui-monospace,monospace}
+:root[data-theme=light]{color-scheme:light;--bg:#fff;--side:#f8f8f8;--surf:#fff;--hover:#f0f0f0;--sel:#e4e6f1;--bds:#e5e5e5;--bd:#cecece;--fg:#3c3c3c;--fg2:#555;--fgm:#6e6e6e;--acc:#c4572f;--acct:#a8461f;--onacc:#fff;--accsub:rgba(196,87,47,.1);--run:#2563eb;--wait:#a86a00;--waitsub:rgba(168,106,0,.1);--err:#d23b33;--errsub:#fdeceb;--ok:#16803c;--master:#3d6fa8;--shadow:0 10px 30px rgb(0 0 0/.14)}
+*{box-sizing:border-box}
+body{margin:0;background:var(--side);color:var(--fg);font:13px/1.45 var(--font)}
+main{max-width:1480px;margin:0 auto;padding:16px}
+h1{font-size:15px;margin:0 0 4px}
+.lead{color:var(--fg2);margin:0 0 10px;max-width:1020px}
+button,input,select,textarea{font:inherit;color:inherit}
+code{font-family:var(--mono);font-size:12px}
+kbd{font-family:var(--mono);font-size:11px;padding:0 4px;border:1px solid var(--bd);border-bottom-width:2px;border-radius:4px;color:var(--fg2)}
+
+/* Simulationsleiste (nicht Teil der App) */
+#sim{display:flex;flex-wrap:wrap;gap:6px 8px;align-items:center;margin:0 0 8px;padding:8px 10px;border:1px dashed var(--bd);border-radius:6px;color:var(--fgm);font-size:12px}
+#sim button{border:1px solid var(--bd);background:transparent;border-radius:6px;padding:3px 10px;cursor:pointer}
+#sim button:hover{background:var(--hover)}
+#sim button[aria-pressed=true]{background:var(--sel);color:var(--fg)}
+#sim button:disabled{opacity:.4;cursor:default}
+#sim .sp{margin-left:10px}
+#sim .lbl{color:var(--fg2)}
+
+/* App-Fenster */
+.app{position:relative;display:flex;height:720px;border:1px solid var(--bd);border-radius:10px;overflow:hidden;background:var(--bg)}
+.side{width:256px;flex:none;background:var(--side);border-right:1px solid var(--bds);display:flex;flex-direction:column;min-height:0}
+.brand{display:flex;align-items:center;gap:8px;padding:14px 16px 10px;font-weight:600;font-size:13px}
+.newp{display:flex;align-items:center;gap:8px;margin:0 10px 10px;padding:4px 10px;border:1px solid var(--bd);border-radius:6px;background:transparent;cursor:pointer;text-align:left}
+.newp:hover{background:var(--hover)}
+.newp kbd{margin-left:auto;border:0;color:var(--fgm)}
+.tree{flex:1;overflow:auto;min-height:0;padding:0 10px 10px}
+.grp{display:flex;align-items:center;gap:6px;margin:12px 0 2px;padding:3px 6px;border-radius:6px;font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--fgm);cursor:default;user-select:none}
+.grp:hover{background:var(--hover)}
+.grp .n{margin-left:auto;font-variant-numeric:tabular-nums}
+.grp .rm{text-transform:none}
+.vrow{display:flex;gap:6px;padding:4px 6px;border-radius:6px;cursor:pointer;align-items:flex-start}
+.vrow:hover{background:var(--hover)}
+.vrow.sel{background:var(--sel)}
+.vrow .chev{width:12px;color:var(--fgm);flex:none;line-height:20px}
+.vrow .ic{width:14px;flex:none;line-height:20px;text-align:center}
+.vrow .tx{flex:1;min-width:0}
+.vrow .nm{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block}
+.vrow .meta{display:block;font-size:12px;color:var(--fgm);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.kids{margin-left:12px;padding-left:8px;border-left:1px solid var(--bds)}
+.srow{display:flex;align-items:center;gap:6px;padding:3px 6px;border-radius:6px;cursor:pointer;font-size:12.5px;color:var(--fg2);min-width:0}
+.srow:hover{background:var(--hover)}
+.srow.sel{background:var(--sel);color:var(--fg)}
+.srow .num{font-family:var(--mono);font-size:11px;color:var(--fgm);flex:none}
+.srow .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.srow .aux{font-size:11px;color:var(--fgm);white-space:nowrap;flex:none}
+.srow .aux.w{color:var(--wait)}
+.srow .mono{font-family:var(--mono);font-size:11px;color:var(--fgm)}
+.ok{color:var(--ok)}.wt{color:var(--wait)}.er{color:var(--err)}.mu{color:var(--fgm)}.ru{color:var(--run)}
+.rm{color:var(--acc);flex:none}
+.dia{color:var(--master);flex:none;font-size:11px}
+.udot{width:6px;height:6px;border-radius:50%;background:var(--acc);flex:none}
+.foot{border-top:1px solid var(--bds);padding:8px 10px;display:flex;flex-direction:column;gap:2px}
+.foot .nav{display:flex;align-items:center;gap:10px;padding:4px 8px;border-radius:6px;color:var(--fg2);cursor:pointer}
+.foot .nav:hover{background:var(--hover)}
+.foot .nav.sel{background:var(--sel);color:var(--fg)}
+.qbar{display:flex;align-items:center;gap:8px;padding:2px 6px 6px}
+.cells{display:flex;gap:2px;flex:1}
+.cells i{flex:1;height:4px;border-radius:2px;background:var(--bd)}
+.cells i.on{background:var(--run)}
+.cells i.over{background:var(--wait)}
+.qbar .t{font-family:var(--mono);font-size:11px;color:var(--fgm)}
+.qrow{display:flex;align-items:center;gap:6px;padding:0 6px 4px}
+.chip{display:inline-flex;align-items:center;gap:5px;padding:1px 8px;border:1px solid var(--bd);border-radius:99px;font-size:11.5px;background:transparent;white-space:nowrap;color:var(--fg2)}
+button.chip{cursor:pointer}
+button.chip:hover{background:var(--hover)}
+.chip.w{border-color:var(--wait);color:var(--wait);background:var(--waitsub)}
+.chip.a{border-color:var(--acc);color:var(--acct);background:var(--accsub)}
+.chip.m{border-color:var(--master);color:var(--master)}
+.chip.e{border-color:var(--err);color:var(--err);background:var(--errsub)}
+.pill{padding:0 6px;border-radius:99px;background:var(--acc);color:var(--onacc);font-size:10.5px;font-weight:700}
+
+/* Hauptbereich */
+.mainc{flex:1;display:flex;flex-direction:column;min-width:0;min-height:0;position:relative}
+.hdr{display:flex;align-items:center;gap:10px;height:48px;flex:none;padding:0 14px 0 20px;border-bottom:1px solid var(--bds)}
+.crumb{color:var(--fgm);white-space:nowrap}
+.crumb+.crumb::before{content:'›';margin-right:10px;color:var(--fgm)}
+.title{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.title .num{color:var(--fgm);font-weight:400;margin-right:6px;font-size:12px}
+.tabs{display:inline-flex;gap:2px;padding:2px;border:1px solid var(--bds);border-radius:8px;margin:0 auto}
+.tabs button{border:0;background:transparent;border-radius:6px;padding:3px 12px;cursor:pointer;color:var(--fg2)}
+.tabs button[aria-pressed=true]{background:var(--sel);color:var(--fg)}
+.hdr .right{display:flex;gap:6px;align-items:center;margin-left:auto}
+.body{flex:1;overflow:auto;min-height:0}
+
+/* Chat */
+.chat{max-width:960px;margin:0 auto;padding:18px 28px 12px;display:flex;flex-direction:column;gap:12px}
+.umsg{align-self:stretch;border:1px solid var(--bd);border-radius:8px;padding:9px 12px;background:var(--surf);white-space:pre-wrap;overflow-wrap:anywhere;position:relative}
+.umsg.queued{border-style:dashed;border-color:var(--wait)}
+.umsg.discarded{opacity:.55;border-style:dashed}
+.umsg.discarded .txt{text-decoration:line-through}
+.umsg .head{display:flex;align-items:center;gap:8px;margin:-2px 0 4px;font-size:11.5px;color:var(--fgm);white-space:normal}
+.umsg .head .sp{flex:1}
+.qmark{display:inline-flex;align-items:center;gap:4px;padding:0 7px;border-radius:99px;background:var(--waitsub);color:var(--wait);font-size:11px;font-weight:600}
+.dmark{display:inline-flex;align-items:center;gap:4px;padding:0 7px;border-radius:99px;background:var(--hover);color:var(--fgm);font-size:11px;font-weight:600}
+.amsg{white-space:pre-wrap;overflow-wrap:anywhere}
+.smsg .from{font-size:12px;color:var(--fg2);margin-bottom:3px}
+.smsg .from a{color:var(--acct);text-decoration:none;cursor:pointer}
+.smsg .subj{font-size:12px;color:var(--fgm);margin-bottom:4px}
+.note{align-self:center;font-size:11.5px;color:var(--fgm);padding:2px 10px;border:1px solid var(--bds);border-radius:99px}
+.note.e{color:var(--err);border-color:var(--err)}
+.tool{align-self:stretch;font-size:12px;color:var(--fgm);font-family:var(--mono);padding:4px 10px;border-left:2px solid var(--bd)}
+.tool b{color:var(--fg2);font-weight:600}
+.tool.err{border-left-color:var(--err)}
+.compwrap{flex:none;padding:0 28px 14px;max-width:1016px;width:100%;margin:0 auto}
+.hintbar{display:flex;align-items:center;gap:10px;padding:6px 10px 6px 12px;border:1px solid var(--wait);border-bottom:0;border-radius:10px 10px 0 0;background:var(--waitsub);font-size:12.5px}
+.hintbar .sp{flex:1}
+.hintbar+.comp{border-top-left-radius:0;border-top-right-radius:0}
+.comp{border:1px solid var(--bd);border-radius:10px;background:var(--surf)}
+.comp textarea{display:block;width:100%;min-height:46px;max-height:140px;resize:none;border:0;background:transparent;padding:10px 14px 4px;outline:none}
+.comp .row{display:flex;align-items:center;gap:10px;padding:4px 8px 8px 10px;color:var(--fgm);font-size:12px}
+.comp .row .sp{flex:1}
+.send{width:30px;height:30px;border:0;border-radius:6px;background:var(--acc);color:var(--onacc);cursor:pointer;font-weight:700}
+.send:disabled{opacity:.45;cursor:default}
+
+/* Bedienelemente */
+.btn{border:1px solid var(--bd);background:transparent;border-radius:6px;padding:3px 10px;cursor:pointer;font-size:12px;white-space:nowrap}
+.btn:hover:not(:disabled){background:var(--hover)}
+.btn:disabled{opacity:.45;cursor:default}
+.btn.pri{background:var(--acc);border-color:var(--acc);color:var(--onacc);font-weight:600}
+.btn.pri:hover:not(:disabled){background:var(--acc);filter:brightness(1.08)}
+.btn.dng{border-color:var(--err);color:var(--err)}
+.btn.sm{padding:1px 7px;font-size:11.5px}
+.link{border:0;background:none;color:var(--acct);cursor:pointer;padding:0;font-size:12px}
+.link:disabled{color:var(--fgm);cursor:default}
+.sw{position:relative;width:34px;height:20px;border-radius:99px;border:0;background:var(--bd);cursor:pointer;flex:none;padding:0}
+.sw::after{content:'';position:absolute;left:3px;top:3px;width:14px;height:14px;border-radius:50%;background:#fff;transition:left .12s}
+.sw[aria-checked=true]{background:var(--acc)}
+.sw[aria-checked=true]::after{left:17px}
+.sw:disabled{opacity:.5;cursor:default}
+select.sel,input.inp{padding:4px 8px;border:1px solid var(--bd);border-radius:6px;background:var(--bg)}
+.lbl{font-size:10.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--fgm);margin:0}
+.muted{color:var(--fgm)}
+.small{font-size:12px}
+
+/* Übersicht und Karten */
+.ov{max-width:740px;margin:0 auto;padding:22px 20px;display:flex;flex-direction:column;gap:14px}
+.card{border:1px solid var(--bds);border-radius:8px;background:var(--surf);padding:12px 14px;display:flex;flex-direction:column;gap:8px}
+.card.new{outline:1.5px dashed var(--acc);outline-offset:3px}
+.line{display:flex;align-items:center;gap:12px}
+.line .tx{flex:1;min-width:0}
+.line .tx .s{display:block;font-size:12px;color:var(--fgm)}
+
+/* Menü, Popover, Dialog, Meldung */
+.menu{position:absolute;z-index:20;min-width:220px;padding:4px;border:1px solid var(--bd);border-radius:8px;background:var(--surf);box-shadow:var(--shadow)}
+.menu button{display:flex;width:100%;align-items:center;gap:8px;padding:5px 10px;border:0;border-radius:5px;background:transparent;text-align:left;cursor:pointer;font-size:12.5px}
+.menu button:hover:not(:disabled){background:var(--hover)}
+.menu button:disabled{color:var(--fgm);cursor:default}
+.menu hr{border:0;border-top:1px solid var(--bds);margin:4px 0}
+.menu .hint{padding:4px 10px;font-size:11.5px;color:var(--fgm);max-width:260px}
+.pop{position:absolute;z-index:15;border:1px solid var(--bd);border-radius:10px;background:var(--surf);box-shadow:var(--shadow);display:flex;flex-direction:column;min-height:0}
+.backdrop{position:absolute;inset:0;z-index:30;background:rgb(0 0 0/.45);display:flex;align-items:center;justify-content:center}
+.dlg{width:440px;max-width:calc(100% - 32px);border:1px solid var(--bd);border-radius:10px;background:var(--surf);box-shadow:var(--shadow);padding:16px 18px;display:flex;flex-direction:column;gap:10px}
+.dlg h3{margin:0;font-size:14px}
+.dlg .acts{display:flex;justify-content:flex-end;gap:8px;margin-top:4px}
+.chk{display:inline-flex;align-items:center;gap:6px;font-size:12.5px}
+.chk input{accent-color:var(--acc)}
+.toast{position:absolute;left:50%;bottom:16px;transform:translateX(-50%);display:flex;gap:14px;align-items:center;padding:7px 14px;border:1px solid var(--bd);border-radius:8px;background:var(--surf);box-shadow:var(--shadow);font-size:12.5px;z-index:40;white-space:nowrap}
+.newmark{outline:1.5px dashed var(--acc);outline-offset:2px;border-radius:6px}
+
+/* Erläuterungen unter dem Fenster */
+.doc{margin-top:22px;display:grid;grid-template-columns:1fr 1fr;gap:10px 34px;color:var(--fg2)}
+.doc h2{font-size:13.5px;color:var(--fg);margin:14px 0 4px}
+.doc ul,.doc ol{margin:0;padding-left:20px}
+.doc li{margin:3px 0}
+.doc b{color:var(--fg)}
+.rec{grid-column:1/-1;padding:10px 14px;border:1px solid var(--ok);border-radius:8px;background:color-mix(in srgb,var(--ok) 10%,transparent)}
+.rec h2{margin-top:0}
+.ask{grid-column:1/-1;padding:10px 14px;border:1px solid var(--wait);border-radius:8px;background:var(--waitsub)}
+.ask h2{margin-top:0}
+@media (max-width:1100px){.app .side{display:none}}
+@media (max-width:860px){.doc{grid-template-columns:1fr}}
+
+</style>
+<style>
+.app{height:690px}
+.set{max-width:860px;margin:0 auto;padding:20px 24px;display:flex;flex-direction:column}
+.set .sec{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--fgm);margin:18px 0 4px;padding-bottom:6px;border-bottom:1px solid var(--bds)}
+.set .r{display:grid;grid-template-columns:210px 1fr;gap:16px;padding:10px 0;border-bottom:1px solid var(--bds);align-items:start}
+.dev{display:grid;grid-template-columns:12px 1fr auto auto;gap:4px 10px;align-items:center;padding:6px 0}
+.dev .d{width:8px;height:8px;border-radius:50%;background:var(--ok)}
+.dev .d.off{background:var(--fgm)}
+.dev .s{grid-column:2;font-size:12px;color:var(--fgm)}
+.dev .perm{grid-column:2/5;display:flex;align-items:center;gap:8px;font-size:12px;color:var(--fg2)}
+.np{max-width:760px;margin:0 auto;padding:22px 24px;display:flex;flex-direction:column;gap:12px}
+.np textarea{width:100%;min-height:90px;border:1px solid var(--bd);border-radius:8px;background:var(--surf);padding:10px 12px;resize:vertical}
+.seg{display:inline-flex;overflow:hidden;border:1px solid var(--bd);border-radius:6px}
+.seg button{padding:4px 12px;border:0;border-left:1px solid var(--bd);background:transparent;cursor:pointer;color:var(--fg2)}
+.seg button:first-child{border-left:0}
+.seg button[aria-pressed=true]{background:var(--sel);color:var(--fg)}
+.repos{display:flex;flex-wrap:wrap;gap:6px}
+.repo{display:inline-flex;align-items:center;gap:6px;padding:3px 10px;border:1px solid var(--bd);border-radius:6px;cursor:pointer;background:transparent}
+.repo[aria-pressed=true]{border-color:var(--acc);background:var(--accsub)}
+.fl{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.fl .k{width:120px;color:var(--fgm);font-size:12px}
+.hostnote{font-size:12px;color:var(--fgm);padding:6px 10px;border:1px dashed var(--bd);border-radius:6px}
+</style>
+</head>
+<body>
+<main>
+<h1>Remote: Gruppe freigeben, Gast legt Vorhaben an · Klick-Prototyp (Taiga #137, #193)</h1>
+<p class="lead">Stand 2026-11-24 (Planung 0.78.0). <b>#137:</b> Der Host gibt eine ganze Gruppe frei (Rechtsklick auf den Gruppenkopf); jedes Vorhaben darin ist freigegeben, auch ein neues; wer ein Vorhaben herausnimmt, beendet seine Freigabe. <b>#193:</b> Der Host erlaubt je Gerät, Vorhaben anzulegen, und wählt die Gruppe, in der sie landen; der Gast legt dann auf der Seite „Neues Vorhaben“ direkt auf dem Host an. Oben schaltest du zwischen Host (kropotkin) und Gast (Laptop Büro). Neu Gezeigtes ist gestrichelt umrandet; die gestrichelte Leiste ist Simulation.</p>
+<div id="sim">
+  <span>Farbschema</span><button data-theme-btn="dark">Dunkel</button><button data-theme-btn="light">Hell</button>
+  <span class="sp lbl">Rolle</span><button data-sim="role" data-v="host">Host · kropotkin</button><button data-sim="role" data-v="guest">Gast · Laptop Büro</button>
+  <span class="sp"></span><button data-sim="reset">Zurücksetzen</button>
+  <span class="sp muted">Host: Rechtsklick auf „Arbeit“ oder „Privat“, Rechtsklick auf ein Vorhaben → „In Gruppe verschieben“, unten „Einstellungen“.</span>
+</div>
+<div class="app" id="app"></div>
+<div class="doc">
+  <div class="ask">
+    <h2>Zur Entscheidung (Empfehlung jeweils so gebaut)</h2>
+    <ol>
+      <li><b>G2 Einzeln beenden</b> geht nur, indem du das Vorhaben aus der Gruppe nimmst. Wirksam freigegeben = eigene Freigabe <i>oder</i> freigegebene Gruppe, nicht archiviert. Der Schalter in der Übersicht zeigt dann „Über die Gruppe „Arbeit“ freigegeben“ und ist gesperrt.</li>
+      <li><b>G3 Herausnehmen</b> eines gehaltenen Vorhabens wirkt wie Herauswerfen (E10): Dialog „Freigabe beenden?“ mit „Laufende Agenten anhalten“. Ebenso „Freigabe beenden“ und „Gruppe löschen“ an einer Gruppe mit gehaltenen Vorhaben.</li>
+      <li><b>G4/G5 Gast:</b> übernimmt weiter je Vorhaben und sieht die Gruppe des Hosts nicht; er sortiert lokal.</li>
+      <li><b>G6</b> Freigeben und Beenden im Kontextmenü des Gruppenkopfs (nur bei eingeschaltetem Server), ⇄ am Kopf; Hineinziehen gibt ohne Dialog frei, mit Meldung.</li>
+      <li><b>A1 Recht je Gerät</b> als eine Auswahl „Neue Vorhaben: nicht erlaubt / erlaubt, ohne Gruppe / erlaubt, in „Arbeit““; Standard „nicht erlaubt“.</li>
+      <li><b>A2</b> Ein vom Gast angelegtes Vorhaben ist sofort freigegeben (über die Gruppe oder einzeln) und vom Gerät übernommen; Herauswerfen geht jederzeit.</li>
+      <li><b>A3/A4</b> Nur eingetragene Repositories des Hosts, kein Ordnerdialog; Modell und Denkaufwand aus dem Profil des Hosts, Betriebsart Claude; Vorlagen des Gastes füllen den Text, kein /-Menü mit Skills des Hosts.</li>
+      <li><b>A5–A7</b> Gruppe beim Host aus A1, beim Gast die lokale aus dem Dialog; keine Grenze; Archivieren und Löschen bleiben dem Host.</li>
+    </ol>
+  </div>
+</div>
+</main>
+<script>
+// Gemeinsame Helfer der Klick-Prototypen 0.78.0: Auswahl, Escaping, Farbschema, Meldung, Menü schließen.
+'use strict';
+const $ = s => document.querySelector(s);
+const $$ = s => [...document.querySelectorAll(s)];
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const ago = m => m < 1 ? 'gerade' : m < 60 ? `${m} min` : m < 1440 ? `${Math.floor(m / 60)} h` : `${Math.floor(m / 1440)} d`;
+
+// Farbschema aus der Sprungmarke #theme=light, umschaltbar über [data-theme-btn]
+const Proto = {
+  theme: /theme=light/.test(location.hash) ? 'light' : 'dark',
+  applyTheme() {
+    document.documentElement.dataset.theme = this.theme;
+    $$('[data-theme-btn]').forEach(b => b.setAttribute('aria-pressed', b.dataset.themeBtn === this.theme));
+  },
+  toastTimer: 0,
+  toast(text, undo) {
+    clearTimeout(this.toastTimer);
+    $('.toast')?.remove();
+    const t = document.createElement('div');
+    t.className = 'toast';
+    t.innerHTML = `<span>${esc(text)}</span>${undo ? '<button class="link" data-toast-undo>Rückgängig</button>' : ''}`;
+    t._undo = undo;
+    ($('#app') || document.body).appendChild(t);
+    this.toastTimer = setTimeout(() => t.remove(), 6000);
+  },
+};
+document.addEventListener('click', ev => {
+  const tb = ev.target.closest('[data-theme-btn]');
+  if (tb) { Proto.theme = tb.dataset.themeBtn; history.replaceState(null, '', `#theme=${Proto.theme}`); Proto.applyTheme(); return; }
+  const u = ev.target.closest('[data-toast-undo]');
+  if (u) { const t = u.closest('.toast'); t._undo?.(); t.remove(); }
+}, true);
+Proto.applyTheme();
+
+</script>
+<script>
+'use strict';
+let S;
+function reset(){
+  S = { role:'host', view:'overview', sel:'kp', menu:null, dlg:null, right:'Arbeit', gview:'list', gsel:null,
+    groups:{Arbeit:{shared:true}, Privat:{shared:false}},
+    projects:[
+      {id:'kp', name:'Kundenportal migrieren', grp:'Arbeit', own:false, held:true, meta:'2 Sessions · #2 läuft'},
+      {id:'rp', name:'Release-Pipeline', grp:'Arbeit', own:false, held:false, meta:'1 Session · fertig'},
+      {id:'st', name:'Steuererklärung 2025', grp:'Privat', own:false, held:false, meta:'1 Session'},
+      {id:'vv', name:'Vortrag vorbereiten', grp:'', own:true, held:false, meta:'1 Session'},
+    ],
+    draft:'', where:'local', repos:new Set(['kundenportal']), lgroup:'Kunden' };
+}
+const shared = p => p.own || (p.grp && S.groups[p.grp].shared);
+const byId = id => S.projects.find(p=>p.id===id);
+const RIGHT = {none:'nicht erlaubt', nogroup:'erlaubt, ohne Gruppe', Arbeit:'erlaubt, in „Arbeit“', Privat:'erlaubt, in „Privat“'};
+
+/* ---------- Host ---------- */
+function hostSide(){
+  const proj = p => `<div class="vrow${S.view==='overview'&&S.sel===p.id?' sel':''}" data-proj="${p.id}"><span class="chev">›</span><span class="ic ${p.held?'ru':'ok'}">${p.held?'◌':'✓'}</span><span class="tx"><span class="nm">${esc(p.name)} ${shared(p)?'<span class="rm">⇄</span>':''}</span><span class="meta">${p.held?'Gesteuert von Laptop Büro':shared(p)?'Für Gäste freigegeben':esc(p.meta)}</span></span></div>`;
+  const grp = g => `<div class="grp${S.groups[g].shared?' newmark':''}" data-grp="${g}">⌄ ${g} ${S.groups[g].shared?'<span class="rm" title="Für Gäste freigegeben">⇄</span>':''}<span class="n">${S.projects.filter(p=>p.grp===g).length}</span></div>`+S.projects.filter(p=>p.grp===g).map(proj).join('');
+  return `<aside class="side"><div class="brand">⧉ Agenten Verwalter 2000</div><button class="newp">＋ Neues Vorhaben <kbd>Ctrl N</kbd></button>
+    <div class="tree">${S.projects.filter(p=>!p.grp).map(proj).join('')}${Object.keys(S.groups).map(grp).join('')}</div>
+    <div class="foot"><div class="nav">◔ Kontingent</div><div class="nav">▤ Archiv</div><div class="nav${S.view==='settings'?' sel':''}" data-act="settings">⚙ Einstellungen</div></div></aside>`;
+}
+function hostOverview(){
+  const p = byId(S.sel); if(!p) return '';
+  const viaGroup = p.grp && S.groups[p.grp].shared;
+  const state = p.held ? `<span class="udot" style="background:var(--run)"></span><span class="tx">Gesteuert von <b>Laptop Büro</b><span class="s">Du liest mit; Knöpfe sind gesperrt, bis der Gast zurückgibt.</span></span>` : `<span class="udot" style="background:var(--fgm)"></span><span class="tx">Frei, noch kein Gast<span class="s">Die Freigabe bleibt auch nach einem Neustart bestehen.</span></span>`;
+  return `<div class="hdr"><span class="title">${esc(p.name)}</span><span class="tabs"><button aria-pressed="true">Übersicht</button></span><span class="right"><span class="muted small">${esc(p.meta)}</span></span></div>
+    <div class="body"><div class="ov">
+      <div class="card${viaGroup?' new':''}"><p class="lbl">Fernsteuerung</p>
+        <div class="line"><span class="tx">Für Gäste freigeben<span class="s">${viaGroup?`Über die Gruppe „${esc(p.grp)}“ freigegeben. Zum Beenden nimm das Vorhaben aus der Gruppe oder beende die Freigabe der Gruppe.`:'Ein gekoppeltes Gerät kann dieses Vorhaben dann übernehmen. Bis dahin arbeitest du hier normal weiter.'}</span></span>
+          <button class="sw" role="switch" aria-checked="${shared(p)}" ${viaGroup?'disabled':''} data-act="toggleOwn"></button></div>
+        ${viaGroup?`<div><button class="link" data-act="grpMenu" data-g="${esc(p.grp)}">Gruppe „${esc(p.grp)}“ bearbeiten …</button></div>`:''}
+        ${shared(p)?`<div class="line">${state}</div>`:''}</div>
+      <div class="card"><p class="lbl">Sessions</p><div class="line"><span class="tx">#1 Schema analysieren<span class="s">Opus 5.5 · fertig</span></span></div><div class="line"><span class="tx">#2 Importer umstellen<span class="s">${p.held?'läuft · gesteuert von Laptop Büro':'ruht'}</span></span></div></div>
+    </div></div>`;
+}
+function hostSettings(){
+  const opts = ['none','nogroup','Arbeit','Privat'].map(k=>`<option value="${k}" ${S.right===k?'selected':''}>${RIGHT[k]}</option>`).join('');
+  return `<div class="hdr"><span class="title">Einstellungen</span><span class="right"><input class="inp" placeholder="Einstellungen durchsuchen …" style="width:240px"></span></div>
+    <div class="body"><div class="set">
+      <div class="sec">Fernsteuerung</div>
+      <div class="r"><span>Gäste erlauben</span><span><button class="sw" role="switch" aria-checked="true"></button></span></div>
+      <div class="r"><span>Status</span><span>Lauscht auf 192.168.0.190<br><span class="muted small" style="font-family:var(--mono)">Fingerabdruck 6a9a eb80 … 2ee9</span></span></div>
+      <div class="r"><span>Gekoppelte Geräte</span><span>
+        <div class="dev"><span class="d"></span><span>Laptop Büro</span><span></span><button class="btn dng">Sperren</button><span class="s">Verbunden · steuert Kundenportal migrieren</span>
+          <span class="perm newmark" style="padding:4px 6px">Neue Vorhaben <select class="sel" data-act="right">${opts}</select></span></div>
+        <div class="dev"><span class="d off"></span><span>Tablet</span><span></span><button class="btn dng">Sperren</button><span class="s">Zuletzt gesehen vor 3 d</span>
+          <span class="perm newmark" style="padding:4px 6px">Neue Vorhaben <select class="sel"><option>nicht erlaubt</option><option>erlaubt, ohne Gruppe</option><option>erlaubt, in „Arbeit“</option><option>erlaubt, in „Privat“</option></select></span></div>
+      </span></div>
+      <p class="muted small">Ein Vorhaben, das ein Gerät anlegt, ist für Gäste freigegeben und vom Gerät übernommen. Herauswerfen geht jederzeit in der Übersicht des Vorhabens. Archivieren und Löschen bleiben dir.</p>
+    </div></div>`;
+}
+
+/* ---------- Gast ---------- */
+function guestSide(){
+  const remote = S.projects.filter(shared);
+  const row = p => `<div class="vrow${S.gview==='list'&&S.gsel===p.id?' sel':''}" data-gproj="${p.id}"><span class="chev">›</span><span class="ic ${p.held?'ru':'ok'}">${p.held?'◌':'✓'}</span><span class="tx"><span class="nm">${esc(p.name)} <span class="rm">⇄</span></span><span class="meta">${p.held?'kropotkin · übernommen':'Frei · kropotkin'}</span></span></div>`;
+  const kunden = remote.filter(p=>p.lgrp==='Kunden'), rest = remote.filter(p=>p.lgrp!=='Kunden');
+  return `<aside class="side"><div class="brand">⧉ Agenten Verwalter 2000</div><button class="newp${S.gview==='new'?' newmark':''}" data-act="gnew">＋ Neues Vorhaben <kbd>Ctrl N</kbd></button>
+    <div class="tree"><div class="vrow"><span class="chev">›</span><span class="ic ok">✓</span><span class="tx"><span class="nm">Notizen aufräumen</span><span class="meta">lokal · 1 Session</span></span></div>
+      ${rest.map(row).join('')}<div class="grp">⌄ Kunden <span class="n">${kunden.length}</span></div>${kunden.map(row).join('')}</div>
+    <div class="foot"><div class="nav">◔ Kontingent</div><div class="nav">▤ Archiv</div><div class="nav">⚙ Einstellungen</div></div></aside>`;
+}
+function guestNew(){
+  const allowed = S.right!=='none';
+  const host = S.where==='host';
+  const repos = host ? [['kundenportal','kundenportal (Host)'],['release-tools','release-tools (Host)'],['dotfiles','dotfiles (Host)']] : [['notizen','notizen'],['vortrag','vortrag']];
+  return `<div class="hdr"><span class="title">Neues Vorhaben</span></div><div class="body"><div class="np">
+    <div class="fl newmark" style="padding:6px"><span class="k">Anlegen auf</span><span class="seg"><button data-where="local" aria-pressed="${!host}">Dieser Rechner</button>${allowed?`<button data-where="host" aria-pressed="${host}">⇄ kropotkin</button>`:''}</span>
+      ${allowed?'':'<span class="muted small">kropotkin erlaubt diesem Gerät keine neuen Vorhaben.</span>'}</div>
+    <textarea data-keep="draft" placeholder="Was soll in diesem Vorhaben passieren? (/ für Skills)">${esc(S.draft)}</textarea>
+    ${host?'<div class="hostnote newmark">Auf kropotkin: Skills des Hosts stehen im /-Menü nicht zur Wahl. Anhänge gehen mit dem Vorhaben zum Host.</div>':''}
+    <div class="fl"><span class="k">Repositories</span><span class="repos">${repos.map(([k,l])=>`<button class="repo" data-repo="${k}" aria-pressed="${S.repos.has(k)}">${S.repos.has(k)?'✓ ':''}${esc(l)}</button>`).join('')}${host?'':'<button class="repo">+ Ordner wählen …</button>'}</span></div>
+    <div class="fl"><span class="k">Modell</span><select class="sel"><option>Opus 5.5</option><option>Sonnet 5.5</option></select><select class="sel"><option>Hoch</option><option>Mittel</option></select>${host?'<span class="muted small">aus dem Profil von kropotkin · Betriebsart Claude Code</span>':'<select class="sel"><option>Claude Code</option></select>'}</div>
+    <div class="fl"><span class="k">Gruppe (hier)</span><select class="sel" data-act="lgroup"><option ${S.lgroup==='Kunden'?'selected':''}>Kunden</option><option ${S.lgroup===''?'selected':''} value="">Ohne Gruppe</option></select>${host&&S.right!=='nogroup'?`<span class="muted small">auf kropotkin in „${esc(S.right)}“ (vom Host festgelegt)</span>`:''}</div>
+    <div class="fl"><span class="k"></span><button class="btn pri" data-act="create" ${S.draft.trim()?'':'disabled'}>${host?'Auf kropotkin anlegen':'Anlegen'}</button></div>
+  </div></div>`;
+}
+function guestList(){
+  const p = byId(S.gsel);
+  if(!p) return `<div class="hdr"><span class="title">Laptop Büro</span></div><div class="body"><div class="ov"><p class="muted">Wähle links ein Vorhaben oder lege ein neues an.</p></div></div>`;
+  return `<div class="hdr"><span class="crumb">${esc(p.name)}</span><span class="title"><span class="num">#1</span>Auftrag</span><span class="tabs"><button aria-pressed="true">Chat</button></span><span class="right"><span class="chip">⇄ kropotkin</span>${p.held?'<button class="btn sm">Zurückgeben</button>':'<button class="btn sm pri">Übernehmen</button>'}</span></div>
+    <div class="body"><div class="chat"><div class="umsg">${esc(p.task||'Stell den Importer auf das neue Schema um.')}</div><div class="amsg">${p.fresh?'Ich lese die Repositories und lege einen Plan an …':'Der Mapper nimmt jetzt beide Schemata an.'}</div></div></div>`;
+}
+
+/* ---------- Menüs und Dialoge ---------- */
+function menuHTML(){
+  if(!S.menu) return '';
+  const {x,y,kind,key} = S.menu;
+  let items = '';
+  if(kind==='grp'){
+    const g=S.groups[key], held=S.projects.filter(p=>p.grp===key&&p.held).length;
+    items = `${g.shared?`<button data-m="grpUnshare" data-g="${key}">Freigabe beenden …</button>`:`<button data-m="grpShare" data-g="${key}">Für Gäste freigeben</button>`}
+      <div class="hint">${g.shared?`Alle Vorhaben der Gruppe sind freigegeben${held?`; ${held} davon gesteuert`:''}.`:'Gibt alle Vorhaben der Gruppe frei, auch neue.'}</div><hr><button>Umbenennen</button><button data-m="grpDelete" data-g="${key}">Gruppe löschen</button>`;
+  } else {
+    const p=byId(key);
+    items = `<div class="hint">In Gruppe verschieben</div>${Object.keys(S.groups).map(g=>`<button data-m="move" data-p="${p.id}" data-g="${g}" ${p.grp===g?'disabled':''}>${p.grp===g?'✓ ':''}${g}${S.groups[g].shared?' ⇄':''}</button>`).join('')}<button data-m="move" data-p="${p.id}" data-g="" ${!p.grp?'disabled':''}>Ohne Gruppe</button><hr><button>Umbenennen</button><button>Archivieren</button>`;
+  }
+  return `<div class="menu newmark" style="left:${x}px;top:${y}px">${items}</div>`;
+}
+function dlgHTML(){
+  if(!S.dlg) return '';
+  const d=S.dlg;
+  return `<div class="backdrop"><div class="dlg"><h3>Freigabe beenden?</h3><p class="small">${esc(d.text)}</p>
+    <label class="chk"><input type="checkbox" id="stopAgents"> Laufende Agenten anhalten</label>
+    <div class="acts"><button class="btn" data-m="dlgNo">Abbrechen</button><button class="btn pri" data-m="dlgYes">${esc(d.ok)}</button></div></div></div>`;
+}
+function render(){
+  $$('#sim [data-sim=role]').forEach(b=>b.setAttribute('aria-pressed', b.dataset.v===S.role));
+  $('#app').querySelectorAll(':scope > :not(.toast)').forEach(n=>n.remove());
+  const main = S.role==='host' ? (S.view==='settings'?hostSettings():hostOverview()) : (S.gview==='new'?guestNew():guestList());
+  $('#app').insertAdjacentHTML('afterbegin', (S.role==='host'?hostSide():guestSide())+`<section class="mainc">${main}</section>${menuHTML()}${dlgHTML()}`);
+}
+function relPos(ev){ const r=$('#app').getBoundingClientRect(); return {x:Math.min(ev.clientX-r.left, r.width-240), y:Math.min(ev.clientY-r.top, r.height-220)}; }
+
+function act(m, el){
+  const g = el.dataset.g, pid = el.dataset.p;
+  S.menu = null;
+  switch(m){
+    case 'grpShare': S.groups[g].shared=true; render(); Proto.toast(`Gruppe „${g}“ für Gäste freigegeben – ${S.projects.filter(p=>p.grp===g).length} Vorhaben`); break;
+    case 'grpUnshare': case 'grpDelete': {
+      const held=S.projects.filter(p=>p.grp===g&&p.held&&!p.own);
+      const doIt=()=>{ held.forEach(p=>p.held=false); if(m==='grpDelete'){ S.projects.forEach(p=>{if(p.grp===g)p.grp='';}); delete S.groups[g]; } else S.groups[g].shared=false; };
+      if(held.length && (m==='grpUnshare' || S.groups[g].shared)){ S.dlg={text:`${held.map(p=>p.name).join(', ')} wird gerade von Laptop Büro gesteuert. Der Gast verliert die Steuerung.`, ok:m==='grpDelete'?'Gruppe löschen':'Freigabe beenden', run:()=>{doIt(); Proto.toast(m==='grpDelete'?`Gruppe „${g}“ gelöscht, Freigabe beendet`:`Freigabe der Gruppe „${g}“ beendet`);}}; render(); }
+      else { doIt(); render(); Proto.toast(m==='grpDelete'?`Gruppe „${g}“ gelöscht`:`Freigabe der Gruppe „${g}“ beendet`); }
+      break;
+    }
+    case 'move': {
+      const p=byId(pid), was=shared(p), wasHeld=p.held, to=g;
+      const apply=()=>{ p.grp=to; if(!shared(p)) p.held=false; };
+      const willBe = p.own || (to && S.groups[to].shared);
+      if(wasHeld && !willBe){ S.dlg={text:`„${p.name}“ verlässt die freigegebene Gruppe und wird gerade von Laptop Büro gesteuert. Der Gast verliert die Steuerung.`, ok:'Verschieben und beenden', run:()=>{apply(); Proto.toast(`Freigabe von „${p.name}“ beendet`);}}; render(); break; }
+      apply(); render();
+      Proto.toast(!was&&willBe?`„${p.name}“ ist jetzt für Gäste freigegeben (Gruppe „${to}“)`:was&&!willBe?`Freigabe von „${p.name}“ beendet`:`„${p.name}“ verschoben`);
+      break;
+    }
+    case 'dlgYes': S.dlg.run(); S.dlg=null; render(); break;
+    case 'dlgNo': S.dlg=null; render(); break;
+  }
+}
+
+document.addEventListener('contextmenu', ev=>{
+  if(S.role!=='host') return;
+  const g=ev.target.closest('[data-grp]'), p=ev.target.closest('[data-proj]');
+  if(!g && !p) return;
+  ev.preventDefault();
+  S.menu = {...relPos(ev), kind:g?'grp':'proj', key:g?g.dataset.grp:p.dataset.proj}; render();
+});
+document.addEventListener('click', ev=>{
+  const sim=ev.target.closest('[data-sim]');
+  if(sim){ if(sim.dataset.sim==='reset'){ const r=S.role; reset(); S.role=r; } else S.role=sim.dataset.v; return render(); }
+  const m=ev.target.closest('[data-m]'); if(m){ if(!m.disabled) act(m.dataset.m, m); return; }
+  if(S.menu && !ev.target.closest('.menu')){ S.menu=null; render(); }
+  const pr=ev.target.closest('[data-proj]'); if(pr){ S.view='overview'; S.sel=pr.dataset.proj; return render(); }
+  const gp=ev.target.closest('[data-gproj]'); if(gp){ S.gview='list'; S.gsel=gp.dataset.gproj; return render(); }
+  const w=ev.target.closest('[data-where]'); if(w){ S.where=w.dataset.where; S.repos=new Set(S.where==='host'?['kundenportal']:['notizen']); return render(); }
+  const rp=ev.target.closest('[data-repo]'); if(rp){ const k=rp.dataset.repo; S.repos.has(k)?S.repos.delete(k):S.repos.add(k); return render(); }
+  const a=ev.target.closest('[data-act]'); if(!a) return;
+  switch(a.dataset.act){
+    case 'settings': S.view='settings'; render(); break;
+    case 'grpMenu': { const r=a.getBoundingClientRect(), ar=$('#app').getBoundingClientRect(); S.menu={x:r.left-ar.left, y:r.bottom-ar.top+4, kind:'grp', key:a.dataset.g}; render(); break; }
+    case 'toggleOwn': { const p=byId(S.sel); if(p.own && p.held){ S.dlg={text:`„${p.name}“ wird gerade von Laptop Büro gesteuert.`, ok:'Freigabe beenden', run:()=>{p.own=false;p.held=false;}}; } else p.own=!p.own; render(); break; }
+    case 'gnew': S.gview='new'; S.where=S.right!=='none'?'host':'local'; S.repos=new Set([S.where==='host'?'kundenportal':'notizen']); render(); break;
+    case 'create': {
+      const t=S.draft.trim(); if(!t) return;
+      if(S.where==='host'){
+        const id='n'+Date.now(), grp=S.right==='nogroup'?'':S.right;
+        S.projects.push({id, name:t.split(/[.\n]/)[0].slice(0,32), grp, own:!grp||!S.groups[grp]?.shared, held:true, meta:'1 Session · vom Gast angelegt', lgrp:S.lgroup, task:t, fresh:true});
+        S.draft=''; S.gview='list'; S.gsel=id; render(); Proto.toast('Auf kropotkin angelegt und übernommen');
+      } else { S.draft=''; S.gview='list'; render(); Proto.toast('Lokal angelegt'); }
+      break;
+    }
+  }
+});
+document.addEventListener('change', ev=>{
+  if(ev.target.dataset.act==='right'){ S.right=ev.target.value; Proto.toast(`Laptop Büro: Neue Vorhaben ${RIGHT[S.right]}`); }
+  if(ev.target.dataset.act==='lgroup'){ S.lgroup=ev.target.value; }
+});
+document.addEventListener('input', ev=>{ if(ev.target.dataset.keep==='draft'){ S.draft=ev.target.value; const b=$('[data-act=create]'); if(b) b.disabled=!S.draft.trim(); } });
+reset(); S.projects.forEach(p=>p.lgrp=p.id==='kp'?'Kunden':''); render();
+</script>
+</body>
+</html>

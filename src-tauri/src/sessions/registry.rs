@@ -170,6 +170,10 @@ pub struct SessionRegistry {
     implementation_countdowns: Mutex<Countdowns>,
     /// Das Steuerrecht je Vorhaben (ADR 059), geteilt mit dem Tauri-State.
     remote: Arc<RemoteControl>,
+    /// Hält `sync_shared` über Lesen der Datenbank und `Control::set_shared`: Sonst setzt eine ältere Menge
+    /// die neuere zurück und ein Gast sieht ein Vorhaben, das nicht mehr freigegeben ist. Nichts anderes
+    /// wird darin neu gesperrt außer der Datenbank und `Control`.
+    share_sync: Mutex<()>,
     /// Die Liste der wartenden Nachrichten bei der letzten Meldung von `inbox://changed`.
     inbox_seen: Mutex<Vec<WaitingMessage>>,
 }
@@ -623,6 +627,7 @@ impl SessionRegistry {
             database,
             implementation_countdowns: Mutex::new(Countdowns::default()),
             remote,
+            share_sync: Mutex::new(()),
             inbox_seen: Mutex::new(Vec::new()),
         }
     }
@@ -804,6 +809,9 @@ impl SessionRegistry {
         self.lock_projects().insert(project_id.clone(), project);
         self.lock_sessions()
             .insert(id.clone(), Arc::clone(&session));
+        // Ein neues Vorhaben in einer freigegebenen Gruppe ist gleich freigegeben (G1). Ein Fehler
+        // beim Lesen lässt es unfreigegeben; der nächste Abgleich holt es nach.
+        let _ = self.sync_shared(app, false);
         let created = update(
             app,
             &session,
@@ -1115,10 +1123,13 @@ impl SessionRegistry {
     }
 
     /// Die Vorhaben der Gruppe bleiben; sie stehen danach ohne Gruppe in der Liste.
+    /// Eine freigegebene Gruppe gibt ihre Mitglieder mit dem Löschen frei; `stop_agents` hält dann
+    /// die Sessions an, deren Freigabe endet (wie „Freigabe beenden“, E10).
     pub fn delete_project_group(
         &self,
         app: &AppHandle,
         group_id: &str,
+        stop_agents: bool,
     ) -> Result<(), CommandError> {
         let members = {
             // Bis der Speicher nachgeführt ist gehalten: ein gleichzeitiges `set_project_group`
@@ -1143,7 +1154,9 @@ impl SessionRegistry {
                 let _ = app.emit(PROJECT_CHANGED_EVENT, summary);
             }
         }
-        self.emit_project_groups(app)
+        let synced = self.sync_shared(app, stop_agents);
+        self.emit_project_groups(app)?;
+        synced
     }
 
     pub fn set_project_group_collapsed(
@@ -1164,6 +1177,7 @@ impl SessionRegistry {
         app: &AppHandle,
         project_id: &str,
         group_id: Option<&str>,
+        stop_agents: bool,
     ) -> Result<(), CommandError> {
         {
             // Über das Schreiben gehalten, siehe `delete_project_group`.
@@ -1175,8 +1189,11 @@ impl SessionRegistry {
                 .with(|connection| project_rows::set_group(connection, project_id, group_id))?;
             project.group_id = group_id.map(str::to_owned);
         }
+        // Wer in eine freigegebene Gruppe kommt, ist freigegeben; wer sie verlässt, verliert die
+        // Freigabe der Gruppe und wirft einen haltenden Gast hinaus (G3).
+        let synced = self.sync_shared(app, stop_agents);
         let _ = app.emit(PROJECT_CHANGED_EVENT, self.project_summary(project_id)?);
-        Ok(())
+        synced
     }
 
     /// Stufe des Vorhabens in der globalen Warteschlange (ADR 068); unbekanntes oder archiviertes

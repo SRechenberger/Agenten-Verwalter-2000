@@ -140,8 +140,9 @@ pub async fn project_group_delete(
     app: tauri::AppHandle,
     registry: tauri::State<'_, SessionRegistry>,
     id: String,
+    stop_agents: Option<bool>,
 ) -> Result<(), CommandError> {
-    registry.delete_project_group(&app, &id)
+    registry.delete_project_group(&app, &id, stop_agents.unwrap_or(false))
 }
 
 #[tauri::command]
@@ -163,6 +164,7 @@ pub async fn project_set_group(
     database: tauri::State<'_, Arc<Database>>,
     project_id: String,
     group_id: Option<String>,
+    stop_agents: Option<bool>,
 ) -> Result<(), CommandError> {
     match clients.host_of(&project_id) {
         Some(host_id) => guest::set_group(
@@ -173,6 +175,11 @@ pub async fn project_set_group(
             &project_id,
             group_id.as_deref(),
         ),
-        None => registry.set_project_group(&app, &project_id, group_id.as_deref()),
+        None => registry.set_project_group(
+            &app,
+            &project_id,
+            group_id.as_deref(),
+            stop_agents.unwrap_or(false),
+        ),
     }
 }

@@ -11,6 +11,7 @@ import {
   type ProjectLock,
 } from '@/features/remote/projectAccess';
 import type { ProjectAccess } from '@/lib/bindings/ProjectAccess';
+import type { ProjectGroup } from '@/lib/bindings/ProjectGroup';
 import type { ProjectSummary } from '@/lib/bindings/ProjectSummary';
 import type { SessionSummary } from '@/lib/bindings/SessionSummary';
 import { useProjectAccessStore } from '@/stores/projectAccess';
@@ -20,6 +21,7 @@ import { useRemoteStore } from '@/stores/remote';
 export function useProjectAccessSync(
   projects: readonly ProjectSummary[],
   sessions: readonly SessionSummary[],
+  groups: readonly ProjectGroup[],
 ): void {
   const setSnapshot = useProjectAccessStore((state) => state.set);
   useEffect(() => {
@@ -31,8 +33,8 @@ export function useProjectAccessSync(
     for (const project of projects) {
       names[project.id] = project.name;
     }
-    setSnapshot(accessById(projects), names, projectOfSession);
-  }, [projects, sessions, setSnapshot]);
+    setSnapshot(accessById(projects), names, projectOfSession, projects, groups);
+  }, [projects, sessions, groups, setSnapshot]);
 }
 
 /** Wem das Vorhaben aus Sicht dieser Instanz gehört; ein unbekanntes ist eigen. */
@@ -45,6 +47,19 @@ export function useProjectAccess(projectId: string | null): ProjectAccess {
 /** Der Name des Vorhabens aus den Listen; leer, solange sie es nicht kennen. */
 export function useProjectName(projectId: string): string {
   return useProjectAccessStore((state) => state.names[projectId] ?? '');
+}
+
+/** Die freigegebene Gruppe, über die das Vorhaben freigegeben ist; `null`, wenn keine es freigibt. */
+export function useViaGroup(projectId: string): ProjectGroup | null {
+  const sharedGroupIds: string[] = useRemoteStore((state) => state.sharedGroupIds);
+  return useProjectAccessStore((state) => {
+    const groupId: string | null | undefined = state.projects.find(
+      (project: ProjectSummary) => project.id === projectId,
+    )?.groupId;
+    return groupId !== null && groupId !== undefined && sharedGroupIds.includes(groupId)
+      ? (state.groups.find((group: ProjectGroup) => group.id === groupId) ?? null)
+      : null;
+  });
 }
 
 /** Der Grund, warum ein Vorhaben gerade nicht zu bedienen ist; `null`, wenn es geht. */

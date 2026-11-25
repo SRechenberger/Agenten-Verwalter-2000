@@ -77,6 +77,8 @@ impl SessionRegistry {
                 map.insert(session.id.clone(), Arc::clone(session));
             }
         }
+        // Wieder in einer freigegebenen Gruppe: wieder freigegeben (G, Archiv).
+        let _ = self.sync_shared(app, false);
         write_paused(&self.database, &interrupted)?;
         let summaries: Vec<SessionSummary> = sessions
             .iter()

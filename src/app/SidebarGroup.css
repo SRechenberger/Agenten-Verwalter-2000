@@ -55,6 +55,12 @@
     flex-shrink: 0;
   }
 
+  &__remote {
+    display: inline-flex;
+    flex-shrink: 0;
+    color: var(--color-accent);
+  }
+
   &__count {
     flex-shrink: 0;
     letter-spacing: normal;
@@ -79,8 +85,29 @@
       background: var(--color-bg-hover);
     }
 
+    &--hinted {
+      flex-direction: column;
+      align-items: flex-start;
+      justify-content: center;
+      gap: 0;
+      height: auto;
+      padding-block: var(--space-xs);
+    }
+
     &--danger {
       color: var(--color-status-error);
     }
+  }
+
+  &__menu-hint {
+    display: block;
+    color: var(--color-fg-muted);
+    font-size: var(--font-size-2xs);
+  }
+
+  &__menu-separator {
+    height: 1px;
+    margin: var(--space-xs) 0;
+    background: var(--color-border-subtle);
   }
 }
