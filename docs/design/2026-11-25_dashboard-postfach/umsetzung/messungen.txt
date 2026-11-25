@@ -1,0 +1,27 @@
+Probelauf postfach-3, 2026-11-25, Host Port 1461 (Xvfb :161), Gast Port 1462 (Xvfb :162), Attrappe statt Claude.
+Wegwerf-Datenbank: 4 Vorhaben (Gruppen Arbeit, Privat, ohne), 2 Abläufe mit Master, 36 Einträge.
+
+Kriterium 1, Enter bei einer Rückfrage mit zwei Fragen (Lesebereich, kein Feld im Fokus)
+  Tasten 1, 2, Enter -> Werkzeug verwalter_notify_user kehrt zurück, 04:21:44Z
+  answers: {"Wo sollen Prompt-Vorlagen im Vault liegen?": "agentic/prompt-templates/",
+            "Sollen die alten Vorlagen bleiben?": "Nein, löschen"}
+
+Kriterium 3, Gelesen und Rückgängig (Host, Karte "Der Release-Text ist entworfen.")
+  e -> Karte weg, Toast "Als gelesen markiert"; Rückgängig -> Karte zurück ohne Punkt
+  sessions.card_dismissed_at = NULL; dashboard_seen.seen_at 1795580602360 > answer_at 1795571009647
+  Sammel-Gelesen über 5 Einträge: Zahl 31 -> 26 -> nach Rückgängig 31, alle fünf mit seen_at > answer_at
+
+Kriterium 4, Ungelesen bei Host und Gast (dashboard_get beider Instanzen, Vorhaben dev-vault, vom Gast gehalten)
+  zwei neue Antworten: Gast ungelesen = Host ungelesen = true, seenAt gleich
+  Gast wählt Karte A -> Kern beider: gelesen, seenAt gleich
+    Liste des Hosts zeigt A weiter mit Punkt (nach 35 s noch), kein Ereignis nach dashboard_seen
+  Host wählt Karte B, solange der Gast hält -> dashboard_seen beim Host abgelehnt ("Gast-Probelauf"),
+    Liste des Hosts ohne Punkt, Kern und Gast: B ungelesen
+  Gast gibt zurück, Host wählt A und B, Gast übernimmt -> beide gelesen, seenAt gleich
+  Gast: Gelesen und Rückgängig, dreimal -> jedes Mal ohne Punkt, seen_at zur Zeit des Rückgängig
+
+Befund 4 der ersten Review, Tippen in langer Liste (31 Einträge, Entwurf im Lesebereich, 110 Zeichen per XTEST in 4,8 s)
+  0 Zeilen aufgeklappt:  Text vollständig vor Strg+Enter angekommen, kein Rückstau
+  3 Zeilen aufgeklappt (darunter die gewählte):  Text kommt 5,0 s nach Strg+Enter beim Agenten an (etwa 95 ms je Taste)
+  31 Zeilen aufgeklappt: Text kommt 14,2 s nach Strg+Enter beim Agenten an (etwa 130 ms je Taste)
+  Xvfb ohne GPU-Beschleunigung; auf echter Hardware schneller, die Richtung bleibt.
