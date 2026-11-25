@@ -338,8 +338,17 @@ fn project_create(
             CommandError::Internal("Der Host nennt das neue Vorhaben nicht.".to_owned())
         })?
         .to_owned();
-    host.share_created(&project_id)?;
-    control.with(|control| control.take(&project_id, device.clone()))?;
+    // Kein Rückbau: Das Vorhaben bleibt beim Host, der Gast erfährt, was fehlt.
+    (|| -> Result<(), CommandError> {
+        host.share_created(&project_id)?;
+        control.with(|control| control.take(&project_id, device.clone()))?;
+        Ok(())
+    })()
+    .map_err(|error: CommandError| {
+            CommandError::Internal(format!(
+                "Das Vorhaben ist beim Host angelegt, aber nicht freigegeben oder übernommen worden: {error}"
+            ))
+        })?;
     host.projects_changed(std::slice::from_ref(&project_id));
     let mut created = created;
     created["project"] = host.project(&project_id)?;

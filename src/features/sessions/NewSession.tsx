@@ -164,6 +164,8 @@ export function NewSession({ groups, onCreated, onCancel }: NewSessionProps): Re
   const operatingMode = isRemote ? (hostProfile?.operatingMode ?? 'claude') : ownOperatingMode;
   const localModel: string | null = useSettingsStore((state) => state.settings?.localModel ?? null);
   const isLocal: boolean = isLocalOperatingMode(operatingMode);
+  // Das gewählte Modell des Hosts trägt sein Profil nicht: Am Gast steht kein fremdes lokales Modell.
+  const localLabel: string = isRemote ? 'Modell des Hosts' : localModelLabel(localModel);
   const isCodex: boolean = operatingMode === 'codex';
   const ownCodexModels = useCodexModels(isCodex && !isRemote);
   const codexModels = {
@@ -654,7 +656,7 @@ export function NewSession({ groups, onCreated, onCancel }: NewSessionProps): Re
           <div className="new-session__pickers">
             {isLocal ? (
               <span className="new-session__model new-session__model--static">
-                LM Studio · {localModelLabel(localModel)}
+                LM Studio · {localLabel}
               </span>
             ) : (
               <div className="new-session__anchor">
@@ -775,7 +777,7 @@ export function NewSession({ groups, onCreated, onCancel }: NewSessionProps): Re
           <span className="new-session__summary">
             {isStarting && repositoryIds.length > 0
               ? 'Session wird angelegt …'
-              : `${repositoryCountLabel(repositoryIds.length)} · ${isLocal ? localModelLabel(localModel) : modelText} · ${currentMode.label}${group === null ? '' : ` · ${group.name}`}`}
+              : `${repositoryCountLabel(repositoryIds.length)} · ${isLocal ? localLabel : modelText} · ${currentMode.label}${group === null ? '' : ` · ${group.name}`}`}
           </span>
         </div>
         {isFormOpen && (

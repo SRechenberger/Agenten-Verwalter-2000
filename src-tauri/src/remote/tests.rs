@@ -480,6 +480,15 @@ fn a_change_of_the_agent_queue_reaches_every_connected_device_without_content() 
     );
 }
 
+#[test]
+fn a_change_of_the_device_right_reaches_every_connected_device_without_content() {
+    use super::forward::{FORWARDED, Owner};
+    assert!(
+        FORWARDED.contains(&(super::PROFILE_CHANGED_EVENT, Owner::EveryDevice)),
+        "{FORWARDED:?}"
+    );
+}
+
 // Freigabe je Gruppe (ADR 059, Nachtrag): Die Datenbank entscheidet, `Control` hält das Ergebnis.
 
 const SECOND_PROJECT: &str = "second";

@@ -8,7 +8,6 @@ use crate::db::{Database, remote as remote_rows};
 use crate::error::CommandError;
 use crate::implementation::slots::AgentQueue;
 use crate::projects::model::{ProjectCreated, ProjectSummary};
-use crate::remote::CHANGED_EVENT;
 use crate::remote::client::RemoteClients;
 use crate::remote::guest;
 use crate::remote::model::CreateRight;
@@ -17,6 +16,7 @@ use crate::remote::model::{
 };
 use crate::remote::peer::{INVITATION_TTL, local_addresses};
 use crate::remote::server::RemoteServer;
+use crate::remote::{CHANGED_EVENT, PROFILE_CHANGED_EVENT};
 use crate::repositories::model::KnownRepository;
 use crate::sessions::model::WaitingMessage;
 use crate::sessions::registry::SessionRegistry;
@@ -267,6 +267,8 @@ pub async fn remote_device_set_create(
         )
     })?;
     let _ = app.emit(CHANGED_EVENT, ());
+    // An verbundene Gäste: Ihr `canCreate` im Profil ist sonst bis zum Neuverbinden veraltet.
+    let _ = app.emit(PROFILE_CHANGED_EVENT, ());
     Ok(())
 }
 
