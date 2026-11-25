@@ -55,6 +55,12 @@
     flex-shrink: 0;
   }
 
+  &__remote {
+    display: inline-flex;
+    flex-shrink: 0;
+    color: var(--color-accent);
+  }
+
   &__count {
     flex-shrink: 0;
     letter-spacing: normal;

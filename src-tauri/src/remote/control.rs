@@ -57,6 +57,20 @@ impl Control {
         self.shared.contains(project_id)
     }
 
+    /// Gleicht die Freigaben mit der wirksamen Menge ab (Gruppe, Archiv): Wer wegfällt, verliert
+    /// seinen Inhaber wie beim Herauswerfen. Liefert `(neu freigegeben, nicht mehr freigegeben)`.
+    pub fn set_shared(&mut self, wanted: HashSet<String>) -> (Vec<String>, Vec<String>) {
+        let mut added: Vec<String> = wanted.difference(&self.shared).cloned().collect();
+        let mut removed: Vec<String> = self.shared.difference(&wanted).cloned().collect();
+        added.sort();
+        removed.sort();
+        for project_id in &removed {
+            self.unshare(project_id);
+        }
+        self.shared.extend(added.iter().cloned());
+        (added, removed)
+    }
+
     pub fn holder(&self, project_id: &str) -> Option<&Holder> {
         self.holders.get(project_id)
     }

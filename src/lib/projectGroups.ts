@@ -22,10 +22,11 @@ export async function renameProjectGroup(id: string, name: string): Promise<void
   await invoke('project_group_rename', { id, name });
 }
 
-/** Löscht die Gruppe; ihre Vorhaben bleiben und stehen danach ohne Gruppe da.
+/** Löscht die Gruppe; ihre Vorhaben bleiben und stehen danach ohne Gruppe da. Eine freigegebene
+ *  Gruppe gibt sie damit nicht mehr frei; `stopAgents` hält dann die Sessions an, deren Freigabe endet.
  *  @throws {import('@/lib/bindings/CommandError').CommandError} `internal` (unbekannte Gruppe) */
-export async function deleteProjectGroup(id: string): Promise<void> {
-  await invoke('project_group_delete', { id });
+export async function deleteProjectGroup(id: string, stopAgents = false): Promise<void> {
+  await invoke('project_group_delete', { id, stopAgents });
 }
 
 /** Speichert, ob der Kopf der Gruppe eingeklappt ist; das überlebt den Neustart.
@@ -34,11 +35,16 @@ export async function setProjectGroupCollapsed(id: string, collapsed: boolean): 
   await invoke('project_group_set_collapsed', { id, collapsed });
 }
 
-/** Weist das Vorhaben der Gruppe zu; `null` nimmt es aus seiner Gruppe.
+/** Weist das Vorhaben der Gruppe zu; `null` nimmt es aus seiner Gruppe. Wer eine freigegebene Gruppe
+ *  verlässt, verliert deren Freigabe; `stopAgents` hält dann seine Sessions an.
  *  @throws {import('@/lib/bindings/CommandError').CommandError} `internal` (unbekannte Gruppe,
  *    unbekanntes oder archiviertes Vorhaben) */
-export async function setProjectGroup(projectId: string, groupId: string | null): Promise<void> {
-  await invoke('project_set_group', { projectId, groupId });
+export async function setProjectGroup(
+  projectId: string,
+  groupId: string | null,
+  stopAgents = false,
+): Promise<void> {
+  await invoke('project_set_group', { projectId, groupId, stopAgents });
 }
 
 /** Meldet nach jeder Änderung an den Gruppen die volle Liste. */

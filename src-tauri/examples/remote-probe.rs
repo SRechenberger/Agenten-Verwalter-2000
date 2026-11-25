@@ -911,6 +911,7 @@ fn dispatched(folder: &Path) -> Result<bool, String> {
             "settings_update",
             "project_archive",
             "remote_share_set",
+            "remote_group_share_set",
             "gibt_es_nicht",
         ]
         .iter()
@@ -1010,6 +1011,33 @@ fn dispatched(folder: &Path) -> Result<bool, String> {
                 first_seen == expected_first && second_seen == expected_second,
                 || format!("{command}: erster {first_seen}, zweiter {second_seen}"),
             )
+        })
+    });
+
+    all &= report("gruppenfreigabe", {
+        // Die Registry gleicht `Control` nach jeder Änderung mit der wirksamen Freigabe ab (V5): Ein
+        // Mitglied einer freigegebenen Gruppe erscheint in der Liste des Gastes, nach dem
+        // Herausnehmen nicht mehr.
+        let listed = || {
+            second
+                .call(&host_id, "project_list", Value::Null)
+                .map_err(text)
+        };
+        host.control.with(|control| {
+            control.set_shared([SHARED_PROJECT.to_owned(), OTHER_PROJECT.to_owned()].into())
+        });
+        let with_group = listed();
+        host.control
+            .with(|control| control.set_shared([SHARED_PROJECT.to_owned()].into()));
+        let without_group = listed();
+        with_group.and_then(|with_group: Value| {
+            without_group.and_then(|without_group: Value| {
+                ensure(
+                    with_group == json!([{ "id": SHARED_PROJECT }, { "id": OTHER_PROJECT }])
+                        && without_group == json!([{ "id": SHARED_PROJECT }]),
+                    || format!("mit Gruppe {with_group}, ohne {without_group}"),
+                )
+            })
         })
     });
 

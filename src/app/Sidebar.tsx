@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { PointerEvent, ReactElement } from 'react';
 import { useVirtualizer, type VirtualItem } from '@tanstack/react-virtual';
 import { buildSidebarRows } from '@/app/buildSidebarRows';
@@ -16,7 +16,9 @@ import {
   sessionsByActivity,
   visibleSessions,
 } from '@/features/projects/projectStatus';
-import { isLocked, isRemote, LOCKED_TITLE } from '@/features/remote/projectAccess';
+import { EndShareConfirm } from '@/features/remote/EndShareDialog';
+import { groupEndText, heldIn, leaveText } from '@/features/remote/groupShareText';
+import { holderOf, isLocked, isRemote, LOCKED_TITLE } from '@/features/remote/projectAccess';
 import { displayStatus } from '@/features/sessions/sessionStatus';
 import { QueueFooter } from '@/features/queue/QueueFooter';
 import { badgeCount } from '@/features/dashboard/dashboardTexts';
@@ -36,7 +38,7 @@ import {
   setProjectGroupCollapsed,
 } from '@/lib/projectGroups';
 import { archiveProject, renameProject } from '@/lib/projects';
-import { giveBackRemoteProject, takeRemoteProject } from '@/lib/remote';
+import { giveBackRemoteProject, setGroupShared, takeRemoteProject } from '@/lib/remote';
 import { deleteSession, renameSession } from '@/lib/sessions';
 import { useActionError } from '@/lib/useActionError';
 import { needsAttention } from '@/features/environment/environmentTexts';
@@ -47,6 +49,7 @@ import { useImplementationStore } from '@/stores/implementation';
 import { useSessionsStore } from '@/stores/sessions';
 import type { RenameKind, RenameTarget } from '@/stores/sessions';
 import { useAgentQueueStore, waitQueuesOf } from '@/stores/agentQueue';
+import { useRemoteStore } from '@/stores/remote';
 import { useSettingsStore } from '@/stores/settings';
 import './Sidebar.css';
 
@@ -160,6 +163,15 @@ export function Sidebar({
   const openStation = useOpenStation();
   const setFocused = useImplementationStore((state) => state.setFocused);
   const { error: actionError, run, report: reportError } = useActionError('sidebar');
+  const sharedGroupIds: string[] = useRemoteStore((state) => state.sharedGroupIds);
+  const isServerOn: boolean = useRemoteStore((state) => state.server?.enabled === true);
+  // Der Dialog „Freigabe beenden?“ für Gruppe, Herausnehmen und Löschen; `null`, solange keiner offen ist.
+  const [endDialog, setEndDialog] = useState<{
+    text: string;
+    onEnd: (stopAgents: boolean) => Promise<unknown>;
+  } | null>(null);
+  // Meldung ohne Fehler: ein Vorhaben ist durch die Gruppe jetzt freigegeben.
+  const [notice, setNotice] = useState<string | null>(null);
 
   // Solange ein Gast das Vorhaben steuert oder der Host fehlt, lehnt der Core Umbenennen, Archivieren und
   // Löschen ab; die Leiste meldet es gleich, statt einen Fehler abzuwarten.
@@ -392,19 +404,71 @@ export function Sidebar({
   }
 
   function removeGroup(group: ProjectGroup): void {
-    run(() => deleteProjectGroup(group.id), 'Gruppe löschen fehlgeschlagen');
+    const held = sharedGroupIds.includes(group.id) ? heldIn(group, projects) : [];
+    if (held.length === 0) {
+      run(() => deleteProjectGroup(group.id), 'Gruppe löschen fehlgeschlagen');
+      return;
+    }
+    setEndDialog({
+      text: groupEndText(group, held, 'delete'),
+      onEnd: (stopAgents: boolean) => deleteProjectGroup(group.id, stopAgents),
+    });
   }
 
-  function moveToGroup(projectId: string, groupId: string | null): void {
-    run(() => setProjectGroup(projectId, groupId), 'Verschieben fehlgeschlagen');
+  function shareGroup(group: ProjectGroup, shared: boolean): void {
+    if (shared) {
+      run(() => setGroupShared(group.id, true, false), 'Freigabe fehlgeschlagen');
+      return;
+    }
+    setEndDialog({
+      text: groupEndText(group, heldIn(group, projects), 'end'),
+      onEnd: (stopAgents: boolean) => setGroupShared(group.id, false, stopAgents),
+    });
+  }
+
+  // Wer eine freigegebene Gruppe verlässt, verliert deren Freigabe (G3): Hält ein Gast das Vorhaben, ist
+  // das ein Herauswerfen und fragt erst. Wer in eine freigegebene Gruppe kommt, ist ohne Dialog frei (G6).
+  function moveToGroup(projectId: string, groupId: string | null, after?: () => void): void {
+    const project: ProjectSummary | undefined = projects.find(
+      (candidate: ProjectSummary) => candidate.id === projectId,
+    );
+    const from: ProjectGroup | undefined = groups.find(
+      (group: ProjectGroup) => group.id === project?.groupId,
+    );
+    const to: ProjectGroup | undefined = groups.find((group: ProjectGroup) => group.id === groupId);
+    const leavesShared: boolean =
+      from !== undefined && from.id !== groupId && sharedGroupIds.includes(from.id);
+    if (project !== undefined && from !== undefined && leavesShared) {
+      const staysShared: boolean = to !== undefined && sharedGroupIds.includes(to.id);
+      if (!staysShared && holderOf(project.access) !== null) {
+        setEndDialog({
+          text: leaveText(project, from),
+          onEnd: (stopAgents: boolean) =>
+            setProjectGroup(projectId, groupId, stopAgents).then(after),
+        });
+        return;
+      }
+    }
+    if (
+      project !== undefined &&
+      to !== undefined &&
+      sharedGroupIds.includes(to.id) &&
+      !sharedGroupIds.includes(from?.id ?? '')
+    ) {
+      setNotice(`„${project.name}“ ist jetzt für Gäste freigegeben (Gruppe „${to.name}“).`);
+    } else {
+      setNotice(null);
+    }
+    run(() => setProjectGroup(projectId, groupId).then(after), 'Verschieben fehlgeschlagen');
   }
 
   // Der Nutzer tippt den Namen direkt am Kopf; die Gruppe heißt bis dahin „Neue Gruppe“.
   function moveToNewGroup(projectId: string): void {
     run(async () => {
       const group: ProjectGroup = await createProjectGroup(NEW_GROUP_NAME);
-      await setProjectGroup(projectId, group.id);
-      startRename('group', group.id);
+      moveToGroup(projectId, group.id, (): void => {
+        startRename('group', group.id);
+      });
     }, 'Neue Gruppe fehlgeschlagen');
   }
 
@@ -506,6 +570,8 @@ export function Sidebar({
         count={row.count}
         urgentStatus={row.urgentStatus}
         isRenaming={renaming !== null && renaming.kind === 'group' && renaming.id === group.id}
+        isShared={sharedGroupIds.includes(group.id)}
+        canShare={isServerOn}
         onToggle={(): void => {
           toggleGroup(group);
         }}
@@ -518,6 +584,12 @@ export function Sidebar({
         onCancelRename={stopRename}
         onDelete={(): void => {
           removeGroup(group);
+        }}
+        onShare={(): void => {
+          shareGroup(group, true);
+        }}
+        onEndShare={(): void => {
+          shareGroup(group, false);
         }}
       />
     );
@@ -766,6 +838,20 @@ export function Sidebar({
         <p className="sidebar__error" role="alert">
           {actionError}
         </p>
+      )}
+      {notice !== null && actionError === null && (
+        <p className="sidebar__notice" role="status">
+          {notice}
+        </p>
+      )}
+      {endDialog !== null && (
+        <EndShareConfirm
+          text={endDialog.text}
+          onEnd={endDialog.onEnd}
+          onClose={(): void => {
+            setEndDialog(null);
+          }}
+        />
       )}
       {dragged !== null && (
         <div

@@ -649,6 +649,8 @@ export function App(): ReactElement {
         onOpenSession={selectSession}
         onSessionCreated={handleSessionCreated}
         onProjectChanged={upsertProject}
+        projects={projects}
+        groups={groups}
       />
     );
   }

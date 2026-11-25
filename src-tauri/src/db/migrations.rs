@@ -42,6 +42,7 @@ const MIGRATIONS: [&str; 36] = [
     include_str!("migrations/034_user_messages.sql"),
     include_str!("migrations/035_prompt_templates.sql"),
     include_str!("migrations/036_implementation_per_master.sql"),
+    include_str!("migrations/037_group_share.sql"),
 ];
 
 /// Die Schema-Version nach `run`: die Zahl der Migrationen.

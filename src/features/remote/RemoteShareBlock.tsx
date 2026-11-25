@@ -1,12 +1,14 @@
 import { useState } from 'react';
 import type { ReactElement } from 'react';
 import { Switch } from '@/components/Switch';
-import { EndShareDialog } from '@/features/remote/EndShareDialog';
+import { EndShareConfirm, EndShareDialog } from '@/features/remote/EndShareDialog';
 import { holderOf, formatReserved } from '@/features/remote/projectAccess';
 import { useProjectLock, useReservedLeft } from '@/features/remote/useProjectAccess';
+import { groupEndText, heldIn } from '@/features/remote/groupShareText';
 import type { ProjectAccess } from '@/lib/bindings/ProjectAccess';
+import type { ProjectGroup } from '@/lib/bindings/ProjectGroup';
 import type { ProjectSummary } from '@/lib/bindings/ProjectSummary';
-import { setProjectShared } from '@/lib/remote';
+import { setGroupShared, setProjectShared } from '@/lib/remote';
 import { useActionError } from '@/lib/useActionError';
 import { useRemoteStore } from '@/stores/remote';
 import './RemoteProject.css';
@@ -16,6 +18,11 @@ const SHARE_TEXT =
 
 interface RemoteShareBlockProps {
   project: ProjectSummary;
+  /** Die Gruppe des Vorhabens, wenn sie es für Gäste freigibt; `null` sonst. Dann ist der Schalter
+   *  gesperrt: Ein Vorhaben einer freigegebenen Gruppe endet nur mit der Gruppe oder beim Herausnehmen. */
+  viaGroup: ProjectGroup | null;
+  /** Alle Vorhaben, für die Namen der gehaltenen im Dialog der Gruppe. */
+  projects: readonly ProjectSummary[];
   /** Rückgabe des Core nach einer Änderung am Vorhaben — schneller als dessen Ereignis. */
   onProjectChanged: (summary: ProjectSummary) => void;
 }
@@ -31,9 +38,12 @@ export function useShowsShareBlock(access: ProjectAccess): boolean {
  *  mit „Freigabe beenden“. */
 export function RemoteShareBlock({
   project,
+  viaGroup,
+  projects,
   onProjectChanged,
 }: RemoteShareBlockProps): ReactElement {
   const [isEndOpen, setIsEndOpen] = useState<boolean>(false);
+  const [isGroupEndOpen, setIsGroupEndOpen] = useState<boolean>(false);
   const { error, run } = useActionError(project.id);
   const lock = useProjectLock(project.id);
   const reservedLeft: number | null = useReservedLeft(lock);
@@ -116,6 +126,8 @@ export function RemoteShareBlock({
         <Switch
           checked={isShared}
           label="Für Gäste freigeben"
+          disabled={viaGroup !== null}
+          title={viaGroup === null ? '' : `Über die Gruppe „${viaGroup.name}“ freigegeben`}
           onChange={(next: boolean): void => {
             // Das Beenden fragt erst: Es wirft einen Gast hinaus.
             if (!next) {
@@ -129,11 +141,42 @@ export function RemoteShareBlock({
           }}
         />
       </div>
+      {viaGroup !== null && (
+        <div className="remote-block__row">
+          <div className="remote-block__text">
+            Über die Gruppe „{viaGroup.name}“ freigegeben
+            <small>
+              Jedes Vorhaben der Gruppe ist freigegeben. Ein Vorhaben endet nur mit der Gruppe oder
+              wenn du es herausnimmst.
+            </small>
+          </div>
+          <button
+            type="button"
+            className="remote-block__button"
+            onClick={(): void => {
+              setIsGroupEndOpen(true);
+            }}
+          >
+            Gruppe „{viaGroup.name}“ bearbeiten …
+          </button>
+        </div>
+      )}
       {renderState()}
       {error !== null && (
         <p className="remote-block__error" role="alert">
           {error}
         </p>
+      )}
+      {isGroupEndOpen && viaGroup !== null && (
+        <EndShareConfirm
+          text={groupEndText(viaGroup, heldIn(viaGroup, projects), 'end')}
+          onEnd={(stopAgents: boolean): Promise<unknown> =>
+            setGroupShared(viaGroup.id, false, stopAgents)
+          }
+          onClose={(): void => {
+            setIsGroupEndOpen(false);
+          }}
+        />
       )}
       {isEndOpen && (
         <EndShareDialog

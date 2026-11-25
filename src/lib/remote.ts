@@ -83,6 +83,23 @@ export function setProjectShared(
   return invoke<ProjectSummary>('remote_share_set', { projectId, shared, stopAgents });
 }
 
+/** Gibt eine ganze Gruppe für Gäste frei oder beendet es: Jedes Vorhaben darin, auch ein später
+ *  hinzukommendes, ist dann freigegeben. Das Beenden wirft jeden Gast hinaus, der ein Mitglied hält;
+ *  mit `stopAgents` hält es danach deren laufende Sessions an. Am Host.
+ *  @throws {import('@/lib/bindings/CommandError').CommandError} `internal` (unbekannte Gruppe) */
+export async function setGroupShared(
+  groupId: string,
+  shared: boolean,
+  stopAgents: boolean,
+): Promise<void> {
+  await invoke('remote_group_share_set', { groupId, shared, stopAgents });
+}
+
+/** Die IDs der Gruppen, die ihren Mitgliedern die Freigabe geben. Am Host. */
+export function listSharedGroupIds(): Promise<string[]> {
+  return invoke<string[]>('remote_group_share_list');
+}
+
 /** Übernimmt ein freigegebenes Vorhaben eines Hosts. Am Gast.
  *  @throws {import('@/lib/bindings/CommandError').CommandError} `controlledBy` (ein anderes Gerät
  *    hält es), `hostUnreachable`, `internal` (nicht mehr freigegeben) */

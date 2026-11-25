@@ -189,3 +189,14 @@ Gebaut ist alles, was Vertrag und Plan nennen. Belegt ist es in drei Stufen.
 - Die Oberfläche des Hosts trägt ab jetzt `ProjectSummary.access`. Alte Daten ohne das Feld gelten als eigenes Vorhaben.
 - Dass der Inhaber nach fünf Minuten abläuft, braucht einen Zeitgeber; er läuft am Host neben der Weitergabe der Ereignisse.
 - Ein Gast hat über das Terminal und den Agenten eine Shell am Host (E9).
+
+## Nachtrag: Freigabe je Gruppe (Version 0.78.0, Taiga 137)
+
+Die Freigabe hängt jetzt auch an der Gruppe (Migration 36: `project_groups.remote_shared`, Standard 0). Die Entwürfe stehen in `docs/design/2026-11-25_remote-gruppen/` (G1 bis G6).
+
+- **Wirksame Freigabe:** Ein Vorhaben ist für Gäste freigegeben, wenn es selbst freigegeben ist (`projects.remote_shared`) **oder** seine Gruppe es ist, und nicht archiviert. Eine Abfrage entscheidet das (`db::remote::effective_shared_project_ids`); `Control.shared` hält nur ihr Ergebnis, und `Control::set_shared` gleicht es nach jeder Änderung ab (Freigabe, Gruppe, Zuordnung, Löschen, Anlegen, Archiv, Wiederherstellen). Alle Leser (`filter_list`, `forward.rs`, `access`) gehen weiter über `Control::is_shared`.
+- **Ein Vorhaben aus der Gruppe nehmen** beendet seine Freigabe aus der Gruppe und wirft einen haltenden Gast hinaus (E10); seine eigene Freigabe bleibt. Dasselbe gilt für „Freigabe der Gruppe beenden“ und „Gruppe löschen“. Hält ein Gast das Vorhaben, fragt die Oberfläche mit „Freigabe beenden?“ und „Laufende Agenten anhalten“; `stopAgents` gilt für die Vorhaben, deren Freigabe tatsächlich endet.
+- **Hineinziehen** in eine freigegebene Gruppe gibt ohne Dialog frei. Wiederherstellen aus dem Archiv in einer freigegebenen Gruppe gibt wieder frei; ein archiviertes Vorhaben ist nie freigegeben.
+- **Der Gast** übernimmt weiter je Vorhaben (E5) und sieht die Gruppe des Hosts nicht (G5).
+- **Befehle:** `remote_group_share_set(groupId, shared, stopAgents)`, Klasse E, ohne ID-Art (der Gast darf nichts freigeben); `remote_group_share_list` liefert die IDs der freigegebenen Gruppen, Klasse G. `project_set_group` und `project_group_delete` nehmen zusätzlich `stopAgents` (optional).
+- **Nicht gemessen:** Das Verhalten mit zwei echten Instanzen steht im Probelauf der Lane, nicht hier.
