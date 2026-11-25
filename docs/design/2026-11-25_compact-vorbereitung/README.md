@@ -6,13 +6,15 @@
 
 - **C1 Nur ruhend.** Ruht ein Master einer unfertigen Umsetzung über „Master zusammenfassen ab“, schickt der Verwalter nicht gleich `/compact`, sondern bittet ihn, sich vorzubereiten. Bis er sich meldet und der Compact durch ist, warten alle Nachrichten an ihn.
 - **C2 Werkzeug.** `verwalter_compact_ready` in `SessionTools`, für alle sichtbar. Außerhalb der Vorbereitung antwortet es „Gerade steht kein Compact an.“, in der Vorbereitung „Gemeldet. Der Compact folgt, wenn dein Zug endet.“ Die Bitte nennt den vollen Namen `mcp__verwalter__verwalter_compact_ready`.
-- **C3 Keine Meldung.** Endet der Vorbereitungszug ohne Meldung, kommt einmal eine Erinnerung. Endet auch dieser Zug ohne Meldung, fasst der Verwalter trotzdem zusammen. Der Nutzer kann jederzeit „Jetzt zusammenfassen“ oder „Compact abbrechen“ wählen.
+- **C3 Keine Meldung.** Endet der Vorbereitungszug ohne Meldung, kommt einmal eine Erinnerung. Endet auch dieser Zug ohne Meldung, fasst der Verwalter trotzdem zusammen. Der Nutzer kann jederzeit „Jetzt zusammenfassen“ oder „Compact abbrechen“ wählen. Bricht er ab, während ein Zug der Vorbereitung läuft, löst dessen Ende keine neue Bitte aus (ein Merker, nur für dieses Zugende); die Regel gilt danach wieder wie im Diagramm. Bitte und Erinnerung tragen im Chat die Betreffe „Compact vorbereiten“ und „Erinnerung: Compact“; der Text an den Agenten bleibt wörtlich der gemessene.
 - **C4 Scheitert der Compact,** gehen die wartenden Nachrichten trotzdem hinaus; die Notiz lautet wie heute „Zusammenfassen gescheitert: …“.
 - **C5 Sichtbar.** Die eigene wartende Blase trägt „wartet · bis der Compact fertig ist“, fremde Nachrichten tragen „bis der Compact fertig ist“ als Grund (Reiter „Nachrichten“, Hinweis im Chat). Über dem Eingabefeld steht die Leiste „Die Session bereitet einen Compact vor. Nachrichten warten, bis er fertig ist.“ mit „Jetzt zusammenfassen“ und „Compact abbrechen“; „Jetzt senden“ gibt es in diesem Zustand nicht. Im Kontext-Panel heißt „Compact“ „Jetzt zusammenfassen“. Kopfzeile und Sidebar zeigen „⧗ <Zustand>“.
 - **C6 Einspielen** gibt es nicht als eigenen Puffer: Die Nachrichten liegen schon in `session_inbox`. Die Sperre fällt, und ein Durchgang der Warteschlange stellt zu; Neues reiht sich hinter Älteres. Eigene Nachrichten gehen zusammen, fremde je Zugende.
 - **C7 Betriebsart.** Nur Claude. Claude Code + LM Studio hat die Werkzeuge nicht und bekommt wie bisher gleich `/compact`.
 - **C8 Zustand** nur im Speicher: ein Feld `compactPhase` an `SessionSummary` (keine neue `SessionStatus`-Variante). Nach einem Neustart ist er weg, die Nachrichten gehen hinaus, die Regel greift beim nächsten Zugende neu.
-- **C9 Platz.** Nach der Meldung geht der Compact nicht mehr verloren, weil kein Platz frei ist: Er wartet in der Warteschlange mit dem Vorrang eines Fortsetzens.
+- **C9 Platz.** Nach der Meldung geht der Compact nicht mehr verloren, weil kein Platz frei ist: Er wartet in der Warteschlange mit dem Vorrang eines Fortsetzens und mit festem Beginn des Wartens (der erste Durchgang, der ihn sieht), damit er vor später eingegangene Nachrichten rückt.
+
+Nicht umgesetzt vom Prototyp: die Notizen des Einspielens („n eigene Nachrichten zusammen zugestellt“, „Zugestellt: …“); sie bräuchten einen eigenen Weg an der Zustellung.
 
 ## Die Sperre
 

@@ -321,7 +321,7 @@ impl SessionRegistry {
             // Vor der Session-Sperre: erst die Session kurz, dann die Datenbank.
             let master_waits = has_message && self.master_message_waits(&session);
             let (title, takes_user, takes_message, resume_due_at, compact_waits) = {
-                let state = session.lock();
+                let mut state = session.lock();
                 (
                     state.name.clone(),
                     has_message
@@ -341,7 +341,7 @@ impl SessionRegistry {
                             master_waits,
                         ),
                     state.resume_due_at().filter(|due_at: &f64| *due_at <= now),
-                    state.compact_waits_for_slot(),
+                    state.compact_waiting_since(now),
                 )
             };
             let entry = |kind: QueueKind, since_ms: f64| QueueEntry {
@@ -398,10 +398,11 @@ impl SessionRegistry {
                     start: Start::Session,
                     master_message: false,
                 });
-            } else if compact_waits {
-                // Der Compact nach der Meldung wartet wie ein Fortsetzen auf einen Platz (C9).
+            } else if let Some(since) = compact_waits {
+                // Der Compact nach der Meldung wartet wie ein Fortsetzen auf einen Platz (C9), seit der
+                // Schritt fällig wurde.
                 waiters.push(Waiter {
-                    entry: entry(QueueKind::Resume, now),
+                    entry: entry(QueueKind::Resume, since),
                     key: session.id.clone(),
                     start: Start::Session,
                     master_message: false,

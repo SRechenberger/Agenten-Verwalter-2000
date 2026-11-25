@@ -350,6 +350,12 @@ struct SessionState {
     /// Der Master-Compact mit Vorbereitung läuft (ADR 070, Nachtrag „Compact mit Vorbereitung“): Solange
     /// es eine Phase gibt, geht keine Nachricht in die Session. Nur im Speicher.
     compact_phase: Option<CompactPhase>,
+    /// Seit wann der Compact-Wartende in `compact_phase` auf einen Platz wartet (fester Beginn, damit er
+    /// wie ein Fortsetzen Wartezeit sammelt); nur im Speicher.
+    compact_due_at: Option<(CompactPhase, f64)>,
+    /// „Compact abbrechen“ kam während eines Vorbereitungs- oder Erinnerungszugs: Dessen Ende löst keine
+    /// neue Bitte aus; nur im Speicher, verbraucht an diesem Zugende.
+    compact_abort_pending: bool,
     /// Modell, auf das Claude ausgewichen ist, bis der User wählt oder der Agent neu startet;
     /// nur im Speicher.
     fallback_model: Option<String>,
@@ -518,6 +524,9 @@ enum TurnOrigin<'a> {
         sender: &'a SessionRef,
         /// Mit Betreff geht der Text über eine Referenz an den Agenten (ADR 072), wenn er sie lesen kann.
         reference: Option<Reference<'a>>,
+        /// Betreff nur am Chat-Eintrag; der Text an den Agenten bleibt, wie er ist (Bitte und Erinnerung
+        /// des Compacts, ADR 070). Mit `reference` gilt dessen Betreff.
+        chat_subject: Option<&'a str>,
     },
 }
 
@@ -2782,6 +2791,8 @@ impl SessionState {
             compact_turn: false,
             compact_by_hand: false,
             compact_phase: None,
+            compact_due_at: None,
+            compact_abort_pending: false,
             fallback_model: None,
             last_total_cost: 0.0,
             context_breakdown: None,
@@ -3366,7 +3377,13 @@ impl SessionState {
         self.fresh_error = status == SessionStatus::Error;
         // Ein Fehler oder Abbruch beendet den Compact: Die Sperre geht weg (ADR 070, Nachtrag).
         if matches!(status, SessionStatus::Error | SessionStatus::Cancelled) {
-            self.compact_phase = None;
+            let prepared = self
+                .compact_phase
+                .take()
+                .is_some_and(|phase: CompactPhase| phase != CompactPhase::Compacting);
+            if prepared && status == SessionStatus::Error {
+                self.push_compact_note(outbox, "Die Vorbereitung ist abgebrochen");
+            }
         }
         if matches!(
             status,
@@ -4184,6 +4201,8 @@ impl SessionState {
         }
         self.todos_seq = None;
         let was_compact = std::mem::take(&mut self.compact_turn);
+        // „Compact abbrechen“ galt diesem Zug: Sein Ende löst keine neue Bitte aus (nur dieses eine Mal).
+        let compact_aborted = std::mem::take(&mut self.compact_abort_pending);
         let by_hand = std::mem::take(&mut self.compact_by_hand);
         // Nur ein abgeschlossenes Zugende macht daraus eine Karte; in jedem anderen Ausgang verfällt er.
         let notified: Option<Notification> = self.notified.take();
@@ -4255,7 +4274,7 @@ impl SessionState {
                 if !by_hand {
                     self.note_answer(outbox, excerpt, notified);
                 }
-                outbox.compact = true;
+                outbox.compact = !compact_aborted;
                 outbox.turn_completed = true;
                 self.check_plan(outbox);
             }
@@ -5018,7 +5037,11 @@ fn start_turn(
             }
             (titled, line)
         }
-        TurnOrigin::Session { sender, reference } => {
+        TurnOrigin::Session {
+            sender,
+            reference,
+            chat_subject,
+        } => {
             // Ohne die Werkzeuge der Betriebsart Claude geht der ganze Text wie bisher.
             let readable = readable(reference, operating_mode);
             let agent_text = with_overlap_hint(
@@ -5031,7 +5054,8 @@ fn start_turn(
             // Bei „Gemeldet“ steht der Betreff schon im Text.
             let subject: Option<&str> = reference
                 .filter(|found: &Reference<'_>| found.note.is_none())
-                .map(|found: Reference<'_>| found.subject);
+                .map(|found: Reference<'_>| found.subject)
+                .or(chat_subject);
             state.push_session_message(outbox, sent_text, sender, subject);
             (titled, line)
         }
@@ -9453,15 +9477,17 @@ mod tests {
     fn paused_to_preparation_when_resumed_before_the_report() {
         use compact::{Step, refuses_start, step_after_turn};
         // Vor der Meldung setzt das Fortsetzen den Zug fort: kein Schritt, der Fortsetz-Text darf hinein.
+        // Der Compact folgt erst am Zugende im Ruhen.
         for phase in [CompactPhase::Preparing, CompactPhase::Reminded] {
             assert_eq!(
-                step_after_turn(phase, false, true).eq(&Step::Compact),
-                phase == CompactPhase::Reminded
+                step_after_turn(phase, false, true),
+                Step::Nothing,
+                "{phase:?}"
             );
         }
         assert_eq!(
-            step_after_turn(CompactPhase::Preparing, false, true),
-            Step::Nothing
+            step_after_turn(CompactPhase::Reminded, true, false),
+            Step::Compact
         );
         assert!(!refuses_start(true, SessionStatus::Paused, true));
         assert!(!CompactPhase::Preparing.is_after_report());
@@ -9635,7 +9661,7 @@ mod tests {
                 .into_iter()
                 .filter(|waiter| waiter.entry.session_id.as_deref() == Some("q"))
                 .count();
-            // Nur im Zustand `Ready` steht die Session selbst als Wartende für den Compact in der Schlange.
+            // In `Preparing`, `Reminded` und `Ready` steht die Session selbst als Wartende für den nächsten Schritt in der Schlange, im laufenden Compact nicht.
             assert_eq!(
                 own,
                 usize::from(phase != CompactPhase::Compacting),
@@ -9816,6 +9842,170 @@ mod tests {
         let locked = in_phase(CompactPhase::Preparing);
         let row = row_of_state(&locked);
         assert_eq!(row.status, SessionStatus::Completed);
+    }
+
+    #[test]
+    fn reminded_to_replay_when_the_user_aborts_or_an_error_or_the_implementation_ends() {
+        let mut aborted = in_phase(CompactPhase::Reminded);
+        aborted
+            .abort_compact(&mut Outbox::default())
+            .expect("abbrechen");
+        assert_eq!(aborted.compact_phase, None);
+        let mut failed = in_phase(CompactPhase::Reminded);
+        failed.status = SessionStatus::Running;
+        end_with(&mut failed, TurnEnd::Failed("Prozess beendet".to_owned()));
+        assert_eq!(failed.compact_phase, None);
+        assert_eq!(
+            last_note(&failed),
+            Some("Die Vorbereitung ist abgebrochen"),
+            "ein Fehler in der Vorbereitung nennt, dass sie abgebrochen ist"
+        );
+        let mut ended = in_phase(CompactPhase::Reminded);
+        ended.end_compact_unless_running(&mut Outbox::default(), "Fertig");
+        assert_eq!(ended.compact_phase, None);
+    }
+
+    #[test]
+    fn reminded_to_paused_when_the_quota_or_the_user_pauses_and_the_lock_stays() {
+        let mut quota = in_phase(CompactPhase::Reminded);
+        quota.status = SessionStatus::Running;
+        end_with(
+            &mut quota,
+            TurnEnd::QuotaExhausted {
+                text: "Kontingent".to_owned(),
+                resets_at: None,
+            },
+        );
+        assert_eq!(quota.status, SessionStatus::Paused);
+        assert_eq!(quota.compact_phase, Some(CompactPhase::Reminded));
+        let mut by_hand = in_phase(CompactPhase::Reminded);
+        by_hand.status = SessionStatus::Running;
+        by_hand.pause_requested = true;
+        end_with(&mut by_hand, TurnEnd::Aborted);
+        assert_eq!(by_hand.status, SessionStatus::Paused);
+        assert_eq!(by_hand.compact_phase, Some(CompactPhase::Reminded));
+    }
+
+    #[test]
+    fn reminded_to_compact_when_the_user_says_now() {
+        use compact::{Step, step_after_turn};
+        let mut state = in_phase(CompactPhase::Reminded);
+        assert!(state.compact_now(&mut Outbox::default()));
+        assert_eq!(state.compact_phase, Some(CompactPhase::Ready));
+        assert_eq!(
+            step_after_turn(CompactPhase::Ready, true, false),
+            Step::Compact,
+            "am Zugende folgt der Compact"
+        );
+    }
+
+    #[test]
+    fn replay_to_normal_when_the_queue_has_let_the_waiting_messages_through() {
+        let mut state = in_phase(CompactPhase::Compacting);
+        state.begin_compact_turn(&mut Outbox::default());
+        end_with(&mut state, TurnEnd::Completed);
+        assert_eq!(state.compact_phase, None);
+        assert!(!state.compact_locked(), "nichts ist mehr gesperrt");
+        assert!(matches!(
+            compact::locked_route(
+                crate::sessions::registry::session_tools::Route::Queue { nudge: true },
+                state.compact_locked()
+            ),
+            crate::sessions::registry::session_tools::Route::Queue { nudge: true }
+        ));
+        // Wie im Diagramm: Beim nächsten Ruhen über der Grenze gilt die Regel wieder.
+        assert!(compact::wanted(&compact_facts()));
+    }
+
+    #[test]
+    fn the_waiting_compact_keeps_its_due_time_and_goes_before_a_later_message() {
+        use crate::implementation::slots::{QueueKind, rank};
+        let base = temp_base("compact-due");
+        let (registry, session) = registry_with_full_limit(&base);
+        session.lock().compact_phase = Some(CompactPhase::Ready);
+        let first = registry.waiters(1_000.0);
+        let compact = first
+            .into_iter()
+            .find(|waiter| waiter.entry.session_id.as_deref() == Some("q"))
+            .expect("Wartender");
+        assert_eq!(compact.entry.since_ms, 1_000.0);
+        // Spätere Durchgänge setzen den Beginn nicht neu.
+        let later = registry
+            .waiters(5_000.0)
+            .into_iter()
+            .find(|waiter| waiter.entry.session_id.as_deref() == Some("q"))
+            .expect("Wartender");
+        assert_eq!(later.entry.since_ms, 1_000.0, "fester Beginn des Wartens");
+        // Eine Nachricht, die nach der Fälligkeit, aber vor dem Durchgang einging, rückt nicht davor.
+        let mut message = later.clone();
+        message.entry.kind = QueueKind::Message;
+        message.entry.since_ms = 3_000.0;
+        message.key = "andere".to_owned();
+        let mut waiters = vec![message, later];
+        rank(&mut waiters);
+        assert_eq!(waiters[0].entry.kind, QueueKind::Resume);
+        assert_eq!(waiters[1].entry.kind, QueueKind::Message);
+        // Ohne Phase fällt der Beginn weg; ein neuer Compact beginnt neu.
+        session.lock().compact_phase = None;
+        assert!(session.lock().compact_waiting_since(9_000.0).is_none());
+        session.lock().begin_preparation();
+        session.lock().compact_phase = Some(CompactPhase::Ready);
+        assert_eq!(session.lock().compact_waiting_since(9_000.0), Some(9_000.0));
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn an_aborted_preparation_turn_ends_without_a_new_request_once() {
+        for phase in [CompactPhase::Preparing, CompactPhase::Reminded] {
+            let mut state = in_phase(phase);
+            state.status = SessionStatus::Running;
+            state
+                .abort_compact(&mut Outbox::default())
+                .expect("abbrechen");
+            let outbox = end_with(&mut state, TurnEnd::Completed);
+            assert!(
+                !outbox.compact,
+                "{phase:?}: dieses Zugende bittet nicht neu"
+            );
+            assert!(
+                outbox.turn_completed,
+                "die Nachrichten gehen trotzdem hinaus"
+            );
+            let outbox = end_with(&mut state, TurnEnd::Completed);
+            assert!(outbox.compact, "{phase:?}: das nächste Ruhen gilt wieder");
+        }
+        // Ruht die Session schon (kein Zug läuft), gibt es nichts zu verbrauchen.
+        let mut resting = in_phase(CompactPhase::Preparing);
+        resting
+            .abort_compact(&mut Outbox::default())
+            .expect("abbrechen");
+        assert!(end_with(&mut resting, TurnEnd::Completed).compact);
+        // Ein Zug, der nicht fertig endet, verbraucht den Merker auch.
+        let mut failed = in_phase(CompactPhase::Preparing);
+        failed.status = SessionStatus::Running;
+        failed
+            .abort_compact(&mut Outbox::default())
+            .expect("abbrechen");
+        end_with(&mut failed, TurnEnd::Failed("kaputt".to_owned()));
+        assert!(!failed.compact_abort_pending);
+    }
+
+    #[test]
+    fn the_request_and_the_reminder_carry_their_subject_in_the_chat_only() {
+        let mut state = state();
+        let mut outbox = Outbox::default();
+        let sender = crate::implementation::wake::sender();
+        state.push_session_message(
+            &mut outbox,
+            compact::REMINDER_TEXT,
+            &sender,
+            Some("Erinnerung: Compact"),
+        );
+        assert!(matches!(
+            state.entries.last(),
+            Some(ChatEntry::SessionMessage { subject: Some(subject), text, .. })
+                if subject == "Erinnerung: Compact" && text == compact::REMINDER_TEXT
+        ));
     }
 
     #[test]

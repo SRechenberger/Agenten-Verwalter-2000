@@ -234,7 +234,7 @@ select.sel,input.inp{padding:4px 8px;border:1px solid var(--bd);border-radius:6p
   </div>
   <div>
     <div class="diag" id="diag"><pre id="mm"></pre></div>
-    <p class="muted small">Dasselbe Diagramm steht als Mermaid in der README dieses Ordners und im Nachtrag zu ADR 070.</p>
+    <p class="muted small">Das Diagramm steht hier als Mermaid-Quelle (ohne Renderer, damit die Seite eigenständig bleibt); gezeichnet steht es in der README dieses Ordners und im Nachtrag zu ADR 070.</p>
   </div>
 </div>
 </main>
@@ -274,7 +274,6 @@ document.addEventListener('click', ev => {
 Proto.applyTheme();
 
 </script>
-<script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js"></script>
 <script>
 'use strict';
 const PHASE = {
@@ -419,16 +418,13 @@ const MM = `stateDiagram-v2
   Pausiert --> Einspielen: Abbruch
   Einspielen --> Normal: Sperre aus, Durchgang
   classDef cur fill:#e0825c,color:#1d130e,stroke:#e0825c`;
-let mmReady = false, mmN = 0;
-async function drawDiagram(){
-  const src = MM + `\n  class ${PHASE[S.phase].st} cur`;
-  if(!window.mermaid){ $('#mm').textContent = src; return; }
-  if(!mmReady){ mermaid.initialize({startOnLoad:false, theme: Proto.theme==='light'?'default':'dark', securityLevel:'strict'}); mmReady=true; }
-  try { const {svg} = await mermaid.render('mmsvg'+(mmN++), src); $('#diag').innerHTML = svg; } catch(e){ $('#diag').innerHTML = `<pre>${esc(src)}</pre>`; }
+// Eigenständig, ohne Mermaid-Skript aus dem Netz: Das Diagramm steht als Quelltext mit dem aktuellen Zustand.
+function drawDiagram(){
+  $('#mm').textContent = MM + `\n  class ${PHASE[S.phase].st} cur`;
 }
 
 document.addEventListener('click', ev=>{
-  if(ev.target.closest('[data-theme-btn]')){ mmReady=false; setTimeout(render); return; }
+  if(ev.target.closest('[data-theme-btn]')){ setTimeout(render); return; }
   const e = ev.target.closest('[data-ev]');
   if(e){ if(e.dataset.ev==='reset'){ reset(); render(); } else go(e.dataset.ev); return; }
   const a = ev.target.closest('[data-act]'); if(!a) return;

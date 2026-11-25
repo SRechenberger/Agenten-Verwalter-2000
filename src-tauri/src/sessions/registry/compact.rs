@@ -24,6 +24,10 @@ use crate::settings::model::OperatingMode;
 /// Der Befehl, den der Verwalter dem Agenten schickt.
 pub(super) const COMPACT_TEXT: &str = "/compact";
 
+/// Betreff der Bitte und der Erinnerung im Chat (nicht im Text an den Agenten).
+const REQUEST_SUBJECT: &str = "Compact vorbereiten";
+const REMINDER_SUBJECT: &str = "Erinnerung: Compact";
+
 /// Die Erinnerung, wenn der Vorbereitungszug ohne Meldung endet; einmal. Der Wortlaut ist an Haiku
 /// gemessen (ADR 070, Nachtrag „Compact mit Vorbereitung“); eine Änderung braucht eine neue Messung.
 pub const REMINDER_TEXT: &str = "Du hast dich noch nicht mit mcp__verwalter__verwalter_compact_ready gemeldet. Sichere deinen Stand und ruf das Werkzeug auf; endet dieser Zug ohne Aufruf, fasse ich trotzdem zusammen.";
@@ -82,13 +86,15 @@ pub(super) enum Step {
 }
 
 /// Was nach dem Zugende zu tun ist, je Phase („Zustandsdiagramm #215“). `paused`: Die Session ist
-/// pausiert; ihr Fortsetzen nimmt den Compact wieder auf, sobald die Meldung vorliegt. Vor der Meldung
-/// setzt das Fortsetzen den Zug selbst fort (`send_resume`), dort gibt es keinen Schritt. Eine zweite
+/// pausiert; ihr Fortsetzen nimmt den Compact wieder auf, sobald die Meldung (`Ready`) vorliegt. Vor der
+/// Meldung setzt das Fortsetzen den Zug selbst fort (`send_resume`), dort gibt es keinen Schritt: Ein
+/// pausierter Erinnerungszug (`Reminded`) endet erst mit dem Zugende im Ruhen. Eine zweite
 /// Bitte gibt es nie: Die Phase endet erst mit dem Compact.
 pub(super) fn step_after_turn(phase: CompactPhase, rests: bool, paused: bool) -> Step {
     match phase {
         CompactPhase::Preparing if rests => Step::Remind,
-        CompactPhase::Reminded | CompactPhase::Ready if rests || paused => Step::Compact,
+        CompactPhase::Reminded if rests => Step::Compact,
+        CompactPhase::Ready if rests || paused => Step::Compact,
         CompactPhase::Compacting if paused => Step::Compact,
         _ => Step::Nothing,
     }
@@ -199,6 +205,23 @@ impl SessionState {
             })
     }
 
+    /// Seit wann der Compact-Wartende auf einen Platz wartet, oder `None`, wenn er nicht wartet. Der
+    /// Beginn (erster Durchgang, der ihn sieht) bleibt je Phase fest; ohne ihn wäre der Wartende in jedem
+    /// Durchgang der jüngste seiner Gruppe und käme nie vor eine später eingegangene Nachricht.
+    pub(super) fn compact_waiting_since(&mut self, now: f64) -> Option<f64> {
+        if !self.compact_waits_for_slot() {
+            return None;
+        }
+        let phase = self.compact_phase?;
+        match self.compact_due_at {
+            Some((held, since)) if held == phase => Some(since),
+            _ => {
+                self.compact_due_at = Some((phase, now));
+                Some(now)
+            }
+        }
+    }
+
     /// `verwalter_compact_ready`: Die Session meldet sich bereit. Antwort an den Agenten.
     pub(super) fn call_compact_ready(&mut self, outbox: &mut Outbox) -> &'static str {
         match self.compact_phase {
@@ -215,6 +238,8 @@ impl SessionState {
     /// Die Bitte ist hinaus: Der Empfang ist gesperrt.
     pub(super) fn begin_preparation(&mut self) {
         self.compact_phase = Some(CompactPhase::Preparing);
+        self.compact_due_at = None;
+        self.compact_abort_pending = false;
     }
 
     /// Der Vorbereitungszug endete ohne Meldung: Die Erinnerung geht hinaus.
@@ -264,7 +289,16 @@ impl SessionState {
             (Some(CompactPhase::Compacting), SessionStatus::Running | SessionStatus::Starting) => {
                 Err(CommandError::Implementation(COMPACT_RUNNING.to_owned()))
             }
-            _ => {
+            (phase, status) => {
+                // Läuft (oder ruht pausiert) ein Zug der Vorbereitung, löst dessen Ende keine neue Bitte
+                // aus: Der Abbruch hält bis zum nächsten Ruhen nach einem anderen Zug.
+                self.compact_abort_pending = status != SessionStatus::Completed
+                    && matches!(
+                        phase,
+                        Some(
+                            CompactPhase::Preparing | CompactPhase::Reminded | CompactPhase::Ready
+                        )
+                    );
                 self.release_compact(outbox, "Compact abgebrochen (von dir)");
                 Ok(())
             }
@@ -279,7 +313,7 @@ impl SessionState {
         }
     }
 
-    fn push_compact_note(&mut self, outbox: &mut Outbox, text: &str) {
+    pub(super) fn push_compact_note(&mut self, outbox: &mut Outbox, text: &str) {
         self.push_entry(outbox, |seq: u32| ChatEntry::Notice {
             seq,
             notice: Notice::Info {
@@ -445,6 +479,7 @@ impl SessionRegistry {
                                 TurnOrigin::Session {
                                     sender: &wake::sender(),
                                     reference: None,
+                                    chat_subject: Some(REQUEST_SUBJECT),
                                 },
                             )?;
                             // Erst nach dem Start: Scheitert er, gibt es keine Sperre ohne Bitte.
@@ -562,6 +597,7 @@ impl SessionRegistry {
                             TurnOrigin::Session {
                                 sender: &wake::sender(),
                                 reference: None,
+                                chat_subject: Some(REMINDER_SUBJECT),
                             },
                         )?;
                     }

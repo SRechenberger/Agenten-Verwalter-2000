@@ -746,7 +746,11 @@ impl SessionRegistry {
                     outbox,
                     input,
                     text,
-                    TurnOrigin::Session { sender, reference },
+                    TurnOrigin::Session {
+                        sender,
+                        reference,
+                        chat_subject: None,
+                    },
                 )?;
                 state.auto_chain = max(state.auto_chain, chain);
                 Ok(("delivered", None))
@@ -816,6 +820,7 @@ impl SessionRegistry {
                             subject,
                             note: row.note.as_deref(),
                         }),
+                        chat_subject: None,
                     },
                 )?;
                 state.auto_chain = max(state.auto_chain, row.chain);
