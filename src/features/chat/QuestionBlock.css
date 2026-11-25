@@ -222,7 +222,6 @@
     min-width: 0;
     padding: var(--space-md) var(--space-lg);
     border: 0;
-    border-bottom: 1px solid var(--color-border-subtle);
     border-radius: 0;
     background: transparent;
     color: var(--color-fg-primary);
@@ -346,7 +345,7 @@
     &--done {
       color: var(--color-fg-primary);
     }
-    /* Die Zeile unter einer offenen Frage hat deren untere Haarlinie schon. */
+    /* Die offene Frage endet ohne Haarlinie; die Zeile darunter trägt nur ihre Unterlinie. */
     &:first-child {
       border-top: 1px solid var(--color-border-subtle);
     }
@@ -376,6 +375,12 @@
     gap: var(--space-md) var(--space-2xl);
     padding-top: var(--space-lg);
     border-top: 1px solid var(--color-border-subtle);
+  }
+
+  /* Endet der Körper mit einer Zeile samt Unterlinie, genügt diese. */
+  &__body:has(> .question-block__row:last-child) + &__foot {
+    padding-top: 0;
+    border-top: 0;
   }
 
   &__progress {
@@ -556,6 +561,7 @@
   align-items: stretch;
   gap: var(--space-sm);
   min-width: 0;
+  border-bottom: 1px solid var(--color-border-subtle);
 }
 
 .question-block__note-toggle {
