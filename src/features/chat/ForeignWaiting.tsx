@@ -3,21 +3,21 @@ import { SessionMessage } from '@/features/chat/SessionMessage';
 import { foreignWaitingNoticeText, waitsForText } from '@/features/queue/queueTexts';
 import type { WaitingMessage } from '@/lib/bindings/WaitingMessage';
 import type { SessionSummary } from '@/lib/bindings/SessionSummary';
-import { useForeignWaiting } from '@/stores/inbox';
 import './ForeignWaiting.css';
 
 interface ForeignWaitingProps {
   sessionId: string;
   sessions: readonly SessionSummary[];
+  waiting: readonly WaitingMessage[];
 }
 
 /** Die wartenden Nachrichten anderer Sessions an diese Session (Taiga-Story 218): Hinweis und je Nachricht eine
  *  gestrichelte Session-Nachricht mit dem Grund des Wartens. Verwerfen kann der Nutzer sie nicht (N5). */
-export function ForeignWaiting({ sessionId, sessions }: ForeignWaitingProps): ReactElement | null {
-  const waiting: readonly WaitingMessage[] = useForeignWaiting(sessionId);
-  if (waiting.length === 0) {
-    return null;
-  }
+export function ForeignWaiting({
+  sessionId,
+  sessions,
+  waiting,
+}: ForeignWaitingProps): ReactElement {
   return (
     <div className="foreign-waiting" role="status">
       <p className="foreign-waiting__notice">{foreignWaitingNoticeText(waiting.length)}</p>

@@ -11,6 +11,7 @@ import {
   slotCells,
   slotsBarLabel,
   slotsShort,
+  chipCount,
   waitingCount,
   type QueueSection,
   type SlotCell,
@@ -21,6 +22,7 @@ import type { AgentQueue } from '@/lib/bindings/AgentQueue';
 import type { ProjectSummary } from '@/lib/bindings/ProjectSummary';
 import type { RemoteHostStatus } from '@/lib/bindings/RemoteHostStatus';
 import { useAgentQueueStore } from '@/stores/agentQueue';
+import { useInboxStore } from '@/stores/inbox';
 import { useRemoteStore } from '@/stores/remote';
 import './QueueFooter.css';
 
@@ -48,14 +50,21 @@ export function QueueFooter({ projects, children }: QueueFooterProps): ReactElem
     (section: QueueSection) => section.hostId !== null,
   );
   const waiting: number = waitingCount(sections);
+  const messageCount: number = useInboxStore(
+    (state) =>
+      state.messages.length +
+      Object.values(state.hostMessages).reduce((sum: number, list) => sum + list.length, 0),
+  );
+  const chip: number = chipCount(sections, messageCount);
   const now: number = useNow(
     sections.some((section: QueueSection) => section.queue.quotaUntil !== undefined),
   );
   const isOwnBarShown: boolean = queue !== null && isSlotsBarShown(queue);
   const isBarShown: boolean = isOwnBarShown || hostSections.length > 0;
-  // Verschwindet die Balkenzeile, hat die Liste keinen Auslöser mehr: Sie darf beim nächsten belegten Platz
-  // nicht von selbst offen stehen.
-  if (isOpen && !isBarShown) {
+  // Verschwinden Balkenzeile und Chip, hat die Liste keinen Auslöser mehr: Sie darf beim nächsten belegten Platz
+  // nicht von selbst offen stehen. Der Chip allein (wartende Nachrichten ohne Balken) genügt als Auslöser.
+  const hasTrigger: boolean = isBarShown || chip > 0;
+  if (isOpen && !hasTrigger) {
     setIsOpen(false);
   }
 
@@ -114,10 +123,10 @@ export function QueueFooter({ projects, children }: QueueFooterProps): ReactElem
         <Fragment key={section.hostId}>{renderBar(section.queue, section.hostName)}</Fragment>
       ))}
       <div className="sidebar__footer-row">
-        {waiting > 0 && <QueueChip count={waiting} isOpen={isOpen} onToggle={toggle} />}
+        {chip > 0 && <QueueChip count={chip} isOpen={isOpen} onToggle={toggle} />}
         {children}
       </div>
-      {isOpen && isBarShown && (
+      {isOpen && hasTrigger && (
         <Popover
           detached
           label={QUEUE_LIST_LABEL}
@@ -130,6 +139,7 @@ export function QueueFooter({ projects, children }: QueueFooterProps): ReactElem
         >
           <QueueList
             sections={sections}
+            initialTab={waiting > 0 ? 'slots' : 'messages'}
             projects={projects}
             onClose={(): void => {
               setIsOpen(false);

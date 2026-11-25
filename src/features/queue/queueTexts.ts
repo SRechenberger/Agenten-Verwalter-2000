@@ -288,6 +288,12 @@ export function waitingCount(sections: readonly QueueSection[]): number {
   );
 }
 
+/** Zahl der Marke „n warten“: die wartenden Plätze aller Warteschlangen plus die wartenden Nachrichten (die Zeilen
+ *  beider Reiter; was in beiden steht, zählt doppelt). */
+export function chipCount(sections: readonly QueueSection[], messageCount: number): number {
+  return waitingCount(sections) + messageCount;
+}
+
 export const QUEUE_NOTHING_WAITING = 'Nichts wartet.';
 
 export const SLOTS_TITLE =
@@ -321,6 +327,18 @@ export const ADOPT_TITLE = 'Kopiert den Text ins leere Eingabefeld.';
 export const ALREADY_SENT_TEXT = 'Schon gesendet';
 export const TAB_SLOTS_LABEL = 'Plätze';
 export const TAB_MESSAGES_LABEL = 'Nachrichten';
+export function tabMessagesLabel(count: number): string {
+  return `${TAB_MESSAGES_LABEL} (${String(count)})`;
+}
+
+/** Abschnittskopf im Reiter „Nachrichten“; `hostName` ist `null` für dieses Gerät. */
+export function messagesSectionHead(hostName: string | null, count: number): string {
+  const what: string =
+    count === 1 ? '1 wartende Nachricht' : `${String(count)} wartende Nachrichten`;
+  return hostName === null
+    ? `Dieser Rechner · ${what}`
+    : `${hostName} (Host) · ${what} in übernommenen Vorhaben`;
+}
 export const MESSAGES_NOTHING_WAITING = 'Keine Nachricht wartet.';
 
 /** Was ein verworfener Eintrag über seine Anhänge sagt; `null` ohne Anhänge (N3). */

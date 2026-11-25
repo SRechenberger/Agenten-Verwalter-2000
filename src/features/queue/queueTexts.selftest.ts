@@ -33,6 +33,9 @@ import {
   slotsShort,
   slotsText,
   waitingChipText,
+  chipCount,
+  messagesSectionHead,
+  tabMessagesLabel,
   waitingSinceText,
 } from './queueTexts.ts';
 import type { AgentQueue } from '@/lib/bindings/AgentQueue';
@@ -335,6 +338,31 @@ const CASES: { name: string; actual: () => unknown; expected: unknown }[] = [
     expected: undefined,
   },
   { name: 'max_agents_text_is_invalid', actual: () => parseMaxAgents('vier'), expected: undefined },
+  {
+    name: 'chip_counts_one_message_when_no_slot_waits',
+    actual: () => chipCount([], 1),
+    expected: 1,
+  },
+  {
+    name: 'chip_adds_waiting_slots_and_messages',
+    actual: () =>
+      chipCount(
+        [{ hostId: null, hostName: null, queue: { limit: 1, used: 1, entries: [{} as never] } }],
+        2,
+      ),
+    expected: 3,
+  },
+  {
+    name: 'messages_tab_label_carries_the_count',
+    actual: () => tabMessagesLabel(6),
+    expected: 'Nachrichten (6)',
+  },
+  {
+    name: 'messages_section_head_names_this_machine_and_hosts',
+    actual: () => [messagesSectionHead(null, 2), messagesSectionHead('Büro', 1)].join(' | '),
+    expected:
+      'Dieser Rechner · 2 wartende Nachrichten | Büro (Host) · 1 wartende Nachricht in übernommenen Vorhaben',
+  },
   { name: 'chip_singular_for_one', actual: () => waitingChipText(1), expected: '1 wartet' },
   { name: 'chip_plural_for_many', actual: () => waitingChipText(5), expected: '5 warten' },
   { name: 'mark_only_for_high_and_low', actual: () => priorityMark('normal'), expected: null },

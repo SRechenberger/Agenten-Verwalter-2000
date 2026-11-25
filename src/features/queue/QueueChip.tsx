@@ -11,7 +11,8 @@ import {
   DISCARD_TITLE,
   inboxRouteText,
   MESSAGES_NOTHING_WAITING,
-  TAB_MESSAGES_LABEL,
+  messagesSectionHead,
+  tabMessagesLabel,
   TAB_SLOTS_LABEL,
   waitsForText,
   waitingSinceText,
@@ -59,12 +60,24 @@ interface QueueListProps {
   projects: readonly ProjectSummary[];
   /** Der Weg zur Grenze verlässt die Liste. */
   onClose: () => void;
+  /** Der Reiter beim Öffnen: „Nachrichten“, wenn kein Platz wartet. */
+  initialTab?: 'slots' | 'messages';
 }
 
 /** Inhalt der Liste: je Warteschlange oben die Belegung, darunter die Wartenden in der Reihenfolge ihres Cores
  *  oder der Hinweis. Die Ränge eines Hosts sind seine; die Listen werden nie zusammengeführt. */
-export function QueueList({ sections, projects, onClose }: QueueListProps): ReactElement {
-  const [tab, setTab] = useState<'slots' | 'messages'>('slots');
+export function QueueList({
+  sections,
+  projects,
+  onClose,
+  initialTab = 'slots',
+}: QueueListProps): ReactElement {
+  const [tab, setTab] = useState<'slots' | 'messages'>(initialTab);
+  const messageCount: number = useInboxStore(
+    (state) =>
+      state.messages.length +
+      Object.values(state.hostMessages).reduce((sum: number, list) => sum + list.length, 0),
+  );
   return (
     <>
       <div className="queue-chip__tabs" role="tablist">
@@ -79,7 +92,7 @@ export function QueueList({ sections, projects, onClose }: QueueListProps): Reac
               setTab(id);
             }}
           >
-            {id === 'slots' ? TAB_SLOTS_LABEL : TAB_MESSAGES_LABEL}
+            {id === 'slots' ? TAB_SLOTS_LABEL : tabMessagesLabel(messageCount)}
           </button>
         ))}
       </div>
@@ -147,7 +160,7 @@ function MessagesTab({
     <>
       {shown.map((part) => (
         <div key={part.key}>
-          {part.name !== null && <p className="queue-chip__note">{part.name}</p>}
+          <p className="queue-chip__note">{messagesSectionHead(part.name, part.messages.length)}</p>
           <table className="queue-chip__table">
             <thead>
               <tr>
