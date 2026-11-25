@@ -2,10 +2,8 @@
   display: flex;
   align-items: flex-start;
   gap: var(--space-lg);
-  padding: var(--space-xl);
-  border: 1px solid var(--color-status-error);
-  border-radius: var(--radius-lg);
-  background: var(--color-bg-surface);
+  padding: var(--space-xs) 0 var(--space-xs) var(--space-xl);
+  border-left: 2px solid var(--color-status-error);
 
   & > .status-icon {
     margin-top: 2px;
@@ -39,7 +37,7 @@
     height: 28px;
     padding: 0 var(--space-xl);
     border: 1px solid var(--color-border);
-    border-radius: var(--radius-md);
+    border-radius: var(--radius-flat);
     background: transparent;
     color: var(--color-fg-secondary);
     font: inherit;
@@ -74,7 +72,8 @@
     max-height: 240px;
     margin: 0;
     padding: var(--space-md) var(--space-lg);
-    border-radius: var(--radius-md);
+    border: 1px solid var(--color-border-subtle);
+    border-radius: var(--radius-flat);
     background: var(--color-bg-base);
     color: var(--color-fg-secondary);
     font-family: var(--font-mono);

@@ -2,13 +2,11 @@
   display: flex;
   flex-direction: column;
   gap: var(--space-lg);
-  padding: var(--space-xl);
-  border: 1px solid var(--color-status-waiting);
-  border-radius: var(--radius-lg);
-  background: var(--color-bg-surface);
+  padding: var(--space-xs) 0 var(--space-xs) var(--space-xl);
+  border-left: 2px solid var(--color-status-waiting);
 
   &--answered {
-    border-color: var(--color-border);
+    border-left-color: var(--color-border);
   }
 
   &__head {
@@ -37,17 +35,17 @@
   &__options {
     display: flex;
     flex-direction: column;
-    gap: var(--space-sm);
   }
 
   &__option {
     display: flex;
     align-items: center;
     gap: var(--space-lg);
-    padding: 9px var(--space-xl);
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius-md);
-    background: var(--color-bg-base);
+    padding: 9px var(--space-md);
+    border: 0;
+    border-bottom: 1px solid var(--color-border-subtle);
+    border-radius: 0;
+    background: transparent;
     color: var(--color-fg-primary);
     font: inherit;
     text-align: left;
@@ -68,11 +66,11 @@
     }
 
     &--selected {
-      border-color: var(--color-accent);
+      box-shadow: inset 2px 0 0 var(--color-accent);
     }
 
     &--selected:disabled {
-      border-color: var(--color-accent);
+      box-shadow: inset 2px 0 0 var(--color-accent);
       background: var(--color-accent-subtle);
       color: var(--color-fg-primary);
     }
@@ -82,7 +80,7 @@
     flex-shrink: 0;
     width: 18px;
     height: 18px;
-    border-radius: var(--radius-sm);
+    border-radius: var(--radius-flat);
     background: var(--color-bg-hover);
     color: var(--color-fg-secondary);
     font-size: var(--font-size-2xs);
@@ -116,7 +114,7 @@
     height: 28px;
     padding: 0 var(--space-xl);
     border: 0;
-    border-radius: var(--radius-md);
+    border-radius: var(--radius-flat);
     background: var(--color-accent);
     color: var(--color-fg-on-accent);
     font: inherit;
@@ -175,7 +173,7 @@
     align-items: center;
     height: 20px;
     padding: 0 var(--space-md);
-    border-radius: var(--radius-full);
+    border-radius: var(--radius-flat);
     background: var(--color-bg-hover);
     color: var(--color-fg-secondary);
     font-size: var(--font-size-2xs);
@@ -224,7 +222,7 @@
     min-width: 0;
     padding: var(--space-md) var(--space-lg);
     border: 1px solid var(--color-border);
-    border-radius: var(--radius-md);
+    border-radius: var(--radius-flat);
     background: var(--color-bg-base);
     color: var(--color-fg-primary);
     font: inherit;
@@ -272,7 +270,7 @@
     }
 
     &--check {
-      border-radius: var(--radius-sm);
+      border-radius: var(--radius-flat);
     }
   }
 
@@ -297,7 +295,7 @@
     height: 17px;
     padding: 0 var(--space-sm);
     border: 1px solid color-mix(in srgb, var(--color-status-completed) 45%, transparent);
-    border-radius: var(--radius-sm);
+    border-radius: var(--radius-flat);
     color: var(--color-status-completed);
     font-size: var(--font-size-2xs);
     font-weight: 600;
@@ -309,7 +307,7 @@
     min-width: 20px;
     padding: 0 5px;
     border: 1px solid var(--color-border);
-    border-radius: var(--radius-sm);
+    border-radius: var(--radius-flat);
     color: var(--color-fg-muted);
     font-family: var(--font-mono);
     font-size: var(--font-size-2xs);
@@ -325,7 +323,7 @@
     width: 100%;
     padding: var(--space-md) var(--space-lg);
     border: 1px solid var(--color-border-subtle);
-    border-radius: var(--radius-md);
+    border-radius: var(--radius-flat);
     background: transparent;
     color: var(--color-fg-muted);
     font: inherit;
@@ -561,7 +559,7 @@
   flex-shrink: 0;
   width: 34px;
   border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-flat);
   background: var(--color-bg-base);
   color: var(--color-fg-muted);
   font: inherit;
@@ -603,7 +601,7 @@
   height: 30px;
   padding: 0 var(--space-lg);
   border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-flat);
   background: var(--color-bg-base);
   color: var(--color-fg-primary);
   font: inherit;
@@ -638,7 +636,7 @@
   align-self: stretch;
   padding: var(--space-md) var(--space-lg);
   border: 1px dashed var(--color-border);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-flat);
   background: transparent;
   color: var(--color-fg-muted);
   font: inherit;

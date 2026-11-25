@@ -8,16 +8,14 @@
     display: flex;
     flex-direction: column;
     gap: var(--space-md);
-    padding: var(--space-lg) var(--space-xl);
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius-lg);
-    background: var(--color-bg-surface);
+    padding: var(--space-xs) 0 var(--space-xs) var(--space-xl);
+    border-left: 2px solid var(--color-border);
   }
 
   /* Wartet auf einen freien Platz (Taiga-Story 190, Marke B): ohne Farbe lesbar an Wort, Uhr und Strichen. */
   &__box--queued {
-    border-style: dashed;
-    border-color: var(--color-status-waiting);
+    border-left-style: dashed;
+    border-left-color: var(--color-status-waiting);
   }
 
   &__queued {
@@ -27,7 +25,7 @@
     gap: var(--space-xs);
     padding: 0 var(--space-md);
     border: 1px solid var(--color-status-waiting);
-    border-radius: var(--radius-full);
+    border-radius: var(--radius-flat);
     background: var(--color-status-waiting-subtle);
     color: var(--color-status-waiting);
     font-size: var(--font-size-2xs);
@@ -62,7 +60,7 @@
   &__mark,
   &__skill-name {
     padding: 0 var(--space-sm);
-    border-radius: var(--radius-sm);
+    border-radius: var(--radius-flat);
     background: var(--color-accent-subtle);
     color: var(--color-accent-text);
     font-family: var(--font-mono);

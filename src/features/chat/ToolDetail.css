@@ -57,7 +57,7 @@
     max-height: 24rem;
     margin: 0;
     padding: var(--space-md);
-    border-radius: var(--radius-md);
+    border-radius: var(--radius-flat);
     background: var(--color-bg-base);
     color: var(--color-fg-secondary);
     font-family: var(--font-mono);

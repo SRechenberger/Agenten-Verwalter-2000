@@ -63,6 +63,16 @@ Umgesetzt in `src/styles/theme.css`: `@import 'tailwindcss' source(none);` schal
 .session-item__status--waiting { color: var(--color-status-waiting); }
 ```
 
+## Flacher Stil für Inhalte
+
+Chat, Karten und Hinweise über dem Eingabefeld und die Popups des Dashboards (Taiga 236, `docs/design/2026-11-25_chat-flach/`):
+
+- Keine runden Kästen mit eigener Fläche. Die Art eines Eintrags zeigt eine 2-px-Linie links (`border-left`) in ihrer Farbe.
+- Listen sind Zeilen mit Haarlinien (`--color-border-subtle`).
+- Code, Diffs, Fehlertexte und Felder sind eckig mit Haarlinie; Knöpfe, Marken und Chips nehmen `--radius-flat` (2 px). Status- und Auswahlpunkte bleiben rund.
+- Unter `src/features/chat/` gibt es kein `--radius-lg` und `--radius-xl`. Neue Bausteine werden gleich flach gebaut; der Stil gehört an die Quelle des Bausteins.
+- Menüs, Dialoge und Popover außerhalb des Chats behalten ihre Rundung.
+
 ## Anti-Patterns
 
 - ❌ Utility-Klassen im JSX (`className="px-8 flex text-sm"`) → BEM-Klasse + CSS
