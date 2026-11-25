@@ -55,13 +55,14 @@ impl SessionRegistry {
             let Ok(session) = self.get(&session_id) else {
                 continue;
             };
-            let (title, status, has_pending, rests) = {
+            let (title, status, has_pending, rests, in_compact) = {
                 let state = session.lock();
                 (
                     state.name.clone(),
                     state.status,
                     !state.pending.is_empty(),
                     state.rests(),
+                    state.compact_locked(),
                 )
             };
             let position = queue
@@ -70,7 +71,12 @@ impl SessionRegistry {
                     entry.session_id.as_deref() == Some(session_id.as_str())
                 })
                 .map(|entry: &QueueEntry| entry.position);
-            let (waits_for, position) = waits_for(status, has_pending, rests, position);
+            // Im Compact wartet jede Nachricht bis zu seinem Ende, gleich in welchem Zustand die Session ist.
+            let (waits_for, position) = if in_compact {
+                (WaitsFor::Compact, None)
+            } else {
+                waits_for(status, has_pending, rests, position)
+            };
             messages.push(WaitingMessage {
                 id: row.id,
                 session_id,

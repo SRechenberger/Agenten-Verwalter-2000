@@ -237,6 +237,8 @@ pub fn run() {
             commands::chat::chat_send,
             commands::chat::chat_send_now,
             commands::chat::chat_discard_queued,
+            commands::chat::chat_compact_now,
+            commands::chat::chat_compact_abort,
             commands::chat::inbox_list,
             commands::chat::chat_answer,
             commands::context::context_load,

@@ -9,6 +9,7 @@ use std::sync::mpsc;
 use serde_json::{Value, json};
 use tauri::{AppHandle, Emitter};
 
+use super::compact;
 use super::{
     ANSWER_SEPARATOR, Outbox, PROJECT_CHANGED_EVENT, PendingRequest, QUEUED_ANSWER_FIRST, Session,
     SessionRegistry, SessionState, TurnOrigin, now_ms, project_not_found, schedule_pass,
@@ -706,14 +707,17 @@ impl SessionRegistry {
                     .database
                     .with(|connection| session_inbox::oldest(connection, &target.id))?
                     .is_some();
-                let route = route_message(&Delivery {
-                    status: state.status,
-                    rests: state.rests(),
-                    has_waiting,
-                    claimed,
-                    timer_armed: state.waits_for_resume(),
-                    from_master: is_from_master,
-                });
+                let route = compact::locked_route(
+                    route_message(&Delivery {
+                        status: state.status,
+                        rests: state.rests(),
+                        has_waiting,
+                        claimed,
+                        timer_armed: state.waits_for_resume(),
+                        from_master: is_from_master,
+                    }),
+                    state.compact_locked(),
+                );
                 match route {
                     Route::Undeliverable(reason) => {
                         return Ok(("undeliverable", Some(reason.to_owned())));
@@ -742,7 +746,11 @@ impl SessionRegistry {
                     outbox,
                     input,
                     text,
-                    TurnOrigin::Session { sender, reference },
+                    TurnOrigin::Session {
+                        sender,
+                        reference,
+                        chat_subject: None,
+                    },
                 )?;
                 state.auto_chain = max(state.auto_chain, chain);
                 Ok(("delivered", None))
@@ -788,13 +796,14 @@ impl SessionRegistry {
                 let current = session
                     .database
                     .with(|connection| session_inbox::oldest(connection, &session.id))?;
-                let takes = takes_oldest(
-                    state.status,
-                    state.rests(),
-                    slots::waits_for_slot(state.status, current.is_some()),
-                    state.waits_for_resume(),
-                    master_waits,
-                );
+                let takes = !state.compact_locked()
+                    && takes_oldest(
+                        state.status,
+                        state.rests(),
+                        slots::waits_for_slot(state.status, current.is_some()),
+                        state.waits_for_resume(),
+                        master_waits,
+                    );
                 if !takes || current.as_ref().map(|row: &InboxRow| row.id) != Some(row.id) {
                     return Ok(false);
                 }
@@ -811,6 +820,7 @@ impl SessionRegistry {
                             subject,
                             note: row.note.as_deref(),
                         }),
+                        chat_subject: None,
                     },
                 )?;
                 state.auto_chain = max(state.auto_chain, row.chain);
@@ -869,6 +879,10 @@ impl SessionRegistry {
                 session,
                 |state: &mut SessionState, outbox: &mut Outbox| {
                     let release = user_release(state, seq);
+                    // „Jetzt senden“ gibt es im Compact nicht: Die Nachricht wartet bis nach ihm.
+                    if now {
+                        compact::refuse_send_now(state.compact_locked())?;
+                    }
                     if now && release == UserRelease::Later {
                         return Err(refuses_now(state.status, !state.pending.is_empty()));
                     }
@@ -929,6 +943,8 @@ pub(super) fn refuses_now(status: SessionStatus, has_pending: bool) -> CommandEr
 pub(super) fn user_release(state: &SessionState, seq: u32) -> UserRelease {
     if !state.is_queued(seq) {
         UserRelease::Stale
+    } else if state.compact_locked() {
+        UserRelease::Later
     } else if releases_user_message(state.status, !state.pending.is_empty()) {
         UserRelease::Sent
     } else {

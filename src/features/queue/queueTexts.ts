@@ -356,6 +356,7 @@ const WAITS_FOR_TEXT: Record<Exclude<WaitsFor, 'slot'>, string> = {
   answer: 'bis die Rückfrage beantwortet ist',
   paused: 'pausiert',
   start: 'bis die Session startet',
+  compact: 'bis der Compact fertig ist',
 };
 
 /** Marke einer wartenden Nachricht mit ihrem Grund: „Platz 2“, „bis der Zug endet“, … */

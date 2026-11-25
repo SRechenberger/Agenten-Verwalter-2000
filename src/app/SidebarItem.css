@@ -81,6 +81,15 @@
     color: var(--color-status-waiting);
   }
 
+  /* Der Master bereitet einen Compact vor (ADR 070, Nachtrag): wie die Marke des Masters. */
+  &__compact {
+    flex-shrink: 0;
+    margin-left: auto;
+    font-size: var(--font-size-2xs);
+    color: var(--color-status-reported);
+    white-space: nowrap;
+  }
+
   /* Nachricht wartet auf einen Platz (ADR 068): wie die Uhr rechts, in der Farbe des Wartens. */
   &__queue {
     flex-shrink: 0;
@@ -94,7 +103,10 @@
   &__overlap + &__unread,
   &__clock + &__unread,
   &__queue + &__overlap,
-  &__queue + &__unread {
+  &__queue + &__unread,
+  &__compact + &__queue,
+  &__compact + &__overlap,
+  &__compact + &__unread {
     margin-left: 0;
   }
 

@@ -48,6 +48,28 @@ pub async fn chat_send_now(
     registry.send_queued_now(&app, &session_id)
 }
 
+/// „Jetzt zusammenfassen“ (ADR 070, Nachtrag „Compact mit Vorbereitung“): gibt den Compact frei, ohne die
+/// Meldung der Session abzuwarten.
+#[tauri::command]
+pub async fn chat_compact_now(
+    app: tauri::AppHandle,
+    registry: tauri::State<'_, SessionRegistry>,
+    session_id: String,
+) -> Result<(), CommandError> {
+    registry.compact_now(&app, &session_id)
+}
+
+/// „Compact abbrechen“ (ADR 070, Nachtrag): Die Sperre geht weg, die wartenden Nachrichten gehen
+/// hinaus.
+#[tauri::command]
+pub async fn chat_compact_abort(
+    app: tauri::AppHandle,
+    registry: tauri::State<'_, SessionRegistry>,
+    session_id: String,
+) -> Result<(), CommandError> {
+    registry.compact_abort(&app, &session_id)
+}
+
 /// Verwirft die wartende eigene Nachricht im Eintrag `entry_seq` (Taiga-Story 218): Sie geht nie an den
 /// Agenten. `alreadySent`, wenn sie schon gesendet ist.
 #[tauri::command]

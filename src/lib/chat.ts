@@ -42,6 +42,18 @@ export async function sendQueuedNow(sessionId: string): Promise<void> {
   await invoke('chat_send_now', { sessionId });
 }
 
+/** „Jetzt zusammenfassen“ (ADR 070, Nachtrag „Compact mit Vorbereitung“): gibt den Compact des Masters frei,
+ *  ohne die Meldung der Session abzuwarten. */
+export async function compactNow(sessionId: string): Promise<void> {
+  await invoke('chat_compact_now', { sessionId });
+}
+
+/** „Compact abbrechen“: Die Sperre geht weg, die wartenden Nachrichten gehen hinaus.
+ *  @throws {import('@/lib/bindings/CommandError').CommandError} `implementation` (der Compact läuft schon) */
+export async function abortCompact(sessionId: string): Promise<void> {
+  await invoke('chat_compact_abort', { sessionId });
+}
+
 /** Beantwortet eine Rückfrage oder Rechte-Abfrage.
  *  @throws {import('@/lib/bindings/CommandError').CommandError} `sessionNotFound`, `agentStopped`, `internal` (Anfrage nicht offen) */
 export async function answerQuestion(

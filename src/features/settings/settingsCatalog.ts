@@ -125,7 +125,7 @@ const ENTRY_DATA = {
     category: 'agent',
     section: 'Agent',
     label: 'Master zusammenfassen ab … Tokens',
-    info: 'Eine ruhende Master-Session einer unfertigen Umsetzung, deren Kontext über dieser Grenze liegt, bekommt vom Verwalter /compact als eigenen Zug. Der Zug ist keine Eingabe: Dashboard und Ungelesen bleiben, im Chat steht nur „Verlauf zusammengefasst“. Erlaubt 50 000 bis 2 000 000, leer = Aus, Standard 150 000. Nur über die Claude-Kommandozeile (Claude, Claude Code + LM Studio); Autark fasst selbst zusammen. Gilt für die ganze App.',
+    info: 'Eine ruhende Master-Session einer unfertigen Umsetzung, deren Kontext über dieser Grenze liegt, wird vom Verwalter zuerst gebeten, sich vorzubereiten: Sie sichert ihren Stand und meldet sich mit verwalter_compact_ready zurück. Bis der Compact fertig ist, warten alle Nachrichten an sie (deine, die anderer Sessions, die des Verwalters) und gehen danach in ihrer Reihenfolge hinaus; „Jetzt zusammenfassen“ und „Compact abbrechen“ stehen über dem Eingabefeld. Meldet sie sich nicht, folgt eine Erinnerung, danach fasst der Verwalter trotzdem zusammen. Der Compact-Zug ist keine Eingabe: Dashboard und Ungelesen bleiben, im Chat steht nur „Verlauf zusammengefasst“. Erlaubt 50 000 bis 2 000 000, leer = Aus, Standard 150 000. Die Vorbereitung gibt es nur in der Betriebsart Claude; Claude Code + LM Studio bekommt wie bisher gleich /compact, Autark fasst selbst zusammen. Gilt für die ganze App.',
   },
   commandPrograms: {
     category: 'agent',

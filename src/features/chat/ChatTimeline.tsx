@@ -36,6 +36,7 @@ import { TextBlock } from '@/features/chat/TextBlock';
 import { ThinkingBlock } from '@/features/chat/ThinkingBlock';
 import { TodoList } from '@/features/chat/TodoList';
 import { ToolGroup } from '@/features/chat/ToolGroup';
+import { COMPACT_WAIT_MARK, compactPhaseOf } from '@/features/chat/compactTexts';
 import { UserMessage } from '@/features/chat/UserMessage';
 import { WorkingIndicator } from '@/features/chat/WorkingIndicator';
 import type { Artifact } from '@/lib/bindings/Artifact';
@@ -384,6 +385,9 @@ export function ChatTimeline({
             queued={entry.queued}
             entrySeq={entry.seq}
             discarded={entry.discarded}
+            {...(entry.queued && compactPhaseOf(session) !== null
+              ? { waitMark: COMPACT_WAIT_MARK }
+              : {})}
           />
         );
       case 'text': {

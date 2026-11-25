@@ -53,6 +53,8 @@ pub enum Notice {
     },
     /// Allgemeiner Hinweis der Kommandozeile.
     Info { text: String },
+    /// Eigene Notiz des Verwalters, etwa zum Compact (ADR 070), ohne Absender wie bei Claude Code.
+    Verwalter { text: String },
     /// Die Antwort endete am aufgebrauchten Kontingent (ADR 051). `text` ist die Meldung der
     /// Kommandozeile unverändert; `resets_at` in Millisekunden seit Epoche, `None` wenn unbekannt.
     QuotaExhausted {

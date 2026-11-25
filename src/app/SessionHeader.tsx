@@ -4,6 +4,7 @@ import { SessionGauge } from '@/app/SessionGauge';
 import { Popover } from '@/components/Popover';
 import { StatusIcon } from '@/components/StatusIcon';
 import { formatCount } from '@/features/changes/changesScope';
+import { compactPhaseLabel, compactPhaseOf } from '@/features/chat/compactTexts';
 import { GitBranchPill } from '@/features/git/GitBranchPill';
 import { useNow } from '@/features/background/useNow';
 import { RemoteGiveBack, RemoteHostBadge } from '@/features/remote/RemoteHeaderTools';
@@ -123,6 +124,7 @@ export function SessionHeader({
       ? `${String(runningBackgroundCount)} im Hintergrund`
       : BACKGROUND_LABEL;
   const statusLabel: string = headerStatusLabel(session, scriptNow);
+  const compactPhase = compactPhaseOf(session);
 
   function runAction(action: (sessionId: string) => Promise<void>): void {
     action(session.id)
@@ -267,6 +269,14 @@ export function SessionHeader({
           <StatusIcon status={headerStatus(session)} size={10} />
           <span className="session-header__status-label">{statusLabel}</span>
         </span>
+        {compactPhase !== null && (
+          <span
+            className="session-header__compact"
+            title="Der Master bereitet einen Compact vor; Nachrichten an ihn warten, bis er fertig ist."
+          >
+            ⧗ {compactPhaseLabel(compactPhase, session.status === 'paused')}
+          </span>
+        )}
         <GitBranchPill
           status={gitStatus}
           changes={changes}
