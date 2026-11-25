@@ -11,6 +11,8 @@ import './SidebarGroup.css';
 const DELETE_TITLE =
   'Löscht nur die Gruppe. Die Vorhaben bleiben und stehen danach ohne Gruppe in der Liste.';
 
+const SHARE_HINT = 'Gibt alle Vorhaben der Gruppe frei, auch neue.';
+
 const SHARE_TITLE =
   'Jedes Vorhaben der Gruppe ist für Gäste freigegeben, auch eines, das später hineinkommt.';
 
@@ -121,22 +123,11 @@ export function SidebarGroup({
             setIsMenuOpen(false);
           }}
         >
-          <button
-            type="button"
-            role="menuitem"
-            className="sidebar-group__menu-item"
-            onClick={(): void => {
-              setIsMenuOpen(false);
-              onStartRename();
-            }}
-          >
-            Umbenennen
-          </button>
           {(canShare || isShared) && (
             <button
               type="button"
               role="menuitem"
-              className="sidebar-group__menu-item"
+              className="sidebar-group__menu-item sidebar-group__menu-item--hinted"
               title={SHARE_TITLE}
               onClick={(): void => {
                 setIsMenuOpen(false);
@@ -148,8 +139,23 @@ export function SidebarGroup({
               }}
             >
               {isShared ? 'Freigabe beenden …' : 'Für Gäste freigeben'}
+              <small className="sidebar-group__menu-hint">{SHARE_HINT}</small>
             </button>
           )}
+          {(canShare || isShared) && (
+            <div className="sidebar-group__menu-separator" role="separator" />
+          )}
+          <button
+            type="button"
+            role="menuitem"
+            className="sidebar-group__menu-item"
+            onClick={(): void => {
+              setIsMenuOpen(false);
+              onStartRename();
+            }}
+          >
+            Umbenennen
+          </button>
           <button
             type="button"
             role="menuitem"

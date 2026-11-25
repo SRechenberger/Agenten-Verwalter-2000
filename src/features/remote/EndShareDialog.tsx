@@ -2,8 +2,12 @@ import { useState } from 'react';
 import type { ReactElement } from 'react';
 import { Dialog } from '@/components/Dialog';
 import type { DeviceRef } from '@/lib/bindings/DeviceRef';
+import { groupEndText, heldIn } from '@/features/remote/groupShareText';
+import type { ProjectGroup } from '@/lib/bindings/ProjectGroup';
+import type { ProjectSummary } from '@/lib/bindings/ProjectSummary';
 import { commandErrorText } from '@/lib/errors';
-import { setProjectShared } from '@/lib/remote';
+import { setGroupShared, setProjectShared } from '@/lib/remote';
+import { useRemoteStore } from '@/stores/remote';
 import './RemoteDialog.css';
 
 const TITLE_ID = 'remote-end-share-title';
@@ -38,17 +42,44 @@ export function EndShareDialog({
   );
 }
 
+/** „Freigabe beenden?“ für eine ganze Gruppe: der eine Weg, den die Übersicht, der Chat und das Menü teilen. */
+export function GroupEndDialog({
+  group,
+  projects,
+  onClose,
+}: {
+  group: ProjectGroup;
+  projects: readonly ProjectSummary[];
+  onClose: () => void;
+}): ReactElement {
+  const ownSharedIds: string[] = useRemoteStore((state) => state.ownSharedIds);
+  return (
+    <EndShareConfirm
+      text={groupEndText(group, heldIn(group, projects, ownSharedIds), 'end')}
+      onEnd={(stopAgents: boolean): Promise<unknown> => setGroupShared(group.id, false, stopAgents)}
+      onClose={onClose}
+    />
+  );
+}
+
 interface EndShareConfirmProps {
   /** Was das Beenden bewirkt, mit den Namen der Vorhaben und der Geräte, die sie verlieren. */
   text: string;
   /** Führt das Beenden aus, mit oder ohne Anhalten der Agenten; scheitert es, bleibt der Dialog offen. */
   onEnd: (stopAgents: boolean) => Promise<unknown>;
+  /** Der bestätigende Knopf; „Freigabe beenden“, wenn nichts anderes passt. */
+  confirmLabel?: string | undefined;
   onClose: () => void;
 }
 
 /** „Freigabe beenden?“: wirkt sofort und ohne Netz, wahlweise mit Anhalten der laufenden Agenten (Host).
  *  Auch das Herausnehmen aus einer freigegebenen Gruppe und das Löschen der Gruppe fragen so. */
-export function EndShareConfirm({ text, onEnd, onClose }: EndShareConfirmProps): ReactElement {
+export function EndShareConfirm({
+  text,
+  onEnd,
+  confirmLabel = 'Freigabe beenden',
+  onClose,
+}: EndShareConfirmProps): ReactElement {
   const [stopAgents, setStopAgents] = useState<boolean>(false);
   const [isEnding, setIsEnding] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
@@ -100,7 +131,7 @@ export function EndShareConfirm({ text, onEnd, onClose }: EndShareConfirmProps):
           disabled={isEnding}
           onClick={end}
         >
-          Freigabe beenden
+          {confirmLabel}
         </button>
       </div>
     </Dialog>

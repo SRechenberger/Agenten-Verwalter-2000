@@ -66,6 +66,10 @@ const ESTIMATED_HEIGHT: Record<SidebarRow['kind'], number> = {
 const LAST_SESSION_EXTRA = 4;
 /** Name, unter dem „Neue Gruppe …“ die Gruppe anlegt, bevor der Nutzer sie umbenennt. */
 const NEW_GROUP_NAME = 'Neue Gruppe';
+/** Wie lange die Meldung über eine neue Freigabe steht. */
+const NOTICE_MS = 6000;
+/** Ziel von `moveToGroup`: die Gruppe, die erst nach dem bestätigten Dialog entsteht. */
+const NEW_GROUP = Symbol('new group');
 /** So lange darf die Zeile eines Umbenennens fehlen, bevor es endet. */
 const RENAME_ROW_WAIT_MS = 1000;
 
@@ -169,10 +173,22 @@ export function Sidebar({
   // Der Dialog „Freigabe beenden?“ für Gruppe, Herausnehmen und Löschen; `null`, solange keiner offen ist.
   const [endDialog, setEndDialog] = useState<{
     text: string;
+    confirmLabel?: string | undefined;
     onEnd: (stopAgents: boolean) => Promise<unknown>;
   } | null>(null);
   // Meldung ohne Fehler: ein Vorhaben ist durch die Gruppe jetzt freigegeben.
   const [notice, setNotice] = useState<string | null>(null);
+  useEffect(() => {
+    if (notice === null) {
+      return undefined;
+    }
+    const timer = window.setTimeout((): void => {
+      setNotice(null);
+    }, NOTICE_MS);
+    return (): void => {
+      window.clearTimeout(timer);
+    };
+  }, [notice]);
 
   // Solange ein Gast das Vorhaben steuert oder der Host fehlt, lehnt der Core Umbenennen, Archivieren und
   // Löschen ab; die Leiste meldet es gleich, statt einen Fehler abzuwarten.
@@ -412,13 +428,20 @@ export function Sidebar({
     }
     setEndDialog({
       text: groupEndText(group, held, 'delete'),
+      confirmLabel: 'Gruppe löschen',
       onEnd: (stopAgents: boolean) => deleteProjectGroup(group.id, stopAgents),
     });
   }
 
   function shareGroup(group: ProjectGroup, shared: boolean): void {
     if (shared) {
-      run(() => setGroupShared(group.id, true, false), 'Freigabe fehlgeschlagen');
+      run(async () => {
+        await setGroupShared(group.id, true, false);
+        const count: number = projects.filter(
+          (project: ProjectSummary) => project.groupId === group.id,
+        ).length;
+        setNotice(`Gruppe „${group.name}“ für Gäste freigegeben – ${String(count)} Vorhaben`);
+      }, 'Freigabe fehlgeschlagen');
       return;
     }
     setEndDialog({
@@ -429,7 +452,7 @@ export function Sidebar({
 
   // Wer eine freigegebene Gruppe verlässt, verliert deren Freigabe (G3): Hält ein Gast das Vorhaben, ist
   // das ein Herauswerfen und fragt erst. Wer in eine freigegebene Gruppe kommt, ist ohne Dialog frei (G6).
-  function moveToGroup(projectId: string, groupId: string | null, after?: () => void): void {
+  function moveToGroup(projectId: string, groupId: string | null | typeof NEW_GROUP): void {
     const project: ProjectSummary | undefined = projects.find(
       (candidate: ProjectSummary) => candidate.id === projectId,
     );
@@ -437,40 +460,43 @@ export function Sidebar({
       (group: ProjectGroup) => group.id === project?.groupId,
     );
     const to: ProjectGroup | undefined = groups.find((group: ProjectGroup) => group.id === groupId);
-    const leavesShared: boolean =
-      from !== undefined && from.id !== groupId && sharedGroupIds.includes(from.id);
-    if (project !== undefined && from !== undefined && leavesShared) {
-      const staysShared: boolean = to !== undefined && sharedGroupIds.includes(to.id);
-      if (!staysShared && holderOf(project.access) !== null && !ownSharedIds.includes(project.id)) {
-        setEndDialog({
-          text: leaveText(project, from),
-          onEnd: (stopAgents: boolean) =>
-            setProjectGroup(projectId, groupId, stopAgents).then(after),
-        });
-        return;
+    // Die neue Gruppe entsteht erst hier, nach dem bestätigten Dialog: Bei Abbruch bleibt keine leere.
+    const apply = async (stopAgents = false): Promise<void> => {
+      const target: string | null =
+        groupId === NEW_GROUP ? (await createProjectGroup(NEW_GROUP_NAME)).id : groupId;
+      await setProjectGroup(projectId, target, stopAgents);
+      if (groupId === NEW_GROUP && target !== null) {
+        startRename('group', target);
       }
-    }
+    };
+    const isOwnShared: boolean = ownSharedIds.includes(projectId);
+    const was: boolean = isOwnShared || (from !== undefined && sharedGroupIds.includes(from.id));
+    const willBe: boolean = isOwnShared || (to !== undefined && sharedGroupIds.includes(to.id));
     if (
       project !== undefined &&
-      to !== undefined &&
-      sharedGroupIds.includes(to.id) &&
-      !sharedGroupIds.includes(from?.id ?? '')
+      from !== undefined &&
+      was &&
+      !willBe &&
+      holderOf(project.access) !== null
     ) {
+      setEndDialog({
+        text: leaveText(project, from),
+        confirmLabel: 'Verschieben und beenden',
+        onEnd: apply,
+      });
+      return;
+    }
+    if (project !== undefined && to !== undefined && !was && willBe) {
       setNotice(`„${project.name}“ ist jetzt für Gäste freigegeben (Gruppe „${to.name}“).`);
     } else {
       setNotice(null);
     }
-    run(() => setProjectGroup(projectId, groupId).then(after), 'Verschieben fehlgeschlagen');
+    run(() => apply(), 'Verschieben fehlgeschlagen');
   }
 
   // Der Nutzer tippt den Namen direkt am Kopf; die Gruppe heißt bis dahin „Neue Gruppe“.
   function moveToNewGroup(projectId: string): void {
-    run(async () => {
-      const group: ProjectGroup = await createProjectGroup(NEW_GROUP_NAME);
-      moveToGroup(projectId, group.id, (): void => {
-        startRename('group', group.id);
-      });
-    }, 'Neue Gruppe fehlgeschlagen');
+    moveToGroup(projectId, NEW_GROUP);
   }
 
   // Archivieren gibt es nur für das ganze Vorhaben — alle seine Sessions verlassen die Liste.
@@ -848,6 +874,7 @@ export function Sidebar({
       {endDialog !== null && (
         <EndShareConfirm
           text={endDialog.text}
+          confirmLabel={endDialog.confirmLabel}
           onEnd={endDialog.onEnd}
           onClose={(): void => {
             setEndDialog(null);

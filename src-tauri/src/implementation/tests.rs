@@ -6885,7 +6885,7 @@ fn migration_36_adds_the_index_to_a_database_of_version_35() {
     let version: u32 = connection
         .query_row("PRAGMA user_version", [], |row| row.get(0))
         .expect("Version");
-    assert_eq!(version, 36);
+    assert_eq!(version, crate::db::migrations::LATEST);
     let second = connection.execute(
         "INSERT INTO implementations (id, project_id, name, source, created_at, master_session_id) \
          VALUES ('new', 'project', 'U', '', 2.0, 'm')",

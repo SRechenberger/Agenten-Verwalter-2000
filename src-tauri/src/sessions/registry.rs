@@ -168,6 +168,10 @@ pub struct SessionRegistry {
     implementation_countdowns: Mutex<Countdowns>,
     /// Das Steuerrecht je Vorhaben (ADR 059), geteilt mit dem Tauri-State.
     remote: Arc<RemoteControl>,
+    /// Hält `sync_shared` über Lesen der Datenbank und `Control::set_shared`: Sonst setzt eine ältere Menge
+    /// die neuere zurück und ein Gast sieht ein Vorhaben, das nicht mehr freigegeben ist. Nichts anderes
+    /// wird darin neu gesperrt außer der Datenbank und `Control`.
+    share_sync: Mutex<()>,
 }
 
 /// Was ein Vorhaben selbst trägt; Workspace und Repositories liegen gleich an jeder seiner Sessions.
@@ -619,6 +623,7 @@ impl SessionRegistry {
             database,
             implementation_countdowns: Mutex::new(Countdowns::default()),
             remote,
+            share_sync: Mutex::new(()),
         }
     }
 

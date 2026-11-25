@@ -1,14 +1,13 @@
 import { useState } from 'react';
 import type { ReactElement } from 'react';
 import { Switch } from '@/components/Switch';
-import { EndShareConfirm, EndShareDialog } from '@/features/remote/EndShareDialog';
+import { EndShareDialog, GroupEndDialog } from '@/features/remote/EndShareDialog';
 import { holderOf, formatReserved } from '@/features/remote/projectAccess';
 import { useProjectLock, useReservedLeft } from '@/features/remote/useProjectAccess';
-import { groupEndText, heldIn } from '@/features/remote/groupShareText';
 import type { ProjectAccess } from '@/lib/bindings/ProjectAccess';
 import type { ProjectGroup } from '@/lib/bindings/ProjectGroup';
 import type { ProjectSummary } from '@/lib/bindings/ProjectSummary';
-import { setGroupShared, setProjectShared } from '@/lib/remote';
+import { setProjectShared } from '@/lib/remote';
 import { useActionError } from '@/lib/useActionError';
 import { useRemoteStore } from '@/stores/remote';
 import './RemoteProject.css';
@@ -42,7 +41,6 @@ export function RemoteShareBlock({
   projects,
   onProjectChanged,
 }: RemoteShareBlockProps): ReactElement {
-  const ownSharedIds: string[] = useRemoteStore((state) => state.ownSharedIds);
   const [isEndOpen, setIsEndOpen] = useState<boolean>(false);
   const [isGroupEndOpen, setIsGroupEndOpen] = useState<boolean>(false);
   const { error, run } = useActionError(project.id);
@@ -58,10 +56,15 @@ export function RemoteShareBlock({
         type="button"
         className="remote-block__button"
         onClick={(): void => {
-          setIsEndOpen(true);
+          // Gibt eine Gruppe das Vorhaben frei, beendet dieser Knopf nichts (G2): Er öffnet die Gruppe.
+          if (viaGroup === null) {
+            setIsEndOpen(true);
+          } else {
+            setIsGroupEndOpen(true);
+          }
         }}
       >
-        Freigabe beenden
+        {viaGroup === null ? 'Freigabe beenden' : `Gruppe „${viaGroup.name}“ bearbeiten …`}
       </button>
     );
   }
@@ -169,11 +172,9 @@ export function RemoteShareBlock({
         </p>
       )}
       {isGroupEndOpen && viaGroup !== null && (
-        <EndShareConfirm
-          text={groupEndText(viaGroup, heldIn(viaGroup, projects, ownSharedIds), 'end')}
-          onEnd={(stopAgents: boolean): Promise<unknown> =>
-            setGroupShared(viaGroup.id, false, stopAgents)
-          }
+        <GroupEndDialog
+          group={viaGroup}
+          projects={projects}
           onClose={(): void => {
             setIsGroupEndOpen(false);
           }}

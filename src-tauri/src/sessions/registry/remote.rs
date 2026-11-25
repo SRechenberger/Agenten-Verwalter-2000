@@ -1,7 +1,7 @@
 //! Freigabe eines Vorhabens für Gäste (ADR 059). Das Steuerrecht selbst steht in `crate::remote`;
 //! hier steht nur, was die Registry beisteuert.
 use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
+use std::sync::{Arc, PoisonError};
 
 use tauri::{AppHandle, Emitter, Manager};
 
@@ -76,12 +76,18 @@ impl SessionRegistry {
         app: &AppHandle,
         stop_agents: bool,
     ) -> Result<(), CommandError> {
-        let wanted: HashSet<String> = self
-            .database
-            .with(|connection| remote_rows::effective_shared_project_ids(connection))?
-            .into_iter()
-            .collect();
-        let (added, removed) = self.remote.with(|control| control.set_shared(wanted));
+        let (added, removed) = {
+            let _guard = self
+                .share_sync
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner);
+            let wanted: HashSet<String> = self
+                .database
+                .with(|connection| remote_rows::effective_shared_project_ids(connection))?
+                .into_iter()
+                .collect();
+            self.remote.with(|control| control.set_shared(wanted))
+        };
         if added.is_empty() && removed.is_empty() {
             return Ok(());
         }

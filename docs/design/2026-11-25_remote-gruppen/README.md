@@ -1,6 +1,6 @@
 # Freigabe für eine ganze Gruppe von Vorhaben (Taiga 137)
 
-Entwurf zum Nachtrag von [ADR 059](../../decisions/059-remote-sessions.md); Migration 36 (`project_groups.remote_shared`). `mockup.html` ist der eigenständige Prototyp (Rollen Host und Gast; für die Umsetzung zählt die Rolle Host).
+Entwurf zum Nachtrag von [ADR 059](../../decisions/059-remote-sessions.md); Migration 37 (`project_groups.remote_shared`). `mockup.html` ist der eigenständige Prototyp (Rollen Host und Gast; für die Umsetzung zählt die Rolle Host).
 
 ## Entscheidungen
 

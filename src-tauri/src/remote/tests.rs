@@ -617,14 +617,14 @@ fn setting_the_sharing_of_an_unknown_group_is_refused() {
 }
 
 #[test]
-fn migration_36_adds_the_group_sharing_to_a_database_of_version_35() {
+fn migration_37_adds_the_group_sharing_to_a_database_of_version_36() {
     let mut connection = Connection::open_in_memory().expect("Datenbank");
-    for script in migrations::first(35) {
+    for script in migrations::first(36) {
         connection.execute_batch(script).expect("alte Migration");
     }
     connection
         .execute_batch(
-            "PRAGMA user_version = 35; \
+            "PRAGMA user_version = 36; \
              INSERT INTO project_groups (id, name, collapsed, created_at) VALUES ('g', 'G', 0, 1.0);",
         )
         .expect("Bestand");
@@ -632,7 +632,7 @@ fn migration_36_adds_the_group_sharing_to_a_database_of_version_35() {
     let version: u32 = connection
         .query_row("PRAGMA user_version", [], |row| row.get(0))
         .expect("Version");
-    assert_eq!(version, 36);
+    assert_eq!(version, 37);
     assert!(
         remote_rows::shared_group_ids(&connection)
             .expect("lesbar")
