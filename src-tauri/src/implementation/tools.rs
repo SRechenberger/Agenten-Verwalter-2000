@@ -268,7 +268,8 @@ impl ToolSet for ImplementationTools {
             ToolSpec {
                 name: CANCEL,
                 description: "Fragt beim Benutzer an, die Umsetzung dieser Session (die sie führt, \
-                              sonst die ihrer Station oder Rückfrage) abzubrechen und mit `delete` danach zu \
+                              sonst die ihrer Station oder Rückfrage, zuletzt die zuletzt \
+                              geführte, auch eine fertige) abzubrechen und mit `delete` danach zu \
                               löschen. Wirkt nicht sofort: Der Benutzer bestätigt oder verwirft \
                               auf der Karte „Umsetzung abbrechen?“; bis dahin startet keine \
                               Station. Bestätigt er, stoppen die arbeitenden Stationen, auch diese \

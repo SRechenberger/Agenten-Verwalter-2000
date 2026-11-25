@@ -108,6 +108,11 @@ export function MasterPicker({
               implementation.id,
             );
             const isBlocked: boolean = isStation || leads !== undefined;
+            const reason: string | undefined = isStation
+              ? MASTER_STATION_TITLE
+              : leads === undefined
+                ? undefined
+                : masterLeadsTitle(leads.name);
             return (
               <button
                 key={session.id}
@@ -116,21 +121,20 @@ export function MasterPicker({
                 className="master-picker__item"
                 disabled={isBlocked}
                 aria-current={session.id === implementation.masterSessionId ? 'true' : undefined}
-                title={
-                  isStation
-                    ? MASTER_STATION_TITLE
-                    : leads === undefined
-                      ? undefined
-                      : masterLeadsTitle(leads.name)
-                }
+                title={reason}
                 onClick={(): void => {
                   choose(session.id);
                 }}
               >
                 <StatusIcon status={displayStatus(session, sessions)} size={10} />
-                <span className="master-picker__item-name">
-                  {masterName(session.number, session.name)}
-                  {isStation ? ' (Station)' : ''}
+                <span className="master-picker__item-text">
+                  <span className="master-picker__item-name">
+                    {masterName(session.number, session.name)}
+                    {isStation ? ' (Station)' : ''}
+                  </span>
+                  {reason !== undefined && (
+                    <span className="master-picker__item-reason">{reason}</span>
+                  )}
                 </span>
                 {session.id === implementation.masterSessionId && (
                   <span className="master-picker__item-mark">◆</span>
