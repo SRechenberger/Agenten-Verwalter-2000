@@ -102,7 +102,8 @@ function MessagesTab({
   projects: readonly ProjectSummary[];
 }): ReactElement {
   const now: number = useNow(true);
-  const [notes, setNotes] = useState<Readonly<Record<number, string>>>({});
+  // Eine Statuszeile unter den Tabellen: Die Zeile selbst ist nach „Schon gesendet“ schon aus der Liste.
+  const [note, setNote] = useState<string>('');
   const own = useInboxStore((state) => state.messages);
   const hostMessages = useInboxStore((state) => state.hostMessages);
   const hosts = useRemoteStore((state) => state.hosts);
@@ -122,19 +123,25 @@ function MessagesTab({
     }
     discardQueued(message.sessionId, message.entrySeq)
       .then((outcome) => {
-        setNotes((current) => ({
-          ...current,
-          [message.id]: outcome === 'alreadySent' ? ALREADY_SENT_TEXT : '',
-        }));
+        setNote(outcome === 'alreadySent' ? ALREADY_SENT_TEXT : '');
       })
       .catch((reason: unknown) => {
-        setNotes((current) => ({ ...current, [message.id]: commandErrorText(reason) }));
+        setNote(commandErrorText(reason));
       });
   }
 
   const shown = parts.filter((part) => part.messages.length > 0);
   if (shown.length === 0 || (sections.length === 0 && own.length === 0)) {
-    return <p className="queue-chip__note">{MESSAGES_NOTHING_WAITING}</p>;
+    return (
+      <>
+        <p className="queue-chip__note">{MESSAGES_NOTHING_WAITING}</p>
+        {note !== '' && (
+          <p className="queue-chip__note" role="status">
+            {note}
+          </p>
+        )}
+      </>
+    );
   }
   return (
     <>
@@ -171,9 +178,6 @@ function MessagesTab({
                         {DISCARD_LABEL}
                       </button>
                     )}
-                    {notes[message.id] !== undefined && notes[message.id] !== '' && (
-                      <span className="queue-chip__note-inline">{notes[message.id]}</span>
-                    )}
                   </td>
                 </tr>
               ))}
@@ -181,6 +185,11 @@ function MessagesTab({
           </table>
         </div>
       ))}
+      {note !== '' && (
+        <p className="queue-chip__note" role="status">
+          {note}
+        </p>
+      )}
     </>
   );
 }

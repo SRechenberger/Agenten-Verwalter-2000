@@ -9,7 +9,7 @@
 - **N3 Anhänge** bleiben in `.anhaenge/`; der verworfene Eintrag nennt sie.
 - **N4 Wettlauf.** Wer zuerst die Zeile in `session_inbox` löscht, gewinnt. Verwerfen setzt `queued` unter der Session-Sperre zurück und löscht dann die Zeile. Wer verliert, bekommt „Schon gesendet“ (`alreadySent`).
 - **N5 Nur eigene** Nachrichten lassen sich verwerfen; fremde zeigt der Chat nur an.
-- **N6 Fremde wartende Nachrichten** stehen im Chat gestrichelt wie eine `SessionMessage` (Absender, Betreff) mit der Marke des Grundes; darüber der Hinweis „n Nachrichten anderer Sessions warten auf diese Session“.
+- **N6 Fremde wartende Nachrichten** stehen im Chat gestrichelt wie eine `SessionMessage` (Absender, Betreff, Text) mit der Marke des Grundes; darüber der Hinweis „n Nachrichten anderer Sessions warten auf diese Session“.
 - **N7 Grund** (`waitsFor`): `slot` „Platz n“, `turnEnd` „bis der Zug endet“, `answer` „bis die Rückfrage beantwortet ist“, `paused` „pausiert“, `start` „bis die Session startet“; später `compact` „bis der Compact fertig ist“ (#215).
 - **N8 Popover** der Warteschlange: Reiter „Plätze“ (wie bisher) und „Nachrichten“ (Von → An, Betreff, Grund, seit). Je Host ein Abschnitt.
 - **N9 Gast.** Er verwirft in übernommenen Vorhaben (`chat_discard_queued`, Klasse C); `inbox_list` ist Klasse F und gefiltert wie `agent_queue`.

@@ -8539,6 +8539,56 @@ mod tests {
     }
 
     #[test]
+    fn a_message_queued_for_a_running_session_starts_no_pass_but_changes_the_inbox() {
+        use crate::agents::event::SessionRef;
+        use session_tools::{Delivery, Route, route_message};
+        let base = temp_base("inbox-running");
+        let (registry, session) = registry_with_full_limit(&base);
+        session.lock().status = SessionStatus::Running;
+        assert!(!registry.inbox_changed(), "leer wie beim Start");
+        // Der Weg von `deliver`: erst `route_message` (ohne Anstoß, also ohne Durchgang), dann die Zeile.
+        let state = session.lock();
+        let route = route_message(&Delivery {
+            status: state.status,
+            rests: state.rests(),
+            has_waiting: false,
+            claimed: true,
+            timer_armed: false,
+            from_master: false,
+        });
+        drop(state);
+        assert!(matches!(route, Route::Queue { nudge: false }));
+        let sender = SessionRef {
+            id: "m".to_owned(),
+            number: 1,
+            title: "Master".to_owned(),
+        };
+        session
+            .database
+            .with(|connection| session_inbox::insert(connection, "q", &sender, "Hallo", 0, 1.0))
+            .expect("eingereiht");
+        // `deliver` meldet danach über `announce_inbox_if_changed`: Diese Bedingung muss wahr sein.
+        assert!(registry.inbox_changed());
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn a_release_after_the_message_went_out_finds_it_stale_and_sends_nothing() {
+        let base = temp_base("stale-after-send");
+        let (_registry, session) = registry_with_full_limit(&base);
+        queue_text(&session, &base.join("staging"), "Schon draußen", &[]);
+        let mut state = session.lock();
+        release_queued(&session, &mut state, &mut Outbox::default(), 0, &[], None)
+            .expect("freigegeben");
+        // `deliver_user_messages` entscheidet über `user_release`: Wer verliert, löscht nur die Zeile.
+        assert_eq!(
+            session_tools::user_release(&state, 0),
+            session_tools::UserRelease::Stale
+        );
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    #[test]
     fn inbox_waits_for_answer_while_a_question_is_open_and_names_own_messages() {
         use super::inbox::waits_for;
         use crate::sessions::model::WaitsFor;

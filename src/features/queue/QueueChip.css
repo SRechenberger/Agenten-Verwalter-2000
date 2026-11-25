@@ -110,11 +110,6 @@
     }
   }
 
-  &__note-inline {
-    margin-left: var(--space-sm);
-    color: var(--color-fg-muted);
-  }
-
   &__note {
     margin: var(--space-md) 6px var(--space-xs);
     color: var(--color-fg-muted);

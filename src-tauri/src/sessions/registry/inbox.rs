@@ -108,7 +108,8 @@ impl SessionRegistry {
     }
 
     /// Meldet `inbox://changed`, wenn sich die Liste geändert hat. Der Durchgang ruft es nach jeder
-    /// Änderung der Warteschlange: Jedes Einfügen und jedes Löschen endet in einem Durchgang.
+    /// Änderung der Warteschlange, `deliver` nach dem Einreihen: Eine Nachricht an eine laufende Session
+    /// löst keinen Durchgang aus (`nudge = false`).
     pub(super) fn announce_inbox_if_changed(&self, app: &AppHandle) {
         if self.inbox_changed() {
             let _ = app.emit(INBOX_CHANGED_EVENT, ());

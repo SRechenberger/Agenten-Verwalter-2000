@@ -159,28 +159,10 @@ pub fn delete_user_entry(
 /// Alle wartenden Zeilen aller Sessions, die älteste zuerst (Taiga-Story 218).
 pub fn all(connection: &Connection) -> Result<Vec<(String, InboxRow)>, CommandError> {
     let mut statement = connection.prepare(&format!(
-        "SELECT session_id, {COLUMNS} FROM session_inbox ORDER BY id"
+        "SELECT {COLUMNS}, session_id FROM session_inbox ORDER BY id"
     ))?;
     let rows = statement
-        .query_map([], |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                InboxRow {
-                    id: row.get(1)?,
-                    sender: SessionRef {
-                        id: row.get(2)?,
-                        number: row.get(3)?,
-                        title: row.get(4)?,
-                    },
-                    text: row.get(5)?,
-                    chain: row.get(6)?,
-                    created_at: row.get(7)?,
-                    subject: row.get(8)?,
-                    note: row.get(9)?,
-                    entry_seq: row.get(10)?,
-                },
-            ))
-        })?
+        .query_map([], |row| Ok((row.get::<_, String>(10)?, row_of(row)?)))?
         .collect::<rusqlite::Result<Vec<_>>>()?;
     Ok(rows)
 }

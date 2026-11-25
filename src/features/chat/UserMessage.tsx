@@ -147,6 +147,13 @@ export function UserMessage({
             )}
           </div>
         )}
+        {!(queued && entrySeq !== undefined) && discardNote !== null && (
+          <div className="user-message__actions">
+            <span className="user-message__note" role="status">
+              {discardNote}
+            </span>
+          </div>
+        )}
         {discarded && (
           <div className="user-message__actions">
             <button
