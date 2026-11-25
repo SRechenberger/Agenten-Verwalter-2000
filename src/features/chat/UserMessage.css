@@ -52,7 +52,7 @@
     align-self: flex-start;
     padding: 0 var(--space-md);
     border: 1px solid var(--color-border);
-    border-radius: 2px;
+    border-radius: var(--radius-flat);
     color: var(--color-fg-muted);
     font-size: var(--font-size-2xs);
     line-height: 16px;
@@ -68,7 +68,7 @@
   &__action {
     padding: var(--space-xs) var(--space-lg);
     border: 1px solid var(--color-border);
-    border-radius: 2px;
+    border-radius: var(--radius-flat);
     background: transparent;
     color: var(--color-fg-secondary);
     font: inherit;

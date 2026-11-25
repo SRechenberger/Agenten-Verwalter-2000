@@ -2,6 +2,7 @@
 
 **Aktiver Plan:** (kein aktiver Plan)
 **Nächster Schritt:** Abnahme des Kandidaten v0.77.0 und Merge des Release-PR. Danach offen sind die Phasen 1 und 2 des Plans `mitgelieferte-befehle`, siehe „Außerdem offen“.
+**In Arbeit (Version 0.78.1):** Flacher Stil in der Übersicht des Vorhabens (Block „Fernsteuerung“, Automatik, Session-Karten, Intro), in der Liste der Repositories von „Neues Vorhaben“ und in der Eingabesperre; die Literale `2px` laufen über `--radius-flat` (Taiga 255, 256; Regel in `docs/conventions/tailwind.md`, keine Migration).
 **In Arbeit (Version 0.78.0):** Umsetzungen je Session, Agenten öffnen keine Sessions mehr (ADR 076, Migration 36; Taiga 216, 217).
 **In Arbeit (Version 0.78.0):** Karten per Werkzeug (ADR 077, keine Migration; Taiga 235): `verwalter_notify_user` meldet `asks`, `requests`, `done` (mit Angebot), `review` („Zum Ansehen“) und `blocked` („Blockiert“) statt der Einordnung durch ein Modell; die Einstellung „Modell der Einordnung“ und die Probe `answer-probe` entfallen, `notify-probe` misst die Werkzeugtreue (Opus 18 von 18, Sonnet 9 von 18; `AskUserQuestion` bleibt deshalb offen).
 **In Arbeit (Version 0.78.0):** Freigabe je Gruppe (Nachtrag ADR 059, Migration 37; Taiga 137, Lane `gruppen`).
