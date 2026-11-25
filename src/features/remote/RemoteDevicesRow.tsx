@@ -1,11 +1,13 @@
-import type { ReactElement } from 'react';
+import type { ChangeEvent, ReactElement } from 'react';
 import type { ConnectedGuest } from '@/features/remote/projectAccess';
 import { deviceStateText } from '@/features/remote/remoteTexts';
 import { useConnectedGuests } from '@/features/remote/useProjectAccess';
 import { SettingRow } from '@/features/settings/SettingRow';
+import type { ProjectGroup } from '@/lib/bindings/ProjectGroup';
 import type { RemoteDevice } from '@/lib/bindings/RemoteDevice';
-import { revokeRemoteDevice } from '@/lib/remote';
+import { revokeRemoteDevice, setDeviceCreateRight } from '@/lib/remote';
 import { useActionError } from '@/lib/useActionError';
+import { useProjectAccessStore } from '@/stores/projectAccess';
 import { useRemoteStore } from '@/stores/remote';
 import './RemoteRows.css';
 
@@ -13,7 +15,24 @@ import './RemoteRows.css';
 export function RemoteDevicesRow(): ReactElement {
   const devices: RemoteDevice[] = useRemoteStore((state) => state.devices);
   const guests: ConnectedGuest[] = useConnectedGuests();
+  const groups: readonly ProjectGroup[] = useProjectAccessStore((state) => state.groups);
   const { error, run } = useActionError(null);
+
+  /** „Neue Vorhaben“ je Gerät: `off`, `on` (ohne Gruppe) oder `g:<Gruppe>`; Standard ist nicht erlaubt. */
+  function createValue(device: RemoteDevice): string {
+    if (!device.createAllowed) {
+      return 'off';
+    }
+    return device.createGroupId === null ? 'on' : `g:${device.createGroupId}`;
+  }
+
+  function changeCreate(device: RemoteDevice, value: string): void {
+    const groupId: string | null = value.startsWith('g:') ? value.slice(2) : null;
+    run(
+      () => setDeviceCreateRight(device.id, value !== 'off', groupId),
+      `Das Recht von ${device.name} ist nicht gespeichert`,
+    );
+  }
 
   function renderDevice(device: RemoteDevice): ReactElement {
     return (
@@ -31,6 +50,24 @@ export function RemoteDevicesRow(): ReactElement {
             )}
           </span>
         </span>
+        <label className="remote-row__create">
+          <span className="remote-row__muted">Neue Vorhaben</span>
+          <select
+            className="remote-row__select"
+            value={createValue(device)}
+            onChange={(event: ChangeEvent<HTMLSelectElement>): void => {
+              changeCreate(device, event.target.value);
+            }}
+          >
+            <option value="off">nicht erlaubt</option>
+            <option value="on">erlaubt, ohne Gruppe</option>
+            {groups.map((group: ProjectGroup) => (
+              <option key={group.id} value={`g:${group.id}`}>
+                {`erlaubt, in „${group.name}“`}
+              </option>
+            ))}
+          </select>
+        </label>
         <button
           type="button"
           className="settings-view__button remote-row__danger"

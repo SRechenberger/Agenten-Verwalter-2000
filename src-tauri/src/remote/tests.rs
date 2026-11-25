@@ -7,7 +7,7 @@ use serde_json::json;
 
 use super::RemoteControl;
 use super::control::Refused;
-use super::model::{DeviceRef, ProjectAccess};
+use super::model::{CreateRight, DeviceRef, ProjectAccess};
 use crate::db::implementations::{
     self as implementation_rows, ImplementationRow, PhaseRow, StationRow,
 };
@@ -663,5 +663,56 @@ fn the_own_sharing_list_names_a_project_whose_group_shares_it_too_and_not_one_sh
     assert_eq!(
         remote_rows::shared_project_ids(&connection).expect("lesbar"),
         vec![SECOND_PROJECT.to_owned()]
+    );
+}
+
+#[test]
+fn migration_39_adds_the_create_right_to_a_database_of_version_38_and_defaults_to_not_allowed() {
+    let mut connection = Connection::open_in_memory().expect("Datenbank");
+    for script in migrations::first(38) {
+        connection.execute_batch(script).expect("alte Migration");
+    }
+    connection
+        .execute_batch(
+            "PRAGMA user_version = 38; \
+             INSERT INTO remote_devices (id, name, token_hash, created_at) VALUES ('d', 'D', 'h', 1.0);",
+        )
+        .expect("Bestand");
+    migrations::run(&mut connection).expect("wandert");
+    let version: u32 = connection
+        .query_row("PRAGMA user_version", [], |row| row.get(0))
+        .expect("Version");
+    assert_eq!(version, migrations::LATEST);
+    assert_eq!(
+        remote_rows::device_create_right(&connection, "d").expect("lesbar"),
+        CreateRight::default(),
+        "bestehende Geräte dürfen nichts anlegen"
+    );
+}
+
+#[test]
+fn the_create_right_keeps_its_group_and_loses_it_when_the_group_is_deleted() {
+    let connection = database();
+    insert_group(&connection, "arbeit");
+    remote_rows::insert_device(&connection, &device_row("d")).expect("gekoppelt");
+    let right = CreateRight {
+        allowed: true,
+        group_id: Some("arbeit".to_owned()),
+    };
+    remote_rows::set_device_create_right(&connection, "d", &right).expect("gesetzt");
+    assert_eq!(
+        remote_rows::device_create_right(&connection, "d").expect("lesbar"),
+        right
+    );
+    connection
+        .execute("DELETE FROM project_groups WHERE id = 'arbeit'", [])
+        .expect("gelöscht");
+    let after = remote_rows::device_create_right(&connection, "d").expect("lesbar");
+    assert!(after.allowed && after.group_id.is_none());
+    remote_rows::revoke_device(&connection, "d", 2.0).expect("gesperrt");
+    assert_eq!(
+        remote_rows::device_create_right(&connection, "d").expect("lesbar"),
+        CreateRight::default(),
+        "ein gesperrtes Gerät hat kein Recht"
     );
 }

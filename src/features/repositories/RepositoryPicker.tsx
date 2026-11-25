@@ -12,10 +12,16 @@ const INFO_TEXT =
 interface RepositoryPickerProps {
   selectedIds: string[];
   onChange: (selectedIds: string[]) => void;
+  /** Der Host, dessen Liste gilt (Anlegen auf einem Host): nur wählen, nichts hinzufügen oder entfernen. */
+  host?: { id: string; name: string } | null;
 }
 
-export function RepositoryPicker({ selectedIds, onChange }: RepositoryPickerProps): ReactElement {
-  const { repositories, error: loadError, add, remove } = useKnownRepositories();
+export function RepositoryPicker({
+  selectedIds,
+  onChange,
+  host = null,
+}: RepositoryPickerProps): ReactElement {
+  const { repositories, error: loadError, add, remove } = useKnownRepositories(host?.id ?? null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   function toggle(id: string, isChecked: boolean): void {
@@ -72,28 +78,30 @@ export function RepositoryPicker({ selectedIds, onChange }: RepositoryPickerProp
           </span>
           {renderTrailing(repository)}
         </label>
-        <button
-          type="button"
-          className="repository-picker__remove"
-          aria-label={`${repository.name} aus der Liste entfernen`}
-          title="Nur aus der Liste entfernen, der Ordner bleibt"
-          onClick={(): void => {
-            handleRemove(repository.id);
-          }}
-        >
-          <svg
-            width="12"
-            height="12"
-            viewBox="0 0 14 14"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.4"
-            strokeLinecap="round"
-            aria-hidden="true"
+        {host === null && (
+          <button
+            type="button"
+            className="repository-picker__remove"
+            aria-label={`${repository.name} aus der Liste entfernen`}
+            title="Nur aus der Liste entfernen, der Ordner bleibt"
+            onClick={(): void => {
+              handleRemove(repository.id);
+            }}
           >
-            <path d="M3.5 3.5l7 7M10.5 3.5l-7 7" />
-          </svg>
-        </button>
+            <svg
+              width="12"
+              height="12"
+              viewBox="0 0 14 14"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.4"
+              strokeLinecap="round"
+              aria-hidden="true"
+            >
+              <path d="M3.5 3.5l7 7M10.5 3.5l-7 7" />
+            </svg>
+          </button>
+        )}
       </li>
     );
   }
@@ -109,7 +117,9 @@ export function RepositoryPicker({ selectedIds, onChange }: RepositoryPickerProp
     if (repositories.length === 0) {
       return (
         <p className="repository-picker__empty">
-          Noch keine Repositories. Ohne Repository arbeitet der Agent in einem leeren Ordner.
+          {host === null
+            ? 'Noch keine Repositories. Ohne Repository arbeitet der Agent in einem leeren Ordner.'
+            : `Auf ${host.name} ist noch kein Repository eingetragen. Ohne Repository arbeitet der Agent dort in einem leeren Ordner.`}
         </p>
       );
     }
@@ -123,41 +133,48 @@ export function RepositoryPicker({ selectedIds, onChange }: RepositoryPickerProp
         Repositories
       </legend>
       {renderList()}
-      <div className="repository-picker__actions">
-        <button type="button" className="repository-picker__add" onClick={handleAdd}>
-          <svg
-            width="12"
-            height="12"
-            viewBox="0 0 14 14"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.6"
-            strokeLinecap="round"
-            aria-hidden="true"
-          >
-            <path d="M7 2.5v9M2.5 7h9" />
-          </svg>
-          Repository oder Ordner hinzufügen …
-        </button>
-        <span className="repository-picker__info" title={INFO_TEXT}>
-          <svg
-            width="13"
-            height="13"
-            viewBox="0 0 14 14"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.4"
-            strokeLinecap="round"
-            aria-hidden="true"
-          >
-            <circle cx="7" cy="7" r="5.5" />
-            <path d="M7 6.4v3.4" />
-            <circle cx="7" cy="4.3" r="0.5" fill="currentColor" />
-          </svg>
-          Der Agent arbeitet in den gewählten Repositories. Ihre Skills stehen in der Session zur
-          Verfügung.
-        </span>
-      </div>
+      {host !== null && (
+        <p className="repository-picker__empty">
+          Es gelten die Repositories von {host.name}. Neue trägt dort der Host ein.
+        </p>
+      )}
+      {host === null && (
+        <div className="repository-picker__actions">
+          <button type="button" className="repository-picker__add" onClick={handleAdd}>
+            <svg
+              width="12"
+              height="12"
+              viewBox="0 0 14 14"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.6"
+              strokeLinecap="round"
+              aria-hidden="true"
+            >
+              <path d="M7 2.5v9M2.5 7h9" />
+            </svg>
+            Repository oder Ordner hinzufügen …
+          </button>
+          <span className="repository-picker__info" title={INFO_TEXT}>
+            <svg
+              width="13"
+              height="13"
+              viewBox="0 0 14 14"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.4"
+              strokeLinecap="round"
+              aria-hidden="true"
+            >
+              <circle cx="7" cy="7" r="5.5" />
+              <path d="M7 6.4v3.4" />
+              <circle cx="7" cy="4.3" r="0.5" fill="currentColor" />
+            </svg>
+            Der Agent arbeitet in den gewählten Repositories. Ihre Skills stehen in der Session zur
+            Verfügung.
+          </span>
+        </div>
+      )}
       {errorMessage !== null && (
         <p className="repository-picker__error" role="alert">
           {errorMessage}

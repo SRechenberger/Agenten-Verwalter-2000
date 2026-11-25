@@ -220,6 +220,12 @@ const TABLE: &[(Class, Option<IdKind>, &[&str])] = &[
         &["remote_group_share_set"],
     ),
     (
+        // Das Recht eines Geräts, Vorhaben anzulegen, ist Steuerrecht: nur der Host entscheidet.
+        Class::NeverGuestOpen,
+        None,
+        &["remote_device_set_create"],
+    ),
+    (
         Class::Reachable,
         None,
         &[
@@ -300,6 +306,9 @@ const TABLE: &[(Class, Option<IdKind>, &[&str])] = &[
             "remote_usage_load",
             "remote_usage_refresh",
             "remote_agent_queue",
+            // Am Gast lokal; der Host beantwortet die Namen vor der Prüfung, nach dem Recht des Geräts.
+            "remote_repository_list",
+            "remote_project_create",
             "remote_inbox_list",
             "remote_asset_base",
         ],
