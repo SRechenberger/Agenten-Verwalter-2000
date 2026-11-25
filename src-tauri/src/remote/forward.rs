@@ -16,8 +16,8 @@ use super::guest::{self, GuestTerminals};
 use super::server::RemoteServer;
 use super::wire::Frame;
 use super::{
-    AGENT_QUEUE_CHANGED_EVENT, CHANGED_EVENT, INBOX_CHANGED_EVENT, RemoteControl,
-    USAGE_CHANGED_EVENT,
+    AGENT_QUEUE_CHANGED_EVENT, CHANGED_EVENT, INBOX_CHANGED_EVENT, PROFILE_CHANGED_EVENT,
+    RemoteControl, USAGE_CHANGED_EVENT,
 };
 use crate::dashboard::SEEN_EVENT as DASHBOARD_SEEN_EVENT;
 use crate::db::Database;
@@ -66,6 +66,8 @@ pub(super) const FORWARDED: &[(&str, Owner)] = &[
     (HOST_QUEUE_EVENT, Owner::EveryDevice),
     // Ebenso ohne Inhalt: `inbox_list` filtert der Host für den Gast.
     (HOST_INBOX_EVENT, Owner::EveryDevice),
+    // Ebenso ohne Inhalt: Das Profil filtert der Host je Gerät (`remote_host_profile`).
+    (PROFILE_CHANGED_EVENT, Owner::EveryDevice),
 ];
 
 /// Hört die Ereignisse mit und gibt sie über einen eigenen Thread weiter: Ein `emit` kann unter
@@ -209,6 +211,11 @@ pub fn on_guest_frame(app: &AppHandle, host_id: &str, frame: Frame) {
             // Nie unter dem eigenen Namen: Sonst läse der Gast seine eigene Warteschlange neu.
             if name == HOST_QUEUE_EVENT {
                 let _ = app.emit(AGENT_QUEUE_CHANGED_EVENT, json!({ "hostId": host_id }));
+                return;
+            }
+            // Das Recht dieses Geräts hat sich geändert: Die Oberfläche lädt Profile mit dem Rest neu.
+            if name == PROFILE_CHANGED_EVENT {
+                let _ = app.emit(CHANGED_EVENT, ());
                 return;
             }
             if name == HOST_INBOX_EVENT {

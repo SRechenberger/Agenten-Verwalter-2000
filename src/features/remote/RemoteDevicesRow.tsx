@@ -1,11 +1,13 @@
-import type { ReactElement } from 'react';
+import type { ChangeEvent, ReactElement } from 'react';
 import type { ConnectedGuest } from '@/features/remote/projectAccess';
 import { deviceStateText } from '@/features/remote/remoteTexts';
 import { useConnectedGuests } from '@/features/remote/useProjectAccess';
 import { SettingRow } from '@/features/settings/SettingRow';
+import type { ProjectGroup } from '@/lib/bindings/ProjectGroup';
 import type { RemoteDevice } from '@/lib/bindings/RemoteDevice';
-import { revokeRemoteDevice } from '@/lib/remote';
+import { revokeRemoteDevice, setDeviceCreateRight } from '@/lib/remote';
 import { useActionError } from '@/lib/useActionError';
+import { useProjectAccessStore } from '@/stores/projectAccess';
 import { useRemoteStore } from '@/stores/remote';
 import './RemoteRows.css';
 
@@ -13,11 +15,28 @@ import './RemoteRows.css';
 export function RemoteDevicesRow(): ReactElement {
   const devices: RemoteDevice[] = useRemoteStore((state) => state.devices);
   const guests: ConnectedGuest[] = useConnectedGuests();
+  const groups: readonly ProjectGroup[] = useProjectAccessStore((state) => state.groups);
   const { error, run } = useActionError(null);
+
+  /** „Neue Vorhaben“ je Gerät: `off`, `on` (ohne Gruppe) oder `g:<Gruppe>`; Standard ist nicht erlaubt. */
+  function createValue(device: RemoteDevice): string {
+    if (!device.createAllowed) {
+      return 'off';
+    }
+    return device.createGroupId === null ? 'on' : `g:${device.createGroupId}`;
+  }
+
+  function changeCreate(device: RemoteDevice, value: string): void {
+    const groupId: string | null = value.startsWith('g:') ? value.slice(2) : null;
+    run(
+      () => setDeviceCreateRight(device.id, value !== 'off', groupId),
+      `Das Recht von ${device.name} ist nicht gespeichert`,
+    );
+  }
 
   function renderDevice(device: RemoteDevice): ReactElement {
     return (
-      <li key={device.id} className="remote-row__item">
+      <li key={device.id} className="remote-row__item remote-row__item--top">
         <span
           className={`remote-row__dot${device.online ? ' remote-row__dot--on' : ''}`}
           aria-hidden="true"
@@ -30,6 +49,24 @@ export function RemoteDevicesRow(): ReactElement {
               guests.find((guest: ConnectedGuest) => guest.id === device.id)?.projectName ?? null,
             )}
           </span>
+          <label className="remote-row__create">
+            <span className="remote-row__muted">Neue Vorhaben</span>
+            <select
+              className="remote-row__select"
+              value={createValue(device)}
+              onChange={(event: ChangeEvent<HTMLSelectElement>): void => {
+                changeCreate(device, event.target.value);
+              }}
+            >
+              <option value="off">nicht erlaubt</option>
+              <option value="on">erlaubt, ohne Gruppe</option>
+              {groups.map((group: ProjectGroup) => (
+                <option key={group.id} value={`g:${group.id}`}>
+                  {`erlaubt, in „${group.name}“`}
+                </option>
+              ))}
+            </select>
+          </label>
         </span>
         <button
           type="button"
@@ -45,21 +82,32 @@ export function RemoteDevicesRow(): ReactElement {
   }
 
   return (
-    <SettingRow id="remoteDevices">
-      <div className="remote-row__stack">
-        {devices.length === 0 ? (
-          <span className="remote-row__muted">
-            Noch kein Gerät gekoppelt. Die Einladung dafür erstellst du unter „Status“.
-          </span>
-        ) : (
-          <ul className="remote-row__list">{devices.map(renderDevice)}</ul>
-        )}
-        {error !== null && (
-          <span className="remote-row__error" role="alert">
-            {error}
-          </span>
-        )}
-      </div>
-    </SettingRow>
+    <>
+      <SettingRow id="remoteDevices">
+        <div className="remote-row__stack">
+          {devices.length === 0 ? (
+            <span className="remote-row__muted">
+              Noch kein Gerät gekoppelt. Die Einladung dafür erstellst du unter „Status“.
+            </span>
+          ) : (
+            <>
+              <ul className="remote-row__list">{devices.map(renderDevice)}</ul>
+            </>
+          )}
+          {error !== null && (
+            <span className="remote-row__error" role="alert">
+              {error}
+            </span>
+          )}
+        </div>
+      </SettingRow>
+      {devices.length > 0 && (
+        <p className="remote-row__note">
+          Ein Vorhaben, das ein Gerät anlegt, ist für Gäste freigegeben und vom Gerät übernommen.
+          Herauswerfen geht jederzeit in der Übersicht des Vorhabens. Archivieren und Löschen
+          bleiben dir.
+        </p>
+      )}
+    </>
   );
 }

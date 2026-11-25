@@ -26,7 +26,8 @@ use crate::dashboard::{
 use crate::db::{Database, remote as remote_rows};
 use crate::error::CommandError;
 use crate::implementation::slots::AgentQueue;
-use crate::projects::model::{ProjectGroup, ProjectSummary};
+use crate::projects::model::{ProjectCreated, ProjectGroup, ProjectSummary};
+use crate::repositories::model::KnownRepository;
 use crate::sessions::model::WaitingMessage;
 use crate::usage::model::UsageStatus;
 
@@ -312,6 +313,60 @@ pub async fn host_profile(
     let value =
         blocking(move || clients.call(&host_id, "remote_host_profile", Value::Null)).await??;
     serde_json::from_value(value).map_err(|error| CommandError::Internal(error.to_string()))
+}
+
+/// Die Repositories des Hosts, aus denen ein Gast wählen darf, der dort Vorhaben anlegen darf.
+pub async fn repository_list(
+    clients: Arc<RemoteClients>,
+    host_id: String,
+) -> Result<Vec<KnownRepository>, CommandError> {
+    let value =
+        blocking(move || clients.call(&host_id, "remote_repository_list", Value::Null)).await??;
+    serde_json::from_value(value).map_err(|error| CommandError::Internal(error.to_string()))
+}
+
+/// Legt ein Vorhaben beim Host an (ADR 059, Nachtrag): Die Anhänge gehen erst zum Host, dann der
+/// Auftrag. Der Host übernimmt die Gruppe aus dem Recht des Geräts; `args["groupId"]` ist die lokale
+/// Gruppe dieses Gastes und bleibt hier.
+pub async fn project_create(
+    app: AppHandle,
+    clients: Arc<RemoteClients>,
+    database: Arc<Database>,
+    host_id: String,
+    mut args: Value,
+) -> Result<ProjectCreated, CommandError> {
+    let local_group = args
+        .get("groupId")
+        .and_then(Value::as_str)
+        .map(str::to_owned);
+    if let Value::Object(fields) = &mut args {
+        fields.remove("groupId");
+    }
+    let host = host_id.clone();
+    let called = Arc::clone(&clients);
+    let upload_app = app.clone();
+    let value = blocking(move || {
+        let (args, uploaded) = upload_attachments(&upload_app, &called, &host, args)?;
+        let value = called.call(&host, "remote_project_create", args)?;
+        for id in &uploaded {
+            let _ = attachments::discard(&upload_app, id);
+        }
+        Ok::<Value, CommandError>(value)
+    })
+    .await??;
+    clients.remember(&host_id, "project_list", &value["project"]);
+    clients.remember(&host_id, "session_list", &value["session"]);
+    let mut created: ProjectCreated =
+        serde_json::from_value(value).map_err(|error| CommandError::Internal(error.to_string()))?;
+    database.with(|connection| {
+        remote_rows::set_project_group(connection, &created.project.id, local_group.as_deref())
+    })?;
+    let info = clients
+        .host_info(&host_id)
+        .ok_or_else(|| not_remote(&created.project.id))?;
+    created.project = guest_view(created.project, &info, &groups(&database)?);
+    let _ = app.emit(CHANGED_EVENT, ());
+    Ok(created)
 }
 
 /// Das Kontingent des Hosts, wie er es zuletzt gelesen hat.

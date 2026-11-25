@@ -7,4 +7,12 @@ export type RemoteDevice = { id: string, name: string,
 /**
  * Millisekunden seit 1970; `None`, solange es sich nach der Kopplung nicht angemeldet hat.
  */
-lastSeenAt: number | null, online: boolean, };
+lastSeenAt: number | null, online: boolean, 
+/**
+ * Darf dieses Gerät Vorhaben beim Host anlegen (ADR 059, Nachtrag)?
+ */
+createAllowed: boolean, 
+/**
+ * Die Gruppe des Hosts, in der sie landen; `None`: ohne Gruppe.
+ */
+createGroupId: string | null, };

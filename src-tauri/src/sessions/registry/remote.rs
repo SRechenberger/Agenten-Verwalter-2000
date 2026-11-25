@@ -56,6 +56,22 @@ impl SessionRegistry {
         result
     }
 
+    /// Gibt ein Vorhaben, das ein Gast eben angelegt hat, sofort frei: über seine Gruppe, wenn sie es
+    /// tut, sonst einzeln (ADR 059, Nachtrag „Gast legt Vorhaben an“).
+    pub fn share_created(&self, app: &AppHandle, project_id: &str) -> Result<(), CommandError> {
+        let by_group = self
+            .database
+            .with(|connection| remote_rows::effective_shared_project_ids(connection))?
+            .iter()
+            .any(|id: &String| id == project_id);
+        if by_group {
+            self.sync_shared(app, false)
+        } else {
+            self.set_project_shared(app, project_id, true, false)
+                .map(drop)
+        }
+    }
+
     /// Die Gruppen, die ihren Mitgliedern die Freigabe geben.
     pub fn shared_group_ids(&self) -> Result<Vec<String>, CommandError> {
         self.database

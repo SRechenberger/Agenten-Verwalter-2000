@@ -31,6 +31,9 @@ pub const USAGE_CHANGED_EVENT: &str = "remote://usage-changed";
 pub const AGENT_QUEUE_CHANGED_EVENT: &str = "remote://agent-queue-changed";
 /// `{ hostId }`, am Gast: Die wartenden Nachrichten eines Hosts haben sich geändert (`inbox://changed` am Host).
 pub const INBOX_CHANGED_EVENT: &str = "remote://inbox-changed";
+/// Ohne Inhalt, am Host an jedes verbundene Gerät: Das Profil (`remote_host_profile`, etwa `canCreate`) hat sich
+/// geändert. Der Gast lädt es neu und meldet es lokal als `remote://changed`.
+pub const PROFILE_CHANGED_EVENT: &str = "host://profile-changed";
 /// Ordner unter `~/.verwalter` für Zertifikat und Hosts.
 pub const DIR_NAME: &str = "remote";
 pub const HOST_KEY_FILE: &str = "host-key.pem";

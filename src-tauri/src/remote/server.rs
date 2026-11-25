@@ -216,15 +216,25 @@ impl RemoteServer {
             .setup
             .database
             .with(|connection| remote_rows::load_devices(connection))?;
+        let mut rights = self
+            .shared
+            .setup
+            .database
+            .with(|connection| remote_rows::create_rights(connection))?;
         let online = lock(&self.shared.online);
         Ok(rows
             .into_iter()
             .filter(|row: &remote_rows::DeviceRow| row.revoked_at.is_none())
-            .map(|row: remote_rows::DeviceRow| RemoteDevice {
-                online: online.contains_key(&row.id),
-                id: row.id,
-                name: row.name,
-                last_seen_at: row.last_seen_at,
+            .map(|row: remote_rows::DeviceRow| {
+                let right = rights.remove(&row.id).unwrap_or_default();
+                RemoteDevice {
+                    online: online.contains_key(&row.id),
+                    create_allowed: right.allowed,
+                    create_group_id: right.group_id,
+                    id: row.id,
+                    name: row.name,
+                    last_seen_at: row.last_seen_at,
+                }
             })
             .collect())
     }

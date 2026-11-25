@@ -22,13 +22,14 @@ use super::access::{self, Actor, IdKind, ResolvedId, TargetId};
 use super::content;
 use super::control::Holder;
 use super::intercept::{REMOTE_HEADER, remote_pass};
-use super::model::DeviceRef;
+use super::model::{CreateRight, DeviceRef};
 use super::wire::{Frame, Link, SendError};
 use super::{CHANGED_EVENT, RemoteControl};
 use crate::dashboard::{
     self,
     model::{FlowFacts, ProjectFacts, SessionFacts, Snapshot},
 };
+use crate::db::{Database, remote as remote_rows};
 use crate::error::CommandError;
 use crate::implementation::slots::{AgentQueue, QueueEntry};
 use crate::sessions::model::WaitingMessage;
@@ -60,6 +61,15 @@ pub trait Host: Send + Sync {
     fn agent_queue(&self) -> AgentQueue;
     /// Die wartenden Nachrichten aus der Registry, ungefiltert; nie über `inbox_list`.
     fn inbox_list(&self) -> Result<Vec<WaitingMessage>, CommandError>;
+    /// Das Recht des Geräts, Vorhaben anzulegen. Der Standard ist „nicht erlaubt“, auch wenn ein Host
+    /// es nicht lesen kann.
+    fn create_right(&self, _device_id: &str) -> Result<CreateRight, CommandError> {
+        Ok(CreateRight::default())
+    }
+    /// Gibt ein eben angelegtes Vorhaben für Gäste frei, wenn seine Gruppe es nicht schon tut.
+    fn share_created(&self, _project_id: &str) -> Result<(), CommandError> {
+        Ok(())
+    }
     /// Führt den Command aus wie die eigene Oberfläche, mit der Kopfzeile des Servers.
     fn invoke(&self, command: &str, args: Value) -> Result<Value, CommandError>;
     /// Der Ordner `.artefakte` im Workspace der Session.
@@ -104,7 +114,12 @@ pub fn answer(
             };
             to_json(&found)
         }
-        "remote_host_profile" => host_profile(host),
+        "remote_host_profile" => host_profile(host, device),
+        "remote_repository_list" => {
+            create_right_of(host, control, device)?;
+            host.invoke("repository_list", Value::Null)
+        }
+        "remote_project_create" => project_create(host, control, device, args),
         // Sie brauchen die Verbindung des Geräts: `answer_on`. Über `on_message` hinge
         // `terminal_detach` die eigene Oberfläche ab.
         "terminal_attach" | "terminal_detach" => Err(CommandError::Terminal(
@@ -250,7 +265,7 @@ fn surface_of(command: &str, mut args: Value, device: &DeviceRef) -> Value {
 }
 
 /// Betriebsart und Modelle dieses Hosts, aus denselben Commands wie für die eigene Oberfläche.
-fn host_profile(host: &dyn Host) -> Result<Value, CommandError> {
+fn host_profile(host: &dyn Host, device: &DeviceRef) -> Result<Value, CommandError> {
     let settings = host.invoke("settings_load", Value::Null)?;
     // `settings_load` liefert `SettingsOverview`: die Betriebsart steht unter `settings`.
     let operating_mode = settings["settings"]
@@ -266,7 +281,78 @@ fn host_profile(host: &dyn Host) -> Result<Value, CommandError> {
         "localModels": host.invoke("settings_local_models", Value::Null)?,
         "codexModels": host.invoke("codex_models", Value::Null)?,
         "skillUses": host.invoke("skill_uses", Value::Null)?,
+        "canCreate": host.create_right(&device.id)?.allowed,
     }))
+}
+
+/// Das Recht des Geräts; ohne es lehnt der Host ab, auch für ein gesperrtes Gerät. Die Prüfung liegt
+/// hier im Kern des Hosts, nie in der Oberfläche.
+fn create_right_of(
+    host: &dyn Host,
+    control: &RemoteControl,
+    device: &DeviceRef,
+) -> Result<CreateRight, CommandError> {
+    let right = host.create_right(&device.id)?;
+    if !right.allowed || control.with(|control| control.is_revoked(&device.id)) {
+        return Err(CommandError::Internal(
+            "Dieses Gerät darf keine Vorhaben beim Host anlegen.".to_owned(),
+        ));
+    }
+    Ok(right)
+}
+
+/// `remote_project_create` (ADR 059, Nachtrag): legt das Vorhaben wie `project_create` an, aber nur aus
+/// den Repositories des Hosts und in der Gruppe aus dem Recht des Geräts, gibt es frei und lässt das
+/// Gerät es übernehmen. Was der Gast an Gruppe schickt, gilt hier nicht.
+fn project_create(
+    host: &dyn Host,
+    control: &RemoteControl,
+    device: &DeviceRef,
+    args: Value,
+) -> Result<Value, CommandError> {
+    let right = create_right_of(host, control, device)?;
+    let known: HashSet<String> = host
+        .invoke("repository_list", Value::Null)?
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|item: &Value| item.get("id").and_then(Value::as_str).map(str::to_owned))
+        .collect();
+    let unknown = args
+        .get("repositoryIds")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .any(|id: &Value| !id.as_str().is_some_and(|id: &str| known.contains(id)));
+    if unknown {
+        return Err(CommandError::Internal(
+            "Das Repository ist beim Host nicht eingetragen.".to_owned(),
+        ));
+    }
+    let mut args = args;
+    args["groupId"] = right.group_id.map_or(Value::Null, Value::String);
+    let created = host.invoke("project_create", args)?;
+    let project_id = created["project"]["id"]
+        .as_str()
+        .ok_or_else(|| {
+            CommandError::Internal("Der Host nennt das neue Vorhaben nicht.".to_owned())
+        })?
+        .to_owned();
+    // Kein Rückbau: Das Vorhaben bleibt beim Host, der Gast erfährt, was fehlt.
+    (|| -> Result<(), CommandError> {
+        host.share_created(&project_id)?;
+        control.with(|control| control.take(&project_id, device.clone()))?;
+        Ok(())
+    })()
+    .map_err(|error: CommandError| {
+            CommandError::Internal(format!(
+                "Das Vorhaben ist beim Host angelegt, aber nicht freigegeben oder übernommen worden: {error}"
+            ))
+        })?;
+    host.projects_changed(std::slice::from_ref(&project_id));
+    let mut created = created;
+    created["project"] = host.project(&project_id)?;
+    Ok(created)
 }
 
 fn text_of<'a>(args: &'a Value, key: &str) -> Result<&'a str, CommandError> {
@@ -440,6 +526,18 @@ impl Host for AppHost {
         self.app.state::<SessionRegistry>().inbox_list()
     }
 
+    fn create_right(&self, device_id: &str) -> Result<CreateRight, CommandError> {
+        self.app
+            .state::<Arc<Database>>()
+            .with(|connection| remote_rows::device_create_right(connection, device_id))
+    }
+
+    fn share_created(&self, project_id: &str) -> Result<(), CommandError> {
+        self.app
+            .state::<SessionRegistry>()
+            .share_created(&self.app, project_id)
+    }
+
     fn invoke(&self, command: &str, args: Value) -> Result<Value, CommandError> {
         let window = self
             .app
@@ -549,5 +647,7 @@ fn command_error(value: Value) -> CommandError {
     })
 }
 
+#[cfg(test)]
+mod create_tests;
 #[cfg(test)]
 mod tests;

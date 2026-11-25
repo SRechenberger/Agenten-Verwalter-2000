@@ -1,8 +1,8 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 /// Ob ein bekannter Ordner ein Git-Repository ist (ADR 018).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub enum RepositoryKind {
     Git,
@@ -10,7 +10,7 @@ pub enum RepositoryKind {
 }
 
 /// Ein Repository, das die App kennt, samt Zustand für die Auswahl.
-#[derive(Debug, Clone, Serialize, TS)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct KnownRepository {
     pub id: String,
