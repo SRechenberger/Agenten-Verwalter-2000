@@ -7,6 +7,8 @@ import { isBegun, type StationRef } from '@/features/implementation/implementati
 import { stationDisplay } from '@/features/implementation/commandStation';
 import {
   BRIEF_CHANGE_BEFORE,
+  BRIEF_COUNTER_OPEN,
+  BRIEF_COUNTER_SENT,
   BRIEF_EDIT_DROPS_CHANGES,
   BRIEF_LABEL,
   BRIEF_NOT_SAVED,
@@ -99,7 +101,7 @@ function BriefField({ initial, isOpen, label, onSave }: BriefFieldProps): ReactE
       <LimitCounter
         length={draft.length}
         max={MAX_BRIEF_CHARS}
-        note={isOpen ? 'bis zum Start änderbar' : 'gesendet, festgeschrieben 🔒'}
+        note={isOpen ? BRIEF_COUNTER_OPEN : BRIEF_COUNTER_SENT}
       />
     </>
   );

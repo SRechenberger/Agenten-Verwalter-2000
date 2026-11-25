@@ -585,6 +585,8 @@ export function briefChangeLead(kind: BriefChangeKind, source: string): string {
 }
 
 export const BRIEF_CHANGE_BEFORE = 'vorher:';
+export const BRIEF_COUNTER_OPEN = 'bis zum Start änderbar';
+export const BRIEF_COUNTER_SENT = 'gesendet, festgeschrieben 🔒';
 
 export function briefChangeAction(kind: BriefChangeKind): string {
   return kind === 'replace' ? 'Zurücksetzen' : 'Entfernen';

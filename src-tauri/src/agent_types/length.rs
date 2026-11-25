@@ -104,13 +104,21 @@ pub struct Waiting {
     pub repositories: Vec<PathBuf>,
 }
 
-/// Ersetzt eine Datei, die fehlt oder sich nicht lesen lässt, durch nichts: Beim Speichern eines Typs
-/// zählt nur, was sich zählen lässt; der Start meldet den Rest.
+/// Ersetzt eine Datei, die sich nicht lesen lässt, durch nichts: Beim Speichern eines Typs zählt nur,
+/// was sich zählen lässt; der Start meldet den Rest. `NotFound` bleibt, damit `read_file` weitere
+/// Repositories probiert; eine Datei, die nirgends liegt, endet als `Missing`.
 fn tolerant(
     read: &impl Fn(&Path) -> io::Result<String>,
 ) -> impl Fn(&Path) -> io::Result<String> + '_ {
     move |path: &Path| match read(path) {
-        Err(error) if error.kind() != io::ErrorKind::FileTooLarge => Ok(String::new()),
+        Err(error)
+            if !matches!(
+                error.kind(),
+                io::ErrorKind::FileTooLarge | io::ErrorKind::NotFound
+            ) =>
+        {
+            Ok(String::new())
+        }
         other => other,
     }
 }
@@ -446,5 +454,31 @@ mod tests {
             &no_files,
         );
         assert_eq!(errors, Vec::new());
+    }
+
+    #[test]
+    fn a_relative_file_in_a_later_repository_counts_for_a_waiting_station() {
+        let reviewer = agent_type("reviewer", &["Review"], 100, &[]);
+        let mut grown = input_of(&reviewer);
+        grown.files = vec!["docs/rolle.md".to_owned()];
+        let mut station = waiting("A-3 · Review", "Review", 10);
+        station.repositories = vec![PathBuf::from("/r1"), PathBuf::from("/r2")];
+        let read = |path: &Path| {
+            if path == Path::new("/r2/docs/rolle.md") {
+                Ok("z".repeat(15_990))
+            } else {
+                Err(io::Error::from(io::ErrorKind::NotFound))
+            }
+        };
+        let errors = check_type(
+            &grown,
+            Some("reviewer"),
+            std::slice::from_ref(&reviewer),
+            &[station],
+            Path::new("/home"),
+            &read,
+        );
+        assert_eq!(errors.len(), 1);
+        assert!(errors[0].message.contains("A-3 · Review"));
     }
 }
