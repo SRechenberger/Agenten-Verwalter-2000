@@ -102,6 +102,12 @@ const ENTRY_DATA = {
     label: 'Terminal',
     info: 'Wo das Terminal neben dem Chat erscheint: unten unter der Ansicht oder als Spalte rechts. Ein- und ausblenden mit dem Knopf >_ oder Strg+Ö.',
   },
+  dashboardReaderPlacement: {
+    category: 'general',
+    section: 'Darstellung',
+    label: 'Lesebereich im Dashboard',
+    info: 'Wo der Lesebereich des Dashboards steht: rechts neben dem Postfach oder unter dem Postfach. Die Höhe unter dem Postfach ziehst du am Griff über dem Lesebereich.',
+  },
   operatingMode: {
     category: 'agent',
     section: 'Agent',
