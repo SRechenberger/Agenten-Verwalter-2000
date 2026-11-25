@@ -42,6 +42,7 @@ export function RemoteShareBlock({
   projects,
   onProjectChanged,
 }: RemoteShareBlockProps): ReactElement {
+  const ownSharedIds: string[] = useRemoteStore((state) => state.ownSharedIds);
   const [isEndOpen, setIsEndOpen] = useState<boolean>(false);
   const [isGroupEndOpen, setIsGroupEndOpen] = useState<boolean>(false);
   const { error, run } = useActionError(project.id);
@@ -169,7 +170,7 @@ export function RemoteShareBlock({
       )}
       {isGroupEndOpen && viaGroup !== null && (
         <EndShareConfirm
-          text={groupEndText(viaGroup, heldIn(viaGroup, projects), 'end')}
+          text={groupEndText(viaGroup, heldIn(viaGroup, projects, ownSharedIds), 'end')}
           onEnd={(stopAgents: boolean): Promise<unknown> =>
             setGroupShared(viaGroup.id, false, stopAgents)
           }

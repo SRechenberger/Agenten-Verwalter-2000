@@ -100,6 +100,12 @@ export function listSharedGroupIds(): Promise<string[]> {
   return invoke<string[]>('remote_group_share_list');
 }
 
+/** Die IDs der Vorhaben mit eigener Freigabe: Sie bleiben freigegeben, auch wenn sie eine freigegebene
+ *  Gruppe verlassen. Am Host. */
+export function listOwnSharedIds(): Promise<string[]> {
+  return invoke<string[]>('remote_own_share_list');
+}
+
 /** Übernimmt ein freigegebenes Vorhaben eines Hosts. Am Gast.
  *  @throws {import('@/lib/bindings/CommandError').CommandError} `controlledBy` (ein anderes Gerät
  *    hält es), `hostUnreachable`, `internal` (nicht mehr freigegeben) */

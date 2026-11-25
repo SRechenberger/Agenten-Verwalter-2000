@@ -62,6 +62,12 @@ impl SessionRegistry {
             .with(|connection| remote_rows::shared_group_ids(connection))
     }
 
+    /// Die Vorhaben mit eigener Freigabe: Sie bleiben freigegeben, wenn sie ihre Gruppe verlassen.
+    pub fn own_shared_project_ids(&self) -> Result<Vec<String>, CommandError> {
+        self.database
+            .with(|connection| remote_rows::shared_project_ids(connection))
+    }
+
     /// Gleicht `Control` mit der wirksamen Freigabe der Datenbank ab (V5), nach jeder Änderung an
     /// Freigabe, Gruppe, Mitgliedschaft oder Archiv. Wer wegfällt, verliert den Inhaber und bekommt
     /// `access`; `stop_agents` hält danach seine Sessions an (erster Fehler kommt zurück).

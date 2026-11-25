@@ -193,6 +193,7 @@ pub fn run() {
             commands::remote::remote_share_set,
             commands::remote::remote_group_share_set,
             commands::remote::remote_group_share_list,
+            commands::remote::remote_own_share_list,
             commands::remote::remote_server_status,
             commands::remote::remote_server_set,
             commands::remote::remote_invitation_create,

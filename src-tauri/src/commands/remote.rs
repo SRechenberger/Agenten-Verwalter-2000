@@ -47,6 +47,14 @@ pub async fn remote_group_share_list(
     registry.shared_group_ids()
 }
 
+/// Die IDs der Vorhaben mit eigener Freigabe, auch wenn ihre Gruppe sie ebenfalls gibt.
+#[tauri::command]
+pub async fn remote_own_share_list(
+    registry: tauri::State<'_, SessionRegistry>,
+) -> Result<Vec<String>, CommandError> {
+    registry.own_shared_project_ids()
+}
+
 #[tauri::command]
 pub async fn remote_server_status(
     server: tauri::State<'_, Arc<RemoteServer>>,

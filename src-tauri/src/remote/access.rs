@@ -269,6 +269,7 @@ const TABLE: &[(Class, Option<IdKind>, &[&str])] = &[
             "project_group_delete",
             "project_group_set_collapsed",
             "remote_group_share_list",
+            "remote_own_share_list",
             "skill_list_for_repositories",
             "attachment_add_files",
             "attachment_discard",

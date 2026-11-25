@@ -136,7 +136,6 @@ pub fn effective_shared_project_ids(connection: &Connection) -> Result<Vec<Strin
 }
 
 /// Nur die eigene Freigabe, ohne Gruppe und Archiv.
-#[cfg(test)]
 pub fn shared_project_ids(connection: &Connection) -> Result<Vec<String>, CommandError> {
     let mut statement =
         connection.prepare("SELECT id FROM projects WHERE remote_shared = 1 ORDER BY id")?;

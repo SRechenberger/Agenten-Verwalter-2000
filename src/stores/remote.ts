@@ -10,6 +10,8 @@ interface RemoteState {
   devices: RemoteDevice[];
   /** Die Gruppen, die ihren Mitgliedern die Freigabe geben (am Host). */
   sharedGroupIds: string[];
+  /** Die Vorhaben mit eigener Freigabe (am Host). */
+  ownSharedIds: string[];
   hosts: RemoteHostStatus[];
   /** Host-ID → Betriebsart und Modelle des Hosts; ein Host ohne Eintrag ist unerreichbar oder noch nicht gelesen. */
   profiles: Readonly<Record<string, HostProfile>>;
@@ -20,6 +22,7 @@ interface RemoteState {
   setServer: (server: RemoteServerStatus) => void;
   setDevices: (devices: RemoteDevice[]) => void;
   setSharedGroupIds: (groupIds: string[]) => void;
+  setOwnSharedIds: (projectIds: string[]) => void;
   setHosts: (hosts: RemoteHostStatus[]) => void;
   setProfiles: (profiles: Readonly<Record<string, HostProfile>>) => void;
   setAssetBase: (assetBase: string) => void;
@@ -32,6 +35,7 @@ export const useRemoteStore = create<RemoteState>((set) => ({
   server: null,
   devices: [],
   sharedGroupIds: [],
+  ownSharedIds: [],
   hosts: [],
   profiles: {},
   assetBase: null,
@@ -44,6 +48,9 @@ export const useRemoteStore = create<RemoteState>((set) => ({
   },
   setSharedGroupIds: (sharedGroupIds: string[]): void => {
     set({ sharedGroupIds });
+  },
+  setOwnSharedIds: (ownSharedIds: string[]): void => {
+    set({ ownSharedIds });
   },
   setHosts: (hosts: RemoteHostStatus[]): void => {
     set({ hosts });

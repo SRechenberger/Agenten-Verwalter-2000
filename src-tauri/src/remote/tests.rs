@@ -640,3 +640,19 @@ fn migration_36_adds_the_group_sharing_to_a_database_of_version_35() {
         "bestehende Gruppen geben nichts frei"
     );
 }
+
+#[test]
+fn the_own_sharing_list_names_a_project_whose_group_shares_it_too_and_not_one_shared_only_by_its_group()
+ {
+    let connection = database();
+    insert_group(&connection, "arbeit");
+    remote_rows::set_group_shared(&connection, "arbeit", true).expect("schreibbar");
+    project_rows::set_group(&connection, PROJECT, Some("arbeit")).expect("zugewiesen");
+    insert_project(&connection, SECOND_PROJECT, Some("arbeit"));
+    remote_rows::set_shared(&connection, SECOND_PROJECT, true).expect("schreibbar");
+    assert_eq!(effective(&connection).len(), 2);
+    assert_eq!(
+        remote_rows::shared_project_ids(&connection).expect("lesbar"),
+        vec![SECOND_PROJECT.to_owned()]
+    );
+}

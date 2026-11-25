@@ -2,13 +2,18 @@ import { holderOf } from '@/features/remote/projectAccess';
 import type { ProjectGroup } from '@/lib/bindings/ProjectGroup';
 import type { ProjectSummary } from '@/lib/bindings/ProjectSummary';
 
-/** Die Vorhaben der Gruppe, die ein Gast gerade hält. */
+/** Die Vorhaben der Gruppe, die ein Gast gerade hält und die ohne die Gruppe nicht freigegeben
+ *  blieben: Nur sie verlieren beim Beenden die Freigabe (eigene Freigabe: `ownSharedIds`). */
 export function heldIn(
   group: Pick<ProjectGroup, 'id'>,
   projects: readonly ProjectSummary[],
+  ownSharedIds: readonly string[],
 ): ProjectSummary[] {
   return projects.filter(
-    (project: ProjectSummary) => project.groupId === group.id && holderOf(project.access) !== null,
+    (project: ProjectSummary) =>
+      project.groupId === group.id &&
+      holderOf(project.access) !== null &&
+      !ownSharedIds.includes(project.id),
   );
 }
 

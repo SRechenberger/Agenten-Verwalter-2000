@@ -164,6 +164,7 @@ export function Sidebar({
   const setFocused = useImplementationStore((state) => state.setFocused);
   const { error: actionError, run, report: reportError } = useActionError('sidebar');
   const sharedGroupIds: string[] = useRemoteStore((state) => state.sharedGroupIds);
+  const ownSharedIds: string[] = useRemoteStore((state) => state.ownSharedIds);
   const isServerOn: boolean = useRemoteStore((state) => state.server?.enabled === true);
   // Der Dialog „Freigabe beenden?“ für Gruppe, Herausnehmen und Löschen; `null`, solange keiner offen ist.
   const [endDialog, setEndDialog] = useState<{
@@ -404,7 +405,7 @@ export function Sidebar({
   }
 
   function removeGroup(group: ProjectGroup): void {
-    const held = sharedGroupIds.includes(group.id) ? heldIn(group, projects) : [];
+    const held = sharedGroupIds.includes(group.id) ? heldIn(group, projects, ownSharedIds) : [];
     if (held.length === 0) {
       run(() => deleteProjectGroup(group.id), 'Gruppe löschen fehlgeschlagen');
       return;
@@ -421,7 +422,7 @@ export function Sidebar({
       return;
     }
     setEndDialog({
-      text: groupEndText(group, heldIn(group, projects), 'end'),
+      text: groupEndText(group, heldIn(group, projects, ownSharedIds), 'end'),
       onEnd: (stopAgents: boolean) => setGroupShared(group.id, false, stopAgents),
     });
   }
@@ -440,7 +441,7 @@ export function Sidebar({
       from !== undefined && from.id !== groupId && sharedGroupIds.includes(from.id);
     if (project !== undefined && from !== undefined && leavesShared) {
       const staysShared: boolean = to !== undefined && sharedGroupIds.includes(to.id);
-      if (!staysShared && holderOf(project.access) !== null) {
+      if (!staysShared && holderOf(project.access) !== null && !ownSharedIds.includes(project.id)) {
         setEndDialog({
           text: leaveText(project, from),
           onEnd: (stopAgents: boolean) =>
