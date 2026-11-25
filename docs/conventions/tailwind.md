@@ -65,12 +65,12 @@ Umgesetzt in `src/styles/theme.css`: `@import 'tailwindcss' source(none);` schal
 
 ## Flacher Stil für Inhalte
 
-Chat, Karten und Hinweise über dem Eingabefeld, die Popups des Dashboards, die Übersicht des Vorhabens, „Neues Vorhaben“ und die Eingabesperre (Taiga 236, 255, 256; `docs/design/2026-11-25_chat-flach/`):
+Chat, Karten und Hinweise über dem Eingabefeld, die Popups des Dashboards, in der Übersicht des Vorhabens der Block „Fernsteuerung“, der Automatik-Block, die Session-Karten und das Intro „Neue Session“, die Liste der Repositories in „Neues Vorhaben“ und die Eingabesperre (Taiga 236, 255, 256; `docs/design/2026-11-25_chat-flach/`, `docs/design/2026-11-25_flacher-stil-reste/`):
 
 - Keine runden Kästen mit eigener Fläche. Die Art eines Eintrags zeigt eine 2-px-Linie links (`border-left`) in ihrer Farbe.
 - Listen sind Zeilen mit Haarlinien (`--color-border-subtle`).
 - Code, Diffs, Fehlertexte und Felder sind eckig (`border-radius: 0`) mit Haarlinie; Knöpfe, Marken und Chips nehmen `--radius-flat` (2 px). Status- und Auswahlpunkte bleiben rund.
-- Unter `src/features/chat/` gibt es kein `--radius-lg` und `--radius-xl`. Dasselbe gilt für `RepositoryPicker.css`, `ProjectOverview.css`, `ProjectSessionCard.css`, `NewSessionIntro.css` und den Block `.remote-block` und die Sperre `.remote-lock` in `RemoteProject.css`: Ein Block ohne Fläche trägt links eine 2-px-Linie. Ein Radius von 2 px ist immer `var(--radius-flat)`, nie das Literal (Ausnahme: Balken und Symbole). Neue Bausteine werden gleich flach gebaut; der Stil gehört an die Quelle des Bausteins.
+- Unter `src/features/chat/` gibt es kein `--radius-lg` und `--radius-xl`. In `RepositoryPicker.css`, `ProjectOverview.css`, `ProjectSessionCard.css` und `NewSessionIntro.css` und bei `.remote-block` und `.remote-lock` in `RemoteProject.css` gibt es auch kein `--radius-md`. Kästen dort sind eckig mit Haarlinie; die Sperre `.remote-lock` hat wie das Eingabefeld einen Rahmen mit `--radius-flat`, hier gestrichelt; der Block „Fernsteuerung“ (`.remote-block`) hat statt eines Rahmens links eine 2-px-Linie, im Akzent, solange ein Gerät das Vorhaben steuert (`remote-block--active`). Ein Radius von 2 px ist immer `var(--radius-flat)`, nie das Literal (Ausnahme: Balken und Symbole). Neue Bausteine werden gleich flach gebaut; der Stil gehört an die Quelle des Bausteins.
 - Menüs, Dialoge und Popover außerhalb des Chats behalten ihre Rundung.
 
 ## Anti-Patterns
