@@ -89,6 +89,7 @@
   --radius-md: 6px;
   --radius-lg: 8px;
   --radius-xl: 10px;
+  --radius-flat: 2px;
   --radius-full: 999px;
 
   --shadow-popover-dark: 0 10px 30px rgb(0 0 0 / 0.45);

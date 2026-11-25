@@ -21,7 +21,7 @@
 
 .popup-button {
   border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-flat);
   background: transparent;
   padding: var(--space-xs) var(--space-xl);
   color: var(--color-fg-primary);
@@ -47,7 +47,7 @@
 .popup-message {
   padding: var(--space-md) var(--space-lg);
   border: 1px solid var(--color-border-subtle);
-  border-radius: var(--radius-lg);
+  border-radius: 0;
   background: var(--color-bg-base);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
@@ -67,7 +67,7 @@
 .popup-code {
   padding: var(--space-sm) var(--space-md);
   border: 1px solid var(--color-border-subtle);
-  border-radius: var(--radius-md);
+  border-radius: 0;
   background: var(--color-bg-base);
   font-family: var(--font-mono);
   font-size: var(--font-size-xs);
@@ -85,7 +85,7 @@
   width: 100%;
   padding: var(--space-sm) var(--space-md);
   border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
+  border-radius: 0;
   background: var(--color-bg-base);
   color: inherit;
   font: inherit;
@@ -96,7 +96,7 @@
   align-self: flex-start;
   padding: 1px var(--space-md);
   border: 1px solid var(--color-status-completed);
-  border-radius: var(--radius-full);
+  border-radius: var(--radius-flat);
   color: var(--color-status-completed);
   font-size: var(--font-size-xs);
 }
