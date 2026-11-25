@@ -25,3 +25,25 @@ Befund 4 der ersten Review, Tippen in langer Liste (31 Einträge, Entwurf im Les
   3 Zeilen aufgeklappt (darunter die gewählte):  Text kommt 5,0 s nach Strg+Enter beim Agenten an (etwa 95 ms je Taste)
   31 Zeilen aufgeklappt: Text kommt 14,2 s nach Strg+Enter beim Agenten an (etwa 130 ms je Taste)
   Xvfb ohne GPU-Beschleunigung; auf echter Hardware schneller, die Richtung bleibt.
+
+Probelauf 2 (postfach-9), 2026-11-25, nach Fix-Runde 2. Aufbau wie oben, Wegwerf-Datenbank neu gesät (36 Einträge).
+
+Kriterium 4, Ungelesen bei Host und Gast (Vorhaben dev-vault, vom Gast gehalten, mine = true)
+  Gast wählt "Die Doku zur Fernsteuerung" (Klick, 04:53:54Z) -> Liste des Hosts ohne Punkt bei der ersten Abfrage
+    (unter 1 s), ohne Zutun am Host; dashboard_get beider: gelesen, seenAt gleich
+  Host wählt "Die CI ist grün", solange der Gast hält (04:54:44Z) -> Punkt weg, kein Fehler;
+    dashboard_get beider: gelesen, seenAt gleich; Liste des Gastes ohne Punkt bei der ersten Abfrage
+  Host lädt neu -> Zeile weiter ohne Punkt
+
+Tippen, 110 Zeichen per XTEST in 4,7 s in das Antwortfeld des Lesebereichs, Liste "Alles" (29 Zeilen, 36 Einträge)
+  erstes Zeichen = Zeit bis das Feld es zeigt; Rückstau = Zeit nach dem letzten Tastendruck, bis das Feld voll ist
+  (beides gemessen über den Treiber der Seite, Abfrage alle 0,15 s bis 0,35 s; das ist der Boden der Messung)
+  0 Zeilen offen:   erstes Zeichen 0,62 s, Rückstau 0,24 s, beim Agenten sofort nach Strg+Enter
+  3 Zeilen offen:   erstes Zeichen 0,60 s, Rückstau 0,24 s, beim Agenten sofort nach Strg+Enter (vorher 5,0 s)
+  36 Zeilen offen:  erstes Zeichen 0,60 s, Rückstau 0,24 s, beim Agenten sofort nach Strg+Enter (vorher 14,2 s)
+  j zwölfmal in 3,8 s in der Liste "Alles": Auswahl steht danach auf Zeile 13, keine Taste verloren
+
+Farbe der Art (Pixel aus den Bildern)
+  hell:   Linie links an Zeilen, die einen Agenten anhalten, 2 px #A86A00; "Rückfrage" #A86A00, "Blockiert" #D23B33
+  dunkel: Linie links 2 px #F2B33D; "Rückfrage" im Ton, "Blockiert" rot
+  Kopf des Lesebereichs: "Blockiert · der Agent kommt ohne dich nicht weiter ✓ vom Agenten gemeldet" (gemeldet einmal)
