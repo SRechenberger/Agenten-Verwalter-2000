@@ -1,8 +1,10 @@
 import type { PanelId } from '@/lib/bindings/PanelId';
 import type { PanelWidths } from '@/lib/bindings/PanelWidths';
+import type { ReaderPlacement } from '@/lib/bindings/ReaderPlacement';
 
 const STORAGE_KEY = 'verwalter.panelWidths';
 const COLLAPSED_STORAGE_KEY = 'verwalter.collapsedPanels';
+const READER_PLACEMENT_STORAGE_KEY = 'verwalter.dashboardReaderPlacement';
 
 interface PanelBounds {
   /** Standardbreite in Pixeln. */
@@ -107,5 +109,23 @@ export function readRememberedCollapsedPanels(): PanelId[] {
       : [];
   } catch {
     return [];
+  }
+}
+
+/** Spiegel der Anordnung des Lesebereichs, gelesen beim ersten Rendern, damit er beim Start nicht von rechts nach unten springt. */
+export function rememberReaderPlacement(placement: ReaderPlacement): void {
+  try {
+    localStorage.setItem(READER_PLACEMENT_STORAGE_KEY, placement);
+  } catch (reason: unknown) {
+    console.error('Anordnung des Lesebereichs nicht gemerkt', reason);
+  }
+}
+
+/** Ein unbekannter oder fehlender Wert gilt als `right`. */
+export function readRememberedReaderPlacement(): ReaderPlacement {
+  try {
+    return localStorage.getItem(READER_PLACEMENT_STORAGE_KEY) === 'bottom' ? 'bottom' : 'right';
+  } catch {
+    return 'right';
   }
 }

@@ -27,9 +27,11 @@ import type { DashboardTask } from '@/lib/bindings/DashboardTask';
 import type { ImplementationView } from '@/lib/bindings/ImplementationView';
 import type { ProjectGroup } from '@/lib/bindings/ProjectGroup';
 import type { ProjectSummary } from '@/lib/bindings/ProjectSummary';
+import type { ReaderPlacement } from '@/lib/bindings/ReaderPlacement';
 import type { SessionSummary } from '@/lib/bindings/SessionSummary';
 import { dismissCard, loadDashboard, markCardsSeen, undismissCard } from '@/lib/dashboard';
 import { startStation } from '@/lib/implementation';
+import { readRememberedReaderPlacement } from '@/lib/panelWidths';
 import { resumeSession } from '@/lib/sessions';
 import { useActionError } from '@/lib/useActionError';
 import { usePanelCollapsed } from '@/lib/usePanelCollapsed';
@@ -90,9 +92,10 @@ export function DashboardView({
   const readerHeight = usePanelWidth('dashboardReaderHeight');
   const foldersPanel = usePanelCollapsed('dashboardFolders');
   const readerPanel = usePanelCollapsed('dashboardReader');
-  const isBottom: boolean = useSettingsStore(
-    (state) => state.settings?.dashboardReaderPlacement === 'bottom',
+  const placement: ReaderPlacement = useSettingsStore(
+    (state) => state.settings?.dashboardReaderPlacement ?? readRememberedReaderPlacement(),
   );
+  const isBottom: boolean = placement === 'bottom';
   const searchRef = useRef<HTMLInputElement>(null);
 
   const tasks: readonly DashboardTask[] = useMemo(() => view?.tasks ?? [], [view]);

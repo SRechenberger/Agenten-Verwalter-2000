@@ -257,6 +257,11 @@
     min-width: 320px;
     min-height: 0;
     border-right: 1px solid var(--color-border-subtle);
+
+    /* Lesebereich eingeklappt (rechts): die Liste steht am Rand, ohne Linie. */
+    .postfach__split > &:last-child {
+      border-right: 0;
+    }
   }
 
   &__tools {

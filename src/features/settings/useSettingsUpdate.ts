@@ -3,6 +3,7 @@ import type { Settings } from '@/lib/bindings/Settings';
 import type { SettingsChange } from '@/lib/bindings/SettingsChange';
 import { applyColorScheme } from '@/lib/colorScheme';
 import { commandErrorText } from '@/lib/errors';
+import { rememberReaderPlacement } from '@/lib/panelWidths';
 import { updateSettings } from '@/lib/settings';
 import { useSettingsStore } from '@/stores/settings';
 
@@ -24,6 +25,9 @@ export function useSettingsUpdate(): SettingsUpdate {
         setError(null);
         if (change.kind === 'colorScheme') {
           applyColorScheme(saved.colorScheme);
+        }
+        if (change.kind === 'dashboardReaderPlacement') {
+          rememberReaderPlacement(saved.dashboardReaderPlacement);
         }
         return true;
       } catch (reason: unknown) {
