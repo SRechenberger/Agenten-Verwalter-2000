@@ -40,7 +40,7 @@
     gap: var(--space-xs);
     padding: var(--space-md) var(--space-lg);
     border: 1px solid var(--color-border-subtle);
-    border-radius: var(--radius-flat);
+    border-radius: 0;
     background: var(--color-bg-base);
     font-size: var(--font-size-xs);
   }
@@ -59,7 +59,7 @@
   box-sizing: border-box;
   padding: var(--space-md) var(--space-lg);
   border: 1px solid var(--color-border-subtle);
-  border-radius: var(--radius-flat);
+  border-radius: 0;
   background: var(--color-bg-surface);
   color: var(--color-fg-secondary);
   font-family: var(--font-mono);
@@ -68,14 +68,14 @@
   word-break: break-all;
 }
 
-/* Der Vorschlag hebt sich ab (#132): getönter Grund, kräftiger Rahmen und, weil er nur als Karte vorn
-   steht, ein Fokusring. Zwei Klassen, denn `.station-card` setzt Rand und Grund sonst bei gleicher
+/* Der Vorschlag hebt sich ab (#132): Akzentlinie links auf transparentem Grund (flacher Stil) und, weil
+   er nur als Karte vorn steht, ein Fokusring. Zwei Klassen, denn `.station-card` setzt Rand und Grund sonst bei gleicher
    Spezifität zurück, je nach Reihenfolge der Stylesheets im Bundle. */
 .station-card.plan-change-card--proposal {
   border: 0;
   border-left: 2px solid var(--color-accent);
   border-radius: 0;
-  background: var(--color-accent-subtle);
+  background: transparent;
   box-shadow: none;
   outline: 2px solid var(--color-accent);
   outline-offset: 3px;

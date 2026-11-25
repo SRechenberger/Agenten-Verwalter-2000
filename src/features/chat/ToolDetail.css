@@ -57,7 +57,8 @@
     max-height: 24rem;
     margin: 0;
     padding: var(--space-md);
-    border-radius: var(--radius-flat);
+    border: 1px solid var(--color-border-subtle);
+    border-radius: 0;
     background: var(--color-bg-base);
     color: var(--color-fg-secondary);
     font-family: var(--font-mono);

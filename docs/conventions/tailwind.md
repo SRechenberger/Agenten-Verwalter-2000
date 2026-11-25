@@ -69,7 +69,7 @@ Chat, Karten und Hinweise über dem Eingabefeld und die Popups des Dashboards (T
 
 - Keine runden Kästen mit eigener Fläche. Die Art eines Eintrags zeigt eine 2-px-Linie links (`border-left`) in ihrer Farbe.
 - Listen sind Zeilen mit Haarlinien (`--color-border-subtle`).
-- Code, Diffs, Fehlertexte und Felder sind eckig mit Haarlinie; Knöpfe, Marken und Chips nehmen `--radius-flat` (2 px). Status- und Auswahlpunkte bleiben rund.
+- Code, Diffs, Fehlertexte und Felder sind eckig (`border-radius: 0`) mit Haarlinie; Knöpfe, Marken und Chips nehmen `--radius-flat` (2 px). Status- und Auswahlpunkte bleiben rund.
 - Unter `src/features/chat/` gibt es kein `--radius-lg` und `--radius-xl`. Neue Bausteine werden gleich flach gebaut; der Stil gehört an die Quelle des Bausteins.
 - Menüs, Dialoge und Popover außerhalb des Chats behalten ihre Rundung.
 

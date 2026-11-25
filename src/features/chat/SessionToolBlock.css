@@ -30,7 +30,7 @@
     margin: 0;
     padding: var(--space-md) var(--space-lg);
     border: 1px solid var(--color-border-subtle);
-    border-radius: var(--radius-flat);
+    border-radius: 0;
     background: var(--color-bg-base);
     line-height: 1.6;
     white-space: pre-wrap;
@@ -55,7 +55,7 @@
     width: 100%;
     padding: var(--space-md) var(--space-lg);
     border: 1px solid var(--color-border);
-    border-radius: var(--radius-flat);
+    border-radius: 0;
     background: var(--color-bg-base);
     color: var(--color-fg-primary);
     font: inherit;

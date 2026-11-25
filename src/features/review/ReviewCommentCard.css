@@ -166,7 +166,7 @@
     min-height: 56px;
     padding: var(--space-md);
     border: 1px solid var(--color-accent);
-    border-radius: var(--radius-flat);
+    border-radius: 0;
     outline: none;
     resize: vertical;
     background: var(--color-bg-surface);
