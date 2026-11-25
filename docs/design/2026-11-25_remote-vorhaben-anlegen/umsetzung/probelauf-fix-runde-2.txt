@@ -1,0 +1,43 @@
+Probelauf nach Fix-Runde 2 „Gast legt Vorhaben auf dem Host an“ (Taiga 193), 2026-11-25 07:42–07:48 UTC
+
+Aufbau wie im ersten Probelauf (probelauf.log):
+- Host über Vite 1465, Gast über Vite 1466, beide --strictPort, Xvfb :165/:166, je ein Wegwerf-HOME (38 Migrationen), claude als Attrappe.
+- Einmal gekoppelt (Host-Port 47865, Gast „Laptop Büro“), für den ganzen Lauf kein Neuverbinden.
+- Das Recht hat der Host in den Einstellungen unter „Gekoppelte Geräte“ gesetzt (Auswahlfeld „Neue Vorhaben“, Änderungs-Ereignis am Feld).
+- Klicks und Strg+Enter über XTEST.
+- Erst dunkel, dann beide Instanzen in den Einstellungen auf „Hell“.
+- K1 bis K3 sind nicht wiederholt; ihr Pfad ist unverändert.
+
+D4 Ohne Recht
+- Gast „Neues Vorhaben“: „Anlegen auf [Dieser Rechner]“ mit dem Hinweis „kropotkin erlaubt diesem Gerät nicht, Vorhaben anzulegen. …“.
+
+D3 Recht „erlaubt, in „Arbeit““, kropotkin gewählt
+- Der Knopf heißt „Auf kropotkin anlegen“, die Fußzeile zeigt „1 Repository“ (kundenportal).
+
+B mit Repository (Seite offen, kropotkin + kundenportal + Auftrag)
+- Host entzieht das Recht. Nach 2 s zeigt der Gast „Anlegen auf [Dieser Rechner]“ (nicht markiert) und den Hinweis
+  „kropotkin erlaubt diesem Gerät gerade keine neuen Vorhaben. Wähle „Dieser Rechner“, um hier anzulegen.“ (role=alert).
+- Der Knopf ist gesperrt (disabled), die Liste der Repositories ist weg, die Fußzeile zeigt „Kein Repository“.
+- Versuche: Strg+Enter im Auftrag und ein Klick auf den Knopf.
+  Ergebnis: Am Host bleibt es bei 4 Vorhaben, am Gast bei 3 (eines lokal, zwei Fernzugriff), keine Fehlermeldung, die Seite bleibt.
+- Recht zurück: „Dieser Rechner | kropotkin“, kropotkin ist wieder gewählt, kundenportal angehakt, „Auf kropotkin anlegen“ aktiv, „1 Repository“.
+
+B ohne Repository
+- kundenportal abgehakt, Recht entzogen: gesperrt wie oben. Strg+Enter und Klick erzeugen nichts (Host 4, Gast 3).
+- Klick auf „Dieser Rechner“: Wahl lokal (aria-checked), es erscheint der normale Hinweis ohne Recht, „Vorhaben starten“ ist aktiv (nicht ausgelöst).
+- Recht zurück, kropotkin und kundenportal gewählt, Strg+Enter: Am Host steht „Importer auf das neue Schema umstellen“
+  in g-arbeit, Zugriff shared, Inhaber Laptop Büro. Am Gast steht es als remote, der Chat öffnet sofort.
+  Damit erreicht Strg+Enter tatsächlich start(), und die gesperrten Versuche davor sind echte Versuche.
+
+D5 „Gekoppelte Geräte“
+- „Neue Vorhaben“ steht unter Name und Status, der lange Status „Verbunden · steuert „Importer auf das neue Schema umstellen““
+  bricht über die ganze Breite um (zwei Zeilen). Ein Erklärsatz steht unter der Liste.
+
+Hell: D4, D3, B mit Repository, Rückgabe des Rechts und D5 wiederholt, gleiche Ergebnisse.
+
+Vergleichsbilder (App links, Prototyp rechts): vergleich-d4-ohne-recht-*, vergleich-d3-anlegen-auf-host-*, vergleich-b-wahl-verloren-*
+(der Prototyp hat keinen Zustand „verloren“, daneben steht „ohne Recht“), vergleich-d5-geraete-*.
+
+Aufräumen
+- Host-Server ausgeschaltet; Prozessgruppen App Gast, App Host, Xvfb :165 und :166 über die notierten PGIDs beendet.
+- Danach keine Prozesse mit E2E_ROLE dieses Laufs; Ports 1465, 1466 und 47865 frei.
