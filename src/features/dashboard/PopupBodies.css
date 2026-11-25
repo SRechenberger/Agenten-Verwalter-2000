@@ -123,6 +123,6 @@
 
   & .popup-button {
     flex: none;
-    border-radius: 2px;
+    border-radius: var(--radius-flat);
   }
 }

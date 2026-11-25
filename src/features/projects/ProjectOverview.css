@@ -33,7 +33,7 @@
     align-items: center;
     height: 22px;
     padding: 0 var(--space-md);
-    border-radius: 5px;
+    border-radius: var(--radius-flat);
     background: var(--color-bg-hover);
     color: var(--color-fg-secondary);
     font-weight: 500;
@@ -105,7 +105,7 @@
     height: 30px;
     padding: 0 var(--space-xl);
     border: 0;
-    border-radius: var(--radius-md);
+    border-radius: var(--radius-flat);
     background: var(--color-accent);
     color: var(--color-fg-on-accent);
     font: inherit;
@@ -126,7 +126,7 @@
   &__auto {
     padding: var(--space-sm) var(--space-md);
     border: 1px solid var(--color-border-subtle);
-    border-radius: var(--radius-lg);
+    border-radius: 0;
 
     /* Bedienelemente am rechten Rand wie beim Schalter darüber; in den Einstellungen bleibt das Raster. */
     & .setting-row {
