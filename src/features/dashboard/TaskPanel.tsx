@@ -5,7 +5,7 @@ import {
   ageText,
   kindSubtitle,
   kindTone,
-  originText,
+  postfachOriginText,
   remoteHostOf,
   taskLabel,
 } from '@/features/dashboard/dashboardTexts';
@@ -91,7 +91,7 @@ export function TaskReader({ task, now, ...panel }: TaskReaderProps): ReactEleme
         </div>
         <h3 className="postfach__head-title">{task.title}</h3>
         <div className="postfach__head-origin">
-          {originText(task)}
+          {postfachOriginText(task)}
           {host !== null && <DashboardRemoteMark host={host} />} · wartet seit{' '}
           {ageText(task.since, now)}
         </div>

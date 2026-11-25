@@ -458,6 +458,15 @@ fn a_removed_implementation_reaches_only_the_guest_that_holds_its_project() {
 }
 
 #[test]
+fn a_seen_mark_reaches_the_guest_that_holds_the_project_with_its_project_id() {
+    use super::forward::{FORWARDED, Owner};
+    assert!(
+        FORWARDED.contains(&(crate::dashboard::SEEN_EVENT, Owner::Project)),
+        "{FORWARDED:?}"
+    );
+}
+
+#[test]
 fn a_change_of_the_agent_queue_reaches_every_connected_device_without_content() {
     use super::forward::{FORWARDED, Owner};
     assert!(

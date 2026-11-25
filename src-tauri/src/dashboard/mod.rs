@@ -21,6 +21,9 @@ use model::{
 
 /// Höchstlänge des Auszugs der letzten Antwort in Zeichen, samt „…“.
 pub const EXCERPT_CHARS: usize = 160;
+
+/// Nach `dashboard_seen`: Der Inhalt ist nur `projectId`; wer die Liste zeigt, lädt sie neu (ADR 079).
+pub const SEEN_EVENT: &str = "dashboard://seen";
 /// So lange nach dem Ende steht eine fertige Umsetzung noch bei den Abläufen.
 const RECENT_FINISH_MS: f64 = 24.0 * 60.0 * 60.0 * 1000.0;
 

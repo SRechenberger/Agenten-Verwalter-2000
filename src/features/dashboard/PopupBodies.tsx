@@ -615,7 +615,8 @@ function OpenAnswerBody({
         </>
       }
     >
-      <p className="popup-note">{reportedText(task)}</p>
+      {/* Gemeldet steht schon im Kopf; hier nur der Hinweis, dass der Agent das Werkzeug nicht gerufen hat. */}
+      {!task.reported && <p className="popup-note">{reportedText(task)}</p>}
       {task.offer !== null && (
         <div className="popup-offer">
           <span>Angebot: {task.offer}</span>

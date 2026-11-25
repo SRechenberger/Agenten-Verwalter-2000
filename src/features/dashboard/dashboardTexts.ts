@@ -146,12 +146,23 @@ export function ageText(since: number, now: number): string {
 
 /** Herkunft unter dem Titel: Vorhaben · Session („#3 Architekt“) oder Station („Review 103.1“), sonst Umsetzung. */
 export function originText(task: DashboardTask): string {
-  const where: string | null =
+  const where: string | null = originWhere(task);
+  return where === null ? task.projectName : `${task.projectName} · ${where}`;
+}
+
+function originWhere(task: DashboardTask): string | null {
+  return (
     task.stationLabel ??
     (task.sessionNumber === null
       ? task.implementationName
-      : `#${String(task.sessionNumber)}${task.sessionTitle === null ? '' : ` ${task.sessionTitle}`}`);
-  return where === null ? task.projectName : `${task.projectName} · ${where}`;
+      : `#${String(task.sessionNumber)}${task.sessionTitle === null ? '' : ` ${task.sessionTitle}`}`)
+  );
+}
+
+/** Herkunft im Postfach, wie im Prototyp: Session oder Station vor dem Vorhaben („#3 Architekt · Verwalter“). */
+export function postfachOriginText(task: DashboardTask): string {
+  const where: string | null = originWhere(task);
+  return where === null ? task.projectName : `${where} · ${task.projectName}`;
 }
 
 export const FLOW_STATE_LABEL: Record<DashboardFlowState, string> = {

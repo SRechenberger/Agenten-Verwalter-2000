@@ -1,5 +1,7 @@
 use std::sync::Arc;
 
+use tauri::Emitter;
+
 use crate::dashboard::{self, model::DashboardView};
 use crate::db::Database;
 use crate::db::dashboard as seen_rows;
@@ -45,18 +47,24 @@ pub async fn dashboard_undismiss(
     registry.undismiss_card(&app, &session_id)
 }
 
-/// Die Karten sind jetzt gesehen. `project_id` braucht nur die Fernsteuerung, um den Host zu finden;
-/// gespeichert wird allein `card_ids`. Eine leere Liste tut nichts.
+/// Die Karten sind jetzt gesehen. `project_id` führt die Fernsteuerung zum Host und steht im Ereignis
+/// `dashboard://seen`, das Host und haltender Gast neu laden lässt; gespeichert wird allein `card_ids`.
+/// Eine leere Liste tut nichts.
 #[tauri::command]
 pub async fn dashboard_seen(
+    app: tauri::AppHandle,
     database: tauri::State<'_, Arc<Database>>,
     project_id: String,
     card_ids: Vec<String>,
 ) -> Result<(), CommandError> {
-    let _ = project_id;
     if card_ids.is_empty() {
         return Ok(());
     }
     let at = crate::sessions::registry::now_ms();
-    database.with(|connection| seen_rows::mark_seen(connection, &card_ids, at))
+    database.with(|connection| seen_rows::mark_seen(connection, &card_ids, at))?;
+    let _ = app.emit(
+        dashboard::SEEN_EVENT,
+        serde_json::json!({ "projectId": project_id }),
+    );
+    Ok(())
 }

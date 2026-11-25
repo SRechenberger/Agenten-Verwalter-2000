@@ -3,7 +3,7 @@ import {
   ageText,
   kindTone,
   listKindLabel,
-  originText,
+  postfachOriginText,
   remoteHostOf,
 } from '@/features/dashboard/dashboardTexts';
 import { DashboardRemoteMark } from '@/features/dashboard/DashboardFolders';
@@ -280,7 +280,7 @@ export function DashboardList(props: DashboardListProps): ReactElement {
                   {RELEASED_CHIP}
                 </span>
               )}
-              <span className="postfach__from">{originText(task)}</span>
+              <span className="postfach__from">{postfachOriginText(task)}</span>
               {host !== null && <DashboardRemoteMark host={host} />}
               <span className="postfach__since">{ageText(task.since, now)}</span>
             </span>

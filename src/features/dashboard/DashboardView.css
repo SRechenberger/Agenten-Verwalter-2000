@@ -6,7 +6,10 @@
   flex-grow: 1;
   min-height: 0;
 
-  /* Die Klasse der Art setzt nur `--tone`; ohne Klasse der gedämpfte Ton. */
+  /* Der gedämpfte Ton steht nur hier. Die Klasse der Art setzt `--tone` an ihrem Element; ein Standardwert am
+     Element selbst stünde nach den Klassen und überschriebe sie (gleiche Spezifität). */
+  --tone: var(--color-fg-muted);
+
   &__tone--wait {
     --tone: var(--color-status-waiting);
   }
@@ -184,7 +187,6 @@
   }
 
   &__square {
-    --tone: var(--color-fg-muted);
     flex: none;
     width: 9px;
     height: 9px;
@@ -200,7 +202,6 @@
   }
 
   &__session {
-    --tone: var(--color-fg-muted);
     display: flex;
     align-items: center;
     gap: var(--space-md);
@@ -278,6 +279,10 @@
     font-size: var(--font-size-xs);
     white-space: nowrap;
     cursor: pointer;
+
+    & input {
+      accent-color: var(--color-accent);
+    }
   }
 
   &__selected {
@@ -370,7 +375,6 @@
   }
 
   &__row {
-    --tone: var(--color-fg-muted);
     position: relative;
     display: flex;
     align-items: stretch;
@@ -565,7 +569,6 @@
 
   /* Aufgeklappte Zeile: dasselbe wie der Lesebereich ohne Kopf, flach. */
   &__expanded {
-    --tone: var(--color-fg-muted);
     display: flex;
     flex-direction: column;
     gap: var(--space-xl);
@@ -583,6 +586,19 @@
     }
   }
 
+  /* Der Plan-Vorschlag (`PlanChangeCard`) flach (Story 236): Linie links statt Kasten, Fläche und Fokusring. Drei
+     Klassen, damit weder `.station-card` noch `.plan-change-card--proposal` je nach Reihenfolge im Bundle gewinnen. */
+  & .station-card.plan-change-card {
+    margin: 0;
+    padding: 0 0 0 var(--space-lg);
+    border: 0;
+    border-left: 2px solid var(--color-accent);
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+    outline: 0;
+  }
+
   /* Lesebereich */
   &__pane {
     display: flex;
@@ -594,16 +610,13 @@
   }
 
   &__reader {
-    --tone: var(--color-fg-muted);
     display: flex;
     flex-direction: column;
     gap: var(--space-xl);
   }
 
+  /* Fließtext, kein Flex: Sonst fallen die Leerzeichen vor „·“ und „✓“ am Anfang eines Teils weg. */
   &__head-kind {
-    display: flex;
-    align-items: center;
-    gap: 0;
     color: var(--tone);
     font-size: var(--font-size-xs);
     font-weight: 600;

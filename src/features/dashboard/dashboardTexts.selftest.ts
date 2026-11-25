@@ -14,6 +14,7 @@ import {
   linkTarget,
   offerMessage,
   originText,
+  postfachOriginText,
   reportedText,
   sentOfferText,
   lastExchange,
@@ -135,6 +136,17 @@ const CASES: { name: string; actual: () => unknown; expected: unknown }[] = [
     name: 'origin_implementation_when_no_session',
     actual: () => originText(task('x', 'planChange', { implementationName: 'Warteschlange' })),
     expected: 'Verwalter · Warteschlange',
+  },
+  {
+    name: 'postfach_origin_names_the_session_before_the_project',
+    actual: () =>
+      postfachOriginText(task('x', 'asks', { sessionNumber: 4, sessionTitle: 'Beweis' })),
+    expected: '#4 Beweis · Verwalter',
+  },
+  {
+    name: 'postfach_origin_without_session_or_station_is_the_project',
+    actual: () => postfachOriginText(task('x', 'planChange', { sessionNumber: null })),
+    expected: 'Verwalter',
   },
   { name: 'flow_percent', actual: () => flowPercent(flow(7, 11, 0)).toFixed(1), expected: '63.6' },
   { name: 'flow_percent_without_stations', actual: () => flowPercent(flow(0, 0, 0)), expected: 0 },

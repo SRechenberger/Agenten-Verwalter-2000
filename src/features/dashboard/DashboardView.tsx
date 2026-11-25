@@ -26,7 +26,7 @@ import type { ImplementationView } from '@/lib/bindings/ImplementationView';
 import type { ProjectGroup } from '@/lib/bindings/ProjectGroup';
 import type { ProjectSummary } from '@/lib/bindings/ProjectSummary';
 import type { SessionSummary } from '@/lib/bindings/SessionSummary';
-import { dismissCard, markCardsSeen, undismissCard } from '@/lib/dashboard';
+import { dismissCard, loadDashboard, markCardsSeen, undismissCard } from '@/lib/dashboard';
 import { startStation } from '@/lib/implementation';
 import { resumeSession } from '@/lib/sessions';
 import { useActionError } from '@/lib/useActionError';
@@ -64,8 +64,19 @@ export function DashboardView({
   onOpenSession,
   onOpenImplementation,
 }: DashboardViewProps): ReactElement {
-  const store = useDashboardStore();
-  const { view, folder, order, isMerging, query, selected, checked, expanded, openThreads } = store;
+  // Jedes Feld einzeln, nie `drafts`: Ein Tastendruck im Antwortfeld rendert nur dieses Feld neu (ADR 079). Die
+  // Aktionen des Stores sind stabil und müssen nicht abonniert werden.
+  const store = useDashboardStore.getState();
+  const view = useDashboardStore((state) => state.view);
+  const folder = useDashboardStore((state) => state.folder);
+  const order = useDashboardStore((state) => state.order);
+  const isMerging = useDashboardStore((state) => state.isMerging);
+  const query = useDashboardStore((state) => state.query);
+  const selected = useDashboardStore((state) => state.selected);
+  const checked = useDashboardStore((state) => state.checked);
+  const expanded = useDashboardStore((state) => state.expanded);
+  const openThreads = useDashboardStore((state) => state.openThreads);
+  const collapsed = useDashboardStore((state) => state.collapsed);
   const now: number = useNow(true);
   const { error, run } = useActionError('postfach');
   const [toast, setToast] = useState<Toast | null>(null);
@@ -108,7 +119,8 @@ export function DashboardView({
     };
   }, [toast]);
 
-  /** Setzt „angesehen“: sofort in der Ansicht, dann im Core (bei einem entfernten Vorhaben beim Host). */
+  /** Setzt „angesehen“: sofort in der Ansicht, dann im Core (bei einem entfernten Vorhaben beim Host). Lehnt der Core
+   *  ab, holt die Ansicht den Stand des Core zurück: Der Punkt bleibt nicht fälschlich weg. */
   const markSeen = useCallback((ids: readonly string[]): void => {
     const state = useDashboardStore.getState();
     const unread: DashboardTask[] = (state.view?.tasks ?? []).filter(
@@ -125,6 +137,13 @@ export function DashboardView({
     for (const [projectId, cardIds] of byProject) {
       markCardsSeen(projectId, cardIds).catch((reason: unknown) => {
         console.error('„Angesehen“ nicht gespeichert', reason);
+        loadDashboard()
+          .then((fresh) => {
+            useDashboardStore.getState().setView(fresh);
+          })
+          .catch((loadReason: unknown) => {
+            console.error('Dashboard nicht ladbar', loadReason);
+          });
       });
     }
   }, []);
@@ -175,11 +194,10 @@ export function DashboardView({
     const ids: string[] = visible.map((task: DashboardTask) => task.id);
     const on: boolean = !ids.every((id: string) => expanded[id] === true);
     expand(ids, on);
-    if (on) {
-      for (const entry of entries) {
-        if (entry.type === 'thread') {
-          store.setThreadOpen(entry.key, true);
-        }
+    // Auch zu: Einzelzeilen, die aus einer zusammengefassten Zeile kamen.
+    for (const entry of entries) {
+      if (entry.type === 'thread') {
+        store.setThreadOpen(entry.key, on);
       }
     }
     showToast(on ? `${String(ids.length)} Einträge aufgeklappt` : 'Alle zugeklappt');
@@ -400,7 +418,7 @@ export function DashboardView({
           implementations={implementations}
           sessions={sessions}
           folder={folder}
-          collapsed={store.collapsed}
+          collapsed={collapsed}
           onFolder={(next: string): void => {
             store.setFolder(next);
             store.clearChecked();

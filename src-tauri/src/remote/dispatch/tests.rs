@@ -708,10 +708,10 @@ fn a_guest_may_not_mark_cards_of_a_project_it_does_not_hold() {
 }
 
 #[test]
-fn dashboard_seen_and_undismiss_are_host_write_commands_with_their_id() {
+fn dashboard_seen_is_a_host_read_command_and_undismiss_a_host_write_command_with_their_id() {
     assert_eq!(
         access::class_of("dashboard_seen"),
-        Some(access::Class::HostWrite)
+        Some(access::Class::HostRead)
     );
     assert_eq!(
         access::class_of("dashboard_undismiss"),

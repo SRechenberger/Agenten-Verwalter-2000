@@ -23,7 +23,7 @@ Weitere Festlegungen des Prototyps: zwei Zeilen je Eintrag (Art, Absender, Vorha
 | P2 | „Gruppiert nach“ (`DashboardChoice`) entfällt; die Gruppen der Leiste ordnen die Vorhaben im Rand (aufklappbar); „Nur, was einen Agenten anhält“ ist der Ordner „Hält Agenten an“. |
 | P3 | Jeder Ablauf nennt seinen Master (`◆ Session 41`); mehrere Abläufe eines Vorhabens stehen nebeneinander (#217). |
 | P4 | Die Popups im Chat bleiben; im Dashboard ersetzt der Lesebereich das Popup und nutzt dieselben Inhalte. |
-| P5 | Tabelle `dashboard_seen(card_id, seen_at)`; ungelesen heißt `seen_at < since`; `dashboard_get` räumt ab; Befehle `dashboard_seen` und `dashboard_undismiss`, beide Klasse C. |
+| P5 | Tabelle `dashboard_seen(card_id, seen_at)`; ungelesen heißt `seen_at < since`; `dashboard_get` räumt ab; Befehle `dashboard_seen` (Klasse A: der Host markiert immer, der Gast als Inhaber; Ereignis `dashboard://seen` lädt Host und Gast neu) und `dashboard_undismiss` (Klasse C). |
 | P6 | Sammelaktionen rufen die vorhandenen Befehle der Reihe nach auf. |
 | P7 | Aufklappen: ▸/▾ vorn, `o`, →, ←, „Alle aufklappen“/„Alle zuklappen“; mehrere zugleich; eine aufgeklappte Zeile ist der Lesebereich ohne Kopf; der Entwurf einer Antwort ist je Karte einer; offene Zeilen sind flüchtiger Zustand der Oberfläche; Aufklappen zählt als angesehen. |
 
