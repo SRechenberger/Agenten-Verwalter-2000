@@ -39,6 +39,7 @@ pub mod side;
 pub mod skills;
 pub mod sourcing;
 pub mod standalone;
+pub mod tempo;
 pub mod terminal;
 pub mod tldr;
 pub mod usage;
@@ -251,6 +252,7 @@ pub fn run() {
             commands::mcp::mcp_reconnect,
             commands::mcp::mcp_toggle,
             commands::mcp::mcp_authenticate,
+            commands::tempo::tempo_load,
             commands::usage::usage_load,
             commands::usage::usage_refresh,
             commands::account::account_load,

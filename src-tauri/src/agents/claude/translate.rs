@@ -326,14 +326,17 @@ impl Translator {
         for block in &line.message.content {
             self.remember_git_call(block);
         }
-        // Die `usage` eines Subagenten gilt seinem eigenen Kontext, nicht dem Balken der Session.
+        // Die `usage` eines Subagenten gilt seinem eigenen Kontext, nicht dem Balken der Session; verbraucht
+        // hat er sie trotzdem.
         if let Some(parent) = line.parent_tool_use_id {
-            return subagent_events(&parent, line.message.content);
+            let mut events: Vec<AgentEvent> = tokens_used(&line.message).into_iter().collect();
+            events.extend(subagent_events(&parent, line.message.content));
+            return events;
         }
         if self.note_quota_line(&line) {
             return Vec::new();
         }
-        let mut events: Vec<AgentEvent> = Vec::new();
+        let mut events: Vec<AgentEvent> = tokens_used(&line.message).into_iter().collect();
         if let Some(usage) = line.message.usage {
             events.push(AgentEvent::ContextUsed(context_used(&usage)));
             events.extend(cache_used(line.message.id, &usage));
@@ -551,6 +554,20 @@ fn context_used(usage: &Usage) -> u32 {
         + usage.cache_creation_input_tokens.unwrap_or(0)
         + usage.cache_read_input_tokens.unwrap_or(0);
     u32::try_from(total).unwrap_or(u32::MAX)
+}
+
+/// Die Token der Zeile, wenn sie eine `usage` trägt; fehlende Zahlen zählen 0 (Codex ohne Cache).
+fn tokens_used(message: &AssistantMessage) -> Option<AgentEvent> {
+    let usage = message.usage.as_ref()?;
+    let count = |tokens: Option<u64>| u32::try_from(tokens.unwrap_or(0)).unwrap_or(u32::MAX);
+    Some(AgentEvent::TokensUsed {
+        message_id: message.id.clone(),
+        model: message.model.clone(),
+        input: count(usage.input_tokens),
+        cache_write: count(usage.cache_creation_input_tokens),
+        cache_read: count(usage.cache_read_input_tokens),
+        output: count(usage.output_tokens),
+    })
 }
 
 /// Nur wenn die Antwort den Cache gelesen oder geschrieben hat.

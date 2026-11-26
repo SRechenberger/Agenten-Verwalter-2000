@@ -231,6 +231,7 @@ const TABLE: &[(Class, Option<IdKind>, &[&str])] = &[
         &[
             "attachment_add_bytes",
             "usage_load",
+            "tempo_load",
             "usage_refresh",
             "codex_models",
             "settings_local_models",

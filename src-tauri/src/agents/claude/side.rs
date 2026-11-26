@@ -27,6 +27,10 @@ pub struct SideAnswer {
     /// Alle Eingabe-Token, auch die aus dem Cache.
     pub input_tokens: u64,
     pub cache_read_tokens: u64,
+    /// Neu geschriebene Cache-Token und Eingabe ohne Cache, für das Tempo (ADR 080).
+    pub cache_write_tokens: u64,
+    pub fresh_input_tokens: u64,
+    pub output_tokens: u64,
     pub turns: u64,
 }
 
@@ -95,6 +99,9 @@ fn side_answer(output: &str) -> Result<SideAnswer, String> {
             + count("cache_creation_input_tokens")
             + cache_read_tokens,
         cache_read_tokens,
+        cache_write_tokens: count("cache_creation_input_tokens"),
+        fresh_input_tokens: count("input_tokens"),
+        output_tokens: count("output_tokens"),
         turns: answer.get("num_turns").and_then(Value::as_u64).unwrap_or(0),
     })
 }

@@ -24,6 +24,7 @@ pub mod sessions;
 pub mod settings;
 pub mod skill_uses;
 pub mod tldr;
+pub mod token_usage;
 pub mod tool_details;
 
 use std::fs;
