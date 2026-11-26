@@ -208,6 +208,7 @@ pub fn run() {
             commands::remote::remote_take,
             commands::remote::remote_give_back,
             commands::remote::remote_host_profile,
+            commands::remote::remote_tempo_load,
             commands::remote::remote_usage_load,
             commands::remote::remote_agent_queue,
             commands::remote::remote_repository_list,

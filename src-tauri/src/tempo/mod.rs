@@ -24,7 +24,7 @@ const TOP_LIMIT: usize = 5;
 /// Höchstens ein Ereignis je Session in dieser Zeit.
 const EVENT_INTERVAL_MS: f64 = 1000.0;
 
-#[derive(Debug, Clone, PartialEq, Deserialize, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 #[serde(
     tag = "kind",
     rename_all = "camelCase",
@@ -35,7 +35,7 @@ pub enum TempoScope {
     All,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct TempoMinute {
     /// Beginn der Minute, Millisekunden seit 1970.
@@ -50,7 +50,7 @@ pub struct TempoMinute {
     pub output: u64,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct TempoTotals {
     #[ts(type = "number")]
@@ -63,7 +63,7 @@ pub struct TempoTotals {
     pub output: u64,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct TempoSessionRate {
     pub session_id: String,
@@ -71,7 +71,7 @@ pub struct TempoSessionRate {
     pub per_minute: u64,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct TempoSnapshot {
     /// Die letzten 60 Minuten, die älteste zuerst, auch leere; die letzte ist die laufende.

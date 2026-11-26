@@ -34,6 +34,7 @@ use crate::error::CommandError;
 use crate::implementation::slots::{AgentQueue, QueueEntry};
 use crate::sessions::model::WaitingMessage;
 use crate::sessions::registry::{SessionRegistry, now_ms};
+use crate::tempo::{self, TempoScope, TempoSnapshot};
 use crate::terminal::model::TerminalOutput;
 use crate::terminal::{TerminalService, Viewer};
 
@@ -61,6 +62,12 @@ pub trait Host: Send + Sync {
     fn agent_queue(&self) -> AgentQueue;
     /// Die wartenden Nachrichten aus der Registry, ungefiltert; nie über `inbox_list`.
     fn inbox_list(&self) -> Result<Vec<WaitingMessage>, CommandError>;
+    /// Das Tempo aus der Datenbank des Hosts, ungefiltert; nie über `tempo_load`.
+    fn tempo(&self, _scope: &TempoScope) -> Result<TempoSnapshot, CommandError> {
+        Err(CommandError::Internal(
+            "Dieser Host kennt kein Tempo.".to_owned(),
+        ))
+    }
     /// Das Recht des Geräts, Vorhaben anzulegen. Der Standard ist „nicht erlaubt“, auch wenn ein Host
     /// es nicht lesen kann.
     fn create_right(&self, _device_id: &str) -> Result<CreateRight, CommandError> {
@@ -128,6 +135,7 @@ pub fn answer(
         "dashboard_get" => dashboard_for(host, control, device),
         "agent_queue" => queue_for(host, control, device),
         "inbox_list" => inbox_for(host, control, device),
+        "tempo_load" => tempo_for(host, control, device, &args),
         list if MERGED_LISTS.contains(&list) => {
             let items = host.list(list)?;
             Ok(Value::Array(filter_list(
@@ -469,6 +477,51 @@ fn inbox_for(
     to_json(&messages)
 }
 
+/// Das Tempo für einen Gast (ADR 080): Bei `all` die Werte des ganzen Hosts, aber `top` nur mit
+/// Sessions der Vorhaben, die das Gerät hält; bei `session` nur eine Session eines solchen Vorhabens.
+fn tempo_for(
+    host: &dyn Host,
+    control: &RemoteControl,
+    device: &DeviceRef,
+    args: &Value,
+) -> Result<Value, CommandError> {
+    let scope: TempoScope =
+        serde_json::from_value(args.get("scope").cloned().unwrap_or(Value::Null))
+            .map_err(|error| CommandError::Internal(error.to_string()))?;
+    let held: HashSet<String> = control.with(|control| control.held_by(&device.id));
+    let snapshot = guest_tempo(
+        &held,
+        &scope,
+        |session_id: &str| {
+            host.project_of(&TargetId {
+                kind: IdKind::Session,
+                value: session_id.to_owned(),
+            })
+        },
+        || host.tempo(&scope),
+    )?;
+    to_json(&snapshot)
+}
+
+/// Rein: der Stand für einen Gast, der die Vorhaben `held` hält. `project_of` nennt das Vorhaben
+/// einer Session.
+fn guest_tempo(
+    held: &HashSet<String>,
+    scope: &TempoScope,
+    project_of: impl Fn(&str) -> Option<String>,
+    load: impl FnOnce() -> Result<TempoSnapshot, CommandError>,
+) -> Result<TempoSnapshot, CommandError> {
+    let is_held = |session_id: &str| project_of(session_id).is_some_and(|id| held.contains(&id));
+    if let TempoScope::Session { session_id } = scope
+        && !is_held(session_id)
+    {
+        return Err(access::Denied::ForeignId(session_id.clone()).into());
+    }
+    let mut snapshot = load()?;
+    snapshot.top.retain(|rate| is_held(&rate.session_id));
+    Ok(snapshot)
+}
+
 /// Der Host in der App: Befehle laufen über `Webview::on_message` auf dem Fenster `main`, also
 /// durch dieselben Commands und Antworten wie für die eigene Oberfläche. `invoke_key` bleibt hier.
 pub struct AppHost {
@@ -524,6 +577,10 @@ impl Host for AppHost {
 
     fn inbox_list(&self) -> Result<Vec<WaitingMessage>, CommandError> {
         self.app.state::<SessionRegistry>().inbox_list()
+    }
+
+    fn tempo(&self, scope: &TempoScope) -> Result<TempoSnapshot, CommandError> {
+        tempo::load(&self.app.state::<Arc<Database>>(), scope, now_ms())
     }
 
     fn create_right(&self, device_id: &str) -> Result<CreateRight, CommandError> {
@@ -649,5 +706,7 @@ fn command_error(value: Value) -> CommandError {
 
 #[cfg(test)]
 mod create_tests;
+#[cfg(test)]
+mod tempo_tests;
 #[cfg(test)]
 mod tests;

@@ -14,7 +14,11 @@ Der Nutzer sieht den Verbrauch seines Kontingents nur als Prozent des Fensters, 
 - **Rechnen in reinen Funktionen (T3):** `tempo/mod.rs` (`minutes`, `rates`, `session_rates`, `snapshot`) und `usage/forecast.rs` nehmen „jetzt“ als Parameter und brauchen keine Datenbank. Das Tempo ist das Mittel der letzten 5 Minuten.
 - **Prognose (T4):** Je Fenster hält der `UsageService` im Speicher die Paare (Zeit, Prozent) der letzten 5 Stunden, aus `get_usage` und aus jedem `rate_limit_event`. `percentPerHour` ist der Anstieg über das Fenster der Daten, die Prognose erscheint frühestens nach 10 Minuten Anstieg. `exhaustedAt` steht da, wenn 100 % vor `resets_at` erreicht würden; `percentAtReset` ist der Stand bei `resets_at` und nie kleiner als der jetzige. Fällt der Wert, beginnt der Verlauf neu. Nur bei Claude und Codex.
 - **Ereignis gedrosselt (T5):** `tempo://changed` geht höchstens einmal je Sekunde und Session hinaus; ein Ereignis im selben Takt wartet bis zum Ende des Takts und deckt alles Spätere ab, die letzte Änderung geht nie verloren.
-- **Fernsteuerung (ADR 059):** `tempo_load` ist in `remote/access.rs` Klasse `Reachable`: Ein Gast sieht die Werte des Hosts. Der Weg über `remote_tempo_load` und die Weiterleitung von `tempo://changed` an den Gast gehört zur Oberfläche (`tacho-ui`).
+- **Fernsteuerung (ADR 059):** `tempo_load` ist in `remote/access.rs` Klasse `Reachable`; der Gast sieht die Werte des Hosts, wie beim Kontingent (`hostUsage`).
+  - **G1:** Am Gast fragt `remote_tempo_load(hostId, scope)` (Klasse `LocalOnly`) den Host; der Host beantwortet `tempo_load` in `remote/dispatch.rs` (`tempo_for`) mit `tempo::load`.
+  - **G2:** Bei `all` bekommt der Gast die Werte des ganzen Hosts (`minutes`, `perMinute`, `cacheReadPerMinute`, `active`); `top` enthält nur Sessions der Vorhaben, die das Gerät hält. Eine `session` eines anderen Vorhabens lehnt der Host ab (`ForeignId`).
+  - **G3:** `tempo://changed` geht in `remote/forward.rs` als `Owner::Session` nur an das Gerät, das das Vorhaben der Session hält, und kommt am Gast als `remote://tempo-changed` mit `{ hostId, sessionId }` an.
+  - **G4:** `src/lib/tempo.ts` hat `TempoSource` mit `OWN_TEMPO` und `hostTempo(hostId)` wie `UsageSource`.
 
 ## Vertrag V-T
 

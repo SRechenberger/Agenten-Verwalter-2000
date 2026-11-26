@@ -21,6 +21,7 @@ use crate::repositories::model::KnownRepository;
 use crate::sessions::model::WaitingMessage;
 use crate::sessions::registry::SessionRegistry;
 use crate::settings;
+use crate::tempo::{TempoScope, TempoSnapshot};
 use crate::usage::model::UsageStatus;
 
 #[tauri::command]
@@ -288,6 +289,17 @@ pub async fn remote_usage_load(
     host_id: String,
 ) -> Result<UsageStatus, CommandError> {
     guest::usage_load(Arc::clone(&clients), host_id).await
+}
+
+/// Am Gast: das Tempo des Hosts; `top` und `session` nur für die Vorhaben, die dieses Gerät hält.
+/// Änderungen meldet `remote://tempo-changed`.
+#[tauri::command]
+pub async fn remote_tempo_load(
+    clients: tauri::State<'_, Arc<RemoteClients>>,
+    host_id: String,
+    scope: TempoScope,
+) -> Result<TempoSnapshot, CommandError> {
+    guest::tempo_load(Arc::clone(&clients), host_id, scope).await
 }
 
 /// Am Gast: die Warteschlange des Hosts mit seinen Plätzen und den Wartenden der Vorhaben, die dieses
