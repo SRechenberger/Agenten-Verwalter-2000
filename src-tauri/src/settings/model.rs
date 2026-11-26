@@ -21,7 +21,8 @@ pub enum TerminalPlacement {
     Right,
 }
 
-/// Eine der acht seitlichen Leisten, deren Breite die Oberfläche verschieben lässt (ADR 056).
+/// Eine der neun Leisten, deren Größe die Oberfläche verschieben lässt (ADR 056): acht seitliche
+/// mit Breite, dazu `DashboardReaderHeight` mit einer Höhe.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub enum PanelId {
@@ -41,6 +42,8 @@ pub enum PanelId {
     DashboardReader,
     /// Zeitleiste der Umsetzung.
     ImplementationTimeline,
+    /// Höhe des Lesebereichs des Dashboards, wenn er unter dem Postfach steht.
+    DashboardReaderHeight,
 }
 
 /// Gezogene Breite je Leiste in Pixeln; `None` = Standardbreite der Oberfläche.
@@ -55,6 +58,15 @@ pub struct PanelWidths {
     pub dashboard_folders: Option<u32>,
     pub dashboard_reader: Option<u32>,
     pub implementation_timeline: Option<u32>,
+    pub dashboard_reader_height: Option<u32>,
+}
+
+/// Wo der Lesebereich des Dashboards steht (ADR 056): rechts neben dem Postfach oder darunter.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub enum ReaderPlacement {
+    Right,
+    Bottom,
 }
 
 /// Woher die Modellanfragen der Agenten kommen (ADR 016). `ClaudeCodeLocal` startet dieselbe
@@ -114,6 +126,10 @@ pub struct Settings {
     pub terminal_width: u32,
     /// Breite je Leiste in Pixeln; `None` = Standardbreite der Oberfläche (ADR 056).
     pub panel_widths: PanelWidths,
+    /// Leisten, die der Benutzer eingeklappt oder minimiert hat (ADR 056).
+    pub collapsed_panels: Vec<PanelId>,
+    /// Wo der Lesebereich des Dashboards steht (ADR 056).
+    pub dashboard_reader_placement: ReaderPlacement,
 }
 
 /// Was die Einstellungsseite zeigt: die Werte und die Ordner, die sie nur anzeigt.
@@ -200,5 +216,13 @@ pub enum SettingsChange {
     PanelWidth {
         panel: PanelId,
         value: Option<u32>,
+    },
+    DashboardReaderPlacement {
+        value: ReaderPlacement,
+    },
+    /// `collapsed: false` löscht den Schlüssel; die gezogene Breite bleibt unberührt.
+    PanelCollapsed {
+        panel: PanelId,
+        collapsed: bool,
     },
 }

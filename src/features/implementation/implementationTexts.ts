@@ -566,9 +566,14 @@ export function cycleText(names: readonly string[]): string {
 export const BRIEF_LABEL = 'Auftrag';
 export const INSTRUCTION_LABEL = 'Anweisung an dich';
 
-/** „120/1000 Zeichen · bis zum Start änderbar“. */
-export function briefCounter(length: number, max: number, isOpen: boolean): string {
-  return `${String(length)}/${String(max)} Zeichen · ${isOpen ? 'bis zum Start änderbar' : 'gesendet, festgeschrieben 🔒'}`;
+/** Grund, den „Speichern“ bzw. „Übernehmen“ als `title` nennt, solange ein Feld über seiner Grenze liegt. */
+export function overLimitReason(label: string, max: number): string {
+  return `${label} ist länger als ${String(max)} Zeichen.`;
+}
+
+/** Zeile unter dem Zähler, solange ein Feld über der Grenze liegt und deshalb nichts gespeichert wird. */
+export function notSavedLine(reason: string): string {
+  return `Nicht gespeichert: ${reason}`;
 }
 
 export const PREDECESSORS_MAY_LABEL = 'Vorgänger dürfen';
@@ -585,6 +590,8 @@ export function briefChangeLead(kind: BriefChangeKind, source: string): string {
 }
 
 export const BRIEF_CHANGE_BEFORE = 'vorher:';
+export const BRIEF_COUNTER_OPEN = 'bis zum Start änderbar';
+export const BRIEF_COUNTER_SENT = 'gesendet, festgeschrieben 🔒';
 
 export function briefChangeAction(kind: BriefChangeKind): string {
   return kind === 'replace' ? 'Zurücksetzen' : 'Entfernen';

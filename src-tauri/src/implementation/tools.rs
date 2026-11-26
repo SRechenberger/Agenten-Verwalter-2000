@@ -166,7 +166,7 @@ impl ToolSet for ImplementationTools {
                                     "agent": { "type": "string" },
                                     "model": { "type": "string" },
                                     "effort": { "type": "string" },
-                                    "prompt": { "type": "string", "description": "Leer: kein Zusatztext" },
+                                    "prompt": { "type": "string", "maxLength": MAX_PROMPT_CHARS, "description": "Leer: kein Zusatztext" },
                                     "skill": { "type": "string" },
                                     "command": { "type": "array", "items": { "type": "string" }, "description": "Nur einer nicht gestarteten Befehls-Station: neue Schritte" },
                                     "cwd": { "type": "string", "description": "Nur einer nicht gestarteten Befehls-Station: neuer Ordner; leer: Ordner des Vorhabens" },

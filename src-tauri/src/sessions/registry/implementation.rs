@@ -14,7 +14,9 @@ use super::{
     Outbox, PendingRequest, ProjectState, Session, SessionRegistry, SessionState, now_ms,
     summarize, update,
 };
-use crate::agent_types::model::AgentType;
+use crate::agent_types::length::{self, Waiting};
+use crate::agent_types::model::{AgentType, AgentTypeInput, FieldError};
+use crate::agent_types::prompt::{Folders, read_bounded};
 use crate::agents::event::{Attachment, ChatEntry, Question, SessionRef};
 use crate::attachments;
 use crate::changes::{self, model::ChangesReach};
@@ -88,6 +90,13 @@ pub(super) fn return_reference(subject: Option<&str>) -> Option<Reference<'_>> {
     })
 }
 
+/// Eine Agent-Station ohne Session, die noch nicht fertig ist: ihr Systemprompt entsteht erst beim Start.
+fn is_waiting_agent(row: &StationRow) -> bool {
+    row.kind == implementation::model::StationKind::Agent
+        && row.session_id.is_none()
+        && row.completed_at.is_none()
+}
+
 impl SessionRegistry {
     /// Alle Umsetzungen nicht archivierter Vorhaben, neueste zuerst.
     pub fn implementation_views(&self) -> Result<Vec<ImplementationView>, CommandError> {
@@ -123,6 +132,102 @@ impl SessionRegistry {
     pub fn agent_types(&self) -> Result<Vec<AgentType>, CommandError> {
         self.database
             .with(|connection| agent_type_rows::list(connection))
+    }
+
+    /// S1 (Taiga 266): Der Systemprompt jeder noch nicht gestarteten Agent-Station in `rows` bliebe beim
+    /// Start unter 16 000 Zeichen; sonst der Satz der ersten, die es nicht tut. Zählt wie der Start
+    /// (`length::check_station`). Eine Station, die mit Stufe, Typ und Zusatztext schon als wartende
+    /// Zeile in `stored` steht (eine Planänderung vergibt die Kennungen neu), ist nicht neu zu prüfen:
+    /// Wuchs ihre Datei seither, meldet das der Start (S4), und Auftrag, Kanten oder Modell bleiben
+    /// änderbar. Gestartete und fertige Zeilen zählen dafür nicht.
+    pub fn check_row_lengths(
+        &self,
+        project_id: &str,
+        stored: &[StationRow],
+        rows: &[StationRow],
+    ) -> Result<(), String> {
+        let types = self
+            .agent_types()
+            .map_err(|error: CommandError| error.to_string())?;
+        let repositories = self.repository_dirs_of_project(project_id);
+        let home = crate::standalone::home_dir().unwrap_or_default();
+        let folders = Folders {
+            home: &home,
+            repositories: &repositories,
+        };
+        for row in rows.iter().filter(|row: &&StationRow| {
+            is_waiting_agent(row)
+                && !stored.iter().any(|old: &StationRow| {
+                    is_waiting_agent(old)
+                        && old.stage == row.stage
+                        && old.agent == row.agent
+                        && old.prompt == row.prompt
+                })
+        }) {
+            length::check_station(
+                &station_label(&row.plan_id, &row.stage),
+                &types,
+                &row.stage,
+                row.agent.as_deref(),
+                row.prompt.as_deref(),
+                folders,
+                &read_bounded,
+            )?;
+        }
+        Ok(())
+    }
+
+    /// Die Stationen, die noch keine Session haben, in Umsetzungen, die weder fertig noch abgebrochen
+    /// sind (S3).
+    pub fn waiting_stations(&self) -> Result<Vec<Waiting>, CommandError> {
+        let mut waiting: Vec<Waiting> = Vec::new();
+        for view in self
+            .implementation_views()?
+            .iter()
+            .filter(|view: &&ImplementationView| view.finished_at.is_none())
+        {
+            let repositories = self.repository_dirs_of_project(&view.project_id);
+            for station in view
+                .phases
+                .iter()
+                .flat_map(|phase: &PhaseView| phase.stations.iter())
+                .filter(|station: &&implementation::model::StationView| {
+                    station.kind == implementation::model::StationKind::Agent
+                        && station.session_id.is_none()
+                        && station.completed_at.is_none()
+                })
+            {
+                waiting.push(Waiting {
+                    implementation: view.name.clone(),
+                    label: station_label(&station.plan_id, &station.stage),
+                    stage: station.stage.clone(),
+                    agent: station.agent.clone(),
+                    prompt: station.prompt.clone(),
+                    repositories: repositories.clone(),
+                });
+            }
+        }
+        Ok(waiting)
+    }
+
+    /// S2 und S3 für einen Typ, der gespeichert werden soll (`own_id`: der Typ, der sich ändert);
+    /// leer, wenn nichts im Weg steht.
+    pub fn type_length_errors(
+        &self,
+        own_id: Option<&str>,
+        input: &AgentTypeInput,
+    ) -> Result<Vec<FieldError>, CommandError> {
+        let existing = self.agent_types()?;
+        let waiting = self.waiting_stations()?;
+        let home = crate::standalone::home_dir().unwrap_or_default();
+        Ok(length::check_type(
+            input,
+            own_id,
+            &existing,
+            &waiting,
+            &home,
+            &read_bounded,
+        ))
     }
 
     /// Die Betriebsart, in der der nächste Agent startet.
@@ -196,6 +301,8 @@ impl SessionRegistry {
             default_auto_resume,
         )
         .map_err(CommandError::Implementation)?;
+        self.check_row_lengths(&project_id, &[], &station_rows)
+            .map_err(CommandError::Implementation)?;
         self.database.with(|connection| {
             check_agents(phases, &agent_type_rows::list(connection)?)
                 .map_err(CommandError::Implementation)?;

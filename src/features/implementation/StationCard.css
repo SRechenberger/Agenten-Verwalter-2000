@@ -305,6 +305,10 @@
     font-size: var(--font-size-2xs);
   }
 
+  &__hint--over {
+    color: var(--color-status-error);
+  }
+
   &__lockinfo {
     padding-top: var(--space-sm);
     border-top: 1px dashed var(--color-border);

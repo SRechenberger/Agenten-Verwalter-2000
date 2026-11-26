@@ -1515,9 +1515,30 @@ pub fn set_station_agent(
     let registry = app.state::<SessionRegistry>();
     let view = registry.implementation_view(implementation_id)?;
     let checked = checked_settings(&view, station_id, settings, &registry.agent_types()?)?;
+    check_settings_length(&registry, &view, station_id, &checked)?;
     registry.store_station_settings(station_id, &checked)?;
     announce(app, &registry.implementation_view(implementation_id)?);
     Ok(())
+}
+
+/// S1 (Taiga 266): Mit diesen Einstellungen bliebe der Systemprompt der Station beim Start unter
+/// 16 000 Zeichen. Zählt wie der Start; `checked` kommt aus `checked_settings`.
+pub fn check_settings_length(
+    registry: &SessionRegistry,
+    view: &ImplementationView,
+    station_id: &str,
+    checked: &StationSettings,
+) -> Result<(), CommandError> {
+    let stored = registry.station_rows(&view.id)?;
+    let mut rows: Vec<StationRow> = stored.clone();
+    rows.retain(|row: &StationRow| row.id == station_id);
+    for row in &mut rows {
+        row.agent.clone_from(&checked.agent);
+        row.prompt.clone_from(&checked.prompt);
+    }
+    registry
+        .check_row_lengths(&view.project_id, &stored, &rows)
+        .map_err(CommandError::Implementation)
 }
 
 /// Prüft die Einstellungen für die Station und gibt sie so zurück, wie sie gespeichert werden: Typ

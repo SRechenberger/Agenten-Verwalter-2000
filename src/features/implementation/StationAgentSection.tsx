@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import type { ReactElement } from 'react';
 import { CardSection } from '@/features/implementation/CardSection';
 import { isBegun, type StationRef } from '@/features/implementation/implementationOrder';
@@ -10,6 +11,7 @@ import {
   NO_SYSTEM_PROMPT,
   NO_TYPE_LABEL,
   NOT_SAVED,
+  overLimitReason,
   runsWithText,
   SECTION_AGENT,
   SECTION_WORKER,
@@ -27,6 +29,7 @@ import {
   WORKER_LABEL,
   WORKER_USER,
 } from '@/features/implementation/implementationTexts';
+import { LimitCounter } from '@/features/implementation/LimitCounter';
 import { SegmentGroup, type SegmentOption } from '@/features/implementation/SegmentGroup';
 import {
   cardAgentFacts,
@@ -38,7 +41,7 @@ import {
   type AgentValue,
   type CardAgentFacts,
 } from '@/features/implementation/stationAgent';
-import { MAX_STATION_PROMPT_CHARS } from '@/lib/agentTypes';
+import { MAX_STATION_PROMPT_CHARS, stationPromptLength } from '@/lib/agentTypes';
 import type { AgentType } from '@/lib/bindings/AgentType';
 import type { Effort } from '@/lib/bindings/Effort';
 import type { ModelId } from '@/lib/bindings/ModelId';
@@ -48,7 +51,46 @@ import type { StationSettings } from '@/lib/bindings/StationSettings';
 import type { StationView } from '@/lib/bindings/StationView';
 import { setStationAgent } from '@/lib/implementation';
 import { EFFORT_OPTIONS, MODEL_OPTIONS } from '@/lib/labels';
-import type { ActionError } from '@/lib/useActionError';
+import { useActionError } from '@/lib/useActionError';
+
+interface AdditionFieldProps {
+  initial: string;
+  disabled: boolean;
+  onSave: (prompt: string) => void;
+}
+
+/** Der Zusatztext: Er schneidet nichts ab, der Zähler zeigt die Grenze, und über ihr wird nicht gespeichert. */
+function AdditionField({ initial, disabled, onSave }: AdditionFieldProps): ReactElement {
+  const [draft, setDraft] = useState<string>(initial);
+  const length: number = stationPromptLength(draft);
+  const isOver: boolean = length > MAX_STATION_PROMPT_CHARS;
+  return (
+    <>
+      <textarea
+        className="station-card__textarea"
+        rows={2}
+        aria-label={ADDITION_LABEL}
+        placeholder={ADDITION_PLACEHOLDER}
+        title={isOver ? overLimitReason(ADDITION_LABEL, MAX_STATION_PROMPT_CHARS) : undefined}
+        value={draft}
+        disabled={disabled}
+        onChange={(event): void => {
+          setDraft(event.target.value);
+        }}
+        onBlur={(): void => {
+          if (draft !== initial && !isOver) {
+            onSave(draft);
+          }
+        }}
+      />
+      <LimitCounter
+        length={length}
+        max={MAX_STATION_PROMPT_CHARS}
+        reason={overLimitReason(ADDITION_LABEL, MAX_STATION_PROMPT_CHARS)}
+      />
+    </>
+  );
+}
 
 interface StationAgentSectionProps {
   implementationId: string;
@@ -61,7 +103,6 @@ interface StationAgentSectionProps {
   isOpen: boolean;
   onToggle: () => void;
   isLocked: boolean;
-  run: ActionError['run'];
 }
 
 const MODEL_CHOICES: readonly SegmentOption<ModelId | null>[] = MODEL_OPTIONS.map(
@@ -105,9 +146,10 @@ export function StationAgentSection({
   isOpen,
   onToggle,
   isLocked,
-  run,
 }: StationAgentSectionProps): ReactElement {
   const { station } = stationRef;
+  // Eine Ablehnung (etwa S1, Taiga 266) steht in der Kartei, nicht in der Leiste der Umsetzung.
+  const { error, run } = useActionError(station.id);
   const types: readonly AgentType[] = agentTypes ?? [];
   const isWaiting: boolean = !isBegun(station);
   const isEditable: boolean = isWaiting && !isLocked;
@@ -279,21 +321,19 @@ export function StationAgentSection({
       <span className="station-card__label">{SYSTEM_PROMPT_LABEL}</span>
       <div className="station-card__system">{systemPrompt}</div>
       <span className="station-card__label">{ADDITION_LABEL}</span>
-      <textarea
+      <AdditionField
         key={station.prompt ?? ''}
-        className="station-card__textarea"
-        rows={2}
-        maxLength={MAX_STATION_PROMPT_CHARS}
-        aria-label={ADDITION_LABEL}
-        placeholder={ADDITION_PLACEHOLDER}
-        defaultValue={station.prompt ?? ''}
+        initial={station.prompt ?? ''}
         disabled={!isEditable}
-        onBlur={(event): void => {
-          if (event.target.value !== (station.prompt ?? '')) {
-            save({ prompt: event.target.value });
-          }
+        onSave={(prompt: string): void => {
+          save({ prompt });
         }}
       />
+      {error !== null && (
+        <p className="station-card__hint station-card__hint--over" role="alert">
+          {error}
+        </p>
+      )}
       <p className="station-card__hint">{SYSTEM_PROMPT_HINT}</p>
     </CardSection>
   );

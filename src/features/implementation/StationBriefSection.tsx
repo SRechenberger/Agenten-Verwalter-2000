@@ -7,18 +7,20 @@ import { isBegun, type StationRef } from '@/features/implementation/implementati
 import { stationDisplay } from '@/features/implementation/commandStation';
 import {
   BRIEF_CHANGE_BEFORE,
+  BRIEF_COUNTER_OPEN,
+  BRIEF_COUNTER_SENT,
   BRIEF_EDIT_DROPS_CHANGES,
   BRIEF_LABEL,
   BRIEF_NOT_SAVED,
   briefChangeAction,
   briefChangeLead,
-  briefCounter,
   briefSummary,
   DONE_BY_USER_LABEL,
   DONE_BY_USER_RESULT,
   DONE_BY_USER_TITLE,
   INSTRUCTION_LABEL,
   MAX_BRIEF_CHARS,
+  overLimitReason,
   NO_BRIEF_CHANGES,
   NOT_REMOVED,
   NOT_SAVED,
@@ -29,6 +31,7 @@ import {
   SECTION_BRIEF,
   SECTION_INSTRUCTION,
 } from '@/features/implementation/implementationTexts';
+import { LimitCounter } from '@/features/implementation/LimitCounter';
 import { SegmentGroup } from '@/features/implementation/SegmentGroup';
 import { asksBeforeDone, isDoneByYou } from '@/features/implementation/stationControls';
 import type { BriefChange } from '@/lib/bindings/BriefChange';
@@ -76,25 +79,31 @@ interface BriefFieldProps {
  *  angelegt (Schlüssel), sobald der gespeicherte Auftrag sich ändert. */
 function BriefField({ initial, isOpen, label, onSave }: BriefFieldProps): ReactElement {
   const [draft, setDraft] = useState<string>(initial);
+  const isOver: boolean = draft.length > MAX_BRIEF_CHARS;
   return (
     <>
       <textarea
         className="station-card__textarea"
         aria-label={label}
         rows={3}
-        maxLength={MAX_BRIEF_CHARS}
+        title={isOver ? overLimitReason(label, MAX_BRIEF_CHARS) : undefined}
         value={draft}
         disabled={!isOpen}
         onChange={(event): void => {
           setDraft(event.target.value);
         }}
         onBlur={(): void => {
-          if (draft !== initial) {
+          if (draft !== initial && !isOver) {
             onSave(draft);
           }
         }}
       />
-      <p className="station-card__hint">{briefCounter(draft.length, MAX_BRIEF_CHARS, isOpen)}</p>
+      <LimitCounter
+        length={draft.length}
+        max={MAX_BRIEF_CHARS}
+        reason={overLimitReason(label, MAX_BRIEF_CHARS)}
+        note={isOpen ? BRIEF_COUNTER_OPEN : BRIEF_COUNTER_SENT}
+      />
     </>
   );
 }

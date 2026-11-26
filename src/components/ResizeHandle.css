@@ -5,6 +5,8 @@
   flex-shrink: 0;
   width: 0;
   outline: none;
+  -webkit-user-select: none; /* WebKitGTK kennt die Eigenschaft nur mit Präfix */
+  user-select: none;
 
   &::before {
     content: '';
@@ -27,6 +29,23 @@
     transition: opacity var(--duration-base) var(--ease-out) 300ms;
   }
 
+  /* Höhe ziehen: der Griff liegt als waagerechter Strich zwischen zwei Flächen. */
+  &--y {
+    width: auto;
+    height: 0;
+
+    &::before {
+      inset-block: -3px;
+      inset-inline: 0;
+      cursor: row-resize;
+    }
+
+    &::after {
+      inset-block: -1px;
+      inset-inline: 0;
+    }
+  }
+
   &:hover::after {
     opacity: 1;
   }
@@ -43,6 +62,10 @@
 :root.resizing {
   cursor: col-resize;
   user-select: none;
+
+  &.resizing-y {
+    cursor: row-resize;
+  }
 
   & iframe {
     pointer-events: none;

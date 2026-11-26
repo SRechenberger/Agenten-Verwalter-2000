@@ -8,6 +8,7 @@ import { badgeCount } from '@/features/dashboard/dashboardTexts';
 import {
   canDismiss,
   entriesOf,
+  folderName,
   isThreadId,
   isUnread,
   keyAction,
@@ -26,12 +27,16 @@ import type { DashboardTask } from '@/lib/bindings/DashboardTask';
 import type { ImplementationView } from '@/lib/bindings/ImplementationView';
 import type { ProjectGroup } from '@/lib/bindings/ProjectGroup';
 import type { ProjectSummary } from '@/lib/bindings/ProjectSummary';
+import type { ReaderPlacement } from '@/lib/bindings/ReaderPlacement';
 import type { SessionSummary } from '@/lib/bindings/SessionSummary';
 import { dismissCard, loadDashboard, markCardsSeen, undismissCard } from '@/lib/dashboard';
 import { startStation } from '@/lib/implementation';
+import { readRememberedReaderPlacement } from '@/lib/panelWidths';
 import { resumeSession } from '@/lib/sessions';
 import { useActionError } from '@/lib/useActionError';
+import { usePanelCollapsed } from '@/lib/usePanelCollapsed';
 import { usePanelWidth } from '@/lib/usePanelWidth';
+import { useSettingsStore } from '@/stores/settings';
 import { useDashboardStore } from '@/stores/dashboard';
 import './DashboardView.css';
 
@@ -84,6 +89,13 @@ export function DashboardView({
   const [toast, setToast] = useState<Toast | null>(null);
   const foldersWidth = usePanelWidth('dashboardFolders');
   const readerWidth = usePanelWidth('dashboardReader');
+  const readerHeight = usePanelWidth('dashboardReaderHeight');
+  const foldersPanel = usePanelCollapsed('dashboardFolders');
+  const readerPanel = usePanelCollapsed('dashboardReader');
+  const placement: ReaderPlacement = useSettingsStore(
+    (state) => state.settings?.dashboardReaderPlacement ?? readRememberedReaderPlacement(),
+  );
+  const isBottom: boolean = placement === 'bottom';
   const searchRef = useRef<HTMLInputElement>(null);
 
   const tasks: readonly DashboardTask[] = useMemo(() => view?.tasks ?? [], [view]);
@@ -401,99 +413,163 @@ export function DashboardView({
     onOpenImplementation,
     onSent: showToast,
   };
+  // Bei eingeklappter Ordnerspalte bleibt der Filter aktiv; die Kopfzeile nennt ihn (P3).
+  const folderHint: string | null = foldersPanel.isCollapsed
+    ? folderName(folder, projects, view?.flows ?? [])
+    : null;
+  function panelToggle(label: string, panelState: typeof foldersPanel): ReactElement {
+    const hint: string = `${label} ${panelState.isCollapsed ? 'aufklappen' : 'einklappen'}`;
+    return (
+      <button
+        type="button"
+        aria-pressed={!panelState.isCollapsed}
+        aria-label={hint}
+        title={hint}
+        onClick={panelState.toggle}
+      >
+        {label}
+      </button>
+    );
+  }
+  const list: ReactElement = (
+    <DashboardList
+      entries={entries}
+      visible={visible}
+      checkedTasks={checkedTasks}
+      selected={selected}
+      checked={checked}
+      expanded={expanded}
+      query={query}
+      isMerging={isMerging}
+      order={order}
+      now={now}
+      projects={projects}
+      emptyText={emptyText}
+      searchRef={searchRef}
+      renderRow={(task: DashboardTask, isChild: boolean): ReactElement => (
+        <div
+          className={`postfach__expanded postfach__tone--${task.blocking ? 'wait' : 'none'}${isChild ? ' is-child' : ''}`}
+          data-expanded={task.id}
+        >
+          <TaskPanel key={task.id} task={task} keys={false} {...panel} />
+          <button
+            type="button"
+            className="postfach__link"
+            onClick={(): void => {
+              expand([task.id], false);
+            }}
+          >
+            ▴ Zuklappen
+          </button>
+        </div>
+      )}
+      onSelect={select}
+      onCheck={check}
+      onExpand={expand}
+      onToggleThread={(key: string): void => {
+        store.setThreadOpen(key, openThreads[key] !== true);
+      }}
+      onQuery={store.setQuery}
+      onMerging={store.setMerging}
+      onOrder={store.setOrder}
+      onExpandAll={expandAll}
+      onBulk={bulk}
+      onClearChecked={store.clearChecked}
+    />
+  );
+  const pane: ReactElement = (
+    <section
+      className={`postfach__pane${isBottom ? ' postfach__pane--bottom' : ''}`}
+      aria-label="Lesebereich"
+      style={isBottom ? { height: readerHeight.width } : { width: readerWidth.width }}
+    >
+      {selectedTask === undefined ? (
+        <p className="postfach__empty">
+          {selected !== null && isThreadId(selected)
+            ? 'Mehrere gleiche Einträge: ▸ zeigt sie einzeln, x wählt alle.'
+            : tasks.length === 0
+              ? 'Gerade wartet niemand auf dich.'
+              : 'Wähle einen Eintrag.'}
+        </p>
+      ) : (
+        <TaskReader key={selectedTask.id} task={selectedTask} now={now} {...panel} />
+      )}
+    </section>
+  );
   return (
     <div className="postfach">
       <header className="postfach__header">
         <h2 className="postfach__title">Dashboard</h2>
         {view !== null && <span className="postfach__total">{count}</span>}
+        {folderHint !== null && <span className="postfach__folder-hint">Ordner: {folderHint}</span>}
         {error !== null && (
           <p className="postfach__error" role="alert">
             {error}
           </p>
         )}
+        <div className="postfach__segments postfach__panel-toggles">
+          {panelToggle('Ordnerspalte', foldersPanel)}
+          {panelToggle('Lesebereich', readerPanel)}
+        </div>
       </header>
       <div className="postfach__split">
-        <DashboardFolders
-          tasks={tasks}
-          flows={view?.flows ?? []}
-          looseSessions={looseSessions}
-          projects={projects}
-          groups={groups}
-          implementations={implementations}
-          sessions={sessions}
-          folder={folder}
-          collapsed={collapsed}
-          onFolder={(next: string): void => {
-            store.setFolder(next);
-            store.clearChecked();
-          }}
-          onToggleGroup={store.toggleGroup}
-          onOpenSession={onOpenSession}
-          width={foldersWidth.width}
-        />
-        <ResizeHandle edge="end" label="Breite der Ordnerspalte" {...foldersWidth.handleProps} />
-        <DashboardList
-          entries={entries}
-          visible={visible}
-          checkedTasks={checkedTasks}
-          selected={selected}
-          checked={checked}
-          expanded={expanded}
-          query={query}
-          isMerging={isMerging}
-          order={order}
-          now={now}
-          projects={projects}
-          emptyText={emptyText}
-          searchRef={searchRef}
-          renderRow={(task: DashboardTask, isChild: boolean): ReactElement => (
-            <div
-              className={`postfach__expanded postfach__tone--${task.blocking ? 'wait' : 'none'}${isChild ? ' is-child' : ''}`}
-              data-expanded={task.id}
-            >
-              <TaskPanel key={task.id} task={task} keys={false} {...panel} />
-              <button
-                type="button"
-                className="postfach__link"
-                onClick={(): void => {
-                  expand([task.id], false);
-                }}
-              >
-                ▴ Zuklappen
-              </button>
-            </div>
-          )}
-          onSelect={select}
-          onCheck={check}
-          onExpand={expand}
-          onToggleThread={(key: string): void => {
-            store.setThreadOpen(key, openThreads[key] !== true);
-          }}
-          onQuery={store.setQuery}
-          onMerging={store.setMerging}
-          onOrder={store.setOrder}
-          onExpandAll={expandAll}
-          onBulk={bulk}
-          onClearChecked={store.clearChecked}
-        />
-        <ResizeHandle edge="start" label="Breite des Lesebereichs" {...readerWidth.handleProps} />
-        <section
-          className="postfach__pane"
-          aria-label="Lesebereich"
-          style={{ width: readerWidth.width }}
-        >
-          {selectedTask === undefined ? (
-            <p className="postfach__empty">
-              {selected !== null && isThreadId(selected)
-                ? 'Mehrere gleiche Einträge: ▸ zeigt sie einzeln, x wählt alle.'
-                : tasks.length === 0
-                  ? 'Gerade wartet niemand auf dich.'
-                  : 'Wähle einen Eintrag.'}
-            </p>
-          ) : (
-            <TaskReader key={selectedTask.id} task={selectedTask} now={now} {...panel} />
-          )}
-        </section>
+        {!foldersPanel.isCollapsed && (
+          <>
+            <DashboardFolders
+              tasks={tasks}
+              flows={view?.flows ?? []}
+              looseSessions={looseSessions}
+              projects={projects}
+              groups={groups}
+              implementations={implementations}
+              sessions={sessions}
+              folder={folder}
+              collapsed={collapsed}
+              onFolder={(next: string): void => {
+                store.setFolder(next);
+                store.clearChecked();
+              }}
+              onToggleGroup={store.toggleGroup}
+              onOpenSession={onOpenSession}
+              width={foldersWidth.width}
+            />
+            <ResizeHandle
+              edge="end"
+              label="Breite der Ordnerspalte"
+              {...foldersWidth.handleProps}
+            />
+          </>
+        )}
+        {isBottom ? (
+          <div className="postfach__rightcol" data-resize-fill>
+            {list}
+            {!readerPanel.isCollapsed && (
+              <>
+                <ResizeHandle
+                  edge="start"
+                  axis="y"
+                  label="Höhe des Lesebereichs"
+                  {...readerHeight.handleProps}
+                />
+                {pane}
+              </>
+            )}
+          </div>
+        ) : (
+          <>
+            {list}
+            {!readerPanel.isCollapsed && (
+              <>
+                <ResizeHandle
+                  edge="start"
+                  label="Breite des Lesebereichs"
+                  {...readerWidth.handleProps}
+                />
+                {pane}
+              </>
+            )}
+          </>
+        )}
       </div>
       {toast !== null && (
         <div className="postfach__toast" role="status">

@@ -9840,3 +9840,255 @@ fn an_old_change_row_without_replaced_kennungen_stays_readable() {
     );
     assert!(view.changes[0].summary.replaced.is_empty());
 }
+
+// Länge des Systemprompts beim Anlegen und Ändern (Taiga 266).
+
+/// Ein Typ „reviewer“ (Station „Umsetzung“ gehört ihm) mit `prompt_units` Zeichen Text.
+fn add_long_type(database: &Database, prompt_units: usize) -> AgentTypeInput {
+    let input = AgentTypeInput {
+        name: "reviewer".to_owned(),
+        description: "Prüft".to_owned(),
+        stages: vec!["Umsetzung".to_owned()],
+        model: None,
+        effort: None,
+        prompt: "x".repeat(prompt_units),
+        files: Vec::new(),
+        skills: Vec::new(),
+    };
+    database
+        .with(|connection| agent_type_rows::insert(connection, "type", &input))
+        .expect("Typ angelegt");
+    input
+}
+
+fn phases_with_prompt(prompt_units: usize) -> Vec<PhaseInput> {
+    let mut phases = one_phase();
+    phases[0].stations[0].prompt = Some("y".repeat(prompt_units));
+    phases
+}
+
+#[test]
+fn a_station_whose_system_prompt_would_be_too_long_is_refused_at_create() {
+    let (registry, database) = registry_with_two_masters();
+    add_long_type(&database, 13_000);
+    let sentence =
+        refusal_of(registry.create_implementation("a", "Eins", "", &phases_with_prompt(3_500)));
+    assert!(
+        sentence.starts_with("Station 1-1 · Umsetzung: Der Systemprompt hätte 16 502 Zeichen (Typ „reviewer“ mit Dateien 13 000, Zusatztext 3 500); erlaubt sind 16 000."),
+        "{sentence}"
+    );
+    assert!(registry.implementation_views().expect("lesbar").is_empty());
+    registry
+        .create_implementation("a", "Eins", "", &phases_with_prompt(2_000))
+        .expect("2 000 Zeichen bleiben darunter");
+}
+
+#[test]
+fn set_phases_refuses_a_station_beyond_the_total() {
+    let (registry, database) = registry_with_two_masters();
+    add_long_type(&database, 13_000);
+    let created = registry
+        .create_implementation("a", "Eins", "", &phases_with_prompt(2_000))
+        .expect("angelegt");
+    let rows = registry.station_rows(&created.id).expect("Zeilen");
+    let sentence = match changes::checked_replacement(
+        &registry,
+        &created,
+        &phases_with_prompt(3_500),
+        &rows,
+        None,
+    ) {
+        Err(sentence) => sentence,
+        Ok(_) => panic!("abgelehnt erwartet"),
+    };
+    assert!(
+        sentence.contains("Der Systemprompt hätte 16 502 Zeichen"),
+        "{sentence}"
+    );
+}
+
+#[test]
+fn editing_the_station_prompt_beyond_the_total_is_refused() {
+    let (registry, database) = registry_with_two_masters();
+    add_long_type(&database, 13_000);
+    let created = registry
+        .create_implementation("a", "Eins", "", &phases_with_prompt(2_000))
+        .expect("angelegt");
+    let edit = PlanEdit {
+        change: vec![model::StationPatch {
+            id: created.phases[0].stations[0].plan_id.clone(),
+            prompt: Some("y".repeat(3_500)),
+            ..model::StationPatch::default()
+        }],
+        ..PlanEdit::default()
+    };
+    let sentence = refusal_of_plan(edit::plan_of(&registry, &created, &edit));
+    assert!(
+        sentence.contains("Der Systemprompt hätte 16 502 Zeichen"),
+        "{sentence}"
+    );
+}
+
+#[test]
+fn a_station_grown_by_its_file_does_not_block_other_edits() {
+    let (registry, database) = registry_with_two_masters();
+    // Der Typ kommt nach dem Anlegen: Die Station ist jetzt über der Grenze, ohne dass sie sich änderte.
+    let created = registry
+        .create_implementation("a", "Eins", "", &phases_with_prompt(3_500))
+        .expect("angelegt");
+    add_long_type(&database, 13_000);
+    let edit = |patch: model::StationPatch| PlanEdit {
+        change: vec![model::StationPatch {
+            id: created.phases[0].stations[0].plan_id.clone(),
+            ..patch
+        }],
+        ..PlanEdit::default()
+    };
+    edit::plan_of(
+        &registry,
+        &created,
+        &edit(model::StationPatch {
+            brief: Some("Neuer Auftrag".to_owned()),
+            ..model::StationPatch::default()
+        }),
+    )
+    .expect("Auftrag ändern geht durch");
+    let rows = registry.station_rows(&created.id).expect("Zeilen");
+    changes::checked_replacement(&registry, &created, &phases_with_prompt(3_500), &rows, None)
+        .expect("Planänderung geht durch");
+    let sentence = refusal_of_plan(edit::plan_of(
+        &registry,
+        &created,
+        &edit(model::StationPatch {
+            prompt: Some("y".repeat(3_501)),
+            ..model::StationPatch::default()
+        }),
+    ));
+    assert!(
+        sentence.contains("Der Systemprompt hätte 16 503 Zeichen"),
+        "{sentence}"
+    );
+}
+
+#[test]
+fn a_new_station_like_a_finished_one_is_still_checked() {
+    let (registry, database) = registry_with_two_masters();
+    add_long_type(&database, 13_000);
+    let created = registry
+        .create_implementation("a", "Eins", "", &phases_with_prompt(2_000))
+        .expect("angelegt");
+    let station_id = created.phases[0].stations[0].id.clone();
+    database
+        .with(|connection| {
+            implementation_rows::set_station_session(connection, &station_id, "session", 1.0)
+        })
+        .expect("gestartet");
+    let mut stored = registry.station_rows(&created.id).expect("Zeilen");
+    stored[0].completed_at = Some(2.0);
+    let mut twin = stored[0].clone();
+    twin.id = "neu".to_owned();
+    twin.session_id = None;
+    twin.completed_at = None;
+    twin.prompt = Some("y".repeat(3_500));
+    stored[0].prompt.clone_from(&twin.prompt);
+    let sentence = registry
+        .check_row_lengths(&created.project_id, &stored, &[twin])
+        .expect_err("die gleiche Zeile wie eine fertige Station wird trotzdem geprüft");
+    assert!(
+        sentence.contains("Der Systemprompt hätte 16 502 Zeichen"),
+        "{sentence}"
+    );
+}
+
+fn refusal_of_plan(result: Result<edit::EditedPlan, CommandError>) -> String {
+    match result {
+        Err(CommandError::Implementation(sentence)) => sentence,
+        Ok(_) => panic!("abgelehnt erwartet"),
+        Err(other) => panic!("abgelehnt erwartet: {other:?}"),
+    }
+}
+
+#[test]
+fn set_station_agent_refuses_a_type_that_makes_the_prompt_too_long() {
+    let (registry, database) = registry_with_two_masters();
+    // Der Typ ist erst da, nachdem die Station ohne ihn angelegt wurde: Sie löst sich nicht auf.
+    let created = registry
+        .create_implementation("a", "Eins", "", &phases_with_prompt(3_500))
+        .expect("angelegt");
+    add_long_type(&database, 13_000);
+    let station_id = created.phases[0].stations[0].id.clone();
+    let settings = StationSettings {
+        agent: Some("reviewer".to_owned()),
+        prompt: Some("y".repeat(3_500)),
+        ..StationSettings::default()
+    };
+    let checked = checked_settings(
+        &created,
+        &station_id,
+        &settings,
+        &registry.agent_types().expect("Typen"),
+    )
+    .expect("Form stimmt");
+    let sentence = match check_settings_length(&registry, &created, &station_id, &checked) {
+        Err(CommandError::Implementation(sentence)) => sentence,
+        other => panic!("abgelehnt erwartet: {other:?}"),
+    };
+    assert!(
+        sentence.contains("Der Systemprompt hätte 16 502 Zeichen"),
+        "{sentence}"
+    );
+}
+
+#[test]
+fn a_type_change_that_makes_waiting_stations_too_long_names_them() {
+    let (registry, database) = registry_with_two_masters();
+    registry.add_project_for_test("project", "Vorhaben");
+    let mut input = add_long_type(&database, 10_000);
+    registry
+        .create_implementation("a", "Eins", "", &phases_with_prompt(3_500))
+        .expect("angelegt");
+    input.prompt = "x".repeat(13_000);
+    let errors = registry
+        .type_length_errors(Some("type"), &input)
+        .expect("lesbar");
+    assert_eq!(errors.len(), 1, "{errors:?}");
+    assert_eq!(
+        errors[0].message,
+        "Mit dieser Änderung wäre der Systemprompt wartender Stationen länger als 16 000 Zeichen: \
+         1-1 · Umsetzung in „Eins“ (16 502 Zeichen)."
+    );
+}
+
+#[test]
+fn started_and_finished_stations_do_not_block_a_type_change() {
+    let (registry, database) = registry_with_two_masters();
+    registry.add_project_for_test("project", "Vorhaben");
+    let mut input = add_long_type(&database, 10_000);
+    let created = registry
+        .create_implementation("a", "Eins", "", &phases_with_prompt(3_500))
+        .expect("angelegt");
+    let station_id = created.phases[0].stations[0].id.clone();
+    input.prompt = "x".repeat(13_000);
+    database
+        .with(|connection| {
+            implementation_rows::set_station_session(connection, &station_id, "session", 1.0)
+        })
+        .expect("gestartet");
+    assert_eq!(
+        registry
+            .type_length_errors(Some("type"), &input)
+            .expect("lesbar"),
+        Vec::new()
+    );
+    database
+        .with(|connection| {
+            implementation_rows::complete_station(connection, &station_id, 2.0, "fertig")
+        })
+        .expect("fertig");
+    assert_eq!(
+        registry
+            .type_length_errors(Some("type"), &input)
+            .expect("lesbar"),
+        Vec::new()
+    );
+}

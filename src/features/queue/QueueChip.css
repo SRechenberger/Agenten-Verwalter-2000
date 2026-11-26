@@ -73,7 +73,7 @@
   &__tab {
     padding: 2px var(--space-lg);
     border: 1px solid var(--color-border);
-    border-radius: 2px;
+    border-radius: var(--radius-flat);
     background: transparent;
     color: var(--color-fg-secondary);
     font: inherit;
@@ -94,7 +94,7 @@
   &__discard {
     padding: 0 var(--space-md);
     border: 1px solid var(--color-border);
-    border-radius: 2px;
+    border-radius: var(--radius-flat);
     background: transparent;
     color: var(--color-fg-secondary);
     font: inherit;

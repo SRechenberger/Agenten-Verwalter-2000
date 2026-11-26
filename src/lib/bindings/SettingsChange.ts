@@ -5,6 +5,7 @@ import type { Mode } from "./Mode";
 import type { ModelId } from "./ModelId";
 import type { OperatingMode } from "./OperatingMode";
 import type { PanelId } from "./PanelId";
+import type { ReaderPlacement } from "./ReaderPlacement";
 import type { SelfRelease } from "./SelfRelease";
 import type { TerminalPlacement } from "./TerminalPlacement";
 
@@ -12,4 +13,4 @@ import type { TerminalPlacement } from "./TerminalPlacement";
  * Eine Änderung aus der Einstellungsseite. Modus und Denkaufwand ändern sich gemeinsam, weil sie
  * im selben Menü stehen.
  */
-export type SettingsChange = { "kind": "colorScheme", value: ColorScheme, } | { "kind": "defaultModel", value: ModelId, } | { "kind": "defaultMode", mode: Mode, effort: Effort, } | { "kind": "operatingMode", value: OperatingMode, } | { "kind": "localModel", value: string, } | { "kind": "defaultCodexModel", value: string | null, } | { "kind": "masterDir", value: string | null, } | { "kind": "markUnsourced", value: boolean, } | { "kind": "defaultSelfRelease", value: SelfRelease, } | { "kind": "defaultAutoResume", value: boolean, } | { "kind": "masterCompactTokens", value: number | null, } | { "kind": "maxAgents", value: number | null, } | { "kind": "quotaHoldPercent", value: number | null, } | { "kind": "commandPrograms", value: Array<string>, } | { "kind": "terminalPlacement", value: TerminalPlacement, } | { "kind": "terminalHeight", value: number, } | { "kind": "terminalWidth", value: number, } | { "kind": "panelWidth", panel: PanelId, value: number | null, };
+export type SettingsChange = { "kind": "colorScheme", value: ColorScheme, } | { "kind": "defaultModel", value: ModelId, } | { "kind": "defaultMode", mode: Mode, effort: Effort, } | { "kind": "operatingMode", value: OperatingMode, } | { "kind": "localModel", value: string, } | { "kind": "defaultCodexModel", value: string | null, } | { "kind": "masterDir", value: string | null, } | { "kind": "markUnsourced", value: boolean, } | { "kind": "defaultSelfRelease", value: SelfRelease, } | { "kind": "defaultAutoResume", value: boolean, } | { "kind": "masterCompactTokens", value: number | null, } | { "kind": "maxAgents", value: number | null, } | { "kind": "quotaHoldPercent", value: number | null, } | { "kind": "commandPrograms", value: Array<string>, } | { "kind": "terminalPlacement", value: TerminalPlacement, } | { "kind": "terminalHeight", value: number, } | { "kind": "terminalWidth", value: number, } | { "kind": "panelWidth", panel: PanelId, value: number | null, } | { "kind": "dashboardReaderPlacement", value: ReaderPlacement, } | { "kind": "panelCollapsed", panel: PanelId, collapsed: boolean, };

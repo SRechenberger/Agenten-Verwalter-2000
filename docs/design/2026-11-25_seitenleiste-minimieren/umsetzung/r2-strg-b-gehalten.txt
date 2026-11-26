@@ -1,0 +1,18 @@
+Probelauf Seitenleiste minimieren, Runde 2: Strg+B gehalten (XTEST, Xvfb, Tastenwiederholung des X-Servers)
+Gezählt im Fenster: keydown mit Strg+B (davon event.repeat), Wechsel der Klasse von nav.sidebar (4 s), Aufrufe von settings_update.
+
+Lauf 1, offen -> gehalten 1,5 s
+  keydown Strg+B: 22, davon repeat: 21
+  Wechsel der Leiste: 1, Ende: "sidebar sidebar--minimized", Breite 44 px
+  settings_update: 1 ({"kind":"panelCollapsed","panel":"sidebar","collapsed":true})
+  Datenbank: panel_collapsed.sidebar = true; localStorage verwalter.collapsedPanels = ["sidebar"]
+
+Lauf 2, minimiert -> gehalten 1,5 s
+  keydown Strg+B: 22, davon repeat: 21
+  Wechsel der Leiste: 1, Ende: "sidebar", Breite 256 px
+  settings_update: 1 ({"kind":"panelCollapsed","panel":"sidebar","collapsed":false})
+  Datenbank: kein Schlüssel panel_collapsed.*; localStorage verwalter.collapsedPanels = []
+
+Kopfzeile .sidebar__brand-name
+  256 px: clientWidth 167, scrollWidth 167, Text 156 px breit (gemessen bei 200 px), Höhe Kopfzeile 48 px, white-space nowrap
+  200 px (Mindestbreite, per Griff gezogen): clientWidth 115, scrollWidth 156 -> "Agenten Verwal…", Höhe Kopfzeile 48 px

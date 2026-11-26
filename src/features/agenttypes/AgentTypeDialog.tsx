@@ -31,6 +31,8 @@ import {
   PROMPT_PLACEHOLDER,
   REQUIRED_LABEL,
   SAVE_LABEL,
+  DESCRIPTION_OVER_REASON,
+  PROMPT_OVER_REASON,
   SAVING_LABEL,
   SKILLS_ADD_LABEL,
   SKILLS_HINT,
@@ -519,6 +521,13 @@ export function AgentTypeDialog({
     );
   }
 
+  const overReason: string | null =
+    descriptionCount > MAX_DESCRIPTION_CHARS
+      ? DESCRIPTION_OVER_REASON
+      : promptCount > MAX_PROMPT_UNITS
+        ? PROMPT_OVER_REASON
+        : null;
+
   function renderFooter(): ReactElement {
     const message: string | null =
       saveError ?? (invalidFieldCount > 0 ? saveBlockedText(invalidFieldCount) : null);
@@ -539,7 +548,8 @@ export function AgentTypeDialog({
           type="button"
           className="settings-view__button agent-type-dialog__primary"
           onClick={save}
-          disabled={isSaving}
+          disabled={isSaving || overReason !== null}
+          title={overReason ?? undefined}
         >
           {saveLabel()}
         </button>
