@@ -75,6 +75,7 @@
     line-height: 0;
     cursor: crosshair;
     touch-action: none;
+    -webkit-user-select: none;
     user-select: none;
   }
 

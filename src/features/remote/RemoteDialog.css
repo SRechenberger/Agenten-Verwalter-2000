@@ -45,6 +45,7 @@
     font-family: var(--font-mono);
     font-size: var(--font-size-xs);
     overflow-wrap: anywhere;
+    -webkit-user-select: all;
     user-select: all;
   }
 

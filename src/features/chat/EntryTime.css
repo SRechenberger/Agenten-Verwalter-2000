@@ -4,6 +4,7 @@
   font-size: var(--font-size-2xs);
   letter-spacing: 0.04em;
   text-transform: uppercase;
+  -webkit-user-select: none;
   user-select: none;
 }
 
@@ -12,6 +13,7 @@
   font-size: var(--font-size-2xs);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+  -webkit-user-select: none;
   user-select: none;
 
   /* Nachrichten: eigene Zeile über dem Eintrag, immer sichtbar (der Block wird eine Zeile höher). */

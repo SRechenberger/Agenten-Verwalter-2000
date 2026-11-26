@@ -16,7 +16,7 @@
   &__button {
     padding: 1px 10px;
     border: 1px solid var(--color-status-waiting);
-    border-radius: var(--radius-full);
+    border-radius: var(--radius-flat);
     background: var(--color-status-waiting-subtle);
     color: var(--color-status-waiting);
     font: inherit;
