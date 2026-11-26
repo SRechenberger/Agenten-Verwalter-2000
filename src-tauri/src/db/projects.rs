@@ -9,7 +9,7 @@ use crate::session_tools::model::SelfRelease;
 
 const COLUMNS: &str = "id, name, created_at, tldr, tldr_at, tldr_sources, name_auto, \
      self_release_messages, self_release_tldr, self_release_open_session, self_release_tldr_model, \
-     group_id, priority";
+     group_id, priority, position";
 
 #[derive(Debug, Clone)]
 pub struct ProjectRow {
@@ -27,13 +27,31 @@ pub struct ProjectRow {
     pub group_id: Option<String>,
     /// Stufe in der globalen Warteschlange (ADR 068); archivierte Vorhaben behalten sie.
     pub priority: ProjectPriority,
+    /// Platz in der Leiste, kleiner = weiter oben; eine Folge für alle Vorhaben (Taiga 101).
+    pub position: i32,
+}
+
+/// Wohin `move_to` ein Vorhaben stellt.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MoveTarget<'a> {
+    /// Direkt vor dieses Vorhaben, in dessen Gruppe.
+    Before(&'a str),
+    /// Ans Ende der Gruppe; `None` = ohne Gruppe.
+    EndOf(Option<&'a str>),
+}
+
+/// Die Position, die ein neues Vorhaben über allen anderen einnimmt (E3).
+pub fn next_top_position(connection: &Connection) -> Result<i32, CommandError> {
+    let top: Option<i32> =
+        connection.query_row("SELECT MIN(position) FROM projects", [], |row| row.get(0))?;
+    Ok(top.map_or(0, |top: i32| top - 1))
 }
 
 pub fn insert(connection: &Connection, row: &ProjectRow) -> Result<(), CommandError> {
     connection.execute(
         "INSERT INTO projects (id, name, created_at, name_auto, self_release_messages, \
          self_release_tldr, self_release_open_session, self_release_tldr_model, group_id, \
-         priority) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+         priority, position) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
         params![
             row.id,
             row.name,
@@ -45,6 +63,7 @@ pub fn insert(connection: &Connection, row: &ProjectRow) -> Result<(), CommandEr
             enum_to_text(&row.self_release.tldr_model)?,
             row.group_id,
             enum_to_text(&row.priority)?,
+            row.position,
         ],
     )?;
     Ok(())
@@ -70,13 +89,14 @@ fn read_row(row: &Row<'_>) -> rusqlite::Result<ProjectRow> {
         },
         group_id: row.get(11)?,
         priority: enum_from_text::<ProjectPriority>(&priority).unwrap_or_default(),
+        position: row.get(13)?,
     })
 }
 
-/// Alle nicht archivierten Vorhaben, neueste zuerst.
+/// Alle nicht archivierten Vorhaben in der Reihenfolge der Leiste.
 pub fn load_active(connection: &Connection) -> Result<Vec<ProjectRow>, CommandError> {
     let mut statement = connection.prepare(&format!(
-        "SELECT {COLUMNS} FROM projects WHERE archived_at IS NULL ORDER BY created_at DESC"
+        "SELECT {COLUMNS} FROM projects WHERE archived_at IS NULL ORDER BY position, created_at DESC, id"
     ))?;
     let rows = statement
         .query_map([], read_row)?
@@ -159,6 +179,69 @@ pub fn set_group(
         )));
     }
     Ok(())
+}
+
+/// Stellt das Vorhaben an `target` und setzt seine Gruppe, in einer Transaktion; die Positionen der
+/// nicht archivierten Vorhaben werden dabei neu von 0 an vergeben. Gibt je Vorhaben `(id, position)`
+/// zurück. Ein unbekanntes Vorhaben, Ziel oder eine unbekannte Gruppe ist ein Fehler ohne Änderung.
+pub fn move_to(
+    connection: &mut Connection,
+    id: &str,
+    target: MoveTarget<'_>,
+) -> Result<Vec<(String, i32)>, CommandError> {
+    let transaction = connection.transaction()?;
+    let mut order: Vec<(String, Option<String>)> = {
+        let mut statement = transaction.prepare(
+            "SELECT id, group_id FROM projects WHERE archived_at IS NULL \
+             ORDER BY position, created_at DESC, id",
+        )?;
+        statement
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
+            .collect::<rusqlite::Result<_>>()?
+    };
+    let not_found = |id: &str| CommandError::Internal(format!("Vorhaben nicht gefunden: {id}"));
+    let from = order
+        .iter()
+        .position(|(candidate, _)| candidate == id)
+        .ok_or_else(|| not_found(id))?;
+    let moved = order.remove(from);
+    let (group_id, index): (Option<String>, usize) = match target {
+        MoveTarget::Before(before) => {
+            let index = order
+                .iter()
+                .position(|(candidate, _)| candidate == before)
+                .ok_or_else(|| not_found(before))?;
+            (order[index].1.clone(), index)
+        }
+        MoveTarget::EndOf(group_id) => {
+            if let Some(group_id) = group_id {
+                project_groups::require(&transaction, group_id)?;
+            }
+            let last = order
+                .iter()
+                .rposition(|(_, group)| group.as_deref() == group_id);
+            (
+                group_id.map(str::to_owned),
+                last.map_or(order.len(), |last| last + 1),
+            )
+        }
+    };
+    order.insert(index, (moved.0, group_id.clone()));
+    let mut positions = Vec::with_capacity(order.len());
+    for (position, (project_id, _)) in order.iter().enumerate() {
+        let position = i32::try_from(position).unwrap_or(i32::MAX);
+        transaction.execute(
+            "UPDATE projects SET position = ?2 WHERE id = ?1",
+            params![project_id, position],
+        )?;
+        positions.push((project_id.clone(), position));
+    }
+    transaction.execute(
+        "UPDATE projects SET group_id = ?2 WHERE id = ?1",
+        params![id, group_id],
+    )?;
+    transaction.commit()?;
+    Ok(positions)
 }
 
 pub fn set_self_release(
@@ -246,3 +329,6 @@ pub fn delete(connection: &Connection, id: &str) -> Result<(), CommandError> {
     connection.execute("DELETE FROM projects WHERE id = ?1", params![id])?;
     Ok(())
 }
+
+#[cfg(test)]
+mod tests;

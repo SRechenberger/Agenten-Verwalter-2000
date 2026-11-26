@@ -47,6 +47,20 @@ export async function setProjectGroup(
   await invoke('project_set_group', { projectId, groupId, stopAgents });
 }
 
+/** Stellt das Vorhaben vor `before` und in dessen Gruppe; ohne `before` ans Ende von `groupId`
+ *  (`null` = ohne Gruppe). `groupId` gilt auch für ein Vorhaben eines Hosts, dessen Reihenfolge fest ist.
+ *  Wer eine freigegebene Gruppe verlässt, verliert deren Freigabe; `stopAgents` hält dann seine Sessions an.
+ *  @throws {import('@/lib/bindings/CommandError').CommandError} `internal` (unbekannte Gruppe,
+ *    unbekanntes oder archiviertes Vorhaben oder Ziel) */
+export async function moveProject(
+  projectId: string,
+  before: string | null,
+  groupId: string | null,
+  stopAgents = false,
+): Promise<void> {
+  await invoke('project_move', { projectId, before, groupId, stopAgents });
+}
+
 /** Meldet nach jeder Änderung an den Gruppen die volle Liste. */
 export function onProjectGroupsChanged(
   callback: (groups: ProjectGroup[]) => void,

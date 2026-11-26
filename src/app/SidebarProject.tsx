@@ -57,6 +57,11 @@ interface SidebarProjectProps {
   onSetGroup: (groupId: string | null) => void;
   /** Legt eine Gruppe an, weist das Vorhaben zu und öffnet die Umbenennung ihres Kopfs. */
   onNewGroup: () => void;
+  /** Ob das Vorhaben in seiner Gruppe nach oben oder unten rücken kann. */
+  canMoveUp: boolean;
+  canMoveDown: boolean;
+  /** „Nach oben“ (-1) und „Nach unten“ (1) im Menü, innerhalb der eigenen Gruppe. */
+  onStep: (direction: -1 | 1) => void;
   /** Tastendruck auf der Hauptzeile: Hier beginnt das Ziehen auf eine Gruppe. */
   onRowPointerDown: (event: PointerEvent<HTMLButtonElement>) => void;
 }
@@ -78,6 +83,9 @@ export function SidebarProject({
   onGiveBack,
   onSetGroup,
   onNewGroup,
+  canMoveUp,
+  canMoveDown,
+  onStep,
   onRowPointerDown,
 }: SidebarProjectProps): ReactElement {
   const [isMenuOpen, setIsMenuOpen] = useState<boolean>(false);
@@ -269,6 +277,35 @@ export function SidebarProject({
               setIsMenuOpen(false);
             }}
           >
+            {!isRemote && (
+              <>
+                <button
+                  type="button"
+                  role="menuitem"
+                  className="sidebar-project__menu-item"
+                  disabled={!canMoveUp}
+                  onClick={(): void => {
+                    setIsMenuOpen(false);
+                    onStep(-1);
+                  }}
+                >
+                  Nach oben
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  className="sidebar-project__menu-item"
+                  disabled={!canMoveDown}
+                  onClick={(): void => {
+                    setIsMenuOpen(false);
+                    onStep(1);
+                  }}
+                >
+                  Nach unten
+                </button>
+                <div className="sidebar-project__menu-separator" role="separator" />
+              </>
+            )}
             <div className="sidebar-project__menu-label">In Gruppe verschieben</div>
             {groups.map((group: ProjectGroup) => renderGroupItem(group.id, group.name))}
             {renderGroupItem(null, 'Ohne Gruppe')}

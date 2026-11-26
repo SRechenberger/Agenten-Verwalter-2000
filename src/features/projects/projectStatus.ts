@@ -63,7 +63,16 @@ export function chooseSession(
   );
 }
 
-/** Sessions eines Vorhabens, zuletzt aktive zuerst — die Reihenfolge in der Sidebar. */
+/** Sessions eines Vorhabens, die neueste Nummer zuerst — die Reihenfolge in der Sidebar (Taiga 101). */
+export function sessionsByNumber(
+  projectId: string,
+  sessions: readonly SessionSummary[],
+): SessionSummary[] {
+  return sessionsOf(projectId, sessions).reverse();
+}
+
+/** Sessions eines Vorhabens, zuletzt aktive zuerst. Die Sidebar sortiert seit Taiga 101 nach Nummer
+ *  (`sessionsByNumber`); das hier bleibt für die Ansicht nach Aktivität. */
 export function sessionsByActivity(
   projectId: string,
   sessions: readonly SessionSummary[],
@@ -76,7 +85,7 @@ export function sessionsByActivity(
     );
 }
 
-/** Jüngste Aktivität im Vorhaben; ohne Sessions sein Anlegezeitpunkt. */
+/** Jüngste Aktivität im Vorhaben; ohne Sessions sein Anlegezeitpunkt. Die Leiste folgt ihr nicht mehr. */
 export function projectActivity(
   project: ProjectSummary,
   sessions: readonly SessionSummary[],

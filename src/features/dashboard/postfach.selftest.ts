@@ -77,6 +77,7 @@ function project(
     groupId,
     access,
     priority: 'normal',
+    position: 0,
   };
 }
 

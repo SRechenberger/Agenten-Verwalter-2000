@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { PointerEvent as ReactPointerEvent, RefObject } from 'react';
-import { DROP_NONE } from '@/app/buildSidebarRows';
+import type { DropSpot } from '@/app/sidebarOrder';
 import type { ProjectSummary } from '@/lib/bindings/ProjectSummary';
 
 /** So viele Pixel Bewegung trennen einen Klick vom Ziehen. */
@@ -26,23 +26,23 @@ export interface DraggedProject {
 
 export interface SidebarDrag {
   dragged: DraggedProject | null;
-  /** Wert von `dropGroup` der Zeile unter dem Zeiger; `null` außerhalb der Ziele. */
-  dropTarget: string | null;
+  /** Das Ziel unter dem Zeiger; `null` außerhalb der Ziele. */
+  dropTarget: DropSpot | null;
   ghostRef: RefObject<HTMLDivElement | null>;
   beginDrag: (event: ReactPointerEvent<HTMLElement>, project: ProjectSummary) => void;
 }
 
-/** Ziehen eines Vorhabens auf eine Gruppe. Zeiger-Ereignisse statt HTML5-Drag: Tauris Datei-Drop des Fensters
+/** Ziehen eines Vorhabens zwischen Vorhaben, auf einen Gruppenkopf oder in „Ohne Gruppe“. Zeiger-Ereignisse statt HTML5-Drag: Tauris Datei-Drop des Fensters
  *  fängt unter Windows (WebView2) HTML5-Ziehen im Seiteninhalt ab und trägt zugleich das Ziehen von Anhängen.
  *  Die Ereignisse hängen an `window` statt per `setPointerCapture` an der Zeile: Die Liste ist virtualisiert,
  *  und scrollt die Quellzeile aus dem DOM, endete mit ihr auch das Ziehen. */
 export function useSidebarDrag(
   listRef: RefObject<HTMLElement | null>,
   isEnabled: boolean,
-  onDrop: (projectId: string, groupId: string | null) => void,
+  onDrop: (projectId: string, spot: DropSpot) => void,
 ): SidebarDrag {
   const [dragged, setDragged] = useState<DraggedProject | null>(null);
-  const [dropTarget, setDropTarget] = useState<string | null>(null);
+  const [dropTarget, setDropTarget] = useState<DropSpot | null>(null);
   const ghostRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<(() => void) | null>(null);
 
@@ -66,10 +66,10 @@ export function useSidebarDrag(
     let phase: 'pressed' | 'dragging' | 'aborted' = 'pressed';
     let frame = 0;
 
-    function targetAt(atX: number, atY: number): string | null {
+    function targetAt(atX: number, atY: number): DropSpot | null {
       return Math.hypot(atX - startX, atY - startY) < MIN_DROP_DISTANCE
         ? null
-        : dropGroupAt(atX, atY);
+        : dropSpotAt(atX, atY);
     }
 
     // Je Bild statt je Bewegung: Beim Rand-Scrollen wandern die Zeilen unter einem ruhenden Zeiger.
@@ -131,7 +131,7 @@ export function useSidebarDrag(
     }
 
     function handleRelease(releaseEvent: PointerEvent): void {
-      const target: string | null =
+      const target: DropSpot | null =
         phase === 'dragging' && releaseEvent.type === 'pointerup'
           ? targetAt(releaseEvent.clientX, releaseEvent.clientY)
           : null;
@@ -140,8 +140,8 @@ export function useSidebarDrag(
       if (wasDrag) {
         swallowNextClick();
       }
-      if (target !== null && target !== (project.groupId ?? DROP_NONE)) {
-        onDrop(project.id, target === DROP_NONE ? null : target);
+      if (target !== null) {
+        onDrop(project.id, target);
       }
     }
 
@@ -158,11 +158,26 @@ export function useSidebarDrag(
   return { dragged, dropTarget, ghostRef, beginDrag };
 }
 
-function dropGroupAt(x: number, y: number): string | null {
+/** Ziel unter dem Zeiger: Eine Vorhabenzeile teilt sich in obere Hälfte (davor) und untere (dahinter, samt
+ *  ihren Kindzeilen); Kindzeilen zählen als dahinter, der Gruppenkopf und „Ohne Gruppe“ als Ganzes. */
+function dropSpotAt(x: number, y: number): DropSpot | null {
   const row: Element | null | undefined = document
     .elementFromPoint(x, y)
-    ?.closest('[data-drop-group]');
-  return row?.getAttribute('data-drop-group') ?? null;
+    ?.closest('[data-drop-project], [data-drop-after], [data-drop-head], [data-drop-none]');
+  if (row === null || row === undefined) {
+    return null;
+  }
+  const projectId: string | null = row.getAttribute('data-drop-project');
+  if (projectId !== null) {
+    const rect: DOMRect = row.getBoundingClientRect();
+    return { kind: y < rect.top + rect.height / 2 ? 'before' : 'after', projectId };
+  }
+  const afterId: string | null = row.getAttribute('data-drop-after');
+  if (afterId !== null) {
+    return { kind: 'after', projectId: afterId };
+  }
+  const groupId: string | null = row.getAttribute('data-drop-head');
+  return groupId === null ? { kind: 'none' } : { kind: 'group', groupId };
 }
 
 /** Scrollschritt dieses Bilds: näher am Rand schneller, jenseits des Rands am schnellsten. */

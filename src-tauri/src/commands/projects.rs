@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use crate::agents::event::{Effort, Mode, ModelId};
 use crate::db::Database;
+use crate::db::projects::MoveTarget;
 use crate::error::CommandError;
 use crate::projects::model::{ProjectCreated, ProjectGroup, ProjectPriority, ProjectSummary};
 use crate::remote::client::RemoteClients;
@@ -153,6 +154,39 @@ pub async fn project_group_set_collapsed(
     collapsed: bool,
 ) -> Result<(), CommandError> {
     registry.set_project_group_collapsed(&app, &id, collapsed)
+}
+
+/// Stellt ein Vorhaben vor `before` (in dessen Gruppe) oder, ohne `before`, ans Ende der Gruppe
+/// `group_id` (`None` = ohne Gruppe); die Oberfläche gibt mit `before` auch dessen Gruppe an. Ein Vorhaben eines Hosts ändert beim Gast nur seine lokale
+/// Gruppe, nie den Host (ADR 059); seine Reihenfolge ist dort fest.
+// Die Parameter sind die Aufrufform der Oberfläche (`moveProject`); vier davon stellt Tauri selbst.
+#[allow(clippy::too_many_arguments)]
+#[tauri::command]
+pub async fn project_move(
+    app: tauri::AppHandle,
+    registry: tauri::State<'_, SessionRegistry>,
+    clients: tauri::State<'_, Arc<RemoteClients>>,
+    database: tauri::State<'_, Arc<Database>>,
+    project_id: String,
+    before: Option<String>,
+    group_id: Option<String>,
+    stop_agents: Option<bool>,
+) -> Result<(), CommandError> {
+    if let Some(host_id) = clients.host_of(&project_id) {
+        return guest::set_group(
+            &app,
+            &clients,
+            &database,
+            &host_id,
+            &project_id,
+            group_id.as_deref(),
+        );
+    }
+    let target = match &before {
+        Some(before) => MoveTarget::Before(before),
+        None => MoveTarget::EndOf(group_id.as_deref()),
+    };
+    registry.move_project(&app, &project_id, target, stop_agents.unwrap_or(false))
 }
 
 /// Ein Vorhaben eines Hosts ordnet nur die lokale Tabelle ein, nie der Host (ADR 059).

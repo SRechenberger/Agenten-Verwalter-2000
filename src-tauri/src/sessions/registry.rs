@@ -195,6 +195,8 @@ struct ProjectState {
     group_id: Option<String>,
     /// Stufe in der globalen Warteschlange (ADR 068).
     priority: ProjectPriority,
+    /// Platz in der Leiste, kleiner = weiter oben.
+    position: i32,
     created_at: f64,
     tldr: Option<ProjectTldr>,
     tldr_at: Option<f64>,
@@ -221,6 +223,7 @@ impl ProjectState {
             self_release: SelfRelease::OFF,
             group_id: None,
             priority: ProjectPriority::Normal,
+            position: 0,
             created_at,
             tldr: None,
             tldr_at: None,
@@ -236,6 +239,7 @@ impl ProjectState {
         let mut state = ProjectState::new(row.name.clone(), row.created_at);
         state.name_auto = row.name_auto;
         state.priority = row.priority;
+        state.position = row.position;
         state.self_release = row.self_release;
         state.group_id = row.group_id.clone();
         state.tldr = row
@@ -813,6 +817,9 @@ impl SessionRegistry {
         project.name_auto = project_name_auto;
         project.self_release = default_self_release;
         project.group_id.clone_from(&group_id);
+        project.position = self
+            .database
+            .with(|connection| project_rows::next_top_position(connection))?;
         let session = Arc::new(Session {
             id: id.clone(),
             project_id: project_id.clone(),
@@ -836,6 +843,7 @@ impl SessionRegistry {
             self_release: default_self_release,
             group_id,
             priority: project.priority,
+            position: project.position,
         };
         let saved = self.database.with(|connection| {
             project_rows::insert(connection, &project_row)?;
@@ -991,7 +999,7 @@ impl SessionRegistry {
 
     /// Unbekanntes Vorhaben → Fehler.
     pub fn project_summary(&self, project_id: &str) -> Result<ProjectSummary, CommandError> {
-        let (name, created_at, self_release, group_id, priority) = {
+        let (name, created_at, self_release, group_id, priority, position) = {
             let projects = self.lock_projects();
             let project = projects
                 .get(project_id)
@@ -1002,6 +1010,7 @@ impl SessionRegistry {
                 project.self_release,
                 project.group_id.clone(),
                 project.priority,
+                project.position,
             )
         };
         Ok(ProjectSummary {
@@ -1013,6 +1022,7 @@ impl SessionRegistry {
             group_id,
             access: self.remote.with(|control| control.access(project_id)),
             priority,
+            position,
         })
     }
 
@@ -1103,7 +1113,9 @@ impl SessionRegistry {
             .filter_map(|id: &String| self.project_summary(id).ok())
             .collect();
         summaries.sort_by(|left: &ProjectSummary, right: &ProjectSummary| {
-            right.created_at.total_cmp(&left.created_at)
+            left.position
+                .cmp(&right.position)
+                .then_with(|| right.created_at.total_cmp(&left.created_at))
         });
         summaries
     }
@@ -1233,6 +1245,47 @@ impl SessionRegistry {
         // Freigabe der Gruppe und wirft einen haltenden Gast hinaus (G3).
         let synced = self.sync_shared(app, stop_agents);
         let _ = app.emit(PROJECT_CHANGED_EVENT, self.project_summary(project_id)?);
+        synced
+    }
+
+    /// Stellt das Vorhaben an `target` und in dessen Gruppe (Taiga 101); `stop_agents` wie bei
+    /// `set_project_group`. Unbekanntes oder archiviertes Vorhaben, Ziel oder Gruppe → Fehler, ohne
+    /// dass sich etwas ändert. Jedes Vorhaben, dessen Platz oder Gruppe sich ändert, meldet sich neu.
+    pub fn move_project(
+        &self,
+        app: &AppHandle,
+        project_id: &str,
+        target: project_rows::MoveTarget<'_>,
+        stop_agents: bool,
+    ) -> Result<(), CommandError> {
+        let changed: Vec<String> = {
+            // Über das Schreiben gehalten, siehe `delete_project_group`.
+            let mut projects = self.lock_projects();
+            if !projects.contains_key(project_id) {
+                return Err(project_not_found(project_id));
+            }
+            let after = self.database.with(|connection| {
+                project_rows::move_to(connection, project_id, target)?;
+                project_rows::load_active(connection)
+            })?;
+            let mut changed = Vec::new();
+            for row in after {
+                if let Some(project) = projects.get_mut(&row.id)
+                    && (project.position != row.position || project.group_id != row.group_id)
+                {
+                    project.position = row.position;
+                    project.group_id = row.group_id;
+                    changed.push(row.id);
+                }
+            }
+            changed
+        };
+        let synced = self.sync_shared(app, stop_agents);
+        for id in &changed {
+            if let Ok(summary) = self.project_summary(id) {
+                let _ = app.emit(PROJECT_CHANGED_EVENT, summary);
+            }
+        }
         synced
     }
 

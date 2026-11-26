@@ -81,6 +81,8 @@ pub fn guest_view(
         online: host.online,
     };
     summary.group_id = groups.get(&summary.id).cloned();
+    // Die Position des Hosts sagt dem Gast nichts: Entfernte stehen hinter den eigenen Vorhaben.
+    summary.position = i32::MAX;
     summary
 }
 
