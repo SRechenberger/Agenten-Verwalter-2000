@@ -258,3 +258,105 @@ fn ten_answers_in_one_second_send_at_most_two_events_and_the_last_one_comes_afte
     throttle.sent(due);
     assert_eq!(throttle.changed(due + 10.0), Step::SendAfter(990.0));
 }
+
+fn codex_line(content: Value) -> Value {
+    json!({"type": "assistant", "session_id": "s", "parent_tool_use_id": null,
+        "message": {"role": "assistant", "content": content}})
+}
+
+fn codex_count(input: u64, output: u64) -> crate::codex::tokens::TokenCount {
+    crate::codex::tokens::TokenCount {
+        input,
+        output,
+        window: None,
+    }
+}
+
+/// Schreibt die Zeile wie `write_line` in `codex/session.rs` und legt ihre Token ab wie
+/// `SessionState::apply_event`.
+fn write_codex_line(database: &Database, last: &crate::codex::tokens::LastCount, mut line: Value) {
+    last.apply(&mut line);
+    let rows: Vec<TokenRow> = tokens_events(&mut Translator::default(), &line)
+        .into_iter()
+        .map(|event: AgentEvent| {
+            let AgentEvent::TokensUsed {
+                message_id,
+                input,
+                output,
+                ..
+            } = event
+            else {
+                unreachable!()
+            };
+            row(
+                &message_id.expect("Codex-Zeile mit message.id"),
+                NOW,
+                u64::from(input),
+                u64::from(output),
+            )
+        })
+        .collect();
+    database
+        .with(|connection| token_usage::upsert_all(connection, "s", &rows))
+        .expect("rows");
+}
+
+fn codex_samples(database: &Database) -> Vec<Sample> {
+    database
+        .with(|connection| token_usage::load_since(connection, Some("s"), 0.0))
+        .expect("samples")
+}
+
+#[test]
+fn a_codex_count_with_its_tool_and_text_lines_gives_one_row_with_its_numbers() {
+    let database = database();
+    add_session(&database, "s");
+    let mut last = crate::codex::tokens::LastCount::default();
+    last.update(codex_count(700, 30));
+    write_codex_line(&database, &last, codex_line(json!([])));
+    write_codex_line(
+        &database,
+        &last,
+        codex_line(json!([{"type": "tool_use", "id": "t1", "name": "Read",
+            "input": {"file_path": "/a"}}])),
+    );
+    write_codex_line(
+        &database,
+        &last,
+        codex_line(json!([{"type": "text", "text": "fertig"}])),
+    );
+    let samples = codex_samples(&database);
+    assert_eq!(samples.len(), 1);
+    assert_eq!((samples[0].input, samples[0].output), (700, 30));
+}
+
+#[test]
+fn a_codex_line_of_the_next_turn_before_its_count_adds_no_row() {
+    let database = database();
+    add_session(&database, "s");
+    let mut last = crate::codex::tokens::LastCount::default();
+    last.update(codex_count(700, 30));
+    write_codex_line(&database, &last, codex_line(json!([])));
+    write_codex_line(
+        &database,
+        &last,
+        codex_line(json!([{"type": "text", "text": "nächster Zug"}])),
+    );
+    assert_eq!(codex_samples(&database).len(), 1);
+}
+
+#[test]
+fn two_codex_counts_give_two_rows_and_a_repeated_count_none() {
+    let database = database();
+    add_session(&database, "s");
+    let mut last = crate::codex::tokens::LastCount::default();
+    last.update(codex_count(700, 30));
+    write_codex_line(&database, &last, codex_line(json!([])));
+    last.update(codex_count(900, 40));
+    write_codex_line(&database, &last, codex_line(json!([])));
+    last.update(codex_count(900, 40));
+    write_codex_line(&database, &last, codex_line(json!([])));
+    let samples = codex_samples(&database);
+    assert_eq!(samples.len(), 2);
+    assert_eq!(samples.iter().map(|sample| sample.input).sum::<u64>(), 1600);
+}
