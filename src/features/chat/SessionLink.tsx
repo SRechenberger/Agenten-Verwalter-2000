@@ -11,6 +11,8 @@ interface SessionLinkProps {
   canJump: boolean;
   /** Zustand der Zustellung in der Werkzeugzeile; das `aria-label` ersetzt den Inhalt, also nennt es ihn mit. */
   state?: string | undefined;
+  /** Tooltip des Sprungs. */
+  tooltip?: string | undefined;
   children: ReactNode;
 }
 
@@ -21,6 +23,7 @@ export function SessionLink({
   title,
   canJump,
   state,
+  tooltip,
   children,
 }: SessionLinkProps): ReactElement {
   const selectSession = useSessionsStore((state) => state.selectSession);
@@ -31,6 +34,7 @@ export function SessionLink({
     <button
       type="button"
       className="session-link session-link--jump"
+      title={tooltip}
       aria-label={`Zu Session ${String(number)} „${title}“${state === undefined ? '' : `, ${state}`}`}
       onClick={(): void => {
         selectSession(id);

@@ -2,6 +2,8 @@ import { useEffect, useEffectEvent, useLayoutEffect, useMemo, useRef, useState }
 import type { MouseEvent, ReactElement } from 'react';
 import { useVirtualizer, type VirtualItem } from '@tanstack/react-virtual';
 import { FileLinkSessionContext } from '@/components/FileLinkSessionContext';
+import { SessionRefsContext } from '@/components/SessionRefsContext';
+import type { SessionRefs } from '@/components/SessionRefsContext';
 import { ArtifactCard } from '@/features/artifacts/ArtifactCard';
 import { BackgroundLine } from '@/features/chat/BackgroundLine';
 import { buildBlocks, type ChatBlock, type ToolEntry } from '@/features/chat/buildBlocks';
@@ -54,6 +56,7 @@ import { lockNote } from '@/features/remote/projectAccess';
 import { useOperatingMode } from '@/features/remote/useOperatingMode';
 import { useProjectIsRemote } from '@/features/remote/useProjectAccess';
 import { useForeignWaiting } from '@/stores/inbox';
+import { useProjectAccessStore } from '@/stores/projectAccess';
 import { useSessionsStore } from '@/stores/sessions';
 import type { WaitingMessage } from '@/lib/bindings/WaitingMessage';
 import { ForeignWaiting } from '@/features/chat/ForeignWaiting';
@@ -151,6 +154,17 @@ export function ChatTimeline({
   const { lock } = answering;
   // Ein Dateiverweis öffnete die Datei am Bildschirm des Hosts: Bei dessen Vorhaben bleibt der Pfad Text.
   const isRemote: boolean = useProjectIsRemote(session.projectId);
+  // „Session N“ und Session-IDs im Text werden Links (Taiga 108); Namen der Vorhaben für den Tooltip.
+  const projects = useProjectAccessStore((state) => state.projects);
+  const sessionRefs: SessionRefs = useMemo(
+    () => ({
+      sessions,
+      projectId: session.projectId,
+      projectName: (projectId: string): string | null =>
+        projects.find((project) => project.id === projectId)?.name ?? null,
+    }),
+    [sessions, session.projectId, projects],
+  );
   const scrollRef = useRef<HTMLDivElement>(null);
   const stickToBottomRef = useRef<boolean>(true);
   const layoutMarkRef = useRef<LayoutMark>({ firstSeq: null, scrollHeight: 0 });
@@ -589,37 +603,39 @@ export function ChatTimeline({
             {olderError}
           </p>
         )}
-        <FileLinkSessionContext.Provider value={isRemote ? null : session.id}>
-          <div
-            className="chat-timeline__surface"
-            style={{ height: `${String(Math.max(totalSize, containerHeight))}px` }}
-          >
-            {virtualizer.getVirtualItems().map((item: VirtualItem) => (
-              <div
-                key={item.key}
-                ref={virtualizer.measureElement}
-                data-index={item.index}
-                className="chat-timeline__item"
-                style={{ transform: `translateY(${String(item.start + bottomOffset)}px)` }}
-              >
-                <div className="chat-timeline__block" data-seq={blockSeq(blocks[item.index])}>
-                  {item.index === foreignIndex ? (
-                    <ForeignWaiting
-                      sessionId={session.id}
-                      sessions={sessions}
-                      waiting={foreignWaiting}
-                    />
-                  ) : (
-                    <>
-                      {renderTime(blocks[item.index], dividers[item.index] ?? null)}
-                      {renderBlock(blocks[item.index])}
-                    </>
-                  )}
+        <SessionRefsContext.Provider value={sessionRefs}>
+          <FileLinkSessionContext.Provider value={isRemote ? null : session.id}>
+            <div
+              className="chat-timeline__surface"
+              style={{ height: `${String(Math.max(totalSize, containerHeight))}px` }}
+            >
+              {virtualizer.getVirtualItems().map((item: VirtualItem) => (
+                <div
+                  key={item.key}
+                  ref={virtualizer.measureElement}
+                  data-index={item.index}
+                  className="chat-timeline__item"
+                  style={{ transform: `translateY(${String(item.start + bottomOffset)}px)` }}
+                >
+                  <div className="chat-timeline__block" data-seq={blockSeq(blocks[item.index])}>
+                    {item.index === foreignIndex ? (
+                      <ForeignWaiting
+                        sessionId={session.id}
+                        sessions={sessions}
+                        waiting={foreignWaiting}
+                      />
+                    ) : (
+                      <>
+                        {renderTime(blocks[item.index], dividers[item.index] ?? null)}
+                        {renderBlock(blocks[item.index])}
+                      </>
+                    )}
+                  </div>
                 </div>
-              </div>
-            ))}
-          </div>
-        </FileLinkSessionContext.Provider>
+              ))}
+            </div>
+          </FileLinkSessionContext.Provider>
+        </SessionRefsContext.Provider>
       </div>
       {lastUserText !== null && (
         <PinnedUserMessage

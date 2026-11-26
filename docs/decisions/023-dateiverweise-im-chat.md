@@ -25,3 +25,11 @@ Agenten nennen in ihren Antworten Dateien, die der Benutzer ansehen soll — in 
 - Fehler (nicht gefunden, Dateityp, außerhalb des Vorhabens) stehen in der Fehlerleiste der Session; die Oberfläche zeigt einen Link auch für Pfade, die beim Klick scheitern.
 - Eine HTML-Datei führt im Browser ihr eigenes JavaScript aus — wie ein Doppelklick im Explorer; sie liegt im Vorhaben. Akzeptiert.
 - Weicht die Endungsliste in TS von der in Rust ab, fehlt ein Link oder ein Link scheitert; die Sicherheit hängt allein an Rust.
+
+## Nachtrag: Verweise auf Sessions (Taiga 108)
+
+- **Erkannt** wird „Session N“ (das Wort, ein Leerzeichen, eine Zahl ab 1, als ganzes Wort) im freien Text und eine Session-ID (UUID in Kleinbuchstaben) im freien Text und in Inline-Code. Nicht erkannt: Codeblöcke, Ziele und Texte bestehender Links, „#N“, „Sessions 3“, „Session3“, „Session 0“.
+- **Auflösung:** „Session N“ gilt im Vorhaben der angezeigten Session, eine ID unter allen Sessions, die die App kennt. Ohne Session dazu bleibt der Text, wie er ist.
+- **Darstellung:** `SessionLink` mit Tooltip „Session N „Titel“ öffnen“, bei einem fremden Vorhaben mit dessen Namen; ein Klick ruft `selectSession`.
+- **Wo:** Agentenantworten (Plugin `remarkSessionRefs` setzt Links mit dem Schema `session-ref:`, `MarkdownLink` und `InlineCode` lösen sie auf) und Nutzernachrichten (`SessionRefText`).
+- **Technik:** Die Erkennung ist die reine Funktion `splitSessionRefs` in `src/lib/sessionRefs.ts` (Selbsttest `sessionRefs.selftest.ts`). Die Sessions kommen über `SessionRefsContext`, gesetzt in `ChatTimeline`; keine neue Abhängigkeit, der Core ändert sich nicht.
