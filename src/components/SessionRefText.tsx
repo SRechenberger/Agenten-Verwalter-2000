@@ -27,6 +27,7 @@ export function SessionRefLink({ target, children }: SessionRefLinkProps): React
       title={session.name}
       tooltip={sessionRefTitle(session, foreign ? refs.projectName(session.projectId) : null)}
       canJump
+      inline
     >
       {children}
     </SessionLink>

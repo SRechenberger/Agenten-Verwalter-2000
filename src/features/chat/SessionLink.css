@@ -19,6 +19,16 @@
       text-decoration: underline;
     }
 
+    &.session-link--inline {
+      display: inline;
+      gap: 0;
+      text-align: inherit;
+
+      &:hover {
+        text-decoration: underline;
+      }
+    }
+
     &:focus-visible {
       outline: 2px solid var(--color-accent);
       outline-offset: 2px;
