@@ -20,9 +20,11 @@ import { useSessionLocked } from '@/features/remote/useProjectAccess';
 import {
   COMPACT_NOW_LABEL,
   COMPACT_NOW_TITLE,
+  compactLimitText,
   compactPhaseLabel,
   compactPhaseOf,
 } from '@/features/chat/compactTexts';
+import { useMasterCompactLimit } from '@/features/chat/useMasterCompactLimit';
 import { compactNow, sendMessage } from '@/lib/chat';
 import { refreshContext } from '@/lib/context';
 import type { Severity } from '@/lib/severity';
@@ -34,6 +36,8 @@ const PERCENT_FACTOR = 100;
 const DONUT_SIZE = 44;
 
 const COMPACT_TITLE = 'Ab hier fasst Claude den bisherigen Verlauf zusammen, um Platz zu schaffen.';
+const COMPACT_LIMIT_TITLE =
+  'Ruht der Master über dieser Grenze, bittet der Verwalter ihn, sich auf den Compact vorzubereiten (Einstellung „Master zusammenfassen ab“).';
 const COMPACT_COMMAND = '/compact';
 const COMPACT_BUTTON_TITLE =
   'Fasst den bisherigen Verlauf jetzt zusammen, um Platz im Kontext zu schaffen.';
@@ -46,6 +50,8 @@ const COMPACTABLE_STATUSES: readonly SessionStatus[] = ['completed', 'paused'];
 
 interface ContextPanelProps {
   session: SessionSummary;
+  /** Die Session leitet eine unfertige Umsetzung: nur dann zeigt das Panel die Grenze „Master zusammenfassen ab“. */
+  isMaster: boolean;
   /** Schließt das umgebende Fenster, nachdem „Compact“ abgeschickt ist. */
   onClose: () => void;
 }
@@ -56,9 +62,10 @@ interface CategoryRow {
   colorIndex: number | null;
 }
 
-export function ContextPanel({ session, onClose }: ContextPanelProps): ReactElement {
+export function ContextPanel({ session, isMaster, onClose }: ContextPanelProps): ReactElement {
   const context: SessionContext | null = useSessionContext(session.id, true);
   const isLocked: boolean = useSessionLocked(session.id);
+  const compactLimit: number | null = useMasterCompactLimit(session.projectId, isMaster);
 
   function refresh(): void {
     // Die Antwort kommt als `context://changed`; hier gibt es nichts abzuwarten.
@@ -91,7 +98,7 @@ export function ContextPanel({ session, onClose }: ContextPanelProps): ReactElem
     if (context === null || context.breakdown === null) {
       return renderWithoutBreakdown(context);
     }
-    return renderBreakdown(context.breakdown);
+    return renderBreakdown(context.breakdown, compactLimit);
   }
 
   function renderWithoutBreakdown(loaded: SessionContext | null): ReactElement {
@@ -107,6 +114,18 @@ export function ContextPanel({ session, onClose }: ContextPanelProps): ReactElem
           `${formatThousands(session.contextUsed)} von ${formatThousands(session.contextWindow)} Tokens belegt`,
         )}
         <p className="context-panel__hint">{hint}</p>
+        {compactLimit !== null && (
+          <>
+            <div className="context-panel__stack" aria-hidden="true">
+              <span
+                className="context-panel__segment context-panel__chart--1"
+                style={{ width: `${String(Math.min(usedPercent, PERCENT_FACTOR))}%` }}
+              />
+              {renderLimitMark(compactLimit, session.contextWindow)}
+            </div>
+            {renderLimitText(compactLimit)}
+          </>
+        )}
       </>
     );
   }
@@ -182,7 +201,7 @@ function renderGauge(usedPercent: number, summary: string, model?: string): Reac
   );
 }
 
-function renderBreakdown(breakdown: ContextBreakdown): ReactElement {
+function renderBreakdown(breakdown: ContextBreakdown, compactLimit: number | null): ReactElement {
   const rows: CategoryRow[] = buildRows(breakdown.categories);
   const usedPercent: number = shareOfWindow(breakdown.totalTokens, breakdown.maxTokens);
 
@@ -193,7 +212,7 @@ function renderBreakdown(breakdown: ContextBreakdown): ReactElement {
         `${formatTokens(breakdown.totalTokens)} / ${formatTokens(breakdown.maxTokens)} Tokens (${formatPercent(usedPercent, 0)})`,
         breakdown.model,
       )}
-      {renderStack(breakdown, rows)}
+      {renderStack(breakdown, rows, compactLimit)}
       {renderTable(breakdown, rows)}
       {breakdown.autoCompactThreshold !== null && (
         <p className="context-panel__compact" title={COMPACT_TITLE}>
@@ -201,12 +220,36 @@ function renderBreakdown(breakdown: ContextBreakdown): ReactElement {
           Automatisches Zusammenfassen ab {formatTokens(breakdown.autoCompactThreshold)} Tokens
         </p>
       )}
+      {compactLimit !== null && renderLimitText(compactLimit)}
       {breakdown.memoryFiles.length > 0 && renderMemoryFiles(breakdown.memoryFiles)}
     </>
   );
 }
 
-function renderStack(breakdown: ContextBreakdown, rows: readonly CategoryRow[]): ReactElement {
+/** Die Marke der Grenze „Master zusammenfassen ab“ auf dem Balken, getrennt von der Marke des Auto-Compacts. */
+function renderLimitMark(limit: number, windowSize: number): ReactElement {
+  return (
+    <span
+      className="context-panel__threshold context-panel__threshold--master"
+      style={{ left: `${String(shareOfWindow(limit, windowSize))}%` }}
+    />
+  );
+}
+
+function renderLimitText(limit: number): ReactElement {
+  return (
+    <p className="context-panel__compact" title={COMPACT_LIMIT_TITLE}>
+      <InfoIcon />
+      {compactLimitText(formatThousands(limit))}
+    </p>
+  );
+}
+
+function renderStack(
+  breakdown: ContextBreakdown,
+  rows: readonly CategoryRow[],
+  compactLimit: number | null,
+): ReactElement {
   return (
     <div className="context-panel__stack" aria-hidden="true">
       {rows.map((row: CategoryRow) => {
@@ -233,6 +276,7 @@ function renderStack(breakdown: ContextBreakdown, rows: readonly CategoryRow[]):
           }}
         />
       )}
+      {compactLimit !== null && renderLimitMark(compactLimit, breakdown.maxTokens)}
     </div>
   );
 }

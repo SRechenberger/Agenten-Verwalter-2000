@@ -77,6 +77,11 @@
     background: var(--color-fg-muted);
   }
 
+  &__threshold--master {
+    width: 2px;
+    background: var(--color-status-reported);
+  }
+
   &__table {
     width: 100%;
     border-collapse: collapse;

@@ -90,6 +90,13 @@
     white-space: nowrap;
   }
 
+  &__compact-waiting {
+    flex-shrink: 0;
+    font-size: var(--font-size-2xs);
+    color: var(--color-status-reported);
+    white-space: nowrap;
+  }
+
   /* Nachricht wartet auf einen Platz (ADR 068): wie die Uhr rechts, in der Farbe des Wartens. */
   &__queue {
     flex-shrink: 0;
@@ -104,6 +111,10 @@
   &__clock + &__unread,
   &__queue + &__overlap,
   &__queue + &__unread,
+  &__compact + &__compact-waiting,
+  &__compact-waiting + &__queue,
+  &__compact-waiting + &__overlap,
+  &__compact-waiting + &__unread,
   &__compact + &__queue,
   &__compact + &__overlap,
   &__compact + &__unread {

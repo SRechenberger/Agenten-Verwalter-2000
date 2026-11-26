@@ -793,6 +793,10 @@ export function App(): ReactElement {
             isTerminalOpen={isTerminalOpen}
             onToggleTerminal={handleToggleTerminal}
             onShowView={showView}
+            isMaster={implementations.some(
+              (candidate: ImplementationView) =>
+                candidate.masterSessionId === currentSession.id && candidate.finishedAt === null,
+            )}
             onOpenProject={(): void => {
               selectProject(currentSession.projectId);
             }}
