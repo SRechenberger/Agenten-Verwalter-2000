@@ -227,3 +227,49 @@ pub(crate) fn clamped_percent(value: f64) -> u32 {
     // Nach `clamp` liegt der Wert in 0..=100 und passt verlustfrei in `u32`.
     value.round().clamp(0.0, MAX_PERCENT) as u32
 }
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::usage_snapshot;
+
+    /// Antwort eines Ultra-Abos auf `get_usage` am 2026-11-26 (gekürzt, ohne Konto-Kennungen):
+    /// `five_hour` ist `null`, `limits` nennt keine `session`.
+    #[test]
+    fn an_answer_without_a_session_limit_keeps_the_weekly_window() {
+        let body = json!({
+            "subscription_type": "max",
+            "rate_limits_available": true,
+            "rate_limits": {
+                "five_hour": null,
+                "seven_day": { "utilization": 1, "resets_at": "2026-12-03T20:00:00.919533+00:00" },
+                "limits": [
+                    {
+                        "kind": "weekly_all", "group": "weekly", "percent": 1, "severity": "normal",
+                        "resets_at": "2026-12-03T20:00:00.919533+00:00", "scope": null,
+                        "is_active": true
+                    },
+                    {
+                        "kind": "weekly_scoped", "group": "weekly", "percent": 0,
+                        "severity": "normal", "resets_at": "2026-12-03T20:00:00+00:00",
+                        "scope": { "model": { "id": null, "display_name": "Fable" } },
+                        "is_active": false
+                    }
+                ]
+            }
+        });
+        let snapshot = usage_snapshot(&body).expect("Objekt wird gelesen");
+        assert!(snapshot.limits.iter().all(|limit| limit.kind != "session"));
+        let weekly = snapshot
+            .limits
+            .iter()
+            .find(|limit| limit.kind == "weekly_all")
+            .expect("weekly_all bleibt");
+        assert_eq!(weekly.percent, 1);
+        assert_eq!(
+            weekly.resets_at.as_deref(),
+            Some("2026-12-03T20:00:00.919533+00:00")
+        );
+    }
+}
