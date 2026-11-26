@@ -8,6 +8,7 @@ interface Limit {
   severity: string;
   resetsAt: string | null;
   windowMinutes: number | null;
+  model: string | null;
 }
 
 const limit = (kind: string, percent: number, windowMinutes: number | null = null): Limit => ({
@@ -16,6 +17,7 @@ const limit = (kind: string, percent: number, windowMinutes: number | null = nul
   severity: 'normal',
   resetsAt: null,
   windowMinutes,
+  model: null,
 });
 
 const summary = (limits: Limit[]): string[] =>

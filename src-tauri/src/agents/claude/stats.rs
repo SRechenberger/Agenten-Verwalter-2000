@@ -116,6 +116,20 @@ struct RawLimit {
     severity: Option<String>,
     #[serde(default, deserialize_with = "lenient")]
     resets_at: Option<String>,
+    #[serde(default, deserialize_with = "lenient")]
+    scope: Option<RawScope>,
+}
+
+#[derive(Debug, Deserialize)]
+struct RawScope {
+    #[serde(default, deserialize_with = "lenient")]
+    model: Option<RawScopeModel>,
+}
+
+#[derive(Debug, Deserialize)]
+struct RawScopeModel {
+    #[serde(default, deserialize_with = "lenient")]
+    display_name: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -192,6 +206,10 @@ fn limit(raw: RawLimit) -> Option<UsageLimit> {
         severity: raw.severity.unwrap_or_else(|| DEFAULT_SEVERITY.to_owned()),
         resets_at: raw.resets_at,
         window_minutes: None,
+        model: raw
+            .scope
+            .and_then(|scope: RawScope| scope.model)
+            .and_then(|model: RawScopeModel| model.display_name),
     })
 }
 
@@ -267,6 +285,13 @@ mod tests {
             .find(|limit| limit.kind == "weekly_all")
             .expect("weekly_all bleibt");
         assert_eq!(weekly.percent, 1);
+        assert_eq!(weekly.model, None);
+        let scoped = snapshot
+            .limits
+            .iter()
+            .find(|limit| limit.kind == "weekly_scoped")
+            .expect("weekly_scoped bleibt");
+        assert_eq!(scoped.model.as_deref(), Some("Fable"));
         assert_eq!(
             weekly.resets_at.as_deref(),
             Some("2026-12-03T20:00:00.919533+00:00")
