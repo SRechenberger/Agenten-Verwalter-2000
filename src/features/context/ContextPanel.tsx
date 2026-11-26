@@ -116,11 +116,13 @@ export function ContextPanel({ session, isMaster, onClose }: ContextPanelProps):
         <p className="context-panel__hint">{hint}</p>
         {compactLimit !== null && (
           <>
-            <div className="context-panel__stack" aria-hidden="true">
-              <span
-                className="context-panel__segment context-panel__chart--1"
-                style={{ width: `${String(Math.min(usedPercent, PERCENT_FACTOR))}%` }}
-              />
+            <div className="context-panel__track" aria-hidden="true">
+              <div className="context-panel__stack">
+                <span
+                  className="context-panel__segment context-panel__chart--1"
+                  style={{ width: `${String(Math.min(usedPercent, PERCENT_FACTOR))}%` }}
+                />
+              </div>
               {renderLimitMark(compactLimit, session.contextWindow)}
             </div>
             {renderLimitText(compactLimit)}
@@ -226,12 +228,15 @@ function renderBreakdown(breakdown: ContextBreakdown, compactLimit: number | nul
   );
 }
 
-/** Die Marke der Grenze „Master zusammenfassen ab“ auf dem Balken, getrennt von der Marke des Auto-Compacts. */
+/**
+ * Die Marke der Grenze „Master zusammenfassen ab“, getrennt von der Marke des Auto-Compacts. Sie ragt über und
+ * unter den Balken, der selbst abschneidet; darum liegt sie neben ihm in der Spur und endet an deren Rand.
+ */
 function renderLimitMark(limit: number, windowSize: number): ReactElement {
   return (
     <span
       className="context-panel__threshold context-panel__threshold--master"
-      style={{ left: `${String(shareOfWindow(limit, windowSize))}%` }}
+      style={{ left: `${String(Math.min(shareOfWindow(limit, windowSize), PERCENT_FACTOR))}%` }}
     />
   );
 }
@@ -240,7 +245,7 @@ function renderLimitText(limit: number): ReactElement {
   return (
     <p className="context-panel__compact" title={COMPACT_LIMIT_TITLE}>
       <InfoIcon />
-      {compactLimitText(formatThousands(limit))}
+      {compactLimitText(formatTokens(limit))}
     </p>
   );
 }
@@ -251,31 +256,33 @@ function renderStack(
   compactLimit: number | null,
 ): ReactElement {
   return (
-    <div className="context-panel__stack" aria-hidden="true">
-      {rows.map((row: CategoryRow) => {
-        if (row.colorIndex === null) {
-          return null;
-        }
-        return (
+    <div className="context-panel__track" aria-hidden="true">
+      <div className="context-panel__stack">
+        {rows.map((row: CategoryRow) => {
+          if (row.colorIndex === null) {
+            return null;
+          }
+          return (
+            <span
+              key={row.category.name}
+              className={`context-panel__segment context-panel__chart--${String(row.colorIndex)}`}
+              style={{
+                width: `${String(
+                  Math.min(shareOfWindow(row.category.tokens, breakdown.maxTokens), PERCENT_FACTOR),
+                )}%`,
+              }}
+            />
+          );
+        })}
+        {breakdown.autoCompactThreshold !== null && (
           <span
-            key={row.category.name}
-            className={`context-panel__segment context-panel__chart--${String(row.colorIndex)}`}
+            className="context-panel__threshold"
             style={{
-              width: `${String(
-                Math.min(shareOfWindow(row.category.tokens, breakdown.maxTokens), PERCENT_FACTOR),
-              )}%`,
+              left: `${String(shareOfWindow(breakdown.autoCompactThreshold, breakdown.maxTokens))}%`,
             }}
           />
-        );
-      })}
-      {breakdown.autoCompactThreshold !== null && (
-        <span
-          className="context-panel__threshold"
-          style={{
-            left: `${String(shareOfWindow(breakdown.autoCompactThreshold, breakdown.maxTokens))}%`,
-          }}
-        />
-      )}
+        )}
+      </div>
       {compactLimit !== null && renderLimitMark(compactLimit, breakdown.maxTokens)}
     </div>
   );

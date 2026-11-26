@@ -54,6 +54,11 @@
     color: var(--color-fg-muted);
   }
 
+  /* Spur um den Balken: Die Marke der Grenze ragt über und unter ihn, der Balken selbst schneidet ab. */
+  &__track {
+    position: relative;
+  }
+
   &__stack {
     position: relative;
     display: flex;
@@ -77,9 +82,12 @@
     background: var(--color-fg-muted);
   }
 
+  /* In der Farbe des Wartens wie der Chip „n warten“, 3 px über und unter dem Balken: auch auf dem Gefüllten sichtbar. */
   &__threshold--master {
+    top: -3px;
+    bottom: -3px;
     width: 2px;
-    background: var(--color-status-reported);
+    background: var(--color-status-waiting);
   }
 
   &__table {

@@ -90,10 +90,11 @@
     white-space: nowrap;
   }
 
+  /* Wartende Nachrichten im Compact: in der Farbe des Wartens wie der Chip „n warten“. */
   &__compact-waiting {
     flex-shrink: 0;
     font-size: var(--font-size-2xs);
-    color: var(--color-status-reported);
+    color: var(--color-status-waiting);
     white-space: nowrap;
   }
 
