@@ -1,0 +1,182 @@
+[
+ {
+  "i": 0,
+  "cls": "session-link session-link--jump session-link--inline",
+  "text": "Session 2",
+  "title": "Session 2 „Ziel zwei“ öffnen",
+  "aria": "Session 2 „Ziel zwei“ öffnen",
+  "klick": [
+   396,
+   232
+  ],
+  "aktiv": "A2"
+ },
+ {
+  "i": 1,
+  "cls": "session-link session-link--jump session-link--inline",
+  "text": "Session 3",
+  "title": "Session 3 „Ziel drei“ öffnen",
+  "aria": "Session 3 „Ziel drei“ öffnen",
+  "klick": [
+   621,
+   232
+  ],
+  "aktiv": "A3"
+ },
+ {
+  "i": 2,
+  "cls": "session-link session-link--jump session-link--inline",
+  "text": "Session 2",
+  "title": "Session 2 „Ziel zwei“ öffnen",
+  "aria": "Session 2 „Ziel zwei“ öffnen",
+  "klick": [
+   411,
+   351
+  ],
+  "aktiv": "A2"
+ },
+ {
+  "i": 3,
+  "cls": "session-link session-link--jump session-link--inline",
+  "text": "cfc89888-8879-4618-a87a-c0e755cfc14a",
+  "title": "Session 3 „Ziel drei“ öffnen",
+  "aria": "Session 3 „Ziel drei“ öffnen",
+  "klick": [
+   475,
+   375
+  ],
+  "aktiv": "A3"
+ },
+ {
+  "i": 3,
+  "cls": "session-link session-link--jump session-link--inline",
+  "text": "cfc89888-8879-4618-a87a-c0e755cfc14a",
+  "title": "Session 3 „Ziel drei“ öffnen",
+  "aria": "Session 3 „Ziel drei“ öffnen",
+  "klick": [
+   745,
+   375
+  ],
+  "aktiv": "A3"
+ },
+ {
+  "i": 4,
+  "cls": "session-link session-link--jump session-link--inline",
+  "text": "e715a985-8abe-45be-88bc-159753fc30e8",
+  "title": "Session 2 „Fremde zwei“ im Vorhaben „Fremdes Vorhaben“ öffnen",
+  "aria": "Session 2 „Fremde zwei“ im Vorhaben „Fremdes Vorhaben“ öffnen",
+  "klick": [
+   500,
+   399
+  ],
+  "aktiv": "B2"
+ },
+ {
+  "i": 4,
+  "cls": "session-link session-link--jump session-link--inline",
+  "text": "e715a985-8abe-45be-88bc-159753fc30e8",
+  "title": "Session 2 „Fremde zwei“ im Vorhaben „Fremdes Vorhaben“ öffnen",
+  "aria": "Session 2 „Fremde zwei“ im Vorhaben „Fremdes Vorhaben“ öffnen",
+  "klick": [
+   770,
+   399
+  ],
+  "aktiv": "B2"
+ },
+ {
+  "i": 5,
+  "cls": "session-link session-link--jump session-link--inline",
+  "text": "cfc89888-8879-4618-a87a-c0e755cfc14a",
+  "title": "Session 3 „Ziel drei“ öffnen",
+  "aria": "Session 3 „Ziel drei“ öffnen",
+  "klick": [
+   394,
+   471
+  ],
+  "aktiv": "A3"
+ },
+ {
+  "i": 5,
+  "cls": "session-link session-link--jump session-link--inline",
+  "text": "cfc89888-8879-4618-a87a-c0e755cfc14a",
+  "title": "Session 3 „Ziel drei“ öffnen",
+  "aria": "Session 3 „Ziel drei“ öffnen",
+  "klick": [
+   682,
+   471
+  ],
+  "aktiv": "A3"
+ },
+ {
+  "i": 6,
+  "cls": "session-link session-link--jump session-link--inline",
+  "text": "cfc89888-8879-4618-a87a-c0e755cfc14a",
+  "title": "Session 3 „Ziel drei“ öffnen",
+  "aria": "Session 3 „Ziel drei“ öffnen",
+  "klick": [
+   869,
+   525
+  ],
+  "aktiv": "A3"
+ },
+ {
+  "i": 6,
+  "cls": "session-link session-link--jump session-link--inline",
+  "text": "cfc89888-8879-4618-a87a-c0e755cfc14a",
+  "title": "Session 3 „Ziel drei“ öffnen",
+  "aria": "Session 3 „Ziel drei“ öffnen",
+  "klick": [
+   1139,
+   525
+  ],
+  "aktiv": "A3"
+ },
+ {
+  "i": 7,
+  "cls": "session-link session-link--jump session-link--inline",
+  "text": "e715a985-8abe-45be-88bc-159753fc30e8",
+  "title": "Session 2 „Fremde zwei“ im Vorhaben „Fremdes Vorhaben“ öffnen",
+  "aria": "Session 2 „Fremde zwei“ im Vorhaben „Fremdes Vorhaben“ öffnen",
+  "klick": [
+   987,
+   555
+  ],
+  "aktiv": "B2"
+ },
+ {
+  "i": 7,
+  "cls": "session-link session-link--jump session-link--inline",
+  "text": "e715a985-8abe-45be-88bc-159753fc30e8",
+  "title": "Session 2 „Fremde zwei“ im Vorhaben „Fremdes Vorhaben“ öffnen",
+  "aria": "Session 2 „Fremde zwei“ im Vorhaben „Fremdes Vorhaben“ öffnen",
+  "klick": [
+   1257,
+   555
+  ],
+  "aktiv": "B2"
+ },
+ {
+  "i": 8,
+  "cls": "session-link session-link--jump session-link--inline",
+  "text": "cfc89888-8879-4618-a87a-c0e755cfc14a",
+  "title": "Session 3 „Ziel drei“ öffnen",
+  "aria": "Session 3 „Ziel drei“ öffnen",
+  "klick": [
+   1062,
+   585
+  ],
+  "aktiv": "A3"
+ },
+ {
+  "i": 8,
+  "cls": "session-link session-link--jump session-link--inline",
+  "text": "cfc89888-8879-4618-a87a-c0e755cfc14a",
+  "title": "Session 3 „Ziel drei“ öffnen",
+  "aria": "Session 3 „Ziel drei“ öffnen",
+  "klick": [
+   1332,
+   585
+  ],
+  "aktiv": "A3"
+ }
+]
