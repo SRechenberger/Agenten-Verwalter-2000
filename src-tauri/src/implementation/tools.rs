@@ -113,7 +113,7 @@ impl ToolSet for ImplementationTools {
                 description: "Schlägt die vollständige Liste der kommenden Phasen vor (alle \
                               Phasen ohne gestartete Station); der Benutzer übernimmt oder \
                               verwirft sie. Eine `id` an einer Station ist ein \
-                              Alias nur für diesen Aufruf; die Kennung `<Lane>-<n>` vergibt der Verwalter. Eine Station einer kommenden Lane, die du mit ihrer Kennung nennst, behält sie. Die Antwort nennt je neue Station Alias und Kennung.",
+                              Alias nur für diesen Aufruf; die Kennung `<Lane>-<n>` vergibt der Verwalter. Eine Station einer kommenden Lane, die du mit ihrer Kennung nennst, behält sie. Die Antwort nennt je neue Station Alias und Kennung. Eine Station `by: \"message\"` mit `to` (`\"master\"` oder Kennung einer Station) und `text` (Mustache-Vorlage mit den Platzhaltern station, umsetzung, master, vorgaenger, ergebnis, notiz) stellt der Verwalter sofort zu, ohne Agent und ohne Platz.",
                 input_schema: json!({
                     "type": "object",
                     "properties": { "phases": set_phases_schema() },
@@ -137,7 +137,7 @@ impl ToolSet for ImplementationTools {
                               und Zusatztext änderst du nur, wenn der Benutzer es will. Gestartete \
                               und fertige Stationen bleiben, wie sie sind. Eine `id` an einer neuen \
                               Station ist ein Alias nur für diesen Aufruf; die Kennung `<Lane>-<n>` vergibt der Verwalter. Bestehende Stationen nennst du mit \
-                              ihrer Kennung, etwa „C-5“.",
+                              ihrer Kennung, etwa „C-5“. Eine Station `by: \"message\"` mit `to` (`\"master\"` oder Kennung einer Station) und `text` (Mustache-Vorlage mit den Platzhaltern station, umsetzung, master, vorgaenger, ergebnis, notiz) stellt der Verwalter sofort zu, ohne Agent und ohne Platz.",
                 input_schema: json!({
                     "type": "object",
                     "properties": {
@@ -170,6 +170,8 @@ impl ToolSet for ImplementationTools {
                                     "skill": { "type": "string" },
                                     "command": { "type": "array", "items": { "type": "string" }, "description": "Nur einer nicht gestarteten Befehls-Station: neue Schritte" },
                                     "cwd": { "type": "string", "description": "Nur einer nicht gestarteten Befehls-Station: neuer Ordner; leer: Ordner des Vorhabens" },
+                                    "to": { "type": "string", "description": "Nur einer nicht gestarteten Station „Nachricht“: neuer Empfänger, \"master\" oder Kennung einer Station" },
+                                    "text": { "type": "string", "maxLength": MAX_PROMPT_CHARS, "description": "Nur einer nicht gestarteten Station „Nachricht“: neue Vorlage (Platzhalter wie bei implementation_create)" },
                                 },
                                 "required": ["id"],
                                 "additionalProperties": false,
@@ -368,7 +370,7 @@ const CREATE_DESCRIPTION: &str = "Legt nach der Freigabe eines Plans die Umsetzu
      Benutzer app-weit. Nennt keine Station `after`, gilt das alte Schema: Stationen einer Lane nacheinander, \
      aufeinanderfolgende Lanes mit derselben `wave` gleichzeitig, sonst eine nach der anderen. Zyklen, \
      unbekannte Kennungen und Selbstverweise lehnt der Verwalter mit einem Satz ab, der die Stationen \
-     nennt. Liefert die vergebenen Kennungen und den Lagebericht samt Startstationen.";
+     nennt. Eine Station `by: \"message\"` mit `to` (`\"master\"` oder Kennung einer Station) und `text` (Mustache-Vorlage mit den Platzhaltern station, umsetzung, master, vorgaenger, ergebnis, notiz) stellt der Verwalter sofort zu, ohne Agent und ohne Platz. Liefert die vergebenen Kennungen und den Lagebericht samt Startstationen.";
 
 /// `is_delta`: die neuen Lanes von `implementation_edit`. Dort gilt nur das Kanten-Schema (ADR 061): Es gibt
 /// keine `wave`, und eine Station ohne `after` startet sofort, auch neben der Station davor.
@@ -416,7 +418,9 @@ fn phases_schema_with_wave() -> Value {
                             "model": { "type": "string", "enum": ["fable", "opusplan", "opus", "sonnet", "haiku"], "description": "Modell dieser Station, abweichend vom Typ" },
                             "effort": { "type": "string", "enum": ["low", "medium", "high", "xhigh", "max"], "description": "Denkaufwand dieser Station, abweichend vom Typ" },
                             "prompt": { "type": "string", "maxLength": MAX_PROMPT_CHARS, "description": "Zusatztext zum Systemprompt dieser Station; steht hinter dem Text des Typs" },
-                            "by": { "type": "string", "enum": ["agent", "you", "command"], "description": "\"you\": der Benutzer erledigt die Station selbst; \"command\": der Verwalter führt `command` aus, ohne Modell und ohne Shell" },
+                            "by": { "type": "string", "enum": ["agent", "you", "command", "message"], "description": "\"you\": der Benutzer erledigt die Station selbst; \"command\": der Verwalter führt `command` aus, ohne Modell und ohne Shell; \"message\": der Verwalter stellt `text` (mit `to`) zu und meldet die Station sofort fertig, ohne Agent und ohne Platz" },
+                            "to": { "type": "string", "minLength": 1, "maxLength": MAX_PLAN_ID_CHARS, "description": "Nur bei by \"message\" und dort Pflicht: Empfänger, \"master\" oder die Kennung (oder der Alias) einer Station dieses Plans; deren Session bekommt die Nachricht, sie muss dann eine haben" },
+                            "text": { "type": "string", "minLength": 1, "maxLength": MAX_PROMPT_CHARS, "description": "Nur bei by \"message\" und dort Pflicht: die Nachricht als Mustache-Vorlage ({{name}}, {{#name}}…{{/name}}, {{^name}}…{{/name}}, {{! Kommentar}}). Platzhalter: station (Kennung · Name dieser Station), umsetzung (Name der Umsetzung), master (Session N „Titel“), vorgaenger (Bezeichnungen der direkten Vorgänger, mit Komma), ergebnis und notiz (`result` und Übergabenotiz der direkten Vorgänger; mehrere je ein Absatz mit Bezeichnung davor); als Abschnitt gilt ein Wert, der nicht leer ist. Ein leerer Wert bleibt als {{name}} stehen; jeder andere Name wird abgelehnt" },
                             "command": { "type": "array", "minItems": 1, "maxItems": 5, "items": { "type": "string", "minLength": 1, "maxLength": 1000 }, "description": "Nur bei by \"command\" und dort Pflicht: 1 bis 5 Schritte, je Wörter getrennt durch Leerraum, \"…\" hält Leerraum zusammen. Das erste Wort ist das Programm (ein Name aus der Freigabeliste, z. B. gh oder glab); keine Shell: | > && $ * sind gewöhnliche Zeichen. {{name}} setzt den Wert ein, den ein direkter Vorgänger mit `vars` seiner Meldung hinterlassen hat; {{env:NAME}} eine Variable der Umgebung des Verwalters" },
                             "cwd": { "type": "string", "description": "Nur bei by \"command\": absoluter Ordner (Ordner des Vorhabens, ein Repository oder <repo>-wt-*); ohne Angabe der Ordner des Vorhabens" },
                             "skill": { "type": "string", "minLength": 1, "maxLength": 40, "description": "Skill ohne \"/\", mit dem die Session beginnt; abweichend vom ersten Skill des Typs" },

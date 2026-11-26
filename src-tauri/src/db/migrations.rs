@@ -46,6 +46,7 @@ const MIGRATIONS: [&str; 40] = [
     include_str!("migrations/038_dashboard_seen.sql"),
     include_str!("migrations/039_device_create_right.sql"),
     include_str!("migrations/040_token_usage.sql"),
+    include_str!("migrations/041_message_stations.sql"),
 ];
 
 /// Die Schema-Version nach `run`: die Zahl der Migrationen.

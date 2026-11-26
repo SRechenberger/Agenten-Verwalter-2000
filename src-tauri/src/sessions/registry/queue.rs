@@ -17,7 +17,7 @@ use crate::implementation::model::ImplementationView;
 use crate::implementation::slots::{
     self, AgentQueue, Claimed, QueueEntry, QueueKind, Start, Waiter, apply_queue, station_waiters,
 };
-use crate::implementation::{IS_CANCELLED, START_DELAY, announce, command_run, start};
+use crate::implementation::{IS_CANCELLED, START_DELAY, announce, command_run, message, start};
 use crate::projects::model::ProjectPriority;
 use crate::sessions::auto_resume::RESUME_TEXT;
 use crate::settings;
@@ -172,11 +172,13 @@ impl SessionRegistry {
             .iter()
             .any(|(waiter, _): &Claimed| waiter.start != Start::Session);
         self.refresh_quota_if_due(app, false, station_claimed, false, now_ms());
-        // Befehls-Stationen brauchen keinen Platz (ADR 073): Sie starten gleich, ohne das Tor.
+        // Befehls-Stationen und Stationen „Nachricht“ brauchen keinen Platz (ADR 073): Sie starten gleich,
+        // ohne das Tor.
         let armed: HashSet<String> = self.lock_countdowns().armed();
         for view in self.implementation_views().unwrap_or_default() {
             if armed.contains(&view.id) {
                 command_run::start_due(app, &view);
+                message::start_due(app, &view);
             }
         }
         for (waiter, token) in &claimed {

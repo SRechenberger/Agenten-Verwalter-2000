@@ -106,6 +106,21 @@ pub struct StationRow {
     pub vars: BTreeMap<String, String>,
     /// Schritte und Lauf einer Befehls-Station; `None` bei einer anderen Art.
     pub command: Option<CommandRow>,
+    /// Empfänger, Vorlage und Ergebnis einer Station „Nachricht“; `None` bei einer anderen Art.
+    pub message: Option<MessageRow>,
+}
+
+/// Was eine Station „Nachricht“ speichert (ADR 073, Nachtrag Taiga 133).
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct MessageRow {
+    /// `master` oder die Plan-Kennung einer Station derselben Umsetzung.
+    pub to: String,
+    /// Die Vorlage (Mustache, Umfang V1).
+    pub text: String,
+    /// Der zugestellte Text, nach dem Lauf.
+    pub sent: Option<String>,
+    /// Grund des Fehlers.
+    pub error: Option<String>,
 }
 
 /// Was eine Befehls-Station speichert (ADR 073).
@@ -154,7 +169,7 @@ const STATION_COLUMNS: &str = "s.id, s.phase_id, s.position, s.stage, s.model, s
      s.agent_used, s.effort, s.prompt, s.start_error, s.edited, s.plan_id, s.after_ids, s.priority, \
      s.auto_start, s.on_error, s.predecessors_may, s.brief_changes, s.restarts, s.auto_resume, \
      s.reported_at, s.report, s.returns, s.released_at, s.command, s.cwd, s.vars, s.step, s.output, \
-     s.command_error";
+     s.command_error, s.message_to, s.message_text, s.message_sent, s.message_error";
 
 /// Legt die Umsetzung mit ihren Phasen und Stationen in einem Zug an.
 pub fn insert(
@@ -220,10 +235,11 @@ fn insert_phases(
                  skill, brief, session_id, started_at, completed_at, result, agent, agent_used, \
                  effort, prompt, start_error, edited, plan_id, after_ids, priority, auto_start, \
                  on_error, predecessors_may, brief_changes, restarts, auto_resume, reported_at, \
-                 report, returns, released_at, command, cwd, vars, step, output, command_error) \
+                 report, returns, released_at, command, cwd, vars, step, output, command_error, \
+                 message_to, message_text, message_sent, message_error) \
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, \
                  ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32, ?33, ?34, ?35, \
-                 ?36, ?37)",
+                 ?36, ?37, ?38, ?39, ?40, ?41)",
             params![
                 station.id,
                 station.phase_id,
@@ -262,6 +278,10 @@ fn insert_phases(
                 station.command.as_ref().and_then(|command: &CommandRow| command.step),
                 station.command.as_ref().and_then(|command: &CommandRow| command.output.clone()),
                 station.command.as_ref().and_then(|command: &CommandRow| command.error.clone()),
+                station.message.as_ref().map(|message: &MessageRow| message.to.clone()),
+                station.message.as_ref().map(|message: &MessageRow| message.text.clone()),
+                station.message.as_ref().and_then(|message: &MessageRow| message.sent.clone()),
+                station.message.as_ref().and_then(|message: &MessageRow| message.error.clone()),
             ],
         )?;
     }
@@ -498,6 +518,10 @@ struct StoredStation {
     step: Option<u32>,
     output: Option<String>,
     command_error: Option<String>,
+    message_to: Option<String>,
+    message_text: Option<String>,
+    message_sent: Option<String>,
+    message_error: Option<String>,
 }
 
 impl StoredStation {
@@ -537,6 +561,7 @@ impl StoredStation {
                 released_at: row.get(30)?,
                 vars: BTreeMap::new(),
                 command: None,
+                message: None,
             },
             kind: row.get(5)?,
             command: row.get(31)?,
@@ -545,6 +570,10 @@ impl StoredStation {
             step: row.get(34)?,
             output: row.get(35)?,
             command_error: row.get(36)?,
+            message_to: row.get(37)?,
+            message_text: row.get(38)?,
+            message_sent: row.get(39)?,
+            message_error: row.get(40)?,
             model: row.get(4)?,
             effort: row.get(14)?,
             after: row.get(19)?,
@@ -581,6 +610,12 @@ impl StoredStation {
                 }),
                 None => None,
             },
+            message: self.message_to.map(|to: String| MessageRow {
+                to,
+                text: self.message_text.unwrap_or_default(),
+                sent: self.message_sent,
+                error: self.message_error,
+            }),
             ..self.row
         })
     }
@@ -1042,11 +1077,65 @@ pub fn interrupt_command_runs(
     connection: &Connection,
     reason: &str,
 ) -> Result<usize, CommandError> {
-    Ok(connection.execute(
+    let commands = connection.execute(
         "UPDATE implementation_stations SET step = NULL, command_error = ?1 \
          WHERE kind = 'command' AND step IS NOT NULL AND completed_at IS NULL",
         params![reason],
-    )?)
+    )?;
+    // Eine Station „Nachricht“, die beim Ende der App mitten im Lauf stand, steht danach im Fehler.
+    let messages = connection.execute(
+        "UPDATE implementation_stations SET message_error = ?1 \
+         WHERE kind = 'message' AND started_at IS NOT NULL AND message_error IS NULL \
+           AND completed_at IS NULL",
+        params![reason],
+    )?;
+    Ok(commands + messages)
+}
+
+/// Beginnt den Lauf einer Station „Nachricht“: Beginn vermerkt, Fehler gelöscht. Nur, wenn sie nicht fertig
+/// ist und entweder noch nie lief oder im Fehler steht; so stellt sie nie zweimal zu. `false`: nichts ist
+/// geschrieben.
+pub fn begin_message_run(
+    connection: &Connection,
+    station_id: &str,
+    started_at: f64,
+) -> Result<bool, CommandError> {
+    let changed = connection.execute(
+        "UPDATE implementation_stations \
+         SET started_at = ?2, message_error = NULL, start_error = NULL \
+         WHERE id = ?1 AND kind = 'message' AND completed_at IS NULL \
+           AND (started_at IS NULL OR message_error IS NOT NULL)",
+        params![station_id, started_at],
+    )?;
+    Ok(changed == 1)
+}
+
+/// Hält den zugestellten Text fest, bevor die Station fertig gemeldet wird.
+pub fn set_message_sent(
+    connection: &Connection,
+    station_id: &str,
+    sent: &str,
+) -> Result<(), CommandError> {
+    connection.execute(
+        "UPDATE implementation_stations SET message_sent = ?2 WHERE id = ?1 AND kind = 'message'",
+        params![station_id, sent],
+    )?;
+    Ok(())
+}
+
+/// Der Lauf scheitert mit `reason`. `false`: Die Station lief nicht (mehr).
+pub fn fail_message_run(
+    connection: &Connection,
+    station_id: &str,
+    reason: &str,
+) -> Result<bool, CommandError> {
+    let changed = connection.execute(
+        "UPDATE implementation_stations SET message_error = ?2 \
+         WHERE id = ?1 AND kind = 'message' AND completed_at IS NULL \
+           AND started_at IS NOT NULL AND message_error IS NULL",
+        params![station_id, reason],
+    )?;
+    Ok(changed == 1)
 }
 
 /// Migration 25 (ADR 061): gibt jeder bestehenden Station die Plan-Kennung
@@ -1302,7 +1391,7 @@ pub fn apply_plan_edit(
         let changed = transaction.execute(
             "UPDATE implementation_stations SET stage = ?2, model = ?3, skill = ?4, brief = ?5, \
                  agent = ?6, effort = ?7, prompt = ?8, after_ids = ?9, priority = ?10, \
-                 brief_changes = ?11, command = ?12, cwd = ?13 \
+                 brief_changes = ?11, command = ?12, cwd = ?13, message_to = ?14, message_text = ?15 \
              WHERE id = ?1 AND session_id IS NULL AND started_at IS NULL AND completed_at IS NULL",
             params![
                 station.id,
@@ -1325,6 +1414,8 @@ pub fn apply_plan_edit(
                     .command
                     .as_ref()
                     .and_then(|command: &CommandRow| command.cwd.clone()),
+                station.message.as_ref().map(|message: &MessageRow| message.to.clone()),
+                station.message.as_ref().map(|message: &MessageRow| message.text.clone()),
             ],
         )?;
         if changed != 1 {
