@@ -516,18 +516,10 @@ export function Sidebar({
     run(() => apply(), 'Verschieben fehlgeschlagen');
   }
 
-  // Die Vorhaben eines Hosts haben keinen Platz in der eigenen Reihenfolge (sie stehen hinter den eigenen):
-  // Ein Ziel „davor“ wird zu „ans Ende der Gruppe“.
   function applyPlan(projectId: string, plan: MovePlan | null): void {
-    if (plan === null) {
-      return;
+    if (plan !== null) {
+      moveToGroup(projectId, plan.groupId, plan);
     }
-    const anchor: ProjectSummary | undefined = projects.find(
-      (project: ProjectSummary) => project.id === plan.before,
-    );
-    const before: string | null =
-      anchor !== undefined && isRemote(anchor.access) ? null : plan.before;
-    moveToGroup(projectId, plan.groupId, { before });
   }
 
   function dropProject(projectId: string, spot: DropSpot): void {

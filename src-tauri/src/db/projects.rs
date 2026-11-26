@@ -303,13 +303,15 @@ pub fn archive(
 }
 
 /// Holt ein archiviertes Vorhaben samt aller seiner Sessions zurück, in einer Transaktion wie
-/// `archive`. Ein unbekanntes oder nicht archiviertes Vorhaben ist ein Fehler; die Transaktion
-/// wird dann ohne Änderung verworfen.
-pub fn restore(connection: &mut Connection, id: &str) -> Result<(), CommandError> {
+/// `archive`. Es steht danach oben wie ein neues (R2, `next_top_position`) und gibt diese
+/// Position zurück. Ein unbekanntes oder nicht archiviertes Vorhaben ist ein Fehler; die
+/// Transaktion wird dann ohne Änderung verworfen.
+pub fn restore(connection: &mut Connection, id: &str) -> Result<i32, CommandError> {
     let transaction = connection.transaction()?;
+    let position = next_top_position(&transaction)?;
     let restored = transaction.execute(
-        "UPDATE projects SET archived_at = NULL WHERE id = ?1 AND archived_at IS NOT NULL",
-        params![id],
+        "UPDATE projects SET archived_at = NULL, position = ?2 WHERE id = ?1 AND archived_at IS NOT NULL",
+        params![id, position],
     )?;
     if restored == 0 {
         return Err(CommandError::Internal(format!(
@@ -321,7 +323,7 @@ pub fn restore(connection: &mut Connection, id: &str) -> Result<(), CommandError
         params![id],
     )?;
     transaction.commit()?;
-    Ok(())
+    Ok(position)
 }
 
 /// Nur für ein Vorhaben ohne Sessions: `sessions.project_id` verweist auf die Zeile.

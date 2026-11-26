@@ -1,3 +1,4 @@
+import { isRemote } from '../features/remote/projectAccess.ts';
 import type { ProjectSummary } from '@/lib/bindings/ProjectSummary';
 
 /** Wohin ein Vorhaben gezogen wird: vor ein Vorhaben, hinter es samt seinen Kindzeilen, auf einen
@@ -19,8 +20,20 @@ export function byPosition(first: ProjectSummary, second: ProjectSummary): numbe
   return first.position - second.position || second.createdAt - first.createdAt;
 }
 
+/** Die eigenen Vorhaben einer Gruppe. Die eines Hosts stehen beim Gast fest dahinter und haben keinen Platz
+ *  in der eigenen Reihenfolge. */
 function siblings(projects: readonly ProjectSummary[], groupId: string | null): ProjectSummary[] {
-  return projects.filter((project: ProjectSummary) => project.groupId === groupId).sort(byPosition);
+  return projects
+    .filter((project: ProjectSummary) => project.groupId === groupId && !isRemote(project.access))
+    .sort(byPosition);
+}
+
+/** Ein Vorhaben eines Hosts zielt nur auf einen Gruppenkopf oder „Ohne Gruppe“, nie zwischen Vorhaben:
+ *  Ablegen ändert nur seine lokale Gruppe. */
+export function dropSpotFor(dragged: ProjectSummary, spot: DropSpot | null): DropSpot | null {
+  return isRemote(dragged.access) && (spot?.kind === 'before' || spot?.kind === 'after')
+    ? null
+    : spot;
 }
 
 /** Der Befehl für ein Ablegen; `null`, wenn nichts zu tun ist (auf sich selbst). */
@@ -44,6 +57,10 @@ export function planDrop(
   if (anchor === undefined || anchor.id === draggedId) {
     return null;
   }
+  // Vor oder hinter ein Vorhaben eines Hosts heißt: ans Ende der eigenen Vorhaben seiner Gruppe.
+  if (isRemote(anchor.access)) {
+    return { before: null, groupId: anchor.groupId };
+  }
   if (spot.kind === 'before') {
     return { before: anchor.id, groupId: anchor.groupId };
   }
@@ -54,7 +71,8 @@ export function planDrop(
   return { before: next?.id ?? null, groupId: anchor.groupId };
 }
 
-/** „Nach oben“ (-1) und „Nach unten“ (1) innerhalb der eigenen Gruppe; `null` am Rand. */
+/** „Nach oben“ (-1) und „Nach unten“ (1) innerhalb der eigenen Gruppe; `null` am Rand und für ein Vorhaben
+ *  eines Hosts. */
 export function planStep(
   projectId: string,
   direction: -1 | 1,
@@ -69,7 +87,7 @@ export function planStep(
   const own: ProjectSummary[] = siblings(projects, project.groupId);
   const index: number = own.findIndex((candidate: ProjectSummary) => candidate.id === projectId);
   const neighbour: number = index + direction;
-  if (neighbour < 0 || neighbour >= own.length) {
+  if (index < 0 || neighbour < 0 || neighbour >= own.length) {
     return null;
   }
   // Nach unten: vor das übernächste Vorhaben, ohne ein solches ans Ende der Gruppe.

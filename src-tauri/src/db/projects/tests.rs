@@ -62,6 +62,24 @@ fn a_new_project_stands_above_all_others() {
 }
 
 #[test]
+fn a_restored_project_stands_above_all_others_like_a_new_one() {
+    let mut connection = database();
+    add_project(&connection, "a", 1.0);
+    add_project(&connection, "b", 2.0);
+    project_rows::archive(&mut connection, "a", 3.0).expect("archiviert");
+    add_project(&connection, "c", 4.0);
+    let position = project_rows::restore(&mut connection, "a").expect("zurückgeholt");
+    assert_eq!(order(&connection), ["a", "c", "b"]);
+    assert_eq!(
+        project_rows::load_one(&connection, "a")
+            .expect("lesbar")
+            .expect("vorhanden")
+            .position,
+        position
+    );
+}
+
+#[test]
 fn moving_before_a_project_puts_it_directly_above_that_project() {
     let mut connection = database();
     for (id, at) in [("a", 1.0), ("b", 2.0), ("c", 3.0)] {

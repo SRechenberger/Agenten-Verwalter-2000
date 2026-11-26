@@ -1,6 +1,6 @@
 // Selbsttest der Reihenfolge von Hand (Taiga 101): `node src/app/sidebarOrder.selftest.ts` (`pnpm selftest`).
 // Je Fall `PASS`/`FAIL`, Exit 1 bei einem Fehlschlag (ein Fehler am Ende). Node streicht die Typen.
-import { byPosition, planDrop, planStep } from './sidebarOrder.ts';
+import { byPosition, dropSpotFor, planDrop, planStep } from './sidebarOrder.ts';
 import { sessionsByNumber } from '../features/projects/projectStatus.ts';
 import type { ProjectSummary } from '../lib/bindings/ProjectSummary.ts';
 import type { SessionSummary } from '../lib/bindings/SessionSummary.ts';
@@ -17,7 +17,18 @@ function project(
   groupId: string | null,
   createdAt = 1,
 ): ProjectSummary {
-  return { id, position, groupId, createdAt } as ProjectSummary;
+  return { id, position, groupId, createdAt, access: { kind: 'own' } } as ProjectSummary;
+}
+
+/** Ein Vorhaben eines Hosts, wie es beim Gast steht: fest hinter den eigenen (`i32::MAX`). */
+function hosted(id: string, groupId: string | null): ProjectSummary {
+  return {
+    id,
+    position: 2147483647,
+    groupId,
+    createdAt: 1,
+    access: { kind: 'remote', hostId: 'h', hostName: 'Host', mine: true, online: true },
+  } as ProjectSummary;
 }
 
 function session(
@@ -132,6 +143,56 @@ check('nach oben bleibt in der eigenen Gruppe', planStep('d', -1, PROJECTS), {
   before: 'b',
   groupId: 'g',
 });
+
+// Am Gast: eigene a, b (Gruppe g), dahinter das Vorhaben h eines Hosts in g.
+const GUEST: ProjectSummary[] = [
+  project('a', 0, 'g'),
+  project('b', 1, 'g'),
+  hosted('h', 'g'),
+  project('c', 2, null),
+];
+
+check(
+  'ein Vorhaben eines Hosts zielt nie zwischen Vorhaben, nur auf Gruppenkopf und ohne Gruppe',
+  [
+    dropSpotFor(hosted('h', 'g'), { kind: 'before', projectId: 'a' }),
+    dropSpotFor(hosted('h', 'g'), { kind: 'after', projectId: 'a' }),
+    dropSpotFor(hosted('h', 'g'), { kind: 'group', groupId: 'g' }),
+    dropSpotFor(hosted('h', 'g'), { kind: 'none' }),
+  ],
+  [null, null, { kind: 'group', groupId: 'g' }, { kind: 'none' }],
+);
+check(
+  'ein eigenes Vorhaben zielt weiter zwischen Vorhaben',
+  dropSpotFor(project('c', 2, null), { kind: 'before', projectId: 'a' }),
+  { kind: 'before', projectId: 'a' },
+);
+check(
+  'nach unten ist beim letzten eigenen Vorhaben aus, auch wenn ein Vorhaben eines Hosts folgt',
+  planStep('b', 1, GUEST),
+  null,
+);
+check(
+  'ein Vorhaben eines Hosts geht weder nach oben noch nach unten',
+  [planStep('h', -1, GUEST), planStep('h', 1, GUEST)],
+  [null, null],
+);
+check(
+  'hinter das letzte eigene Vorhaben ziehen heißt ans Ende der Gruppe, nicht vor das des Hosts',
+  planDrop({ kind: 'after', projectId: 'b' }, 'c', GUEST),
+  { before: null, groupId: 'g' },
+);
+check(
+  'vor oder hinter ein Vorhaben eines Hosts ziehen heißt ans Ende der eigenen in seiner Gruppe',
+  [
+    planDrop({ kind: 'before', projectId: 'h' }, 'c', GUEST),
+    planDrop({ kind: 'after', projectId: 'h' }, 'c', GUEST),
+  ],
+  [
+    { before: null, groupId: 'g' },
+    { before: null, groupId: 'g' },
+  ],
+);
 
 let failed = 0;
 for (const { name, actual, expected } of cases) {

@@ -1,6 +1,6 @@
 -- Reihenfolge der Vorhaben von Hand (Taiga 101, ADR 019 Nachtrag): kleinere Position steht weiter oben,
 -- eine Folge für alle Vorhaben. Der erste Start nach dem Update zeigt die alte Reihenfolge: jüngste
--- Aktivität der Sessions (ohne Sessions der Anlegezeitpunkt), dann `created_at`, wie `projectActivity`.
+-- Aktivität der Sessions (ohne Sessions der Anlegezeitpunkt), dann `created_at`, wie bisher die Leiste.
 ALTER TABLE projects ADD COLUMN position INTEGER NOT NULL DEFAULT 0;
 WITH ranked AS (
   SELECT p.id AS id,

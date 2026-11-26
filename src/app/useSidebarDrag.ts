@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { PointerEvent as ReactPointerEvent, RefObject } from 'react';
-import type { DropSpot } from '@/app/sidebarOrder';
+import { dropSpotFor, type DropSpot } from '@/app/sidebarOrder';
 import type { ProjectSummary } from '@/lib/bindings/ProjectSummary';
 
 /** So viele Pixel Bewegung trennen einen Klick vom Ziehen. */
@@ -69,7 +69,7 @@ export function useSidebarDrag(
     function targetAt(atX: number, atY: number): DropSpot | null {
       return Math.hypot(atX - startX, atY - startY) < MIN_DROP_DISTANCE
         ? null
-        : dropSpotAt(atX, atY);
+        : dropSpotFor(project, dropSpotAt(atX, atY));
     }
 
     // Je Bild statt je Bewegung: Beim Rand-Scrollen wandern die Zeilen unter einem ruhenden Zeiger.
