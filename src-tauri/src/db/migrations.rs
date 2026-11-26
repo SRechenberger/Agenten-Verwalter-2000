@@ -5,7 +5,7 @@ use crate::error::CommandError;
 
 /// Eine neue Migration hängt als neue Datei hinten an und verlängert diese Liste (`LATEST` folgt
 /// ihr, Tests vergleichen damit); eine bestehende wird nie geändert, weil sie auf fremden Rechnern schon gelaufen ist.
-const MIGRATIONS: [&str; 39] = [
+const MIGRATIONS: [&str; 40] = [
     include_str!("migrations/001_sessions_and_chat.sql"),
     include_str!("migrations/002_repositories_and_worktrees.sql"),
     include_str!("migrations/003_background.sql"),
@@ -45,6 +45,7 @@ const MIGRATIONS: [&str; 39] = [
     include_str!("migrations/037_group_share.sql"),
     include_str!("migrations/038_dashboard_seen.sql"),
     include_str!("migrations/039_device_create_right.sql"),
+    include_str!("migrations/040_token_usage.sql"),
 ];
 
 /// Die Schema-Version nach `run`: die Zahl der Migrationen.

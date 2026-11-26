@@ -231,6 +231,7 @@ const TABLE: &[(Class, Option<IdKind>, &[&str])] = &[
         &[
             "attachment_add_bytes",
             "usage_load",
+            "tempo_load",
             "usage_refresh",
             "codex_models",
             "settings_local_models",
@@ -304,6 +305,7 @@ const TABLE: &[(Class, Option<IdKind>, &[&str])] = &[
             // Am Gast lokal; `remote_host_profile` beantwortet der Server am Host vor der Prüfung.
             "remote_host_profile",
             "remote_usage_load",
+            "remote_tempo_load",
             "remote_usage_refresh",
             "remote_agent_queue",
             // Am Gast lokal; der Host beantwortet die Namen vor der Prüfung, nach dem Recht des Geräts.

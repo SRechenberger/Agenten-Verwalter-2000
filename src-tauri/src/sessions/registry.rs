@@ -55,7 +55,7 @@ use crate::db::session_inbox::{self, Reference};
 use crate::db::sessions::{self as session_rows, SessionRow};
 use crate::db::{
     Database, background as background_rows, chat_entries, repositories as repository_rows,
-    session_commits, session_files, session_repositories, session_ticket_worktrees,
+    session_commits, session_files, session_repositories, session_ticket_worktrees, token_usage,
     tool_details as tool_detail_rows,
 };
 use crate::error::CommandError;
@@ -88,6 +88,7 @@ use crate::settings::model::OperatingMode;
 use crate::side::model::SideQuestion;
 use crate::skills::{self, model::SkillRef};
 use crate::sourcing::{self, Sources};
+use crate::tempo;
 use crate::tldr::model::{ProjectTldr, SessionTldr};
 use crate::tldr::transcript::with_project_tldr;
 use crate::usage::{UsageService, reset_text};
@@ -600,6 +601,8 @@ struct Outbox {
     ticket_worktrees: Vec<(u32, String)>,
     /// Von Agent oder Subagent geschriebene Dateien als (normalisierter Pfad, ms).
     touched_files: Vec<(String, f64)>,
+    /// Die Token neuer Antworten des Modells (ADR 080).
+    token_rows: Vec<token_usage::TokenRow>,
     /// Zeitfenster beendeter Git-Befehle; nach dem Freigeben der Sperre sucht ein Thread darin die
     /// eigenen Commits.
     commit_windows: Vec<(f64, f64)>,
@@ -3839,6 +3842,23 @@ impl SessionState {
                 written_5m,
                 written_1h,
             } => self.note_prompt_cache(outbox, message_id, tokens, written_5m, written_1h),
+            AgentEvent::TokensUsed {
+                message_id,
+                model,
+                input,
+                cache_write,
+                cache_read,
+                output,
+            } => outbox.token_rows.push(token_usage::TokenRow {
+                // Ohne `message.id` zählt jede Zeile für sich.
+                message_id: message_id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string()),
+                at_ms: now_ms(),
+                model: model.unwrap_or_default(),
+                input: u64::from(input),
+                cache_write: u64::from(cache_write),
+                cache_read: u64::from(cache_read),
+                output: u64::from(output),
+            }),
             AgentEvent::Compacted {
                 trigger,
                 pre_tokens,
@@ -4723,6 +4743,9 @@ fn update<R>(
     {
         session.log_line(format!("Befehlsliste nicht gespeichert: {error}"));
     }
+    if !outbox.token_rows.is_empty() {
+        tempo::notify_changed(app, &session.id);
+    }
     // Git gehört nicht unter die Session-Sperre.
     let windows = std::mem::take(&mut outbox.commit_windows);
     if !windows.is_empty() {
@@ -4891,6 +4914,9 @@ fn persist(session: &Session, state: &mut SessionState, outbox: &Outbox) {
         }
         if !outbox.touched_files.is_empty() {
             session_files::upsert_all(connection, &session.id, &outbox.touched_files)?;
+        }
+        if !outbox.token_rows.is_empty() {
+            token_usage::upsert_all(connection, &session.id, &outbox.token_rows)?;
         }
         Ok(())
     });

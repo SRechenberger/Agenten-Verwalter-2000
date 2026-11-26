@@ -583,6 +583,16 @@ pub enum AgentEvent {
         written_5m: u32,
         written_1h: u32,
     },
+    /// Die Token einer Antwort des Modells (Hauptagent und Subagent, ADR 080). Eine Antwort kommt in
+    /// mehreren Zeilen mit derselben `message_id`; die spätere ersetzt die Zahlen der früheren.
+    TokensUsed {
+        message_id: Option<String>,
+        model: Option<String>,
+        input: u32,
+        cache_write: u32,
+        cache_read: u32,
+        output: u32,
+    },
     /// `system/compact_boundary`; ohne `compact_metadata` alles `None`.
     Compacted {
         trigger: Option<String>,

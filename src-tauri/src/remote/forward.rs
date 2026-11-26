@@ -17,7 +17,7 @@ use super::server::RemoteServer;
 use super::wire::Frame;
 use super::{
     AGENT_QUEUE_CHANGED_EVENT, CHANGED_EVENT, INBOX_CHANGED_EVENT, PROFILE_CHANGED_EVENT,
-    RemoteControl, USAGE_CHANGED_EVENT,
+    RemoteControl, TEMPO_CHANGED_EVENT, USAGE_CHANGED_EVENT,
 };
 use crate::dashboard::SEEN_EVENT as DASHBOARD_SEEN_EVENT;
 use crate::db::Database;
@@ -25,6 +25,7 @@ use crate::implementation::IMPLEMENTATION_REMOVED_EVENT as REMOVED_EVENT;
 use crate::sessions::registry::AGENT_QUEUE_CHANGED_EVENT as HOST_QUEUE_EVENT;
 use crate::sessions::registry::INBOX_CHANGED_EVENT as HOST_INBOX_EVENT;
 use crate::sessions::registry::{SessionRegistry, now_ms};
+use crate::tempo::TEMPO_CHANGED_EVENT as HOST_TEMPO_EVENT;
 use crate::usage::USAGE_CHANGED_EVENT as HOST_USAGE_EVENT;
 
 const PROJECT_CHANGED_EVENT: &str = "project://changed";
@@ -62,6 +63,8 @@ pub(super) const FORWARDED: &[(&str, Owner)] = &[
     (REMOVED_EVENT, Owner::Project),
     (PROJECT_CHANGED_EVENT, Owner::AnyDevice),
     (HOST_USAGE_EVENT, Owner::EveryDevice),
+    // Nur an das Gerät, das das Vorhaben der Session hält (ADR 080).
+    (HOST_TEMPO_EVENT, Owner::Session),
     // Ohne Inhalt: Was ein Gast davon sehen darf, filtert der Host bei `agent_queue`.
     (HOST_QUEUE_EVENT, Owner::EveryDevice),
     // Ebenso ohne Inhalt: `inbox_list` filtert der Host für den Gast.
@@ -206,6 +209,15 @@ pub fn on_guest_frame(app: &AppHandle, host_id: &str, frame: Frame) {
             // Das Kontingent des Hosts ist kein Inhalt eines Vorhabens: Die Oberfläche lädt es neu.
             if name == HOST_USAGE_EVENT {
                 let _ = app.emit(USAGE_CHANGED_EVENT, json!({ "hostId": host_id }));
+                return;
+            }
+            // Nie unter dem eigenen Namen: Sonst läse der Gast sein eigenes Tempo neu.
+            if name == HOST_TEMPO_EVENT {
+                let session_id = payload.get("sessionId").cloned().unwrap_or(Value::Null);
+                let _ = app.emit(
+                    TEMPO_CHANGED_EVENT,
+                    json!({ "hostId": host_id, "sessionId": session_id }),
+                );
                 return;
             }
             // Nie unter dem eigenen Namen: Sonst läse der Gast seine eigene Warteschlange neu.

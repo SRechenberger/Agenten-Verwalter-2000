@@ -18,7 +18,7 @@ use serde_json::{Value, json};
 use super::approvals::{self, Answer, Approvals};
 use super::models::{self, CodexModel};
 use super::rpc::{Incoming, RpcClient};
-use super::tokens::{self, TokenCount};
+use super::tokens::{LastCount, TokenCount};
 use super::{input, instructions, items, policy, thread_file};
 use crate::agents::event::{Effort, Mode};
 use crate::standalone::args::{self, AgentArgs, Start};
@@ -81,8 +81,8 @@ struct Session {
     requested_effort: Option<Effort>,
     /// Die Modelle, die Codex anbietet; leer, wenn `model/list` scheiterte.
     models: Vec<CodexModel>,
-    /// Letzte Token-Zählung des Threads; `None`, bis Codex die erste meldet.
-    tokens: Option<TokenCount>,
+    /// Letzte Token-Zählung des Threads; `count` ist `None`, bis Codex die erste meldet.
+    tokens: LastCount,
     mode: Mode,
     cwd: PathBuf,
     add_dirs: Vec<PathBuf>,
@@ -155,7 +155,7 @@ pub fn run(args: AgentArgs, exe: &Path) -> i32 {
         requested_model: Some(args.model.clone()).filter(|id: &String| !id.is_empty()),
         requested_effort: args.effort,
         models,
-        tokens: None,
+        tokens: LastCount::default(),
         mode: args.mode,
         cwd,
         skill_roots: args
@@ -390,7 +390,7 @@ impl Session {
                     None => self.reply_error(request_id, "unbekannter Denkaufwand"),
                 }
             }
-            "get_context_usage" => match self.tokens {
+            "get_context_usage" => match self.tokens.count {
                 Some(count) => self.output.line(&output::control_success(
                     request_id,
                     count.context_usage(&self.model),
@@ -641,9 +641,10 @@ impl Session {
     }
 
     /// Jede `assistant`-Zeile trägt die letzte Token-Zählung: der Verwalter liest den Balken des
-    /// Kontexts aus ihr und setzte ihn bei einer Zeile mit 0 zurück.
+    /// Kontexts aus ihr und setzte ihn bei einer Zeile mit 0 zurück. Ihre `message.id` sorgt dafür,
+    /// dass das Tempo sie trotzdem einmal zählt.
     fn write_line(&self, mut line: Value) {
-        tokens::apply_to_assistant(&mut line, self.tokens);
+        self.tokens.apply(&mut line);
         self.output.line(&line);
     }
 
@@ -654,7 +655,7 @@ impl Session {
     }
 
     fn window(&self) -> u32 {
-        let window = self.tokens.and_then(|count: TokenCount| count.window);
+        let window = self.tokens.count.and_then(|count: TokenCount| count.window);
         u32::try_from(window.unwrap_or(0)).unwrap_or(u32::MAX)
     }
 
@@ -716,7 +717,7 @@ impl Session {
         let Some(count) = TokenCount::from_notification(params) else {
             return;
         };
-        self.tokens = Some(count);
+        self.tokens.update(count);
         // Eine leere Zeile genügt: die Zählung selbst setzt `write_line`.
         if self.is_turn_open() {
             self.write_line(output::assistant(&self.session_id, Vec::new(), 0, 0));

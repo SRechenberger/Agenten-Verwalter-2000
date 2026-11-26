@@ -80,13 +80,17 @@ use verwalter_lib::{
     },
     side::model::{SideChangedEvent, SideQuestion, SideState, SideUsage},
     skills::model::{SkillInfo, SkillKind, SkillOrigin, SkillRef, SkillUse},
+    tempo::{
+        TempoChangedEvent, TempoMinute, TempoScope, TempoSessionRate, TempoSnapshot, TempoTotals,
+    },
     terminal::model::{TerminalChanged, TerminalInfo, TerminalOutput},
     tldr::model::{
         HandoffBrief, ProjectSessionTldr, ProjectTldr, ProjectTldrView, SessionTldr,
         SessionTldrView, TldrChangedEvent,
     },
     usage::model::{
-        UsageAlert, UsageBreakdown, UsageLimit, UsageShare, UsageSnapshot, UsageStatus,
+        UsageAlert, UsageBreakdown, UsageForecast, UsageLimit, UsageShare, UsageSnapshot,
+        UsageStatus,
     },
     voice::model::{VoiceLevelEvent, VoiceModelEvent, VoiceModelState, VoicePartialEvent},
 };
@@ -195,6 +199,13 @@ fn main() -> Result<(), ts_rs::ExportError> {
     UsageBreakdown::export_all(&cfg)?;
     UsageSnapshot::export_all(&cfg)?;
     UsageStatus::export_all(&cfg)?;
+    UsageForecast::export_all(&cfg)?;
+    TempoScope::export_all(&cfg)?;
+    TempoSnapshot::export_all(&cfg)?;
+    TempoMinute::export_all(&cfg)?;
+    TempoTotals::export_all(&cfg)?;
+    TempoSessionRate::export_all(&cfg)?;
+    TempoChangedEvent::export_all(&cfg)?;
     AccountInfo::export_all(&cfg)?;
     AccountStatus::export_all(&cfg)?;
     CliUpdateOutcome::export_all(&cfg)?;

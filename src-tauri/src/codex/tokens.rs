@@ -40,6 +40,35 @@ impl TokenCount {
     }
 }
 
+/// Die letzte Zählung mit ihrer `message.id`. Codex schreibt sie in jede `assistant`-Zeile bis zur
+/// nächsten Zählung (Denken, Werkzeug, Text, auch die ersten Zeilen des nächsten Zugs); mit derselben
+/// id zählt der Verwalter einen Aufruf des Modells einmal (ADR 080).
+#[derive(Debug, Default)]
+pub struct LastCount {
+    pub count: Option<TokenCount>,
+    id: String,
+}
+
+impl LastCount {
+    /// Eine neue id nur für eine neue Zählung: Meldet Codex dieselbe noch einmal, bleibt ihre id.
+    /// Eine UUID statt eines Zählers, weil die Zeilen einen Neustart des Übersetzers überdauern.
+    pub fn update(&mut self, count: TokenCount) {
+        if self.count != Some(count) {
+            self.id = format!("codex-{}", uuid::Uuid::new_v4());
+        }
+        self.count = Some(count);
+    }
+
+    pub fn apply(&self, line: &mut Value) {
+        apply_to_assistant(line, self.count);
+        if let Some(message) = line.get_mut("message").and_then(Value::as_object_mut)
+            && message.contains_key("usage")
+        {
+            message.insert("id".to_owned(), json!(self.id));
+        }
+    }
+}
+
 /// Setzt die Token-Zählung in eine `assistant`-Zeile des Hauptagenten; ohne Zählung fällt das Feld
 /// weg, damit der Verwalter den Balken nicht auf 0 setzt.
 pub fn apply_to_assistant(line: &mut Value, count: Option<TokenCount>) {

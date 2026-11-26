@@ -11,11 +11,13 @@ use crate::agents::claude::locate::{self, find_claude};
 use crate::agents::claude::process::SpawnOptions;
 use crate::agents::claude::side::{SideAnswer, SideRequest, run_side};
 use crate::background::scratchpad;
+use crate::db::token_usage::{self, TokenRow};
 use crate::error::CommandError;
 use crate::mcp_access::{McpAccess, ProcessKind};
 use crate::settings::model::OperatingMode;
 use crate::side::model::{SideChangedEvent, SideQuestion, SideState, SideUsage};
 use crate::side::{MAX_QUESTIONS, MAX_RUNNING, TIMEOUT_CLAUDE, TIMEOUT_LOCAL, clip_quote, prompt};
+use crate::tempo;
 use crate::worktrees::{self, SessionRepository};
 
 const SIDE_CHANGED_EVENT: &str = "side://changed";
@@ -173,6 +175,7 @@ fn finish(app: &AppHandle, session_id: &str, id: &str, outcome: Result<SideAnswe
     let Ok(session) = registry.get(session_id) else {
         return;
     };
+    let mut row = None;
     {
         let mut state = session.lock();
         let Some(entry) = state
@@ -185,6 +188,16 @@ fn finish(app: &AppHandle, session_id: &str, id: &str, outcome: Result<SideAnswe
         entry.answered_at = Some(now_ms());
         match outcome {
             Ok(answer) => {
+                // Eine Nebenfrage zählt bei ihrer Session (ADR 080).
+                row = Some(TokenRow {
+                    message_id: format!("side-{id}"),
+                    at_ms: now_ms(),
+                    model: String::new(),
+                    input: answer.fresh_input_tokens,
+                    cache_write: answer.cache_write_tokens,
+                    cache_read: answer.cache_read_tokens,
+                    output: answer.output_tokens,
+                });
                 entry.state = SideState::Done;
                 entry.answer = Some(answer.text);
                 entry.usage = Some(SideUsage {
@@ -195,6 +208,17 @@ fn finish(app: &AppHandle, session_id: &str, id: &str, outcome: Result<SideAnswe
             Err(error) => {
                 entry.state = SideState::Failed;
                 entry.error = Some(error);
+            }
+        }
+    }
+    if let Some(row) = row {
+        let saved = session
+            .database
+            .with(|connection| token_usage::upsert_all(connection, session_id, &[row]));
+        match saved {
+            Ok(()) => tempo::notify_changed(app, session_id),
+            Err(error) => {
+                session.log_line(format!("Tokens der Nebenfrage nicht gespeichert: {error}"))
             }
         }
     }
