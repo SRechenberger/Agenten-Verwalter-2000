@@ -9,7 +9,7 @@
     height: 30px;
     padding: 0 var(--space-md);
     border: 0;
-    border-radius: var(--radius-md);
+    border-radius: var(--radius-flat);
     background: transparent;
     color: var(--color-fg-secondary);
     font: inherit;
@@ -93,6 +93,11 @@
     text-align: right;
     color: var(--severity-color, inherit);
   }
+}
+
+/* Der Tacho behält seine 14 px; kürzen darf nur der Name (Taiga 270). */
+.usage-gauge {
+  flex: none;
 }
 
 .usage-section {

@@ -126,6 +126,7 @@ export function UsageButton({
 export function GaugeIcon(): ReactElement {
   return (
     <svg
+      className="usage-gauge"
       width="14"
       height="14"
       viewBox="0 0 14 14"
