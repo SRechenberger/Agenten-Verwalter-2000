@@ -4,7 +4,8 @@
 //!
 //! Das Füllen ist eine reine Funktion (`render`): Dieselbe Mustache-Teilmenge V1 wie `mustache.ts`
 //! (`{{name}}`, `{{#flag}}…{{/flag}}`, `{{^flag}}…{{/flag}}`, `{{! }}`), geprüft von `syntax::check`. Beide
-//! Fassungen gehen die Fallliste `message_cases.json` durch und müssen jeden Fall gleich beantworten.
+//! Fassungen gehen die Fallliste `message_cases.json` durch und müssen jeden Fall gleich beantworten. Nur hier
+//! darf ein Name zugleich Abschnitt und Variable sein (N9, `check_syntax`).
 use std::collections::BTreeMap;
 use std::thread;
 
@@ -125,26 +126,62 @@ fn consumed(source: &str, tag: &Tag) -> (usize, usize) {
     }
 }
 
+/// `syntax::check` mit einer Ausnahme (N9): Ein Name darf zugleich Abschnitt und Variable sein, etwa
+/// `{{#notiz}}Notiz: {{notiz}}{{/notiz}}`. Dafür wird jede solche Variable vor der Prüfung zum Kommentar
+/// (`{{notiz}}` → `{{!otiz}}`): gleich viele Zeichen, also dieselbe Zeile und Spalte jedes Fehlers. Ihren
+/// Namen prüft der Abschnitt mit; alle übrigen Regeln gelten unverändert.
+fn check_syntax(source: &str) -> Result<(), syntax::SyntaxError> {
+    let tags = scan(source);
+    let mut checked = source.to_owned();
+    // Von hinten, damit die Stellen davor gültig bleiben.
+    for tag in tags.iter().rev() {
+        if tag.kind != TagKind::Variable || !is_section(&tags, &tag.name) {
+            continue;
+        }
+        let Some(first) = tag.name.chars().next() else {
+            continue;
+        };
+        let at = tag.start + source[tag.start..].find(tag.name.as_str()).unwrap_or(0);
+        checked.replace_range(at..at + first.len_utf8(), "!");
+    }
+    syntax::check(&checked, "")
+}
+
+fn is_section(tags: &[Tag], name: &str) -> bool {
+    tags.iter()
+        .any(|tag: &Tag| matches!(tag.kind, TagKind::Open { .. }) && tag.name == name)
+}
+
 /// Füllt `source`. Ein leerer oder fehlender Text bleibt `{{name}}`, ein Abschnitt steht nur mit Haken, eine
 /// Umkehrung nur ohne; kein Escaping, Kommentare entfallen. Mit Syntaxfehler kommt der Text unverändert
-/// zurück (wie `renderTemplate`).
+/// zurück (wie `renderTemplate`). Nur ein Name, der auch Variable ist (N9), trägt im Abschnitt Text: Der
+/// Abschnitt steht, wenn der Text nicht leer ist.
 pub fn render(source: &str, values: &BTreeMap<String, Value>) -> String {
-    if syntax::check(source, "").is_err() {
+    if check_syntax(source).is_err() {
         return source.to_owned();
     }
+    let tags = scan(source);
+    let is_variable = |name: &str| {
+        tags.iter()
+            .any(|tag: &Tag| tag.kind == TagKind::Variable && tag.name == name)
+    };
     let mut output = String::new();
     let mut position = 0;
     // Je offenem Abschnitt, ob er seinen Inhalt verbirgt.
     let mut hiding: Vec<bool> = Vec::new();
-    for tag in scan(source) {
-        let (start, end) = consumed(source, &tag);
+    for tag in &tags {
+        let (start, end) = consumed(source, tag);
         if !hiding.contains(&true) {
             output.push_str(&source[position..start]);
         }
         position = end;
         match tag.kind {
             TagKind::Open { inverted } => {
-                let is_on = values.get(&tag.name) == Some(&Value::Flag(true));
+                let is_on = match values.get(&tag.name) {
+                    Some(Value::Flag(on)) => *on,
+                    Some(Value::Text(text)) => is_variable(&tag.name) && !text.is_empty(),
+                    None => false,
+                };
                 hiding.push(if inverted { is_on } else { !is_on });
             }
             TagKind::Close => {
@@ -180,7 +217,7 @@ fn names(source: &str) -> Vec<(String, bool)> {
 /// Prüft die Vorlage einer Station: Länge, Syntax und Namen (N3, N6). Der Satz nennt das Feld.
 pub fn check_template(field: &str, text: &str) -> Result<(), String> {
     check_length(&format!("{field}.text"), text, 1, MAX_MESSAGE_CHARS)?;
-    if let Err(error) = syntax::check(text, "") {
+    if let Err(error) = check_syntax(text) {
         return Err(format!(
             "{field}.text: Zeile {}, Spalte {}: {}",
             error.line, error.column, error.message
@@ -327,14 +364,17 @@ pub fn values_for(
         ),
         ("notiz", joined(&note)),
     ]);
-    let sections: Vec<String> = names(template)
-        .into_iter()
-        .filter_map(|(name, is_section): (String, bool)| is_section.then_some(name))
-        .collect();
+    // Ein Haken nur für einen Namen, der allein als Abschnitt steht; steht er auch als Variable (N9),
+    // behält er seinen Text.
+    let used = names(template);
+    let is_used_as = |name: &str, as_section: bool| {
+        used.iter()
+            .any(|(used, is_section): &(String, bool)| used == name && *is_section == as_section)
+    };
     texts
         .into_iter()
         .map(|(name, text): (&str, String)| {
-            let value = if sections.iter().any(|section: &String| section == name) {
+            let value = if is_used_as(name, true) && !is_used_as(name, false) {
                 Value::Flag(!text.is_empty())
             } else {
                 Value::Text(text)

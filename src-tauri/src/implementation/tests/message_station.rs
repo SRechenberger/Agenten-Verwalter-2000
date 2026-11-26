@@ -334,6 +334,66 @@ fn a_placeholder_used_as_a_section_is_true_when_its_value_is_not_empty() {
     assert_eq!(message::render(template, &values), "Ergebnis: ohne Notiz");
 }
 
+// N9: Nicht in `message_cases.json`, denn `renderTemplate` (Prompt-Vorlagen, #58) lehnt einen Namen als
+// Abschnitt und Variable zugleich ab und gibt den Text unverändert zurück; nur die Nachricht erlaubt es.
+#[test]
+fn a_placeholder_may_be_section_and_variable_so_an_empty_value_leaves_nothing() {
+    let mut with = finished(node("a", &[]));
+    with.result = Some("X".to_owned());
+    with.report = Some(report_json(&StoredReport {
+        handoff_note: Some("X".to_owned()),
+        ..stored_report("X", false)
+    }));
+    let mut without = node("a", &[]);
+    without.completed_at = Some(1.0);
+    let message = message_node("m", &["a"], "master", "T");
+    // Vorlage, Text mit Wert „X“, Text ohne Wert (ein leerer Wert ohne Abschnitt bleibt `{{name}}`).
+    for (template, filled, empty) in [
+        ("{{#notiz}}Notiz: {{notiz}}{{/notiz}}", "Notiz: X", ""),
+        (
+            "{{#ergebnis}}Ergebnis: {{ergebnis}}{{/ergebnis}}",
+            "Ergebnis: X",
+            "",
+        ),
+        (
+            "{{ergebnis}}{{^ergebnis}}leer{{/ergebnis}}",
+            "X",
+            "{{ergebnis}}leer",
+        ),
+    ] {
+        assert_eq!(
+            model::validate_station("s", &message_input(Some("master"), Some(template))),
+            Ok(()),
+            "{template}"
+        );
+        for (predecessor, expected) in [(&with, filled), (&without, empty)] {
+            let rows = vec![predecessor.clone(), message.clone()];
+            let values = message::values_for(&message, &rows, "U", None, template);
+            assert_eq!(message::render(template, &values), expected, "{template}");
+        }
+    }
+}
+
+#[test]
+fn a_placeholder_as_section_and_variable_keeps_the_other_syntax_rules() {
+    let refused = |text: &str| {
+        model::validate_station("s", &message_input(Some("master"), Some(text)))
+            .expect_err("abgelehnt")
+    };
+    // Zeile und Spalte zählen wie in der Vorlage, auch hinter der Variablen `{{notiz}}`.
+    assert_eq!(
+        refused("{{#notiz}}{{notiz}}{{> teil}}{{/notiz}}"),
+        "s.text: Zeile 1, Spalte 20: „{{>“ wird nicht unterstützt."
+    );
+    assert_eq!(
+        refused("{{#notiz}}{{ notiz }}"),
+        "s.text: Zeile 1, Spalte 1: Der Abschnitt „notiz“ ist nicht geschlossen."
+    );
+    assert!(
+        refused("{{#notiz}}{{wer}}{{/notiz}}").starts_with("s.text: unbekannter Platzhalter „wer“")
+    );
+}
+
 #[test]
 fn compose_fills_the_template_of_the_station() {
     let database = database_with(&[
