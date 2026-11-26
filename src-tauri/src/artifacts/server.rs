@@ -21,7 +21,7 @@ use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
 
-use serde_json::json;
+use serde_json::{Value, json};
 use tauri::{AppHandle, Manager};
 
 use super::folder::{list_folder, resolve_folder};
@@ -474,11 +474,14 @@ fn with_state(body: Vec<u8>, state_json: &str) -> Vec<u8> {
         Ok(html) => html,
         Err(error) => return error.into_bytes(),
     };
-    // Jedes `<` als `\u003c`: weder `</script>` noch `<!--` beendet oder verändert das Element.
-    let json = state_json.replace('<', "\\u003c");
+    // Der JSON-Text als Zeichenkette für `JSON.parse` (so bleibt auch `__proto__` ein Schlüssel), jedes
+    // `<` als `\u003c`: weder `</script>` noch `<!--` beendet oder verändert das Element.
+    let literal = Value::String(state_json.to_owned())
+        .to_string()
+        .replace('<', "\\u003c");
     let script = format!(
         "<script>{}</script>",
-        STATE_SCRIPT.replacen(STATE_PLACEHOLDER, &json, 1)
+        STATE_SCRIPT.replacen(STATE_PLACEHOLDER, &literal, 1)
     );
     let lower = html.to_ascii_lowercase();
     let after_tag = |tag: &str| -> Option<usize> {
@@ -674,7 +677,9 @@ mod state_tests {
             "<!doctype html><html><head><title>x</title><script>init()</script></head><body></body></html>",
             r#"{"a":"1"}"#,
         );
-        let state_at = page.find(r#"const initial = {"a":"1"};"#).expect("state");
+        let state_at = page
+            .find(r#"const initial = JSON.parse("{\"a\":\"1\"}");"#)
+            .expect("state");
         let page_at = page.find("init()").expect("page script");
         let head_at = page.find("<head>").expect("head");
         assert!(head_at < state_at && state_at < page_at);
@@ -683,18 +688,26 @@ mod state_tests {
 
     #[test]
     fn a_state_with_a_closing_script_tag_lands_masked_in_the_script() {
-        let state =
-            serde_json::json!({ "x": "</script><script>alert(1)</script><!--" }).to_string();
+        let state = serde_json::json!({
+            "x": "</script><script>alert(1)</script><!--",
+            "__proto__": "p",
+            "zeilen": "a\u{2028}b\u{2029}c",
+        })
+        .to_string();
         let page = inserted("<html><head></head></html>", &state);
         assert_eq!(page.matches("</script>").count(), 1, "nur das eigene Ende");
         assert!(!page.contains("<!--"));
-        assert!(page.contains(r"</script>"));
-        // Maskiert heißt unverändert lesbar: das Skript liest denselben Wert.
-        let json_start = page.find("const initial = ").expect("initial") + "const initial = ".len();
-        let json_end = json_start + page[json_start..].find(";\n").expect("end");
-        let parsed: serde_json::Value =
-            serde_json::from_str(&page[json_start..json_end]).expect("json");
+        assert!(page.contains(r"\u003c/script>"));
+        // Maskiert heißt unverändert lesbar: `JSON.parse` liest denselben Text und dieselben Werte.
+        let start = page.find("const initial = JSON.parse(").expect("initial")
+            + "const initial = JSON.parse(".len();
+        let end = start + page[start..].find(");\n").expect("end");
+        let text: String = serde_json::from_str(&page[start..end]).expect("string");
+        assert_eq!(text, state);
+        let parsed: Value = serde_json::from_str(&text).expect("json");
         assert_eq!(parsed["x"], "</script><script>alert(1)</script><!--");
+        assert_eq!(parsed["__proto__"], "p");
+        assert_eq!(parsed["zeilen"], "a\u{2028}b\u{2029}c");
     }
 
     #[test]

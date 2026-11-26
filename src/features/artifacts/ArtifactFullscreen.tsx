@@ -77,6 +77,7 @@ export function ArtifactFullscreen({
   return createPortal(
     <div className="artifact-fullscreen">
       <ArtifactFrame
+        key={item.file}
         sessionId={sessionId}
         baseUrl={baseUrl}
         item={item}

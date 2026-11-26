@@ -1,7 +1,10 @@
 // Selbsttest der Nachrichten aus dem Rahmen eines Artefakts: `node src/features/artifacts/artifactBridge.selftest.ts`
-// (`pnpm selftest`). Eine Nachricht ohne `verwalter: 1` oder mit anderem Typ oder Inhalt wird verworfen.
-// Je Fall `PASS`/`FAIL`, Exit 1 bei einem Fehlschlag.
+// (`pnpm selftest`). Eine Nachricht ohne `verwalter: 1` oder mit anderem Typ oder Inhalt wird verworfen, und der
+// Schlüssel der Liste ändert sich mit dem Zeitpunkt des Zustands. Je Fall `PASS`/`FAIL`, Exit 1 bei einem Fehlschlag.
 import { parseStateRequest, stateFromFrame } from './artifactBridge.ts';
+import { listKey } from './artifactListKey.ts';
+import type { Artifact } from '@/lib/bindings/Artifact';
+import type { ArtifactList } from '@/lib/bindings/ArtifactList';
 
 let failed = 0;
 
@@ -55,6 +58,32 @@ check('a message without a source is dropped', stateFromFrame(null, OWN, valid) 
 check(
   'a message while no frame exists is dropped',
   stateFromFrame(undefined, undefined, valid) === null,
+);
+
+const plan: Artifact = {
+  file: 'plan.html',
+  title: 'Plan',
+  kind: 'html',
+  size: 1,
+  entries: null,
+  viewable: true,
+  modifiedAt: 1,
+  sessionId: null,
+  sessionNumber: null,
+  sessionName: null,
+  lastSessionNumber: null,
+  lastSessionName: null,
+};
+const withState = (stateModifiedAt?: number): ArtifactList => ({
+  dir: '/v/.artefakte',
+  baseUrl: 'http://127.0.0.1:1/t/',
+  items: [stateModifiedAt === undefined ? plan : { ...plan, stateModifiedAt }],
+});
+check(
+  'the list key changes when only the state time changes',
+  listKey(withState()) !== listKey(withState(5)) &&
+    listKey(withState(5)) !== listKey(withState(6)) &&
+    listKey(withState(5)) === listKey(withState(5)),
 );
 
 if (failed > 0) {

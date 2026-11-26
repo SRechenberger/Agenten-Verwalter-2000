@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 
 use serde_json::{Map, Value};
 
-use super::{is_plain_name, modified_ms, resolve_entry};
+use super::{is_plain_name, modified_ms, resolve, resolve_entry};
 use crate::error::CommandError;
 
 pub const STATE_DIR: &str = ".zustand";
@@ -33,11 +33,19 @@ pub fn path_of(dir: &Path, artifact: &str) -> Result<PathBuf, CommandError> {
     Ok(dir.join(STATE_DIR).join(format!("{artifact}.json")))
 }
 
-/// Der Zustand als JSON-Text eines Objekts mit Zeichenketten. Fehlt die Datei oder ist sie ungültig,
-/// ist er leer: eine kaputte Datei soll die Seite nicht verhindern. Ein Agent darf Zahlen oder
-/// Objekte schreiben; sie gelten als ihr JSON-Text.
+/// Die bestehende Zustandsdatei, kanonisch unter `dir` wie jede Datei des Ordners (`resolve`): Ein
+/// Symlink als Datei oder als `.zustand`, der hinausführt, ist „nicht erlaubt“, eine fehlende Datei
+/// „nicht gefunden“.
+fn existing(dir: &Path, artifact: &str) -> Result<PathBuf, CommandError> {
+    path_of(dir, artifact)?;
+    resolve(dir, &format!("{STATE_DIR}/{artifact}.json"))
+}
+
+/// Der Zustand als JSON-Text eines Objekts mit Zeichenketten. Fehlt die Datei, ist sie ungültig oder
+/// führt sie aus dem Ordner hinaus, ist er leer: eine kaputte Datei soll die Seite nicht verhindern.
+/// Ein Agent darf Zahlen oder Objekte schreiben; sie gelten als ihr JSON-Text.
 pub fn read(dir: &Path, artifact: &str) -> String {
-    let Ok(path) = path_of(dir, artifact) else {
+    let Ok(path) = existing(dir, artifact) else {
         return "{}".to_owned();
     };
     match fs::metadata(&path) {
@@ -63,9 +71,10 @@ pub fn normalize(text: &str) -> String {
     Value::Object(strings).to_string()
 }
 
-/// Änderungszeitpunkt der Zustandsdatei, ms seit 1970; `None`, wenn es keine gibt.
+/// Änderungszeitpunkt der Zustandsdatei, ms seit 1970; `None`, wenn es keine gibt oder sie aus dem
+/// Ordner hinausführt.
 pub fn modified_at(dir: &Path, artifact: &str) -> Option<f64> {
-    let path = path_of(dir, artifact).ok()?;
+    let path = existing(dir, artifact).ok()?;
     fs::metadata(path)
         .ok()
         .map(|metadata| modified_ms(&metadata))
@@ -112,11 +121,17 @@ pub fn save(dir: &Path, artifact: &str, data: &str) -> Result<f64, CommandError>
     Ok(modified_at(dir, artifact).unwrap_or_default())
 }
 
-/// Löscht den Zustand (Knopf „Zustand zurücksetzen“). Gibt es ihn nicht, ist das kein Fehler.
+/// Löscht den Zustand (Knopf „Zustand zurücksetzen“). Gibt es ihn nicht, ist das kein Fehler; führt
+/// er aus dem Ordner hinaus, bleibt alles stehen. Gelöscht wird der Eintrag in `.zustand`, bei einem
+/// Symlink also nur der Link.
 pub fn reset(dir: &Path, artifact: &str) -> Result<(), CommandError> {
-    match fs::remove_file(path_of(dir, artifact)?) {
-        Err(error) if error.kind() != std::io::ErrorKind::NotFound => Err(error.into()),
-        _ => Ok(()),
+    match existing(dir, artifact) {
+        Ok(_) => {
+            fs::remove_file(path_of(dir, artifact)?)?;
+            Ok(())
+        }
+        Err(CommandError::FileNotFound(_)) => Ok(()),
+        Err(error) => Err(error),
     }
 }
 
@@ -290,5 +305,41 @@ mod tests {
         std::os::unix::fs::symlink(&outside.0, scratch.0.join(".zustand")).expect("symlink");
         assert!(save(&scratch.0, "plan.html", "{}").is_err());
         assert!(!outside.0.join("plan.html.json").exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_state_file_that_is_a_symlink_out_of_the_folder_is_neither_read_nor_reset() {
+        let scratch = Scratch::new("leak-file");
+        scratch.write("plan.html", "<p>x</p>");
+        let outside = Scratch::new("leak-file-outside");
+        outside.write("geheim.json", r#"{"token":"GEHEIM"}"#);
+        fs::create_dir_all(scratch.0.join(STATE_DIR)).expect("state dir");
+        std::os::unix::fs::symlink(
+            outside.0.join("geheim.json"),
+            scratch.0.join(".zustand/plan.html.json"),
+        )
+        .expect("symlink");
+        assert_eq!(read(&scratch.0, "plan.html"), "{}");
+        assert_eq!(modified_at(&scratch.0, "plan.html"), None);
+        assert!(reset(&scratch.0, "plan.html").is_err());
+        assert!(outside.0.join("geheim.json").is_file());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_state_folder_that_is_a_symlink_out_of_the_folder_is_neither_read_nor_reset() {
+        let scratch = Scratch::new("leak-dir");
+        scratch.write("plan.html", "<p>x</p>");
+        let outside = Scratch::new("leak-dir-outside");
+        outside.write("plan.html.json", r#"{"token":"GEHEIM"}"#);
+        outside.write("einstellungen.json", r#"{"a":"1"}"#);
+        std::os::unix::fs::symlink(&outside.0, scratch.0.join(STATE_DIR)).expect("symlink");
+        assert_eq!(read(&scratch.0, "plan.html"), "{}");
+        assert_eq!(modified_at(&scratch.0, "plan.html"), None);
+        assert!(reset(&scratch.0, "plan.html").is_err());
+        assert!(reset(&scratch.0, "einstellungen").is_err());
+        assert!(outside.0.join("plan.html.json").is_file());
+        assert!(outside.0.join("einstellungen.json").is_file());
     }
 }
