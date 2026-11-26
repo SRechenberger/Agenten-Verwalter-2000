@@ -5,6 +5,7 @@
 pub mod folder;
 pub mod model;
 pub mod server;
+pub mod state;
 pub mod tools;
 pub mod viewers;
 
@@ -164,7 +165,9 @@ pub fn list(dir: &Path, owners: &[ArtifactOwner]) -> Vec<Artifact> {
         } else {
             continue;
         };
-        items.push(with_owners(item, &path, file_type.is_dir(), owners));
+        let mut item = with_owners(item, &path, file_type.is_dir(), owners);
+        item.state_modified_at = state::modified_at(dir, &item.file);
+        items.push(item);
     }
     items.sort_by(|left: &Artifact, right: &Artifact| {
         right
@@ -318,6 +321,7 @@ fn file_item(path: &Path, file: String, entry: &fs::DirEntry) -> Artifact {
         session_name: None,
         last_session_number: None,
         last_session_name: None,
+        state_modified_at: None,
     }
 }
 
@@ -344,6 +348,7 @@ fn folder_item(path: &Path, file: String) -> Artifact {
         session_name: None,
         last_session_number: None,
         last_session_name: None,
+        state_modified_at: None,
     }
 }
 
@@ -621,5 +626,26 @@ mod tests {
         let of = |relative: &str| artifact_file_of(dir, &dir.join(relative).to_string_lossy());
         assert_eq!(of("daten/x.csv"), Some("daten".to_owned()));
         assert_eq!(of("_bilder/a.png"), None);
+    }
+
+    #[test]
+    fn the_state_folder_is_not_listed_but_the_time_of_a_state_is() {
+        let scratch = Scratch::new("state-list");
+        scratch.write("plan.html", "<p>x</p>");
+        scratch.write("seite/index.html", "<p>y</p>");
+        scratch.write("ohne.html", "<p>z</p>");
+        state::save(&scratch.0, "plan.html", "{}").expect("save");
+        state::save(&scratch.0, "seite", "{}").expect("save");
+        assert_eq!(scratch.names(), ["ohne.html", "plan.html", "seite"]);
+        let items = list(&scratch.0, &[]);
+        let time_of = |file: &str| {
+            items
+                .iter()
+                .find(|item: &&Artifact| item.file == file)
+                .and_then(|item: &Artifact| item.state_modified_at)
+        };
+        assert!(time_of("plan.html").is_some());
+        assert!(time_of("seite").is_some());
+        assert_eq!(time_of("ohne.html"), None);
     }
 }

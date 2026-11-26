@@ -34,4 +34,8 @@ sessionId: string | null, sessionNumber: number | null, sessionName: string | nu
 /**
  * Session, die zuletzt schrieb — nur, wenn es nicht die anlegende ist.
  */
-lastSessionNumber: number | null, lastSessionName: string | null, };
+lastSessionNumber: number | null, lastSessionName: string | null, 
+/**
+ * Änderungszeitpunkt der Zustandsdatei (ADR 081), ms seit 1970; fehlt, wenn es keinen Zustand gibt.
+ */
+stateModifiedAt?: number, };

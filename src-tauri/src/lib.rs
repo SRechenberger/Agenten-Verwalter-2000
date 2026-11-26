@@ -305,6 +305,8 @@ pub fn run() {
             commands::artifacts::artifacts_list,
             commands::artifacts::artifact_open_default,
             commands::artifacts::artifact_reveal,
+            commands::artifacts::artifact_state_save,
+            commands::artifacts::artifact_state_reset,
             commands::side::side_ask,
             commands::side::side_load,
             commands::side::side_dismiss,

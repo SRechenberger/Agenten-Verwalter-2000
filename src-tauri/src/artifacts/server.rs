@@ -26,7 +26,7 @@ use tauri::{AppHandle, Manager};
 
 use super::folder::{list_folder, resolve_folder};
 use super::model::ArtifactKind;
-use super::{kind_of, resolve, viewers};
+use super::{kind_of, resolve, state, viewers};
 use crate::error::CommandError;
 use crate::filesystem::native_path;
 use crate::remote::client::RemoteClients;
@@ -40,6 +40,8 @@ const HTML: &str = "text/html; charset=utf-8";
 const JSON: &str = "application/json";
 const INDEX_PAGE: &str = "index.html";
 const BRIDGE_SCRIPT: &str = include_str!("bridge.js");
+const STATE_SCRIPT: &str = include_str!("state.js");
+const STATE_PLACEHOLDER: &str = "__STATE__";
 /// So lange wartet eine Anfrage auf einen Host.
 const REMOTE_TIMEOUT: Duration = Duration::from_secs(30);
 /// Anhänge eines Hosts sind Daten: nichts darin darf Skripte ausführen.
@@ -148,6 +150,9 @@ type Fetch = Box<dyn Fn(&str, &str) -> Result<Content, CommandError> + Send + Sy
 /// Ein Host, bei dem die Dateien einer entfernten Session liegen.
 pub(crate) struct RemoteSource {
     fetch: Fetch,
+    /// Holt die Zustandsdatei eines Artefakts (ADR 081); ohne sie ist der Zustand leer. Ein eigener
+    /// Weg, damit die Fragen nach den Dateien der Seite dieselben bleiben.
+    state_fetch: Option<Fetch>,
 }
 
 impl RemoteSource {
@@ -156,7 +161,16 @@ impl RemoteSource {
     ) -> RemoteSource {
         RemoteSource {
             fetch: Box::new(fetch),
+            state_fetch: None,
         }
+    }
+
+    fn with_state_fetch(
+        mut self,
+        fetch: impl Fn(&str, &str) -> Result<Content, CommandError> + Send + Sync + 'static,
+    ) -> RemoteSource {
+        self.state_fetch = Some(Box::new(fetch));
+        self
     }
 
     fn fetch(&self, command: &str, path: &str) -> Result<Content, Failure> {
@@ -203,6 +217,29 @@ impl Source {
                 &native_path(relative).to_string_lossy(),
             )?)),
             Source::Remote(_) => Ok(last_segment(relative)),
+        }
+    }
+
+    /// Der Zustand des Artefakts `artifact` als JSON-Text (ADR 081); leer, wenn es keinen gibt oder
+    /// der Host nicht antwortet: die Seite soll auch dann erscheinen.
+    fn state(&self, artifact: &str) -> String {
+        match self {
+            Source::Local(dir) => state::read(dir, artifact),
+            Source::Remote(remote) => remote
+                .state_fetch
+                .as_ref()
+                .and_then(|fetch| {
+                    fetch(
+                        "remote_artifact",
+                        &format!("{}/{artifact}.json", state::STATE_DIR),
+                    )
+                    .ok()
+                })
+                .and_then(|content| content.bytes().ok())
+                .map_or_else(
+                    || "{}".to_owned(),
+                    |bytes| state::normalize(&String::from_utf8_lossy(&bytes)),
+                ),
         }
     }
 
@@ -324,7 +361,7 @@ impl Connection {
         let clients = Arc::clone(&*self.app.try_state::<Arc<RemoteClients>>()?);
         let host_id = clients.host_of(session_id)?;
         let session_id = session_id.to_owned();
-        Some(RemoteSource::new(move |command: &str, path: &str| {
+        let call = move |command: &str, path: &str| -> Result<Content, CommandError> {
             let value = clients.call_within(
                 &host_id,
                 command,
@@ -332,7 +369,13 @@ impl Connection {
                 Some(REMOTE_TIMEOUT),
             )?;
             serde_json::from_value(value).map_err(|error| CommandError::Internal(error.to_string()))
-        }))
+        };
+        let call = Arc::new(call);
+        let for_state = Arc::clone(&call);
+        Some(
+            RemoteSource::new(move |command: &str, path: &str| call(command, path))
+                .with_state_fetch(move |command: &str, path: &str| for_state(command, path)),
+        )
     }
 }
 
@@ -391,7 +434,13 @@ pub(crate) fn respond(
         (HTML.to_owned(), with_bridge(page.into_bytes()))
     } else {
         match source.read(&relative) {
-            Ok((content_type, body)) if content_type == HTML => (content_type, with_bridge(body)),
+            Ok((content_type, body)) if content_type == HTML => {
+                let body = match state::artifact_of(&relative) {
+                    Some(artifact) => with_state(body, &source.state(artifact)),
+                    None => body,
+                };
+                (content_type, with_bridge(body))
+            }
             Ok(loaded) => loaded,
             Err(failure) => return failure.reply(),
         }
@@ -415,6 +464,44 @@ pub(crate) fn file_reply(remote: &RemoteSource, path: &str) -> Reply {
         },
         Err(failure) => failure.reply(),
     }
+}
+
+/// Setzt das Skript mit dem gespeicherten Zustand (`state_json`) an den Anfang von `<head>`, vor
+/// jedes Skript der Seite; ohne `<head>` hinter `<html>`, hinter eine Doctype-Zeile oder an den
+/// Anfang. Das Skript steht vor der Brücke, die erst am Ende kommt.
+fn with_state(body: Vec<u8>, state_json: &str) -> Vec<u8> {
+    let html = match String::from_utf8(body) {
+        Ok(html) => html,
+        Err(error) => return error.into_bytes(),
+    };
+    // Jedes `<` als `\u003c`: weder `</script>` noch `<!--` beendet oder verändert das Element.
+    let json = state_json.replace('<', "\\u003c");
+    let script = format!(
+        "<script>{}</script>",
+        STATE_SCRIPT.replacen(STATE_PLACEHOLDER, &json, 1)
+    );
+    let lower = html.to_ascii_lowercase();
+    let after_tag = |tag: &str| -> Option<usize> {
+        let start = lower.find(tag)?;
+        let end = start + lower[start..].find('>')? + 1;
+        // `<header>` und `<html>` sind nicht `<head>`: hinter dem Namen muss `>` oder Leerraum stehen.
+        let next = lower.as_bytes().get(start + tag.len())?;
+        (*next == b'>' || next.is_ascii_whitespace()).then_some(end)
+    };
+    let at = after_tag("<head")
+        .or_else(|| after_tag("<html"))
+        .or_else(|| {
+            let lead = lower.len() - lower.trim_start().len();
+            lower[lead..]
+                .starts_with("<!doctype")
+                .then(|| lead + lower[lead..].find('>').map_or(0, |end| end + 1))
+        })
+        .unwrap_or(0);
+    let mut result = String::with_capacity(html.len() + script.len());
+    result.push_str(&html[..at]);
+    result.push_str(&script);
+    result.push_str(&html[at..]);
+    result.into_bytes()
 }
 
 /// Hängt die passive Kommentar-Brücke an HTML an, ohne Binärdaten oder ungültiges UTF-8 anzutasten.
@@ -570,5 +657,98 @@ pub(crate) fn content_type(path: &Path) -> &'static str {
         "m4a" => "audio/mp4",
         "pdf" => "application/pdf",
         _ => "application/octet-stream",
+    }
+}
+
+#[cfg(test)]
+mod state_tests {
+    use super::*;
+
+    fn inserted(html: &str, state: &str) -> String {
+        String::from_utf8(with_state(html.as_bytes().to_vec(), state)).expect("utf-8")
+    }
+
+    #[test]
+    fn the_state_script_comes_first_in_head_before_any_script_of_the_page() {
+        let page = inserted(
+            "<!doctype html><html><head><title>x</title><script>init()</script></head><body></body></html>",
+            r#"{"a":"1"}"#,
+        );
+        let state_at = page.find(r#"const initial = {"a":"1"};"#).expect("state");
+        let page_at = page.find("init()").expect("page script");
+        let head_at = page.find("<head>").expect("head");
+        assert!(head_at < state_at && state_at < page_at);
+        assert!(page.starts_with("<!doctype html><html><head><script>"));
+    }
+
+    #[test]
+    fn a_state_with_a_closing_script_tag_lands_masked_in_the_script() {
+        let state =
+            serde_json::json!({ "x": "</script><script>alert(1)</script><!--" }).to_string();
+        let page = inserted("<html><head></head></html>", &state);
+        assert_eq!(page.matches("</script>").count(), 1, "nur das eigene Ende");
+        assert!(!page.contains("<!--"));
+        assert!(page.contains(r"</script>"));
+        // Maskiert heißt unverändert lesbar: das Skript liest denselben Wert.
+        let json_start = page.find("const initial = ").expect("initial") + "const initial = ".len();
+        let json_end = json_start + page[json_start..].find(";\n").expect("end");
+        let parsed: serde_json::Value =
+            serde_json::from_str(&page[json_start..json_end]).expect("json");
+        assert_eq!(parsed["x"], "</script><script>alert(1)</script><!--");
+    }
+
+    #[test]
+    fn the_state_script_goes_into_head_not_into_header_and_falls_back_without_head() {
+        let header = inserted("<html><header></header><body></body></html>", "{}");
+        assert!(
+            header.starts_with("<html><script>"),
+            "kein <head>: hinter <html>"
+        );
+        let bare = inserted("<p>nackt</p>", "{}");
+        assert!(bare.starts_with("<script>") && bare.ends_with("<p>nackt</p>"));
+        let doctype = inserted("<!DOCTYPE html>\n<p>x</p>", "{}");
+        assert!(
+            doctype.starts_with("<!DOCTYPE html><script>"),
+            "hinter dem Doctype"
+        );
+    }
+
+    #[test]
+    fn a_page_that_is_not_utf8_is_left_alone() {
+        let bytes = vec![0xff, 0xfe, b'<', b'h', b'e', b'a', b'd', b'>'];
+        assert_eq!(with_state(bytes.clone(), "{}"), bytes);
+    }
+
+    #[test]
+    fn a_guest_reads_the_state_from_the_host_file_and_a_missing_one_is_empty() {
+        use base64::Engine as _;
+        let asked = Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+        let log = Arc::clone(&asked);
+        let source = Source::Remote(
+            RemoteSource::new(|_, _| Err(CommandError::FileNotFound("x".to_owned())))
+                .with_state_fetch(move |command: &str, path: &str| {
+                    log.lock()
+                        .expect("Sperre")
+                        .push(format!("{command} {path}"));
+                    if path.contains("da.html") {
+                        Ok(Content {
+                            content_type: JSON.to_owned(),
+                            data_base64: base64::engine::general_purpose::STANDARD
+                                .encode(r#"{"a":"1","n":2}"#),
+                        })
+                    } else {
+                        Err(CommandError::FileNotFound(path.to_owned()))
+                    }
+                }),
+        );
+        assert_eq!(source.state("da.html"), r#"{"a":"1","n":"2"}"#);
+        assert_eq!(source.state("weg.html"), "{}");
+        assert_eq!(
+            *asked.lock().expect("Sperre"),
+            [
+                "remote_artifact .zustand/da.html.json",
+                "remote_artifact .zustand/weg.html.json"
+            ]
+        );
     }
 }

@@ -9,6 +9,7 @@ import './ArtifactFullscreen.css';
 const EXIT_VISIBLE_MS = 2000;
 
 interface ArtifactFullscreenProps {
+  sessionId: string;
   /** `baseUrl` der Liste. */
   baseUrl: string;
   item: Artifact;
@@ -16,6 +17,7 @@ interface ArtifactFullscreenProps {
 }
 
 export function ArtifactFullscreen({
+  sessionId,
   baseUrl,
   item,
   onClose,
@@ -75,6 +77,7 @@ export function ArtifactFullscreen({
   return createPortal(
     <div className="artifact-fullscreen">
       <ArtifactFrame
+        sessionId={sessionId}
         baseUrl={baseUrl}
         item={item}
         reloadToken={0}

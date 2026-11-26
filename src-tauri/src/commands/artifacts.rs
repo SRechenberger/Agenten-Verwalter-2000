@@ -76,3 +76,28 @@ fn checked_dir(
     }
     registry.artifacts_dir(session_id)
 }
+
+/// Speichert den Zustand eines Artefakts (ADR 081) und gibt den Änderungszeitpunkt der Datei zurück.
+/// `file` ist das Artefakt, das die Oberfläche anzeigt, nie ein Wert der Seite; `data` ist JSON-Text
+/// eines Objekts aus Zeichenketten, höchstens 1 MiB (`artifacts::state::save` prüft beides).
+#[tauri::command]
+pub async fn artifact_state_save(
+    registry: tauri::State<'_, SessionRegistry>,
+    session_id: String,
+    file: String,
+    data: String,
+) -> Result<f64, CommandError> {
+    let dir = checked_dir(&registry, &session_id, &file)?;
+    artifacts::state::save(&dir, &file, &data)
+}
+
+/// Löscht den Zustand eines Artefakts („Zustand zurücksetzen“); die Seite lädt danach leer.
+#[tauri::command]
+pub async fn artifact_state_reset(
+    registry: tauri::State<'_, SessionRegistry>,
+    session_id: String,
+    file: String,
+) -> Result<(), CommandError> {
+    let dir = checked_dir(&registry, &session_id, &file)?;
+    artifacts::state::reset(&dir, &file)
+}

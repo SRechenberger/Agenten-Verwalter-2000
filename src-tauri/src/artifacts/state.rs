@@ -1,0 +1,294 @@
+//! Zustand interaktiver Artefakte (ADR 081): was eine Seite in `localStorage` ablegt, liegt als
+//! JSON-Objekt (Schlüssel → Zeichenkette) in `.artefakte/.zustand/<artefakt>.json`. Der Ordner ist
+//! versteckt (ADR 047), liegt aber im Workspace und ist für Agenten lesbar. Das Artefakt, zu dem
+//! eine Datei gehört, bestimmt immer die App, nie die Seite (P6).
+use std::fs;
+use std::io::Write;
+use std::path::{Path, PathBuf};
+
+use serde_json::{Map, Value};
+
+use super::{is_plain_name, modified_ms, resolve_entry};
+use crate::error::CommandError;
+
+pub const STATE_DIR: &str = ".zustand";
+/// Höchste Größe des Zustands einer Seite; darüber bleibt die Datei, wie sie war.
+pub const MAX_STATE_BYTES: usize = 1024 * 1024;
+
+/// Der Name des Artefakts, zu dem `relative` (ein Pfad aus der Adresse) gehört: eine Datei direkt im
+/// Ordner oder der Ordner einer Website. Nie ein Name mit `.` vorn (versteckt) und nie `_` vorn
+/// (Zubehör, ADR 047).
+pub fn artifact_of(relative: &str) -> Option<&str> {
+    let name = relative.split('/').next()?;
+    (is_plain_name(name) && !name.starts_with(['.', '_'])).then_some(name)
+}
+
+/// Pfad der Zustandsdatei in `dir` (`.artefakte`); der Name muss ein Name direkt im Ordner sein.
+pub fn path_of(dir: &Path, artifact: &str) -> Result<PathBuf, CommandError> {
+    if !is_plain_name(artifact) || artifact.starts_with('.') {
+        return Err(CommandError::FileNotAllowed(format!(
+            "Kein Artefakt: {artifact}"
+        )));
+    }
+    Ok(dir.join(STATE_DIR).join(format!("{artifact}.json")))
+}
+
+/// Der Zustand als JSON-Text eines Objekts mit Zeichenketten. Fehlt die Datei oder ist sie ungültig,
+/// ist er leer: eine kaputte Datei soll die Seite nicht verhindern. Ein Agent darf Zahlen oder
+/// Objekte schreiben; sie gelten als ihr JSON-Text.
+pub fn read(dir: &Path, artifact: &str) -> String {
+    let Ok(path) = path_of(dir, artifact) else {
+        return "{}".to_owned();
+    };
+    match fs::metadata(&path) {
+        Ok(metadata) if metadata.len() <= MAX_STATE_BYTES as u64 => {
+            normalize(&fs::read_to_string(&path).unwrap_or_default())
+        }
+        _ => "{}".to_owned(),
+    }
+}
+
+/// Wie `read`, für Text, der von einem Host kommt.
+pub fn normalize(text: &str) -> String {
+    let Ok(Value::Object(object)) = serde_json::from_str::<Value>(text) else {
+        return "{}".to_owned();
+    };
+    let strings: Map<String, Value> = object
+        .into_iter()
+        .map(|(key, value): (String, Value)| match value {
+            Value::String(_) => (key, value),
+            other => (key, Value::String(other.to_string())),
+        })
+        .collect();
+    Value::Object(strings).to_string()
+}
+
+/// Änderungszeitpunkt der Zustandsdatei, ms seit 1970; `None`, wenn es keine gibt.
+pub fn modified_at(dir: &Path, artifact: &str) -> Option<f64> {
+    let path = path_of(dir, artifact).ok()?;
+    fs::metadata(path)
+        .ok()
+        .map(|metadata| modified_ms(&metadata))
+}
+
+/// Schreibt den Zustand von `artifact` und gibt den neuen Änderungszeitpunkt zurück. `data` ist
+/// JSON-Text eines Objekts, dessen Werte alle Zeichenketten sind, höchstens `MAX_STATE_BYTES`.
+/// Atomar: temporäre Datei im selben Ordner, dann umbenennen.
+pub fn save(dir: &Path, artifact: &str, data: &str) -> Result<f64, CommandError> {
+    if data.len() > MAX_STATE_BYTES {
+        return Err(CommandError::FileNotAllowed(format!(
+            "Der Zustand ist größer als {} KiB",
+            MAX_STATE_BYTES / 1024
+        )));
+    }
+    match serde_json::from_str::<Value>(data) {
+        Ok(Value::Object(object)) if object.values().all(Value::is_string) => {}
+        _ => {
+            return Err(CommandError::FileNotAllowed(
+                "Der Zustand ist kein Objekt aus Zeichenketten".to_owned(),
+            ));
+        }
+    }
+    // Das Artefakt muss es geben; `resolve_entry` hält Pfad und Symlinks im Ordner.
+    resolve_entry(dir, artifact)?;
+    let target = path_of(dir, artifact)?;
+    let folder = dir.join(STATE_DIR);
+    fs::create_dir_all(&folder)?;
+    // Ein Symlink als `.zustand` führte sonst aus dem Ordner hinaus.
+    if !fs::canonicalize(&folder)?.starts_with(fs::canonicalize(dir)?) {
+        return Err(CommandError::FileNotAllowed(format!(
+            "{STATE_DIR} liegt nicht im Ordner der Artefakte"
+        )));
+    }
+    let temporary = folder.join(format!(".{artifact}.{}.tmp", uuid::Uuid::new_v4().simple()));
+    let written = fs::File::create(&temporary).and_then(|mut file| {
+        file.write_all(data.as_bytes())?;
+        file.sync_all()
+    });
+    if let Err(error) = written.and_then(|()| fs::rename(&temporary, &target)) {
+        let _ = fs::remove_file(&temporary);
+        return Err(error.into());
+    }
+    Ok(modified_at(dir, artifact).unwrap_or_default())
+}
+
+/// Löscht den Zustand (Knopf „Zustand zurücksetzen“). Gibt es ihn nicht, ist das kein Fehler.
+pub fn reset(dir: &Path, artifact: &str) -> Result<(), CommandError> {
+    match fs::remove_file(path_of(dir, artifact)?) {
+        Err(error) if error.kind() != std::io::ErrorKind::NotFound => Err(error.into()),
+        _ => Ok(()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    struct Scratch(PathBuf);
+
+    impl Scratch {
+        fn new(name: &str) -> Self {
+            let dir = std::env::temp_dir().join(format!(
+                "verwalter-state-{name}-{}-{}",
+                std::process::id(),
+                SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .map_or(0, |elapsed| elapsed.as_nanos())
+            ));
+            fs::create_dir_all(&dir).expect("create scratch dir");
+            Self(dir)
+        }
+
+        fn write(&self, relative: &str, text: &str) {
+            let path = self.0.join(relative);
+            fs::create_dir_all(path.parent().expect("parent")).expect("create parent");
+            fs::write(path, text).expect("write file");
+        }
+    }
+
+    impl Drop for Scratch {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    #[test]
+    fn the_artifact_of_a_path_is_the_first_segment_and_never_hidden_or_accessory() {
+        assert_eq!(artifact_of("plan.html"), Some("plan.html"));
+        assert_eq!(artifact_of("site/index.html"), Some("site"));
+        assert_eq!(artifact_of("site/sub/a.html"), Some("site"));
+        assert_eq!(artifact_of(".zustand/plan.html.json"), None);
+        assert_eq!(artifact_of("_bilder/a.png"), None);
+        assert_eq!(artifact_of(""), None);
+        assert_eq!(artifact_of(".."), None);
+    }
+
+    #[test]
+    fn the_state_file_comes_from_the_artifact_name_and_a_path_outside_the_folder_is_refused() {
+        let scratch = Scratch::new("path");
+        scratch.write("plan.html", "<p>x</p>");
+        let saved = save(&scratch.0, "plan.html", r#"{"a":"1"}"#).expect("save");
+        assert!(saved > 0.0);
+        assert!(scratch.0.join(".zustand/plan.html.json").is_file());
+        for evil in ["../x.html", "a/b", "..", ".", "", ".zustand", "/etc/passwd"] {
+            assert!(
+                save(&scratch.0, evil, "{}").is_err(),
+                "{evil} muss abgelehnt werden"
+            );
+        }
+        assert!(
+            !scratch
+                .0
+                .parent()
+                .expect("parent")
+                .join("x.html.json")
+                .exists()
+        );
+    }
+
+    #[test]
+    fn a_state_for_a_missing_artifact_is_refused() {
+        let scratch = Scratch::new("missing");
+        assert!(save(&scratch.0, "nirgends.html", "{}").is_err());
+        assert!(!scratch.0.join(".zustand").exists());
+    }
+
+    #[test]
+    fn a_state_over_one_mebibyte_is_refused_and_the_file_stays() {
+        let scratch = Scratch::new("size");
+        scratch.write("plan.html", "<p>x</p>");
+        save(&scratch.0, "plan.html", r#"{"a":"alt"}"#).expect("save");
+        let big = format!(r#"{{"a":"{}"}}"#, "x".repeat(MAX_STATE_BYTES));
+        assert!(save(&scratch.0, "plan.html", &big).is_err());
+        assert_eq!(read(&scratch.0, "plan.html"), r#"{"a":"alt"}"#);
+    }
+
+    #[test]
+    fn a_state_that_is_not_an_object_of_strings_is_refused() {
+        let scratch = Scratch::new("json");
+        scratch.write("plan.html", "<p>x</p>");
+        for bad in [
+            "",
+            "nope",
+            "[]",
+            "\"x\"",
+            r#"{"a":1}"#,
+            r#"{"a":{"b":"c"}}"#,
+        ] {
+            assert!(
+                save(&scratch.0, "plan.html", bad).is_err(),
+                "{bad} muss abgelehnt werden"
+            );
+        }
+        assert!(!scratch.0.join(".zustand/plan.html.json").exists());
+    }
+
+    #[test]
+    fn saving_replaces_the_file_atomically_and_leaves_no_temporary_file() {
+        let scratch = Scratch::new("atomic");
+        scratch.write("plan.html", "<p>x</p>");
+        save(&scratch.0, "plan.html", r#"{"a":"1"}"#).expect("first");
+        save(&scratch.0, "plan.html", r#"{"a":"2"}"#).expect("second");
+        assert_eq!(read(&scratch.0, "plan.html"), r#"{"a":"2"}"#);
+        let names: Vec<String> = fs::read_dir(scratch.0.join(".zustand"))
+            .expect("read")
+            .flatten()
+            .map(|entry| entry.file_name().to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(names, ["plan.html.json"]);
+    }
+
+    #[test]
+    fn a_website_has_one_state_file_for_all_its_pages() {
+        let scratch = Scratch::new("site");
+        scratch.write("seite/index.html", "<p>x</p>");
+        scratch.write("seite/zwei.html", "<p>y</p>");
+        let one = artifact_of("seite/index.html").expect("artifact");
+        let two = artifact_of("seite/zwei.html").expect("artifact");
+        assert_eq!(one, two);
+        save(&scratch.0, one, r#"{"a":"1"}"#).expect("save");
+        assert_eq!(read(&scratch.0, two), r#"{"a":"1"}"#);
+        assert!(scratch.0.join(".zustand/seite.json").is_file());
+    }
+
+    #[test]
+    fn a_missing_or_broken_state_file_reads_as_empty_and_numbers_become_their_json_text() {
+        let scratch = Scratch::new("read");
+        scratch.write("plan.html", "<p>x</p>");
+        assert_eq!(read(&scratch.0, "plan.html"), "{}");
+        scratch.write(".zustand/plan.html.json", "kaputt");
+        assert_eq!(read(&scratch.0, "plan.html"), "{}");
+        scratch.write(
+            ".zustand/plan.html.json",
+            r#"{"n":1,"s":"x","o":{"k":true}}"#,
+        );
+        let state: Value = serde_json::from_str(&read(&scratch.0, "plan.html")).expect("json");
+        assert_eq!(state["n"], "1");
+        assert_eq!(state["s"], "x");
+        assert_eq!(state["o"], r#"{"k":true}"#);
+    }
+
+    #[test]
+    fn the_modification_time_exists_only_with_a_state_file_and_reset_removes_it() {
+        let scratch = Scratch::new("time");
+        scratch.write("plan.html", "<p>x</p>");
+        assert_eq!(modified_at(&scratch.0, "plan.html"), None);
+        let saved = save(&scratch.0, "plan.html", "{}").expect("save");
+        assert_eq!(modified_at(&scratch.0, "plan.html"), Some(saved));
+        reset(&scratch.0, "plan.html").expect("reset");
+        assert_eq!(modified_at(&scratch.0, "plan.html"), None);
+        reset(&scratch.0, "plan.html").expect("reset twice");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_state_folder_that_is_a_symlink_out_of_the_folder_is_refused() {
+        let scratch = Scratch::new("symlink");
+        scratch.write("plan.html", "<p>x</p>");
+        let outside = Scratch::new("outside");
+        std::os::unix::fs::symlink(&outside.0, scratch.0.join(".zustand")).expect("symlink");
+        assert!(save(&scratch.0, "plan.html", "{}").is_err());
+        assert!(!outside.0.join("plan.html.json").exists());
+    }
+}

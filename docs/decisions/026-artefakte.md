@@ -29,4 +29,5 @@ Berichte, Präsentationen, Diagramme und Design-Entwürfe sind als HTML-Seite am
 - Karte im Chat nur für `Write` des Hauptagenten; per Shell oder von Subagenten geschriebene Artefakte erscheinen nur im Reiter.
 - Die Anweisung an den Agenten steht im selben `--append-system-prompt` wie die Scratchpad-Vorgabe (der autarke Agent liest nur eines).
 - Jede HTML-Antwort trägt das Brücken-Skript für Kommentare (ADR 035).
+- Nachtrag: Jede HTML-Antwort trägt am Anfang von `<head>` auch das Skript mit dem gespeicherten Zustand der Seite; die Sandbox bleibt unverändert ([ADR 081](081-zustand-von-artefakten.md)).
 - Die Abschottung belegt die Sicherheitsprobe im Plan (`artifacts/sicherheitsprobe.html`), kein automatisierter Test.

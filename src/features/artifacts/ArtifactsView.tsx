@@ -6,6 +6,7 @@ import { ArtifactFullscreen } from '@/features/artifacts/ArtifactFullscreen';
 import { ArtifactGroupHeader } from '@/features/artifacts/ArtifactGroupHeader';
 import { ArtifactKindBadge } from '@/features/artifacts/ArtifactKindBadge';
 import { ArtifactOtherCard } from '@/features/artifacts/ArtifactOtherCard';
+import { ArtifactStateReset } from '@/features/artifacts/ArtifactStateReset';
 import type { ArtifactMark, ArtifactPick } from '@/features/artifacts/artifactBridge';
 import { useArtifactPicker } from '@/features/artifacts/useArtifactPicker';
 import {
@@ -20,7 +21,7 @@ import { groupArtifacts } from '@/features/artifacts/groupArtifacts';
 import type { ArtifactGroup } from '@/features/artifacts/groupArtifacts';
 import { mentionInChat } from '@/features/background/mention';
 import { useProjectIsRemote } from '@/features/remote/useProjectAccess';
-import { openArtifactDefault, revealArtifact } from '@/lib/artifacts';
+import { openArtifactDefault, resetArtifactState, revealArtifact } from '@/lib/artifacts';
 import type { Artifact } from '@/lib/bindings/Artifact';
 import type { ArtifactList } from '@/lib/bindings/ArtifactList';
 import { commandErrorText } from '@/lib/errors';
@@ -368,6 +369,24 @@ export function ArtifactsView({
                 Kommentieren{isCommenting ? ` · ${String(artifactComments.length)}` : ''}
               </button>
             ) : null}
+            {selected.stateModifiedAt !== undefined ? (
+              <ArtifactStateReset
+                key={selected.file}
+                onReset={(): void => {
+                  resetArtifactState(sessionId, selected.file)
+                    .then((): void => {
+                      setReloadToken((token: number) => token + 1);
+                    })
+                    .catch((reason: unknown): void => {
+                      console.error('Zustand nicht zurückgesetzt', reason);
+                      reportSessionError(
+                        sessionId,
+                        `Zustand nicht zurückgesetzt: ${commandErrorText(reason)}`,
+                      );
+                    });
+                }}
+              />
+            ) : null}
             {renderDiscussButton(selected)}
             {!isRemote && (
               <button
@@ -411,6 +430,8 @@ export function ArtifactsView({
         <div ref={stageRef} className="artifacts__stage">
           {selected.viewable ? (
             <ArtifactFrame
+              key={selected.file}
+              sessionId={sessionId}
               baseUrl={list.baseUrl}
               item={selected}
               reloadToken={reloadToken}
@@ -470,6 +491,7 @@ export function ArtifactsView({
       </section>
       {isFullscreen && selected.viewable ? (
         <ArtifactFullscreen
+          sessionId={sessionId}
           baseUrl={list.baseUrl}
           item={selected}
           onClose={(): void => {

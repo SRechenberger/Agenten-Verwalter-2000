@@ -50,6 +50,24 @@ export async function revealArtifact(sessionId: string, file: string): Promise<v
   await invoke('artifact_reveal', { sessionId, file });
 }
 
+/** Speichert den Zustand eines Artefakts (ADR 081) und gibt den Änderungszeitpunkt der Datei zurück. Der Core
+ *  prüft Artefakt, Größe (1 MiB) und Inhalt.
+ *  @throws {import('@/lib/bindings/CommandError').CommandError} `sessionNotFound`, `fileNotFound`,
+ *    `fileNotAllowed` (kein Artefakt, zu groß, ungültig), `io` */
+export async function saveArtifactState(
+  sessionId: string,
+  file: string,
+  state: Record<string, string>,
+): Promise<number> {
+  return invoke<number>('artifact_state_save', { sessionId, file, data: JSON.stringify(state) });
+}
+
+/** Löscht den Zustand eines Artefakts.
+ *  @throws {import('@/lib/bindings/CommandError').CommandError} `sessionNotFound`, `fileNotAllowed`, `io` */
+export async function resetArtifactState(sessionId: string, file: string): Promise<void> {
+  await invoke('artifact_state_reset', { sessionId, file });
+}
+
 /** Meldet, dass der Agent einer Session per MCP-Zugang ein Artefakt ausgewählt hat (ADR 046). */
 export function onArtifactShow(callback: (event: ArtifactShowEvent) => void): Promise<UnlistenFn> {
   return listen<ArtifactShowEvent>(ARTIFACT_SHOW_EVENT, (event: Event<ArtifactShowEvent>) => {
