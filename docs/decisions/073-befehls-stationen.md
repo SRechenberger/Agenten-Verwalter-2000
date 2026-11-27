@@ -56,7 +56,7 @@ Vom Benutzer entschieden (N1, N2, N7, D9 bis D13):
 
 ## Nachtrag: Station „Nachricht“ (Taiga 133)
 
-Eine dritte Art neben Agent und Befehl: Der Verwalter füllt eine Vorlage, stellt den Text zu und meldet die Station sofort fertig. Migration 40.
+Eine dritte Art neben Agent und Befehl: Der Verwalter füllt eine Vorlage, stellt den Text zu und meldet die Station sofort fertig. Migration 41.
 
 - **N1 Art:** `StationKind::Message`, im Werkzeug `by: "message"`. Eigene Spalten `message_to`, `message_text`, `message_sent`, `message_error`; `prompt`, `command` und `vars` werden nicht umgedeutet. Felder eines Agenten und eines Befehls sind bei dieser Art verboten, `to` und `text` bei jeder anderen.
 - **N2 Empfänger:** `"master"` oder die Kennung (auch ein Alias des Aufrufs, der zur Kennung wird) einer Station derselben Umsetzung; deren Session bekommt die Nachricht. Beim Anlegen und Ändern wird geprüft, dass es die Station gibt (`check_recipients` über den ganzen Plan, auch beim Entfernen des Empfängers). Beim Lauf wird geprüft, dass sie eine Session hat, sonst scheitert die Station.
