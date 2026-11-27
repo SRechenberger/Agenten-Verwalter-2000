@@ -38,6 +38,14 @@ function kilo(tokens: number): string {
   return `${WHOLE.format(thousands)} k`;
 }
 
+/** Der Name der Session in der Überschrift des Fensters („#3 Station A“); ohne Session `fallback`. */
+export function sessionTitle(
+  session: { number: number; name: string } | null,
+  fallback: string,
+): string {
+  return session === null ? fallback : `#${String(session.number)} ${session.name}`;
+}
+
 /** Das Tempo: „18 k/min“, „1,2 M/min“, „0,4 k/min“, in Ruhe „0 k/min“. */
 export function formatRate(tokensPerMinute: number): string {
   return `${kilo(tokensPerMinute)}/min`;

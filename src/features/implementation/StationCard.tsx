@@ -55,6 +55,7 @@ import type { SessionSummary } from '@/lib/bindings/SessionSummary';
 import type { ActionError } from '@/lib/useActionError';
 import { useQuotaHeldUntil } from '@/stores/agentQueue';
 import { TempoStation } from '@/features/tempo/TempoStation';
+import { sessionTitle } from '@/features/tempo/tempoTexts';
 import './StationCard.css';
 
 /** Die vier Abschnitte der Kartei. */
@@ -336,7 +337,7 @@ export function StationCard({
         <TempoStation
           projectId={projectId}
           sessionId={station.sessionId}
-          label={stationDisplay(station)}
+          label={sessionTitle(session, stationDisplay(station))}
         />
       </div>
       <p className="station-card__phase">{phase.title}</p>

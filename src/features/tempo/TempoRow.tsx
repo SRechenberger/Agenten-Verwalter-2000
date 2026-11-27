@@ -6,6 +6,7 @@ import { TempoReach } from '@/features/tempo/TempoReach';
 import { TempoTop } from '@/features/tempo/TempoTop';
 import { formatRate } from '@/features/tempo/tempoTexts';
 import { useTempo } from '@/features/tempo/useTempo';
+import { useProjectAccessStore } from '@/stores/projectAccess';
 import { hostTempo, OWN_TEMPO } from '@/lib/tempo';
 import type { TempoSource } from '@/lib/tempo';
 import type { SessionSummary } from '@/lib/bindings/SessionSummary';
@@ -47,7 +48,20 @@ export function TempoRow({
     [hostId],
   );
   const isReachable: boolean = host === undefined || host.online;
-  const snapshot: TempoSnapshot | null = useTempo(source, null, isReachable);
+  // Welche Vorhaben des Hosts der Gast hält: `top` des Hosts ist darauf gefiltert (U10), also lädt die
+  // Zeile bei Übernahme und Rückgabe sofort neu und nicht erst im Minutentakt.
+  const heldKey: string = useProjectAccessStore((state) =>
+    hostId === null
+      ? ''
+      : Object.entries(state.access)
+          .filter(
+            ([, access]) => access.kind === 'remote' && access.hostId === hostId && access.mine,
+          )
+          .map(([projectId]) => projectId)
+          .sort()
+          .join(','),
+  );
+  const snapshot: TempoSnapshot | null = useTempo(source, null, isReachable, heldKey);
   const active: number = snapshot?.active ?? 0;
   const workers: string =
     active === 1 ? '1 Session arbeitet' : `${String(active)} Sessions arbeiten`;

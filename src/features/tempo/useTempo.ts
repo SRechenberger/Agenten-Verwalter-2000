@@ -11,11 +11,13 @@ const RELOAD_GAP_MS = 1000;
  *  eingehängt ist, lädt und abonniert (Critical Rule 3). Ein Ereignis lädt neu, wenn es die Session
  *  betrifft, höchstens einmal je Sekunde; dazu einmal je Minute, denn das 5-Minuten-Mittel sinkt auch
  *  ohne neue Antwort und die Linie rückt weiter. `source` muss zwischen den Renderings gleich bleiben;
- *  `isEnabled` ist `false`, solange die Quelle nicht antworten kann (ein Host ohne Verbindung). */
+ *  `isEnabled` ist `false`, solange die Quelle nicht antworten kann (ein Host ohne Verbindung). Ändert sich
+ *  `reloadKey`, lädt die Anzeige neu (beim Gast: welche Vorhaben des Hosts er hält). */
 export function useTempo(
   source: TempoSource,
   sessionId: string | null,
   isEnabled: boolean = true,
+  reloadKey: string = '',
 ): TempoSnapshot | null {
   const [snapshot, setSnapshot] = useState<TempoSnapshot | null>(null);
   const requestRef = useRef<number>(0);
@@ -93,7 +95,7 @@ export function useTempo(
         unlisten();
       }
     };
-  }, [source, sessionId, isEnabled]);
+  }, [source, sessionId, isEnabled, reloadKey]);
 
   return snapshot;
 }

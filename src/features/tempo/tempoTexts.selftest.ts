@@ -9,6 +9,7 @@ import {
   isOverForecast,
   minuteTotal,
   scarcestForecast,
+  sessionTitle,
 } from './tempoTexts.ts';
 
 interface Forecast {
@@ -128,6 +129,14 @@ const cases: Case[] = [
     name: 'the_whole_k_limit_is_drawn_at_the_rounded_value',
     actual: () => [formatRate(9949), formatRate(9950), formatRate(10000)],
     expected: ['9,9 k/min', '10 k/min', '10 k/min'],
+  },
+  {
+    name: 'a_station_popover_is_named_after_its_session',
+    actual: () => [
+      sessionTitle({ number: 3, name: 'Station A' }, 'p-1 · Umsetzung'),
+      sessionTitle(null, 'p-2'),
+    ],
+    expected: ['#3 Station A', 'p-2'],
   },
   {
     name: 'the_minute_total_leaves_out_the_cache_read',

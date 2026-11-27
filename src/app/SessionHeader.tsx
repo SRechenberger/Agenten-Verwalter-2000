@@ -19,6 +19,7 @@ import { useReviewStore } from '@/stores/review';
 import { useSessionErrorsStore } from '@/stores/sessionErrors';
 import { SESSION_VIEWS, type SessionView } from '@/stores/sessions';
 import { TempoButton } from '@/features/tempo/TempoButton';
+import { sessionTitle } from '@/features/tempo/tempoTexts';
 import './SessionHeader.css';
 
 const MS_PER_SECOND = 1000;
@@ -379,7 +380,7 @@ export function SessionHeader({
         <TempoButton
           projectId={session.projectId}
           sessionId={session.id}
-          label={`#${String(session.number)} ${session.name}`}
+          label={sessionTitle(session, session.name)}
           variant="head"
         />
         {renderControls()}
