@@ -6,6 +6,7 @@ import {
   formatAmount,
   formatPerHour,
   formatRate,
+  isOverForecast,
   minuteTotal,
   scarcestForecast,
 } from './tempoTexts.ts';
@@ -113,6 +114,20 @@ const cases: Case[] = [
     name: 'a_window_that_lasts_says_where_it_stands_at_the_reset',
     actual: () => forecastText(forecast('weekly_all', 1.2, null, 61), at(28, 9, 0), NOW),
     expected: 'reicht bis zur Rücksetzung morgen 09:00 (dann ca. 61 %)',
+  },
+  {
+    name: 'a_window_that_runs_out_before_the_reset_is_red',
+    actual: () => [
+      isOverForecast(forecast('session', 9, at(27, 16, 40), 100), 100),
+      isOverForecast(forecast('weekly_all', 1.2, null, 61), 61),
+      isOverForecast(forecast('session', 9, null, 130), 130),
+    ],
+    expected: [true, false, true],
+  },
+  {
+    name: 'the_whole_k_limit_is_drawn_at_the_rounded_value',
+    actual: () => [formatRate(9949), formatRate(9950), formatRate(10000)],
+    expected: ['9,9 k/min', '10 k/min', '10 k/min'],
   },
   {
     name: 'the_minute_total_leaves_out_the_cache_read',

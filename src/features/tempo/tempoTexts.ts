@@ -31,7 +31,8 @@ function kilo(tokens: number): string {
   if (Math.round(thousands) >= K_PER_M) {
     return `${ONE_DECIMAL.format(thousands / K_PER_M)} M`;
   }
-  if (thousands < WHOLE_K_FROM) {
+  // Die Grenze am gerundeten Wert: 9 950 Tokens wären sonst „10,0 k“.
+  if (Math.round(thousands * 10) / 10 < WHOLE_K_FROM) {
     return `${ONE_DECIMAL.format(thousands)} k`;
   }
   return `${WHOLE.format(thousands)} k`;
@@ -102,6 +103,12 @@ export function formatDayClock(ms: number, now: number): string {
 
 function startOfDay(date: Date): number {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
+}
+
+/** Ein Fenster gilt als „über“, wenn es vor der Rücksetzung leer wird. Der Kern begrenzt
+ *  `percentAtReset` auf 100; das Signal ist `exhaustedAt`. */
+export function isOverForecast(forecast: UsageForecast, percentAtReset: number): boolean {
+  return forecast.exhaustedAt !== null || percentAtReset > 100;
 }
 
 /** Text unter dem Balken eines Fensters: „bei diesem Tempo leer ca. 16:40“ oder „reicht bis zur

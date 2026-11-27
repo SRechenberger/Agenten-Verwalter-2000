@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import type { ReactElement } from 'react';
 import { useUsage } from '@/features/usage/useUsage';
 import { limitLabel } from '@/features/usage/usageTexts';
-import { forecastText, formatPerHour } from '@/features/tempo/tempoTexts';
+import { forecastText, formatPerHour, isOverForecast } from '@/features/tempo/tempoTexts';
 import type { UsageForecast } from '@/lib/bindings/UsageForecast';
 import type { UsageLimit } from '@/lib/bindings/UsageLimit';
 import type { UsageStatus } from '@/lib/bindings/UsageStatus';
@@ -48,7 +48,7 @@ export function TempoReach({ hostId }: TempoReachProps): ReactElement {
     limit: UsageLimit;
   }): ReactElement {
     const atReset: number = forecast.percentAtReset ?? limit.percent;
-    const isOver: boolean = atReset > FULL_PERCENT;
+    const isOver: boolean = isOverForecast(forecast, atReset);
     return (
       <li
         key={forecast.kind}

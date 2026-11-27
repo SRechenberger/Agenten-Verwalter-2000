@@ -64,6 +64,8 @@ interface StationCardProps {
   implementationId: string;
   /** Master der Umsetzung: ohne Freigabe fragt „Erledigt“ nach (#136). */
   masterSessionId: string | null;
+  /** Das Vorhaben der Umsetzung: Quelle des Tempos der Station, auch wenn ihre Session fehlt. */
+  projectId: string;
   /** Eine abgebrochene Umsetzung lässt nichts mehr von Hand fertig markieren. */
   isImplementationCancelled: boolean;
   stationRef: StationRef;
@@ -103,6 +105,7 @@ interface StationCardProps {
 export function StationCard({
   implementationId,
   masterSessionId,
+  projectId,
   isImplementationCancelled,
   stationRef,
   refs,
@@ -331,7 +334,7 @@ export function StationCard({
         <b className="station-card__title">{stationDisplay(station)}</b>
         <span className="station-card__number">{number}</span>
         <TempoStation
-          projectId={session?.projectId ?? null}
+          projectId={projectId}
           sessionId={station.sessionId}
           label={stationDisplay(station)}
         />
