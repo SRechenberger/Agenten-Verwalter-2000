@@ -250,6 +250,27 @@ impl ProjectState {
     }
 }
 
+/// Die Ticket-Worktrees der Sessions ohne Doppelte. Eine Session nach der anderen gesperrt — nie zwei
+/// zugleich und nie unter der Map-Sperre.
+fn ticket_worktrees_of(members: &[Arc<Session>]) -> Vec<(u32, String)> {
+    let mut worktrees: Vec<(u32, String)> = Vec::new();
+    for session in members {
+        let session_worktrees = session.lock().ticket_worktrees.clone();
+        for (position, folder) in session_worktrees {
+            let is_known =
+                worktrees
+                    .iter()
+                    .any(|(known_position, known_folder): &(u32, String)| {
+                        *known_position == position && known_folder.eq_ignore_ascii_case(&folder)
+                    });
+            if !is_known {
+                worktrees.push((position, folder));
+            }
+        }
+    }
+    worktrees
+}
+
 pub struct Session {
     pub id: String,
     /// Nach dem Anlegen unveränderlich, wie `number`.
@@ -2286,25 +2307,7 @@ impl SessionRegistry {
         session_id: &str,
     ) -> Result<Vec<(u32, String)>, CommandError> {
         let project_id = self.get(session_id)?.project_id.clone();
-        let members = self.project_members(&project_id);
-        // Eine Session nach der anderen sperren — nie zwei zugleich und nie unter der Map-Sperre.
-        let mut worktrees: Vec<(u32, String)> = Vec::new();
-        for session in &members {
-            let session_worktrees = session.lock().ticket_worktrees.clone();
-            for (position, folder) in session_worktrees {
-                let is_known =
-                    worktrees
-                        .iter()
-                        .any(|(known_position, known_folder): &(u32, String)| {
-                            *known_position == position
-                                && known_folder.eq_ignore_ascii_case(&folder)
-                        });
-                if !is_known {
-                    worktrees.push((position, folder));
-                }
-            }
-        }
-        Ok(worktrees)
+        Ok(ticket_worktrees_of(&self.project_members(&project_id)))
     }
 
     /// Der Ordner zu jedem Kommentar, in dessen Reihenfolge. Der Schlüssel aus der Oberfläche wird
@@ -2441,6 +2444,44 @@ impl SessionRegistry {
                     remembered,
                     ticket_roots,
                     created_at,
+                )
+            }
+            ChangesReach::Implementation => {
+                let (implementation_id, ticket_roots) = {
+                    let state = session.lock();
+                    (
+                        state
+                            .station_of
+                            .clone()
+                            .or_else(|| state.inquiry_of.clone()),
+                        state.ticket_roots.clone(),
+                    )
+                };
+                let implementation_id = implementation_id.ok_or_else(|| {
+                    CommandError::Internal("Die Session gehört zu keiner Umsetzung.".to_owned())
+                })?;
+                // Stationen und Rückfragen derselben Umsetzung; eine Session ohne Umsetzung zählt nicht.
+                let members: Vec<Arc<Session>> = self
+                    .project_members(&session.project_id)
+                    .into_iter()
+                    .filter(|member: &Arc<Session>| {
+                        let state = member.lock();
+                        state.station_of.as_deref() == Some(implementation_id.as_str())
+                            || state.inquiry_of.as_deref() == Some(implementation_id.as_str())
+                    })
+                    .collect();
+                let since_ms = members
+                    .iter()
+                    .map(|member: &Arc<Session>| member.lock().created_at)
+                    .fold(f64::INFINITY, f64::min);
+                (
+                    members
+                        .iter()
+                        .map(|member: &Arc<Session>| member.id.clone())
+                        .collect(),
+                    ticket_worktrees_of(&members),
+                    ticket_roots,
+                    since_ms,
                 )
             }
             ChangesReach::Project => {
@@ -10125,5 +10166,95 @@ mod tests {
                 .iter()
                 .any(|spec| spec.name == "verwalter_compact_ready")
         );
+    }
+
+    // Ab hier Taiga-Story 254: Changes je Umsetzung.
+
+    fn git_in(dir: &Path, args: &[&str]) {
+        let status = crate::processes::command("git")
+            .args(["-c", "user.name=t", "-c", "user.email=t@t"])
+            .args(args)
+            .current_dir(dir)
+            .status()
+            .expect("git");
+        assert!(status.success(), "git {args:?}");
+    }
+
+    #[test]
+    fn the_implementation_reach_shows_only_the_files_of_its_own_sessions() {
+        let base = std::env::temp_dir().join(format!("verwalter-254-{}", uuid::Uuid::new_v4()));
+        let repo = base.join("repo");
+        fs::create_dir_all(&repo).expect("Repository");
+        git_in(&repo, &["init", "-q", "-b", "main"]);
+        fs::write(repo.join("start.txt"), "a\n").expect("Datei");
+        git_in(&repo, &["add", "."]);
+        git_in(&repo, &["commit", "-q", "-m", "start"]);
+        let head = crate::processes::command("git")
+            .args(["rev-parse", "HEAD"])
+            .current_dir(&repo)
+            .output()
+            .expect("rev-parse");
+        let head = String::from_utf8_lossy(&head.stdout).trim().to_owned();
+        let registry = registry_with_one_slot();
+        // Zwei Umsetzungen im Vorhaben `p`: `a1` ist Station von `i1`, `a2` Rückfrage zu `i1`,
+        // `b1` Station von `i2`, `x` gehört zu keiner.
+        registry.add_station_session_for_test("a1", "p", "i1", SessionStatus::Completed);
+        registry.add_station_session_for_test("b1", "p", "i2", SessionStatus::Completed);
+        registry.add_session_for_test("a2", "p", SessionStatus::Completed);
+        registry.set_inquiry_for_test("a2", "i1");
+        registry.add_session_for_test("x", "p", SessionStatus::Completed);
+        registry
+            .database
+            .with(|connection| {
+                connection.execute_batch("PRAGMA foreign_keys = OFF")?;
+                Ok(())
+            })
+            .expect("Schlüssel");
+        for (id, file) in [
+            ("a1", "eins.txt"),
+            ("a2", "zwei.txt"),
+            ("b1", "drei.txt"),
+            ("x", "vier.txt"),
+        ] {
+            fs::write(repo.join(file), "neu\n").expect("Datei");
+            let path = attribution::normalize_path(&repo.join(file).to_string_lossy());
+            registry
+                .database
+                .with(|connection| session_files::upsert_all(connection, id, &[(path, 1.0)]))
+                .expect("geschrieben");
+            *registry
+                .get(id)
+                .expect("Session")
+                .repositories
+                .write()
+                .expect("Sperre") = vec![SessionRepository {
+                name: "repo".to_owned(),
+                repository_path: repo.clone(),
+                base_ref: "main".to_owned(),
+                base_commit: head.clone(),
+                checkout: crate::worktrees::RepositoryCheckout::Main,
+            }];
+        }
+        let shown = |anchor: &str| -> Vec<String> {
+            let input = registry
+                .changes_input(anchor, ChangesReach::Implementation)
+                .expect("Eingabe");
+            let mut paths: Vec<String> = crate::changes::load(&input)
+                .repositories
+                .into_iter()
+                .flat_map(|repository| repository.files.into_iter().map(|file| file.path))
+                .collect();
+            paths.sort();
+            paths
+        };
+        assert_eq!(shown("a1"), ["eins.txt", "zwei.txt"]);
+        assert_eq!(shown("a2"), ["eins.txt", "zwei.txt"]);
+        assert_eq!(shown("b1"), ["drei.txt"]);
+        assert!(
+            registry
+                .changes_input("x", ChangesReach::Implementation)
+                .is_err()
+        );
+        fs::remove_dir_all(&base).ok();
     }
 }

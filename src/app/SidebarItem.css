@@ -81,6 +81,15 @@
     color: var(--color-status-waiting);
   }
 
+  /* Rückfrage zu einer Umsetzung (Taiga 254): leise, rechts neben dem Namen. */
+  &__inquiry {
+    flex-shrink: 0;
+    margin-left: auto;
+    font-size: var(--font-size-2xs);
+    color: var(--color-text-muted);
+    white-space: nowrap;
+  }
+
   /* Der Master bereitet einen Compact vor (ADR 070, Nachtrag): wie die Marke des Masters. */
   &__compact {
     flex-shrink: 0;
