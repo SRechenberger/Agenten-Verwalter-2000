@@ -1,0 +1,106 @@
+Probelauf zustand-18, echte App (pnpm tauri dev, Port 1479 --strictPort, Xvfb :79), Gast aus dem Debug-Binary (Xvfb :80), Fernsteuerung 1480, Wegwerf-HOME, CSP der App als <meta>.
+
+== k1
+K8 vorher: Datei None | Knöpfe ['Neu laden', 'Vollbild']
+  klick :79 769 216 bestanden-0
+  klick :79 882 248 fehlgeschlagen-1
+  klick :79 768 280 bestanden-2
+K4 Datei .zustand/testplan.html.json: {'testplan': '{"Eins":"bestanden","Zwei":"fehlgeschlagen","Drei":"bestanden"}'}
+K8 nachher: Knöpfe ['Neu laden', 'Vollbild', 'Zustand zurücksetzen']
+Bild shots/k1-testplan-hell.png
+Ansicht: chat
+Rahmen im Chat: 0
+Ansicht: artifacts
+K1 nach Chat und zurück: ['{"Eins":"bestanden","Zwei":"fehlgeschlagen","Drei":"bestanden"}']
+Bild shots/k1-testplan-dunkel.png
+
+== k2
+K2 nach Neustart: ['{"Eins":"bestanden","Zwei":"fehlgeschlagen","Drei":"bestanden"}'] | Datei {'testplan': '{"Eins":"bestanden","Zwei":"fehlgeschlagen","Drei":"bestanden"}'}
+K3 nach Änderung der Überschrift: [('Testplan (Probelauf, geändert)', '{"Eins":"bestanden","Zwei":"fehlgeschlagen","Drei":"bestanden"}', 1244)]
+K5 nach Änderung von außen: [('{"Eins":"bestanden","Zwei":"fehlgeschlagen","Drei":"bestanden","Vier":"bestanden"}', '50 ms')]
+K5 Datei danach: {'testplan': '{"Eins":"bestanden","Zwei":"fehlgeschlagen","Drei":"bestanden","Vier":"bestanden"}'}
+K6 Session #2: True ['{"Eins":"bestanden","Zwei":"fehlgeschlagen","Drei":"bestanden","Vier":"bestanden"}']
+
+== k5n
+K5 Zeiten bis zur Anzeige (ms): [652, 468, 342, 141, 1959, 1790, 1671, 1464, 1292, 1173] | höchstens 1959 | verfehlt 0
+
+== r12n-neu-laden
+Lauf 1: Ladevorgänge 8, veraltet 0 [], Datei {'k': '8'}
+Lauf 2: Ladevorgänge 8, veraltet 0 [], Datei {'k': '8'}
+Lauf 3: Ladevorgänge 8, veraltet 0 [], Datei {'k': '8'}
+Lauf 4: Ladevorgänge 8, veraltet 0 [], Datei {'k': '8'}
+Lauf 5: Ladevorgänge 8, veraltet 0 [], Datei {'k': '8'}
+veraltet gesamt 0
+
+== r13n
+Lauf 1 Schritt 2 sah [['antwort1']] Datei: {'antwort1': 'ja', 'antwort2': 'nein', 'fertig': 'ja'}
+Lauf 2 Schritt 2 sah [['antwort1']] Datei: {'antwort1': 'ja', 'antwort2': 'nein', 'fertig': 'ja'}
+Lauf 3 Schritt 2 sah [['antwort1']] Datei: {'antwort1': 'ja', 'antwort2': 'nein', 'fertig': 'ja'}
+Lauf 4 Schritt 2 sah [['antwort1']] Datei: {'antwort1': 'ja', 'antwort2': 'nein', 'fertig': 'ja'}
+Lauf 5 Schritt 2 sah [['antwort1']] Datei: {'antwort1': 'ja', 'antwort2': 'nein', 'fertig': 'ja'}
+Lauf 6 Schritt 2 sah [['antwort1']] Datei: {'antwort1': 'ja', 'antwort2': 'nein', 'fertig': 'ja'}
+Lauf 7 Schritt 2 sah [['antwort1']] Datei: {'antwort1': 'ja', 'antwort2': 'nein', 'fertig': 'ja'}
+Lauf 8 Schritt 2 sah [['antwort1']] Datei: {'antwort1': 'ja', 'antwort2': 'nein', 'fertig': 'ja'}
+Lauf 9 Schritt 2 sah [['antwort1']] Datei: {'antwort1': 'ja', 'antwort2': 'nein', 'fertig': 'ja'}
+Lauf 10 Schritt 2 sah [['antwort1']] Datei: {'antwort1': 'ja', 'antwort2': 'nein', 'fertig': 'ja'}
+Lauf 11 Schritt 2 sah [['antwort1']] Datei: {'antwort1': 'ja', 'antwort2': 'nein', 'fertig': 'ja'}
+Lauf 12 Schritt 2 sah [['antwort1']] Datei: {'antwort1': 'ja', 'antwort2': 'nein', 'fertig': 'ja'}
+antwort1 verloren in 0 von 12 Läufen
+
+== kopfzeile
+hell normal, Titel: [{'text': 'Testplan Review', 'scrollWidth': 107, 'clientWidth': 107}]
+hell Frage: Zeile {'left': 610.5, 'right': 637.5, 'w': 27, 'text': 'testplan.html · 12:34'} | Textblock rechts 638.0 | Knöpfe links 654.0 | Zeile scroll/client 116 27
+hell Frage: sichtbares Ende der Zeile links der Knöpfe: True
+dunkel normal, Titel: [{'text': 'Testplan Review', 'scrollWidth': 107, 'clientWidth': 107}]
+dunkel Frage: Zeile {'left': 610.5, 'right': 637.5, 'w': 27, 'text': 'testplan.html · 12:34'} | Textblock rechts 638.0 | Knöpfe links 654.0 | Zeile scroll/client 116 27
+dunkel Frage: sichtbares Ende der Zeile links der Knöpfe: True
+Datei noch da: True
+
+== k78
+K7 ohne-zustand.html: Ladevorgänge 1 [{'probe': 'load', 'page': 'ohne-zustand', 'name': 0}] | Zustandsdatei None | Knöpfe ['Neu laden', 'Vollbild'] | Meldungen state 0
+Bild shots/k7-ohne-zustand-hell.png
+K8 ohne Zustand: Knöpfe ['Neu laden', 'Vollbild']
+  klick :79 769 216 bestanden-0
+  klick :79 882 248 fehlgeschlagen-1
+  klick :79 768 280 bestanden-2
+K8 mit Zustand: Datei {'testplan': '{"Eins":"bestanden","Zwei":"fehlgeschlagen","Drei":"bestanden"}'} | Knöpfe ['Neu laden', 'Vollbild', 'Zustand zurücksetzen']
+K8 nach erstem Klick: Knöpfe ['Neu laden', 'Vollbild', 'Zustand wirklich zurücksetzen', 'Zurücksetzen abbrechen'] | Datei da True
+K8 Abbrechen: Datei da True | Knöpfe ['Neu laden', 'Vollbild', 'Zustand zurücksetzen']
+K8 bestätigt: Ladevorgänge 1 [None] | Datei None | Knöpfe ['Neu laden', 'Vollbild']
+Bild shots/k8-zurueckgesetzt-hell.png
+
+== sicher
+{'who': 'host', 'c': '__select', 'tag': '27357464a899414b81addbb1c63ac4b8', 'ok': 'ok'}
+{'who': 'host', 'c': '__view', 'tag': '4afca960719b47549ca9bf1380facf57', 'ok': 'artifacts'}
+{'who': 'host', 'c': '__artifact', 'tag': 'b33036efbb734835956cbcecd223328c', 'ok': 'ok'}
+Rahmen: [('allow-scripts allow-forms allow-modals', 'http://127.0.0.1:44455/662b11cfaa704cc784099b69ea63a738/b4aed62f-b687-4dd3-8ecf-b497a829f3')]
+Bild: shots/sicherheitsprobe-hell.png
+
+== k6g2
+Host Datei vorher: {'testplan': '{"Eins":"bestanden","Zwei":"fehlgeschlagen","Drei":"bestanden"}'}
+K6 Gast sieht: ['{"Eins":"bestanden","Zwei":"fehlgeschlagen","Drei":"bestanden"}']
+  klick :80 877 312 fehlgeschlagen-3
+K6 nach Klick am Gast: Datei des Hosts {'testplan': '{"Eins":"bestanden","Zwei":"fehlgeschlagen","Drei":"bestanden","Vier":"fehlgeschlagen"}'}
+K6 Rahmen am Host lädt neu: [('{"Eins":"bestanden","Zwei":"fehlgeschlagen","Drei":"bestanden","Vier":"fehlgeschlagen"}', '504 ms')]
+K6 Rahmen am Gast: []
+Bild shots/k6-gast-hell.png
+Bild shots/k6-host-nach-gast-hell.png
+
+== r18
+Übernahme: {'name': 'Review Zustand'}
+Liste am Gast: 25 Artefakte, baseUrl http://127.0.0.1:42775/9555c6d216c94dbea
+== bericht.html (Gast)
+  Rahmen: {'probe': 'bericht', 'page': 'haupt', 'keys': []}
+  Meldung state: {'haupt': 'ja'}
+  Meldung state: {'haupt': 'ja', 'teil2': 'ja'}
+  Rahmen: {'probe': 'bericht', 'page': 'teil2', 'seenOnLoad': ['haupt']}
+  Dateien am Host:
+  bericht.html.json {'haupt': 'ja', 'teil2': 'ja'}
+  bericht.json fehlt
+== zwei.html (Gast)
+  Rahmen: {'probe': 'zwei', 'page': 'haupt', 'keys': ['haupt']}
+  Dateien am Host:
+  zwei.html.json {'haupt': 'ja'}
+  zwei.htm.json fehlt
+  zwei.json fehlt
+Rahmen am Gast: [('allow-scripts allow-forms allow-modals', 'http://127.0.0.1:42775/9555c6d216c94dbea6776b50c4c7c957/b4ae')]
