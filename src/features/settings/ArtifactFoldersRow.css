@@ -18,12 +18,28 @@
     border-bottom: 1px solid var(--color-border);
   }
 
+  &__folder {
+    display: flex;
+    min-width: 0;
+    gap: var(--space-md);
+    align-items: baseline;
+    font-family: var(--font-mono);
+    font-size: var(--font-size-xs);
+  }
+
+  &__name {
+    flex: none;
+    max-width: 50%;
+    overflow: hidden;
+    color: var(--color-fg-primary);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
   &__path {
     min-width: 0;
     overflow: hidden;
     color: var(--color-fg-secondary);
-    font-family: var(--font-mono);
-    font-size: var(--font-size-xs);
     text-overflow: ellipsis;
     white-space: nowrap;
   }

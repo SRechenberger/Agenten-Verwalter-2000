@@ -993,6 +993,8 @@ mod extern_tests {
                 root
             })
             .expect("kanonisch");
+            // Gespeichert wird die Form von `display_path` (unter Windows ohne `\\?\`).
+            let root = PathBuf::from(crate::filesystem::display_path(&root.to_string_lossy()));
             fs::write(root.join("vault").join(file), text).expect("Datei");
             fs::write(root.join("geheim.md"), "# Geheim").expect("Datei aussen");
             let dir = root.join(".artefakte");

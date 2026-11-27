@@ -11,6 +11,16 @@ interface ArtifactFoldersRowProps {
   save: (change: SettingsChange) => Promise<boolean>;
 }
 
+/** Letzter Bestandteil des Pfads (`/` und `\`), bei der Wurzel der Pfad selbst. */
+function folderName(folder: string): string {
+  return (
+    folder
+      .split(/[\\/]/)
+      .filter((part: string) => part !== '')
+      .pop() ?? folder
+  );
+}
+
 /** „Ordner für Artefakte“ (Taiga 139): die eingetragenen Ordner als Zeilen mit „Entfernen“, dazu ein Feld und
  *  „Ordner wählen …“. Was der Kern ablehnt (nicht absolut, nicht vorhanden), zeigt die Einstellungsseite mit
  *  seinem Satz. */
@@ -52,8 +62,9 @@ export function ArtifactFoldersRow({ value, save }: ArtifactFoldersRowProps): Re
         <ul className="artifact-folders-row__list">
           {value.map((folder: string) => (
             <li key={folder} className="artifact-folders-row__item">
-              <span className="artifact-folders-row__path" title={folder}>
-                {folder}
+              <span className="artifact-folders-row__folder" title={folder}>
+                <span className="artifact-folders-row__name">{folderName(folder)}</span>
+                <span className="artifact-folders-row__path">{folder}</span>
               </span>
               <button
                 type="button"

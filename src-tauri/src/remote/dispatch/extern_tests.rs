@@ -22,7 +22,12 @@ impl Folders {
         ));
         fs::create_dir_all(root.join("ws/.artefakte")).expect("Ordner anlegen");
         fs::create_dir_all(root.join("vault")).expect("Ordner anlegen");
-        let root = fs::canonicalize(&root).expect("kanonisch");
+        // Gespeichert wird die Form von `display_path` (unter Windows ohne `\\?\`).
+        let root = PathBuf::from(crate::filesystem::display_path(
+            &fs::canonicalize(&root)
+                .expect("kanonisch")
+                .to_string_lossy(),
+        ));
         Folders {
             folders: vec![root.join("vault").to_string_lossy().into_owned()],
             root,

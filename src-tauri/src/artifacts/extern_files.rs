@@ -252,6 +252,8 @@ mod tests {
                 &root
             })
             .expect("kanonisch");
+            // Gespeichert wird die Form von `display_path` (unter Windows ohne `\\?\`).
+            let root = PathBuf::from(display_path(&root.to_string_lossy()));
             let (dir, folder) = (root.join(".artefakte"), root.join("vault"));
             fs::create_dir_all(&dir).expect("artefakte");
             fs::create_dir_all(folder.join("unter")).expect("vault");

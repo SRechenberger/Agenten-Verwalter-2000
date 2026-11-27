@@ -754,10 +754,11 @@ mod tests {
         std::fs::create_dir_all(&folder).expect("Ordner");
         let set = |value: Vec<String>| update(&database, SettingsChange::ArtifactFolders { value });
         let text = folder.to_string_lossy().into_owned();
-        let canonical = std::fs::canonicalize(&folder)
-            .expect("kanonisch")
-            .to_string_lossy()
-            .into_owned();
+        let canonical = crate::filesystem::display_path(
+            &std::fs::canonicalize(&folder)
+                .expect("kanonisch")
+                .to_string_lossy(),
+        );
         set(vec![format!("{text}/."), text.clone()]).expect("speichern");
         assert_eq!(
             load(&database).expect("laden").artifact_folders,
@@ -777,7 +778,12 @@ mod tests {
         let root =
             std::env::temp_dir().join(format!("verwalter-folders-gone-{}", std::process::id()));
         std::fs::create_dir_all(&root).expect("Wurzel");
-        let root = std::fs::canonicalize(&root).expect("kanonisch");
+        // Gespeichert wird die Form von `display_path` (unter Windows ohne `\\?\`).
+        let root = std::path::PathBuf::from(crate::filesystem::display_path(
+            &std::fs::canonicalize(&root)
+                .expect("kanonisch")
+                .to_string_lossy(),
+        ));
         let [vault, x1, x2, x3] = ["vault", "x1", "x2", "x3"].map(|name: &str| root.join(name));
         for folder in [&vault, &x1, &x2, &x3] {
             std::fs::create_dir_all(folder).expect("Ordner");
