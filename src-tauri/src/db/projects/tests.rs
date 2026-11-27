@@ -1,4 +1,4 @@
-//! Reihenfolge der Vorhaben von Hand (Taiga 101): Migration 041, Verschieben, neues Vorhaben oben.
+//! Reihenfolge der Vorhaben von Hand (Taiga 101): Migration 042, Verschieben, neues Vorhaben oben.
 use rusqlite::{Connection, params};
 
 use super::{MoveTarget, move_to, next_top_position};
@@ -136,9 +136,9 @@ fn a_move_to_an_unknown_target_changes_nothing() {
 }
 
 #[test]
-fn migration_41_keeps_the_old_order_by_activity_then_creation() {
+fn migration_42_keeps_the_old_order_by_activity_then_creation() {
     let mut connection = Connection::open_in_memory().expect("Datenbank");
-    for script in migrations::first(40) {
+    for script in migrations::first(41) {
         connection.execute_batch(script).expect("alte Migration");
     }
     let sessions = connection
@@ -148,7 +148,7 @@ fn migration_41_keeps_the_old_order_by_activity_then_creation() {
     assert!(sessions, "Annahme der Migration: sessions.archived_at");
     connection
         .execute_batch(
-            "PRAGMA user_version = 40; \
+            "PRAGMA user_version = 41; \
              INSERT INTO projects (id, name, created_at) VALUES \
                ('alt', 'alt', 1.0), ('mitte', 'mitte', 2.0), ('neu', 'neu', 3.0), ('tot', 'tot', 4.0);",
         )

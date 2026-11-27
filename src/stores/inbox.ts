@@ -45,6 +45,19 @@ export const useInboxStore = create<InboxState>((set) => ({
   },
 }));
 
+/** Alle Zeilen in `session_inbox` an diese Session, eigene und fremde (Taiga 252). */
+export function useWaitingCount(sessionId: string): number {
+  const messages = useInboxStore((state) => state.messages);
+  const hostMessages = useInboxStore((state) => state.hostMessages);
+  return useMemo(
+    () =>
+      [messages, ...Object.values(hostMessages)]
+        .flat()
+        .filter((message: WaitingMessage) => message.sessionId === sessionId).length,
+    [messages, hostMessages, sessionId],
+  );
+}
+
 /** Die wartenden Nachrichten anderer Sessions an diese Session, auch an die Session eines Hosts. */
 export function useForeignWaiting(sessionId: string): readonly WaitingMessage[] {
   const messages = useInboxStore((state) => state.messages);

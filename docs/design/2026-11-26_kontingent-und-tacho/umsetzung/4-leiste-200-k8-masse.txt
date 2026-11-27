@@ -1,0 +1,48 @@
+Nach der Fix-Runde K8. Breite der Leiste 200 px, Kontingent der echten Antwort (nur weekly_all, 5 %); Maße aus getBoundingClientRect, sw = scrollWidth, cw = clientWidth.
+usage-gauge = Tacho-Symbol (14 px bei voller Breite), severity-icon = Symbol der Schwere.
+
+== Eine Zeile (ohne Host), hell
+usage-button__trigger severity severity--ok             'KontingentWo5 %'  x   10 w 179 h  30 sw  179 cw  179 radius 2px
+usage-gauge                                             ''                 x   18 w  14 h  14 sw   14 cw   14 radius 0px
+usage-button__name                                      'Kontingent'       x   40 w  14 h  18 sw   66 cw   14 radius 0px
+severity-icon                                           ''                 x   62 w  12 h  12 sw   12 cw   12 radius 0px
+usage-button__bars                                      ''                 x   82 w  32 h   3 sw   32 cw   32 radius 0px
+usage-button__window                                    'Wo'               x  122 w  17 h  16 sw   17 cw   17 radius 0px
+usage-button__label                                     '5 %'              x  147 w  34 h  16 sw   34 cw   34 radius 0px
+
+== Eine Zeile (ohne Host), dunkel
+usage-button__trigger severity severity--ok             'KontingentWo5 %'  x   10 w 179 h  30 sw  179 cw  179 radius 2px
+usage-gauge                                             ''                 x   18 w  14 h  14 sw   14 cw   14 radius 0px
+usage-button__name                                      'Kontingent'       x   40 w  14 h  18 sw   66 cw   14 radius 0px
+severity-icon                                           ''                 x   62 w  12 h  12 sw   12 cw   12 radius 0px
+usage-button__bars                                      ''                 x   82 w  32 h   3 sw   32 cw   32 radius 0px
+usage-button__window                                    'Wo'               x  122 w  17 h  16 sw   17 cw   17 radius 0px
+usage-button__label                                     '5 %'              x  147 w  34 h  16 sw   34 cw   34 radius 0px
+
+== Mit einem Host (in den Store gesetzt, offline, kein Netz): Überschrift, Zeile selbst, Zeile des Hosts, hell
+usage-section__head                                     'Kontingent'       x   10 y  758 w 179 h  26 sw  179 cw  179
+usage-gauge                                             ''                 x   18 y  764 w  14 h  14 sw   14 cw   14
+None                                                    'Kontingent'       x   40 y  762 w  67 h  18 sw   67 cw   67
+usage-button__trigger usage-button__trigger--sub severity severity--ok 'selbstWo5 %'      x   10 y  784 w 179 h  24 sw  179 cw  179
+usage-button__name                                      'selbst'           x   40 y  787 w  14 h  18 sw   37 cw   14
+severity-icon                                           ''                 x   62 y  790 w  12 h  12 sw   12 cw   12
+usage-button__bars                                      ''                 x   82 y  795 w  32 h   3 sw   32 cw   32
+usage-button__window                                    'Wo'               x  122 y  788 w  17 h  16 sw   17 cw   17
+usage-button__label                                     '5 %'              x  147 y  788 w  34 h  16 sw   34 cw   34
+usage-button__trigger usage-button__trigger--sub severity severity--none 'Probehostnicht err' x   10 y  808 w 179 h  24 sw  179 cw  179
+usage-button__name                                      'Probehost'        x   40 y  811 w  44 h  18 sw   64 cw   44
+usage-button__offline                                   'nicht erreichbar' x   92 y  812 w  89 h  16 sw   89 cw   89
+
+== dasselbe, dunkel
+usage-section__head                                     'Kontingent'       x   10 y  758 w 179 h  26 sw  179 cw  179
+usage-gauge                                             ''                 x   18 y  764 w  14 h  14 sw   14 cw   14
+None                                                    'Kontingent'       x   40 y  762 w  67 h  18 sw   67 cw   67
+usage-button__trigger usage-button__trigger--sub severity severity--ok 'selbstWo5 %'      x   10 y  784 w 179 h  24 sw  179 cw  179
+usage-button__name                                      'selbst'           x   40 y  787 w  14 h  18 sw   37 cw   14
+severity-icon                                           ''                 x   62 y  790 w  12 h  12 sw   12 cw   12
+usage-button__bars                                      ''                 x   82 y  795 w  32 h   3 sw   32 cw   32
+usage-button__window                                    'Wo'               x  122 y  788 w  17 h  16 sw   17 cw   17
+usage-button__label                                     '5 %'              x  147 y  788 w  34 h  16 sw   34 cw   34
+usage-button__trigger usage-button__trigger--sub severity severity--none 'Probehostnicht err' x   10 y  808 w 179 h  24 sw  179 cw  179
+usage-button__name                                      'Probehost'        x   40 y  811 w  44 h  18 sw   64 cw   44
+usage-button__offline                                   'nicht erreichbar' x   92 y  812 w  89 h  16 sw   89 cw   89

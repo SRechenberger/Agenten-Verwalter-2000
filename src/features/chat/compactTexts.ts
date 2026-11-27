@@ -1,6 +1,7 @@
 // Beschriftungen des Master-Compacts mit Vorbereitung (ADR 070, Nachtrag „Compact mit Vorbereitung“,
 // Taiga-Story 215). Importiert nur Typen: `pnpm selftest` fährt `compactTexts.selftest.ts` direkt mit Node.
 import type { CompactPhase } from '@/lib/bindings/CompactPhase';
+import type { OperatingMode } from '@/lib/bindings/OperatingMode';
 import type { SessionSummary } from '@/lib/bindings/SessionSummary';
 
 /** Die Phase einer Zusammenfassung; ein älterer Host schickt das Feld nicht. */
@@ -54,4 +55,24 @@ export function canCompactNow(phase: CompactPhase, isPaused: boolean): boolean {
 /** Abbrechen geht vor der Meldung, danach nur in der Pause; ein laufender Compact lässt sich nicht abbrechen. */
 export function canCompactAbort(phase: CompactPhase, isPaused: boolean): boolean {
   return isPaused || phase === 'preparing' || phase === 'reminded';
+}
+
+/** Die Grenze „Master zusammenfassen ab“, die Kontext-Panel und Kopf zeigen (Taiga 252): nur beim Master einer
+ *  unfertigen Umsetzung, in der Betriebsart Claude, mit gesetzter Grenze; sonst `null`. */
+export function masterCompactLimit(
+  isMaster: boolean,
+  operatingMode: OperatingMode,
+  tokens: number | null,
+): number | null {
+  return isMaster && operatingMode === 'claude' ? tokens : null;
+}
+
+/** Zeile unter dem Balken des Kontext-Panels; `formatted` ist die Grenze, schon formatiert. */
+export function compactLimitText(formatted: string): string {
+  return `Grenze „Master zusammenfassen ab“ ${formatted} Tokens`;
+}
+
+/** Die wartenden Nachrichten in der Zeile der Leiste: „✉ 3“. */
+export function waitingCountText(count: number): string {
+  return `✉ ${String(count)}`;
 }

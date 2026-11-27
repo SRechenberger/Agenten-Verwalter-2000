@@ -1,0 +1,144 @@
+{
+ "sessions": {
+  "A": "Vorhaben „Probelauf 108“ (#1 Haupt, #2 Ziel zwei, #3 Ziel drei)",
+  "B": "Vorhaben „Fremdes Vorhaben“ (#1 Fremde eins, #2 Fremde zwei)",
+  "ids": {
+   "A": "3b4bfb7b-4c19-4f0a-b243-6973dabfc971",
+   "A1": "d7959d49-199b-4ec3-ad62-bfd77e17aeb6",
+   "A2": "253ed011-b58d-4187-be02-d7c349ddd5ef",
+   "A3": "15853901-3694-48fe-8633-ce01132f3f29",
+   "B": "9a1836af-150c-4d2f-b301-42d2b790d31c",
+   "B1": "f9d35cef-580e-4c22-9a63-9ff0c0e682b9",
+   "B2": "d2efed3c-72f1-45d5-81c4-83721b1eaacf",
+   "unknown": "52f573f6-3785-45ce-87ca-a31a819e7567"
+  }
+ },
+ "angezeigt": "A1",
+ "klicks": [
+  {
+   "i": 0,
+   "text": "Session 2",
+   "title": "Session 2 „Ziel zwei“ öffnen",
+   "klick": [
+    396,
+    291
+   ],
+   "aktiv": "A2",
+   "view": "chat"
+  },
+  {
+   "i": 1,
+   "text": "Session 3",
+   "title": "Session 3 „Ziel drei“ öffnen",
+   "klick": [
+    621,
+    291
+   ],
+   "aktiv": "A3",
+   "view": "chat"
+  },
+  {
+   "i": 2,
+   "text": "Session 2",
+   "title": "Session 2 „Ziel zwei“ öffnen",
+   "klick": [
+    423,
+    421
+   ],
+   "aktiv": "A2",
+   "view": "chat"
+  },
+  {
+   "i": 3,
+   "text": "15853901-3694-48fe-8633-ce01132f3f29",
+   "title": "Session 3 „Ziel drei“ öffnen",
+   "klick": [
+    488,
+    445
+   ],
+   "aktiv": "A3",
+   "view": "chat"
+  },
+  {
+   "i": 3,
+   "text": "15853901-3694-48fe-8633-ce01132f3f29",
+   "title": "Session 3 „Ziel drei“ öffnen",
+   "klick": [
+    634,
+    445
+   ],
+   "aktiv": "A3",
+   "view": "chat"
+  },
+  {
+   "i": 4,
+   "text": "d2efed3c-72f1-45d5-81c4-83721b1eaacf",
+   "title": "Session 2 „Fremde zwei“ im Vorhaben „Fremdes Vorhaben“ öffnen",
+   "klick": [
+    512,
+    469
+   ],
+   "aktiv": "B2",
+   "view": "chat"
+  },
+  {
+   "i": 4,
+   "text": "d2efed3c-72f1-45d5-81c4-83721b1eaacf",
+   "title": "Session 2 „Fremde zwei“ im Vorhaben „Fremdes Vorhaben“ öffnen",
+   "klick": [
+    658,
+    469
+   ],
+   "aktiv": "B2",
+   "view": "chat"
+  },
+  {
+   "i": 5,
+   "text": "15853901-3694-48fe-8633-ce01132f3f29",
+   "title": "Session 3 „Ziel drei“ öffnen",
+   "klick": [
+    406,
+    542
+   ],
+   "aktiv": "A3",
+   "view": "chat"
+  },
+  {
+   "i": 5,
+   "text": "15853901-3694-48fe-8633-ce01132f3f29",
+   "title": "Session 3 „Ziel drei“ öffnen",
+   "klick": [
+    552,
+    542
+   ],
+   "aktiv": "A3",
+   "view": "chat"
+  }
+ ],
+ "gegenprobe": [
+  {
+   "klick": [
+    485,
+    493
+   ],
+   "auf": "#2",
+   "aktiv": "A1"
+  },
+  {
+   "klick": [
+    420,
+    517
+   ],
+   "auf": "Session 9",
+   "aktiv": "A1"
+  },
+  {
+   "klick": [
+    340,
+    632
+   ],
+   "auf": "Session 2 im Codeblock",
+   "aktiv": "A1"
+  }
+ ]
+}

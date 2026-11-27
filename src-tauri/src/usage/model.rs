@@ -15,6 +15,8 @@ pub struct UsageLimit {
     pub resets_at: Option<String>,
     /// Dauer des Fensters in Minuten; nur Codex nennt sie (Claude benennt das Fenster über `kind`).
     pub window_minutes: Option<u32>,
+    /// Anzeigename des Modells bei `weekly_scoped` (`scope.model.display_name`); sonst `None`.
+    pub model: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]

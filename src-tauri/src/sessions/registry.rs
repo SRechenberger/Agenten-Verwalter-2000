@@ -141,10 +141,6 @@ const MAX_LOG_LINE_CHARS: usize = 500;
 const MAX_HISTORY_PAGE: u32 = 500;
 const RESUME_MESSAGE: &str = "Mach weiter.";
 
-/// Der Text des Fortsetzens, von Hand oder mit „Automatisch fortsetzen“.
-fn is_resume_text(text: &str) -> bool {
-    text == RESUME_MESSAGE || text == auto_resume::RESUME_TEXT
-}
 const EMPTY_MESSAGE: &str = "Leere Nachricht: Text, Anhang oder Kommentar fehlt.";
 const PLAN_NEEDS_TASK: &str = "„Plane Vorhaben“ braucht einen Auftrag.";
 const PLAN_NEEDS_CLAUDE: &str = "„Plane Vorhaben“ gibt es nur in der Betriebsart „Claude“: Nur dort \
@@ -1492,6 +1488,7 @@ impl SessionRegistry {
             PlanTurn::No,
             None,
             None,
+            false,
         )
         .map(|_sent: SendOutcome| ())
     }
@@ -1522,6 +1519,7 @@ impl SessionRegistry {
             PlanTurn::No,
             None,
             Some(claimed),
+            false,
         );
         if claimed {
             self.release_session_slot(session_id);
@@ -1567,6 +1565,7 @@ impl SessionRegistry {
             PlanTurn::No,
             Some((subject, sender)),
             None,
+            false,
         )
         .map(|_sent: SendOutcome| ())
     }
@@ -1598,6 +1597,7 @@ impl SessionRegistry {
             PlanTurn::Start,
             None,
             None,
+            false,
         )
         .map(|_sent: SendOutcome| ())
     }
@@ -1714,6 +1714,7 @@ impl SessionRegistry {
         planning: PlanTurn,
         station_subject: Option<(&str, &SessionRef)>,
         claimed: Option<bool>,
+        resume: bool,
     ) -> Result<SendOutcome, CommandError> {
         let session = self.get(session_id)?;
         review::validate(comments)?;
@@ -1771,11 +1772,7 @@ impl SessionRegistry {
                 // Die übrigen Wege (Plan, Station, Erinnerung) gehen nie hinein; nur das Fortsetzen einer
                 // pausierten Session, mit dem sich der Compact fortsetzt (`send_resume`).
                 if route == InputRoute::Start
-                    && compact::refuses_start(
-                        state.compact_locked(),
-                        state.status,
-                        is_resume_text(text),
-                    )
+                    && compact::refuses_start(state.compact_locked(), state.status, resume)
                 {
                     return Err(CommandError::Implementation(
                         compact::COMPACT_LOCKED.to_owned(),
@@ -1909,7 +1906,22 @@ impl SessionRegistry {
             self.start_phase_turn(app, &session)
                 .map(|_started: bool| ())
         } else {
-            self.send(app, session_id, text, &[], &[], None)
+            refuse_empty_message(text, &[], &[])?;
+            // Das Kennzeichen „Fortsetzen“ geht an den Start; die Sperre im Compact erkennt es daran,
+            // nicht am Text (Taiga 253).
+            self.send_turn(
+                app,
+                session_id,
+                text,
+                &[],
+                &[],
+                None,
+                PlanTurn::No,
+                None,
+                None,
+                true,
+            )
+            .map(|_sent: SendOutcome| ())
         }
     }
 
@@ -9672,9 +9684,22 @@ mod tests {
             !refuses_start(false, SessionStatus::Completed, false),
             "ohne Compact: frei"
         );
-        assert!(is_resume_text(RESUME_MESSAGE));
-        assert!(is_resume_text(auto_resume::RESUME_TEXT));
-        assert!(!is_resume_text("Mach etwas anderes."));
+    }
+
+    #[test]
+    fn a_turn_with_the_resume_text_is_locked_during_compact() {
+        use compact::refuses_start;
+        // Das Fortsetzen erkennt die Sperre am Weg (`send_resume` setzt das Kennzeichen), nicht am Text:
+        // Ein Zug mit „Mach weiter.“ oder dem Text des Zeitgebers über `send` oder `plan_vorhaben` trägt
+        // das Kennzeichen nicht und bleibt draußen, auch bei einer pausierten Session.
+        for text in [RESUME_MESSAGE, auto_resume::RESUME_TEXT] {
+            assert!(!text.is_empty());
+            assert!(
+                refuses_start(true, SessionStatus::Paused, false),
+                "{text}: ohne Kennzeichen gesperrt"
+            );
+        }
+        assert!(!refuses_start(true, SessionStatus::Paused, true));
     }
 
     #[test]

@@ -4,7 +4,10 @@ import {
   canCompactAbort,
   canCompactNow,
   compactBarText,
+  compactLimitText,
   compactPhaseLabel,
+  masterCompactLimit,
+  waitingCountText,
   COMPACT_WAIT_MARK,
 } from './compactTexts.ts';
 
@@ -71,6 +74,21 @@ const cases: Case[] = [
       canCompactAbort('compacting', true),
     ],
     expected: [true, true, false, false, true],
+  },
+  {
+    name: 'the_limit_shows_only_for_a_master_in_claude_mode_with_a_limit_set',
+    actual: () => [
+      masterCompactLimit(true, 'claude', 50000),
+      masterCompactLimit(false, 'claude', 50000),
+      masterCompactLimit(true, 'standalone', 50000),
+      masterCompactLimit(true, 'claude', null),
+    ],
+    expected: [50000, null, null, null],
+  },
+  {
+    name: 'the_limit_text_names_the_setting_and_the_count_shows_the_waiting_messages',
+    actual: () => [compactLimitText('50.000'), waitingCountText(3)],
+    expected: ['Grenze „Master zusammenfassen ab“ 50.000 Tokens', '✉ 3'],
   },
 ];
 

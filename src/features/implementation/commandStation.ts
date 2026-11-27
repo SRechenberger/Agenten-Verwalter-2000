@@ -11,17 +11,43 @@ export function isCommandStation(station: Pick<StationView, 'kind'>): boolean {
   return station.kind === 'command';
 }
 
-/** `startError` heißt „startet nicht“, außer bei einer Befehls-Station im Fehler: Dort trägt es den Grund des
- *  Laufs („Schritt 2: Exit 1“), nicht den eines Starts ohne Session. */
+/** Eine Station „Nachricht“ (Taiga 133): Der Verwalter stellt eine Vorlage zu, ohne Agent. */
+export function isMessageStation(station: Pick<StationView, 'kind'>): boolean {
+  return station.kind === 'message';
+}
+
+/** `startError` heißt „startet nicht“, außer bei einer Befehls-Station oder Station „Nachricht“ im Fehler:
+ *  Dort trägt es den Grund des Laufs („Schritt 2: Exit 1“, „Die Station … hat keine Session.“), nicht den
+ *  eines Starts ohne Session. */
 export function isStartFailure(
   station: Pick<StationView, 'kind' | 'state' | 'startError'>,
 ): boolean {
-  return station.startError !== null && !(isCommandStation(station) && station.state === 'error');
+  const isRun: boolean = isCommandStation(station) || isMessageStation(station);
+  return station.startError !== null && !(isRun && station.state === 'error');
 }
 
-/** „Merge · Befehl“ bei einer Befehls-Station, sonst die Stufe. */
+/** „Merge · Befehl“ bei einer Befehls-Station, „Info · Nachricht“ bei einer Station „Nachricht“, sonst die
+ *  Stufe. */
 export function stageText(station: Pick<StationView, 'kind' | 'stage'>): string {
-  return isCommandStation(station) ? `${station.stage} · Befehl` : station.stage;
+  if (isCommandStation(station)) {
+    return `${station.stage} · Befehl`;
+  }
+  return isMessageStation(station) ? `${station.stage} · Nachricht` : station.stage;
+}
+
+/** Wer die Nachricht bekommt: „Master“ oder die Station mit dieser Kennung, wie sie überall heißt
+ *  (`stationDisplay`); eine Kennung, die es nicht gibt, steht, wie sie ist. */
+export function recipientText(
+  to: string,
+  stations: readonly Pick<StationView, 'kind' | 'planId' | 'stage'>[],
+): string {
+  if (to === 'master') {
+    return 'Master';
+  }
+  const found: Pick<StationView, 'kind' | 'planId' | 'stage'> | undefined = stations.find(
+    (station) => station.planId === to,
+  );
+  return found === undefined ? to : stationDisplay(found);
 }
 
 /** Wie eine Station überall heißt (ADR 061, Nachtrag 2026-11-22), wie `station_label` im Core: „C-5 · Review“,

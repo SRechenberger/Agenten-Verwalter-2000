@@ -1,0 +1,9 @@
+Breite der Leiste 200 px, Kontingent der echten Antwort (nur weekly_all, 4 %); Maße aus getBoundingClientRect, sw = scrollWidth.
+Erstes svg: Tacho-Symbol (14 px bei 256 px), zweites svg: SeverityIcon.
+usage-button__trigger severity severity- KontingentWo4 %      x 10 w 179 sw 179 cw 179
+[object SVGAnimatedString]                                    x 18 w 5 sw 5 cw 5
+usage-button__name                       Kontingent           x 31 w 23 sw 66 cw 23
+[object SVGAnimatedString]                                    x 62 w 12 sw 12 cw 12
+usage-button__bars                                            x 82 w 32 sw 32 cw 32
+usage-button__window                     Wo                   x 122 w 17 sw 17 cw 17
+usage-button__label                      4 %                  x 147 w 34 sw 34 cw 34

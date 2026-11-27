@@ -5,7 +5,8 @@ import { useHostProfileOf } from '@/features/remote/useOperatingMode';
 import { UsagePopover } from '@/features/usage/UsagePopover';
 import { useUsage } from '@/features/usage/useUsage';
 import { formatResetAt } from '@/features/usage/usageTexts';
-import type { UsageLimit } from '@/lib/bindings/UsageLimit';
+import { highestWindow, shownWindows, windowTitleLine } from '@/features/usage/usageWindows';
+import type { ShownWindow } from '@/features/usage/usageWindows';
 import type { UsageStatus } from '@/lib/bindings/UsageStatus';
 import { severityOf } from '@/lib/severity';
 import type { Severity } from '@/lib/severity';
@@ -14,9 +15,8 @@ import type { UsageSource } from '@/lib/usage';
 import { useSettingsStore } from '@/stores/settings';
 import './UsageButton.css';
 
-const SESSION_LIMIT_KIND = 'session';
 const FULL_PERCENT = 100;
-const BUTTON_TITLE = 'Kontingent deines Abos (5-Stunden-Fenster) — Klick für Details';
+const BUTTON_TITLE = 'Kontingent deines Abos — Klick für Details';
 const OFFLINE_TEXT = 'nicht erreichbar';
 
 /** Ein Host, dessen Kontingent eine Zeile zeigt. */
@@ -57,23 +57,28 @@ export function UsageButton({
   const isCodex: boolean = host === undefined ? ownIsCodex : hostProfile?.operatingMode === 'codex';
   // Beim Einhängen festgehalten; der Reset-Zeitpunkt im Tooltip braucht keine Sekundengenauigkeit.
   const [now] = useState<number>(() => Date.now());
-  const sessionLimit: UsageLimit | undefined = status?.snapshot?.limits.find(
-    (limit: UsageLimit) => limit.kind === SESSION_LIMIT_KIND,
-  );
-  const severity: Severity = severityOf(sessionLimit?.percent ?? 0);
-  const resetAt: string | null =
-    sessionLimit?.resetsAt == null ? null : formatResetAt(sessionLimit.resetsAt, now);
+  const windows: ShownWindow[] = shownWindows(status?.snapshot?.limits ?? []);
+  const highest: ShownWindow | undefined = highestWindow(windows);
+  const severity: Severity = severityOf(highest?.percent ?? 0);
   const baseTitle: string =
     host === undefined
       ? BUTTON_TITLE
       : `Kontingent des Abos von ${host.hostName} — Klick für Details`;
-  const title: string = resetAt === null ? baseTitle : `${baseTitle}\nZurückgesetzt ${resetAt}`;
+  const title: string = [
+    baseTitle,
+    ...windows.map((window: ShownWindow) =>
+      windowTitleLine(
+        window,
+        window.resetsAt === null ? null : formatResetAt(window.resetsAt, now),
+      ),
+    ),
+  ].join('\n');
 
   return (
     <div className="usage-button">
       <button
         type="button"
-        className={`usage-button__trigger${isSub ? ' usage-button__trigger--sub' : ''} severity severity--${sessionLimit === undefined ? 'none' : severity}`}
+        className={`usage-button__trigger${isSub ? ' usage-button__trigger--sub' : ''} severity severity--${highest === undefined ? 'none' : severity}`}
         aria-expanded={isOpen}
         title={isReachable ? title : `${host?.hostName ?? ''} ist nicht erreichbar`}
         disabled={!isReachable}
@@ -84,16 +89,21 @@ export function UsageButton({
         {!isSub && <GaugeIcon />}
         <span className="usage-button__name">{label}</span>
         {!isReachable && <span className="usage-button__offline">{OFFLINE_TEXT}</span>}
-        {isReachable && sessionLimit !== undefined && (
+        {isReachable && highest !== undefined && (
           <>
             <SeverityIcon severity={severity} />
-            <span className="usage-button__bar">
-              <span
-                className="usage-button__fill"
-                style={{ width: `${String(Math.min(sessionLimit.percent, FULL_PERCENT))}%` }}
-              />
+            <span className="usage-button__bars">
+              {windows.map((window: ShownWindow) => (
+                <span key={window.short} className="usage-button__bar">
+                  <span
+                    className="usage-button__fill"
+                    style={{ width: `${String(Math.min(window.percent, FULL_PERCENT))}%` }}
+                  />
+                </span>
+              ))}
             </span>
-            <span className="usage-button__label">{`${String(sessionLimit.percent)} %`}</span>
+            <span className="usage-button__window">{highest.short}</span>
+            <span className="usage-button__label">{`${String(highest.percent)} %`}</span>
           </>
         )}
       </button>
@@ -116,6 +126,7 @@ export function UsageButton({
 export function GaugeIcon(): ReactElement {
   return (
     <svg
+      className="usage-gauge"
       width="14"
       height="14"
       viewBox="0 0 14 14"

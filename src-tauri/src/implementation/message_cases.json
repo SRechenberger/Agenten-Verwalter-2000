@@ -1,0 +1,221 @@
+[
+  {
+    "rule": "plain text without tags stays as it is",
+    "template": "Nur Text.",
+    "values": {},
+    "expected": "Nur Text."
+  },
+  {
+    "rule": "a variable is replaced by its text",
+    "template": "Station {{station}} fertig.",
+    "values": {
+      "station": "C-1 · Umsetzung"
+    },
+    "expected": "Station C-1 · Umsetzung fertig."
+  },
+  {
+    "rule": "triple braces are a variable like double braces",
+    "template": "{{{a}}} und {{a}}",
+    "values": {
+      "a": "x"
+    },
+    "expected": "x und x"
+  },
+  {
+    "rule": "whitespace around a name is trimmed",
+    "template": "{{ a }}",
+    "values": {
+      "a": "x"
+    },
+    "expected": "x"
+  },
+  {
+    "rule": "an empty text stays as its tag",
+    "template": "[{{a}}]",
+    "values": {
+      "a": ""
+    },
+    "expected": "[{{a}}]"
+  },
+  {
+    "rule": "a missing value stays as its tag",
+    "template": "[{{a}}]",
+    "values": {},
+    "expected": "[{{a}}]"
+  },
+  {
+    "rule": "a flag value in a variable tag stays as its tag",
+    "template": "[{{a}}]",
+    "values": {
+      "a": true
+    },
+    "expected": "[{{a}}]"
+  },
+  {
+    "rule": "a section shows its content only with a true flag",
+    "template": "{{#a}}ja{{/a}}",
+    "values": {
+      "a": true
+    },
+    "expected": "ja"
+  },
+  {
+    "rule": "a section is hidden with a false flag",
+    "template": "x{{#a}}ja{{/a}}y",
+    "values": {
+      "a": false
+    },
+    "expected": "xy"
+  },
+  {
+    "rule": "a section is hidden without a value",
+    "template": "x{{#a}}ja{{/a}}y",
+    "values": {},
+    "expected": "xy"
+  },
+  {
+    "rule": "a text value does not open a section",
+    "template": "x{{#a}}ja{{/a}}y",
+    "values": {
+      "a": "text"
+    },
+    "expected": "xy"
+  },
+  {
+    "rule": "an inverted section shows its content only without the flag",
+    "template": "{{^a}}nein{{/a}}",
+    "values": {
+      "a": false
+    },
+    "expected": "nein"
+  },
+  {
+    "rule": "an inverted section is hidden with a true flag",
+    "template": "x{{^a}}nein{{/a}}y",
+    "values": {
+      "a": true
+    },
+    "expected": "xy"
+  },
+  {
+    "rule": "a comment is dropped",
+    "template": "a{{! Hinweis }}b",
+    "values": {},
+    "expected": "ab"
+  },
+  {
+    "rule": "a variable inside a hidden section is not filled",
+    "template": "{{#a}}{{b}}{{/a}}!",
+    "values": {
+      "a": false,
+      "b": "x"
+    },
+    "expected": "!"
+  },
+  {
+    "rule": "sections nest",
+    "template": "{{#a}}1{{#b}}2{{/b}}3{{/a}}",
+    "values": {
+      "a": true,
+      "b": false
+    },
+    "expected": "13"
+  },
+  {
+    "rule": "a section tag alone on its line takes the whole line",
+    "template": "vor\n{{#a}}\nmitten\n{{/a}}\nnach\n",
+    "values": {
+      "a": true
+    },
+    "expected": "vor\nmitten\nnach\n"
+  },
+  {
+    "rule": "a hidden section alone on its lines takes them with it",
+    "template": "vor\n{{#a}}\nmitten\n{{/a}}\nnach\n",
+    "values": {
+      "a": false
+    },
+    "expected": "vor\nnach\n"
+  },
+  {
+    "rule": "a comment alone on its line takes the whole line",
+    "template": "a\n  {{! Hinweis }}  \nb",
+    "values": {},
+    "expected": "a\nb"
+  },
+  {
+    "rule": "a section tag after text keeps the line break",
+    "template": "x {{#a}}y{{/a}}\nz",
+    "values": {
+      "a": true
+    },
+    "expected": "x y\nz"
+  },
+  {
+    "rule": "a tag alone on a line with carriage return takes the line",
+    "template": "a\r\n{{#a}}\r\nb\r\n{{/a}}\r\nc",
+    "values": {
+      "a": true
+    },
+    "expected": "a\r\nb\r\nc"
+  },
+  {
+    "rule": "a variable alone on its line keeps the line",
+    "template": "a\n{{b}}\nc",
+    "values": {
+      "b": "x"
+    },
+    "expected": "a\nx\nc"
+  },
+  {
+    "rule": "text with a syntax error comes back unchanged",
+    "template": "{{#a}}offen {{b}}",
+    "values": {
+      "a": true,
+      "b": "x"
+    },
+    "expected": "{{#a}}offen {{b}}"
+  },
+  {
+    "rule": "an unsupported tag makes the text come back unchanged",
+    "template": "{{> teil}} {{b}}",
+    "values": {
+      "b": "x"
+    },
+    "expected": "{{> teil}} {{b}}"
+  },
+  {
+    "rule": "the value is inserted without escaping",
+    "template": "{{a}}",
+    "values": {
+      "a": "<b>&\"</b>"
+    },
+    "expected": "<b>&\"</b>"
+  },
+  {
+    "rule": "a value with a tag inside is not filled again",
+    "template": "{{a}}",
+    "values": {
+      "a": "{{b}}",
+      "b": "x"
+    },
+    "expected": "{{b}}"
+  },
+  {
+    "rule": "a value with line breaks keeps them",
+    "template": "A:\n{{a}}\nZ",
+    "values": {
+      "a": "1\n2"
+    },
+    "expected": "A:\n1\n2\nZ"
+  },
+  {
+    "rule": "non-ASCII text and names work",
+    "template": "{{#Mit Test}}Prüfen: {{Größe}}{{/Mit Test}}",
+    "values": {
+      "Mit Test": true,
+      "Größe": "äöü"
+    },
+    "expected": "Prüfen: äöü"
+  }
+]

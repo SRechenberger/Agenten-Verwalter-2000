@@ -1,0 +1,107 @@
+# Weg: MCP-Zugang der Master-Session (mcp-probe mit dem Schlüssel ihrer Attrappe), tools/call implementation_create
+# Eingabe:
+{
+ "name": "Probe Nachricht",
+ "source": "Probelauf nachricht-3",
+ "phases": [
+  {
+   "key": "n",
+   "title": "Nachricht",
+   "stations": [
+    {
+     "id": "A",
+     "stage": "Umsetzung",
+     "brief": "Attrappe A"
+    },
+    {
+     "id": "B",
+     "stage": "An Master",
+     "by": "message",
+     "to": "master",
+     "after": [
+      "A"
+     ],
+     "text": "B meldet: Station {{station}} nach {{vorgaenger}}. Ergebnis: {{ergebnis}}{{#notiz}} | Notiz: {{notiz}}{{/notiz}}{{^notiz}} | ohne Notiz{{/notiz}}"
+    },
+    {
+     "id": "C",
+     "stage": "An A",
+     "by": "message",
+     "to": "A",
+     "after": [
+      "A"
+     ],
+     "text": "C an A: {{station}} in {{umsetzung}}, Master {{master}}, nach {{vorgaenger}}{{#notiz}}, Notiz: {{notiz}}{{/notiz}}"
+    },
+    {
+     "id": "Q",
+     "stage": "Umsetzung",
+     "brief": "Attrappe Q",
+     "after": [
+      "B",
+      "C"
+     ]
+    },
+    {
+     "id": "R",
+     "stage": "Umsetzung",
+     "brief": "Attrappe R",
+     "after": [
+      "B",
+      "C"
+     ]
+    },
+    {
+     "id": "U",
+     "stage": "Freigabe",
+     "by": "you",
+     "brief": "Von Hand erledigen",
+     "after": [
+      "B",
+      "C"
+     ]
+    },
+    {
+     "id": "B2",
+     "stage": "An Master 2",
+     "by": "message",
+     "to": "master",
+     "after": [
+      "U"
+     ],
+     "text": "B2 meldet: {{station}} nach {{vorgaenger}}. Ergebnis: {{ergebnis}}{{#notiz}} | Notiz: {{notiz}}{{/notiz}}{{^notiz}} | ohne Notiz{{/notiz}}"
+    },
+    {
+     "id": "F",
+     "stage": "An U",
+     "by": "message",
+     "to": "U",
+     "after": [
+      "U"
+     ],
+     "text": "F an {{vorgaenger}}"
+    }
+   ]
+  }
+ ]
+}
+
+# Antwort (Text):
+Kennungen: A → n-1 · Umsetzung, B → n-2 · An Master, C → n-3 · An A, Q → n-4 · Umsetzung, R → n-5 · Umsetzung, U → n-6 · Freigabe, B2 → n-7 · An Master 2, F → n-8 · An U.
+Lage: Umsetzung Probe Nachricht — Stand 22:37
+Quelle: Probelauf nachricht-3
+Stand: Lane 1 von 1 · 0 von 8 Sessions fertig
+Startstationen: n-1
+Jetzt: nichts läuft; die Stationen startet der Verwalter, sobald der Benutzer die Umsetzung gestartet hat (mit „Umsetzung starten“ oder ▶ an einer Station)
+Fertig: noch nichts
+Offen: n
+Plan-Änderungen: keine
+Stationen:
+  n-1 · Umsetzung — Lane n · Stufe 1 · bereit · wartet auf: – · danach: n-2, n-3
+  n-2 · An Master — Lane n · Stufe 2 · wartet · wartet auf: n-1 · danach: n-4, n-5, n-6
+  n-3 · An A — Lane n · Stufe 2 · wartet · wartet auf: n-1 · danach: n-4, n-5, n-6
+  n-4 · Umsetzung — Lane n · Stufe 3 · wartet · wartet auf: n-2, n-3 · danach: –
+  n-5 · Umsetzung — Lane n · Stufe 3 · wartet · wartet auf: n-2, n-3 · danach: –
+  n-6 · Freigabe — Lane n · Stufe 3 · wartet · wartet auf: n-2, n-3 · danach: n-7, n-8
+  n-7 · An Master 2 — Lane n · Stufe 4 · wartet · wartet auf: n-6 · danach: –
+  n-8 · An U — Lane n · Stufe 4 · wartet · wartet auf: n-6 · danach: –
