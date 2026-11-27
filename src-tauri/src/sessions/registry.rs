@@ -5526,6 +5526,10 @@ fn start_process(
             local: backend.cloned(),
             scratchpad: scratchpad_dir,
             artifacts: artifacts_dir,
+            artifact_folders: app
+                .try_state::<SessionRegistry>()
+                .map(|registry| registry.artifact_folders())
+                .unwrap_or_default(),
             chrome: state.chrome,
             codex_exe,
             verwalter_mcp,

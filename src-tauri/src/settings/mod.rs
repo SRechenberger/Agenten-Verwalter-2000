@@ -39,6 +39,8 @@ const KEY_QUOTA_HOLD_PERCENT: &str = "quota_hold_percent";
 const KEY_MASTER_COMPACT_TOKENS: &str = "master_compact_tokens";
 /// JSON-Liste; fehlt der Schlüssel, gilt `DEFAULT_COMMAND_PROGRAMS` (ADR 073).
 const KEY_COMMAND_PROGRAMS: &str = "command_programs";
+/// JSON-Liste absoluter Ordner (ADR 026, Taiga 139).
+const KEY_ARTIFACT_FOLDERS: &str = "artifact_folders";
 const KEY_TERMINAL_PLACEMENT: &str = "terminal_placement";
 const KEY_DASHBOARD_READER_PLACEMENT: &str = "dashboard_reader_placement";
 const KEY_TERMINAL_HEIGHT: &str = "terminal_height";
@@ -126,6 +128,7 @@ pub const DEFAULT_SETTINGS: Settings = Settings {
     master_compact_tokens: Some(150_000),
     // ponytail: eine `const` hält keine Zeichenketten; `load` setzt `DEFAULT_COMMAND_PROGRAMS` ein.
     command_programs: Vec::new(),
+    artifact_folders: Vec::new(),
     terminal_placement: TerminalPlacement::Bottom,
     terminal_height: 260,
     terminal_width: 460,
@@ -199,6 +202,10 @@ pub fn load(database: &Database) -> Result<Settings, CommandError> {
             .get(KEY_COMMAND_PROGRAMS)
             .and_then(|text: &String| serde_json::from_str::<Vec<String>>(text).ok())
             .unwrap_or_else(default_command_programs),
+        artifact_folders: stored
+            .get(KEY_ARTIFACT_FOLDERS)
+            .and_then(|text: &String| serde_json::from_str::<Vec<String>>(text).ok())
+            .unwrap_or_default(),
         terminal_placement: stored_or(
             &stored,
             KEY_TERMINAL_PLACEMENT,
@@ -353,6 +360,12 @@ pub fn update(database: &Database, change: SettingsChange) -> Result<Settings, C
                     .map_err(|error| CommandError::Internal(error.to_string()))?;
                 setting_rows::write(&transaction, KEY_COMMAND_PROGRAMS, &text)?;
             }
+            SettingsChange::ArtifactFolders { value } => {
+                let folders = checked_folders(&value)?;
+                let text = serde_json::to_string(&folders)
+                    .map_err(|error| CommandError::Internal(error.to_string()))?;
+                setting_rows::write(&transaction, KEY_ARTIFACT_FOLDERS, &text)?;
+            }
             SettingsChange::DefaultAutoResume { value } => {
                 setting_rows::write(&transaction, KEY_DEFAULT_AUTO_RESUME, &value.to_string())?;
             }
@@ -487,6 +500,29 @@ fn checked_programs(value: &[String]) -> Result<Vec<String>, CommandError> {
         }
     }
     Ok(programs)
+}
+
+/// Jeder Eintrag ein absoluter, vorhandener Ordner; gespeichert wird der kanonische Pfad, ohne Doppel.
+fn checked_folders(value: &[String]) -> Result<Vec<String>, CommandError> {
+    let mut folders: Vec<String> = Vec::new();
+    for text in value.iter().map(|text: &String| text.trim()) {
+        let path = std::path::Path::new(text);
+        let canonical = path
+            .is_absolute()
+            .then(|| std::fs::canonicalize(path).ok())
+            .flatten()
+            .filter(|canonical: &std::path::PathBuf| canonical.is_dir())
+            .ok_or_else(|| {
+                CommandError::Internal(format!(
+                    "„{text}“ ist kein vorhandener Ordner mit absolutem Pfad."
+                ))
+            })?;
+        let canonical = canonical.to_string_lossy().into_owned();
+        if !folders.contains(&canonical) {
+            folders.push(canonical);
+        }
+    }
+    Ok(folders)
 }
 
 /// Gespeicherter Wert von „Gleichzeitige Agenten max.“: leer = unbegrenzt, ein unlesbarer Wert oder 0
@@ -697,5 +733,29 @@ mod tests {
             kept.get("dashboard").map(String::as_str),
             Some(r#"{"byGroup": true}"#)
         );
+    }
+
+    #[test]
+    fn the_artifact_folders_take_only_absolute_existing_folders_in_canonical_form() {
+        let database = Database::open(Path::new(":memory:")).expect("Datenbank im Speicher");
+        let folder = std::env::temp_dir().join(format!("verwalter-folders-{}", std::process::id()));
+        std::fs::create_dir_all(&folder).expect("Ordner");
+        let set = |value: Vec<String>| update(&database, SettingsChange::ArtifactFolders { value });
+        let text = folder.to_string_lossy().into_owned();
+        let canonical = std::fs::canonicalize(&folder)
+            .expect("kanonisch")
+            .to_string_lossy()
+            .into_owned();
+        set(vec![format!("{text}/."), text.clone()]).expect("speichern");
+        assert_eq!(
+            load(&database).expect("laden").artifact_folders,
+            [canonical]
+        );
+        assert!(set(vec!["relativ/ordner".to_owned()]).is_err());
+        assert!(set(vec![format!("{text}/fehlt")]).is_err());
+        let file = folder.join("datei.txt");
+        std::fs::write(&file, "x").expect("Datei");
+        assert!(set(vec![file.to_string_lossy().into_owned()]).is_err());
+        let _ = std::fs::remove_dir_all(&folder);
     }
 }

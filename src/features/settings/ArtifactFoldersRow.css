@@ -1,0 +1,80 @@
+.artifact-folders-row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+
+  &__list {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  &__item {
+    display: flex;
+    gap: var(--space-md);
+    align-items: center;
+    justify-content: space-between;
+    padding: var(--space-xs) 0;
+    border-bottom: 1px solid var(--color-border);
+  }
+
+  &__path {
+    min-width: 0;
+    overflow: hidden;
+    color: var(--color-fg-secondary);
+    font-family: var(--font-mono);
+    font-size: var(--font-size-xs);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  &__add {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-md);
+    align-items: center;
+  }
+
+  &__input {
+    box-sizing: border-box;
+    flex: 1 1 240px;
+    height: 28px;
+    padding: 0 var(--space-md);
+    border: 1px solid var(--color-border);
+    border-radius: 0;
+    background: var(--color-bg-surface);
+    color: var(--color-fg-primary);
+    font: inherit;
+
+    &:focus-visible {
+      outline: 2px solid var(--color-accent);
+      outline-offset: 1px;
+    }
+  }
+
+  &__button,
+  &__remove {
+    height: 28px;
+    padding: 0 var(--space-md);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-flat);
+    background: none;
+    color: var(--color-fg-secondary);
+    font: inherit;
+    cursor: pointer;
+
+    &:hover:not(:disabled) {
+      color: var(--color-fg-primary);
+    }
+
+    &:disabled {
+      opacity: 0.5;
+      cursor: default;
+    }
+
+    &:focus-visible {
+      outline: 2px solid var(--color-accent);
+      outline-offset: 1px;
+    }
+  }
+}

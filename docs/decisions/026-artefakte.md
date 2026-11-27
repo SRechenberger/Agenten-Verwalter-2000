@@ -31,3 +31,17 @@ Berichte, Präsentationen, Diagramme und Design-Entwürfe sind als HTML-Seite am
 - Jede HTML-Antwort trägt das Brücken-Skript für Kommentare (ADR 035).
 - Nachtrag: Jede HTML-Antwort trägt am Anfang von `<head>` auch das Skript mit dem gespeicherten Zustand der Seite; die Sandbox bleibt unverändert ([ADR 081](081-zustand-von-artefakten.md)).
 - Die Abschottung belegt die Sicherheitsprobe im Plan (`artifacts/sicherheitsprobe.html`), kein automatisierter Test.
+
+## Nachtrag: Eingetragene Ordner außerhalb des Vorhabens (Taiga 139)
+
+Ein Agent zeigt mit `artifact_show` auch eine Datei außerhalb von `.artefakte`, etwa im Vault. Die Sicherheitsgrenze bleibt eng: Nichts kommt über einen rohen Pfad aus einer Adresse oder einer Seite.
+
+- **X1 Einstellung:** Die app-weite Liste „Ordner für Artefakte“ (`Settings.artifact_folders`, Vorbild `commandPrograms`) nimmt nur absolute, vorhandene Ordner und speichert den kanonischen Pfad. Eintragen kann nur der Host; ein Gast trägt keine Ordner ein.
+- **X2 Zeigen:** `artifact_show` nimmt zusätzlich einen absoluten Pfad oder `~/…`. Der Kern löst ihn kanonisch auf, mit Symlinks, und nimmt ihn nur, wenn das Ziel eine Datei in einem eingetragenen Ordner ist. `..` und ein Symlink nach draußen scheitern daran. Sonst lehnt er ab, mit Text und der Liste der Ordner. Eine Nebenfrage darf weiter nur auflisten.
+- **X3 Liste:** Gezeigte Pfade stehen in der versteckten Datei `.artefakte/.extern.json` (ADR 047, ohne Migration): Schlüssel, Pfad, Session, Zeitpunkt, höchstens 200. Die Liste zeigt sie in der Gruppe „Extern“ unter dem Dateinamen, mit dem Ordner im Tooltip (`Artifact.externalDir`, `file` = `.extern/<schlüssel>/<name>`). Liegt ein Pfad nicht mehr in einem eingetragenen Ordner, fehlt er in der Liste und wird nicht ausgeliefert.
+- **X4 Ausliefern:** Der Server bekommt nie einen Pfad. Er löst `.extern/<schlüssel>/…` nur über den Schlüssel aus `.extern.json` auf (der Name dahinter zählt nicht) und prüft X2 bei jeder Anfrage neu. Es gibt nur GET und dieselbe CSP; Dateien neben der gezeigten Datei liefert er nicht. Markdown geht über den Betrachter, HTML bekommt die Brücke für Kommentare, aber keinen dauerhaften Zustand: `localStorage` lebt nur im Speicher der Seite (Zustandsskript mit leerem Stand; die Oberfläche speichert für diese Dateien nichts, [ADR 081](081-zustand-von-artefakten.md)).
+- **X5 Rechte:** Ansehen und Kommentieren (ADR 035), nicht ändern; ein Kommentar geht wie bei anderen Artefakten an die Session. „Mit Standardprogramm öffnen“ und „Im Explorer zeigen“ gibt es für diese Dateien nicht.
+- **X6 Gast:** Ein Gast hat dieselben Rechte wie der Host (Nutzer, 2026-11-26): Er sieht die Gruppe „Extern“ in der `artifacts_list` des Hosts und holt die Datei über `remote_artifact` (`content::artifact_in`), das X2 und X4 am Host mit den Ordnern des Hosts prüft. Es gibt keinen neuen Befehl und damit keine neue Klasse in `remote/access.rs`.
+- **X7 Anweisung:** Sind Ordner eingetragen, nennt die Anweisung sie in einem Satz (`extern_folders_prompt`): Dateien daraus zeigst du mit `artifact_show` und dem absoluten Pfad.
+
+Grenzen: Eine HTML-Datei aus einem Ordner lädt relativ eingebundene Nachbardateien nicht. Eine Datei, die ein Agent mit Schreibrechten außerhalb ändert, lädt der Reiter wie jede andere beim Abfragen neu.

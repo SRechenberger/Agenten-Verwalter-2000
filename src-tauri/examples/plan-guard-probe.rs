@@ -264,6 +264,7 @@ fn run_once(config: &Config, arm: Arm, number: u32) -> RunResult {
         local: None,
         scratchpad: scratchpad::prepare(&workspace, &session_id).ok(),
         artifacts: artifacts::prepare(&workspace).ok(),
+        artifact_folders: Vec::new(),
         chrome: false,
         codex_exe: None,
         verwalter_mcp: Some(VerwalterMcp {

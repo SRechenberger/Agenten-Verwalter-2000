@@ -86,6 +86,7 @@ fn main() -> Result<ExitCode, Box<dyn std::error::Error>> {
         local: None,
         scratchpad: scratchpad::prepare(&workspace, &row.id).ok(),
         artifacts: artifacts::prepare(&workspace).ok(),
+        artifact_folders: Vec::new(),
         chrome: row.chrome,
         codex_exe: None,
         // Ohne laufende App gibt es keinen MCP-Zugang; die Werkzeugliste weicht dann von der des

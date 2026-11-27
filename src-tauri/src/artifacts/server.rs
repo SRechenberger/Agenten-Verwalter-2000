@@ -24,6 +24,7 @@ use std::time::Duration;
 use serde_json::{Value, json};
 use tauri::{AppHandle, Manager};
 
+use super::extern_files;
 use super::folder::{list_folder, resolve_folder};
 use super::model::ArtifactKind;
 use super::{kind_of, resolve, state, viewers};
@@ -209,6 +210,12 @@ impl RemoteSource {
 /// Woher die Dateien einer Session kommen: aus ihrem Ordner `.artefakte` oder von einem Host.
 pub(crate) enum Source {
     Local(PathBuf),
+    /// Eine Datei aus einem eingetragenen Ordner (`.extern/<schlüssel>/<name>`, Taiga 139): `dir` ist
+    /// der Ordner `.artefakte` mit `.extern.json`, `folders` die jetzt eingetragenen Ordner.
+    Extern {
+        dir: PathBuf,
+        folders: Vec<String>,
+    },
     Remote(RemoteSource),
 }
 
@@ -218,6 +225,7 @@ impl Source {
     fn folder_name(&self, relative: &str) -> Result<String, Failure> {
         match self {
             Source::Local(dir) => Ok(name_of(&resolve_folder(dir, relative)?)),
+            Source::Extern { .. } => Err(Failure::NotFound),
             Source::Remote(_) => Ok(last_segment(relative)),
         }
     }
@@ -230,6 +238,7 @@ impl Source {
                 serde_json::to_vec(&list_folder(dir, &folder, relative))
                     .map_err(|_| Failure::NotFound)
             }
+            Source::Extern { .. } => Err(Failure::NotFound),
             Source::Remote(remote) => remote
                 .fetch("remote_artifact", &format!("{relative}/"))?
                 .bytes()
@@ -244,6 +253,9 @@ impl Source {
                 dir,
                 &native_path(relative).to_string_lossy(),
             )?)),
+            Source::Extern { dir, folders } => {
+                Ok(name_of(&extern_files::resolve(dir, relative, folders)?))
+            }
             Source::Remote(_) => Ok(last_segment(relative)),
         }
     }
@@ -256,6 +268,8 @@ impl Source {
     fn state_artifact(&self, relative: &str) -> Option<String> {
         match self {
             Source::Local(dir) => state::artifact_for(dir, relative),
+            // Kein dauerhafter Zustand (ADR 081): `localStorage` lebt nur im Speicher der Seite.
+            Source::Extern { .. } => Some(String::new()),
             Source::Remote(remote) => {
                 let pages = if relative.contains('/') {
                     remote.page_names()?
@@ -272,6 +286,7 @@ impl Source {
     fn state(&self, artifact: &str) -> String {
         match self {
             Source::Local(dir) => state::read(dir, artifact),
+            Source::Extern { .. } => "{}".to_owned(),
             Source::Remote(remote) => remote
                 .state_fetch
                 .as_ref()
@@ -295,6 +310,11 @@ impl Source {
         match self {
             Source::Local(dir) => {
                 let target = resolve(dir, &native_path(relative).to_string_lossy())?;
+                let body = fs::read(&target).map_err(|_| Failure::NotFound)?;
+                Ok((content_type(&target).to_owned(), body))
+            }
+            Source::Extern { dir, folders } => {
+                let target = extern_files::resolve(dir, relative, folders)?;
                 let body = fs::read(&target).map_err(|_| Failure::NotFound)?;
                 Ok((content_type(&target).to_owned(), body))
             }
@@ -379,7 +399,14 @@ impl Connection {
             let Ok(dir) = registry.artifacts_dir(&session_id) else {
                 return not_found();
             };
-            Source::Local(dir)
+            if extern_files::is_extern(&relative) {
+                Source::Extern {
+                    dir,
+                    folders: registry.artifact_folders(),
+                }
+            } else {
+                Source::Local(dir)
+            }
         };
         // Aus der geprüften Session-ID neu kodiert, nie aus dem Anfragetext: der landet sonst in der CSP.
         let scope = format!(
@@ -932,5 +959,148 @@ mod state_tests {
         let (page, asked) = guest_page("bericht/teil2.html", false);
         assert!(!page.contains("const initial"), "{page}");
         assert_eq!(asked, ["artifacts_list"]);
+    }
+}
+
+#[cfg(test)]
+mod extern_tests {
+    use super::*;
+    use crate::artifacts::extern_files;
+
+    struct Setup {
+        root: PathBuf,
+        dir: PathBuf,
+        folders: Vec<String>,
+        key_path: String,
+    }
+
+    impl Setup {
+        fn new(file: &str, text: &str) -> Setup {
+            let root = fs::canonicalize({
+                let root = std::env::temp_dir().join(format!(
+                    "verwalter-extern-server-{}-{}",
+                    std::process::id(),
+                    uuid::Uuid::new_v4().simple()
+                ));
+                fs::create_dir_all(root.join("vault")).expect("vault");
+                fs::create_dir_all(root.join(".artefakte")).expect("artefakte");
+                root
+            })
+            .expect("kanonisch");
+            fs::write(root.join("vault").join(file), text).expect("Datei");
+            fs::write(root.join("geheim.md"), "# Geheim").expect("Datei aussen");
+            let dir = root.join(".artefakte");
+            let folders = vec![root.join("vault").to_string_lossy().into_owned()];
+            let shown = extern_files::show(
+                &dir,
+                &root.join("vault").join(file).to_string_lossy(),
+                &folders,
+                "s1",
+                1.0,
+            )
+            .expect("gezeigt");
+            Setup {
+                root,
+                dir,
+                folders,
+                key_path: shown.file,
+            }
+        }
+
+        fn source(&self, folders: &[String]) -> Source {
+            Source::Extern {
+                dir: self.dir.clone(),
+                folders: folders.to_vec(),
+            }
+        }
+    }
+
+    impl Drop for Setup {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.root);
+        }
+    }
+
+    #[test]
+    fn a_markdown_file_from_a_registered_folder_comes_through_the_viewer() {
+        let setup = Setup::new("notiz.md", "# Notiz\n\nHallo");
+        let source = setup.source(&setup.folders);
+        let page = respond(&source, "scope", setup.key_path.clone(), false, true);
+        assert_eq!(page.status, 200);
+        assert_eq!(page.content_type, HTML);
+        assert!(String::from_utf8_lossy(&page.body).contains("notiz.md"));
+        let raw = respond(&source, "scope", setup.key_path.clone(), false, false);
+        assert_eq!(raw.status, 200);
+        assert_eq!(raw.body, b"# Notiz\n\nHallo");
+        assert!(raw.csp.is_some(), "dieselbe CSP wie andere Artefakte");
+    }
+
+    #[test]
+    fn a_html_file_from_a_registered_folder_gets_the_bridge_but_no_lasting_state() {
+        let setup = Setup::new("seite.html", "<html><head></head><body>x</body></html>");
+        let reply = respond(
+            &setup.source(&setup.folders),
+            "scope",
+            setup.key_path.clone(),
+            false,
+            false,
+        );
+        let page = String::from_utf8(reply.body).expect("utf-8");
+        assert!(
+            page.contains(r#"JSON.parse("{}")"#),
+            "Speicher nur im Arbeitsspeicher"
+        );
+        assert!(page.contains(BRIDGE_SCRIPT.lines().next().unwrap_or("bridge")));
+    }
+
+    #[test]
+    fn the_server_takes_no_path_from_the_url() {
+        let setup = Setup::new("notiz.md", "# Notiz");
+        let source = setup.source(&setup.folders);
+        let outside = setup.root.join("geheim.md");
+        for relative in [
+            format!("{}{}", extern_files::PREFIX, outside.display()),
+            format!("{}../geheim.md", extern_files::PREFIX),
+            format!("{}/etc/passwd", extern_files::PREFIX),
+        ] {
+            for wants_viewer in [false, true] {
+                let reply = respond(&source, "scope", relative.clone(), false, wants_viewer);
+                assert_ne!(reply.status, 200, "{relative}");
+            }
+        }
+    }
+
+    #[test]
+    fn a_file_is_not_delivered_after_its_folder_is_removed_and_a_folder_listing_is_refused() {
+        let setup = Setup::new("notiz.md", "# Notiz");
+        let url = setup.key_path.clone();
+        let before = respond(
+            &setup.source(&setup.folders),
+            "scope",
+            url.clone(),
+            false,
+            false,
+        );
+        assert_eq!(before.status, 200);
+        let after = respond(&setup.source(&[]), "scope", url.clone(), false, false);
+        assert_eq!(after.status, 403);
+        let listing = respond(&setup.source(&setup.folders), "scope", url, true, false);
+        assert_eq!(listing.status, 404);
+    }
+
+    #[test]
+    fn a_guest_gets_the_file_through_the_host_only_after_the_same_check() {
+        let setup = Setup::new("notiz.md", "# Notiz");
+        let delivered =
+            crate::remote::content::artifact_in(&setup.dir, &setup.key_path, &setup.folders)
+                .expect("Host liefert");
+        assert_eq!(delivered.bytes().expect("Bytes"), b"# Notiz");
+        assert!(crate::remote::content::artifact_in(&setup.dir, &setup.key_path, &[]).is_err());
+        let outside = format!(
+            "{}{}",
+            extern_files::PREFIX,
+            setup.root.join("geheim.md").display()
+        );
+        assert!(crate::remote::content::artifact_in(&setup.dir, &outside, &setup.folders).is_err());
     }
 }

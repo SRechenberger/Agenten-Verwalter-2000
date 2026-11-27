@@ -125,6 +125,7 @@ impl SessionRegistry {
                     local: backend,
                     scratchpad: scratchpad_dir,
                     artifacts: artifacts_dir,
+                    artifact_folders: self.artifact_folders(),
                     chrome,
                     codex_exe: None,
                     verwalter_mcp,

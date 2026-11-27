@@ -8,6 +8,7 @@ use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
 use serde::{Deserialize, Serialize};
 
+use crate::artifacts::extern_files;
 use crate::artifacts::folder::{list_folder, resolve_folder};
 use crate::artifacts::resolve;
 use crate::artifacts::server::content_type;
@@ -39,6 +40,15 @@ impl Content {
 /// Ordners als JSON (`?list=1` am Gast). `..`, Wurzel, Laufwerk und Symlinks nach draußen lehnt
 /// `resolve` ab.
 pub fn artifact(dir: &Path, path: &str) -> Result<Content, CommandError> {
+    artifact_in(dir, path, &[])
+}
+
+/// Wie `artifact`; `folders` sind die eingetragenen Ordner für Artefakte (Taiga 139): Eine Datei
+/// `.extern/<schlüssel>/<name>` liefert der Host nur, solange ihr kanonischer Pfad in einem liegt.
+pub fn artifact_in(dir: &Path, path: &str, folders: &[String]) -> Result<Content, CommandError> {
+    if extern_files::is_extern(path) {
+        return read(&extern_files::resolve(dir, path, folders)?);
+    }
     if path.ends_with('/') {
         let relative = path.trim_end_matches('/');
         let folder = resolve_folder(dir, relative)?;

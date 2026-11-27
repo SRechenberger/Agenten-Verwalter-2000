@@ -119,6 +119,9 @@ pub struct Settings {
     // Freigabeliste der Befehls-Stationen (ADR 073): nur diese Programme führt der Verwalter aus, als
     // bloße Namen ohne Pfad; Standard `gh` und `glab`.
     pub command_programs: Vec<String>,
+    // App-weite Ordner, aus denen ein Agent mit `artifact_show` Dateien zeigen darf (ADR 026, Taiga 139):
+    // absolute, vorhandene Ordner in kanonischer Schreibweise; Standard leer.
+    pub artifact_folders: Vec<String>,
     pub terminal_placement: TerminalPlacement,
     /// Gezogene Höhe des Terminal-Docks in Pixeln.
     pub terminal_height: u32,
@@ -201,6 +204,10 @@ pub enum SettingsChange {
     },
     /// Die Freigabeliste der Befehls-Stationen (ADR 073), ersetzt die ganze Liste.
     CommandPrograms {
+        value: Vec<String>,
+    },
+    /// Die Ordner für Artefakte (ADR 026), ersetzt die ganze Liste.
+    ArtifactFolders {
         value: Vec<String>,
     },
     TerminalPlacement {

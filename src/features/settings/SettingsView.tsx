@@ -34,6 +34,7 @@ import { ColorSchemeSegment } from '@/features/settings/ColorSchemeSegment';
 import { ReaderPlacementSegment } from '@/features/settings/ReaderPlacementSegment';
 import { TerminalPlacementSegment } from '@/features/settings/TerminalPlacementSegment';
 import { LocalModelMenu } from '@/features/settings/LocalModelMenu';
+import { ArtifactFoldersRow } from '@/features/settings/ArtifactFoldersRow';
 import { CommandProgramsRow } from '@/features/settings/CommandProgramsRow';
 import { MasterCompactRow } from '@/features/settings/MasterCompactRow';
 import { MaxAgentsRow } from '@/features/settings/MaxAgentsRow';
@@ -461,6 +462,8 @@ export function SettingsView({
         );
       case 'masterCompactTokens':
         return <MasterCompactRow value={current.masterCompactTokens} save={save} />;
+      case 'artifactFolders':
+        return <ArtifactFoldersRow value={current.artifactFolders} save={save} />;
       case 'commandPrograms':
         return <CommandProgramsRow value={current.commandPrograms} save={save} />;
       case 'maxAgents':

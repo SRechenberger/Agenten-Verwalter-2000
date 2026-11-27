@@ -93,6 +93,12 @@ pub struct Artifact {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub state_modified_at: Option<f64>,
+    /// Nur bei einer Datei aus einem eingetragenen Ordner (ADR 026, Taiga 139): der Ordner, in dem sie
+    /// liegt. `file` ist dann `.extern/<schlüssel>/<name>`; die Oberfläche zeigt `name` und diesen
+    /// Ordner im Tooltip.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub external_dir: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, TS)]

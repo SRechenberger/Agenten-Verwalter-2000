@@ -1,5 +1,8 @@
 //! Werkzeuge der Artefakte im MCP-Zugang (ADR 046): der Agent listet die Artefakte seines
 //! Vorhabens und wählt eines im Reiter „Artefakte“ aus.
+use std::path::Path;
+use std::time::{SystemTime, UNIX_EPOCH};
+
 use serde_json::{Value, json};
 use tauri::{Emitter, Manager};
 
@@ -36,13 +39,18 @@ impl ToolSet for ArtifactTools {
             ToolSpec {
                 name: SHOW,
                 description: "Wählt ein Artefakt im Reiter „Artefakte“ des Verwalters aus; sieht \
-                              der Benutzer diese Session, springt die Ansicht dorthin.",
+                              der Benutzer diese Session, springt die Ansicht dorthin. Auch eine \
+                              Datei aus einem in den Einstellungen eingetragenen Ordner (etwa dem \
+                              Vault) geht, mit absolutem Pfad; sie erscheint nur lesend in der \
+                              Gruppe „Extern“. Ein Pfad außerhalb dieser Ordner wird abgelehnt.",
                 input_schema: json!({
                     "type": "object",
                     "properties": {
                         "file": {
                             "type": "string",
-                            "description": "Name einer Datei oder eines Ordners direkt in .artefakte",
+                            "description": "Name einer Datei oder eines Ordners direkt in .artefakte, \
+                                            oder der absolute Pfad (auch ~/…) einer Datei in einem \
+                                            eingetragenen Ordner",
                         },
                     },
                     "required": ["file"],
@@ -67,10 +75,16 @@ impl ToolSet for ArtifactTools {
         };
         match call.name {
             LIST => list(call.session_id, &dir, &items),
-            SHOW => show(call, &registry, &items),
+            SHOW => show(call, &registry, &dir, &items),
             other => ToolResult::Err(format!("Unbekanntes Werkzeug: {other}")),
         }
     }
+}
+
+fn now_ms() -> f64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0.0, |elapsed| elapsed.as_secs_f64() * 1000.0)
 }
 
 /// Was eine Nebenfrage benutzen darf: nur lesen.
@@ -86,7 +100,8 @@ fn artifacts_of(
         .artifact_scope(session_id)
         .map_err(|error| error.to_string())?;
     let dir = super::dir(&workspace);
-    let items = super::list(&dir, &owners);
+    let mut items = super::list(&dir, &owners);
+    super::extern_files::append_to(&dir, &registry.artifact_folders(), &mut items);
     Ok((dir.to_string_lossy().into_owned(), items))
 }
 
@@ -131,21 +146,40 @@ fn list(session_id: &str, dir: &str, items: &[Artifact]) -> ToolResult {
     }
 }
 
-/// Nur ein Name aus der Liste: so erreicht kein Pfad aus dem Agenten die Oberfläche ungeprüft.
-fn show(call: &ToolCall, registry: &SessionRegistry, items: &[Artifact]) -> ToolResult {
+/// Nur ein Name aus der Liste oder ein Pfad, den `extern_files::show` prüft: so erreicht kein Pfad aus
+/// dem Agenten die Oberfläche ungeprüft.
+fn show(call: &ToolCall, registry: &SessionRegistry, dir: &str, items: &[Artifact]) -> ToolResult {
     let Some(file) = call.arguments.get("file").and_then(Value::as_str) else {
         return ToolResult::Err("Parameter file fehlt".to_owned());
     };
-    let found = items
-        .iter()
-        .find(|item: &&Artifact| item.file == file)
-        .or_else(|| {
-            items
-                .iter()
-                .find(|item: &&Artifact| item.file.eq_ignore_ascii_case(file))
-        });
-    let Some(item) = found else {
-        return ToolResult::Err(format!("Kein Artefakt: {file}"));
+    let shown: Artifact;
+    let item = if super::extern_files::is_path(file) {
+        match super::extern_files::show(
+            Path::new(dir),
+            file,
+            &registry.artifact_folders(),
+            call.session_id,
+            now_ms(),
+        ) {
+            Ok(artifact) => {
+                shown = artifact;
+                &shown
+            }
+            Err(error) => return ToolResult::Err(error),
+        }
+    } else {
+        let found = items
+            .iter()
+            .find(|item: &&Artifact| item.file == file)
+            .or_else(|| {
+                items
+                    .iter()
+                    .find(|item: &&Artifact| item.file.eq_ignore_ascii_case(file))
+            });
+        let Some(item) = found else {
+            return ToolResult::Err(format!("Kein Artefakt: {file}"));
+        };
+        item
     };
     let project_id = match registry.project_of(call.session_id) {
         Ok(project_id) => project_id,

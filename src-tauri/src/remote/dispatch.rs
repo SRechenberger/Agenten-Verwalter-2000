@@ -81,6 +81,10 @@ pub trait Host: Send + Sync {
     fn invoke(&self, command: &str, args: Value) -> Result<Value, CommandError>;
     /// Der Ordner `.artefakte` im Workspace der Session.
     fn artifacts_dir(&self, session_id: &str) -> Result<PathBuf, CommandError>;
+    /// Die eingetragenen Ordner für Artefakte (Taiga 139).
+    fn artifact_folders(&self) -> Vec<String> {
+        Vec::new()
+    }
     /// Der Workspace des Vorhabens der Session.
     fn workspace(&self, session_id: &str) -> Result<PathBuf, CommandError>;
 }
@@ -115,7 +119,11 @@ pub fn answer(
             let session_id = text_of(&args, "sessionId")?;
             let path = text_of(&args, "path")?;
             let found = if command == "remote_artifact" {
-                content::artifact(&host.artifacts_dir(session_id)?, path)?
+                content::artifact_in(
+                    &host.artifacts_dir(session_id)?,
+                    path,
+                    &host.artifact_folders(),
+                )?
             } else {
                 content::workspace_file(&host.workspace(session_id)?, path)?
             };
@@ -645,6 +653,10 @@ impl Host for AppHost {
         self.app
             .state::<SessionRegistry>()
             .artifacts_dir(session_id)
+    }
+
+    fn artifact_folders(&self) -> Vec<String> {
+        self.app.state::<SessionRegistry>().artifact_folders()
     }
 
     fn workspace(&self, session_id: &str) -> Result<PathBuf, CommandError> {
