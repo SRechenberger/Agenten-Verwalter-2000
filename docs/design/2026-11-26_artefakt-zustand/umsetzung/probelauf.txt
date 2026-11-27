@@ -73,7 +73,7 @@ Bild shots/k8-zurueckgesetzt-hell.png
 {'who': 'host', 'c': '__select', 'tag': '27357464a899414b81addbb1c63ac4b8', 'ok': 'ok'}
 {'who': 'host', 'c': '__view', 'tag': '4afca960719b47549ca9bf1380facf57', 'ok': 'artifacts'}
 {'who': 'host', 'c': '__artifact', 'tag': 'b33036efbb734835956cbcecd223328c', 'ok': 'ok'}
-Rahmen: [('allow-scripts allow-forms allow-modals', 'http://127.0.0.1:44455/662b11cfaa704cc784099b69ea63a738/b4aed62f-b687-4dd3-8ecf-b497a829f3')]
+Rahmen: [('allow-scripts allow-forms allow-modals', 'http://127.0.0.1:44455/<token>/b4aed62f-b687-4dd3-8ecf-b497a829f3')]
 Bild: shots/sicherheitsprobe-hell.png
 
 == k6g2
@@ -88,7 +88,7 @@ Bild shots/k6-host-nach-gast-hell.png
 
 == r18
 Übernahme: {'name': 'Review Zustand'}
-Liste am Gast: 25 Artefakte, baseUrl http://127.0.0.1:42775/9555c6d216c94dbea
+Liste am Gast: 25 Artefakte, baseUrl http://127.0.0.1:42775/<token>
 == bericht.html (Gast)
   Rahmen: {'probe': 'bericht', 'page': 'haupt', 'keys': []}
   Meldung state: {'haupt': 'ja'}
@@ -103,4 +103,4 @@ Liste am Gast: 25 Artefakte, baseUrl http://127.0.0.1:42775/9555c6d216c94dbea
   zwei.html.json {'haupt': 'ja'}
   zwei.htm.json fehlt
   zwei.json fehlt
-Rahmen am Gast: [('allow-scripts allow-forms allow-modals', 'http://127.0.0.1:42775/9555c6d216c94dbea6776b50c4c7c957/b4ae')]
+Rahmen am Gast: [('allow-scripts allow-forms allow-modals', 'http://127.0.0.1:42775/<token>/b4ae')]
