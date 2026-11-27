@@ -6,10 +6,11 @@ import { StatusIcon } from '@/components/StatusIcon';
 import { TwinFoldersIcon } from '@/components/TwinFoldersIcon';
 import { formatDuration } from '@/features/background/backgroundLabels';
 import { useNow } from '@/features/background/useNow';
-import { compactPhaseOf } from '@/features/chat/compactTexts';
+import { compactPhaseOf, waitingCountText } from '@/features/chat/compactTexts';
 import { messageWaitShort, messageWaitText } from '@/features/queue/queueTexts';
 import type { DisplayStatus } from '@/features/sessions/sessionStatus';
 import type { SessionSummary } from '@/lib/bindings/SessionSummary';
+import { useWaitingCount } from '@/stores/inbox';
 import { useOverlapStore } from '@/stores/overlaps';
 import './SidebarItem.css';
 
@@ -57,6 +58,7 @@ export function SidebarItem({
   const [isConfirmingDelete, setIsConfirmingDelete] = useState<boolean>(false);
   const hasOverlap: boolean = useOverlapStore((state) => session.id in state.overlaps);
   const now: number = useNow(status === 'script');
+  const waitingCount: number = useWaitingCount(session.id);
 
   if (isRenaming) {
     return (
@@ -116,6 +118,16 @@ export function SidebarItem({
             title="Compact in Arbeit: Nachrichten an diese Session warten, bis er fertig ist"
           >
             ⧗ Compact
+          </span>
+        )}
+        {compactPhaseOf(session) !== null && waitingCount > 0 && (
+          <span
+            className="sidebar-item__compact-waiting"
+            role="img"
+            aria-label={`${String(waitingCount)} wartende Nachrichten`}
+            title="Wartende Nachrichten an diese Session; sie gehen nach dem Compact hinaus"
+          >
+            {waitingCountText(waitingCount)}
           </span>
         )}
         {messageWait !== null && (

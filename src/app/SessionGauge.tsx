@@ -3,7 +3,9 @@ import type { ReactElement } from 'react';
 import { Popover } from '@/components/Popover';
 import { ContextDonut } from '@/features/context/ContextDonut';
 import { ContextPanel } from '@/features/context/ContextPanel';
+import { formatThousands } from '@/features/context/formatTokens';
 import { useNow } from '@/features/background/useNow';
+import { useMasterCompactLimit } from '@/features/chat/useMasterCompactLimit';
 import { PromptCachePanel } from '@/features/promptcache/PromptCachePanel';
 import { promptCacheState } from '@/features/promptcache/promptCacheState';
 import { useOperatingMode } from '@/features/remote/useOperatingMode';
@@ -23,11 +25,13 @@ interface SessionGaugeProps {
   session: SessionSummary;
   /** Bisherige Laufzeit, schon formatiert; tickt im Aufrufer. */
   runtime: string;
+  /** Die Session leitet eine unfertige Umsetzung: nur dann gilt die Grenze „Master zusammenfassen ab“. */
+  isMaster: boolean;
 }
 
 /** Kontext, Prompt-Cache und Laufzeit der Session als eine Anzeige. Ein Klick öffnet ein gemeinsames
  *  Fenster mit allen Einzelheiten. Bei wenig Platz fallen Cache-Text und Laufzeit per CSS weg. */
-export function SessionGauge({ session, runtime }: SessionGaugeProps): ReactElement {
+export function SessionGauge({ session, runtime, isMaster }: SessionGaugeProps): ReactElement {
   const [isOpen, setIsOpen] = useState<boolean>(false);
   // Den Prompt-Cache mit Haltedauer gibt es nur mit der Claude-Kommandozeile und dem Claude-Abo.
   const hasPromptCache: boolean = useOperatingMode(session.projectId) === 'claude';
@@ -44,7 +48,12 @@ export function SessionGauge({ session, runtime }: SessionGaugeProps): ReactElem
   const knownCacheState: KnownPromptCacheState | null =
     cacheState.kind === 'unknown' ? null : cacheState;
 
-  const titleLines: string[] = [`Kontext ${String(Math.round(contextPercent))} % belegt`];
+  const compactLimit: number | null = useMasterCompactLimit(session.projectId, isMaster);
+  const titleLines: string[] = [
+    compactLimit === null
+      ? `Kontext ${String(Math.round(contextPercent))} % belegt`
+      : `Kontext ${formatThousands(session.contextUsed)} / ${formatThousands(compactLimit)} (Master zusammenfassen ab)`,
+  ];
   if (cache !== null && knownCacheState !== null) {
     titleLines.push(promptCacheView(knownCacheState).title);
   }
@@ -80,7 +89,7 @@ export function SessionGauge({ session, runtime }: SessionGaugeProps): ReactElem
           width={GAUGE_POPOVER_WIDTH}
           onClose={close}
         >
-          <ContextPanel session={session} onClose={close} />
+          <ContextPanel session={session} isMaster={isMaster} onClose={close} />
           {cache !== null && knownCacheState !== null && (
             <>
               <hr className="session-gauge__divider" />
