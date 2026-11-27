@@ -5,7 +5,7 @@ import type { Artifact } from '@/lib/bindings/Artifact';
 import type { ColorScheme } from '@/lib/bindings/ColorScheme';
 import { artifactUrl, saveArtifactState } from '@/lib/artifacts';
 import { useSettingsStore } from '@/stores/settings';
-import { parseOpenRequest, stateFromFrame } from '@/features/artifacts/artifactBridge';
+import { parseOpenRequest, stateFromFrame, stateMark } from '@/features/artifacts/artifactBridge';
 
 interface ArtifactFrameProps {
   /** Session für den Befehl, der den Zustand speichert. */
@@ -34,6 +34,12 @@ const OPEN_INTERVAL_MS = 1000;
 // Die Abfrage zeigt nur den neuesten Zeitpunkt des Zustands; die letzten eigenen genügen (Critical Rule 3).
 const OWN_STATE_ATS = 8;
 
+/** Ein Stand der Seite und seine Prüfsumme (`null` ohne). */
+interface StateReport {
+  state: Record<string, string>;
+  mark: string | null;
+}
+
 export function ArtifactFrame({
   sessionId,
   baseUrl,
@@ -51,7 +57,7 @@ export function ArtifactFrame({
   const knownStateAt = useRef<number | undefined>(item.stateModifiedAt);
   const ownStateAts = useRef<number[]>([]);
   const knownResets = useRef<number>(resetToken);
-  const saves = useRef<{ isRunning: boolean; next: Record<string, string> | null }>({
+  const saves = useRef<{ isRunning: boolean; next: StateReport | null }>({
     isRunning: false,
     next: null,
   });
@@ -81,20 +87,28 @@ export function ArtifactFrame({
 
   // Die Seite meldet ihren Zustand bei jeder Änderung. Die Datei bestimmt `item`, die eigene Auswahl, nie die
   // Nachricht. Läuft ein Speichern, wartet nur der neueste Stand; so bleibt die Reihenfolge und die Zahl der
-  // Aufrufe klein.
+  // Aufrufe klein. Wartet danach nichts mehr, ist der neueste Stand gespeichert: Der Rahmen bestätigt ihn der
+  // Seite, die dann ihren Puffer in `window.name` leert.
   useEffect(() => {
     const file: string = item.file;
-    function save(state: Record<string, string>): void {
+    function save(report: StateReport): void {
       saves.current.isRunning = true;
-      saveArtifactState(sessionId, file, state)
+      saveArtifactState(sessionId, file, report.state)
         .then((modifiedAt: number): void => {
           ownStateAts.current = [...ownStateAts.current, modifiedAt].slice(-OWN_STATE_ATS);
+          if (saves.current.next === null && report.mark !== null) {
+            // Ohne eigene Herkunft (`sandbox`) gibt es kein Ziel außer `*`; die Prüfsumme verrät nichts.
+            frame.current?.contentWindow?.postMessage(
+              { verwalter: 1, type: 'state-saved', mark: report.mark },
+              '*',
+            );
+          }
         })
         .catch((error: unknown): void => {
           console.error('Zustand des Artefakts nicht gespeichert', error);
         })
         .finally((): void => {
-          const next: Record<string, string> | null = saves.current.next;
+          const next: StateReport | null = saves.current.next;
           saves.current.next = null;
           if (next === null) {
             saves.current.isRunning = false;
@@ -110,10 +124,11 @@ export function ArtifactFrame({
         event.data,
       );
       if (state === null) return;
+      const report: StateReport = { state, mark: stateMark(event.data) };
       if (saves.current.isRunning) {
-        saves.current.next = state;
+        saves.current.next = report;
       } else {
-        save(state);
+        save(report);
       }
     }
     window.addEventListener('message', onState);

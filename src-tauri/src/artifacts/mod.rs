@@ -284,16 +284,17 @@ fn page_stem(entry: &fs::DirEntry) -> Option<String> {
         .map(|stem| stem.to_string_lossy().to_lowercase())
 }
 
-/// Die HTML-Datei direkt in `dir`, deren Zubehör der Ordner `name` ist (gleicher Name ohne Endung,
-/// ADR 047); gibt es mehrere, die erste nach Namen.
-pub fn page_of_accessory(dir: &Path, name: &str) -> Option<String> {
-    let wanted = name.to_lowercase();
-    fs::read_dir(dir)
-        .ok()?
-        .flatten()
-        .filter(|entry: &fs::DirEntry| page_stem(entry).as_deref() == Some(wanted.as_str()))
-        .map(|entry: fs::DirEntry| entry.file_name().to_string_lossy().into_owned())
-        .min()
+/// Die Namen der HTML-Dateien direkt in `dir`, wie sie im Ordner stehen.
+pub fn page_names_in(dir: &Path) -> Vec<String> {
+    fs::read_dir(dir).map_or_else(
+        |_| Vec::new(),
+        |read| {
+            read.flatten()
+                .filter(|entry: &fs::DirEntry| page_stem(entry).is_some())
+                .map(|entry: fs::DirEntry| entry.file_name().to_string_lossy().into_owned())
+                .collect()
+        },
+    )
 }
 
 fn page_stems_in(dir: &Path) -> Vec<String> {

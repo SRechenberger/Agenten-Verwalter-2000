@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 
 use serde_json::{Map, Value};
 
-use super::{is_plain_name, modified_ms, page_of_accessory, resolve, resolve_entry};
+use super::{is_plain_name, modified_ms, page_names_in, resolve, resolve_entry};
 use crate::error::CommandError;
 
 pub const STATE_DIR: &str = ".zustand";
@@ -23,17 +23,39 @@ pub fn artifact_of(relative: &str) -> Option<&str> {
     (is_plain_name(name) && !name.starts_with(['.', '_'])).then_some(name)
 }
 
-/// Das Artefakt, dessen Zustand die Seite `relative` liest: wie `artifact_of`, doch eine Seite im
-/// Zubehör-Ordner einer HTML-Datei (`bericht/teil2.html` neben `bericht.html`, ADR 047) gehört zu
-/// dieser Datei. Das ist das Artefakt, das der Rahmen zeigt und in dessen Datei er speichert.
-pub fn artifact_for(dir: &Path, relative: &str) -> Option<String> {
+/// Das Artefakt, dessen Zustand die Seite `relative` liest, aus den Namen der HTML-Dateien direkt im
+/// Ordner (`pages`): wie `artifact_of`, doch eine Seite im Zubehör-Ordner einer HTML-Datei
+/// (`bericht/teil2.html` neben `bericht.html`, ADR 047) gehört zu dieser Datei. Das ist das
+/// Artefakt, das der Rahmen zeigt und in dessen Datei er speichert. Teilen sich mehrere HTML-Dateien
+/// den Stamm (`zwei.html` und `zwei.htm`, auch nur in Groß- und Kleinschreibung verschieden), gehört
+/// die Seite zu keinem Artefakt. Dieselbe Regel gilt lokal und beim Gast.
+pub fn artifact_among(relative: &str, pages: &[String]) -> Option<String> {
     let name = artifact_of(relative)?;
-    let page = if relative.contains('/') {
-        page_of_accessory(dir, name)
+    if !relative.contains('/') {
+        return Some(name.to_owned());
+    }
+    let wanted = name.to_lowercase();
+    let mut owners = pages.iter().filter(|page: &&String| {
+        Path::new(page.as_str())
+            .file_stem()
+            .is_some_and(|stem| stem.to_string_lossy().to_lowercase() == wanted)
+    });
+    match (owners.next(), owners.next()) {
+        (None, _) => Some(name.to_owned()),
+        (Some(page), None) => Some(page.clone()),
+        (Some(_), Some(_)) => None,
+    }
+}
+
+/// `artifact_among` mit den HTML-Dateien in `dir`; den Ordner liest es nur für eine Seite in einem
+/// Unterordner.
+pub fn artifact_for(dir: &Path, relative: &str) -> Option<String> {
+    let pages = if relative.contains('/') {
+        page_names_in(dir)
     } else {
-        None
+        Vec::new()
     };
-    Some(page.unwrap_or_else(|| name.to_owned()))
+    artifact_among(relative, &pages)
 }
 
 /// Pfad der Zustandsdatei in `dir` (`.artefakte`); der Name muss ein Name direkt im Ordner sein.
@@ -210,6 +232,28 @@ mod tests {
         save(&scratch.0, "bericht.html", r#"{"teil":"2"}"#).expect("save");
         let artifact = of("bericht/teil2.html").expect("artifact");
         assert_eq!(read(&scratch.0, &artifact), r#"{"teil":"2"}"#);
+    }
+
+    #[test]
+    fn a_page_in_the_accessory_folder_of_two_pages_with_one_stem_belongs_to_no_artifact() {
+        let scratch = Scratch::new("ambiguous");
+        scratch.write("zwei.html", "<p>1</p>");
+        scratch.write("zwei.htm", "<p>2</p>");
+        scratch.write("zwei/teil.html", "<p>t</p>");
+        save(&scratch.0, "zwei.html", r#"{"alt":"ja"}"#).expect("save");
+        assert_eq!(artifact_for(&scratch.0, "zwei/teil.html"), None);
+        assert_eq!(
+            artifact_for(&scratch.0, "zwei.html").as_deref(),
+            Some("zwei.html")
+        );
+        // Nur in Groß- und Kleinschreibung verschieden zählt ebenso, auch wo das Dateisystem es nicht zulässt.
+        let pages = ["Notiz.html".to_owned(), "notiz.html".to_owned()];
+        assert_eq!(artifact_among("notiz/a.html", &pages), None);
+        assert_eq!(
+            artifact_among("notiz/a.html", &pages[..1]).as_deref(),
+            Some("Notiz.html")
+        );
+        assert_eq!(read(&scratch.0, "zwei.html"), r#"{"alt":"ja"}"#);
     }
 
     #[test]

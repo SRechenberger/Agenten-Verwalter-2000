@@ -1,7 +1,7 @@
 // Selbsttest der Nachrichten aus dem Rahmen eines Artefakts: `node src/features/artifacts/artifactBridge.selftest.ts`
 // (`pnpm selftest`). Eine Nachricht ohne `verwalter: 1` oder mit anderem Typ oder Inhalt wird verworfen, und der
 // Schlüssel der Liste ändert sich mit dem Zeitpunkt des Zustands. Je Fall `PASS`/`FAIL`, Exit 1 bei einem Fehlschlag.
-import { parseStateRequest, stateFromFrame } from './artifactBridge.ts';
+import { parseStateRequest, stateFromFrame, stateMark } from './artifactBridge.ts';
 import { listKey } from './artifactListKey.ts';
 import type { Artifact } from '@/lib/bindings/Artifact';
 import type { ArtifactList } from '@/lib/bindings/ArtifactList';
@@ -58,6 +58,21 @@ check('a message without a source is dropped', stateFromFrame(null, OWN, valid) 
 check(
   'a message while no frame exists is dropped',
   stateFromFrame(undefined, undefined, valid) === null,
+);
+check(
+  'a state message with a short mark is accepted and gives its mark',
+  stateFromFrame(OWN, OWN, { ...valid, mark: '1k2x9a' })?.t1 === 'bestanden' &&
+    stateMark({ ...valid, mark: '1k2x9a' }) === '1k2x9a',
+);
+check(
+  'a state message without a mark is accepted and gives no mark',
+  stateFromFrame(OWN, OWN, valid)?.t1 === 'bestanden' && stateMark(valid) === null,
+);
+check(
+  'a state message whose mark is no short string is dropped',
+  stateFromFrame(OWN, OWN, { ...valid, mark: 7 }) === null &&
+    stateFromFrame(OWN, OWN, { ...valid, mark: null }) === null &&
+    stateFromFrame(OWN, OWN, { ...valid, mark: 'x'.repeat(17) }) === null,
 );
 
 const plan: Artifact = {
