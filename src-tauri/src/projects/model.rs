@@ -23,6 +23,10 @@ pub struct ProjectSummary {
     // Stufe in der globalen Warteschlange (ADR 068); ein älterer Host schickt sie nicht.
     #[serde(default)]
     pub priority: ProjectPriority,
+    /// Platz in der Leiste, kleiner = weiter oben (Taiga 101); ein älterer Host schickt ihn nicht.
+    /// Entfernte Vorhaben stehen beim Gast hinter den eigenen (`guest_view`).
+    #[serde(default)]
+    pub position: i32,
 }
 
 // Priorität eines Vorhabens in der globalen Warteschlange (ADR 068): hoch rückt vor normal vor

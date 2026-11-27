@@ -15,4 +15,9 @@ groupId: string | null,
 /**
  * Wem das Vorhaben aus Sicht dieser Instanz gehört (ADR 059).
  */
-access: ProjectAccess, priority: ProjectPriority, };
+access: ProjectAccess, priority: ProjectPriority, 
+/**
+ * Platz in der Leiste, kleiner = weiter oben (Taiga 101); ein älterer Host schickt ihn nicht.
+ * Entfernte Vorhaben stehen beim Gast hinter den eigenen (`guest_view`).
+ */
+position: number, };

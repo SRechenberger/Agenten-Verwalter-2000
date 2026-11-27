@@ -5,7 +5,6 @@ import {
   scriptLabel,
   type DisplayStatus,
 } from '../sessions/sessionStatus.ts';
-import type { ProjectSummary } from '@/lib/bindings/ProjectSummary';
 import type { SessionSummary } from '@/lib/bindings/SessionSummary';
 
 /** Vom Dringendsten zum Unwichtigsten — die dringendste Session bestimmt das Symbol des Vorhabens. */
@@ -63,28 +62,12 @@ export function chooseSession(
   );
 }
 
-/** Sessions eines Vorhabens, zuletzt aktive zuerst — die Reihenfolge in der Sidebar. */
-export function sessionsByActivity(
+/** Sessions eines Vorhabens, die neueste Nummer zuerst — die Reihenfolge in der Sidebar (Taiga 101). */
+export function sessionsByNumber(
   projectId: string,
   sessions: readonly SessionSummary[],
 ): SessionSummary[] {
-  return sessions
-    .filter((session: SessionSummary) => session.projectId === projectId)
-    .sort(
-      (first: SessionSummary, second: SessionSummary) =>
-        second.lastActivityAt - first.lastActivityAt || second.number - first.number,
-    );
-}
-
-/** Jüngste Aktivität im Vorhaben; ohne Sessions sein Anlegezeitpunkt. */
-export function projectActivity(
-  project: ProjectSummary,
-  sessions: readonly SessionSummary[],
-): number {
-  return sessions.reduce(
-    (latest: number, session: SessionSummary) => Math.max(latest, session.lastActivityAt),
-    project.createdAt,
-  );
+  return sessionsOf(projectId, sessions).reverse();
 }
 
 export function hasUnread(sessions: readonly SessionSummary[]): boolean {

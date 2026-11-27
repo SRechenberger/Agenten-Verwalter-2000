@@ -211,7 +211,7 @@ const TABLE: &[(Class, Option<IdKind>, &[&str])] = &[
     (
         Class::NeverGuestOpen,
         Some(IdKind::Project),
-        &["project_set_group", "remote_share_set"],
+        &["project_set_group", "project_move", "remote_share_set"],
     ),
     (
         // Die Gruppe ist keine Vorhaben-ID: Der Host entscheidet allein, ein Gast gibt nichts frei.
@@ -329,10 +329,10 @@ pub fn class_of(command: &str) -> Option<Class> {
 }
 
 /// Ob der Gast einen Aufruf mit der ID eines entfernten Vorhabens an dessen Host gibt. Was dort
-/// nie erlaubt ist, lehnt der Host ab; nur `project_set_group` bleibt lokal (Vertrag), was ohne
+/// nie erlaubt ist, lehnt der Host ab; nur `project_set_group` und `project_move` bleiben lokal (Vertrag), was ohne
 /// ID auskommt, hat eigene Wege, und `session_set_viewed` geht an beide Seiten (der Command).
 pub fn routes_to_host(command: &str) -> bool {
-    command != "project_set_group"
+    !matches!(command, "project_set_group" | "project_move")
         && matches!(
             class_of(command),
             Some(

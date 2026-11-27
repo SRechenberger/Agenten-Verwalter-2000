@@ -539,3 +539,27 @@ fn implementation_stop_command_is_host_write_with_implementation() {
         Err(Denied::ForeignId(OWN_IMPLEMENTATION.to_owned()))
     );
 }
+
+#[test]
+fn project_move_is_refused_for_a_guest_even_as_holder_and_never_goes_to_the_host() {
+    let control = held_by_a();
+    assert_eq!(
+        check_call(
+            "project_move",
+            json!({ "projectId": PROJECT }),
+            Actor::Guest("a"),
+            &control,
+        ),
+        Err(Denied::NotAllowed)
+    );
+    assert_eq!(
+        check_call(
+            "project_move",
+            json!({ "projectId": PROJECT }),
+            Actor::HostSurface,
+            &control,
+        ),
+        Ok(())
+    );
+    assert!(!routes_to_host("project_move"), "ein Gast ordnet nur lokal");
+}

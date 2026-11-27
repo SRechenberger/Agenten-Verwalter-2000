@@ -192,6 +192,7 @@ pub fn run() {
             commands::projects::project_group_rename,
             commands::projects::project_group_delete,
             commands::projects::project_group_set_collapsed,
+            commands::projects::project_move,
             commands::projects::project_set_group,
             commands::remote::remote_share_set,
             commands::remote::remote_group_share_set,

@@ -50,6 +50,7 @@ fn project(id: &str, created_at: f64, group_id: Option<&str>) -> ProjectRow {
         self_release: SelfRelease::OFF,
         group_id: group_id.map(str::to_owned),
         priority: ProjectPriority::Normal,
+        position: 0,
     }
 }
 
