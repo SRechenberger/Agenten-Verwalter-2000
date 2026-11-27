@@ -361,7 +361,11 @@ pub fn update(database: &Database, change: SettingsChange) -> Result<Settings, C
                 setting_rows::write(&transaction, KEY_COMMAND_PROGRAMS, &text)?;
             }
             SettingsChange::ArtifactFolders { value } => {
-                let folders = checked_folders(&value)?;
+                let stored: Vec<String> = setting_rows::read_all(&transaction)?
+                    .get(KEY_ARTIFACT_FOLDERS)
+                    .and_then(|text: &String| serde_json::from_str(text).ok())
+                    .unwrap_or_default();
+                let folders = checked_folders(&value, &stored)?;
                 let text = serde_json::to_string(&folders)
                     .map_err(|error| CommandError::Internal(error.to_string()))?;
                 setting_rows::write(&transaction, KEY_ARTIFACT_FOLDERS, &text)?;
@@ -502,24 +506,30 @@ fn checked_programs(value: &[String]) -> Result<Vec<String>, CommandError> {
     Ok(programs)
 }
 
-/// Jeder Eintrag ein absoluter, vorhandener Ordner; gespeichert wird der kanonische Pfad in der Form von
-/// `display_path`, ohne Doppel. Mit genau diesem Text vergleicht `extern_files` (ADR 026).
-fn checked_folders(value: &[String]) -> Result<Vec<String>, CommandError> {
+/// Jeder neue Eintrag ein absoluter, vorhandener Ordner; gespeichert wird der kanonische Pfad in der Form
+/// von `display_path`, ohne Doppel. Mit genau diesem Text vergleicht `extern_files` (ADR 026). Ein Eintrag,
+/// der genau so schon gespeichert ist, bleibt ohne neue Prüfung: Fehlt sein Ordner, sperrt er weder das
+/// Entfernen noch das Eintragen anderer.
+fn checked_folders(value: &[String], stored: &[String]) -> Result<Vec<String>, CommandError> {
     let mut folders: Vec<String> = Vec::new();
     for text in value.iter().map(|text: &String| text.trim()) {
-        let path = std::path::Path::new(text);
-        let canonical = path
-            .is_absolute()
-            .then(|| std::fs::canonicalize(path).ok())
-            .flatten()
-            .filter(|canonical: &std::path::PathBuf| canonical.is_dir())
-            .ok_or_else(|| {
-                CommandError::Internal(format!(
-                    "„{text}“ ist kein vorhandener Ordner mit absolutem Pfad."
-                ))
-            })?;
-        // Unter Windows ohne `\\?\`: so steht der Ordner in der Zeile, im Tooltip und in der Anweisung.
-        let canonical = crate::filesystem::display_path(&canonical.to_string_lossy());
+        let canonical = if stored.iter().any(|known: &String| known == text) {
+            text.to_owned()
+        } else {
+            let path = std::path::Path::new(text);
+            let canonical = path
+                .is_absolute()
+                .then(|| std::fs::canonicalize(path).ok())
+                .flatten()
+                .filter(|canonical: &std::path::PathBuf| canonical.is_dir())
+                .ok_or_else(|| {
+                    CommandError::Internal(format!(
+                        "„{text}“ ist kein vorhandener Ordner mit absolutem Pfad."
+                    ))
+                })?;
+            // Unter Windows ohne `\\?\`: so steht der Ordner in der Zeile, im Tooltip und in der Anweisung.
+            crate::filesystem::display_path(&canonical.to_string_lossy())
+        };
         if !folders.contains(&canonical) {
             folders.push(canonical);
         }
@@ -759,5 +769,30 @@ mod tests {
         std::fs::write(&file, "x").expect("Datei");
         assert!(set(vec![file.to_string_lossy().into_owned()]).is_err());
         let _ = std::fs::remove_dir_all(&folder);
+    }
+
+    #[test]
+    fn missing_stored_folders_do_not_lock_the_list_but_a_new_missing_folder_is_refused() {
+        let database = Database::open(Path::new(":memory:")).expect("Datenbank im Speicher");
+        let root =
+            std::env::temp_dir().join(format!("verwalter-folders-gone-{}", std::process::id()));
+        std::fs::create_dir_all(&root).expect("Wurzel");
+        let root = std::fs::canonicalize(&root).expect("kanonisch");
+        let [vault, x1, x2, x3] = ["vault", "x1", "x2", "x3"].map(|name: &str| root.join(name));
+        for folder in [&vault, &x1, &x2, &x3] {
+            std::fs::create_dir_all(folder).expect("Ordner");
+        }
+        let text = |path: &Path| path.to_string_lossy().into_owned();
+        let set = |value: Vec<String>| update(&database, SettingsChange::ArtifactFolders { value });
+        set(vec![text(&vault), text(&x1), text(&x2)]).expect("eintragen");
+        std::fs::remove_dir(&x1).expect("x1 weg");
+        std::fs::remove_dir(&x2).expect("x2 weg");
+        set(vec![text(&vault), text(&x2)]).expect("x1 entfernen, obwohl x2 fehlt");
+        set(vec![text(&vault), text(&x2), text(&x3)]).expect("x3 eintragen, obwohl x2 fehlt");
+        let kept = [text(&vault), text(&x2), text(&x3)];
+        assert_eq!(load(&database).expect("laden").artifact_folders, kept);
+        assert!(set(vec![text(&vault), text(&x2), text(&x3), text(&x1)]).is_err());
+        assert_eq!(load(&database).expect("laden").artifact_folders, kept);
+        let _ = std::fs::remove_dir_all(&root);
     }
 }
