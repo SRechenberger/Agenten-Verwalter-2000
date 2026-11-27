@@ -630,6 +630,43 @@ impl SessionRegistry {
         })
     }
 
+    /// Beginnt den Lauf einer Station „Nachricht“; `false`: Sie läuft schon oder ist fertig.
+    pub fn begin_message(&self, station_id: &str) -> Result<bool, CommandError> {
+        self.database.with(|connection| {
+            implementation_rows::begin_message_run(connection, station_id, now_ms())
+        })
+    }
+
+    /// Hält den zugestellten Text einer Station „Nachricht“ fest.
+    pub fn store_message_sent(&self, station_id: &str, sent: &str) -> Result<(), CommandError> {
+        self.database
+            .with(|connection| implementation_rows::set_message_sent(connection, station_id, sent))
+    }
+
+    /// Der Lauf einer Station „Nachricht“ scheitert; `false`: Sie lief nicht (mehr).
+    pub fn fail_message(&self, station_id: &str, reason: &str) -> Result<bool, CommandError> {
+        self.database.with(|connection| {
+            implementation_rows::fail_message_run(connection, station_id, reason)
+        })
+    }
+
+    /// Stellt der Session den Text einer Station „Nachricht“ zu, Absender „Verwalter“, auf demselben Weg wie
+    /// `wake_master`. Eine wartende Nachricht (`queued`) gilt als zugestellt. Nie unter einer Sperre aufrufen.
+    pub fn send_station_message(
+        &self,
+        app: &AppHandle,
+        session_id: &str,
+        text: &str,
+    ) -> Result<(), String> {
+        let target = self.get(session_id).map_err(|_: CommandError| {
+            "Die Session des Empfängers gibt es nicht mehr.".to_owned()
+        })?;
+        match self.deliver(app, &target, &wake::sender(), text, 0, None) {
+            (_, Some(reason)) => Err(reason),
+            (_, None) => Ok(()),
+        }
+    }
+
     /// Beim Start der App: Eine Befehls-Station, die lief, ist „unterbrochen“ (ADR 073).
     pub fn interrupt_commands(&self) -> Result<usize, CommandError> {
         self.database.with(|connection| {

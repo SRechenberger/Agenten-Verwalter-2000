@@ -528,6 +528,48 @@
   }
 }
 
+.station-card__message {
+  display: grid;
+  gap: var(--space-md);
+}
+
+.station-card__message-title {
+  margin: 0;
+  font-size: var(--font-size-xs);
+}
+
+/* Flach: Zeilen mit Haarlinien statt Kästen. */
+.station-card__message-rows {
+  display: grid;
+  margin: 0;
+}
+
+.station-card__message-row {
+  display: grid;
+  gap: var(--space-xs);
+  border-top: 1px solid var(--color-border-subtle);
+  padding: var(--space-md) 0;
+}
+
+.station-card__message-label {
+  color: var(--color-fg-muted);
+  font-size: var(--font-size-xs);
+}
+
+.station-card__message-value {
+  margin: 0;
+  color: var(--color-fg-primary);
+  font-size: var(--font-size-xs);
+}
+
+.station-card__message-text {
+  max-height: 160px;
+  overflow: auto;
+  color: var(--color-fg-secondary);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 .station-card__output {
   max-height: 160px;
   margin: 0;
