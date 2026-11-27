@@ -1,5 +1,7 @@
 import {
   isCommandStation,
+  isMessageStation,
+  recipientText,
   stationDisplay,
   stepsSummary,
   stepsTitle,
@@ -214,6 +216,16 @@ export function Timeline({
       return (
         <span className="timeline__meta timeline__meta--steps" title={stepsTitle(station.command)}>
           {stepsSummary(station.command)}
+        </span>
+      );
+    }
+    if (isMessageStation(station) && station.message !== null) {
+      return (
+        <span className="timeline__meta" title={station.message.text}>
+          {recipientText(
+            station.message.to,
+            refs.map((ref: StationRef) => ref.station),
+          )}
         </span>
       );
     }

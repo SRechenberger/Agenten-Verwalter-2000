@@ -105,6 +105,11 @@ export const COMMAND_FAILED_LEAD = 'Fehler.';
 export const PURPOSE_COMMAND = 'Befehl des Verwalters';
 export const PURPOSE_COMMAND_TEXT =
   '– führt die Schritte nacheinander aus, ohne Agent und ohne Modell.';
+export const PURPOSE_MESSAGE = 'Nachricht des Verwalters';
+export const PURPOSE_MESSAGE_TEXT =
+  '– füllt die Vorlage und stellt sie zu, ohne Agent und ohne Modell; die Station ist danach fertig.';
+export const START_NOW_MESSAGE_TITLE = 'Stellt die Nachricht dieser Station sofort zu';
+export const RESTART_MESSAGE_TITLE = 'Stellt die Nachricht noch einmal zu';
 export const START_NOW_LABEL = '▶ Jetzt starten';
 export const START_NOW_TITLE = 'Startet diese Station sofort als neue Session';
 export const RESTART_COMMAND_TITLE = 'Startet die Schritte von vorn';

@@ -4,6 +4,7 @@ pub mod command;
 pub mod command_run;
 pub mod edit;
 pub mod master;
+pub mod message;
 pub mod model;
 pub mod plan;
 pub mod report;
@@ -24,7 +25,8 @@ use tauri::{AppHandle, Emitter, Manager};
 use crate::agent_types::{self, Resolved, StationValues, UnknownAgent, model::AgentType};
 use crate::agents::event::{Effort, ModelId};
 use crate::db::implementations::{
-    ChangeRow, CommandRow, ImplementationRow, PhaseRow, StationRow, StoredImplementation,
+    ChangeRow, CommandRow, ImplementationRow, MessageRow, PhaseRow, StationRow,
+    StoredImplementation,
 };
 use crate::error::CommandError;
 use crate::sessions::model::{PauseReason, SessionStatus};
@@ -1924,6 +1926,7 @@ fn fix_stations(
         released_at: None,
         vars: BTreeMap::new(),
         command: None,
+        message: None,
     };
     vec![
         row(FIX_STAGE.to_owned(), FIX_BRIEF.to_owned(), fix_carried),
@@ -2155,6 +2158,13 @@ fn station_view(
             (None, Some(_)) => StationState::Error,
             (None, None) => StationState::Pending,
         }
+    } else if let Some(message) = &station.message {
+        // Station „Nachricht“: ohne Session; ein Beginn ohne Fehler und ohne Ende ist ihr kurzer Lauf.
+        match (&message.error, station.started_at) {
+            (Some(_), _) => StationState::Error,
+            (None, Some(_)) => StationState::Running,
+            (None, None) => StationState::Pending,
+        }
     } else if report.is_some() && session_state != StationState::Asking {
         if returns_left == 0 {
             StationState::WaitsForYou
@@ -2220,6 +2230,12 @@ fn station_view(
                         .command
                         .as_ref()
                         .and_then(|run: &CommandRow| run.error.clone())
+                        .or_else(|| {
+                            station
+                                .message
+                                .as_ref()
+                                .and_then(|message: &MessageRow| message.error.clone())
+                        })
                 })
             })
             .flatten(),
@@ -2261,6 +2277,14 @@ fn station_view(
             .command
             .as_ref()
             .and_then(|run: &CommandRow| run.step),
+        message: station
+            .message
+            .as_ref()
+            .map(|message: &MessageRow| model::MessageView {
+                to: message.to.clone(),
+                text: message.text.clone(),
+                sent: message.sent.clone(),
+            }),
     }
 }
 
@@ -2427,6 +2451,7 @@ pub fn new_rows(
             .map(|phase: &PhaseRow| (phase.id.as_str(), phase.key.as_str())),
     );
     number_stations(&mut stations, &lanes, &[], &[]);
+    message::check_recipients(&stations)?;
     Ok((row, phases, stations))
 }
 
@@ -2622,6 +2647,12 @@ pub fn rename_after(rows: &mut [StationRow], renames: &[(String, String)]) {
                 *before = id.to_owned();
             }
         }
+        // Der Empfänger einer Station „Nachricht“ kann den Alias einer neuen Station nennen.
+        if let Some(message) = row.message.as_mut()
+            && let Some(&id) = renamed.get(message.to.as_str())
+        {
+            id.clone_into(&mut message.to);
+        }
     }
 }
 
@@ -2696,5 +2727,6 @@ pub fn station_row(
                     .map(|cwd: &String| cwd.trim().to_owned()),
                 ..CommandRow::default()
             }),
+        message: message::row_of(station),
     }
 }

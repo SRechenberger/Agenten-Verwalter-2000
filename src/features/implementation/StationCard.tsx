@@ -2,8 +2,13 @@ import { useState } from 'react';
 import type { ReactElement } from 'react';
 import { AgentTypeDialog } from '@/features/agenttypes/AgentTypeDialog';
 import { useAgentTypes } from '@/features/agenttypes/useAgentTypes';
-import { isCommandStation, stationDisplay } from '@/features/implementation/commandStation';
+import {
+  isCommandStation,
+  isMessageStation,
+  stationDisplay,
+} from '@/features/implementation/commandStation';
 import { StationCommandSection } from '@/features/implementation/StationCommandSection';
+import { StationMessageSection } from '@/features/implementation/StationMessageSection';
 import { isBegun, type StationRef } from '@/features/implementation/implementationOrder';
 import {
   CANCEL_COUNTDOWN_LABEL,
@@ -17,6 +22,8 @@ import {
   PURPOSE_BY_USER,
   PURPOSE_COMMAND,
   PURPOSE_COMMAND_TEXT,
+  PURPOSE_MESSAGE,
+  PURPOSE_MESSAGE_TEXT,
   PURPOSE_BY_USER_TEXT,
   PURPOSE_LEAD,
   PURPOSE_NO_TYPE,
@@ -26,7 +33,9 @@ import {
   START_FAILED_LEAD,
   START_NOW_LABEL,
   RESTART_COMMAND_TITLE,
+  RESTART_MESSAGE_TITLE,
   START_NOW_COMMAND_TITLE,
+  START_NOW_MESSAGE_TITLE,
   START_NOW_TITLE,
 } from '@/features/implementation/implementationTexts';
 import { StationAgentSection } from '@/features/implementation/StationAgentSection';
@@ -123,7 +132,10 @@ export function StationCard({
   const [isTypeDialogOpen, setIsTypeDialogOpen] = useState<boolean>(false);
   const types: readonly AgentType[] = agentTypes ?? [];
   const isCommand: boolean = isCommandStation(station);
-  const type: AgentType | null = station.byUser || isCommand ? null : typeOfStation(types, station);
+  const isMessage: boolean = isMessageStation(station);
+  // Der Verwalter führt beide selbst aus: ohne Agent, Auftrag und Typ.
+  const isOwn: boolean = isCommand || isMessage;
+  const type: AgentType | null = station.byUser || isOwn ? null : typeOfStation(types, station);
   // Der Typ, den „Typ bearbeiten“ öffnet: der, als der die Station starten will.
   const editableType: AgentType | null =
     station.agentType === null ? null : typeNamed(types, station.agentType);
@@ -145,6 +157,13 @@ export function StationCard({
       return (
         <p className="station-card__purpose">
           {PURPOSE_LEAD} <b>{PURPOSE_COMMAND}</b> {PURPOSE_COMMAND_TEXT}
+        </p>
+      );
+    }
+    if (isMessage) {
+      return (
+        <p className="station-card__purpose">
+          {PURPOSE_LEAD} <b>{PURPOSE_MESSAGE}</b> {PURPOSE_MESSAGE_TEXT}
         </p>
       );
     }
@@ -175,7 +194,7 @@ export function StationCard({
     }
     return (
       <p className="station-card__fail" role="alert">
-        {isCommand && station.state === 'error' ? (
+        {isOwn && station.state === 'error' ? (
           <>
             <b className="station-card__fail-lead">{COMMAND_FAILED_LEAD}</b> {station.startError}
           </>
@@ -204,6 +223,12 @@ export function StationCard({
   }
 
   function renderActions(): ReactElement {
+    let startTitle: string = START_NOW_TITLE;
+    if (isCommand) {
+      startTitle = START_NOW_COMMAND_TITLE;
+    } else if (isMessage) {
+      startTitle = START_NOW_MESSAGE_TITLE;
+    }
     const isStartable: boolean = station.state === 'ready' || station.state === 'countdown';
     return (
       <div className="station-card__actions">
@@ -223,7 +248,7 @@ export function StationCard({
           <button
             type="button"
             className="station-card__button station-card__button--primary"
-            title={isCommand ? START_NOW_COMMAND_TITLE : START_NOW_TITLE}
+            title={startTitle}
             disabled={isLocked}
             onClick={(): void => {
               onStart(station.id);
@@ -232,11 +257,11 @@ export function StationCard({
             {START_NOW_LABEL}
           </button>
         )}
-        {isCommand && station.state === 'error' && (
+        {isOwn && station.state === 'error' && (
           <button
             type="button"
             className="station-card__button station-card__button--primary"
-            title={RESTART_COMMAND_TITLE}
+            title={isMessage ? RESTART_MESSAGE_TITLE : RESTART_COMMAND_TITLE}
             disabled={isLocked}
             onClick={(): void => {
               onStart(station.id);
@@ -343,6 +368,12 @@ export function StationCard({
           run={run}
         />
       )}
+      {isMessage && (
+        <StationMessageSection
+          station={station}
+          stations={refs.map((ref: StationRef) => ref.station)}
+        />
+      )}
       {renderActions()}
       <div className="station-card__sections">
         <StationFlowSection
@@ -355,7 +386,7 @@ export function StationCard({
           run={run}
           onFocus={onFocus}
         />
-        {!isCommand && (
+        {!isOwn && (
           <StationBriefSection
             implementationId={implementationId}
             stationRef={stationRef}
@@ -368,7 +399,7 @@ export function StationCard({
             masterSessionId={masterSessionId}
           />
         )}
-        {!isCommand && (
+        {!isOwn && (
           <StationAgentSection
             implementationId={implementationId}
             stationRef={stationRef}

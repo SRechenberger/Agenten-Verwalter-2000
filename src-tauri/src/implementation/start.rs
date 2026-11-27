@@ -470,6 +470,14 @@ pub fn start_now(
             Trigger::User,
         );
     }
+    // Eine Station „Nachricht“ stellt sofort zu, ohne Session und ohne Platz am Tor.
+    if super::message::is_message_station(
+        &app.state::<SessionRegistry>(),
+        implementation_id,
+        station_id,
+    ) {
+        return super::message::start_message(app, implementation_id, station_id, Trigger::User);
+    }
     if let Err(error) = start(app, implementation_id, station_id, Trigger::User) {
         // Ein beendeter Countdown gibt seinen Platz frei (ADR 068).
         refill(app);
@@ -524,6 +532,11 @@ fn start_claimed(
     if station.kind == StationKind::Command {
         return Err(CommandError::Implementation(
             "Eine Befehls-Station führt der Verwalter selbst aus.".to_owned(),
+        ));
+    }
+    if station.kind == StationKind::Message {
+        return Err(CommandError::Implementation(
+            "Eine Station „Nachricht“ stellt der Verwalter selbst zu.".to_owned(),
         ));
     }
     if !is_allowed(trigger, &view.phases, station_id) {
