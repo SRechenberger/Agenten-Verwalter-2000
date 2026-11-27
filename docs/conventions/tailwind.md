@@ -69,7 +69,7 @@ Chat, Karten und Hinweise über dem Eingabefeld, die Popups des Dashboards, die 
 
 - Keine runden Kästen mit eigener Fläche. Die Art eines Eintrags zeigt eine 2-px-Linie links (`border-left`) in ihrer Farbe.
 - Listen sind Zeilen mit Haarlinien (`--color-border-subtle`).
-- Code, Diffs, Fehlertexte und Felder sind eckig (`border-radius: 0`) mit Haarlinie; Knöpfe, Marken und Chips nehmen `--radius-flat` (2 px). Status- und Auswahlpunkte bleiben rund.
+- Code, Diffs, Fehlertexte und Felder sind eckig (`border-radius: 0`) mit Haarlinie; Knöpfe, Marken und Chips nehmen `--radius-flat` (2 px). Status- und Auswahlpunkte und Schalter (`Switch`) bleiben rund.
 - Unter `src/features/chat/` gibt es kein `--radius-lg` und `--radius-xl`. In `RepositoryPicker.css`, `ProjectOverview.css`, `ProjectSessionCard.css` und `NewSessionIntro.css` und bei `.remote-block` und `.remote-lock` in `RemoteProject.css` gibt es auch kein `--radius-md`. Kästen dort sind eckig mit Haarlinie; die Sperre `.remote-lock` hat wie das Eingabefeld einen Rahmen mit `--radius-flat`, hier gestrichelt; der Block „Fernsteuerung“ (`.remote-block`) hat statt eines Rahmens links eine 2-px-Linie, im Akzent, solange ein Gerät das Vorhaben steuert (`remote-block--active`). Ein Radius von 2 px ist immer `var(--radius-flat)`, nie das Literal (Ausnahme: Balken und Symbole). Neue Bausteine werden gleich flach gebaut; der Stil gehört an die Quelle des Bausteins.
 - Menüs, Dialoge und Popover außerhalb des Chats behalten ihre Rundung.
 - Kreise (`50%`) und 2-px-Balken bleiben. Alles andere an den genannten Stellen ist `0` oder `--radius-flat`, nie `--radius-md`, `-lg`, `-xl`, `-full` oder ein Pixelliteral; ein Kasten hat keine eigene Fläche.
