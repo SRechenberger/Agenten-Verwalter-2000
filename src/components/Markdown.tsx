@@ -8,10 +8,13 @@ import { CodeBlock } from '@/components/CodeBlock';
 import { ExternalLink } from '@/components/ExternalLink';
 import { FileLink } from '@/components/FileLink';
 import { FileLinkSessionContext } from '@/components/FileLinkSessionContext';
+import { SESSION_REF_SCHEME, remarkSessionRefs } from '@/components/remarkSessionRefs';
+import { SessionRefLink } from '@/components/SessionRefText';
 import { HIGHLIGHT_LANGUAGES } from '@/lib/syntax';
 import { remarkBreakTags } from '@/components/remarkBreakTags';
 import { rehypeUnsourced } from '@/features/sourcing/rehypeUnsourced';
 import { filePathOf } from '@/lib/fileLinks';
+import { sessionIdOf } from '@/lib/sessionRefs';
 import '@/features/sourcing/Unsourced.css';
 import './Markdown.css';
 
@@ -39,7 +42,11 @@ interface MarkdownLinkProps {
 const WINDOWS_PATH_URL = /^[a-z]:(?:[\\/]|%5c)/i;
 const FILE_URL = /^file:\/\/\//i;
 
-const REMARK_PLUGINS: NonNullable<Options['remarkPlugins']> = [remarkGfm, remarkBreakTags];
+const REMARK_PLUGINS: NonNullable<Options['remarkPlugins']> = [
+  remarkGfm,
+  remarkBreakTags,
+  remarkSessionRefs,
+];
 
 // Dieselbe Sprachliste wie der Diff (`src/lib/syntax.ts`); `detect: false`, damit nur Blöcke mit Sprachangabe gefärbt werden.
 const REHYPE_PLUGINS: NonNullable<Options['rehypePlugins']> = [
@@ -79,12 +86,13 @@ function InlineCode({ className, children }: InlineCodeProps): ReactElement {
   const sessionId: string | null = useContext(FileLinkSessionContext);
   const code: ReactElement = <code className={className}>{children}</code>;
   const text: string | null = plainTextOf(children);
-  if (sessionId === null || text === null || text.endsWith('\n')) {
+  if (text === null || text.endsWith('\n')) {
     return code;
   }
-  const path: string | null = filePathOf(text);
-  if (path === null) {
-    return code;
+  const path: string | null = sessionId === null ? null : filePathOf(text);
+  if (sessionId === null || path === null) {
+    const id: string | null = sessionIdOf(text);
+    return id === null ? code : <SessionRefLink target={{ id }}>{code}</SessionRefLink>;
   }
   return (
     <FileLink sessionId={sessionId} path={path}>
@@ -94,6 +102,18 @@ function InlineCode({ className, children }: InlineCodeProps): ReactElement {
 }
 
 function MarkdownLink({ href, children }: MarkdownLinkProps): ReactElement {
+  if (href?.startsWith(SESSION_REF_SCHEME) === true) {
+    const target: string = href.slice(SESSION_REF_SCHEME.length);
+    return (
+      <SessionRefLink target={/^\d+$/.test(target) ? { number: Number(target) } : { id: target }}>
+        {children}
+      </SessionRefLink>
+    );
+  }
+  return <FileOrExternalLink href={href}>{children}</FileOrExternalLink>;
+}
+
+function FileOrExternalLink({ href, children }: MarkdownLinkProps): ReactElement {
   const sessionId: string | null = useContext(FileLinkSessionContext);
   const path: string | null =
     sessionId === null || href === undefined ? null : filePathOf(decodeHref(href));
@@ -118,7 +138,7 @@ function decodeHref(href: string): string {
 // Ohne Ausnahme verwirft react-markdown `C:\…` (gilt ihm als unbekanntes Protokoll) und `file:///…`.
 // Geöffnet wird beides nur über `FileLink`, also nach der Prüfung im Core.
 function transformUrl(url: string): string {
-  if (WINDOWS_PATH_URL.test(url) || FILE_URL.test(url)) {
+  if (WINDOWS_PATH_URL.test(url) || FILE_URL.test(url) || url.startsWith(SESSION_REF_SCHEME)) {
     return url;
   }
   return defaultUrlTransform(url);

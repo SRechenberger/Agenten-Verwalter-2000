@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import type { ReactElement } from 'react';
 import { ClockIcon } from '@/components/ClockIcon';
+import { SessionRefText } from '@/components/SessionRefText';
 import { AttachmentRow } from '@/features/attachments/AttachmentRow';
 import {
   ADOPT_LABEL,
@@ -119,7 +120,7 @@ export function UserMessage({
         {(hasMark || body !== '') && (
           <p className="user-message__text">
             {hasMark && <span className="user-message__mark">{skillMark}</span>}
-            {body}
+            <SessionRefText text={body} />
           </p>
         )}
         {hasComments && (
