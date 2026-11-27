@@ -116,6 +116,20 @@ struct RawLimit {
     severity: Option<String>,
     #[serde(default, deserialize_with = "lenient")]
     resets_at: Option<String>,
+    #[serde(default, deserialize_with = "lenient")]
+    scope: Option<RawScope>,
+}
+
+#[derive(Debug, Deserialize)]
+struct RawScope {
+    #[serde(default, deserialize_with = "lenient")]
+    model: Option<RawScopeModel>,
+}
+
+#[derive(Debug, Deserialize)]
+struct RawScopeModel {
+    #[serde(default, deserialize_with = "lenient")]
+    display_name: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -192,6 +206,10 @@ fn limit(raw: RawLimit) -> Option<UsageLimit> {
         severity: raw.severity.unwrap_or_else(|| DEFAULT_SEVERITY.to_owned()),
         resets_at: raw.resets_at,
         window_minutes: None,
+        model: raw
+            .scope
+            .and_then(|scope: RawScope| scope.model)
+            .and_then(|model: RawScopeModel| model.display_name),
     })
 }
 
@@ -226,4 +244,57 @@ fn share(key: Option<String>, pct: Option<f64>) -> Option<UsageShare> {
 pub(crate) fn clamped_percent(value: f64) -> u32 {
     // Nach `clamp` liegt der Wert in 0..=100 und passt verlustfrei in `u32`.
     value.round().clamp(0.0, MAX_PERCENT) as u32
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::usage_snapshot;
+
+    /// Antwort eines Ultra-Abos auf `get_usage` am 2026-11-26 (gekürzt, ohne Konto-Kennungen):
+    /// `five_hour` ist `null`, `limits` nennt keine `session`.
+    #[test]
+    fn an_answer_without_a_session_limit_keeps_the_weekly_window() {
+        let body = json!({
+            "subscription_type": "max",
+            "rate_limits_available": true,
+            "rate_limits": {
+                "five_hour": null,
+                "seven_day": { "utilization": 1, "resets_at": "2026-12-03T20:00:00.919533+00:00" },
+                "limits": [
+                    {
+                        "kind": "weekly_all", "group": "weekly", "percent": 1, "severity": "normal",
+                        "resets_at": "2026-12-03T20:00:00.919533+00:00", "scope": null,
+                        "is_active": true
+                    },
+                    {
+                        "kind": "weekly_scoped", "group": "weekly", "percent": 0,
+                        "severity": "normal", "resets_at": "2026-12-03T20:00:00+00:00",
+                        "scope": { "model": { "id": null, "display_name": "Fable" } },
+                        "is_active": false
+                    }
+                ]
+            }
+        });
+        let snapshot = usage_snapshot(&body).expect("Objekt wird gelesen");
+        assert!(snapshot.limits.iter().all(|limit| limit.kind != "session"));
+        let weekly = snapshot
+            .limits
+            .iter()
+            .find(|limit| limit.kind == "weekly_all")
+            .expect("weekly_all bleibt");
+        assert_eq!(weekly.percent, 1);
+        assert_eq!(weekly.model, None);
+        let scoped = snapshot
+            .limits
+            .iter()
+            .find(|limit| limit.kind == "weekly_scoped")
+            .expect("weekly_scoped bleibt");
+        assert_eq!(scoped.model.as_deref(), Some("Fable"));
+        assert_eq!(
+            weekly.resets_at.as_deref(),
+            Some("2026-12-03T20:00:00.919533+00:00")
+        );
+    }
 }

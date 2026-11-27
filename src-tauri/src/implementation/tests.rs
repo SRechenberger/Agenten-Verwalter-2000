@@ -8655,6 +8655,7 @@ fn usage_limit(
         severity: "normal".to_owned(),
         resets_at: resets_at.map(str::to_owned),
         window_minutes: None,
+        model: None,
     }
 }
 
