@@ -74,8 +74,7 @@
   // (`window.name` übersteht die Navigation im Rahmen, ein neuer Rahmen beginnt leer) den letzten eigenen Stand
   // und die Prüfsummen der Stände, auf denen er aufbaut: den geladenen und jeden gemeldeten. Zeigt die Datei einen
   // davon außer dem letzten, ist sie nicht neuer: Es gilt der eigene Stand, und er wird erneut gemeldet. Sonst
-  // gilt die Datei. Bestätigt der Rahmen das Speichern des neuesten eigenen Stands, leert die Seite den Namen:
-  // Jedes spätere Dokument im Rahmen könnte ihn lesen.
+  // gilt die Datei, denn das eigene Speichern ist angekommen oder jemand anderes hat sie geändert.
   const buffer = (() => {
     if (!window.name.startsWith(BUFFER_PREFIX)) return null;
     try {
@@ -94,24 +93,17 @@
   // Ohne Verzögerung: ein Wechsel in den Chat direkt nach dem Klick darf nichts verlieren.
   const report = () => {
     const data = Object.fromEntries(saved);
-    const mark = markOf(data);
     if (window.parent !== window) {
-      window.parent.postMessage({ verwalter: 1, type: 'state', data, mark }, '*');
+      window.parent.postMessage({ verwalter: 1, type: 'state', data }, '*');
     }
-    return { data, mark };
+    return data;
   };
   const persistent = storage(saved, () => {
-    const { data, mark } = report();
-    marks = [...marks, mark].slice(-MAX_MARKS);
+    const data = report();
+    marks = [...marks, markOf(data)].slice(-MAX_MARKS);
     window.name = BUFFER_PREFIX + JSON.stringify({ data, marks });
   });
   if (isFileBehind) report();
-  // Eine Bestätigung für einen älteren Stand leert nichts; auch die nächste Seite im Rahmen bekommt sie.
-  window.addEventListener('message', (event) => {
-    const message = event.data;
-    if (event.source !== window.parent || message?.verwalter !== 1 || message.type !== 'state-saved') return;
-    if (message.mark === marks[marks.length - 1] && window.name.startsWith(BUFFER_PREFIX)) window.name = '';
-  });
   const volatile = storage(new Map(), () => {});
 
   // Greift das Überschreiben nicht, läuft die Seite weiter wie ohne Zustand.

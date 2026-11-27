@@ -78,25 +78,13 @@ export function parseOpenRequest(data: unknown): string | null {
   }
 }
 
-/** Die Prüfsumme des Stands (`markOf` in `state.js`) ist kurz; mehr nimmt der Rahmen nicht an. */
-const MARK_LIMIT = 16;
-
-/** Die Prüfsumme einer `state`-Nachricht, wenn sie eine kurze Zeichenkette ist, sonst `null`. Der Rahmen schickt
- *  sie nach dem Speichern zurück (`state-saved`), damit die Seite ihren Puffer leert (ADR 081). */
-export function stateMark(data: unknown): string | null {
-  if (typeof data !== 'object' || data === null) return null;
-  const mark: unknown = (data as unknown as Record<string, unknown>).mark;
-  return typeof mark === 'string' && mark.length <= MARK_LIMIT ? mark : null;
-}
-
 /** Zustand aus einer `state`-Nachricht der Seite (ADR 081): ein Objekt, dessen Werte alle Zeichenketten sind,
- *  sonst `null`; eine Prüfsumme `mark` ist, wenn sie da ist, eine kurze Zeichenkette. Die Datei wählt die App
- *  aus dem angezeigten Artefakt, nie diese Nachricht; Größe und JSON prüft der Core noch einmal. */
+ *  sonst `null`. Die Datei wählt die App aus dem angezeigten Artefakt, nie diese Nachricht; Größe und
+ *  JSON prüft der Core noch einmal. */
 export function parseStateRequest(data: unknown): Record<string, string> | null {
   if (typeof data !== 'object' || data === null) return null;
   const message = data as unknown as Record<string, unknown>;
   if (message.verwalter !== 1 || message.type !== 'state') return null;
-  if (message.mark !== undefined && stateMark(message) === null) return null;
   const state = message.data;
   if (typeof state !== 'object' || state === null || Array.isArray(state)) return null;
   const entries: [string, unknown][] = Object.entries(state);
