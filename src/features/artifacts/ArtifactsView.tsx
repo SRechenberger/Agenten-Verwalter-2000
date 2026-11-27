@@ -428,15 +428,19 @@ export function ArtifactsView({
           </div>
         ) : null}
         <div ref={stageRef} className="artifacts__stage">
+          {/* Unter dem Vollbild hängt die Vorschau aus (ADR 081): Zwei Rahmen einer Seite, die beim Laden
+              speichert, lüden einander sonst neu. Beim Schließen lädt sie mit dem neuesten Stand. */}
           {selected.viewable ? (
-            <ArtifactFrame
-              key={selected.file}
-              sessionId={sessionId}
-              baseUrl={list.baseUrl}
-              item={selected}
-              reloadToken={reloadToken}
-              frameRef={frameRef}
-            />
+            isFullscreen ? null : (
+              <ArtifactFrame
+                key={selected.file}
+                sessionId={sessionId}
+                baseUrl={list.baseUrl}
+                item={selected}
+                reloadToken={reloadToken}
+                frameRef={frameRef}
+              />
+            )
           ) : (
             <ArtifactOtherCard
               item={selected}
