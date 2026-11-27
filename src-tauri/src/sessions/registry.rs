@@ -2336,6 +2336,23 @@ impl SessionRegistry {
         comments
             .iter()
             .map(|comment: &ReviewComment| match &comment.target {
+                // Eine Datei aus einem eingetragenen Ordner: ihr eigener Ordner, wie ihn die Liste zeigt.
+                CommentTarget::Artifact { file, .. }
+                    if crate::artifacts::extern_files::is_extern(file) =>
+                {
+                    self.artifacts_dir(session_id)
+                        .ok()
+                        .and_then(|dir: PathBuf| {
+                            crate::artifacts::extern_files::resolve(
+                                &dir,
+                                file,
+                                &self.artifact_folders(),
+                            )
+                            .ok()?
+                            .parent()
+                            .map(Path::to_path_buf)
+                        })
+                }
                 CommentTarget::Artifact { .. } => self.artifacts_dir(session_id).ok(),
                 CommentTarget::Image { .. } => None,
                 CommentTarget::Diff => entries

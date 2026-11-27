@@ -12,9 +12,11 @@ const ARTIFACT_SHOW_EVENT = 'artifacts://show';
  *  als Betrachter-Seite (`?view=1`). `v=` zwingt das iframe zum Neuladen,
  *  sobald die Datei sich ändert. `scheme=light` oder `scheme=dark` trägt das Farbschema der App in den
  *  Rahmen, der von sich aus nur das des Systems sieht; bei `system` fehlt der Parameter, und die Seite
- *  folgt dem System. Ein Wechsel des Schemas ändert die Adresse und lädt den Rahmen neu. */
+ *  folgt dem System. Ein Wechsel des Schemas ändert die Adresse und lädt den Rahmen neu. Kodiert wird je
+ *  Bestandteil von `file`: Bei einer Datei aus einem eingetragenen Ordner (`.extern/<schlüssel>/<name>`) holen der
+ *  Betrachter und die Seite relativ unter `.extern/<schlüssel>/`, nie aus `.artefakte`. */
 export function artifactUrl(baseUrl: string, item: Artifact, colorScheme: ColorScheme): string {
-  const path: string = `${baseUrl}${encodeURIComponent(item.file)}`;
+  const path: string = `${baseUrl}${item.file.split('/').map(encodeURIComponent).join('/')}`;
   const scheme: string = colorScheme === 'system' ? '' : `&scheme=${colorScheme}`;
   const version: string = `v=${String(item.modifiedAt)}${scheme}`;
   switch (item.kind) {

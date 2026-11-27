@@ -222,7 +222,7 @@ export function ArtifactsView({
         <ArtifactKindBadge kind={item.kind} />
         <span className="artifacts__entry-text">
           <span className="artifacts__entry-title">
-            {item.externalDir === undefined ? item.title : displayFile(item)}
+            {item.externalDir === undefined ? item.title : displayFile(item.file)}
           </span>
           <span className="artifacts__entry-meta">{metaLine(item)}</span>
         </span>
@@ -261,9 +261,9 @@ export function ArtifactsView({
         onClick={(): void => {
           mentionInChat(
             currentSessionId,
-            item.externalDir === undefined
+            item.externalPath === undefined
               ? `Artefakt „${item.title}“ (${list.dir}\\${item.file})`
-              : `Datei „${item.title}“ (${item.externalDir}/${displayFile(item)})`,
+              : `Datei „${item.title}“ (${item.externalPath})`,
           );
         }}
       >
@@ -295,7 +295,7 @@ export function ArtifactsView({
             >
               {isJustUpdated
                 ? JUST_UPDATED
-                : `${displayFile(selected)} · ${clockLabel(selected.modifiedAt)}`}
+                : `${displayFile(selected.file)} · ${clockLabel(selected.modifiedAt)}`}
             </span>
           </div>
           <div className="artifacts__actions">

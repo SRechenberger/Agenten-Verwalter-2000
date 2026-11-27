@@ -502,7 +502,8 @@ fn checked_programs(value: &[String]) -> Result<Vec<String>, CommandError> {
     Ok(programs)
 }
 
-/// Jeder Eintrag ein absoluter, vorhandener Ordner; gespeichert wird der kanonische Pfad, ohne Doppel.
+/// Jeder Eintrag ein absoluter, vorhandener Ordner; gespeichert wird der kanonische Pfad in der Form von
+/// `display_path`, ohne Doppel. Mit genau diesem Text vergleicht `extern_files` (ADR 026).
 fn checked_folders(value: &[String]) -> Result<Vec<String>, CommandError> {
     let mut folders: Vec<String> = Vec::new();
     for text in value.iter().map(|text: &String| text.trim()) {
@@ -517,7 +518,8 @@ fn checked_folders(value: &[String]) -> Result<Vec<String>, CommandError> {
                     "„{text}“ ist kein vorhandener Ordner mit absolutem Pfad."
                 ))
             })?;
-        let canonical = canonical.to_string_lossy().into_owned();
+        // Unter Windows ohne `\\?\`: so steht der Ordner in der Zeile, im Tooltip und in der Anweisung.
+        let canonical = crate::filesystem::display_path(&canonical.to_string_lossy());
         if !folders.contains(&canonical) {
             folders.push(canonical);
         }

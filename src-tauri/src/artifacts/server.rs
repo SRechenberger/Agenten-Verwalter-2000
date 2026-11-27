@@ -268,8 +268,8 @@ impl Source {
     fn state_artifact(&self, relative: &str) -> Option<String> {
         match self {
             Source::Local(dir) => state::artifact_for(dir, relative),
-            // Kein dauerhafter Zustand (ADR 081): `localStorage` lebt nur im Speicher der Seite.
-            Source::Extern { .. } => Some(String::new()),
+            // `respond` setzt für `.extern/…` selbst den leeren Stand.
+            Source::Extern { .. } => None,
             Source::Remote(remote) => {
                 let pages = if relative.contains('/') {
                     remote.page_names()?
@@ -523,9 +523,15 @@ pub(crate) fn respond(
     } else {
         match source.read(&relative) {
             Ok((content_type, body)) if content_type == HTML => {
-                let body = match source.state_artifact(&relative) {
-                    Some(artifact) => with_state(body, &source.state(&artifact)),
-                    None => body,
+                // Eine Datei aus einem eingetragenen Ordner hat keinen dauerhaften Zustand (ADR 081):
+                // `localStorage` lebt nur im Speicher, am Host wie beim Gast, ohne Frage an den Host.
+                let body = if extern_files::is_extern(&relative) {
+                    with_state(body, "{}")
+                } else {
+                    match source.state_artifact(&relative) {
+                        Some(artifact) => with_state(body, &source.state(&artifact)),
+                        None => body,
+                    }
                 };
                 (content_type, with_bridge(body))
             }
@@ -1021,15 +1027,34 @@ mod extern_tests {
         }
     }
 
+    /// Was die Betrachter-Seite unter `relative` als ihre Datei nennt (`viewer.file`).
+    fn viewer_file(page: &[u8]) -> String {
+        let page = String::from_utf8_lossy(page);
+        let start = page.find("file: ").expect("viewer.file") + "file: ".len();
+        serde_json::Deserializer::from_str(&page[start..])
+            .into_iter::<String>()
+            .next()
+            .expect("Name")
+            .expect("JSON-Text")
+    }
+
     #[test]
-    fn a_markdown_file_from_a_registered_folder_comes_through_the_viewer() {
+    fn a_markdown_file_from_a_registered_folder_comes_through_the_viewer_at_the_address_it_fetches()
+    {
         let setup = Setup::new("notiz.md", "# Notiz\n\nHallo");
+        // Eine gleichnamige Datei im Vorhaben darf nie an ihre Stelle treten.
+        fs::write(setup.dir.join("notiz.md"), "# FALSCHE DATEI").expect("Datei im Vorhaben");
         let source = setup.source(&setup.folders);
         let page = respond(&source, "scope", setup.key_path.clone(), false, true);
         assert_eq!(page.status, 200);
         assert_eq!(page.content_type, HTML);
-        assert!(String::from_utf8_lossy(&page.body).contains("notiz.md"));
-        let raw = respond(&source, "scope", setup.key_path.clone(), false, false);
+        // `viewer.url()` ist `encodeURIComponent(viewer.file)`, relativ zur Adresse der Seite: Es
+        // ersetzt den letzten Teil von `.extern/<schlüssel>/<name>`.
+        let file = viewer_file(&page.body);
+        let (folder, _) = setup.key_path.rsplit_once('/').expect("Schlüsselpfad");
+        let fetched = format!("{folder}/{file}");
+        assert_eq!(fetched, setup.key_path);
+        let raw = respond(&source, "scope", fetched, false, false);
         assert_eq!(raw.status, 200);
         assert_eq!(raw.body, b"# Notiz\n\nHallo");
         assert!(raw.csp.is_some(), "dieselbe CSP wie andere Artefakte");
@@ -1058,10 +1083,17 @@ mod extern_tests {
         let setup = Setup::new("notiz.md", "# Notiz");
         let source = setup.source(&setup.folders);
         let outside = setup.root.join("geheim.md");
+        let (folder, _) = setup.key_path.rsplit_once('/').expect("Schlüsselpfad");
+        fs::write(setup.root.join("vault").join("bild.svg"), "<svg/>").expect("Nachbardatei");
+        fs::write(setup.dir.join("bild.svg"), "<svg/>").expect("Datei im Vorhaben");
         for relative in [
             format!("{}{}", extern_files::PREFIX, outside.display()),
             format!("{}../geheim.md", extern_files::PREFIX),
             format!("{}/etc/passwd", extern_files::PREFIX),
+            // Relative Adressen einer Seite: weder die Nachbardatei im Ordner noch eine aus `.artefakte`.
+            format!("{folder}/bild.svg"),
+            format!("{folder}/unter/notiz.md"),
+            format!("{folder}/../geheim.md"),
         ] {
             for wants_viewer in [false, true] {
                 let reply = respond(&source, "scope", relative.clone(), false, wants_viewer);
@@ -1086,6 +1118,81 @@ mod extern_tests {
         assert_eq!(after.status, 403);
         let listing = respond(&setup.source(&setup.folders), "scope", url, true, false);
         assert_eq!(listing.status, 404);
+    }
+
+    #[test]
+    fn the_extern_store_is_never_delivered_to_a_page_or_a_guest() {
+        let setup = Setup::new("notiz.md", "# Notiz");
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(
+            setup.dir.join(extern_files::FILE),
+            setup.dir.join("link.json"),
+        )
+        .expect("Symlink");
+        let local = Source::Local(setup.dir.clone());
+        for relative in [extern_files::FILE, "link.json"] {
+            if !setup.dir.join(relative).exists() {
+                continue;
+            }
+            let reply = respond(&local, "scope", relative.to_owned(), false, false);
+            assert_eq!(reply.status, 404, "{relative}");
+            let viewer = respond(&local, "scope", relative.to_owned(), false, true);
+            assert_eq!(viewer.status, 404, "{relative}");
+            assert!(
+                crate::remote::content::artifact_in(&setup.dir, relative, &setup.folders).is_err(),
+                "{relative}"
+            );
+        }
+        // Die übrigen versteckten Namen bleiben, wie sie sind.
+        fs::write(setup.dir.join(".env"), "A=1").expect(".env");
+        let env = respond(&local, "scope", ".env".to_owned(), false, false);
+        assert_eq!(env.status, 200);
+    }
+
+    #[test]
+    fn a_guest_html_page_from_a_registered_folder_gets_an_empty_state_without_asking_the_host() {
+        use base64::Engine as _;
+        let asked = Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+        let (state_log, list_log, file_log) =
+            (Arc::clone(&asked), Arc::clone(&asked), Arc::clone(&asked));
+        let page = base64::engine::general_purpose::STANDARD.encode("<html><head></head></html>");
+        let source = Source::Remote(
+            RemoteSource::new(move |command: &str, path: &str| {
+                file_log
+                    .lock()
+                    .expect("Sperre")
+                    .push(format!("{command} {path}"));
+                Ok(Content {
+                    content_type: HTML.to_owned(),
+                    data_base64: page.clone(),
+                })
+            })
+            .with_state_fetch(move |command: &str, path: &str| {
+                state_log
+                    .lock()
+                    .expect("Sperre")
+                    .push(format!("{command} {path}"));
+                Err(CommandError::FileNotFound(path.to_owned()))
+            })
+            .with_list_fetch(move || {
+                list_log
+                    .lock()
+                    .expect("Sperre")
+                    .push("artifacts_list".to_owned());
+                Ok(json!({ "items": [] }))
+            }),
+        );
+        let relative = format!("{}ab12/seite.html", extern_files::PREFIX);
+        let reply = respond(&source, "scope", relative.clone(), false, false);
+        assert_eq!(reply.status, 200);
+        let page = String::from_utf8(reply.body).expect("utf-8");
+        assert!(page.contains(r#"JSON.parse("{}")"#), "{page}");
+        assert!(page.contains(BRIDGE_SCRIPT.lines().next().unwrap_or("bridge")));
+        assert_eq!(
+            *asked.lock().expect("Sperre"),
+            [format!("remote_artifact {relative}")],
+            "nur die Datei, keine Liste und kein Zustand"
+        );
     }
 
     #[test]

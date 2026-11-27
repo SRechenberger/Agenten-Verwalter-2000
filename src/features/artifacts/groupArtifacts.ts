@@ -6,9 +6,13 @@ export const UNASSIGNED_KEY = '';
 /** Schlüssel der Gruppe „Extern“: Dateien aus eingetragenen Ordnern (Taiga 139), nur lesend. */
 export const EXTERN_KEY = 'extern';
 
-/** Der Dateiname im Reiter: bei einer Datei aus einem eingetragenen Ordner (`.extern/<schlüssel>/<name>`) nur der Name. */
-export function displayFile(item: Artifact): string {
-  return item.externalDir === undefined ? item.file : (item.file.split('/').pop() ?? item.file);
+/** Vorsilbe von `Artifact.file` bei einer Datei aus einem eingetragenen Ordner (`extern_files::PREFIX`). */
+const EXTERN_PREFIX = '.extern/';
+
+/** Der Dateiname im Reiter und auf Kommentarkarten: bei einer Datei aus einem eingetragenen Ordner
+ *  (`.extern/<schlüssel>/<name>`) nur der Name. */
+export function displayFile(file: string): string {
+  return file.startsWith(EXTERN_PREFIX) ? file.slice(file.lastIndexOf('/') + 1) : file;
 }
 
 export interface ArtifactGroup {

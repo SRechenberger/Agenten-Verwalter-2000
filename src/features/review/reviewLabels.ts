@@ -1,3 +1,4 @@
+import { displayFile } from '@/features/artifacts/groupArtifacts';
 import type { DiffLineKind } from '@/lib/bindings/DiffLineKind';
 import type { CommentTarget } from '@/lib/bindings/CommentTarget';
 import type { ReviewComment } from '@/lib/bindings/ReviewComment';
@@ -21,7 +22,7 @@ export function whereLabel(comment: ReviewComment): string {
     case 'diff':
       return `${comment.repositoryName} / ${comment.path} · ${lineLabel(comment.kind, comment.line)}`;
     case 'artifact':
-      return `${comment.target.file} · ${selectorTail(comment.target.selector)} „${comment.target.label}“`;
+      return `${displayFile(comment.target.file)} · ${selectorTail(comment.target.selector)} „${comment.target.label}“`;
     case 'image':
       return `${comment.target.name} · Bereich ${String(comment.target.width)} × ${String(comment.target.height)} bei ${String(comment.target.x)}, ${String(comment.target.y)}`;
   }

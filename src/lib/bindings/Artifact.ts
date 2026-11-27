@@ -44,4 +44,9 @@ stateModifiedAt?: number,
  * liegt. `file` ist dann `.extern/<schlüssel>/<name>`; die Oberfläche zeigt `name` und diesen
  * Ordner im Tooltip.
  */
-externalDir?: string, };
+externalDir?: string, 
+/**
+ * Nur bei einer Datei aus einem eingetragenen Ordner: ihr voller Pfad mit dem Trenner des Systems,
+ * für „Im Chat besprechen“.
+ */
+externalPath?: string, };

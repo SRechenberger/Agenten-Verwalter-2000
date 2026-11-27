@@ -719,6 +719,8 @@ fn command_error(value: Value) -> CommandError {
 #[cfg(test)]
 mod create_tests;
 #[cfg(test)]
+mod extern_tests;
+#[cfg(test)]
 mod tempo_tests;
 #[cfg(test)]
 mod tests;

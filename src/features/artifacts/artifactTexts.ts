@@ -63,7 +63,7 @@ export function sizeLabel(bytes: number): string {
 /** Dateiname (bei Ordnern die Zahl der Dateien) · Uhrzeit · ggf. die Session, die zuletzt schrieb. */
 export function metaLine(item: Artifact): string {
   const parts: string[] = [
-    item.entries === null ? displayFile(item) : `${String(item.entries)} Dateien`,
+    item.entries === null ? displayFile(item.file) : `${String(item.entries)} Dateien`,
     clockLabel(item.modifiedAt),
   ];
   if (item.lastSessionNumber !== null) {

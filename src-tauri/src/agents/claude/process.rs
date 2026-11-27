@@ -394,12 +394,13 @@ pub(crate) fn common_args(command: &mut Command, opts: &SpawnOptions, permission
         prompts.push(scratchpad_prompt(dir));
     }
     if let Some(dir) = &opts.artifacts {
+        let has_tools = opts.verwalter_mcp.is_some() && opts.codex_exe.is_none();
         prompts.push(artifacts_prompt(
             dir,
             opts.local.is_none() && opts.codex_exe.is_none(),
-            opts.verwalter_mcp.is_some() && opts.codex_exe.is_none(),
+            has_tools,
         ));
-        if let Some(sentence) = extern_folders_prompt(&opts.artifact_folders) {
+        if let Some(sentence) = extern_folders_prompt(&opts.artifact_folders, has_tools) {
             prompts.push(sentence);
         }
     }
@@ -552,9 +553,10 @@ fn artifacts_prompt(dir: &Path, can_publish: bool, has_tools: bool) -> String {
     prompt
 }
 
-/// Der Satz über die eingetragenen Ordner (X7, Taiga 139); ohne Ordner kein Satz.
-fn extern_folders_prompt(folders: &[String]) -> Option<String> {
-    (!folders.is_empty()).then(|| {
+/// Der Satz über die eingetragenen Ordner (X7, Taiga 139); ohne Ordner oder ohne die Werkzeuge des
+/// Verwalters (wie der Werkzeugsatz in `artifacts_prompt`) kein Satz.
+fn extern_folders_prompt(folders: &[String], has_tools: bool) -> Option<String> {
+    (has_tools && !folders.is_empty()).then(|| {
         format!(
             "Eingetragene Ordner für Artefakte: {}. Dateien daraus zeigst du mit \
              mcp__verwalter__artifact_show und dem absoluten Pfad.",
@@ -819,10 +821,11 @@ mod extern_folders_prompt_tests {
     use super::extern_folders_prompt;
 
     #[test]
-    fn the_prompt_names_the_registered_folders_and_is_absent_without_any() {
-        assert_eq!(extern_folders_prompt(&[]), None);
-        let sentence =
-            extern_folders_prompt(&["/a/vault".to_owned(), "/b".to_owned()]).expect("Satz");
+    fn the_prompt_names_the_registered_folders_and_is_absent_without_any_or_without_tools() {
+        assert_eq!(extern_folders_prompt(&[], true), None);
+        let folders = ["/a/vault".to_owned(), "/b".to_owned()];
+        assert_eq!(extern_folders_prompt(&folders, false), None);
+        let sentence = extern_folders_prompt(&folders, true).expect("Satz");
         assert!(sentence.contains("/a/vault, /b"));
         assert!(sentence.contains("artifact_show") && sentence.contains("absoluten Pfad"));
     }

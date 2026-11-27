@@ -4,6 +4,7 @@ pub mod model;
 
 use std::path::PathBuf;
 
+use crate::artifacts::extern_files;
 use crate::changes::model::DiffLineKind;
 use crate::error::CommandError;
 use crate::filesystem::native_path;
@@ -85,6 +86,9 @@ pub fn agent_text(text: &str, comments: &[ReviewComment], folders: &[Option<Path
                     )
                 }
                 CommentTarget::Artifact { file, selector, .. } => {
+                    // Eine Datei aus einem eingetragenen Ordner (`.extern/<schlüssel>/<name>`): `folder`
+                    // ist ihr eigener Ordner, es zählt nur der Name.
+                    let file = extern_files::file_name(file).unwrap_or(file);
                     let location = match folder {
                         Some(folder) => folder.join(native_path(file)).display().to_string(),
                         None => format!("Artefakt {file}"),
@@ -177,4 +181,36 @@ fn fence(code: &str) -> String {
     FENCE_CHARACTER
         .to_string()
         .repeat((longest_run + 1).max(MIN_FENCE_LENGTH))
+}
+
+#[cfg(test)]
+mod extern_tests {
+    use std::path::PathBuf;
+
+    use super::agent_text;
+    use crate::changes::model::DiffLineKind;
+    use crate::review::model::{CommentTarget, ReviewComment};
+
+    #[test]
+    fn a_comment_on_a_file_from_a_registered_folder_names_its_real_path() {
+        let comment = ReviewComment {
+            target: CommentTarget::Artifact {
+                file: ".extern/ab12/notiz.md".to_owned(),
+                selector: "body > h1".to_owned(),
+                label: "Notiz".to_owned(),
+            },
+            repository_key: String::new(),
+            repository_name: String::new(),
+            path: String::new(),
+            kind: DiffLineKind::Context,
+            line: 0,
+            code: String::new(),
+            text: "Bitte kürzen".to_owned(),
+        };
+        let folder = PathBuf::from("/home/a/vault");
+        let text = agent_text("", &[comment], &[Some(folder.clone())]);
+        let expected = format!("{} — Element body > h1", folder.join("notiz.md").display());
+        assert!(text.contains(&expected), "{text}");
+        assert!(!text.contains(".extern"), "{text}");
+    }
 }

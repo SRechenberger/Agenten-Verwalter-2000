@@ -38,4 +38,4 @@ Eine interaktive HTML-Seite im Reiter „Artefakte“ läuft im abgeschotteten R
 - Eine Seite einer Website, die auf ein anderes Artefakt verlinkt, schreibt seinen Zustand in die Datei des angezeigten Artefakts, denn die Datei bestimmt der Rahmen aus seiner Auswahl.
 - Ein Wert mit einem einzelnen Surrogat (etwa `'\ud800'`) lässt sich nicht als UTF-8 speichern; der Core lehnt den ganzen Stand ab, und der Fehler erscheint nur in der Konsole der App.
 - Eine Seite kann den Zustand anderer Artefakte per `fetch` lesen (`.zustand/` liegt im Ordner, den die CSP freigibt), nicht schreiben.
-- Eine Datei aus einem eingetragenen Ordner (`.extern/…`, [ADR 026](026-artefakte.md), Nachtrag Taiga 139) hat keinen dauerhaften Zustand: Der Server setzt das Skript mit leerem Stand, `localStorage` lebt nur im Speicher der Seite, und die Oberfläche speichert nichts.
+- Eine Datei aus einem eingetragenen Ordner (`.extern/…`, [ADR 026](026-artefakte.md), Nachtrag Taiga 139) hat keinen dauerhaften Zustand: Der Server setzt das Skript mit leerem Stand, am Host wie beim Gast und ohne Frage an den Host, `localStorage` lebt nur im Speicher der Seite, und die Oberfläche speichert nichts.

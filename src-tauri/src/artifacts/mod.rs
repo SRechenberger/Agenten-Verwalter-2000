@@ -190,7 +190,9 @@ pub(crate) fn sort_newest_first(items: &mut [Artifact]) {
 /// liegen — sonst führte ein Symlink im Ordner nach draußen.
 pub fn resolve(dir: &Path, relative: &str) -> Result<PathBuf, CommandError> {
     let target = resolve_entry(dir, relative)?;
-    if target.is_dir() {
+    // `.extern.json` nennt Pfade außerhalb des Vorhabens (Taiga 139): weder eine Seite noch ein Gast
+    // bekommt sie, auch nicht über einen Symlink im Ordner.
+    if target.is_dir() || extern_files::is_store(dir, &target) {
         return Err(CommandError::FileNotFound(relative.to_owned()));
     }
     Ok(target)
@@ -342,6 +344,7 @@ fn file_item(path: &Path, file: String, metadata: Option<fs::Metadata>) -> Artif
         last_session_name: None,
         state_modified_at: None,
         external_dir: None,
+        external_path: None,
     }
 }
 
@@ -370,6 +373,7 @@ fn folder_item(path: &Path, file: String) -> Artifact {
         last_session_name: None,
         state_modified_at: None,
         external_dir: None,
+        external_path: None,
     }
 }
 
