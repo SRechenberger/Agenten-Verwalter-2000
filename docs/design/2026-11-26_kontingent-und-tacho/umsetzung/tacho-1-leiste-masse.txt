@@ -1,0 +1,107 @@
+Probelauf tacho-ui-3, Leiste 256/200 px, Host und Gast; Maße aus getBoundingClientRect, sw = scrollWidth, r = rechte Kante. Knopf endet bei r 245 (256 px) bzw. 189 (200 px).
+== 256-host
+sidebar 256
+  usage-button__trigger severity severity-                      x   10 w  235 sw  235 r  245
+  usage-gauge                                                   x   18 w   14 sw   14 r   32
+                                                                x   20 w   10 sw    0 r   30
+                                                                x   25 w    2 sw    0 r   27
+  usage-button__name                       Kontingent           x   40 w   18 sw   66 r   58
+  severity-icon                                                 x   66 w   12 sw   12 r   78
+                                                                x   67 w    9 sw    0 r   77
+                                                                x   70 w    4 sw    0 r   74
+  usage-button__bars                                            x   86 w   32 sw   32 r  118
+  usage-button__bar                                             x   86 w   32 sw   32 r  118
+  usage-button__fill                                            x   86 w   19 sw   19 r  105
+  usage-button__bar                                             x   86 w   32 sw   32 r  118
+  usage-button__fill                                            x   86 w    4 sw    4 r   90
+  usage-button__window                     5h                   x  126 w   14 sw   14 r  140
+  usage-button__label                      58 %                 x  148 w   34 sw   34 r  182
+  usage-button__rate                       152 %/h              x  190 w   47 sw   47 r  237
+  tempo-row__trigger                                            x   10 w  235 sw  235 r  245
+  tempo-bolt                                                    x   18 w   14 sw   14 r   32
+                                                                x   22 w    7 sw    0 r   29
+  tempo-row__name                          Tempo                x   40 w   52 sw   52 r   92
+  tempo-line                                                    x  100 w   44 sw   44 r  144
+                                                                x  100 w   44 sw    0 r  144
+  tempo-row__rate                          2,6 k/min            x  152 w   63 sw   63 r  215
+  tempo-row__active                        · 1                  x  223 w   14 sw   14 r  237
+== 200-host
+sidebar 200
+  usage-button__trigger severity severity-                      x   10 w  179 sw  209 r  189
+  usage-gauge                                                   x   18 w   14 sw   14 r   32
+                                                                x   20 w   10 sw    0 r   30
+                                                                x   25 w    2 sw    0 r   27
+  severity-icon                                                 x   48 w   12 sw   12 r   60
+                                                                x   49 w    9 sw    0 r   59
+                                                                x   52 w    4 sw    0 r   56
+  usage-button__bars                                            x   68 w   32 sw   32 r  100
+  usage-button__bar                                             x   68 w   32 sw   32 r  100
+  usage-button__fill                                            x   68 w   19 sw   19 r   87
+  usage-button__bar                                             x   68 w   32 sw   32 r  100
+  usage-button__fill                                            x   68 w    4 sw    4 r   72
+  usage-button__window                     5h                   x  108 w   14 sw   14 r  122
+  usage-button__label                      58 %                 x  130 w   34 sw   34 r  164
+  usage-button__rate                       152 %/h              x  172 w   47 sw   47 r  219
+  tempo-row__trigger                                            x   10 w  179 sw  179 r  189
+  tempo-bolt                                                    x   18 w   14 sw   14 r   32
+                                                                x   22 w    7 sw    0 r   29
+  tempo-line                                                    x   48 w   44 sw   44 r   92
+                                                                x   48 w   44 sw    0 r   92
+  tempo-row__rate                          2,6 k/min            x  100 w   63 sw   63 r  163
+  tempo-row__active                        · 1                  x  171 w   14 sw   14 r  185
+== 256-guest
+sidebar 256
+  usage-button__trigger usage-button__trig                      x   10 w  235 sw  235 r  245
+  usage-button__name                       selbst               x   40 w  197 sw  197 r  237
+  usage-button__trigger usage-button__trig                      x   10 w  235 sw  235 r  245
+  usage-button__name                       kropotkin            x   40 w   18 sw   58 r   58
+  severity-icon                                                 x   66 w   12 sw   12 r   78
+                                                                x   67 w    9 sw    0 r   77
+                                                                x   70 w    4 sw    0 r   74
+  usage-button__bars                                            x   86 w   32 sw   32 r  118
+  usage-button__bar                                             x   86 w   32 sw   32 r  118
+  usage-button__fill                                            x   86 w   19 sw   19 r  105
+  usage-button__bar                                             x   86 w   32 sw   32 r  118
+  usage-button__fill                                            x   86 w    4 sw    4 r   90
+  usage-button__window                     5h                   x  126 w   14 sw   14 r  140
+  usage-button__label                      58 %                 x  148 w   34 sw   34 r  182
+  usage-button__rate                       152 %/h              x  190 w   47 sw   47 r  237
+  tempo-row__trigger tempo-row__trigger--s                      x   10 w  235 sw  235 r  245
+  tempo-row__name                          selbst               x   40 w   66 sw   66 r  106
+  tempo-line                                                    x  114 w   44 sw   44 r  158
+                                                                x  114 w   44 sw    0 r  158
+  tempo-row__rate                          0 k/min              x  166 w   49 sw   49 r  215
+  tempo-row__active                        · 0                  x  223 w   14 sw   14 r  237
+  tempo-row__trigger tempo-row__trigger--s                      x   10 w  235 sw  235 r  245
+  tempo-row__name                          kropotkin            x   40 w   52 sw   58 r   92
+  tempo-line                                                    x  100 w   44 sw   44 r  144
+                                                                x  100 w   44 sw    0 r  144
+  tempo-row__rate                          2,6 k/min            x  152 w   63 sw   63 r  215
+  tempo-row__active                        · 1                  x  223 w   14 sw   14 r  237
+== 200-guest
+sidebar 200
+  usage-button__trigger usage-button__trig                      x   10 w  179 sw  179 r  189
+  usage-button__name                       selbst               x   40 w  141 sw  141 r  181
+  usage-button__trigger usage-button__trig                      x   10 w  179 sw  209 r  189
+  severity-icon                                                 x   48 w   12 sw   12 r   60
+                                                                x   49 w    9 sw    0 r   59
+                                                                x   52 w    4 sw    0 r   56
+  usage-button__bars                                            x   68 w   32 sw   32 r  100
+  usage-button__bar                                             x   68 w   32 sw   32 r  100
+  usage-button__fill                                            x   68 w   19 sw   19 r   87
+  usage-button__bar                                             x   68 w   32 sw   32 r  100
+  usage-button__fill                                            x   68 w    4 sw    4 r   72
+  usage-button__window                     5h                   x  108 w   14 sw   14 r  122
+  usage-button__label                      58 %                 x  130 w   34 sw   34 r  164
+  usage-button__rate                       152 %/h              x  172 w   47 sw   47 r  219
+  tempo-row__trigger tempo-row__trigger--s                      x   10 w  179 sw  179 r  189
+  tempo-row__name                          selbst               x   40 w   10 sw   37 r   50
+  tempo-line                                                    x   58 w   44 sw   44 r  102
+                                                                x   58 w   44 sw    0 r  102
+  tempo-row__rate                          0 k/min              x  110 w   49 sw   49 r  159
+  tempo-row__active                        · 0                  x  167 w   14 sw   14 r  181
+  tempo-row__trigger tempo-row__trigger--s                      x   10 w  179 sw  179 r  189
+  tempo-line                                                    x   48 w   44 sw   44 r   92
+                                                                x   48 w   44 sw    0 r   92
+  tempo-row__rate                          2,6 k/min            x  100 w   63 sw   63 r  163
+  tempo-row__active                        · 1                  x  171 w   14 sw   14 r  185
