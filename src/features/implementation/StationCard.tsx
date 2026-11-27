@@ -54,6 +54,7 @@ import type { OperatingMode } from '@/lib/bindings/OperatingMode';
 import type { SessionSummary } from '@/lib/bindings/SessionSummary';
 import type { ActionError } from '@/lib/useActionError';
 import { useQuotaHeldUntil } from '@/stores/agentQueue';
+import { TempoStation } from '@/features/tempo/TempoStation';
 import './StationCard.css';
 
 /** Die vier Abschnitte der Kartei. */
@@ -329,6 +330,11 @@ export function StationCard({
       <div className="station-card__head">
         <b className="station-card__title">{stationDisplay(station)}</b>
         <span className="station-card__number">{number}</span>
+        <TempoStation
+          projectId={session?.projectId ?? null}
+          sessionId={station.sessionId}
+          label={stationDisplay(station)}
+        />
       </div>
       <p className="station-card__phase">{phase.title}</p>
       <p className="station-card__state">

@@ -93,6 +93,14 @@
     text-align: right;
     color: var(--severity-color, inherit);
   }
+
+  /* Die Reichweite des knappsten Fensters hinter der Zahl; sie bleibt stehen, der Name kürzt sich. */
+  &__rate {
+    flex: none;
+    font-size: 11.5px;
+    font-variant-numeric: tabular-nums;
+    color: var(--color-fg-muted);
+  }
 }
 
 /* Der Tacho behält seine 14 px; kürzen darf nur der Name (Taiga 270). */

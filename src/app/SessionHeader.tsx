@@ -18,6 +18,7 @@ import { cancelSession, pauseSession, resumeSession } from '@/lib/sessions';
 import { useReviewStore } from '@/stores/review';
 import { useSessionErrorsStore } from '@/stores/sessionErrors';
 import { SESSION_VIEWS, type SessionView } from '@/stores/sessions';
+import { TempoButton } from '@/features/tempo/TempoButton';
 import './SessionHeader.css';
 
 const MS_PER_SECOND = 1000;
@@ -375,6 +376,12 @@ export function SessionHeader({
           </span>
         </button>
         <SessionGauge session={session} runtime={formatRuntime(runningMs)} isMaster={isMaster} />
+        <TempoButton
+          projectId={session.projectId}
+          sessionId={session.id}
+          label={`#${String(session.number)} ${session.name}`}
+          variant="head"
+        />
         {renderControls()}
         <RemoteGiveBack projectId={session.projectId} />
       </div>

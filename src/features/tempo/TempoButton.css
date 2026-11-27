@@ -1,0 +1,57 @@
+.tempo-button {
+  position: relative;
+  flex-shrink: 0;
+
+  &__trigger {
+    display: flex;
+    align-items: center;
+    gap: var(--space-md);
+    height: 28px;
+    padding: 0 var(--space-md);
+    border: 0;
+    border-radius: var(--radius-flat);
+    background: transparent;
+    color: var(--color-fg-muted);
+    font: inherit;
+    white-space: nowrap;
+    cursor: pointer;
+
+    &:hover {
+      background: var(--color-bg-hover);
+    }
+
+    &:focus-visible {
+      outline: 2px solid var(--color-accent);
+      outline-offset: 2px;
+    }
+
+    &[aria-expanded='true'] {
+      background: var(--color-bg-selected);
+    }
+  }
+
+  &--station &__trigger {
+    height: 22px;
+    padding: 0 var(--space-sm);
+  }
+
+  &__rate {
+    min-width: 58px;
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+    color: var(--color-fg-secondary);
+  }
+
+  &__none {
+    display: inline-block;
+    min-width: 64px;
+    text-align: right;
+    color: var(--color-fg-muted);
+  }
+}
+
+.tempo-line {
+  flex: none;
+}

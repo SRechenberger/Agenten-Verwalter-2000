@@ -76,6 +76,7 @@ import type { AgentQueue } from '@/lib/bindings/AgentQueue';
 import type { SessionSummary } from '@/lib/bindings/SessionSummary';
 import type { StationView } from '@/lib/bindings/StationView';
 import { useAgentQueueStore, waitQueuesOf } from '@/stores/agentQueue';
+import { TempoStation } from '@/features/tempo/TempoStation';
 import './Timeline.css';
 
 interface TimelineProps {
@@ -429,6 +430,11 @@ export function Timeline({
           )}
           {renderMeta(station)}
         </button>
+        <TempoStation
+          projectId={implementation.projectId}
+          sessionId={station.sessionId}
+          label={stationDisplay(station)}
+        />
         <span className={`timeline__state timeline__state--${tone}`}>
           {rowText(station)}
           {renderMasterChips(station)}

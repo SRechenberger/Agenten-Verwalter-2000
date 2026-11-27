@@ -2,11 +2,13 @@ import { useMemo, useState } from 'react';
 import type { ReactElement } from 'react';
 import { SeverityIcon } from '@/components/SeverityIcon';
 import { useHostProfileOf } from '@/features/remote/useOperatingMode';
+import { forecastTitleLine, formatPerHour, scarcestForecast } from '@/features/tempo/tempoTexts';
 import { UsagePopover } from '@/features/usage/UsagePopover';
 import { useUsage } from '@/features/usage/useUsage';
 import { formatResetAt } from '@/features/usage/usageTexts';
 import { highestWindow, shownWindows, windowTitleLine } from '@/features/usage/usageWindows';
 import type { ShownWindow } from '@/features/usage/usageWindows';
+import type { UsageForecast } from '@/lib/bindings/UsageForecast';
 import type { UsageStatus } from '@/lib/bindings/UsageStatus';
 import { severityOf } from '@/lib/severity';
 import type { Severity } from '@/lib/severity';
@@ -64,6 +66,7 @@ export function UsageButton({
     host === undefined
       ? BUTTON_TITLE
       : `Kontingent des Abos von ${host.hostName} — Klick für Details`;
+  const forecast: UsageForecast | null = scarcestForecast(status?.forecast ?? []);
   const title: string = [
     baseTitle,
     ...windows.map((window: ShownWindow) =>
@@ -72,6 +75,7 @@ export function UsageButton({
         window.resetsAt === null ? null : formatResetAt(window.resetsAt, now),
       ),
     ),
+    ...(windows.length === 0 ? [] : [forecastTitleLine(forecast)]),
   ].join('\n');
 
   return (
@@ -104,6 +108,9 @@ export function UsageButton({
             </span>
             <span className="usage-button__window">{highest.short}</span>
             <span className="usage-button__label">{`${String(highest.percent)} %`}</span>
+            {forecast !== null && (
+              <span className="usage-button__rate">{formatPerHour(forecast.percentPerHour)}</span>
+            )}
           </>
         )}
       </button>

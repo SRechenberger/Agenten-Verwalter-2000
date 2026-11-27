@@ -1,0 +1,26 @@
+.tempo-chart {
+  display: block;
+
+  &__legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2xs) var(--space-xl);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    color: var(--color-fg-secondary);
+
+    & i {
+      display: inline-block;
+      width: 10px;
+      height: 10px;
+      margin-right: var(--space-sm);
+      border-radius: var(--radius-flat);
+      vertical-align: -1px;
+    }
+  }
+
+  & rect:hover {
+    opacity: 0.75;
+  }
+}
