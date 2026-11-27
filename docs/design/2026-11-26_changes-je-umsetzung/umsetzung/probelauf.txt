@@ -1,0 +1,22 @@
+Probelauf umsetzungen-3 (Taiga #254), echte App aus diesem Branch, isoliert:
+Port 1487 (--strictPort), Xvfb :87, Wegwerf-HOME mit frischer Datenbank (42 Migrationen), Attrappe statt claude,
+Wegwerf-Repository „wegwerf“ (ein Commit „start“, vier neue, nicht committete Dateien).
+
+Seed: Vorhaben „Probelauf 254“, alle Sessions mit dem Repository (Checkout main)
+  #1 Planung Alpha  Master von „Umsetzung Alpha“
+  #2 Planung Beta   Master von „Umsetzung Beta“
+  #3 alpha-1 Umsetzung  Station von Alpha   -> alpha.txt
+  #4 beta-1 Umsetzung   Station von Beta    -> beta.txt
+  #5 Rückfrage zu Alpha Rückfrage zu Alpha  -> rueckfrage-alpha.txt
+  #6 Nebenher           keine Umsetzung     -> gamma.txt
+Variante „zwei“: beide Umsetzungen unfertig; Variante „eins“: Beta fertig (finished_at gesetzt).
+
+K1 Reiter „Changes“ (Klick in der Leiste auf die Umsetzung, dann auf den Reiter; innerText von main):
+  Umsetzung Alpha: „Changes 2“ · alpha.txt, rueckfrage-alpha.txt · „Was die Sessions dieser Umsetzung geändert haben.“
+  Umsetzung Beta:  „Changes 1“ · beta.txt
+  Beta fertig:     „Changes 1“ · beta.txt (fertige Stationen bleiben in der Reichweite)
+  Vorhaben:        „Changes 4“ · alpha.txt, beta.txt, gamma.txt, rueckfrage-alpha.txt · „Was die Sessions dieses Vorhabens geändert haben.“
+K2 Übersicht: p.project-overview__note = „Neue Sessions legst du weiter über „Neue Session“, „In neuer Session weiter“, Retro und „Neue Rückfrage“ an.“
+K3 Leiste: span.sidebar-item__inquiry „Rückfrage“ (title „Rückfrage zu einer Umsetzung: eine frische Session mit dem Lagebericht“) nur an #5;
+   Vorhabenzeile „2 Umsetzungen laufen“ (Variante zwei), „1 Umsetzung läuft“ (Variante eins).
+K4 Bilder hell und dunkel; k4-vergleich-*: links Prototyp (docs/design/2026-11-25_umsetzungen-je-session/mockup.html), rechts App.
