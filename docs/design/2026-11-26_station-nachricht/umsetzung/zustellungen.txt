@@ -1,0 +1,44 @@
+# Probelauf nachricht-3: Zustellungen laut Agent-Attrappe (jede Nachricht, die eine Session bekam)
+# Sessions: 03a0273b… = #1 Master, c71bb2c4… = n-1 (A), 8c9ef52f… = n-4
+
+2026-11-26T21:36:43.907Z an 03a0273b…: Start
+
+2026-11-26T21:37:38.180Z an c71bb2c4…: [Nachricht von Session 0 „Verwalter“, ID verwalter]
+Betreff: Auftrag: n-1 · Umsetzung in „Probe Nachricht“
+Inhalt: msg-1 — lies ihn mit verwalter_read_message, bevor du handelst.
+
+2026-11-26T21:37:38.201Z an 03a0273b…: [Nachricht von Session 0 „Verwalter“, ID verwalter]
+
+Meldung des Verwalters: In der Umsetzung „Probe Nachricht“, die du leitest, hat n-1 · Umsetzung (station_id: b0330dbd-a145-45a6-9a61-4397c348a8be) ihren Zug beendet, ohne sich zu melden. Schluss ihrer Antwort: „Normale Antwort der Attrappe.“
+
+2026-11-26T21:38:03.843Z an 03a0273b…: [Nachricht von Session 0 „Verwalter“, ID verwalter]
+
+B meldet: Station n-2 · An Master nach n-1 · Umsetzung. Ergebnis: A fertig: 3 Tests grün | Notiz: Notiz-X von A
+
+2026-11-26T21:38:03.938Z an c71bb2c4…: [Nachricht von Session 0 „Verwalter“, ID verwalter]
+
+C an A: n-3 · An A in Probe Nachricht, Master Session 1 „Master“, nach n-1 · Umsetzung, Notiz: Notiz-X von A
+
+2026-11-26T21:38:15.020Z an 8c9ef52f…: [Nachricht von Session 0 „Verwalter“, ID verwalter]
+Betreff: Auftrag: n-4 · Umsetzung in „Probe Nachricht“
+Inhalt: msg-2 — lies ihn mit verwalter_read_message, bevor du handelst.
+
+2026-11-26T21:39:12.135Z an 03a0273b…: [Nachricht von Session 0 „Verwalter“, ID verwalter]
+
+B2 meldet: n-7 · An Master 2 nach n-6 · Freigabe. Ergebnis: vom Benutzer erledigt | ohne Notiz
+
+2026-11-26T21:39:12.163Z an 03a0273b…: [Nachricht von Session 0 „Verwalter“, ID verwalter]
+
+Meldung des Verwalters: In der Umsetzung „Probe Nachricht“, die du leitest, endet der Zug von n-8 · An U (station_id: 4ee2552a-ff22-4b65-9fe0-6f3e374730dc) mit einem Fehler.
+
+2026-11-26T21:39:12.188Z an 03a0273b…: [Nachricht von Session 0 „Verwalter“, ID verwalter]
+
+Meldung des Verwalters: In der Umsetzung „Probe Nachricht“, die du leitest, hat n-4 · Umsetzung (station_id: 10da937c-9aad-40b4-9a21-049ccb8c2a27) ihren Zug beendet, ohne sich zu melden. Schluss ihrer Antwort: „Normale Antwort der Attrappe.“
+
+2026-11-26T21:39:22.292Z an 76819a0d…: [Nachricht von Session 0 „Verwalter“, ID verwalter]
+Betreff: Auftrag: n-5 · Umsetzung in „Probe Nachricht“
+Inhalt: msg-3 — lies ihn mit verwalter_read_message, bevor du handelst.
+
+2026-11-26T21:39:22.316Z an 03a0273b…: [Nachricht von Session 0 „Verwalter“, ID verwalter]
+
+Meldung des Verwalters: In der Umsetzung „Probe Nachricht“, die du leitest, hat n-5 · Umsetzung (station_id: 0a5db557-72e6-46ba-ab36-1d2700919efe) ihren Zug beendet, ohne sich zu melden. Schluss ihrer Antwort: „Normale Antwort der Attrappe.“

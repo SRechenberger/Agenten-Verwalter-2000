@@ -13,11 +13,11 @@ use super::model::{
     check_agent, refuse_taken_aliases, stations_in, validate_in, validate_station,
 };
 use super::{
-    announce, assigned_text, lane_keys, now_ms, number_stations, phase_rows, rename_after,
+    announce, assigned_text, lane_keys, message, now_ms, number_stations, phase_rows, rename_after,
     replans_after_plan_change, schedule, start, station_row, used_ids,
 };
 use crate::agent_types::model::AgentType;
-use crate::db::implementations::{ChangeRow, CommandRow, PhaseRow, StationRow};
+use crate::db::implementations::{ChangeRow, CommandRow, MessageRow, PhaseRow, StationRow};
 use crate::error::CommandError;
 use crate::sessions::registry::SessionRegistry;
 
@@ -162,6 +162,7 @@ pub fn edited_plan_after(
     let renames = number_stations(&mut inserted, &lanes, &used, &[]);
     // Eine geänderte Station kann in `after` den Alias einer neuen nennen.
     rename_after(&mut plan, &renames);
+    message::check_recipients(&plan)?;
     let named = assigned_text(renames.iter().zip(&inserted).map(
         |((alias, id), station): (&(String, String), &StationRow)| {
             (alias.as_str(), id.as_str(), station.stage.as_str())
@@ -269,7 +270,22 @@ fn patch_row(
         after: patch.after.clone(),
         priority: patch.priority,
         // Eine Befehls-Station behält ihre Art: so gelten ihre Regeln auch für die Änderung.
-        by: (row.kind == StationKind::Command).then(|| "command".to_owned()),
+        by: match row.kind {
+            StationKind::Command => Some("command".to_owned()),
+            StationKind::Message => Some("message".to_owned()),
+            _ => None,
+        },
+        // Eine Station „Nachricht“ behält ihre Vorlage und ihren Empfänger, wo die Änderung sie nicht nennt.
+        to: row
+            .message
+            .as_ref()
+            .map(|message: &MessageRow| patch.to.clone().unwrap_or_else(|| message.to.clone()))
+            .or_else(|| patch.to.clone()),
+        text: row
+            .message
+            .as_ref()
+            .map(|message: &MessageRow| patch.text.clone().unwrap_or_else(|| message.text.clone()))
+            .or_else(|| patch.text.clone()),
         command: row
             .command
             .as_ref()
@@ -321,6 +337,14 @@ fn patch_row(
         }
         if let Some(cwd) = &patch.cwd {
             run.cwd = Some(cwd.trim().to_owned()).filter(|cwd: &String| !cwd.is_empty());
+        }
+    }
+    if let Some(message) = row.message.as_mut() {
+        if let Some(to) = &patch.to {
+            to.trim().clone_into(&mut message.to);
+        }
+        if let Some(text) = &patch.text {
+            text.clone_into(&mut message.text);
         }
     }
     if let Some(priority) = input.priority {

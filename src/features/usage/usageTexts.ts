@@ -1,5 +1,6 @@
 import { formatClock, formatPercent } from '@/features/context/formatTokens';
 import type { UsageAlert } from '@/lib/bindings/UsageAlert';
+import type { UsageLimit } from '@/lib/bindings/UsageLimit';
 
 const MS_PER_DAY = 86_400_000;
 const MINUTES_PER_HOUR = 60;
@@ -36,9 +37,16 @@ export interface BehaviorText {
 
 /** Bezeichnung eines Kontingents; mit Fensterdauer (Codex) heißt es nach ihr, ein unbekannter
  *  `kind` bleibt, wie er ist. */
-export function limitLabel(kind: string, windowMinutes: number | null): string {
+export function limitLabel({
+  kind,
+  windowMinutes,
+  model,
+}: Pick<UsageLimit, 'kind' | 'windowMinutes' | 'model'>): string {
   if (windowMinutes !== null) {
     return windowLabel(windowMinutes);
+  }
+  if (kind === 'weekly_scoped') {
+    return `Woche (${model ?? 'ein Modell'})`;
   }
   return LIMIT_LABEL[kind] ?? kind;
 }

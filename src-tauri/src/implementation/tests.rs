@@ -75,6 +75,7 @@ fn station(stage: &str, model: ModelId, skill: &str) -> StationView {
         resolved: None,
         output: None,
         step: None,
+        message: None,
     }
 }
 
@@ -668,6 +669,7 @@ fn station_row(id: &str, position: u32, stage: &str) -> StationRow {
         released_at: None,
         vars: Default::default(),
         command: None,
+        message: None,
     }
 }
 
@@ -8653,6 +8655,7 @@ fn usage_limit(
         severity: "normal".to_owned(),
         resets_at: resets_at.map(str::to_owned),
         window_minutes: None,
+        model: None,
     }
 }
 
@@ -10092,3 +10095,5 @@ fn started_and_finished_stations_do_not_block_a_type_change() {
         Vec::new()
     );
 }
+
+mod message_station;

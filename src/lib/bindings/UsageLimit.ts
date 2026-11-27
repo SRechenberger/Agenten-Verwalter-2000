@@ -20,4 +20,8 @@ resetsAt: string | null,
 /**
  * Dauer des Fensters in Minuten; nur Codex nennt sie (Claude benennt das Fenster über `kind`).
  */
-windowMinutes: number | null, };
+windowMinutes: number | null, 
+/**
+ * Anzeigename des Modells bei `weekly_scoped` (`scope.model.display_name`); sonst `None`.
+ */
+model: string | null, };

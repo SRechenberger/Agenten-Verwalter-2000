@@ -43,6 +43,20 @@ Aufbau: `notify-probe` (`cargo run --manifest-path src-tauri/Cargo.toml --exampl
 - **Der Satz mit Haiku, 18 Läufe, ohne Verweigerung:** In keinem Lauf lehnte Haiku den Satz oder das Werkzeug ab. Die Probe sucht Verweigerungswörter (keines gefunden); die acht Läufe ohne Aufruf las ein Mensch nach: Haiku antwortet im Text, ohne den Satz zu erwähnen oder abzulehnen. Es ruft das Werkzeug in zehn Läufen und nie `AskUserQuestion`; wie Sonnet meldet es kein Ergebnis (0 von 6) und bei der Bitte um eine Datei zweimal nicht. In einem Lauf folgte auf `blocked` noch `asks` (die Art passt dann nicht zur Bitte). Der Satz ist damit nach ADR 052 und 070 (kleinstes Modell, keine Verweigerung) gemessen.
 - **Grenzen der Stichprobe:** 18 Läufe je Modell, kurze Aufträge ohne Repository, ein Zug je Lauf, die Verweigerung erkennt die Probe an Wörtern und ein Mensch liest die Läufe nach; ein Lauf mit ToolSearch-Umweg zählt wie jeder andere. Die Zahlen gelten für diesen Satz und diese Beschreibung des Werkzeugs; ein anderer Wortlaut müsste neu gemessen werden. Aussicht: Ein Satz, der auch kurze Ergebnisse und Bitten ausdrücklich nennt („auch bei einem Ergebnis in einer Zeile“), könnte Sonnet näher an die Grenze bringen; er ist nicht gemessen.
 
+## Nachmessung mit geschärftem Satz (Taiga 258, 2026-11-26)
+
+Gemessen mit demselben Aufbau wie oben (18 Läufe je Modell, `claude` 2.1.296, Modus Auto). Der Satz aus V1 blieb wörtlich; angehängt wurde als zweiter Satz: „Das gilt auch für ein Ergebnis in einer Zeile.“ (nach „… sag es ihm vorher mit mcp__verwalter__verwalter_notify_user.“, vor „Rückfragen mit Auswahl …“).
+
+| Modell | treu | Fragen | Bitten | Ergebnisse | `AskUserQuestion` | Kosten |
+|---|---|---|---|---|---|---|
+| Sonnet | **15 von 18** (vorher 9) | 6 von 6 | 6 von 6 | 3 von 6 | 0 | 1,03 USD |
+| Opus | **18 von 18** | 6 von 6 | 6 von 6 | 6 von 6 | 0 | 2,18 USD |
+| Haiku | 11 von 18 (vorher 10) | 5 von 6 | 6 von 6 | 0 von 6 | 0 | 0,07 USD |
+
+- **Entscheidung:** Die Grenze für die Sperre von `AskUserQuestion` (Sonnet und Opus je mindestens 17 von 18) ist nicht erreicht: Sonnet 15 von 18. Der Zusatz kam deshalb **nicht** in `session_tools_prompt`, `BLOCKED_TOOLS` und `PLAN_REMINDER_TEXT` bleiben unverändert, `AskUserQuestion` bleibt offen.
+- Sonnet meldet jetzt „17 × 23“ in keinem von drei Läufen, die Hauptstadt aber in allen dreien; sein Rest sind die Rechnungen. Haiku ruft bei Ergebnissen weiter nie das Werkzeug.
+- Grenzen wie oben: 18 Läufe je Modell, ein Zug je Lauf. Ein weiterer Wortlaut (etwa „auch bei einer Rechnung“) ist nicht gemessen.
+
 ## Was das in früheren ADRs überholt
 
 - [ADR 071](071-dashboard.md): B6 und der Abschnitt „Einordnung“ samt Messung, Einstellung und Probe (Nachtrag dort).

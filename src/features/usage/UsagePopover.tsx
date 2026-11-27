@@ -159,7 +159,7 @@ function renderLimit(limit: UsageLimit, now: number): ReactElement {
       <div className="usage-popover__limit-head">
         <span className="usage-popover__limit-name">
           <SeverityIcon severity={severity} />
-          {limitLabel(limit.kind, limit.windowMinutes)}
+          {limitLabel(limit)}
         </span>
         <span className="usage-popover__percent">{formatPercent(limit.percent, 0)}</span>
       </div>

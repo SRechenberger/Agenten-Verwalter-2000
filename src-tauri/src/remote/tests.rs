@@ -276,6 +276,7 @@ fn registry_with_two_implementations() -> SessionRegistry {
                         released_at: None,
                         vars: Default::default(),
                         command: None,
+                        message: None,
                     }],
                 )?;
             }
