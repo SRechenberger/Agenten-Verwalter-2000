@@ -6,7 +6,7 @@
   min-height: 40px;
   padding: 5px 5px 5px var(--space-xl);
   border: 1px dashed var(--color-border);
-  border-radius: var(--radius-lg);
+  border-radius: 0;
 
   &__label {
     flex-shrink: 0;

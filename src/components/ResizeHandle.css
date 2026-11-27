@@ -61,6 +61,7 @@
    fängt die Maus nicht ab. */
 :root.resizing {
   cursor: col-resize;
+  -webkit-user-select: none;
   user-select: none;
 
   &.resizing-y {

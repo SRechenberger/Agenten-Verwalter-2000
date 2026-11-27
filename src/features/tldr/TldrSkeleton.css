@@ -6,7 +6,7 @@
   &__bar {
     display: block;
     height: 9px;
-    border-radius: 5px;
+    border-radius: var(--radius-flat);
     background: var(--color-bg-hover);
   }
 

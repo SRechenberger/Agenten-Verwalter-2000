@@ -1,0 +1,33 @@
+Probelauf css-3 (Taiga 268, 269), App des Worktrees unter WebKitGTK (Xvfb), Vite-Port 1477.
+Auswahl gelesen mit window.getSelection() nach einem echten Ziehen per XTest (Maus gedrückt, 20 Schritte, losgelassen).
+Gegenprobe: eingeschobener Stil "-webkit-user-select: auto !important" = Stand vor der Lane (Eigenschaft ohne Präfix wirkt nicht).
+
+WebKitGTK
+  CSS.supports('user-select', 'none')          -> false
+  CSS.supports('-webkit-user-select', 'none')  -> true
+  UA: AppleWebKit/605.1.15 (X11; Linux x86_64)
+
+Punkt 1: Ziehen markiert keinen Text
+  Seitenleiste, Vorhaben ziehen          Auswahl ""                    Gegenprobe ""   (-webkit-user-select während des Ziehens: none)
+  Leiste der Seitenleiste ziehen         Auswahl ""                    Gegenprobe ""   (:root.resizing -> none, vererbt an alle Elemente)
+  Bildbetrachter, Bereich aufziehen      Auswahl "" (Caret)            Gegenprobe ""   (Fläche: none)
+  Chat über Tagestrenner und Uhrzeiten   Auswahl ohne "Heute, Donnerstag 26.11." und ohne "22:32"/"22:33"
+                                         Gegenprobe enthält "22:32", "22:32", "22:33", "22:33"
+  Review-Karte über Zeichen + und -      Auswahl beginnt mit "const wert = ...", ohne "+" und "-"
+                                         Gegenprobe enthält "+" und "-"
+
+Punkt 2: Einladung, ein Klick in den Code
+  Auswahl == ganzer Text: ja (130 von 130 Zeichen, zwei Klickpunkte)
+  Gegenprobe: 0 Zeichen (nur Cursor)
+
+Punkt 3: berechnete border-radius (getComputedStyle)
+  Übersicht: TL;DR-Karte 0px, ohne Fläche, Haarlinie 1px; Knopf TL;DR (Symbol und "TL;DR erstellen") 2px;
+             Retro 2px; "+ Repository" 2px; "Neue Session" 2px
+  Übersicht, Automatik-Block: Auswahlknopf "Modell des TL;DR" (select-button__trigger) 6px  <- Befund B1
+                              Schalter (switch) 999px                                   <- Frage F1
+  Neues Vorhaben: Kasten 0px ohne Fläche; Feld 0px; Mikrofon 2px; Symbolknöpfe 2px; Modell 2px; Modus 2px;
+                  Gruppe 2px; Repository-Knopf 2px; Starten 2px; Abbrechen 2px; kein Element > 2px außer Kreisen
+  Vorlagenformular: Kasten 0px ohne Fläche, Haarlinie; Verwerfen/OK 2px; Felder 0px
+  Vorschau im Vorlagen-Dialog: Rahmen 8px (Dialoginhalt), Felder 0px, kein Bruch
+  Pille "2 warten" 2px; aufgeklappte Warteschlange: Popover-Rahmen 10px, Reiter 2px, Inhalt 0px
+  offline-Marke "kropotkin nicht erreichbar" 2px; Chip am Host 2px; "Zurückgeben" 2px; "Übernehmen" 2px

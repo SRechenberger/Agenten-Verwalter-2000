@@ -382,5 +382,6 @@
 :root.sidebar-dragging,
 :root.sidebar-dragging * {
   cursor: grabbing;
+  -webkit-user-select: none;
   user-select: none;
 }

@@ -108,7 +108,7 @@
     height: 30px;
     padding: 0 var(--space-xl);
     border: 0;
-    border-radius: var(--radius-md);
+    border-radius: var(--radius-flat);
     background: var(--color-accent);
     color: var(--color-fg-on-accent);
     font: inherit;
