@@ -1,0 +1,33 @@
+Zweiter Probelauf (tacho-ui-9), 2026-11-27, nach Fix-Runde 2
+Echte App: Host per `pnpm tauri dev` (Vite 1489, Xvfb :89), Gast als Debug-Binary (Xvfb :90), echte Kopplung.
+Prognose aus der Uhrkurve der Attrappe (5 Std. 149-152 %/h, leer ca. 12:00; Woche 25 %/h, reicht bis zur Rücksetzung).
+Maße per getBoundingClientRect, Angaben [links, Breite, rechts] in px. Leiste über updateSettings (panelWidth sidebar).
+„1 234 %/h“: Text der echten Reichweite im DOM ersetzt (dieselbe Zeile, dieselben Klassen).
+
+Zeile „Kontingent“ (usage-button__trigger)
+| Gerät | Leiste | Reichweite  | Knopf        | client/scroll | Name        | Prozent      | Reichweite (display, Box) | Abstand |
+|-------|--------|-------------|--------------|---------------|-------------|--------------|---------------------------|---------|
+| Host  | 256    | 149 %/h     | 10, 235, 245 | 235 / 235     | 40, 16, 56  | 146, 34, 180 | block, 188-237            | 8 px    |
+| Host  | 256    | 1 234 %/h   | 10, 235, 245 | 235 / 235     | 40, 7, 47   | 137, 34, 171 | block, 179-237            | 8 px    |
+| Host  | 200    | 152 %/h     | 10, 179, 189 | 179 / 179     | 36, 37, 73  | 147, 34, 181 | none                      | 4 px    |
+| Host  | 200    | 1 234 %/h   | 10, 179, 189 | 179 / 179     | 36, 37, 73  | 147, 34, 181 | none                      | 4 px    |
+| Gast kropotkin | 256 | 152 %/h | 10, 235, 245 | 235 / 235     | 40, 18, 58  | 148, 34, 182 | block, 190-237            | 8 px    |
+| Gast kropotkin | 256 | 1 234 %/h | 10, 235, 245 | 235 / 235   | 40, 7, 47   | 137, 34, 171 | block, 179-237            | 8 px    |
+| Gast kropotkin | 200 | 151 %/h | 10, 179, 189 | 179 / 179     | 40, 33, 73  | 147, 34, 181 | none                      | 4 px    |
+| Gast kropotkin | 200 | 1 234 %/h | 10, 179, 189 | 179 / 179   | 40, 33, 73  | 147, 34, 181 | none                      | 4 px    |
+| Gast selbst | 256/200 | (kein Kontingent) | 235 bzw. 179 | gleich | 197 bzw. 141 | -        | -                         |         |
+Prozentzahl in allen Fällen da. Tooltip bei 200 px, letzte Zeile: „Tempo 151 %/h am knappsten Fenster“ (Host und Gast).
+Zeilen „Tempo“ (tempo-row__trigger): client = scroll in allen Fällen (235 bzw. 179).
+
+Fenster „Kontingent“ (popover in .usage-button, nicht detached)
+| Gerät | Leiste | Klasse                              | position | Rect [l, t, w, h]  | unten / Knopf oben | im Fenster | abgeschnitten |
+|-------|--------|-------------------------------------|----------|--------------------|--------------------|------------|---------------|
+| Host  | 256    | popover popover--above popover--start | absolute | 10, 563, 380, 201 | 764 / 772          | ja         | nein          |
+| Host  | 200    | popover popover--above popover--start | absolute | 10, 563, 380, 201 | 764 / 772          | ja         | nein          |
+| Gast  | 256    | popover popover--above popover--start | absolute | 10, 525, 380, 201 | 726 / 734          | ja         | nein          |
+| Gast  | 200    | popover popover--above popover--start | absolute | 10, 525, 380, 201 | 726 / 734          | ja         | nein          |
+`.usage-button`: container-type inline-size, position relative, z-index auto. Fenster z-index 10, ragt bei 200 px 190 px
+und bei 256 px 134 px über die Leiste in die Hauptfläche.
+elementFromPoint an 9 Punkten: alle im Fenster, außer an der Kante der Leiste (x = 197-201 bei 200 px, x = 253-257 bei 256 px):
+dort liegt der Griff `resize-handle` der Leiste. Gegenprobe mit container-type normal (inline, nur zur Ursache): gleich,
+also nicht von container-type.

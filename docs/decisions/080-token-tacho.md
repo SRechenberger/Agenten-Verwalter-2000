@@ -32,3 +32,17 @@ Der Nutzer sieht den Verbrauch seines Kontingents nur als Prozent des Fensters, 
 
 - Migration 40 legt `token_usage` mit zwei Indizes an (`session_id, at_ms` und `at_ms` für den Stand „alle“).
 - Der Verlauf der Prozentwerte lebt nur im Speicher; nach einem Neustart beginnt die Prognose neu.
+
+## Nachtrag: Oberfläche (Taiga 271, Lane `tacho-ui`)
+
+Die Oberfläche liegt in `src/features/tempo/`, ohne neue Migration und ohne neuen Befehl; sie folgt dem Prototyp `docs/design/2026-11-26_kontingent-und-tacho/mockup.html`.
+
+- **U1 Quelle:** Jede Anzeige holt ihr Tempo über `TempoSource` (`OWN_TEMPO`, `hostTempo(hostId)`), die Quelle einer Session aus dem Vorhaben (`useTempoSource`). Beim Gast zeigt die Zeile „Tempo“ wie die Zeilen unter „Kontingent“ eine Zeile je Host.
+- **U2 Zahlen:** Das Tempo steht als „18 k/min“, unter 10 k mit einer Nachkommastelle („1,5 k/min“, „0,4 k/min“), ab 1 000 k als „1,2 M/min“, in Ruhe als „0 k/min“. Die Reichweite steht unter 10 mit einer Nachkommastelle („1,2 %/h“), sonst ganz („9 %/h“). Die Formate und die Wahl des knappsten Fensters stehen in `tempoTexts.ts`, geprüft von `tempoTexts.selftest.ts`.
+- **U3 Linie:** 60 Punkte aus `minutes` (Summe ohne Cache-Lesen), ohne Achse, im Grau des Textes; 56 × 14 px im Kopf und an Stationen, 44 × 14 px in der Zeile „Tempo“.
+- **U4 Kopf:** Ein eigener Knopf neben dem Knopf für Kontext, Cache und Laufzeit, immer zu sehen, bei Ruhe mit „0 k/min“. Er öffnet das Fenster „Tempo“ der Session, getrennt vom Fenster für Kontext und Cache.
+- **U5 Stationen:** Linie und Zahl stehen in der Zeile der Zeitleiste und im Kopf der Stationskarte; ein Klick öffnet das Fenster der Session der Station. Eine Station ohne Session zeigt „—“. Die Leiste der Sessions bleibt ohne Tempo.
+- **U6 Zeile „Kontingent“:** Hinter der Zahl steht die Reichweite des knappsten Fensters: das mit dem frühesten `exhaustedAt`, sonst das mit dem höchsten `percentPerHour`. Ohne `forecast` steht dort nichts; der Tooltip sagt dann „Noch keine Prognose“. Bei schmaler Leiste kürzt sich zuerst nur der Name; reicht das nicht, werden die Abstände knapper, und bei einer Leiste bis 232 px (Zeile bis 211 px) fällt die Reichweite weg, nie die Prozentzahl; ihre Zeile im Tooltip bleibt (Container-Abfragen in `UsageButton.css`).
+- **U7 Zeile „Tempo“:** Unter „Kontingent“ mit Symbol, Linie, Summe und „· n“ (`active`), immer zu sehen. Ein Klick öffnet das Fenster „Tempo“ gesamt.
+- **U8 Fenster:** Hauptzahl, gestapelter Verlauf je Minute (Ausgabe, Eingabe neu, Cache geschrieben von unten nach oben, 1 px Abstand, Legende immer da, Tooltip je Minute), „Cache gelesen jetzt“ und bei einer Session die Summen seit dem Start. Gesamt kommen die Reichweite je Fenster (Balken mit gestrichelter Verlängerung bis `percentAtReset`, rot über 100 %) und die teuersten Sessions hinzu; ein Klick öffnet die Session.
+- **U9 Laden:** Nur eine eingehängte Anzeige lädt und abonniert. Ein Ereignis lädt nur die Anzeige der betroffenen Session neu, höchstens einmal je Sekunde; dazu lädt jede sichtbare Anzeige einmal je Minute, weil das 5-Minuten-Mittel auch ohne neue Antwort sinkt und die Linie weiterrückt (`useTempo`).

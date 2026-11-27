@@ -20,6 +20,7 @@ import { displayStatus } from '@/features/sessions/sessionStatus';
 import { QueueFooter } from '@/features/queue/QueueFooter';
 import { badgeCount } from '@/features/dashboard/dashboardTexts';
 import { sessionWaitPosition } from '@/features/queue/queueTexts';
+import { TempoSection } from '@/features/tempo/TempoSection';
 import { UsageSection } from '@/features/usage/UsageSection';
 import type { ImplementationView } from '@/lib/bindings/ImplementationView';
 import type { ProjectGroup } from '@/lib/bindings/ProjectGroup';
@@ -1125,6 +1126,7 @@ export function Sidebar({
           </button>
         </QueueFooter>
         <UsageSection hasOwn={hasUsage} />
+        <TempoSection sessions={sessions} />
         <button type="button" className="sidebar__archive" onClick={onOpenArchive}>
           <svg
             width="14"

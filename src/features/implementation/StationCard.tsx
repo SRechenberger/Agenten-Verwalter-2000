@@ -54,6 +54,8 @@ import type { OperatingMode } from '@/lib/bindings/OperatingMode';
 import type { SessionSummary } from '@/lib/bindings/SessionSummary';
 import type { ActionError } from '@/lib/useActionError';
 import { useQuotaHeldUntil } from '@/stores/agentQueue';
+import { TempoStation } from '@/features/tempo/TempoStation';
+import { sessionTitle } from '@/features/tempo/tempoTexts';
 import './StationCard.css';
 
 /** Die vier Abschnitte der Kartei. */
@@ -63,6 +65,8 @@ interface StationCardProps {
   implementationId: string;
   /** Master der Umsetzung: ohne Freigabe fragt „Erledigt“ nach (#136). */
   masterSessionId: string | null;
+  /** Das Vorhaben der Umsetzung: Quelle des Tempos der Station, auch wenn ihre Session fehlt. */
+  projectId: string;
   /** Eine abgebrochene Umsetzung lässt nichts mehr von Hand fertig markieren. */
   isImplementationCancelled: boolean;
   stationRef: StationRef;
@@ -102,6 +106,7 @@ interface StationCardProps {
 export function StationCard({
   implementationId,
   masterSessionId,
+  projectId,
   isImplementationCancelled,
   stationRef,
   refs,
@@ -329,6 +334,11 @@ export function StationCard({
       <div className="station-card__head">
         <b className="station-card__title">{stationDisplay(station)}</b>
         <span className="station-card__number">{number}</span>
+        <TempoStation
+          projectId={projectId}
+          sessionId={station.sessionId}
+          label={sessionTitle(session, stationDisplay(station))}
+        />
       </div>
       <p className="station-card__phase">{phase.title}</p>
       <p className="station-card__state">

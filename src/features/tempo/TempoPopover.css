@@ -1,0 +1,46 @@
+.tempo-popover {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  padding: var(--space-md) var(--space-lg);
+  font-size: var(--font-size-xs);
+  color: var(--color-fg-secondary);
+
+  &__title {
+    margin: 0;
+    font-size: var(--font-size-md);
+    font-weight: 600;
+    color: var(--color-fg-primary);
+
+    & span {
+      font-size: var(--font-size-xs);
+      font-weight: 400;
+      color: var(--color-fg-muted);
+    }
+  }
+
+  &__sub,
+  &__foot {
+    margin: 0;
+    color: var(--color-fg-muted);
+  }
+
+  &__hero {
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-md);
+    margin: 0;
+
+    & b {
+      font-size: 22px;
+      font-weight: 600;
+      font-variant-numeric: tabular-nums;
+      white-space: nowrap;
+      color: var(--color-fg-primary);
+    }
+
+    & span {
+      color: var(--color-fg-muted);
+    }
+  }
+}
