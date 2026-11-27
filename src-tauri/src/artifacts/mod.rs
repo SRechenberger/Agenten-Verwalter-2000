@@ -266,21 +266,34 @@ fn normalize_separators(path: &str) -> String {
 /// Die Namen der HTML-Dateien direkt im Ordner ohne Endung, klein geschrieben. Aus den
 /// Verzeichniseinträgen, ohne eine Datei zu öffnen.
 fn page_stems_of(entries: &[fs::DirEntry]) -> Vec<String> {
-    entries
-        .iter()
-        .filter(|entry: &&fs::DirEntry| {
-            entry
-                .file_type()
-                .is_ok_and(|file_type: fs::FileType| file_type.is_file())
-                && kind_of(&entry.path()) == ArtifactKind::Html
-        })
-        .filter_map(|entry: &fs::DirEntry| {
-            entry
-                .path()
-                .file_stem()
-                .map(|stem| stem.to_string_lossy().to_lowercase())
-        })
-        .collect()
+    entries.iter().filter_map(page_stem).collect()
+}
+
+/// Der Name einer HTML-Datei ohne Endung, klein geschrieben; `None` für jeden anderen Eintrag.
+fn page_stem(entry: &fs::DirEntry) -> Option<String> {
+    let is_page = entry
+        .file_type()
+        .is_ok_and(|file_type: fs::FileType| file_type.is_file())
+        && kind_of(&entry.path()) == ArtifactKind::Html;
+    if !is_page {
+        return None;
+    }
+    entry
+        .path()
+        .file_stem()
+        .map(|stem| stem.to_string_lossy().to_lowercase())
+}
+
+/// Die HTML-Datei direkt in `dir`, deren Zubehör der Ordner `name` ist (gleicher Name ohne Endung,
+/// ADR 047); gibt es mehrere, die erste nach Namen.
+pub fn page_of_accessory(dir: &Path, name: &str) -> Option<String> {
+    let wanted = name.to_lowercase();
+    fs::read_dir(dir)
+        .ok()?
+        .flatten()
+        .filter(|entry: &fs::DirEntry| page_stem(entry).as_deref() == Some(wanted.as_str()))
+        .map(|entry: fs::DirEntry| entry.file_name().to_string_lossy().into_owned())
+        .min()
 }
 
 fn page_stems_in(dir: &Path) -> Vec<String> {

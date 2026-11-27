@@ -5,12 +5,23 @@
 // JSON-Text des gespeicherten Zustands als Zeichenkette: `JSON.parse` behält auch `__proto__` als Schlüssel.
 (() => {
   const MAX_BYTES = 1048576;
+  const MAX_MARKS = 32;
+  const BUFFER_PREFIX = 'verwalter-zustand:';
   const initial = JSON.parse(__STATE__);
   const bytesOf = (map) => new TextEncoder().encode(JSON.stringify(Object.fromEntries(map))).length;
+  // Prüfsumme eines Stands (FNV-1a über die sortierten Einträge): gleich bei gleichen Schlüsseln und Werten.
+  const markOf = (object) => {
+    const text = JSON.stringify(Object.entries(object).sort(([a], [b]) => (a < b ? -1 : 1)));
+    let hash = 0x811c9dc5;
+    for (let index = 0; index < text.length; index += 1) {
+      hash = Math.imul(hash ^ text.charCodeAt(index), 0x01000193);
+    }
+    return (hash >>> 0).toString(36);
+  };
 
   // Wie Storage: Methoden und `length` gehen beim Lesen vor, jede andere Eigenschaft ist ein Schlüssel
   // (`localStorage.x = 'y'`, `delete localStorage.x`, `Object.keys(localStorage)`). Ein Aufruf ohne
-  // Änderung meldet nichts, sonst laden zwei offene Ansichten einander endlos neu.
+  // Änderung meldet nichts, wie bei Storage.
   const storage = (map, onChange) => {
     const text = (value) => String(value);
     const methods = {
@@ -58,13 +69,41 @@
     });
   };
 
-  const saved = new Map(Object.entries(initial));
-  const persistent = storage(saved, () => {
-    // Ohne Verzögerung: ein Wechsel in den Chat direkt nach dem Klick darf nichts verlieren.
-    if (window.parent !== window) {
-      window.parent.postMessage({ verwalter: 1, type: 'state', data: Object.fromEntries(saved) }, '*');
+  // Stand beim Seitenwechsel: Lädt die nächste Seite im Rahmen (Website, Neu laden), während die Meldung noch
+  // gespeichert wird, setzt der Server den Stand von davor ein. Darum merkt sich der Rahmen in seinem Namen
+  // (`window.name` übersteht die Navigation im Rahmen, ein neuer Rahmen beginnt leer) den letzten eigenen Stand
+  // und die Prüfsummen der Stände, auf denen er aufbaut: den geladenen und jeden gemeldeten. Zeigt die Datei einen
+  // davon außer dem letzten, ist sie nicht neuer: Es gilt der eigene Stand, und er wird erneut gemeldet. Sonst
+  // gilt die Datei, denn das eigene Speichern ist angekommen oder jemand anderes hat sie geändert.
+  const buffer = (() => {
+    if (!window.name.startsWith(BUFFER_PREFIX)) return null;
+    try {
+      const value = JSON.parse(window.name.slice(BUFFER_PREFIX.length));
+      return Array.isArray(value.marks) && value.data !== null && typeof value.data === 'object' ? value : null;
+    } catch {
+      return null;
     }
+  })();
+  const fileMark = markOf(initial);
+  const isFileBehind =
+    buffer !== null && buffer.marks.includes(fileMark) && buffer.marks[buffer.marks.length - 1] !== fileMark;
+  if (buffer !== null && !isFileBehind) window.name = '';
+  let marks = isFileBehind ? buffer.marks : [fileMark];
+  const saved = new Map(Object.entries(isFileBehind ? buffer.data : initial));
+  // Ohne Verzögerung: ein Wechsel in den Chat direkt nach dem Klick darf nichts verlieren.
+  const report = () => {
+    const data = Object.fromEntries(saved);
+    if (window.parent !== window) {
+      window.parent.postMessage({ verwalter: 1, type: 'state', data }, '*');
+    }
+    return data;
+  };
+  const persistent = storage(saved, () => {
+    const data = report();
+    marks = [...marks, markOf(data)].slice(-MAX_MARKS);
+    window.name = BUFFER_PREFIX + JSON.stringify({ data, marks });
   });
+  if (isFileBehind) report();
   const volatile = storage(new Map(), () => {});
 
   // Greift das Überschreiben nicht, läuft die Seite weiter wie ohne Zustand.

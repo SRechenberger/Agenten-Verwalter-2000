@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 
 use serde_json::{Map, Value};
 
-use super::{is_plain_name, modified_ms, resolve, resolve_entry};
+use super::{is_plain_name, modified_ms, page_of_accessory, resolve, resolve_entry};
 use crate::error::CommandError;
 
 pub const STATE_DIR: &str = ".zustand";
@@ -21,6 +21,19 @@ pub const MAX_STATE_BYTES: usize = 1024 * 1024;
 pub fn artifact_of(relative: &str) -> Option<&str> {
     let name = relative.split('/').next()?;
     (is_plain_name(name) && !name.starts_with(['.', '_'])).then_some(name)
+}
+
+/// Das Artefakt, dessen Zustand die Seite `relative` liest: wie `artifact_of`, doch eine Seite im
+/// Zubehör-Ordner einer HTML-Datei (`bericht/teil2.html` neben `bericht.html`, ADR 047) gehört zu
+/// dieser Datei. Das ist das Artefakt, das der Rahmen zeigt und in dessen Datei er speichert.
+pub fn artifact_for(dir: &Path, relative: &str) -> Option<String> {
+    let name = artifact_of(relative)?;
+    let page = if relative.contains('/') {
+        page_of_accessory(dir, name)
+    } else {
+        None
+    };
+    Some(page.unwrap_or_else(|| name.to_owned()))
 }
 
 /// Pfad der Zustandsdatei in `dir` (`.artefakte`); der Name muss ein Name direkt im Ordner sein.
@@ -177,6 +190,26 @@ mod tests {
         assert_eq!(artifact_of("_bilder/a.png"), None);
         assert_eq!(artifact_of(""), None);
         assert_eq!(artifact_of(".."), None);
+    }
+
+    #[test]
+    fn a_page_in_the_accessory_folder_of_a_page_reads_the_state_that_page_saves() {
+        let scratch = Scratch::new("accessory");
+        scratch.write("bericht.html", "<p>1</p>");
+        scratch.write("bericht/teil2.html", "<p>2</p>");
+        scratch.write("Notiz.html", "<p>n</p>");
+        scratch.write("notiz/a.html", "<p>a</p>");
+        scratch.write("seite/index.html", "<p>s</p>");
+        let of = |relative: &str| artifact_for(&scratch.0, relative);
+        assert_eq!(of("bericht/teil2.html").as_deref(), Some("bericht.html"));
+        assert_eq!(of("notiz/a.html").as_deref(), Some("Notiz.html"));
+        assert_eq!(of("seite/index.html").as_deref(), Some("seite"));
+        assert_eq!(of("bericht.html").as_deref(), Some("bericht.html"));
+        assert_eq!(of("_bilder/a.html"), None);
+        // Der Rahmen speichert in die Datei seiner Auswahl (`item.file`); die Seite im Zubehör liest sie.
+        save(&scratch.0, "bericht.html", r#"{"teil":"2"}"#).expect("save");
+        let artifact = of("bericht/teil2.html").expect("artifact");
+        assert_eq!(read(&scratch.0, &artifact), r#"{"teil":"2"}"#);
     }
 
     #[test]

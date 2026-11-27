@@ -220,6 +220,15 @@ impl Source {
         }
     }
 
+    /// Das Artefakt, dessen Zustand die Seite `relative` liest (ADR 081). Lokal gehört eine Seite im
+    /// Zubehör-Ordner einer HTML-Datei zu dieser; beim Gast fehlt dafür die Liste des Hosts.
+    fn state_artifact(&self, relative: &str) -> Option<String> {
+        match self {
+            Source::Local(dir) => state::artifact_for(dir, relative),
+            Source::Remote(_) => state::artifact_of(relative).map(str::to_owned),
+        }
+    }
+
     /// Der Zustand des Artefakts `artifact` als JSON-Text (ADR 081); leer, wenn es keinen gibt oder
     /// der Host nicht antwortet: die Seite soll auch dann erscheinen.
     fn state(&self, artifact: &str) -> String {
@@ -435,8 +444,8 @@ pub(crate) fn respond(
     } else {
         match source.read(&relative) {
             Ok((content_type, body)) if content_type == HTML => {
-                let body = match state::artifact_of(&relative) {
-                    Some(artifact) => with_state(body, &source.state(artifact)),
+                let body = match source.state_artifact(&relative) {
+                    Some(artifact) => with_state(body, &source.state(&artifact)),
                     None => body,
                 };
                 (content_type, with_bridge(body))
@@ -723,6 +732,33 @@ mod state_tests {
         assert!(
             doctype.starts_with("<!DOCTYPE html><script>"),
             "hinter dem Doctype"
+        );
+    }
+
+    #[test]
+    fn a_page_in_the_accessory_folder_of_a_page_gets_the_state_of_that_page() {
+        let dir = std::env::temp_dir().join(format!(
+            "verwalter-state-accessory-{}-{}",
+            std::process::id(),
+            uuid::Uuid::new_v4().simple()
+        ));
+        fs::create_dir_all(dir.join("bericht")).expect("create dir");
+        fs::write(dir.join("bericht.html"), "<p>1</p>").expect("page");
+        fs::write(dir.join("bericht/teil2.html"), "<html><head></head></html>")
+            .expect("accessory page");
+        state::save(&dir, "bericht.html", r#"{"teil":"zwei"}"#).expect("save");
+        let reply = respond(
+            &Source::Local(dir.clone()),
+            "scope",
+            "bericht/teil2.html".to_owned(),
+            false,
+            false,
+        );
+        let _ = fs::remove_dir_all(&dir);
+        let page = String::from_utf8(reply.body).expect("utf-8");
+        assert!(
+            page.contains(r#"JSON.parse("{\"teil\":\"zwei\"}")"#),
+            "{page}"
         );
     }
 

@@ -180,6 +180,7 @@
     align-items: baseline;
     gap: var(--space-lg);
     min-width: 0;
+    overflow: hidden;
   }
 
   &__title {
@@ -192,9 +193,12 @@
   }
 
   &__subtitle {
-    flex-shrink: 0;
+    min-width: 0;
+    overflow: hidden;
     font-size: var(--font-size-xs);
     color: var(--color-fg-muted);
+    text-overflow: ellipsis;
+    white-space: nowrap;
 
     &--fresh {
       color: var(--color-status-completed);

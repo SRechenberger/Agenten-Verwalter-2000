@@ -16,6 +16,8 @@ interface ArtifactFrameProps {
   item: Artifact;
   /** Erhöht sich bei „Neu laden“; neuer Schlüssel = neues iframe. */
   reloadToken: number;
+  /** Erhöht sich nach „Zustand zurücksetzen“: Die Datei ist dann weg, ohne dass ein anderer sie änderte. */
+  resetToken?: number;
   /** Vorschau und Vollbild gestalten den Rahmen verschieden. */
   className?: string;
   frameRef?: RefObject<HTMLIFrameElement | null>;
@@ -29,11 +31,15 @@ const FRAME_SANDBOX = 'allow-scripts allow-forms allow-modals';
 // Die Seite kann die Nachricht auch ohne Klick schicken; mehr als ein Browser-Tab je Sekunde wäre Spam.
 const OPEN_INTERVAL_MS = 1000;
 
+// Die Abfrage zeigt nur den neuesten Zeitpunkt des Zustands; die letzten eigenen genügen (Critical Rule 3).
+const OWN_STATE_ATS = 8;
+
 export function ArtifactFrame({
   sessionId,
   baseUrl,
   item,
   reloadToken,
+  resetToken = 0,
   className = 'artifacts__frame',
   frameRef,
 }: ArtifactFrameProps): ReactElement {
@@ -43,7 +49,8 @@ export function ArtifactFrame({
   // Zustand (ADR 081): erhöht sich, wenn ein anderer ihn änderte; neuer Schlüssel = neues iframe.
   const [stateReloads, setStateReloads] = useState<number>(0);
   const knownStateAt = useRef<number | undefined>(item.stateModifiedAt);
-  const ownStateAts = useRef<Set<number>>(new Set());
+  const ownStateAts = useRef<number[]>([]);
+  const knownResets = useRef<number>(resetToken);
   const saves = useRef<{ isRunning: boolean; next: Record<string, string> | null }>({
     isRunning: false,
     next: null,
@@ -81,7 +88,7 @@ export function ArtifactFrame({
       saves.current.isRunning = true;
       saveArtifactState(sessionId, file, state)
         .then((modifiedAt: number): void => {
-          ownStateAts.current.add(modifiedAt);
+          ownStateAts.current = [...ownStateAts.current, modifiedAt].slice(-OWN_STATE_ATS);
         })
         .catch((error: unknown): void => {
           console.error('Zustand des Artefakts nicht gespeichert', error);
@@ -115,11 +122,19 @@ export function ArtifactFrame({
     };
   }, [frame, item.file, sessionId]);
 
+  // Nach „Zustand zurücksetzen“ lädt der Rahmen über `reloadToken`; dass die Abfrage danach keine Datei mehr zeigt,
+  // ist kein Grund für ein zweites Laden.
+  useEffect(() => {
+    if (resetToken === knownResets.current) return;
+    knownResets.current = resetToken;
+    knownStateAt.current = undefined;
+  }, [resetToken]);
+
   // Ändert sich die Zustandsdatei und stammt das nicht vom eigenen Speichern, lädt der Rahmen neu.
   useEffect(() => {
     if (stateAt === knownStateAt.current) return;
     knownStateAt.current = stateAt;
-    if (stateAt !== undefined && ownStateAts.current.has(stateAt)) return;
+    if (stateAt !== undefined && ownStateAts.current.includes(stateAt)) return;
     // Ein laufendes Speichern kennt seinen Zeitpunkt erst, wenn es antwortet; die nächste Abfrage zeigt ihn.
     if (saves.current.isRunning) return;
     setStateReloads((count: number) => count + 1);

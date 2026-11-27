@@ -57,6 +57,7 @@ export function ArtifactsView({
   // Die Dateien liegen beim Host: Sein Standardprogramm und sein Dateimanager laufen an seinem Bildschirm, nicht hier.
   const isRemote: boolean = useProjectIsRemote(projectId);
   const [reloadToken, setReloadToken] = useState<number>(0);
+  const [resetToken, setResetToken] = useState<number>(0);
   const [isJustUpdated, setIsJustUpdated] = useState<boolean>(false);
   const [isCommenting, setIsCommenting] = useState<boolean>(false);
   const [pick, setPick] = useState<ArtifactPick | null>(null);
@@ -376,6 +377,7 @@ export function ArtifactsView({
                   resetArtifactState(sessionId, selected.file)
                     .then((): void => {
                       setReloadToken((token: number) => token + 1);
+                      setResetToken((token: number) => token + 1);
                     })
                     .catch((reason: unknown): void => {
                       console.error('Zustand nicht zurückgesetzt', reason);
@@ -438,6 +440,7 @@ export function ArtifactsView({
                 baseUrl={list.baseUrl}
                 item={selected}
                 reloadToken={reloadToken}
+                resetToken={resetToken}
                 frameRef={frameRef}
               />
             )
