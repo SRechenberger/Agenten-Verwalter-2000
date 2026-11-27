@@ -83,6 +83,8 @@ export function ArtifactFrame({
   // Nachricht. Läuft ein Speichern, wartet nur der neueste Stand; so bleibt die Reihenfolge und die Zahl der
   // Aufrufe klein.
   useEffect(() => {
+    // Eine Datei aus einem eingetragenen Ordner hat keinen dauerhaften Zustand (ADR 081, Taiga 139).
+    if (item.externalDir !== undefined) return undefined;
     const file: string = item.file;
     function save(state: Record<string, string>): void {
       saves.current.isRunning = true;
@@ -120,7 +122,7 @@ export function ArtifactFrame({
     return (): void => {
       window.removeEventListener('message', onState);
     };
-  }, [frame, item.file, sessionId]);
+  }, [frame, item.externalDir, item.file, sessionId]);
 
   // Nach „Zustand zurücksetzen“ lädt der Rahmen über `reloadToken`; dass die Abfrage danach keine Datei mehr zeigt,
   // ist kein Grund für ein zweites Laden.

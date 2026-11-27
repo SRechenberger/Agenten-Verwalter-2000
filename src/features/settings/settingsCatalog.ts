@@ -249,6 +249,12 @@ const ENTRY_DATA = {
     label: 'Workspaces',
     info: 'Hier legt die App den Workspace jedes Vorhabens an: Arbeitsordner seiner Sessions und Ablage der Anhänge.',
   },
+  artifactFolders: {
+    category: 'app',
+    section: 'Ordner',
+    label: 'Ordner für Artefakte',
+    info: 'Aus diesen Ordnern, etwa dem Vault, darf ein Agent mit artifact_show eine Datei zeigen, wenn er ihren absoluten Pfad nennt. Sie erscheint im Reiter Artefakte in der Gruppe „Extern“, nur lesend und kommentierbar. Ein Pfad außerhalb, auch über „..“ oder einen Symlink, wird abgelehnt; wer einen Ordner austrägt, nimmt damit auch dessen gezeigte Dateien zurück. Eingetragen wird der kanonische Pfad eines vorhandenen Ordners; fehlt er später, bleibt er in der Liste, bis du ihn entfernst. Gäste der Fernsteuerung sehen und kommentieren diese Dateien wie der Host, tragen aber selbst keine Ordner ein. Gilt für die ganze App.',
+  },
   fileAccess: {
     category: 'app',
     section: 'Rechte',

@@ -24,6 +24,7 @@ use std::time::Duration;
 use serde_json::{Value, json};
 use tauri::{AppHandle, Manager};
 
+use super::extern_files;
 use super::folder::{list_folder, resolve_folder};
 use super::model::ArtifactKind;
 use super::{kind_of, resolve, state, viewers};
@@ -209,6 +210,12 @@ impl RemoteSource {
 /// Woher die Dateien einer Session kommen: aus ihrem Ordner `.artefakte` oder von einem Host.
 pub(crate) enum Source {
     Local(PathBuf),
+    /// Eine Datei aus einem eingetragenen Ordner (`.extern/<schlüssel>/<name>`, Taiga 139): `dir` ist
+    /// der Ordner `.artefakte` mit `.extern.json`, `folders` die jetzt eingetragenen Ordner.
+    Extern {
+        dir: PathBuf,
+        folders: Vec<String>,
+    },
     Remote(RemoteSource),
 }
 
@@ -218,6 +225,7 @@ impl Source {
     fn folder_name(&self, relative: &str) -> Result<String, Failure> {
         match self {
             Source::Local(dir) => Ok(name_of(&resolve_folder(dir, relative)?)),
+            Source::Extern { .. } => Err(Failure::NotFound),
             Source::Remote(_) => Ok(last_segment(relative)),
         }
     }
@@ -230,6 +238,7 @@ impl Source {
                 serde_json::to_vec(&list_folder(dir, &folder, relative))
                     .map_err(|_| Failure::NotFound)
             }
+            Source::Extern { .. } => Err(Failure::NotFound),
             Source::Remote(remote) => remote
                 .fetch("remote_artifact", &format!("{relative}/"))?
                 .bytes()
@@ -244,6 +253,9 @@ impl Source {
                 dir,
                 &native_path(relative).to_string_lossy(),
             )?)),
+            Source::Extern { dir, folders } => {
+                Ok(name_of(&extern_files::resolve(dir, relative, folders)?))
+            }
             Source::Remote(_) => Ok(last_segment(relative)),
         }
     }
@@ -256,6 +268,8 @@ impl Source {
     fn state_artifact(&self, relative: &str) -> Option<String> {
         match self {
             Source::Local(dir) => state::artifact_for(dir, relative),
+            // `respond` setzt für `.extern/…` selbst den leeren Stand.
+            Source::Extern { .. } => None,
             Source::Remote(remote) => {
                 let pages = if relative.contains('/') {
                     remote.page_names()?
@@ -272,6 +286,7 @@ impl Source {
     fn state(&self, artifact: &str) -> String {
         match self {
             Source::Local(dir) => state::read(dir, artifact),
+            Source::Extern { .. } => "{}".to_owned(),
             Source::Remote(remote) => remote
                 .state_fetch
                 .as_ref()
@@ -295,6 +310,11 @@ impl Source {
         match self {
             Source::Local(dir) => {
                 let target = resolve(dir, &native_path(relative).to_string_lossy())?;
+                let body = fs::read(&target).map_err(|_| Failure::NotFound)?;
+                Ok((content_type(&target).to_owned(), body))
+            }
+            Source::Extern { dir, folders } => {
+                let target = extern_files::resolve(dir, relative, folders)?;
                 let body = fs::read(&target).map_err(|_| Failure::NotFound)?;
                 Ok((content_type(&target).to_owned(), body))
             }
@@ -379,7 +399,14 @@ impl Connection {
             let Ok(dir) = registry.artifacts_dir(&session_id) else {
                 return not_found();
             };
-            Source::Local(dir)
+            if extern_files::is_extern(&relative) {
+                Source::Extern {
+                    dir,
+                    folders: registry.artifact_folders(),
+                }
+            } else {
+                Source::Local(dir)
+            }
         };
         // Aus der geprüften Session-ID neu kodiert, nie aus dem Anfragetext: der landet sonst in der CSP.
         let scope = format!(
@@ -496,9 +523,15 @@ pub(crate) fn respond(
     } else {
         match source.read(&relative) {
             Ok((content_type, body)) if content_type == HTML => {
-                let body = match source.state_artifact(&relative) {
-                    Some(artifact) => with_state(body, &source.state(&artifact)),
-                    None => body,
+                // Eine Datei aus einem eingetragenen Ordner hat keinen dauerhaften Zustand (ADR 081):
+                // `localStorage` lebt nur im Speicher, am Host wie beim Gast, ohne Frage an den Host.
+                let body = if extern_files::is_extern(&relative) {
+                    with_state(body, "{}")
+                } else {
+                    match source.state_artifact(&relative) {
+                        Some(artifact) => with_state(body, &source.state(&artifact)),
+                        None => body,
+                    }
                 };
                 (content_type, with_bridge(body))
             }
@@ -932,5 +965,251 @@ mod state_tests {
         let (page, asked) = guest_page("bericht/teil2.html", false);
         assert!(!page.contains("const initial"), "{page}");
         assert_eq!(asked, ["artifacts_list"]);
+    }
+}
+
+#[cfg(test)]
+mod extern_tests {
+    use super::*;
+    use crate::artifacts::extern_files;
+
+    struct Setup {
+        root: PathBuf,
+        dir: PathBuf,
+        folders: Vec<String>,
+        key_path: String,
+    }
+
+    impl Setup {
+        fn new(file: &str, text: &str) -> Setup {
+            let root = fs::canonicalize({
+                let root = std::env::temp_dir().join(format!(
+                    "verwalter-extern-server-{}-{}",
+                    std::process::id(),
+                    uuid::Uuid::new_v4().simple()
+                ));
+                fs::create_dir_all(root.join("vault")).expect("vault");
+                fs::create_dir_all(root.join(".artefakte")).expect("artefakte");
+                root
+            })
+            .expect("kanonisch");
+            // Gespeichert wird die Form von `display_path` (unter Windows ohne `\\?\`).
+            let root = PathBuf::from(crate::filesystem::display_path(&root.to_string_lossy()));
+            fs::write(root.join("vault").join(file), text).expect("Datei");
+            fs::write(root.join("geheim.md"), "# Geheim").expect("Datei aussen");
+            let dir = root.join(".artefakte");
+            let folders = vec![root.join("vault").to_string_lossy().into_owned()];
+            let shown = extern_files::show(
+                &dir,
+                &root.join("vault").join(file).to_string_lossy(),
+                &folders,
+                "s1",
+                1.0,
+            )
+            .expect("gezeigt");
+            Setup {
+                root,
+                dir,
+                folders,
+                key_path: shown.file,
+            }
+        }
+
+        fn source(&self, folders: &[String]) -> Source {
+            Source::Extern {
+                dir: self.dir.clone(),
+                folders: folders.to_vec(),
+            }
+        }
+    }
+
+    impl Drop for Setup {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.root);
+        }
+    }
+
+    /// Was die Betrachter-Seite unter `relative` als ihre Datei nennt (`viewer.file`).
+    fn viewer_file(page: &[u8]) -> String {
+        let page = String::from_utf8_lossy(page);
+        let start = page.find("file: ").expect("viewer.file") + "file: ".len();
+        serde_json::Deserializer::from_str(&page[start..])
+            .into_iter::<String>()
+            .next()
+            .expect("Name")
+            .expect("JSON-Text")
+    }
+
+    #[test]
+    fn a_markdown_file_from_a_registered_folder_comes_through_the_viewer_at_the_address_it_fetches()
+    {
+        let setup = Setup::new("notiz.md", "# Notiz\n\nHallo");
+        // Eine gleichnamige Datei im Vorhaben darf nie an ihre Stelle treten.
+        fs::write(setup.dir.join("notiz.md"), "# FALSCHE DATEI").expect("Datei im Vorhaben");
+        let source = setup.source(&setup.folders);
+        let page = respond(&source, "scope", setup.key_path.clone(), false, true);
+        assert_eq!(page.status, 200);
+        assert_eq!(page.content_type, HTML);
+        // `viewer.url()` ist `encodeURIComponent(viewer.file)`, relativ zur Adresse der Seite: Es
+        // ersetzt den letzten Teil von `.extern/<schlüssel>/<name>`.
+        let file = viewer_file(&page.body);
+        let (folder, _) = setup.key_path.rsplit_once('/').expect("Schlüsselpfad");
+        let fetched = format!("{folder}/{file}");
+        assert_eq!(fetched, setup.key_path);
+        let raw = respond(&source, "scope", fetched, false, false);
+        assert_eq!(raw.status, 200);
+        assert_eq!(raw.body, b"# Notiz\n\nHallo");
+        assert!(raw.csp.is_some(), "dieselbe CSP wie andere Artefakte");
+    }
+
+    #[test]
+    fn a_html_file_from_a_registered_folder_gets_the_bridge_but_no_lasting_state() {
+        let setup = Setup::new("seite.html", "<html><head></head><body>x</body></html>");
+        let reply = respond(
+            &setup.source(&setup.folders),
+            "scope",
+            setup.key_path.clone(),
+            false,
+            false,
+        );
+        let page = String::from_utf8(reply.body).expect("utf-8");
+        assert!(
+            page.contains(r#"JSON.parse("{}")"#),
+            "Speicher nur im Arbeitsspeicher"
+        );
+        assert!(page.contains(BRIDGE_SCRIPT.lines().next().unwrap_or("bridge")));
+    }
+
+    #[test]
+    fn the_server_takes_no_path_from_the_url() {
+        let setup = Setup::new("notiz.md", "# Notiz");
+        let source = setup.source(&setup.folders);
+        let outside = setup.root.join("geheim.md");
+        let (folder, _) = setup.key_path.rsplit_once('/').expect("Schlüsselpfad");
+        fs::write(setup.root.join("vault").join("bild.svg"), "<svg/>").expect("Nachbardatei");
+        fs::write(setup.dir.join("bild.svg"), "<svg/>").expect("Datei im Vorhaben");
+        for relative in [
+            format!("{}{}", extern_files::PREFIX, outside.display()),
+            format!("{}../geheim.md", extern_files::PREFIX),
+            format!("{}/etc/passwd", extern_files::PREFIX),
+            // Relative Adressen einer Seite: weder die Nachbardatei im Ordner noch eine aus `.artefakte`.
+            format!("{folder}/bild.svg"),
+            format!("{folder}/unter/notiz.md"),
+            format!("{folder}/../geheim.md"),
+        ] {
+            for wants_viewer in [false, true] {
+                let reply = respond(&source, "scope", relative.clone(), false, wants_viewer);
+                assert_ne!(reply.status, 200, "{relative}");
+            }
+        }
+    }
+
+    #[test]
+    fn a_file_is_not_delivered_after_its_folder_is_removed_and_a_folder_listing_is_refused() {
+        let setup = Setup::new("notiz.md", "# Notiz");
+        let url = setup.key_path.clone();
+        let before = respond(
+            &setup.source(&setup.folders),
+            "scope",
+            url.clone(),
+            false,
+            false,
+        );
+        assert_eq!(before.status, 200);
+        let after = respond(&setup.source(&[]), "scope", url.clone(), false, false);
+        assert_eq!(after.status, 403);
+        let listing = respond(&setup.source(&setup.folders), "scope", url, true, false);
+        assert_eq!(listing.status, 404);
+    }
+
+    #[test]
+    fn the_extern_store_is_never_delivered_to_a_page_or_a_guest() {
+        let setup = Setup::new("notiz.md", "# Notiz");
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(
+            setup.dir.join(extern_files::FILE),
+            setup.dir.join("link.json"),
+        )
+        .expect("Symlink");
+        let local = Source::Local(setup.dir.clone());
+        for relative in [extern_files::FILE, "link.json"] {
+            if !setup.dir.join(relative).exists() {
+                continue;
+            }
+            let reply = respond(&local, "scope", relative.to_owned(), false, false);
+            assert_eq!(reply.status, 404, "{relative}");
+            let viewer = respond(&local, "scope", relative.to_owned(), false, true);
+            assert_eq!(viewer.status, 404, "{relative}");
+            assert!(
+                crate::remote::content::artifact_in(&setup.dir, relative, &setup.folders).is_err(),
+                "{relative}"
+            );
+        }
+        // Die übrigen versteckten Namen bleiben, wie sie sind.
+        fs::write(setup.dir.join(".env"), "A=1").expect(".env");
+        let env = respond(&local, "scope", ".env".to_owned(), false, false);
+        assert_eq!(env.status, 200);
+    }
+
+    #[test]
+    fn a_guest_html_page_from_a_registered_folder_gets_an_empty_state_without_asking_the_host() {
+        use base64::Engine as _;
+        let asked = Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+        let (state_log, list_log, file_log) =
+            (Arc::clone(&asked), Arc::clone(&asked), Arc::clone(&asked));
+        let page = base64::engine::general_purpose::STANDARD.encode("<html><head></head></html>");
+        let source = Source::Remote(
+            RemoteSource::new(move |command: &str, path: &str| {
+                file_log
+                    .lock()
+                    .expect("Sperre")
+                    .push(format!("{command} {path}"));
+                Ok(Content {
+                    content_type: HTML.to_owned(),
+                    data_base64: page.clone(),
+                })
+            })
+            .with_state_fetch(move |command: &str, path: &str| {
+                state_log
+                    .lock()
+                    .expect("Sperre")
+                    .push(format!("{command} {path}"));
+                Err(CommandError::FileNotFound(path.to_owned()))
+            })
+            .with_list_fetch(move || {
+                list_log
+                    .lock()
+                    .expect("Sperre")
+                    .push("artifacts_list".to_owned());
+                Ok(json!({ "items": [] }))
+            }),
+        );
+        let relative = format!("{}ab12/seite.html", extern_files::PREFIX);
+        let reply = respond(&source, "scope", relative.clone(), false, false);
+        assert_eq!(reply.status, 200);
+        let page = String::from_utf8(reply.body).expect("utf-8");
+        assert!(page.contains(r#"JSON.parse("{}")"#), "{page}");
+        assert!(page.contains(BRIDGE_SCRIPT.lines().next().unwrap_or("bridge")));
+        assert_eq!(
+            *asked.lock().expect("Sperre"),
+            [format!("remote_artifact {relative}")],
+            "nur die Datei, keine Liste und kein Zustand"
+        );
+    }
+
+    #[test]
+    fn a_guest_gets_the_file_through_the_host_only_after_the_same_check() {
+        let setup = Setup::new("notiz.md", "# Notiz");
+        let delivered =
+            crate::remote::content::artifact_in(&setup.dir, &setup.key_path, &setup.folders)
+                .expect("Host liefert");
+        assert_eq!(delivered.bytes().expect("Bytes"), b"# Notiz");
+        assert!(crate::remote::content::artifact_in(&setup.dir, &setup.key_path, &[]).is_err());
+        let outside = format!(
+            "{}{}",
+            extern_files::PREFIX,
+            setup.root.join("geheim.md").display()
+        );
+        assert!(crate::remote::content::artifact_in(&setup.dir, &outside, &setup.folders).is_err());
     }
 }

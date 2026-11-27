@@ -1,6 +1,7 @@
 import type { ReactElement } from 'react';
 import { ArtifactKindBadge } from '@/features/artifacts/ArtifactKindBadge';
 import { clockLabel, openLabel, sizeLabel } from '@/features/artifacts/artifactTexts';
+import { displayFile } from '@/features/artifacts/groupArtifacts';
 import type { Artifact } from '@/lib/bindings/Artifact';
 import './ArtifactOtherCard.css';
 
@@ -28,7 +29,7 @@ export function ArtifactOtherCard({
     <div className="artifact-other-card">
       <div className="artifact-other-card__body">
         <ArtifactKindBadge kind={item.kind} />
-        <p className="artifact-other-card__file">{item.file}</p>
+        <p className="artifact-other-card__file">{displayFile(item.file)}</p>
         <p className="artifact-other-card__facts">{facts.join(' · ')}</p>
         <p className="artifact-other-card__hint">Für diesen Typ gibt es hier noch keine Ansicht.</p>
         {canOpen && (

@@ -17,7 +17,7 @@ import {
   metaLine,
   openLabel,
 } from '@/features/artifacts/artifactTexts';
-import { groupArtifacts } from '@/features/artifacts/groupArtifacts';
+import { displayFile, groupArtifacts } from '@/features/artifacts/groupArtifacts';
 import type { ArtifactGroup } from '@/features/artifacts/groupArtifacts';
 import { mentionInChat } from '@/features/background/mention';
 import { useProjectIsRemote } from '@/features/remote/useProjectAccess';
@@ -210,6 +210,7 @@ export function ArtifactsView({
         key={item.file}
         type="button"
         className={`artifacts__entry${isSelected ? ' artifacts__entry--selected' : ''}`}
+        title={item.externalDir}
         aria-current={isSelected ? 'true' : undefined}
         onClick={(): void => {
           setIsCommenting(false);
@@ -220,7 +221,9 @@ export function ArtifactsView({
       >
         <ArtifactKindBadge kind={item.kind} />
         <span className="artifacts__entry-text">
-          <span className="artifacts__entry-title">{item.title}</span>
+          <span className="artifacts__entry-title">
+            {item.externalDir === undefined ? item.title : displayFile(item.file)}
+          </span>
           <span className="artifacts__entry-meta">{metaLine(item)}</span>
         </span>
       </button>
@@ -256,7 +259,12 @@ export function ArtifactsView({
         type="button"
         className="artifacts__button"
         onClick={(): void => {
-          mentionInChat(currentSessionId, `Artefakt „${item.title}“ (${list.dir}\\${item.file})`);
+          mentionInChat(
+            currentSessionId,
+            item.externalPath === undefined
+              ? `Artefakt „${item.title}“ (${list.dir}\\${item.file})`
+              : `Datei „${item.title}“ (${item.externalPath})`,
+          );
         }}
       >
         Im Chat besprechen
@@ -287,7 +295,7 @@ export function ArtifactsView({
             >
               {isJustUpdated
                 ? JUST_UPDATED
-                : `${selected.file} · ${clockLabel(selected.modifiedAt)}`}
+                : `${displayFile(selected.file)} · ${clockLabel(selected.modifiedAt)}`}
             </span>
           </div>
           <div className="artifacts__actions">
@@ -390,7 +398,7 @@ export function ArtifactsView({
               />
             ) : null}
             {renderDiscussButton(selected)}
-            {!isRemote && (
+            {!isRemote && selected.externalDir === undefined && (
               <button
                 type="button"
                 className="artifacts__button"
@@ -447,7 +455,7 @@ export function ArtifactsView({
           ) : (
             <ArtifactOtherCard
               item={selected}
-              canOpen={!isRemote}
+              canOpen={!isRemote && selected.externalDir === undefined}
               onOpen={(): void => {
                 runOnFile(openArtifactDefault, selected);
               }}

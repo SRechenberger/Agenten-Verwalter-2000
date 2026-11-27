@@ -2,6 +2,7 @@
 //! (ADR 026, 047). Hier liegen Ordner, Liste, Typ-Erkennung und die Pfadprüfung; ausgeliefert wird
 //! über einen eigenen Server auf `127.0.0.1` (`server`), alles außer HTML in einer Betrachter-Seite
 //! (`viewers`).
+pub mod extern_files;
 pub mod folder;
 pub mod model;
 pub mod server;
@@ -159,7 +160,7 @@ pub fn list(dir: &Path, owners: &[ArtifactOwner]) -> Vec<Artifact> {
         let file = entry.file_name().to_string_lossy().into_owned();
         let path = entry.path();
         let item = if file_type.is_file() && !is_hidden(&file) {
-            file_item(&path, file, entry)
+            file_item(&path, file, entry.metadata().ok())
         } else if file_type.is_dir() && !file.starts_with('.') && !is_accessory_dir(&file, &stems) {
             folder_item(&path, file)
         } else {
@@ -169,6 +170,12 @@ pub fn list(dir: &Path, owners: &[ArtifactOwner]) -> Vec<Artifact> {
         item.state_modified_at = state::modified_at(dir, &item.file);
         items.push(item);
     }
+    sort_newest_first(&mut items);
+    items
+}
+
+/// Neueste Änderung zuerst, bei gleicher Zeit nach dem Namen.
+pub(crate) fn sort_newest_first(items: &mut [Artifact]) {
     items.sort_by(|left: &Artifact, right: &Artifact| {
         right
             .modified_at
@@ -176,7 +183,6 @@ pub fn list(dir: &Path, owners: &[ArtifactOwner]) -> Vec<Artifact> {
             .unwrap_or(Ordering::Equal)
             .then_with(|| left.file.cmp(&right.file))
     });
-    items
 }
 
 /// Die Datei `relative` im Ordner `dir`. Der Pfad kommt aus einer Seite oder der Oberfläche: `..`,
@@ -184,7 +190,9 @@ pub fn list(dir: &Path, owners: &[ArtifactOwner]) -> Vec<Artifact> {
 /// liegen — sonst führte ein Symlink im Ordner nach draußen.
 pub fn resolve(dir: &Path, relative: &str) -> Result<PathBuf, CommandError> {
     let target = resolve_entry(dir, relative)?;
-    if target.is_dir() {
+    // `.extern.json` nennt Pfade außerhalb des Vorhabens (Taiga 139): weder eine Seite noch ein Gast
+    // bekommt sie, auch nicht über einen Symlink im Ordner.
+    if target.is_dir() || extern_files::is_store(dir, &target) {
         return Err(CommandError::FileNotFound(relative.to_owned()));
     }
     Ok(target)
@@ -311,9 +319,8 @@ fn is_accessory_dir(name: &str, page_stems: &[String]) -> bool {
     name.starts_with('_') || page_stems.contains(&name.to_lowercase())
 }
 
-fn file_item(path: &Path, file: String, entry: &fs::DirEntry) -> Artifact {
+fn file_item(path: &Path, file: String, metadata: Option<fs::Metadata>) -> Artifact {
     let kind = kind_of(path);
-    let metadata = entry.metadata().ok();
     let title = match kind {
         ArtifactKind::Html => html_title(path),
         ArtifactKind::Markdown => markdown_title(path),
@@ -336,6 +343,8 @@ fn file_item(path: &Path, file: String, entry: &fs::DirEntry) -> Artifact {
         last_session_number: None,
         last_session_name: None,
         state_modified_at: None,
+        external_dir: None,
+        external_path: None,
     }
 }
 
@@ -363,6 +372,8 @@ fn folder_item(path: &Path, file: String) -> Artifact {
         last_session_number: None,
         last_session_name: None,
         state_modified_at: None,
+        external_dir: None,
+        external_path: None,
     }
 }
 

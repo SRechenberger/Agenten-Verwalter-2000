@@ -22,7 +22,8 @@ pub async fn artifacts_list(
         .ok_or_else(|| CommandError::Io(SERVER_MISSING.to_owned()))?;
     let (workspace, owners) = registry.artifact_scope(&session_id)?;
     let dir = artifacts::dir(&workspace);
-    let items = artifacts::list(&dir, &owners);
+    let mut items = artifacts::list(&dir, &owners);
+    artifacts::extern_files::append_to(&dir, &registry.artifact_folders(), &mut items);
     Ok(ArtifactList {
         dir: dir.to_string_lossy().into_owned(),
         base_url: server.base_url(&session_id),
