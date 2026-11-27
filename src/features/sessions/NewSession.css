@@ -112,8 +112,7 @@
     display: flex;
     flex-direction: column;
     border: 1px solid var(--color-border);
-    border-radius: var(--radius-xl);
-    background: var(--color-bg-surface);
+    border-radius: 0;
 
     &:focus-within,
     &--dragging {
@@ -158,7 +157,7 @@
     height: 30px;
     padding: 0;
     border: 0;
-    border-radius: var(--radius-md);
+    border-radius: var(--radius-flat);
     background: transparent;
     color: var(--color-fg-secondary);
     cursor: pointer;
@@ -229,7 +228,7 @@
   }
 
   &__model {
-    border-radius: 15px;
+    border-radius: var(--radius-flat);
     color: var(--color-fg-primary);
 
     &--static {
@@ -243,7 +242,7 @@
 
   &__mode,
   &__group {
-    border-radius: var(--radius-md);
+    border-radius: var(--radius-flat);
     color: var(--color-fg-secondary);
   }
 
@@ -277,7 +276,7 @@
   &__start,
   &__cancel {
     height: 32px;
-    border-radius: var(--radius-md);
+    border-radius: var(--radius-flat);
     font: inherit;
     cursor: pointer;
 
@@ -359,7 +358,7 @@
     height: 30px;
     padding: 0 var(--space-md);
     border: 1px solid var(--color-border);
-    border-radius: var(--radius-md);
+    border-radius: 0;
     background: var(--color-bg-base);
     color: var(--color-fg-primary);
     font: inherit;
@@ -374,7 +373,7 @@
   &__name-chip {
     padding: 0 var(--space-md);
     border: 1px solid var(--color-border);
-    border-radius: var(--radius-full);
+    border-radius: var(--radius-flat);
     font-size: var(--font-size-2xs);
     color: var(--color-fg-muted);
     white-space: nowrap;

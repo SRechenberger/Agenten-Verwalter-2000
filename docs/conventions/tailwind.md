@@ -65,13 +65,23 @@ Umgesetzt in `src/styles/theme.css`: `@import 'tailwindcss' source(none);` schal
 
 ## Flacher Stil für Inhalte
 
-Chat, Karten und Hinweise über dem Eingabefeld, die Popups des Dashboards, in der Übersicht des Vorhabens der Block „Fernsteuerung“, der Automatik-Block, die Session-Karten und das Intro „Neue Session“, die Liste der Repositories in „Neues Vorhaben“ und die Eingabesperre (Taiga 236, 255, 256; `docs/design/2026-11-25_chat-flach/`, `docs/design/2026-11-25_flacher-stil-reste/`):
+Chat, Karten und Hinweise über dem Eingabefeld, die Popups des Dashboards, die Übersicht des Vorhabens (Block „Fernsteuerung“, Automatik-Block, Session-Karten, Intro „Neue Session“, TL;DR-Karte und -Knöpfe, Pillen der Warteschlange, „Übernehmen“) und „Neues Vorhaben“ (Kasten, Knöpfe, Liste der Repositories), jeweils ohne Ausnahme, und die Eingabesperre (Taiga 236, 255, 256, 269; `docs/design/2026-11-25_chat-flach/`, `docs/design/2026-11-25_flacher-stil-reste/`):
 
 - Keine runden Kästen mit eigener Fläche. Die Art eines Eintrags zeigt eine 2-px-Linie links (`border-left`) in ihrer Farbe.
 - Listen sind Zeilen mit Haarlinien (`--color-border-subtle`).
-- Code, Diffs, Fehlertexte und Felder sind eckig (`border-radius: 0`) mit Haarlinie; Knöpfe, Marken und Chips nehmen `--radius-flat` (2 px). Status- und Auswahlpunkte bleiben rund.
+- Code, Diffs, Fehlertexte und Felder sind eckig (`border-radius: 0`) mit Haarlinie; Knöpfe, Marken und Chips nehmen `--radius-flat` (2 px). Status- und Auswahlpunkte und Schalter (`Switch`) bleiben rund.
 - Unter `src/features/chat/` gibt es kein `--radius-lg` und `--radius-xl`. In `RepositoryPicker.css`, `ProjectOverview.css`, `ProjectSessionCard.css` und `NewSessionIntro.css` und bei `.remote-block` und `.remote-lock` in `RemoteProject.css` gibt es auch kein `--radius-md`. Kästen dort sind eckig mit Haarlinie; die Sperre `.remote-lock` hat wie das Eingabefeld einen Rahmen mit `--radius-flat`, hier gestrichelt; der Block „Fernsteuerung“ (`.remote-block`) hat statt eines Rahmens links eine 2-px-Linie, im Akzent, solange ein Gerät das Vorhaben steuert (`remote-block--active`). Ein Radius von 2 px ist immer `var(--radius-flat)`, nie das Literal (Ausnahme: Balken und Symbole). Neue Bausteine werden gleich flach gebaut; der Stil gehört an die Quelle des Bausteins.
 - Menüs, Dialoge und Popover außerhalb des Chats behalten ihre Rundung.
+- Kreise (`50%`) und 2-px-Balken bleiben. Alles andere an den genannten Stellen ist `0` oder `--radius-flat`, nie `--radius-md`, `-lg`, `-xl`, `-full` oder ein Pixelliteral; ein Kasten hat keine eigene Fläche.
+
+## `user-select`
+
+Vor jedem `user-select` steht `-webkit-user-select` mit demselben Wert, denn WebKitGTK kennt die Eigenschaft nur mit Präfix (Taiga 268). Es gibt keinen Autoprefixer; die Zeile wird von Hand gesetzt:
+
+```css
+-webkit-user-select: none;
+user-select: none;
+```
 
 ## Anti-Patterns
 
