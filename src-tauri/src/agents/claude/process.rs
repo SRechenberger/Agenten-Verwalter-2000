@@ -524,9 +524,13 @@ fn artifacts_prompt(dir: &Path, can_publish: bool, has_tools: bool) -> String {
          `data-theme=\"light\"` oder `\"dark\"`, wenn der Benutzer ein Farbschema gewählt hat; \
          ohne Attribut gilt das des Systems. Schreib dunkle Farben deshalb unter \
          `:root[data-theme=\"dark\"]` und unter `@media (prefers-color-scheme: dark)` mit \
-         `:root:not([data-theme=\"light\"])`. Lege in diesem Ordner nichts anderes ab \
-         als Artefakte und ihre Dateien.",
-        dir.display()
+         `:root:not([data-theme=\"light\"])`. Den Zustand einer interaktiven Seite (etwa Häkchen \
+         in einem Testplan) legt sie in `localStorage` ab, mit sprechenden Schlüsseln und JSON \
+         als Wert; der Verwalter behält ihn über Neuladen und Neustart. Zum Auswerten lies die \
+         Datei `{state}/<artefakt-dateiname>.json` (bei einer Website `<ordnername>.json`). Lege in \
+         diesem Ordner nichts anderes ab als Artefakte und ihre Dateien.",
+        dir.display(),
+        state = dir.join(".zustand").display()
     );
     if has_tools {
         prompt.push_str(
@@ -799,6 +803,17 @@ mod artifacts_prompt_tests {
     use std::path::Path;
 
     use super::artifacts_prompt;
+
+    #[test]
+    fn the_artifacts_prompt_names_local_storage_and_the_state_file() {
+        let prompt = artifacts_prompt(Path::new("artefakte"), false, false);
+        assert!(prompt.contains("`localStorage`"));
+        assert!(prompt.contains(&format!(
+            "{}",
+            Path::new("artefakte").join(".zustand").display()
+        )));
+        assert!(prompt.contains("<artefakt-dateiname>.json"));
+    }
 
     #[test]
     fn the_artifacts_prompt_names_data_theme() {

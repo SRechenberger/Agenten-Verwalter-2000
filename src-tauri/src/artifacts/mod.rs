@@ -5,6 +5,7 @@
 pub mod folder;
 pub mod model;
 pub mod server;
+pub mod state;
 pub mod tools;
 pub mod viewers;
 
@@ -164,7 +165,9 @@ pub fn list(dir: &Path, owners: &[ArtifactOwner]) -> Vec<Artifact> {
         } else {
             continue;
         };
-        items.push(with_owners(item, &path, file_type.is_dir(), owners));
+        let mut item = with_owners(item, &path, file_type.is_dir(), owners);
+        item.state_modified_at = state::modified_at(dir, &item.file);
+        items.push(item);
     }
     items.sort_by(|left: &Artifact, right: &Artifact| {
         right
@@ -263,21 +266,35 @@ fn normalize_separators(path: &str) -> String {
 /// Die Namen der HTML-Dateien direkt im Ordner ohne Endung, klein geschrieben. Aus den
 /// Verzeichniseinträgen, ohne eine Datei zu öffnen.
 fn page_stems_of(entries: &[fs::DirEntry]) -> Vec<String> {
-    entries
-        .iter()
-        .filter(|entry: &&fs::DirEntry| {
-            entry
-                .file_type()
-                .is_ok_and(|file_type: fs::FileType| file_type.is_file())
-                && kind_of(&entry.path()) == ArtifactKind::Html
-        })
-        .filter_map(|entry: &fs::DirEntry| {
-            entry
-                .path()
-                .file_stem()
-                .map(|stem| stem.to_string_lossy().to_lowercase())
-        })
-        .collect()
+    entries.iter().filter_map(page_stem).collect()
+}
+
+/// Der Name einer HTML-Datei ohne Endung, klein geschrieben; `None` für jeden anderen Eintrag.
+fn page_stem(entry: &fs::DirEntry) -> Option<String> {
+    let is_page = entry
+        .file_type()
+        .is_ok_and(|file_type: fs::FileType| file_type.is_file())
+        && kind_of(&entry.path()) == ArtifactKind::Html;
+    if !is_page {
+        return None;
+    }
+    entry
+        .path()
+        .file_stem()
+        .map(|stem| stem.to_string_lossy().to_lowercase())
+}
+
+/// Die Namen der HTML-Dateien direkt in `dir`, wie sie im Ordner stehen.
+pub fn page_names_in(dir: &Path) -> Vec<String> {
+    fs::read_dir(dir).map_or_else(
+        |_| Vec::new(),
+        |read| {
+            read.flatten()
+                .filter(|entry: &fs::DirEntry| page_stem(entry).is_some())
+                .map(|entry: fs::DirEntry| entry.file_name().to_string_lossy().into_owned())
+                .collect()
+        },
+    )
 }
 
 fn page_stems_in(dir: &Path) -> Vec<String> {
@@ -318,6 +335,7 @@ fn file_item(path: &Path, file: String, entry: &fs::DirEntry) -> Artifact {
         session_name: None,
         last_session_number: None,
         last_session_name: None,
+        state_modified_at: None,
     }
 }
 
@@ -344,6 +362,7 @@ fn folder_item(path: &Path, file: String) -> Artifact {
         session_name: None,
         last_session_number: None,
         last_session_name: None,
+        state_modified_at: None,
     }
 }
 
@@ -621,5 +640,26 @@ mod tests {
         let of = |relative: &str| artifact_file_of(dir, &dir.join(relative).to_string_lossy());
         assert_eq!(of("daten/x.csv"), Some("daten".to_owned()));
         assert_eq!(of("_bilder/a.png"), None);
+    }
+
+    #[test]
+    fn the_state_folder_is_not_listed_but_the_time_of_a_state_is() {
+        let scratch = Scratch::new("state-list");
+        scratch.write("plan.html", "<p>x</p>");
+        scratch.write("seite/index.html", "<p>y</p>");
+        scratch.write("ohne.html", "<p>z</p>");
+        state::save(&scratch.0, "plan.html", "{}").expect("save");
+        state::save(&scratch.0, "seite", "{}").expect("save");
+        assert_eq!(scratch.names(), ["ohne.html", "plan.html", "seite"]);
+        let items = list(&scratch.0, &[]);
+        let time_of = |file: &str| {
+            items
+                .iter()
+                .find(|item: &&Artifact| item.file == file)
+                .and_then(|item: &Artifact| item.state_modified_at)
+        };
+        assert!(time_of("plan.html").is_some());
+        assert!(time_of("seite").is_some());
+        assert_eq!(time_of("ohne.html"), None);
     }
 }

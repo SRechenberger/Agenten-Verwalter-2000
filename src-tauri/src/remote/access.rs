@@ -89,6 +89,8 @@ const TABLE: &[(Class, Option<IdKind>, &[&str])] = &[
         Class::HostWrite,
         Some(IdKind::Session),
         &[
+            "artifact_state_reset",
+            "artifact_state_save",
             "background_stop",
             "chat_send",
             "chat_send_now",

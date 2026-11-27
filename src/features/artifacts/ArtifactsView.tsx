@@ -6,6 +6,7 @@ import { ArtifactFullscreen } from '@/features/artifacts/ArtifactFullscreen';
 import { ArtifactGroupHeader } from '@/features/artifacts/ArtifactGroupHeader';
 import { ArtifactKindBadge } from '@/features/artifacts/ArtifactKindBadge';
 import { ArtifactOtherCard } from '@/features/artifacts/ArtifactOtherCard';
+import { ArtifactStateReset } from '@/features/artifacts/ArtifactStateReset';
 import type { ArtifactMark, ArtifactPick } from '@/features/artifacts/artifactBridge';
 import { useArtifactPicker } from '@/features/artifacts/useArtifactPicker';
 import {
@@ -20,7 +21,7 @@ import { groupArtifacts } from '@/features/artifacts/groupArtifacts';
 import type { ArtifactGroup } from '@/features/artifacts/groupArtifacts';
 import { mentionInChat } from '@/features/background/mention';
 import { useProjectIsRemote } from '@/features/remote/useProjectAccess';
-import { openArtifactDefault, revealArtifact } from '@/lib/artifacts';
+import { openArtifactDefault, resetArtifactState, revealArtifact } from '@/lib/artifacts';
 import type { Artifact } from '@/lib/bindings/Artifact';
 import type { ArtifactList } from '@/lib/bindings/ArtifactList';
 import { commandErrorText } from '@/lib/errors';
@@ -56,6 +57,7 @@ export function ArtifactsView({
   // Die Dateien liegen beim Host: Sein Standardprogramm und sein Dateimanager laufen an seinem Bildschirm, nicht hier.
   const isRemote: boolean = useProjectIsRemote(projectId);
   const [reloadToken, setReloadToken] = useState<number>(0);
+  const [resetToken, setResetToken] = useState<number>(0);
   const [isJustUpdated, setIsJustUpdated] = useState<boolean>(false);
   const [isCommenting, setIsCommenting] = useState<boolean>(false);
   const [pick, setPick] = useState<ArtifactPick | null>(null);
@@ -368,6 +370,25 @@ export function ArtifactsView({
                 Kommentieren{isCommenting ? ` · ${String(artifactComments.length)}` : ''}
               </button>
             ) : null}
+            {selected.stateModifiedAt !== undefined ? (
+              <ArtifactStateReset
+                key={selected.file}
+                onReset={(): void => {
+                  resetArtifactState(sessionId, selected.file)
+                    .then((): void => {
+                      setReloadToken((token: number) => token + 1);
+                      setResetToken((token: number) => token + 1);
+                    })
+                    .catch((reason: unknown): void => {
+                      console.error('Zustand nicht zurückgesetzt', reason);
+                      reportSessionError(
+                        sessionId,
+                        `Zustand nicht zurückgesetzt: ${commandErrorText(reason)}`,
+                      );
+                    });
+                }}
+              />
+            ) : null}
             {renderDiscussButton(selected)}
             {!isRemote && (
               <button
@@ -409,13 +430,20 @@ export function ArtifactsView({
           </div>
         ) : null}
         <div ref={stageRef} className="artifacts__stage">
+          {/* Unter dem Vollbild hängt die Vorschau aus (ADR 081): Zwei Rahmen einer Seite, die beim Laden
+              speichert, lüden einander sonst neu. Beim Schließen lädt sie mit dem neuesten Stand. */}
           {selected.viewable ? (
-            <ArtifactFrame
-              baseUrl={list.baseUrl}
-              item={selected}
-              reloadToken={reloadToken}
-              frameRef={frameRef}
-            />
+            isFullscreen ? null : (
+              <ArtifactFrame
+                key={selected.file}
+                sessionId={sessionId}
+                baseUrl={list.baseUrl}
+                item={selected}
+                reloadToken={reloadToken}
+                resetToken={resetToken}
+                frameRef={frameRef}
+              />
+            )
           ) : (
             <ArtifactOtherCard
               item={selected}
@@ -470,6 +498,7 @@ export function ArtifactsView({
       </section>
       {isFullscreen && selected.viewable ? (
         <ArtifactFullscreen
+          sessionId={sessionId}
           baseUrl={list.baseUrl}
           item={selected}
           onClose={(): void => {

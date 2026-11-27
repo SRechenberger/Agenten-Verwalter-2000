@@ -77,3 +77,28 @@ export function parseOpenRequest(data: unknown): string | null {
     return null;
   }
 }
+
+/** Zustand aus einer `state`-Nachricht der Seite (ADR 081): ein Objekt, dessen Werte alle Zeichenketten sind,
+ *  sonst `null`. Die Datei wählt die App aus dem angezeigten Artefakt, nie diese Nachricht; Größe und
+ *  JSON prüft der Core noch einmal. */
+export function parseStateRequest(data: unknown): Record<string, string> | null {
+  if (typeof data !== 'object' || data === null) return null;
+  const message = data as unknown as Record<string, unknown>;
+  if (message.verwalter !== 1 || message.type !== 'state') return null;
+  const state = message.data;
+  if (typeof state !== 'object' || state === null || Array.isArray(state)) return null;
+  const entries: [string, unknown][] = Object.entries(state);
+  if (!entries.every(([, value]: [string, unknown]) => typeof value === 'string')) return null;
+  return Object.fromEntries(entries) as Record<string, string>;
+}
+
+/** Der Zustand aus einer Nachricht, wenn sie vom Fenster des eigenen Rahmens kommt (`source`), sonst `null`.
+ *  Ohne diese Prüfung schriebe jedes andere Fenster in die Zustandsdatei des angezeigten Artefakts. */
+export function stateFromFrame(
+  source: unknown,
+  frameWindow: unknown,
+  data: unknown,
+): Record<string, string> | null {
+  if (source === null || source === undefined || source !== frameWindow) return null;
+  return parseStateRequest(data);
+}

@@ -89,6 +89,10 @@ pub struct Artifact {
     /// Session, die zuletzt schrieb — nur, wenn es nicht die anlegende ist.
     pub last_session_number: Option<u32>,
     pub last_session_name: Option<String>,
+    /// Änderungszeitpunkt der Zustandsdatei (ADR 081), ms seit 1970; fehlt, wenn es keinen Zustand gibt.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub state_modified_at: Option<f64>,
 }
 
 #[derive(Debug, Clone, Serialize, TS)]
