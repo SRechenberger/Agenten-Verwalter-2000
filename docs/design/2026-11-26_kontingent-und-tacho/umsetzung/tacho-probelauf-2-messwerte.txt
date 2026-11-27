@@ -1,0 +1,36 @@
+Zweiter Probelauf (tacho-ui-9), 2026-11-27 (Uhrzeiten UTC; die App zeigt Ortszeit, UTC+1)
+
+Kriterium 2: Zeile „Tempo“ gegen die Sessions (Host, tempo_load im selben Moment, 10:33 UTC)
+  Aktiv 21 700 (Cache gelesen 32 000), Ruhend 0, Station A 0, Fremd 15 200 (64 000)
+  Summe 36 900 / 96 000 = all.perMinute 36 900 / all.cacheReadPerMinute 96 000, active 2
+  Zeile „Tempo“ lädt im Minutentakt und auf Ereignisse: 10:33:34 all 33 100 -> 10:33:44 Zeile „33 k/min · 2“.
+
+B2: Gast, Popover der Host-Zeile offen, Folge von „Teuerste Sessions“ (ms nach dem Befehl)
+  takeRemoteProject:    0 [] -> 501 ["Aktiv","Ruhend"]
+  giveBackRemoteProject: 0 ["Aktiv","Ruhend"] -> 530 ["Session","Session"] -> 589 []
+  (erster Lauf: take 0 [] -> 457 ["Aktiv"])
+  heldKey (Hook-Wert der Zeile, aus dem React-Fiber gelesen): vor der Übernahme "", danach die Kennung des Vorhabens,
+  nach der Rückgabe wieder "". Eigene Zeile („selbst“ am Gast, „Tempo“ am Host): immer "".
+  Neue Snapshots je Zeile in 25 s, während der Gast das Vorhaben hielt: selbst 1, kropotkin 1 (= Minutentakt),
+  in 20 s ohne Übernahme: 1 und 1, am Host in 5 s: 0. Kein Neuladen in jedem Rendern.
+
+Kriterium 5: Gast
+  Kopf „#1 Aktiv“ am Gast 18 k/min, Host tempo_load 18 200.
+  Nachricht vom Gast an Aktiv: Kopf 18 -> 21 k/min nach 379 ms, Zeile „kropotkin“ 23 -> 21 k/min (remote://tempo-changed).
+
+U11: Minutentakt ohne Ereignis (drei Zeilen für „Ruhend“ direkt in die DB, Alter 240/230/220 s, eingefügt 10:47:08)
+  10:47:10 6,0 k/min (beim Öffnen) -> 10:48:08 4,0 k/min (erster Takt, Zeile mit 240 s ist draußen)
+  -> 10:49:20 0 k/min (erster Takt, nachdem die letzte Zeile um 10:48:28 5 min alt war).
+  Erster Lauf (160-180 s, 10:40:38): 0 -> 10:41:36 6,0 k/min (Takt) -> abgebrochen (Treiber, siehe Bericht).
+
+B4: Überschrift des Fensters
+  Kopf: aria-label „Tempo der Session #1 Aktiv: …“, Fenster „Tempo · #1 Aktiv“
+  Zeitleiste p-1: „Tempo · #3 Station A“; Stationskarte p-1: „Tempo · #3 Station A“
+  p-2 ohne Session: „—“ ohne Knopf (Tooltip „Diese Station hat noch keine Session“), kein Fenster.
+
+Reichweite (Host und Gast gleich)
+  ohne Prognose: Zeile „Kontingent 5h 31 %“, Tooltip „Noch keine Prognose“,
+    Fenster „Noch keine Prognose: ein Fenster muss erst 10 min lang gestiegen sein.“
+  mit Prognose: 5 Std. 150 %/h, exhaustedAt 11:00 UTC, percentAtReset 100 -> „bei diesem Tempo leer ca. 12:00 ·
+    Rücksetzung 14:32“, ghost/note --over, rgb(210, 59, 51);
+    Woche 25 %/h, exhaustedAt null, percentAtReset 35 -> „reicht bis zur Rücksetzung 12:32 (dann ca. 35 %)“.
