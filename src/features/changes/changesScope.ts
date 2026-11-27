@@ -15,11 +15,13 @@ export const EMPTY_SCOPE_TEXT: Record<ChangeScope, string> = {
 
 export const REACH_TEXT: Record<ChangesReach, string> = {
   session: 'Nur, was diese Session geändert hat.',
+  implementation: 'Was die Sessions dieser Umsetzung geändert haben.',
   project: 'Was die Sessions dieses Vorhabens geändert haben.',
 };
 
 export const FOREIGN_TEXT: Record<ChangesReach, string> = {
   session: 'Dieser Diff enthält auch Änderungen von außerhalb dieser Session.',
+  implementation: 'Dieser Diff enthält auch Änderungen von außerhalb dieser Umsetzung.',
   project: 'Dieser Diff enthält auch Änderungen von außerhalb dieses Vorhabens.',
 };
 

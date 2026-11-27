@@ -218,6 +218,7 @@ export function ProjectOverview({
               isLocked={isLocked}
             />
           </div>
+          <p className="project-overview__note">{NEW_SESSIONS_NOTE}</p>
           {errorMessage !== null && <p className="project-overview__error">{errorMessage}</p>}
           <div className="project-overview__cards">
             {sessions.map((session: SessionSummary) => (
@@ -234,6 +235,10 @@ export function ProjectOverview({
     </div>
   );
 }
+
+/** Agenten öffnen keine Sessions selbst (Taiga 216): die Wege, die bleiben. */
+const NEW_SESSIONS_NOTE =
+  'Neue Sessions legst du weiter über „Neue Session“, „In neuer Session weiter“, Retro und „Neue Rückfrage“ an.';
 
 /** Eine Session im Status „Neu“ hat keinen Verlauf und damit nichts, das ein TL;DR zusammenfassen könnte. */
 function hasHistory(session: SessionSummary): boolean {

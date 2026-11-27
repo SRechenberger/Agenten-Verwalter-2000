@@ -29,6 +29,9 @@ pub enum ChangeScope {
 pub enum ChangesReach {
     /// Nur die Session: ihre eigenen Commits, ihre geschriebenen Dateien, ihre Ticket-Worktrees.
     Session,
+    /// Die Sessions der Stationen und Rückfragen der Umsetzung, zu der die angefragte Session gehört
+    /// (ADR 076, Taiga 254).
+    Implementation,
     /// Alle Sessions des Vorhabens zusammen.
     Project,
 }

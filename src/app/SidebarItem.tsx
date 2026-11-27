@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { ChangeEvent, FocusEvent, KeyboardEvent, MouseEvent, ReactElement } from 'react';
 import { SessionDeleteDialog } from '@/app/SessionDeleteDialog';
 import { Popover } from '@/components/Popover';
+import { INQUIRY_MARK, INQUIRY_MARK_TITLE } from '@/app/sidebarMarks';
 import { StatusIcon } from '@/components/StatusIcon';
 import { TwinFoldersIcon } from '@/components/TwinFoldersIcon';
 import { formatDuration } from '@/features/background/backgroundLabels';
@@ -95,6 +96,11 @@ export function SidebarItem({
         >
           {session.name}
         </span>
+        {session.inquiryOf !== null && (
+          <span className="sidebar-item__inquiry" title={INQUIRY_MARK_TITLE}>
+            {INQUIRY_MARK}
+          </span>
+        )}
         {isMaster && (
           <span
             className="sidebar-item__master"

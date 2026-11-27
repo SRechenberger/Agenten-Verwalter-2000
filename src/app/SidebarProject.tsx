@@ -3,6 +3,7 @@ import type { MouseEvent, PointerEvent, ReactElement } from 'react';
 import { Popover } from '@/components/Popover';
 import { StatusIcon } from '@/components/StatusIcon';
 import { RenameField } from '@/app/SidebarItem';
+import { runningImplementationsText } from '@/app/sidebarMarks';
 import { useNow } from '@/features/background/useNow';
 import {
   hasUnread,
@@ -38,6 +39,8 @@ interface SidebarProjectProps {
   project: ProjectSummary;
   /** Sessions dieses Vorhabens, zuletzt aktive zuerst. */
   sessions: readonly SessionSummary[];
+  /** Zahl der unfertigen Umsetzungen des Vorhabens. */
+  runningImplementations: number;
   isOverviewActive: boolean;
   isExpanded: boolean;
   renaming: RenameTarget | null;
@@ -69,6 +72,7 @@ interface SidebarProjectProps {
 export function SidebarProject({
   project,
   sessions,
+  runningImplementations,
   isOverviewActive,
   isExpanded,
   renaming,
@@ -165,7 +169,11 @@ export function SidebarProject({
       lock,
       reservedLeft,
     );
-    const meta: string | null = remote.text;
+    const parts: string[] = [
+      remote.text,
+      runningImplementationsText(runningImplementations),
+    ].filter((part: string | null): part is string => part !== null);
+    const meta: string | null = parts.length === 0 ? null : parts.join(' · ');
     const markTitle: string | null = markTitleOf();
     const priority: PriorityMark | null = priorityMark(project.priority);
     const isDone: boolean =
