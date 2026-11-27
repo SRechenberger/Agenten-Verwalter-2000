@@ -9,7 +9,7 @@
     margin-bottom: var(--space-md);
     padding: 0;
     border: 0;
-    border-radius: var(--radius-md);
+    border-radius: var(--radius-flat);
     background: none;
     color: var(--color-fg-secondary);
     font: inherit;

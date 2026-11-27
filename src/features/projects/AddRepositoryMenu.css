@@ -9,7 +9,7 @@
     height: 22px;
     padding: 0 var(--space-md);
     border: 1px dashed var(--color-border-subtle);
-    border-radius: 5px;
+    border-radius: var(--radius-flat);
     background: transparent;
     color: var(--color-fg-muted);
     font: inherit;

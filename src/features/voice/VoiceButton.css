@@ -16,7 +16,7 @@
     box-sizing: border-box;
     height: 30px;
     padding: 0 var(--space-md);
-    border-radius: var(--radius-md) 0 0 var(--radius-md);
+    border-radius: var(--radius-flat) 0 0 var(--radius-flat);
     background: var(--color-voice-subtle);
   }
 
@@ -64,7 +64,7 @@
     height: 30px;
     padding: 0;
     border: 0;
-    border-radius: var(--radius-md);
+    border-radius: var(--radius-flat);
     background: transparent;
     color: var(--color-fg-secondary);
     cursor: pointer;
@@ -87,7 +87,7 @@
     /* Gefüllt, solange ein Diktat läuft; stößt links an die Kapsel, daher dort keine Rundung. */
     &--active,
     &--active:hover:not(:disabled) {
-      border-radius: 0 var(--radius-md) var(--radius-md) 0;
+      border-radius: 0 var(--radius-flat) var(--radius-flat) 0;
       background: var(--color-voice);
       color: var(--color-fg-on-accent);
     }
