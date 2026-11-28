@@ -27,6 +27,9 @@ use control::{Control, Refused};
 pub const CHANGED_EVENT: &str = "remote://changed";
 /// `{ hostId }`, am Gast: Das Kontingent eines Hosts hat sich geändert (`usage://changed` am Host).
 pub const USAGE_CHANGED_EVENT: &str = "remote://usage-changed";
+/// `{ hostId, sessionId }`, am Gast: Das Tempo einer Session des Hosts hat sich geändert
+/// (`tempo://changed` am Host, nur für Sessions der Vorhaben, die dieses Gerät hält).
+pub const TEMPO_CHANGED_EVENT: &str = "remote://tempo-changed";
 /// `{ hostId }`, am Gast: Die Warteschlange eines Hosts hat sich geändert (`agent_queue://changed` am Host).
 pub const AGENT_QUEUE_CHANGED_EVENT: &str = "remote://agent-queue-changed";
 /// `{ hostId }`, am Gast: Die wartenden Nachrichten eines Hosts haben sich geändert (`inbox://changed` am Host).

@@ -140,7 +140,7 @@ function newStation(lane: string, input: StationInput | StationAddition): Propos
       brief: input.brief ?? '',
     },
     patch: null,
-    fields: input.by === 'command' ? 'none' : 'all',
+    fields: input.by === 'command' || input.by === 'message' ? 'none' : 'all',
     command: input.by === 'command' ? (input.command ?? []) : null,
   };
 }
@@ -163,7 +163,12 @@ function patchedStation(patch: StationPatch, stations: readonly StationRef[]): P
       brief: patch.brief ?? ref?.station.brief ?? '',
     },
     patch,
-    fields: ref === undefined || isCommand ? 'none' : ref.station.byUser ? 'brief' : 'all',
+    fields:
+      ref === undefined || isCommand || ref.station.kind === 'message'
+        ? 'none'
+        : ref.station.byUser
+          ? 'brief'
+          : 'all',
     command: isCommand ? (patch.command ?? ref?.station.command ?? []) : null,
   };
 }

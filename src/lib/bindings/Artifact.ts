@@ -34,4 +34,19 @@ sessionId: string | null, sessionNumber: number | null, sessionName: string | nu
 /**
  * Session, die zuletzt schrieb — nur, wenn es nicht die anlegende ist.
  */
-lastSessionNumber: number | null, lastSessionName: string | null, };
+lastSessionNumber: number | null, lastSessionName: string | null, 
+/**
+ * Änderungszeitpunkt der Zustandsdatei (ADR 081), ms seit 1970; fehlt, wenn es keinen Zustand gibt.
+ */
+stateModifiedAt?: number, 
+/**
+ * Nur bei einer Datei aus einem eingetragenen Ordner (ADR 026, Taiga 139): der Ordner, in dem sie
+ * liegt. `file` ist dann `.extern/<schlüssel>/<name>`; die Oberfläche zeigt `name` und diesen
+ * Ordner im Tooltip.
+ */
+externalDir?: string, 
+/**
+ * Nur bei einer Datei aus einem eingetragenen Ordner: ihr voller Pfad mit dem Trenner des Systems,
+ * für „Im Chat besprechen“.
+ */
+externalPath?: string, };

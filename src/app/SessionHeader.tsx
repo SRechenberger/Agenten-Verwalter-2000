@@ -18,6 +18,8 @@ import { cancelSession, pauseSession, resumeSession } from '@/lib/sessions';
 import { useReviewStore } from '@/stores/review';
 import { useSessionErrorsStore } from '@/stores/sessionErrors';
 import { SESSION_VIEWS, type SessionView } from '@/stores/sessions';
+import { TempoButton } from '@/features/tempo/TempoButton';
+import { sessionTitle } from '@/features/tempo/tempoTexts';
 import './SessionHeader.css';
 
 const MS_PER_SECOND = 1000;
@@ -58,6 +60,8 @@ interface SessionHeaderProps {
   onToggleTerminal: () => void;
   onShowView: (view: SessionView) => void;
   onOpenProject: () => void;
+  /** Die Session leitet eine unfertige Umsetzung. */
+  isMaster: boolean;
 }
 
 export function SessionHeader({
@@ -76,6 +80,7 @@ export function SessionHeader({
   onToggleTerminal,
   onShowView,
   onOpenProject,
+  isMaster,
 }: SessionHeaderProps): ReactElement {
   const [now, setNow] = useState<number>(() => Date.now());
   const [isMoreOpen, setIsMoreOpen] = useState<boolean>(false);
@@ -371,7 +376,13 @@ export function SessionHeader({
             {runningBackgroundCount > 0 ? 'im Hintergrund' : BACKGROUND_LABEL}
           </span>
         </button>
-        <SessionGauge session={session} runtime={formatRuntime(runningMs)} />
+        <SessionGauge session={session} runtime={formatRuntime(runningMs)} isMaster={isMaster} />
+        <TempoButton
+          projectId={session.projectId}
+          sessionId={session.id}
+          label={sessionTitle(session, session.name)}
+          variant="head"
+        />
         {renderControls()}
         <RemoteGiveBack projectId={session.projectId} />
       </div>

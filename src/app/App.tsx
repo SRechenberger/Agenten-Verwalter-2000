@@ -19,7 +19,10 @@ import { ChatView } from '@/features/chat/ChatView';
 import { DashboardView } from '@/features/dashboard/DashboardView';
 import { useDashboard } from '@/features/dashboard/useDashboard';
 import { useGitStatus } from '@/features/git/useGitStatus';
-import { implementationArtifacts } from '@/features/implementation/implementationArtifacts';
+import {
+  implementationAnchor,
+  implementationArtifacts,
+} from '@/features/implementation/implementationArtifacts';
 import { ImplementationView as ImplementationMain } from '@/features/implementation/ImplementationView';
 import { StationTrail } from '@/features/implementation/StationTrail';
 import { useInquiry } from '@/features/implementation/useInquiry';
@@ -358,13 +361,25 @@ export function App(): ReactElement {
   const isArtifactsView: boolean = isOverview
     ? !isImplementation && projectView === 'artifacts' && artifactCount > 0
     : !isMainReplaced && activeView === 'artifacts' && artifactCount > 0;
-  const changesReach: ChangesReach = isOverview ? 'project' : 'session';
+  // Die Umsetzung liest ihre Changes über eine ihrer Sessions; das Vorhaben über die neueste.
+  const anchorSession: SessionSummary | null = useMemo(
+    () =>
+      shownImplementation === undefined
+        ? null
+        : implementationAnchor(shownImplementation, sessions),
+    [shownImplementation, sessions],
+  );
+  const changesReach: ChangesReach = isImplementation
+    ? 'implementation'
+    : isOverview
+      ? 'project'
+      : 'session';
   const {
     changes,
     error: changesError,
     reload: reloadChanges,
   } = useSessionChanges(
-    isMainReplaced ? null : (currentSession ?? null),
+    isMainReplaced ? null : isImplementation ? anchorSession : (currentSession ?? null),
     changesReach,
     isChangesView || isOverview,
   );
@@ -580,7 +595,7 @@ export function App(): ReactElement {
           implementation={implementation}
           projectName={project.name}
           activeView={implementationView}
-          hasChanges={hasProjectRepositories}
+          hasChanges={hasProjectRepositories && anchorSession !== null}
           changesCount={changes === null ? null : countChangedFiles(changes)}
           artifactCount={implementationArtifactList?.items.length ?? 0}
           artifacts={
@@ -598,11 +613,11 @@ export function App(): ReactElement {
           implementations={implementations}
           changes={
             <ChangesView
-              key={latestSession.id}
-              session={latestSession}
+              key={(anchorSession ?? latestSession).id}
+              session={anchorSession ?? latestSession}
               changes={changes}
               error={changesError}
-              reach="project"
+              reach="implementation"
               git={null}
               onChanged={reloadChanges}
             />
@@ -793,6 +808,10 @@ export function App(): ReactElement {
             isTerminalOpen={isTerminalOpen}
             onToggleTerminal={handleToggleTerminal}
             onShowView={showView}
+            isMaster={implementations.some(
+              (candidate: ImplementationView) =>
+                candidate.masterSessionId === currentSession.id && candidate.finishedAt === null,
+            )}
             onOpenProject={(): void => {
               selectProject(currentSession.projectId);
             }}

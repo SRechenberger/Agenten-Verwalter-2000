@@ -172,6 +172,15 @@
       inset -1px 0 0 var(--color-accent);
   }
 
+  /* Einfügelinie beim Ziehen: über der Vorhabenzeile (davor) oder unter dem letzten Kind (dahinter). */
+  &__row--drop-before {
+    box-shadow: inset 0 2px 0 var(--color-accent);
+  }
+
+  &__row--drop-after {
+    box-shadow: inset 0 -2px 0 var(--color-accent);
+  }
+
   /* Abstand als Padding, weil die Zeile der virtuellen Liste Außenabstände nicht mitmisst. */
   &__drop-none {
     padding: var(--space-2xs) 0 var(--space-xs);
@@ -382,5 +391,6 @@
 :root.sidebar-dragging,
 :root.sidebar-dragging * {
   cursor: grabbing;
+  -webkit-user-select: none;
   user-select: none;
 }

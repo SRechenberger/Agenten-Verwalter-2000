@@ -35,7 +35,7 @@ markUnsourced: boolean,
 /**
  * Selbstfreigabe, die ein neues Vorhaben übernimmt; bestehende bleiben unverändert.
  */
-defaultSelfRelease: SelfRelease, defaultAutoResume: boolean, maxAgents: number | null, quotaHoldPercent: number | null, masterCompactTokens: number | null, commandPrograms: Array<string>, terminalPlacement: TerminalPlacement, 
+defaultSelfRelease: SelfRelease, defaultAutoResume: boolean, maxAgents: number | null, quotaHoldPercent: number | null, masterCompactTokens: number | null, commandPrograms: Array<string>, artifactFolders: Array<string>, terminalPlacement: TerminalPlacement, 
 /**
  * Gezogene Höhe des Terminal-Docks in Pixeln.
  */

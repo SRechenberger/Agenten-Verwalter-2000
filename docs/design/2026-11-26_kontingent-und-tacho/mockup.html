@@ -1,0 +1,305 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kontingent und Token-Tacho: Prototyp</title>
+<style>
+  /* Seite selbst: folgt dem Farbschema des Verwalters. */
+  :root {
+    --page-bg: #f4f4f2; --page-fg: #2b2b2b; --page-muted: #6e6e6e; --page-card: #ffffff;
+    --page-border: #e2e2df; --page-accent: #c4572f; --page-rec-bg: #fbeee8;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --page-bg: #141414; --page-fg: #d4d4d4; --page-muted: #8f8f8f; --page-card: #1f1f1f;
+      --page-border: #333; --page-accent: #e0825c; --page-rec-bg: #3a2a22;
+    }
+  }
+  :root[data-theme="dark"] {
+    --page-bg: #141414; --page-fg: #d4d4d4; --page-muted: #8f8f8f; --page-card: #1f1f1f;
+    --page-border: #333; --page-accent: #e0825c; --page-rec-bg: #3a2a22;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--page-bg); color: var(--page-fg);
+    font: 14px/1.5 'Segoe UI Variable Text', 'Segoe UI', system-ui, sans-serif; }
+  main { max-width: 1180px; margin: 0 auto; padding: 24px 16px 64px; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  h2 { font-size: 18px; margin: 40px 0 4px; padding-top: 16px; border-top: 1px solid var(--page-border); }
+  h3 { font-size: 15px; margin: 0; }
+  p { margin: 6px 0; }
+  .lead { color: var(--page-muted); max-width: 820px; }
+  code { font-family: 'Cascadia Code', Consolas, ui-monospace, monospace; font-size: 12.5px; }
+  .variant { background: var(--page-card); border: 1px solid var(--page-border); border-radius: 6px;
+    padding: 14px 16px; margin: 14px 0; }
+  .variant--rec { border-color: var(--page-accent); }
+  .variant__head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 12px; }
+  .tag { font-size: 12px; padding: 1px 8px; border-radius: 2px; background: var(--page-rec-bg); color: var(--page-accent); font-weight: 600; }
+  .pros { color: var(--page-muted); font-size: 13px; }
+  .pair { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 10px; }
+  .caption { font-size: 12px; color: var(--page-muted); margin: 0 0 4px; }
+  .summary { background: var(--page-card); border: 1px solid var(--page-border); border-radius: 6px; padding: 12px 16px; margin-top: 16px; }
+  .summary li { margin: 4px 0; }
+
+  /* App-Nachbau: Tokens wie in src/styles/theme.css, je Schema eine Hülle. */
+  .app { --bg-base: #ffffff; --bg-sidebar: #f8f8f8; --bg-popover: #ffffff; --bg-hover: #f0f0f0;
+    --bg-selected: #e4e6f1; --border: #cecece; --border-subtle: #e5e5e5;
+    --fg-primary: #3c3c3c; --fg-secondary: #555555; --fg-muted: #6e6e6e;
+    --accent: #c4572f; --run: #2563eb; --done: #16803c; --warn: #a86a00; --err: #d23b33;
+    --c-out: #c4572f; --c-in: #2563eb; --c-write: #098658; --c-read: #6e6e6e;
+    font: 13px/1.4 'Segoe UI Variable Text', 'Segoe UI', system-ui, sans-serif;
+    color: var(--fg-primary); }
+  .app.dark { --bg-base: #1f1f1f; --bg-sidebar: #181818; --bg-popover: #252526; --bg-hover: #2e2e30;
+    --bg-selected: #37373d; --border: #3c3c3c; --border-subtle: #2b2b2b;
+    --fg-primary: #d4d4d4; --fg-secondary: #b0b0b0; --fg-muted: #8f8f8f;
+    --accent: #e0825c; --run: #5b9dff; --done: #4cc38a; --warn: #f2b33d; --err: #f47067;
+    --c-out: #e0825c; --c-in: #5b9dff; --c-write: #4ec9b0; --c-read: #8f8f8f; }
+  .frame { flex: 1 1 360px; min-width: 0; }
+  .shot { border: 1px solid var(--border); border-radius: 2px; overflow: hidden; }
+
+  /* Fuß der Seitenleiste (256 px wie die Standardbreite). */
+  .side { width: 256px; max-width: 100%; background: var(--bg-sidebar); padding: 6px 8px; }
+  .side__sep { border-top: 1px solid var(--border-subtle); margin: 0 -8px 6px; }
+  .side__ghost { height: 26px; display: flex; align-items: center; gap: 8px; padding: 0 8px; color: var(--fg-muted); }
+  .row { display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 8px; color: var(--fg-secondary);
+    white-space: nowrap; border-radius: 2px; }
+  .row:hover { background: var(--bg-hover); }
+  .row svg { flex: none; }
+  .row__spacer { flex: 1 1 auto; }
+  .row--sub { height: 24px; padding-left: 30px; gap: 6px; }
+  .row__name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  .row__k { font-size: 11px; color: var(--fg-muted); }
+  .row__v { font-size: 12px; font-variant-numeric: tabular-nums; }
+  .row__rate { font-size: 11.5px; color: var(--fg-muted); font-variant-numeric: tabular-nums; }
+  .bar { position: relative; display: inline-block; height: 4px; border-radius: 999px; background: var(--bg-hover); overflow: hidden; flex: none; }
+  .bar__fill { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 999px; background: var(--fg-muted); }
+  .bar__ghost { position: absolute; top: 0; bottom: 0; border: 1px dashed var(--fg-muted); border-left: 0; border-radius: 0 999px 999px 0; opacity: .8; }
+  .sev-warn { background: var(--warn) !important; }
+  .sev-err { background: var(--err) !important; }
+  .ghost-err { border-color: var(--err) !important; }
+  .stack { display: inline-flex; flex-direction: column; gap: 2px; width: 32px; flex: none; }
+  .stack .bar { height: 3px; width: 32px; }
+  .warn-ico { color: var(--warn); font-size: 12px; }
+  .tip { margin: 6px 8px 2px; padding: 6px 8px; font-size: 11.5px; line-height: 1.45; color: var(--fg-primary);
+    background: var(--bg-popover); border: 1px solid var(--border); border-radius: 2px; white-space: pre-line; }
+
+  /* Kopfzeile einer Session. */
+  .head { display: flex; align-items: center; gap: 10px; height: 38px; padding: 0 12px; background: var(--bg-base);
+    border-bottom: 1px solid var(--border-subtle); white-space: nowrap; }
+  .head__path { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--fg-secondary); }
+  .head__path b { color: var(--fg-primary); font-weight: 600; }
+  .gauge { display: inline-flex; align-items: center; gap: 8px; padding: 3px 8px; border-radius: 2px; color: var(--fg-secondary);
+    font-size: 12px; font-variant-numeric: tabular-nums; }
+  .gauge:hover { background: var(--bg-hover); }
+  .gauge__sep { width: 1px; height: 14px; background: var(--border); }
+  .gauge__new { color: var(--fg-primary); font-weight: 600; }
+  .chat-ghost { background: var(--bg-base); padding: 10px 12px; color: var(--fg-muted); font-size: 12px; height: 34px; }
+
+  /* Fenster (Popover). */
+  .pop { background: var(--bg-popover); border: 1px solid var(--border); border-radius: 2px; padding: 12px 14px; width: 340px; max-width: 100%; }
+  .pop h4 { margin: 0 0 6px; font-size: 13px; color: var(--fg-primary); }
+  .pop__sub { font-size: 11.5px; color: var(--fg-muted); }
+  .pop__hero { display: flex; align-items: baseline; gap: 8px; margin: 2px 0 6px; }
+  .pop__hero b { white-space: nowrap; font-size: 22px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .pop__sec { border-top: 1px solid var(--border-subtle); margin-top: 10px; padding-top: 10px; }
+  .legend { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 11.5px; color: var(--fg-secondary); margin-top: 6px; }
+  .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
+  .lim { margin: 8px 0; }
+  .lim__head { display: flex; justify-content: space-between; font-size: 12px; color: var(--fg-secondary); }
+  .lim .bar { width: 100%; height: 6px; margin: 4px 0 2px; }
+  .lim__note { font-size: 11.5px; color: var(--fg-muted); }
+  .lim__note--warn { color: var(--warn); }
+  .lim__note--err { color: var(--err); }
+  .top { width: 100%; border-collapse: collapse; font-size: 12px; }
+  .top td { padding: 3px 0; color: var(--fg-secondary); }
+  .top td:last-child { text-align: right; font-variant-numeric: tabular-nums; color: var(--fg-primary); }
+  .top a { color: inherit; text-decoration: underline; text-decoration-color: var(--border); }
+  svg.chart rect:hover { opacity: .75; }
+
+  /* Leiste (Baum) und Stationsliste. */
+  .tree { width: 256px; max-width: 100%; background: var(--bg-sidebar); padding: 6px 0; }
+  .t-row { display: flex; align-items: center; gap: 6px; height: 26px; padding: 0 10px; white-space: nowrap; color: var(--fg-secondary); }
+  .t-row--proj { color: var(--fg-primary); font-weight: 600; }
+  .t-row--l1 { padding-left: 22px; } .t-row--l2 { padding-left: 36px; }
+  .t-row__name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  .dot { width: 7px; height: 7px; border-radius: 50%; flex: none; }
+  .dot--run { background: var(--run); } .dot--done { background: var(--done); } .dot--wait { background: var(--fg-muted); }
+  .stations { background: var(--bg-base); padding: 8px 12px; width: 100%; }
+  .st { display: grid; grid-template-columns: 22px 1fr auto auto; align-items: center; gap: 10px; height: 34px;
+    border-bottom: 1px solid var(--border-subtle); font-size: 12.5px; color: var(--fg-secondary); }
+  .st:last-child { border-bottom: 0; }
+  .st__n { color: var(--fg-muted); font-variant-numeric: tabular-nums; }
+  .st__name { color: var(--fg-primary); display: flex; align-items: center; gap: 8px; min-width: 0; }
+  .st__rate { font-variant-numeric: tabular-nums; min-width: 64px; text-align: right; }
+  .muted { color: var(--fg-muted); }
+
+  .tempo-ico { width: 14px; text-align: center; flex: none; }
+  .rules { background: var(--page-card); border: 1px solid var(--page-border); border-radius: 6px; padding: 12px 16px; margin-top: 12px; }
+  .rules li { margin: 3px 0; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Kontingent und Token-Tacho: Prototyp</h1>
+  <p class="lead">Gewählt am 2026-11-26: <b>#270</b> V2 (gestapelt); <b>#271</b> S1 + S2 je Session, K1 + K3 gesamt, Einzelheiten im eigenen Popover „Tempo“.
+    Jeder Ausschnitt steht hell und dunkel nebeneinander, in den Farben der App. Die Zahlen sind ausgedacht. Fuß-Ausschnitte in der Standardbreite der Leiste (256 px).</p>
+
+  <h2>1 · Fuß der Seitenleiste: Zeile „Kontingent“ (V2 + K1) und Zeile „Tempo“ (K3)</h2>
+  <p class="lead">Die Zeile „Kontingent“ zeigt gestapelt die Fenster, die die Antwort liefert, und die Zahl des höheren Fensters mit Kürzel. Dahinter steht die Reichweite des knappsten Fensters in %/h, sobald es eine Prognose gibt.
+    Darunter folgt die Zeile „Tempo“ mit Linie, Summe und der Zahl der arbeitenden Sessions. Ein Klick auf „Kontingent“ öffnet das bisherige Popover, ein Klick auf „Tempo“ das Popover „Tempo“ (Abschnitt 5).</p>
+  <div id="foot"></div>
+
+  <h2>2 · Kopf einer Session (S1 + S2)</h2>
+  <p class="lead">Die Anzeige steht hinter Kontext, Prompt-Cache und Laufzeit: eine Linie der letzten 60 min und das Tempo der letzten 5 min ohne Cache-Lesen. Sie ist immer zu sehen. Eine ruhende Session zeigt „0 k/min“ und ihre Linie.
+    Ein Klick auf Linie oder Zahl öffnet das Popover „Tempo“ der Session (Abschnitt 4), getrennt vom Popover für Kontext und Cache.</p>
+  <div id="head"></div>
+
+  <h2>3 · Stationen der Umsetzung (S2)</h2>
+  <p class="lead">Jede Station mit Session zeigt Linie und Tempo, auch eine fertige („0 k/min“). Eine Station ohne Session zeigt „—“. Ein Klick öffnet das Popover „Tempo“ ihrer Session.</p>
+  <div id="stations"></div>
+
+  <h2>4 · Popover „Tempo“ einer Session</h2>
+  <div id="pop-session"></div>
+
+  <h2>5 · Popover „Tempo“ gesamt (aus der Zeile „Tempo“)</h2>
+  <p class="lead">Summe aller Sessions dieses Rechners, Verlauf je Minute, die teuersten Sessions (Klick öffnet sie) und die Prognose je Fenster. Die gestrichelte Verlängerung zeigt, wo das Fenster bei diesem Tempo zur Rücksetzung steht. Über 100 % ist sie rot.</p>
+  <div id="pop-all"></div>
+
+  <div class="rules">
+    <h3>Regeln, die der Prototyp zeigt</h3>
+    <ul>
+      <li>Fehlt ein Fenster in der Antwort, fehlt sein Balken; ein Platzhalter erscheint nicht. Ohne beide Fenster bleibt nur „Kontingent“.</li>
+      <li>Farbe und Warnsymbol folgen dem höchsten gezeigten Wert. Bei Codex heißen die Fenster nach ihrer Dauer (300 min „5h“, 10 080 min „Wo“).</li>
+      <li>Der Tooltip der Zeile nennt jedes gezeigte Fenster mit Prozent und Rücksetzzeit, dazu die Reichweite.</li>
+      <li>Bei 256 px darf sich nur der Name „Kontingent“ kürzen. Kürzel, Zahlen und Tempo bleiben stehen.</li>
+      <li>Hauptzahl ist das Tempo ohne Cache-Lesen, gleitend über 5 min. Das Cache-Lesen steht getrennt im Popover.</li>
+      <li>Die Reichweite gibt es nur bei Claude und Codex, und erst, wenn ein Fenster über mindestens 10 min gestiegen ist. Vorher fehlt „%/h“.</li>
+    </ul>
+  </div>
+</main>
+
+<script>
+const GAUGE = '<svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><path d="M2 10.5a5 5 0 1 1 10 0"/><path d="M7 10.5 9.2 6.8"/></svg>';
+const sevClass = p => p >= 90 ? 'sev-err' : p >= 75 ? 'sev-warn' : '';
+const bar = (p, w, ghostTo) => {
+  const g = ghostTo == null ? '' :
+    `<span class="bar__ghost ${ghostTo > 100 ? 'ghost-err' : ''}" style="left:${p}%;width:${Math.min(ghostTo, 100) - p}%"></span>`;
+  return `<span class="bar" style="width:${w}px">${g}<span class="bar__fill ${sevClass(p)}" style="width:${p}%"></span></span>`;
+};
+const warnIco = p => p >= 75 ? '<span class="warn-ico" title="Warnung">▲</span>' : '';
+const fmt = n => n.toLocaleString('de-DE');
+const side = (rows, tip) => `<div class="side"><div class="side__sep"></div>
+  <div class="side__ghost">⚙ <span>Einstellungen</span></div>${rows}${tip ? `<div class="tip">${tip}</div>` : ''}</div>`;
+const pair = (label, renderer) => ['hell', 'dunkel'].map(t =>
+  `<div class="frame"><p class="caption">${label} · ${t}</p><div class="app ${t === 'dunkel' ? 'dark' : ''}"><div class="shot">${renderer()}</div></div></div>`).join('');
+const MAX = { s: 82, w: 18, sReset: 'heute 18:00', wReset: 'Mo 09:00' };
+const ULTRA = { s: null, w: 18, wReset: 'Mo 09:00' };
+const tipText = c => ['Kontingent deines Abos — Klick für Details',
+  c.s != null ? `5 Std.: ${c.s} %, zurückgesetzt ${c.sReset}` : null,
+  `Woche: ${c.w} %, zurückgesetzt ${c.wReset}`].filter(Boolean).join('\n');
+
+function series(seed, scale) {
+  let x = seed; const rnd = () => (x = (x * 9301 + 49297) % 233280) / 233280;
+  return Array.from({ length: 60 }, (_, i) => {
+    const busy = (i > 8 && i < 22) || (i > 34 && i < 57) ? 1 : 0.15;
+    return { out: Math.round(scale * busy * (2 + 3 * rnd())), in: Math.round(scale * busy * (3 + 6 * rnd())),
+      write: Math.round(scale * busy * (rnd() < .3 ? 8 * rnd() : 1 * rnd())), read: Math.round(scale * busy * (30 + 40 * rnd())) };
+  });
+}
+const S1 = series(7, 1), ALL = series(3, 9);
+const minuteLabel = i => { const m = 5 + i; const h = 13 + Math.floor(m / 60); return `${h}:${String(m % 60).padStart(2, '0')}`; };
+function stackChart(data, w, h) {
+  const max = Math.max(...data.map(d => d.out + d.in + d.write));
+  const bw = w / data.length, gap = 1;
+  let s = `<svg class="chart" width="100%" viewBox="0 0 ${w} ${h + 14}" role="img" aria-label="Tokens je Minute, letzte 60 Minuten">`;
+  s += `<line x1="0" x2="${w}" y1="${h}" y2="${h}" stroke="var(--border)" stroke-width="1"/>`;
+  data.forEach((d, i) => {
+    let y = h; const x = i * bw;
+    const tip = `${minuteLabel(i)} — Ausgabe ${d.out} k, Eingabe neu ${d.in} k, Cache geschrieben ${d.write} k · Cache gelesen ${d.read} k`;
+    s += `<g><title>${tip}</title>`;
+    for (const [k, c] of [['out', 'var(--c-out)'], ['in', 'var(--c-in)'], ['write', 'var(--c-write)']]) {
+      const hh = d[k] / max * (h - 2); if (hh < 0.5) continue;
+      y -= hh; s += `<rect x="${x + gap / 2}" y="${y}" width="${bw - gap}" height="${Math.max(hh - 1, .5)}" fill="${c}"/>`;
+    }
+    s += `<rect x="${x}" y="0" width="${bw}" height="${h}" fill="transparent"/></g>`;
+  });
+  s += `<text x="0" y="${h + 12}" font-size="10" fill="var(--fg-muted)">−60 min</text><text x="${w}" y="${h + 12}" font-size="10" fill="var(--fg-muted)" text-anchor="end">jetzt</text></svg>`;
+  return s;
+}
+const LEGEND = `<div class="legend"><span><i style="background:var(--c-out)"></i>Ausgabe</span><span><i style="background:var(--c-in)"></i>Eingabe neu</span><span><i style="background:var(--c-write)"></i>Cache geschrieben</span></div>`;
+function spark(data, w = 56, h = 14) {
+  const v = data.map(d => d.out + d.in + d.write); const max = Math.max(...v);
+  const pts = v.map((y, i) => `${(i / (v.length - 1) * w).toFixed(1)},${(h - 1 - y / max * (h - 2)).toFixed(1)}`).join(' ');
+  return `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" aria-hidden="true" style="flex:none"><polyline points="${pts}" fill="none" stroke="var(--fg-muted)" stroke-width="1.5" stroke-linejoin="round"/></svg>`;
+}
+const head = extra => `<div class="head"><span class="head__path">Version 0.79.0 › <b>#7 Lane tacho</b></span>
+  <span class="gauge" title="Kontext, Prompt-Cache, Laufzeit, Tempo — Klick für Details"><span>◔ 62 %</span><span>◷ 4:12</span><span>14:32</span>${extra}</span></div>
+  <div class="chat-ghost">… Chat …</div>`;
+const tempoPop = () => `<div class="pop"><h4>Tempo</h4>
+  <div class="pop__hero"><b>18 k/min</b><span class="pop__sub">ohne Cache-Lesen · Mittel der letzten 5 min</span></div>
+  ${stackChart(S1, 300, 70)}${LEGEND}
+  <div class="pop__sec pop__sub">Seit Start der Session: 412 k Tokens ohne Cache-Lesen, dazu 9,8 M Cache gelesen.<br>Cache gelesen jetzt: 310 k/min.</div></div>`;
+
+const stationList = withSpark => `<div class="stations">
+  ${[['1', 'gemeinsam', 'done', 'fertig', null], ['2', 'leiste', 'run', 'läuft', 22], ['3', 'postfach', 'run', 'läuft', 9], ['4', 'review', 'wait', 'wartet', null]]
+    .map(([n, name, st, label, r], i) => `<div class="st"><span class="st__n">${n}</span>
+      <span class="st__name"><span class="dot dot--${st}"></span>${name}<span class="muted">· ${label}</span></span>
+      <span>${withSpark && r ? spark(series(11 + i, 1)) : ''}</span>
+      <span class="st__rate ${r ? '' : 'muted'}">${r ? r + ' k/min' : '—'}</span></div>`).join('')}</div>`;
+const limRow = (name, p, note, cls, ghost) => `<div class="lim"><div class="lim__head"><span>${name}</span><span>${p} %</span></div>
+  <span class="bar" style="width:100%">${ghost != null ? `<span class="bar__ghost ${ghost > 100 ? 'ghost-err' : ''}" style="left:${p}%;width:${Math.min(ghost, 100) - p}%"></span>` : ''}<span class="bar__fill ${sevClass(p)}" style="width:${p}%"></span></span>
+  <div class="lim__note ${cls}">${note}</div></div>`;
+
+// ---- Prototyp ------------------------------------------------------------------
+const CODEX = { s: 40, w: 22, sReset: 'heute 19:10', wReset: 'Do 11:00' };
+const kRow = (c, rate) => {
+  const hi = c.s != null && c.s >= c.w ? ['5h', c.s] : ['Wo', c.w];
+  return `<div class="row">${GAUGE}<span class="row__name">Kontingent</span>${warnIco(hi[1])}
+    <span class="stack">${c.s != null ? bar(c.s, 32) : ''}${bar(c.w, 32)}</span>
+    <span class="row__k">${hi[0]}</span><span class="row__v">${hi[1]} %</span>${rate ? `<span class="row__rate">${rate}</span>` : ''}</div>`;
+};
+const tempoRow = (data, rate, n) => `<div class="row" title="${n} Sessions arbeiten — Klick für Details"><span class="tempo-ico">⚡︎</span><span class="row__name">Tempo</span>${spark(data, 44)}<span class="row__v">${rate}</span><span class="row__rate">· ${n}</span></div>`;
+const tip = (c, rate) => tipText(c) + (rate ? `\nTempo ${rate} am knappsten Fenster` : '\nNoch keine Prognose');
+const footCase = (label, c, rate, n) => `<div class="pair">${pair(label, () => side(kRow(c, rate) + tempoRow(ALL, n ? '210 k/min' : '0 k/min', n), tip(c, rate)))}</div>`;
+document.getElementById('foot').innerHTML =
+  footCase('Max: beide Fenster, 5 Std. im Warnbereich', MAX, '9 %/h', 3) +
+  footCase('Ultra: nur das Wochenfenster', ULTRA, '1,2 %/h', 3) +
+  footCase('Codex: Fenster nach Dauer', CODEX, '4 %/h', 1) +
+  footCase('Ultra, noch keine Prognose, nichts läuft', ULTRA, null, 0);
+
+const IDLE = S1.map((d, i) => i > 49 ? { out: 0, in: 0, write: 0, read: 0 } : d);
+const headWith = (data, rate) => head(`<span class="gauge__sep"></span><span title="Tempo — Klick für Details" style="display:inline-flex;align-items:center;gap:6px">${spark(data)}<span class="gauge__new">${rate}</span></span>`);
+document.getElementById('head').innerHTML =
+  `<div class="pair">${pair('Session arbeitet', () => headWith(S1, '18 k/min'))}</div>` +
+  `<div class="pair">${pair('Session ruht seit 10 min', () => headWith(IDLE, '0 k/min'))}</div>`;
+
+const stationRows = () => `<div class="stations">
+  ${[['1', 'gemeinsam', 'done', 'fertig', '0 k/min', series(21, 1).map((d, i) => i > 20 ? { out: 0, in: 0, write: 0, read: 0 } : d)],
+     ['2', 'leiste', 'run', 'läuft', '22 k/min', series(12, 1)],
+     ['3', 'postfach', 'run', 'läuft', '9 k/min', series(13, 1)],
+     ['4', 'review', 'wait', 'wartet', null, null]]
+    .map(([n, name, st, label, r, data]) => `<div class="st"><span class="st__n">${n}</span>
+      <span class="st__name"><span class="dot dot--${st}"></span>${name}<span class="muted">· ${label}</span></span>
+      <span>${data ? spark(data) : ''}</span>
+      <span class="st__rate ${r && r !== '0 k/min' ? '' : 'muted'}">${r ?? '—'}</span></div>`).join('')}</div>`;
+document.getElementById('stations').innerHTML = `<div class="pair">${pair('Umsetzung „Release 0.79.0“', stationRows)}</div>`;
+
+const sessionPop = () => `<div class="pop"><h4>Tempo <span class="pop__sub">· #7 Lane tacho</span></h4>
+  <div class="pop__hero"><b>18 k/min</b><span class="pop__sub">ohne Cache-Lesen · Mittel der letzten 5 min</span></div>
+  ${stackChart(S1, 300, 70)}${LEGEND}
+  <div class="pop__sec pop__sub">Cache gelesen jetzt: 310 k/min.<br>Seit Start der Session: 412 k Tokens ohne Cache-Lesen, dazu 9,8 M Cache gelesen.</div></div>`;
+document.getElementById('pop-session').innerHTML = `<div class="pair">${pair('Klick auf die Anzeige im Kopf', sessionPop)}</div>`;
+
+const allPop = () => `<div class="pop"><h4>Tempo <span class="pop__sub">· alle Sessions dieses Rechners</span></h4>
+  <div class="pop__hero"><b>210 k/min</b><span class="pop__sub">ohne Cache-Lesen · Mittel der letzten 5 min</span></div>
+  ${stackChart(ALL, 300, 60)}${LEGEND}
+  <div class="pop__sec"><h4>Reichweite</h4>
+  ${limRow('Session (5 Std.) · 9 %/h', 82, 'bei diesem Tempo leer ca. 16:40 · Rücksetzung 18:00', 'lim__note--err', 128)}
+  ${limRow('Woche (alle Modelle) · 1,2 %/h', 18, 'reicht bis zur Rücksetzung Mo 09:00 (dann ca. 61 %)', '', 61)}</div>
+  <div class="pop__sec"><h4>Teuerste Sessions</h4>
+  <table class="top"><tr><td><a href="#">leiste-1</a></td><td>22 k/min</td></tr><tr><td><a href="#">postfach-1</a></td><td>9 k/min</td></tr><tr><td><a href="#">#3 Architekt</a></td><td>4 k/min</td></tr></table>
+  <p class="pop__sub" style="margin-top:6px">Cache gelesen jetzt: 3,1 M/min.</p></div></div>`;
+document.getElementById('pop-all').innerHTML = `<div class="pair">${pair('Klick auf die Zeile „Tempo“', allPop)}</div>`;
+</script>
+</body>
+</html>

@@ -59,6 +59,7 @@ fn limit(kind: &str, window: &Value) -> Option<UsageLimit> {
             .get("windowDurationMins")
             .and_then(Value::as_u64)
             .and_then(|minutes: u64| u32::try_from(minutes).ok()),
+        model: None,
     })
 }
 

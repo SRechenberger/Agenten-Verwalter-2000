@@ -1,4 +1,6 @@
 .usage-button {
+  /* Der Behälter misst die Breite der Zeile für die Abfragen unten (Reichweite, Abstände). */
+  container-type: inline-size;
   position: relative;
 
   &__trigger {
@@ -9,7 +11,7 @@
     height: 30px;
     padding: 0 var(--space-md);
     border: 0;
-    border-radius: var(--radius-md);
+    border-radius: var(--radius-flat);
     background: transparent;
     color: var(--color-fg-secondary);
     font: inherit;
@@ -57,27 +59,70 @@
     color: var(--color-status-error);
   }
 
+  /* Ein Platz von 32 px, darin je gezeigtem Fenster ein Balken: oben 5 Stunden, unten Woche. */
+  &__bars {
+    display: flex;
+    flex: none;
+    flex-direction: column;
+    gap: 2px;
+    width: 32px;
+  }
+
   &__bar {
     overflow: hidden;
-    width: 32px;
-    height: 4px;
+    height: 3px;
     border-radius: var(--radius-full);
     background: var(--color-bg-hover);
   }
 
   &__fill {
     display: block;
-    height: 4px;
+    height: 3px;
     background: var(--severity-color, var(--color-fg-secondary));
   }
 
+  &__window {
+    flex: none;
+    font-size: 11.5px;
+    color: var(--color-fg-muted);
+  }
+
   &__label {
+    flex: none;
     min-width: 34px;
     font-family: var(--font-mono);
     font-size: 11.5px;
     text-align: right;
     color: var(--severity-color, inherit);
   }
+
+  /* Die Reichweite des knappsten Fensters hinter der Zahl; sie bleibt stehen, der Name kürzt sich. */
+  &__rate {
+    flex: none;
+    font-size: 11.5px;
+    font-variant-numeric: tabular-nums;
+    color: var(--color-fg-muted);
+  }
+}
+
+/* Schmale Leiste (Mindestbreite 200 px: Zeile 179 px): Es kürzt sich zuerst der Name, bis er weg ist.
+   Reicht das nicht, werden die Abstände knapper, dann fällt die Reichweite weg, nie die Prozentzahl
+   (ihre Zeile im Tooltip bleibt). Die Breiten gelten bis „1 234 %/h“. */
+@container (max-width: 231px) {
+  .usage-button__trigger {
+    gap: var(--space-xs);
+  }
+}
+
+@container (max-width: 211px) {
+  .usage-button__rate {
+    display: none;
+  }
+}
+
+/* Der Tacho behält seine 14 px; kürzen darf nur der Name (Taiga 270). */
+.usage-gauge {
+  flex: none;
 }
 
 .usage-section {

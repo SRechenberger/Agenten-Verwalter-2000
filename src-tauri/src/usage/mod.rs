@@ -1,8 +1,10 @@
 //! Kontingent des Abos der Betriebsart (Claude oder Codex): Zwischenspeicher und Abruf über einen
 //! Hilfsprozess.
+pub mod forecast;
 pub mod model;
 pub mod reset_text;
 
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -19,6 +21,7 @@ use crate::db::Database;
 use crate::filesystem::workspace::data_dir;
 use crate::sessions::registry::schedule_pass;
 use crate::settings::{self, model::OperatingMode};
+use forecast::History;
 use model::{UsageAlert, UsageLimit, UsageSnapshot, UsageStatus};
 
 const MIN_REFRESH_INTERVAL: Duration = Duration::from_secs(30);
@@ -166,6 +169,24 @@ struct UsageCache {
     last_started: Option<Instant>,
     /// Zählt die Wechsel der Betriebsart; ein Abruf, der vor einem Wechsel begann, wird verworfen.
     epoch: u64,
+    /// Der Verlauf der Prozentwerte je Fenster (`UsageLimit::kind`) aus `get_usage` und jedem
+    /// `rate_limit_event`, für die Prognose.
+    history: HashMap<String, History>,
+}
+
+impl UsageCache {
+    /// Hält die Prozentwerte des Stands im Verlauf fest.
+    fn record(&mut self, now: f64) {
+        let Some(snapshot) = &self.snapshot else {
+            return;
+        };
+        for limit in &snapshot.limits {
+            self.history
+                .entry(limit.kind.clone())
+                .or_default()
+                .push(now, f64::from(limit.percent));
+        }
+    }
 }
 
 impl Default for UsageService {
@@ -184,17 +205,26 @@ impl UsageService {
                 is_loading: false,
                 last_started: None,
                 epoch: 0,
+                history: HashMap::new(),
             }),
         }
     }
 
     pub fn status(&self) -> UsageStatus {
         let cache = self.lock();
+        let forecast = cache.snapshot.as_ref().map_or_else(Vec::new, |snapshot| {
+            forecast::forecasts(
+                &snapshot.limits,
+                |kind: &str| cache.history.get(kind),
+                now_ms(),
+            )
+        });
         UsageStatus {
             snapshot: cache.snapshot.clone(),
             alert: cache.alert.clone(),
             error: cache.error.clone(),
             is_loading: cache.is_loading,
+            forecast,
         }
     }
 
@@ -207,6 +237,7 @@ impl UsageService {
                 set_percent(snapshot, KIND_SESSION, info.five_hour);
                 set_percent(snapshot, KIND_WEEKLY, info.seven_day);
             }
+            cache.record(now_ms());
             cache.alert = alert_of(info);
         }
         emit_changed(app);
@@ -262,6 +293,7 @@ impl UsageService {
             match result {
                 Ok(snapshot) => {
                     cache.snapshot = Some(snapshot);
+                    cache.record(now_ms());
                     cache.error = None;
                     fetched = true;
                 }
@@ -283,6 +315,7 @@ impl UsageService {
             let mut cache = self.lock();
             cache.epoch += 1;
             cache.snapshot = None;
+            cache.history.clear();
             cache.alert = None;
             cache.error = None;
             cache.is_loading = false;

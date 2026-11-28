@@ -1,0 +1,24 @@
+# Probelauf nachricht-3: implementation_stations nach dem Lauf (plan_id, kind, message_to, message_sent, message_error, result)
+n-1 | agent |  |  |  | A fertig: 3 Tests grün
+n-2 | message | master | B meldet: Station n-2 · An Master nach n-1 · Umsetzung. Ergebnis: A fertig: 3 Tests grün | Notiz: Notiz-X von A |  | Nachricht an Master zugestellt.
+n-3 | message | n-1 | C an A: n-3 · An A in Probe Nachricht, Master Session 1 „Master“, nach n-1 · Umsetzung, Notiz: Notiz-X von A |  | Nachricht an n-1 · Umsetzung zugestellt.
+n-4 | agent |  |  |  |
+n-5 | agent |  |  |  |
+n-6 | user |  |  |  | vom Benutzer erledigt
+n-7 | message | master | B2 meldet: n-7 · An Master 2 nach n-6 · Freigabe. Ergebnis: vom Benutzer erledigt | ohne Notiz |  | Nachricht an Master zugestellt.
+n-8 | message | n-6 |  | Die Station „n-6 · Freigabe“ hat keine Session. |
+
+# session_inbox (leer = alles zugestellt)
+
+# Zeiten (UTC) je Station: started_at, completed_at, reported_at, released_at
+n-1 | 21:37:38.114 | 21:38:03.821 | 21:38:01.786 |
+n-2 | 21:38:03.827 | 21:38:03.856 |  |
+n-3 | 21:38:03.832 | 21:38:03.863 |  |
+n-4 | 21:38:13.962 |  |  |
+n-5 | 21:39:22.207 |  |  |
+n-6 |  | 21:38:41.580 |  |
+n-7 | 21:38:41.584 | 21:38:41.598 |  |
+n-8 | 21:38:41.588 |  |  |
+
+# Kriterium 3 (Parallel max. 1): n-4 hält den Platz von 21:38:15 (Attrappe „halt“) bis 21:39:12; n-6 erledigt 21:38:41;
+# n-7 ist fertig, solange n-4 läuft. Die Zustellung an den Master lag bis 21:39:12 in session_inbox (Platz voll), dann zugestellt.

@@ -6,6 +6,7 @@ import { ArtifactFullscreen } from '@/features/artifacts/ArtifactFullscreen';
 import { ArtifactGroupHeader } from '@/features/artifacts/ArtifactGroupHeader';
 import { ArtifactKindBadge } from '@/features/artifacts/ArtifactKindBadge';
 import { ArtifactOtherCard } from '@/features/artifacts/ArtifactOtherCard';
+import { ArtifactStateReset } from '@/features/artifacts/ArtifactStateReset';
 import type { ArtifactMark, ArtifactPick } from '@/features/artifacts/artifactBridge';
 import { useArtifactPicker } from '@/features/artifacts/useArtifactPicker';
 import {
@@ -16,11 +17,11 @@ import {
   metaLine,
   openLabel,
 } from '@/features/artifacts/artifactTexts';
-import { groupArtifacts } from '@/features/artifacts/groupArtifacts';
+import { displayFile, groupArtifacts } from '@/features/artifacts/groupArtifacts';
 import type { ArtifactGroup } from '@/features/artifacts/groupArtifacts';
 import { mentionInChat } from '@/features/background/mention';
 import { useProjectIsRemote } from '@/features/remote/useProjectAccess';
-import { openArtifactDefault, revealArtifact } from '@/lib/artifacts';
+import { openArtifactDefault, resetArtifactState, revealArtifact } from '@/lib/artifacts';
 import type { Artifact } from '@/lib/bindings/Artifact';
 import type { ArtifactList } from '@/lib/bindings/ArtifactList';
 import { commandErrorText } from '@/lib/errors';
@@ -56,6 +57,7 @@ export function ArtifactsView({
   // Die Dateien liegen beim Host: Sein Standardprogramm und sein Dateimanager laufen an seinem Bildschirm, nicht hier.
   const isRemote: boolean = useProjectIsRemote(projectId);
   const [reloadToken, setReloadToken] = useState<number>(0);
+  const [resetToken, setResetToken] = useState<number>(0);
   const [isJustUpdated, setIsJustUpdated] = useState<boolean>(false);
   const [isCommenting, setIsCommenting] = useState<boolean>(false);
   const [pick, setPick] = useState<ArtifactPick | null>(null);
@@ -208,6 +210,7 @@ export function ArtifactsView({
         key={item.file}
         type="button"
         className={`artifacts__entry${isSelected ? ' artifacts__entry--selected' : ''}`}
+        title={item.externalDir}
         aria-current={isSelected ? 'true' : undefined}
         onClick={(): void => {
           setIsCommenting(false);
@@ -218,7 +221,9 @@ export function ArtifactsView({
       >
         <ArtifactKindBadge kind={item.kind} />
         <span className="artifacts__entry-text">
-          <span className="artifacts__entry-title">{item.title}</span>
+          <span className="artifacts__entry-title">
+            {item.externalDir === undefined ? item.title : displayFile(item.file)}
+          </span>
           <span className="artifacts__entry-meta">{metaLine(item)}</span>
         </span>
       </button>
@@ -254,7 +259,12 @@ export function ArtifactsView({
         type="button"
         className="artifacts__button"
         onClick={(): void => {
-          mentionInChat(currentSessionId, `Artefakt „${item.title}“ (${list.dir}\\${item.file})`);
+          mentionInChat(
+            currentSessionId,
+            item.externalPath === undefined
+              ? `Artefakt „${item.title}“ (${list.dir}\\${item.file})`
+              : `Datei „${item.title}“ (${item.externalPath})`,
+          );
         }}
       >
         Im Chat besprechen
@@ -285,7 +295,7 @@ export function ArtifactsView({
             >
               {isJustUpdated
                 ? JUST_UPDATED
-                : `${selected.file} · ${clockLabel(selected.modifiedAt)}`}
+                : `${displayFile(selected.file)} · ${clockLabel(selected.modifiedAt)}`}
             </span>
           </div>
           <div className="artifacts__actions">
@@ -368,8 +378,27 @@ export function ArtifactsView({
                 Kommentieren{isCommenting ? ` · ${String(artifactComments.length)}` : ''}
               </button>
             ) : null}
+            {selected.stateModifiedAt !== undefined ? (
+              <ArtifactStateReset
+                key={selected.file}
+                onReset={(): void => {
+                  resetArtifactState(sessionId, selected.file)
+                    .then((): void => {
+                      setReloadToken((token: number) => token + 1);
+                      setResetToken((token: number) => token + 1);
+                    })
+                    .catch((reason: unknown): void => {
+                      console.error('Zustand nicht zurückgesetzt', reason);
+                      reportSessionError(
+                        sessionId,
+                        `Zustand nicht zurückgesetzt: ${commandErrorText(reason)}`,
+                      );
+                    });
+                }}
+              />
+            ) : null}
             {renderDiscussButton(selected)}
-            {!isRemote && (
+            {!isRemote && selected.externalDir === undefined && (
               <button
                 type="button"
                 className="artifacts__button"
@@ -409,17 +438,24 @@ export function ArtifactsView({
           </div>
         ) : null}
         <div ref={stageRef} className="artifacts__stage">
+          {/* Unter dem Vollbild hängt die Vorschau aus (ADR 081): Zwei Rahmen einer Seite, die beim Laden
+              speichert, lüden einander sonst neu. Beim Schließen lädt sie mit dem neuesten Stand. */}
           {selected.viewable ? (
-            <ArtifactFrame
-              baseUrl={list.baseUrl}
-              item={selected}
-              reloadToken={reloadToken}
-              frameRef={frameRef}
-            />
+            isFullscreen ? null : (
+              <ArtifactFrame
+                key={selected.file}
+                sessionId={sessionId}
+                baseUrl={list.baseUrl}
+                item={selected}
+                reloadToken={reloadToken}
+                resetToken={resetToken}
+                frameRef={frameRef}
+              />
+            )
           ) : (
             <ArtifactOtherCard
               item={selected}
-              canOpen={!isRemote}
+              canOpen={!isRemote && selected.externalDir === undefined}
               onOpen={(): void => {
                 runOnFile(openArtifactDefault, selected);
               }}
@@ -470,6 +506,7 @@ export function ArtifactsView({
       </section>
       {isFullscreen && selected.viewable ? (
         <ArtifactFullscreen
+          sessionId={sessionId}
           baseUrl={list.baseUrl}
           item={selected}
           onClose={(): void => {

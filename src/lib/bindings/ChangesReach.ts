@@ -3,4 +3,4 @@
 /**
  * Wessen Änderungen die Changes zeigen (ADR 014).
  */
-export type ChangesReach = "session" | "project";
+export type ChangesReach = "session" | "implementation" | "project";

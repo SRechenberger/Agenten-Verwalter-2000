@@ -2,9 +2,11 @@
 //! (ADR 026, 047). Hier liegen Ordner, Liste, Typ-Erkennung und die Pfadprüfung; ausgeliefert wird
 //! über einen eigenen Server auf `127.0.0.1` (`server`), alles außer HTML in einer Betrachter-Seite
 //! (`viewers`).
+pub mod extern_files;
 pub mod folder;
 pub mod model;
 pub mod server;
+pub mod state;
 pub mod tools;
 pub mod viewers;
 
@@ -158,14 +160,22 @@ pub fn list(dir: &Path, owners: &[ArtifactOwner]) -> Vec<Artifact> {
         let file = entry.file_name().to_string_lossy().into_owned();
         let path = entry.path();
         let item = if file_type.is_file() && !is_hidden(&file) {
-            file_item(&path, file, entry)
+            file_item(&path, file, entry.metadata().ok())
         } else if file_type.is_dir() && !file.starts_with('.') && !is_accessory_dir(&file, &stems) {
             folder_item(&path, file)
         } else {
             continue;
         };
-        items.push(with_owners(item, &path, file_type.is_dir(), owners));
+        let mut item = with_owners(item, &path, file_type.is_dir(), owners);
+        item.state_modified_at = state::modified_at(dir, &item.file);
+        items.push(item);
     }
+    sort_newest_first(&mut items);
+    items
+}
+
+/// Neueste Änderung zuerst, bei gleicher Zeit nach dem Namen.
+pub(crate) fn sort_newest_first(items: &mut [Artifact]) {
     items.sort_by(|left: &Artifact, right: &Artifact| {
         right
             .modified_at
@@ -173,7 +183,6 @@ pub fn list(dir: &Path, owners: &[ArtifactOwner]) -> Vec<Artifact> {
             .unwrap_or(Ordering::Equal)
             .then_with(|| left.file.cmp(&right.file))
     });
-    items
 }
 
 /// Die Datei `relative` im Ordner `dir`. Der Pfad kommt aus einer Seite oder der Oberfläche: `..`,
@@ -181,7 +190,9 @@ pub fn list(dir: &Path, owners: &[ArtifactOwner]) -> Vec<Artifact> {
 /// liegen — sonst führte ein Symlink im Ordner nach draußen.
 pub fn resolve(dir: &Path, relative: &str) -> Result<PathBuf, CommandError> {
     let target = resolve_entry(dir, relative)?;
-    if target.is_dir() {
+    // `.extern.json` nennt Pfade außerhalb des Vorhabens (Taiga 139): weder eine Seite noch ein Gast
+    // bekommt sie, auch nicht über einen Symlink im Ordner.
+    if target.is_dir() || extern_files::is_store(dir, &target) {
         return Err(CommandError::FileNotFound(relative.to_owned()));
     }
     Ok(target)
@@ -263,21 +274,35 @@ fn normalize_separators(path: &str) -> String {
 /// Die Namen der HTML-Dateien direkt im Ordner ohne Endung, klein geschrieben. Aus den
 /// Verzeichniseinträgen, ohne eine Datei zu öffnen.
 fn page_stems_of(entries: &[fs::DirEntry]) -> Vec<String> {
-    entries
-        .iter()
-        .filter(|entry: &&fs::DirEntry| {
-            entry
-                .file_type()
-                .is_ok_and(|file_type: fs::FileType| file_type.is_file())
-                && kind_of(&entry.path()) == ArtifactKind::Html
-        })
-        .filter_map(|entry: &fs::DirEntry| {
-            entry
-                .path()
-                .file_stem()
-                .map(|stem| stem.to_string_lossy().to_lowercase())
-        })
-        .collect()
+    entries.iter().filter_map(page_stem).collect()
+}
+
+/// Der Name einer HTML-Datei ohne Endung, klein geschrieben; `None` für jeden anderen Eintrag.
+fn page_stem(entry: &fs::DirEntry) -> Option<String> {
+    let is_page = entry
+        .file_type()
+        .is_ok_and(|file_type: fs::FileType| file_type.is_file())
+        && kind_of(&entry.path()) == ArtifactKind::Html;
+    if !is_page {
+        return None;
+    }
+    entry
+        .path()
+        .file_stem()
+        .map(|stem| stem.to_string_lossy().to_lowercase())
+}
+
+/// Die Namen der HTML-Dateien direkt in `dir`, wie sie im Ordner stehen.
+pub fn page_names_in(dir: &Path) -> Vec<String> {
+    fs::read_dir(dir).map_or_else(
+        |_| Vec::new(),
+        |read| {
+            read.flatten()
+                .filter(|entry: &fs::DirEntry| page_stem(entry).is_some())
+                .map(|entry: fs::DirEntry| entry.file_name().to_string_lossy().into_owned())
+                .collect()
+        },
+    )
 }
 
 fn page_stems_in(dir: &Path) -> Vec<String> {
@@ -294,9 +319,8 @@ fn is_accessory_dir(name: &str, page_stems: &[String]) -> bool {
     name.starts_with('_') || page_stems.contains(&name.to_lowercase())
 }
 
-fn file_item(path: &Path, file: String, entry: &fs::DirEntry) -> Artifact {
+fn file_item(path: &Path, file: String, metadata: Option<fs::Metadata>) -> Artifact {
     let kind = kind_of(path);
-    let metadata = entry.metadata().ok();
     let title = match kind {
         ArtifactKind::Html => html_title(path),
         ArtifactKind::Markdown => markdown_title(path),
@@ -318,6 +342,9 @@ fn file_item(path: &Path, file: String, entry: &fs::DirEntry) -> Artifact {
         session_name: None,
         last_session_number: None,
         last_session_name: None,
+        state_modified_at: None,
+        external_dir: None,
+        external_path: None,
     }
 }
 
@@ -344,6 +371,9 @@ fn folder_item(path: &Path, file: String) -> Artifact {
         session_name: None,
         last_session_number: None,
         last_session_name: None,
+        state_modified_at: None,
+        external_dir: None,
+        external_path: None,
     }
 }
 
@@ -621,5 +651,26 @@ mod tests {
         let of = |relative: &str| artifact_file_of(dir, &dir.join(relative).to_string_lossy());
         assert_eq!(of("daten/x.csv"), Some("daten".to_owned()));
         assert_eq!(of("_bilder/a.png"), None);
+    }
+
+    #[test]
+    fn the_state_folder_is_not_listed_but_the_time_of_a_state_is() {
+        let scratch = Scratch::new("state-list");
+        scratch.write("plan.html", "<p>x</p>");
+        scratch.write("seite/index.html", "<p>y</p>");
+        scratch.write("ohne.html", "<p>z</p>");
+        state::save(&scratch.0, "plan.html", "{}").expect("save");
+        state::save(&scratch.0, "seite", "{}").expect("save");
+        assert_eq!(scratch.names(), ["ohne.html", "plan.html", "seite"]);
+        let items = list(&scratch.0, &[]);
+        let time_of = |file: &str| {
+            items
+                .iter()
+                .find(|item: &&Artifact| item.file == file)
+                .and_then(|item: &Artifact| item.state_modified_at)
+        };
+        assert!(time_of("plan.html").is_some());
+        assert!(time_of("seite").is_some());
+        assert_eq!(time_of("ohne.html"), None);
     }
 }

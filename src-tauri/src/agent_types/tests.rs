@@ -1038,6 +1038,7 @@ fn spawn_options(local: Option<LocalBackend>, codex_exe: Option<PathBuf>) -> Spa
         local,
         scratchpad: Some(PathBuf::from("scratchpad")),
         artifacts: Some(PathBuf::from("artefakte")),
+        artifact_folders: Vec::new(),
         chrome: false,
         codex_exe,
         verwalter_mcp: Some(VerwalterMcp {

@@ -15,6 +15,8 @@ pub struct UsageLimit {
     pub resets_at: Option<String>,
     /// Dauer des Fensters in Minuten; nur Codex nennt sie (Claude benennt das Fenster über `kind`).
     pub window_minutes: Option<u32>,
+    /// Anzeigename des Modells bei `weekly_scoped` (`scope.model.display_name`); sonst `None`.
+    pub model: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
@@ -61,6 +63,19 @@ pub struct UsageAlert {
     pub resets_at: Option<String>,
 }
 
+/// Reichweite eines Fensters aus dem Verlauf seiner Prozentwerte; nur Claude und Codex.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct UsageForecast {
+    /// Wie `UsageLimit::kind`.
+    pub kind: String,
+    pub percent_per_hour: f64,
+    /// ISO-8601 UTC; nur wenn 100 % vor `resets_at` erreicht würden.
+    pub exhausted_at: Option<String>,
+    /// Stand bei `resets_at`, nie kleiner als der jetzige.
+    pub percent_at_reset: Option<u32>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct UsageStatus {
@@ -71,4 +86,6 @@ pub struct UsageStatus {
     /// Fehler des letzten Abrufs, `None` nach einem Erfolg.
     pub error: Option<String>,
     pub is_loading: bool,
+    /// Je Fenster mit genug Verlauf; leer, solange der Wert nicht über 10 Minuten gestiegen ist.
+    pub forecast: Vec<UsageForecast>,
 }

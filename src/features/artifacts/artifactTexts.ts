@@ -1,4 +1,5 @@
 import { formatClock } from '@/features/context/formatTokens';
+import { displayFile } from '@/features/artifacts/groupArtifacts';
 import type { Artifact } from '@/lib/bindings/Artifact';
 import type { ArtifactKind } from '@/lib/bindings/ArtifactKind';
 
@@ -62,7 +63,7 @@ export function sizeLabel(bytes: number): string {
 /** Dateiname (bei Ordnern die Zahl der Dateien) · Uhrzeit · ggf. die Session, die zuletzt schrieb. */
 export function metaLine(item: Artifact): string {
   const parts: string[] = [
-    item.entries === null ? item.file : `${String(item.entries)} Dateien`,
+    item.entries === null ? displayFile(item.file) : `${String(item.entries)} Dateien`,
     clockLabel(item.modifiedAt),
   ];
   if (item.lastSessionNumber !== null) {

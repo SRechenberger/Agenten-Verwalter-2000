@@ -81,12 +81,29 @@
     color: var(--color-status-waiting);
   }
 
+  /* Rückfrage zu einer Umsetzung (Taiga 254): leise, rechts neben dem Namen. */
+  &__inquiry {
+    flex-shrink: 0;
+    margin-left: auto;
+    font-size: var(--font-size-2xs);
+    color: var(--color-text-muted);
+    white-space: nowrap;
+  }
+
   /* Der Master bereitet einen Compact vor (ADR 070, Nachtrag): wie die Marke des Masters. */
   &__compact {
     flex-shrink: 0;
     margin-left: auto;
     font-size: var(--font-size-2xs);
     color: var(--color-status-reported);
+    white-space: nowrap;
+  }
+
+  /* Wartende Nachrichten im Compact: in der Farbe des Wartens wie der Chip „n warten“. */
+  &__compact-waiting {
+    flex-shrink: 0;
+    font-size: var(--font-size-2xs);
+    color: var(--color-status-waiting);
     white-space: nowrap;
   }
 
@@ -104,6 +121,10 @@
   &__clock + &__unread,
   &__queue + &__overlap,
   &__queue + &__unread,
+  &__compact + &__compact-waiting,
+  &__compact-waiting + &__queue,
+  &__compact-waiting + &__overlap,
+  &__compact-waiting + &__unread,
   &__compact + &__queue,
   &__compact + &__overlap,
   &__compact + &__unread {

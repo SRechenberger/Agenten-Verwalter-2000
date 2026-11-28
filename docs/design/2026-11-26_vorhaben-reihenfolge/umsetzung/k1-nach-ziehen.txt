@@ -1,0 +1,12 @@
+ 0 project y= 108                                            Juliett
+ 2 project y= 170                                            Kilo neu
+ 4 project y= 232                                            Foxtrot
+ 5 project y= 264                                            Golf
+ 6 project y= 296                                            Alpha
+ 7 project y= 328                                            Gamma
+ 8 project y= 360                                          • Hotel
+10 project y= 422                                            India
+11 project y= 454                                            Delta
+12 project y= 486                                            Echo
+13 project y= 518                                            Beta
+Juliett:0:-  Kilo neu:1:-  Foxtrot:2:-  Golf:3:-  Alpha:4:-  Gamma:5:-  Hotel:6:-  India:7:-  Delta:8:-  Echo:9:-  Beta:10:-

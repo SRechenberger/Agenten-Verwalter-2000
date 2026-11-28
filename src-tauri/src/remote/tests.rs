@@ -276,6 +276,7 @@ fn registry_with_two_implementations() -> SessionRegistry {
                         released_at: None,
                         vars: Default::default(),
                         command: None,
+                        message: None,
                     }],
                 )?;
             }
@@ -723,5 +724,19 @@ fn the_create_right_keeps_its_group_and_loses_it_when_the_group_is_deleted() {
         remote_rows::device_create_right(&connection, "d").expect("lesbar"),
         CreateRight::default(),
         "ein gesperrtes Gerät hat kein Recht"
+    );
+}
+
+#[test]
+fn a_tempo_change_reaches_only_the_guest_that_holds_the_project_of_its_session() {
+    use super::forward::{FORWARDED, Owner};
+    assert!(
+        FORWARDED.contains(&(crate::tempo::TEMPO_CHANGED_EVENT, Owner::Session)),
+        "{FORWARDED:?}"
+    );
+    assert_ne!(
+        super::TEMPO_CHANGED_EVENT,
+        crate::tempo::TEMPO_CHANGED_EVENT,
+        "am Gast nie unter dem eigenen Namen"
     );
 }

@@ -12,10 +12,13 @@ import type { RemoteDevice } from '@/lib/bindings/RemoteDevice';
 import type { RemoteHostStatus } from '@/lib/bindings/RemoteHostStatus';
 import type { RemoteInvitation } from '@/lib/bindings/RemoteInvitation';
 import type { RemoteServerStatus } from '@/lib/bindings/RemoteServerStatus';
+import type { TempoScope } from '@/lib/bindings/TempoScope';
+import type { TempoSnapshot } from '@/lib/bindings/TempoSnapshot';
 import type { UsageStatus } from '@/lib/bindings/UsageStatus';
 
 const REMOTE_CHANGED_EVENT = 'remote://changed';
 const REMOTE_USAGE_CHANGED_EVENT = 'remote://usage-changed';
+const REMOTE_TEMPO_CHANGED_EVENT = 'remote://tempo-changed';
 
 /** Der Server dieses Rechners als Host: Schalter, Port, Adressen, Fingerabdruck.
  *  @throws {import('@/lib/bindings/CommandError').CommandError} `database` */
@@ -193,6 +196,21 @@ export async function refreshRemoteUsage(hostId: string, force: boolean): Promis
 export function onRemoteUsageChanged(callback: (hostId: string) => void): Promise<UnlistenFn> {
   return listen<{ hostId: string }>(REMOTE_USAGE_CHANGED_EVENT, (event) => {
     callback(event.payload.hostId);
+  });
+}
+
+/** Das Tempo des Hosts. `top` und `session` gelten nur für Vorhaben, die dieses Gerät hält. Am Gast.
+ *  @throws {import('@/lib/bindings/CommandError').CommandError} `hostUnreachable`, `internal` */
+export function loadRemoteTempo(hostId: string, scope: TempoScope): Promise<TempoSnapshot> {
+  return invoke<TempoSnapshot>('remote_tempo_load', { hostId, scope });
+}
+
+/** Meldet, wenn sich das Tempo einer Session eines Hosts geändert hat; danach `loadRemoteTempo` neu laden. */
+export function onRemoteTempoChanged(
+  callback: (hostId: string, sessionId: string) => void,
+): Promise<UnlistenFn> {
+  return listen<{ hostId: string; sessionId: string }>(REMOTE_TEMPO_CHANGED_EVENT, (event) => {
+    callback(event.payload.hostId, event.payload.sessionId);
   });
 }
 

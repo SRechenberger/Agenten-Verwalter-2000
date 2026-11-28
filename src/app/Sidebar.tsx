@@ -8,14 +8,11 @@ import { SidebarImplementation } from '@/app/SidebarImplementation';
 import { SidebarItem } from '@/app/SidebarItem';
 import { SidebarProject } from '@/app/SidebarProject';
 import { SidebarStation } from '@/app/SidebarStation';
+import { byPosition, planDrop, planStep, type DropSpot, type MovePlan } from '@/app/sidebarOrder';
 import { useSidebarDrag } from '@/app/useSidebarDrag';
 import { PENDING_FOCUS } from '@/features/implementation/implementationOrder';
 import { useOpenStation } from '@/features/implementation/useOpenStation';
-import {
-  projectActivity,
-  sessionsByActivity,
-  visibleSessions,
-} from '@/features/projects/projectStatus';
+import { sessionsByNumber, visibleSessions } from '@/features/projects/projectStatus';
 import { EndShareConfirm } from '@/features/remote/EndShareDialog';
 import { groupEndText, heldIn, leaveText } from '@/features/remote/groupShareText';
 import { holderOf, isLocked, isRemote, LOCKED_TITLE } from '@/features/remote/projectAccess';
@@ -23,6 +20,7 @@ import { displayStatus } from '@/features/sessions/sessionStatus';
 import { QueueFooter } from '@/features/queue/QueueFooter';
 import { badgeCount } from '@/features/dashboard/dashboardTexts';
 import { sessionWaitPosition } from '@/features/queue/queueTexts';
+import { TempoSection } from '@/features/tempo/TempoSection';
 import { UsageSection } from '@/features/usage/UsageSection';
 import type { ImplementationView } from '@/lib/bindings/ImplementationView';
 import type { ProjectGroup } from '@/lib/bindings/ProjectGroup';
@@ -33,6 +31,7 @@ import { renameImplementation } from '@/lib/implementation';
 import {
   createProjectGroup,
   deleteProjectGroup,
+  moveProject,
   renameProjectGroup,
   setProjectGroup,
   setProjectGroupCollapsed,
@@ -90,11 +89,6 @@ const PANEL_ICON: ReactElement = (
     <path d="M5.5 2v10" />
   </svg>
 );
-
-interface RankedProject extends SidebarProjectEntry {
-  /** Jüngste Aktivität im Vorhaben — bestimmt die Reihenfolge der Vorhaben. */
-  activity: number;
-}
 
 interface SidebarProps {
   /** Gezogene Breite in Pixeln. */
@@ -248,15 +242,15 @@ export function Sidebar({
   const listRef = useRef<HTMLDivElement>(null);
   const { dragged, dropTarget, ghostRef, beginDrag } = useSidebarDrag(
     listRef,
-    groups.length > 0 && renaming === null,
-    moveToGroup,
+    renaming === null,
+    dropProject,
   );
   const isDragging: boolean = dragged !== null;
 
   const rows: SidebarRow[] = useMemo(() => {
-    const ranked: RankedProject[] = projects
-      .map((project: ProjectSummary): RankedProject => {
-        const projectSessions: SessionSummary[] = sessionsByActivity(project.id, sessions);
+    const ranked: SidebarProjectEntry[] = projects
+      .map((project: ProjectSummary): SidebarProjectEntry => {
+        const projectSessions: SessionSummary[] = sessionsByNumber(project.id, sessions);
         const isOverviewActive: boolean = showProjectOverview && activeProjectId === project.id;
         const containsActiveSession: boolean = projectSessions.some(
           (session: SessionSummary) => session.id === activeSessionId,
@@ -280,22 +274,20 @@ export function Sidebar({
               (id: string | null): id is string => id !== null,
             ),
           ),
-          activity: projectActivity(project, projectSessions),
         };
       })
-      .sort(
-        (first: RankedProject, second: RankedProject) =>
-          second.activity - first.activity || second.project.createdAt - first.project.createdAt,
+      .sort((first: SidebarProjectEntry, second: SidebarProjectEntry) =>
+        byPosition(first.project, second.project),
       );
     // Ein `groupId` ohne Gruppe in der Liste (Ereignisse sind noch unterwegs) gilt als „ohne Gruppe“.
     const knownGroupIds = new Set<string>(groups.map((group: ProjectGroup) => group.id));
-    const ungrouped: RankedProject[] = ranked.filter(
-      (entry: RankedProject) =>
+    const ungrouped: SidebarProjectEntry[] = ranked.filter(
+      (entry: SidebarProjectEntry) =>
         entry.project.groupId === null || !knownGroupIds.has(entry.project.groupId),
     );
     const groupEntries: SidebarGroupEntry[] = groups.map((group: ProjectGroup) => ({
       group,
-      projects: ranked.filter((entry: RankedProject) => entry.project.groupId === group.id),
+      projects: ranked.filter((entry: SidebarProjectEntry) => entry.project.groupId === group.id),
     }));
     return buildSidebarRows(ungrouped, groupEntries, isDragging);
   }, [
@@ -475,7 +467,11 @@ export function Sidebar({
 
   // Wer eine freigegebene Gruppe verlässt, verliert deren Freigabe (G3): Hält ein Gast das Vorhaben, ist
   // das ein Herauswerfen und fragt erst. Wer in eine freigegebene Gruppe kommt, ist ohne Dialog frei (G6).
-  function moveToGroup(projectId: string, groupId: string | null | typeof NEW_GROUP): void {
+  function moveToGroup(
+    projectId: string,
+    groupId: string | null | typeof NEW_GROUP,
+    placement?: Pick<MovePlan, 'before'>,
+  ): void {
     const project: ProjectSummary | undefined = projects.find(
       (candidate: ProjectSummary) => candidate.id === projectId,
     );
@@ -487,7 +483,11 @@ export function Sidebar({
     const apply = async (stopAgents = false): Promise<void> => {
       const target: string | null =
         groupId === NEW_GROUP ? (await createProjectGroup(NEW_GROUP_NAME)).id : groupId;
-      await setProjectGroup(projectId, target, stopAgents);
+      if (placement === undefined || groupId === NEW_GROUP) {
+        await setProjectGroup(projectId, target, stopAgents);
+      } else {
+        await moveProject(projectId, placement.before, target, stopAgents);
+      }
       if (groupId === NEW_GROUP && target !== null) {
         startRename('group', target);
       }
@@ -515,6 +515,20 @@ export function Sidebar({
       setNotice(null);
     }
     run(() => apply(), 'Verschieben fehlgeschlagen');
+  }
+
+  function applyPlan(projectId: string, plan: MovePlan | null): void {
+    if (plan !== null) {
+      moveToGroup(projectId, plan.groupId, plan);
+    }
+  }
+
+  function dropProject(projectId: string, spot: DropSpot): void {
+    applyPlan(projectId, planDrop(spot, projectId, projects));
+  }
+
+  function stepProject(projectId: string, direction: -1 | 1): void {
+    applyPlan(projectId, planStep(projectId, direction, projects));
   }
 
   // Der Nutzer tippt den Namen direkt am Kopf; die Gruppe heißt bis dahin „Neue Gruppe“.
@@ -672,6 +686,14 @@ export function Sidebar({
         <SidebarProject
           project={project}
           sessions={projectSessions}
+          runningImplementations={
+            implementations.filter(
+              (implementation: ImplementationView) =>
+                implementation.projectId === project.id &&
+                implementation.finishedAt === null &&
+                implementation.cancelledAt === null,
+            ).length
+          }
           isOverviewActive={showProjectOverview && activeProjectId === project.id}
           isExpanded={isExpanded}
           renaming={renaming}
@@ -699,6 +721,11 @@ export function Sidebar({
           }}
           onNewGroup={(): void => {
             moveToNewGroup(project.id);
+          }}
+          canMoveUp={planStep(project.id, -1, projects) !== null}
+          canMoveDown={planStep(project.id, 1, projects) !== null}
+          onStep={(direction: -1 | 1): void => {
+            stepProject(project.id, direction);
           }}
           onRowPointerDown={(event: PointerEvent<HTMLButtonElement>): void => {
             beginDrag(event, project);
@@ -826,12 +853,53 @@ export function Sidebar({
     onToggleMinimized();
   }
 
-  function rowClassName(row: SidebarRow | undefined): string {
-    const isDropTarget: boolean = row !== undefined && row.dropGroup === dropTarget;
-    const isDragged: boolean = dragged !== null && row?.key === `project:${dragged.id}`;
-    return `sidebar__row${isDropTarget ? ' sidebar__row--drop' : ''}${
-      isDragged ? ' sidebar__row--dragged' : ''
-    }`;
+  // Ziel des Ziehens als Klasse der Zeile: Kopf und „Ohne Gruppe“ ganz, bei Vorhaben eine Einfügelinie
+  // über der Zeile (davor) oder unter der letzten Zeile des Vorhabens (dahinter).
+  function dropClass(index: number): string {
+    const row: SidebarRow | undefined = rows[index];
+    if (row === undefined || dropTarget === null) {
+      return '';
+    }
+    switch (dropTarget.kind) {
+      case 'none':
+        return row.kind === 'dropNone' ? ' sidebar__row--drop' : '';
+      case 'group':
+        return row.kind === 'group' && row.group.id === dropTarget.groupId
+          ? ' sidebar__row--drop'
+          : '';
+      case 'before':
+        return row.kind === 'project' && row.project.id === dropTarget.projectId
+          ? ' sidebar__row--drop-before'
+          : '';
+      case 'after':
+        return row.ownerId === dropTarget.projectId && rows[index + 1]?.ownerId !== row.ownerId
+          ? ' sidebar__row--drop-after'
+          : '';
+    }
+  }
+
+  function rowClassName(index: number): string {
+    const isDragged: boolean = dragged !== null && rows[index]?.key === `project:${dragged.id}`;
+    return `sidebar__row${dropClass(index)}${isDragged ? ' sidebar__row--dragged' : ''}`;
+  }
+
+  // Wohin ein Ablegen auf dieser Zeile zielt, für `dropSpotAt` des Ziehens.
+  function dropAttributes(row: SidebarRow | undefined): Record<string, string | boolean> {
+    if (row === undefined) {
+      return {};
+    }
+    if (row.kind === 'dropNone') {
+      return { 'data-drop-none': true };
+    }
+    if (row.kind === 'group') {
+      return { 'data-drop-head': row.group.id };
+    }
+    if (row.ownerId === undefined) {
+      return {};
+    }
+    return row.kind === 'project'
+      ? { 'data-drop-project': row.ownerId }
+      : { 'data-drop-after': row.ownerId };
   }
 
   if (isMinimized) {
@@ -986,8 +1054,8 @@ export function Sidebar({
               key={item.key}
               ref={virtualizer.measureElement}
               data-index={item.index}
-              data-drop-group={rows[item.index]?.dropGroup}
-              className={rowClassName(rows[item.index])}
+              {...dropAttributes(rows[item.index])}
+              className={rowClassName(item.index)}
               style={{ transform: `translateY(${String(item.start)}px)` }}
             >
               {renderRow(rows[item.index])}
@@ -1058,6 +1126,7 @@ export function Sidebar({
           </button>
         </QueueFooter>
         <UsageSection hasOwn={hasUsage} />
+        <TempoSection sessions={sessions} />
         <button type="button" className="sidebar__archive" onClick={onOpenArchive}>
           <svg
             width="14"

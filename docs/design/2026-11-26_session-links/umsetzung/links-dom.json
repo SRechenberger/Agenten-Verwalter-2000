@@ -1,0 +1,58 @@
+[
+ {
+  "tag": "BUTTON",
+  "cls": "session-link session-link--jump",
+  "text": "Session 2",
+  "title": "Session 2 „Ziel zwei“ öffnen",
+  "aria": "Zu Session 2 „Ziel zwei“",
+  "href": null
+ },
+ {
+  "tag": "BUTTON",
+  "cls": "session-link session-link--jump",
+  "text": "Session 3",
+  "title": "Session 3 „Ziel drei“ öffnen",
+  "aria": "Zu Session 3 „Ziel drei“",
+  "href": null
+ },
+ {
+  "tag": "BUTTON",
+  "cls": "session-link session-link--jump",
+  "text": "Session 2",
+  "title": "Session 2 „Ziel zwei“ öffnen",
+  "aria": "Zu Session 2 „Ziel zwei“",
+  "href": null
+ },
+ {
+  "tag": "BUTTON",
+  "cls": "session-link session-link--jump",
+  "text": "15853901-3694-48fe-8633-ce01132f3f29",
+  "title": "Session 3 „Ziel drei“ öffnen",
+  "aria": "Zu Session 3 „Ziel drei“",
+  "href": null
+ },
+ {
+  "tag": "BUTTON",
+  "cls": "session-link session-link--jump",
+  "text": "d2efed3c-72f1-45d5-81c4-83721b1eaacf",
+  "title": "Session 2 „Fremde zwei“ im Vorhaben „Fremdes Vorhaben“ öffnen",
+  "aria": "Zu Session 2 „Fremde zwei“",
+  "href": null
+ },
+ {
+  "tag": "BUTTON",
+  "cls": "session-link session-link--jump",
+  "text": "15853901-3694-48fe-8633-ce01132f3f29",
+  "title": "Session 3 „Ziel drei“ öffnen",
+  "aria": "Zu Session 3 „Ziel drei“",
+  "href": null
+ },
+ {
+  "tag": "A",
+  "cls": "external-link",
+  "text": "Session 2",
+  "title": "https://example.com/session-2",
+  "aria": null,
+  "href": "https://example.com/session-2"
+ }
+]

@@ -28,7 +28,7 @@
     field-sizing: content;
     padding: 5px var(--space-md);
     border: 1px solid var(--color-border);
-    border-radius: var(--radius-md);
+    border-radius: 0;
     background: var(--color-bg-base);
     color: var(--color-fg-primary);
     font: inherit;

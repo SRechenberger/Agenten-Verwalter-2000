@@ -1,3 +1,5 @@
+import { SESSION_REF_SCHEME } from '@/components/remarkSessionRefs';
+import { sessionIdOf } from '@/lib/sessionRefs';
 import { unsourcedTip } from '@/features/sourcing/sourcingTexts';
 
 // Bewusst schmale eigene Form statt der Typen aus `hast`: das Paket ist keine direkte Abhängigkeit
@@ -15,6 +17,25 @@ interface RehypeUnsourcedOptions {
 }
 
 const SKIPPED_TAG = 'pre';
+
+// Ein Session-Link ist ein Knopf: eine ID darin ist keine Angabe, und eine fokussierbare Spanne
+// gehört nicht in einen Knopf.
+function isSessionRefLink(node: HastNode): boolean {
+  const href: unknown = node.properties?.['href'];
+  return node.tagName === 'a' && typeof href === 'string' && href.startsWith(SESSION_REF_SCHEME);
+}
+
+// Inline-Code, der als Ganzes eine Session-ID ist, wird erst in `InlineCode` zum Session-Link und
+// ist hier noch ein gewöhnliches `code`; auch er bleibt ohne Markierung.
+function isSessionIdCode(node: HastNode): boolean {
+  const [only] = node.children ?? [];
+  return (
+    node.tagName === 'code' &&
+    node.children?.length === 1 &&
+    only?.type === 'text' &&
+    sessionIdOf(only.value ?? '') !== null
+  );
+}
 
 function escapeRegExp(text: string): string {
   return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -67,7 +88,12 @@ function markChildren(parent: HastNode, pattern: RegExp): void {
       marked.push(...(splitText(child.value, pattern) ?? [child]));
       continue;
     }
-    if (child.type === 'element' && child.tagName !== SKIPPED_TAG) {
+    if (
+      child.type === 'element' &&
+      child.tagName !== SKIPPED_TAG &&
+      !isSessionRefLink(child) &&
+      !isSessionIdCode(child)
+    ) {
       markChildren(child, pattern);
     }
     marked.push(child);
@@ -76,7 +102,7 @@ function markChildren(parent: HastNode, pattern: RegExp): void {
 }
 
 /** Fasst jedes Vorkommen einer Nadel in einem Text-Knoten in ein `span.unsourced`; Codeblöcke
- *  (`pre`) bleiben unberührt. Muss vor `rehype-highlight` laufen, solange dessen Spans noch fehlen. */
+ *  (`pre`) und Links auf Sessions bleiben unberührt. Muss vor `rehype-highlight` laufen, solange dessen Spans noch fehlen. */
 export function rehypeUnsourced(options: RehypeUnsourcedOptions): (tree: HastNode) => void {
   const needles: string[] = options.needles.filter((needle: string) => needle.length > 0);
   if (needles.length === 0) {

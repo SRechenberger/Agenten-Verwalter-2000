@@ -1,5 +1,7 @@
 import {
   isCommandStation,
+  isMessageStation,
+  recipientText,
   stationDisplay,
   stepsSummary,
   stepsTitle,
@@ -74,6 +76,8 @@ import type { AgentQueue } from '@/lib/bindings/AgentQueue';
 import type { SessionSummary } from '@/lib/bindings/SessionSummary';
 import type { StationView } from '@/lib/bindings/StationView';
 import { useAgentQueueStore, waitQueuesOf } from '@/stores/agentQueue';
+import { TempoStation } from '@/features/tempo/TempoStation';
+import { sessionTitle } from '@/features/tempo/tempoTexts';
 import './Timeline.css';
 
 interface TimelineProps {
@@ -214,6 +218,16 @@ export function Timeline({
       return (
         <span className="timeline__meta timeline__meta--steps" title={stepsTitle(station.command)}>
           {stepsSummary(station.command)}
+        </span>
+      );
+    }
+    if (isMessageStation(station) && station.message !== null) {
+      return (
+        <span className="timeline__meta" title={station.message.text}>
+          {recipientText(
+            station.message.to,
+            refs.map((ref: StationRef) => ref.station),
+          )}
         </span>
       );
     }
@@ -417,6 +431,11 @@ export function Timeline({
           )}
           {renderMeta(station)}
         </button>
+        <TempoStation
+          projectId={implementation.projectId}
+          sessionId={station.sessionId}
+          label={sessionTitle(sessionOf(station), stationDisplay(station))}
+        />
         <span className={`timeline__state timeline__state--${tone}`}>
           {rowText(station)}
           {renderMasterChips(station)}

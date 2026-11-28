@@ -20,8 +20,6 @@ import type { SessionSummary } from '@/lib/bindings/SessionSummary';
 export const COLLAPSE_FROM = 5;
 /** So viele der zuletzt aktiven Sessions bleiben im gekürzten Vorhaben sichtbar. */
 export const VISIBLE_COUNT = 3;
-/** Ablegeziel „ohne Gruppe“ neben den Gruppen-IDs in `dropGroup`. */
-export const DROP_NONE = 'none';
 
 export type SidebarRow = (
   | { kind: 'dropNone'; key: string }
@@ -77,8 +75,8 @@ export type SidebarRow = (
       isShowingAll: boolean;
     }
 ) & {
-  /** Worauf ein Ablegen auf dieser Zeile zielt: die ID ihrer Gruppe oder `DROP_NONE`. */
-  dropGroup: string;
+  /** Das Vorhaben, zu dem die Zeile gehört (seine Zeile und alles darunter); fehlt bei Kopf und Ablegefläche. */
+  ownerId?: string;
 };
 
 export interface SidebarProjectEntry {
@@ -112,10 +110,10 @@ export function buildSidebarRows(
 ): SidebarRow[] {
   const rows: SidebarRow[] = [];
   if (showDropNone) {
-    rows.push({ kind: 'dropNone', key: 'drop-none', dropGroup: DROP_NONE });
+    rows.push({ kind: 'dropNone', key: 'drop-none' });
   }
   for (const entry of ungrouped) {
-    pushProjectRows(rows, entry, DROP_NONE);
+    pushProjectRows(rows, entry);
   }
   for (const { group, projects } of groups) {
     rows.push({
@@ -124,11 +122,10 @@ export function buildSidebarRows(
       group,
       count: projects.length,
       urgentStatus: mostUrgentStatus(projects),
-      dropGroup: group.id,
     });
     if (!group.collapsed) {
       for (const entry of projects) {
-        pushProjectRows(rows, entry, group.id);
+        pushProjectRows(rows, entry);
       }
     }
   }
@@ -150,7 +147,7 @@ function mostUrgentStatus(projects: readonly SidebarProjectEntry[]): DisplayStat
   return best;
 }
 
-function pushProjectRows(rows: SidebarRow[], entry: SidebarProjectEntry, dropGroup: string): void {
+function pushProjectRows(rows: SidebarRow[], entry: SidebarProjectEntry): void {
   const { project, sessions, isExpanded } = entry;
   rows.push({
     kind: 'project',
@@ -158,18 +155,19 @@ function pushProjectRows(rows: SidebarRow[], entry: SidebarProjectEntry, dropGro
     project,
     sessions,
     isExpanded,
-    dropGroup,
+    ownerId: project.id,
   });
-  const children: SidebarRow[] = isExpanded
-    ? expandedChildren(entry, dropGroup)
-    : waitingChildren(entry, dropGroup);
-  rows.push(...markLast(children));
+  const children: SidebarRow[] = isExpanded ? expandedChildren(entry) : waitingChildren(entry);
+  rows.push(...markLast(children).map((child: SidebarRow) => ({ ...child, ownerId: project.id })));
 }
 
-function expandedChildren(
-  { project, sessions, implementations, showAll, pinnedIds }: SidebarProjectEntry,
-  dropGroup: string,
-): SidebarRow[] {
+function expandedChildren({
+  project,
+  sessions,
+  implementations,
+  showAll,
+  pinnedIds,
+}: SidebarProjectEntry): SidebarRow[] {
   const children: SidebarRow[] = [];
   const ownSessions: SessionSummary[] = visibleSessions(sessions);
   const isLong: boolean = ownSessions.length >= COLLAPSE_FROM;
@@ -186,7 +184,7 @@ function expandedChildren(
   });
   const hiddenCount: number = ownSessions.length - shown.length;
   for (const implementation of placement.inProject) {
-    children.push(...implementationRows(implementation, false, dropGroup));
+    children.push(...implementationRows(implementation, false));
   }
   for (const session of shown) {
     children.push({
@@ -195,10 +193,9 @@ function expandedChildren(
       session,
       isMaster: placement.under.has(session.id),
       isLast: false,
-      dropGroup,
     });
     for (const implementation of placement.under.get(session.id) ?? []) {
-      children.push(...implementationRows(implementation, true, dropGroup));
+      children.push(...implementationRows(implementation, true));
     }
   }
   if (isLong && (showAll || hiddenCount > 0)) {
@@ -208,22 +205,18 @@ function expandedChildren(
       projectId: project.id,
       hiddenCount: showAll ? ownSessions.length - VISIBLE_COUNT : hiddenCount,
       isShowingAll: showAll,
-      dropGroup,
     });
   }
   return children;
 }
 
 /** Zugeklappt bleiben nur die Stationen sichtbar, die auf den Benutzer warten. */
-function waitingChildren(
-  { implementations }: SidebarProjectEntry,
-  dropGroup: string,
-): SidebarRow[] {
+function waitingChildren({ implementations }: SidebarProjectEntry): SidebarRow[] {
   const children: SidebarRow[] = [];
   for (const implementation of implementations) {
     for (const entry of flatStations(implementation)) {
       if (needsUser(entry.station)) {
-        children.push(stationRow(implementation.id, entry, false, false, dropGroup));
+        children.push(stationRow(implementation.id, entry, false, false));
       }
     }
   }
@@ -234,7 +227,6 @@ function waitingChildren(
 function implementationRows(
   implementation: ImplementationView,
   underMaster: boolean,
-  dropGroup: string,
 ): SidebarRow[] {
   const rows: SidebarRow[] = [
     {
@@ -243,12 +235,11 @@ function implementationRows(
       implementation,
       underMaster,
       isLast: false,
-      dropGroup,
     },
   ];
   for (const entry of flatStations(implementation)) {
     if (isBelowImplementation(entry.station)) {
-      rows.push(stationRow(implementation.id, entry, true, underMaster, dropGroup));
+      rows.push(stationRow(implementation.id, entry, true, underMaster));
     }
   }
   return rows;
@@ -259,7 +250,6 @@ function stationRow(
   entry: StationRef,
   isNested: boolean,
   underMaster: boolean,
-  dropGroup: string,
 ): SidebarRow {
   return {
     kind: 'station',
@@ -269,7 +259,6 @@ function stationRow(
     isNested,
     underMaster,
     isLast: false,
-    dropGroup,
   };
 }
 

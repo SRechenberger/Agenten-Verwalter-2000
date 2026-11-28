@@ -3,6 +3,7 @@ import type { MouseEvent, PointerEvent, ReactElement } from 'react';
 import { Popover } from '@/components/Popover';
 import { StatusIcon } from '@/components/StatusIcon';
 import { RenameField } from '@/app/SidebarItem';
+import { runningImplementationsText } from '@/app/sidebarMarks';
 import { useNow } from '@/features/background/useNow';
 import {
   hasUnread,
@@ -38,6 +39,8 @@ interface SidebarProjectProps {
   project: ProjectSummary;
   /** Sessions dieses Vorhabens, zuletzt aktive zuerst. */
   sessions: readonly SessionSummary[];
+  /** Zahl der unfertigen Umsetzungen des Vorhabens. */
+  runningImplementations: number;
   isOverviewActive: boolean;
   isExpanded: boolean;
   renaming: RenameTarget | null;
@@ -57,6 +60,11 @@ interface SidebarProjectProps {
   onSetGroup: (groupId: string | null) => void;
   /** Legt eine Gruppe an, weist das Vorhaben zu und öffnet die Umbenennung ihres Kopfs. */
   onNewGroup: () => void;
+  /** Ob das Vorhaben in seiner Gruppe nach oben oder unten rücken kann. */
+  canMoveUp: boolean;
+  canMoveDown: boolean;
+  /** „Nach oben“ (-1) und „Nach unten“ (1) im Menü, innerhalb der eigenen Gruppe. */
+  onStep: (direction: -1 | 1) => void;
   /** Tastendruck auf der Hauptzeile: Hier beginnt das Ziehen auf eine Gruppe. */
   onRowPointerDown: (event: PointerEvent<HTMLButtonElement>) => void;
 }
@@ -64,6 +72,7 @@ interface SidebarProjectProps {
 export function SidebarProject({
   project,
   sessions,
+  runningImplementations,
   isOverviewActive,
   isExpanded,
   renaming,
@@ -78,6 +87,9 @@ export function SidebarProject({
   onGiveBack,
   onSetGroup,
   onNewGroup,
+  canMoveUp,
+  canMoveDown,
+  onStep,
   onRowPointerDown,
 }: SidebarProjectProps): ReactElement {
   const [isMenuOpen, setIsMenuOpen] = useState<boolean>(false);
@@ -157,7 +169,11 @@ export function SidebarProject({
       lock,
       reservedLeft,
     );
-    const meta: string | null = remote.text;
+    const parts: string[] = [
+      remote.text,
+      runningImplementationsText(runningImplementations),
+    ].filter((part: string | null): part is string => part !== null);
+    const meta: string | null = parts.length === 0 ? null : parts.join(' · ');
     const markTitle: string | null = markTitleOf();
     const priority: PriorityMark | null = priorityMark(project.priority);
     const isDone: boolean =
@@ -269,6 +285,35 @@ export function SidebarProject({
               setIsMenuOpen(false);
             }}
           >
+            {!isRemote && (
+              <>
+                <button
+                  type="button"
+                  role="menuitem"
+                  className="sidebar-project__menu-item"
+                  disabled={!canMoveUp}
+                  onClick={(): void => {
+                    setIsMenuOpen(false);
+                    onStep(-1);
+                  }}
+                >
+                  Nach oben
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  className="sidebar-project__menu-item"
+                  disabled={!canMoveDown}
+                  onClick={(): void => {
+                    setIsMenuOpen(false);
+                    onStep(1);
+                  }}
+                >
+                  Nach unten
+                </button>
+                <div className="sidebar-project__menu-separator" role="separator" />
+              </>
+            )}
             <div className="sidebar-project__menu-label">In Gruppe verschieben</div>
             {groups.map((group: ProjectGroup) => renderGroupItem(group.id, group.name))}
             {renderGroupItem(null, 'Ohne Gruppe')}

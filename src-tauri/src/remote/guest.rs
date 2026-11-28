@@ -29,6 +29,7 @@ use crate::implementation::slots::AgentQueue;
 use crate::projects::model::{ProjectCreated, ProjectGroup, ProjectSummary};
 use crate::repositories::model::KnownRepository;
 use crate::sessions::model::WaitingMessage;
+use crate::tempo::{TempoScope, TempoSnapshot};
 use crate::usage::model::UsageStatus;
 
 /// So lange wartet eine Liste auf einen Host, danach gilt, was er zuletzt geschickt hat.
@@ -80,6 +81,8 @@ pub fn guest_view(
         online: host.online,
     };
     summary.group_id = groups.get(&summary.id).cloned();
+    // Die Position des Hosts sagt dem Gast nichts: Entfernte stehen hinter den eigenen Vorhaben.
+    summary.position = i32::MAX;
     summary
 }
 
@@ -375,6 +378,17 @@ pub async fn usage_load(
     host_id: String,
 ) -> Result<UsageStatus, CommandError> {
     let value = blocking(move || clients.call(&host_id, "usage_load", Value::Null)).await??;
+    serde_json::from_value(value).map_err(|error| CommandError::Internal(error.to_string()))
+}
+
+/// Das Tempo des Hosts; `top` und `session` beschränkt der Host auf die Vorhaben, die dieses Gerät hält.
+pub async fn tempo_load(
+    clients: Arc<RemoteClients>,
+    host_id: String,
+    scope: TempoScope,
+) -> Result<TempoSnapshot, CommandError> {
+    let args = json!({ "scope": scope });
+    let value = blocking(move || clients.call(&host_id, "tempo_load", args)).await??;
     serde_json::from_value(value).map_err(|error| CommandError::Internal(error.to_string()))
 }
 

@@ -1,0 +1,84 @@
+Probelauf extern-3, echte App des Worktrees (pnpm tauri dev, Vite 1481 --strictPort, Xvfb :81), Gast aus dem Debug-Binary (Xvfb :82), Fernsteuerung des Hosts 1482, Wegwerf-HOME (<HOME>), CSP der App als <meta>. Agent: Attrappe (kein Kontingent); artifact_show über den echten MCP-Zugang mit ihrem Schlüssel (mcp-probe). Wegwerf-Ordner <HOME>/wegwerf-ordner mit notiz.md, seite.html und link.md -> ../aussen/geheim.md.
+
+== K1 Einstellung (Feld per XTEST getippt, „Hinzufügen“ geklickt)
+artifactFolders = ['<HOME>/wegwerf-ordner']
+
+== K2 artifact_show über MCP
+HTTP/1.1 200 OK
+        "text": "„Notiz aus dem Wegwerf-Ordner“ im Reiter Artefakte ausgewählt.",
+        "type": "text"
+    "isError": false
+HTTP/1.1 200 OK
+        "text": "„Seite aus dem Ordner“ im Reiter Artefakte ausgewählt.",
+        "type": "text"
+    "isError": false
+Rahmen Notiz: …/.extern/<schlüssel>/notiz.md?view=1 (Betrachter); Seite: …/.extern/<schlüssel>/seite.html, sandbox allow-scripts allow-forms allow-modals
+"msg":{"probe":"seite-geladen","origin":"null"}
+"msg":{"probe":"seite-klick","n":1}
+"msg":{"probe":"seite-klick","n":2}
+"msg":{"probe":"seite-klick","n":3}
+"msg":{"probe":"seite-geladen","origin":"null"}
+"msg":{"probe":"seite-klick","n":1}
+
+== K3 Kommentar (Host) bei der Attrappe
+"Kommentare vom Host\n\nReview-Kommentare (1):\n\n1. <HOME>/wegwerf-ordner/notiz.md — Element #b1\n```\n<p id=\"b1\" data-anchor=\"\">EXTERN-NOTIZ-OK: Dieser Absatz kommt aus dem eingetragenen Ordner.</p>\n```\nBitte diesen Absatz kuerzen Host"
+
+== K4 artifact_show außerhalb
+-- aussen
+        "text": "Keine Datei in einem Ordner für Artefakte: <HOME>/aussen/geheim.md. Erlaubte Ordner: <HOME>/wegwerf-ordner",
+        "type": "text"
+    "isError": true
+-- symlink
+        "text": "Keine Datei in einem Ordner für Artefakte: <HOME>/wegwerf-ordner/link.md. Erlaubte Ordner: <HOME>/wegwerf-ordner",
+        "type": "text"
+    "isError": true
+-- punktpunkt
+        "text": "Keine Datei in einem Ordner für Artefakte: <HOME>/wegwerf-ordner/../aussen/geheim.md. Erlaubte Ordner: <HOME>/wegwerf-ordner",
+        "type": "text"
+    "isError": true
+
+== K6 Gast
+Einladung: ok
+Verbinden: {'hostId': '4092c742-7c3b-428d-8c88-0bd6139c9893'}
+Vorhaben am Gast: {'id': '91819256-50a0-420e-9175-3f41eda78947', 'name': 'Gast leer', 'hostId': None, 'access': {'kind': 'own'}}
+Vorhaben am Gast: {'id': '76e00563-d201-4097-bcbf-e15c8929c343', 'name': 'Probelauf Extern', 'hostId': None, 'access': {'kind': 'remote', 'hostId': '4092c742-7c3b-428d-8c88-0bd6139c9893', 'hostName': 'kropotkin', 'mine': False, 'online': True}}
+"msg":{"probe":"seite-geladen","origin":"null"}
+"msg":{"probe":"seite-klick","n":1}
+"msg":{"probe":"seite-geladen","origin":"null"}
+"msg":{"probe":"seite-klick","n":1}
+Kommentar (Gast) bei der Attrappe:
+"Kommentare vom Gast\n\nReview-Kommentare (1):\n\n1. <HOME>/wegwerf-ordner/notiz.md — Element #b1\n```\n<p id=\"b1\" data-anchor=\"\">EXTERN-NOTIZ-OK: Dieser Absatz kommt aus dem eingetragenen Ordner.</p>\n```\nBitte kuerzen Gast"
+Gefälschte Einträge in .extern.json (wie ein Agent sie schreiben kann): aaaa… -> <HOME>/aussen/geheim.md, bbbb… -> <HOME>/wegwerf-ordner/link.md
+host .extern/18365f837fe04a299fdd62116f5071a5/notiz.md                                          → 200
+host .extern/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/geheim.md                                         → 403
+host .extern/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb/link.md                                           → 403
+host .extern/18365f837fe04a299fdd62116f5071a5/../../../aussen/geheim.md                         → 404
+host .extern//<HOME>/aussen/geheim.md → 404
+host .extern.json                                                                               → 404
+gast .extern/18365f837fe04a299fdd62116f5071a5/notiz.md                                          → 200
+gast .extern/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/geheim.md                                         → 403
+gast .extern/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb/link.md                                           → 403
+gast .extern/18365f837fe04a299fdd62116f5071a5/../../../aussen/geheim.md                         → 404
+gast .extern//<HOME>/aussen/geheim.md → 404
+gast .extern.json                                                                               → 404
+Nicht erlaubt
+Listen (Host, Gast) mit gefälschten Einträgen:
+host [('eigen.md', None), ('.extern/98a8fa5b506c48b7862fc3d889a6fcf0/seite.html', '<HOME>/wegwerf-ordner/seite.html'), ('.extern/18365f837fe04a299fdd62116f5071a5/notiz.md', '<HOME>/wegwerf-ordner/notiz.md')]
+guest [('eigen.md', None), ('.extern/98a8fa5b506c48b7862fc3d889a6fcf0/seite.html', '<HOME>/wegwerf-ordner/seite.html'), ('.extern/18365f837fe04a299fdd62116f5071a5/notiz.md', '<HOME>/wegwerf-ordner/notiz.md')]
+
+== K5 Ordner ausgetragen (Klick „Entfernen“)
+artifactFolders = []
+host .extern/18365f837fe04a299fdd62116f5071a5/notiz.md?view=1     → 403
+host .extern/18365f837fe04a299fdd62116f5071a5/notiz.md            → 403
+host .extern/98a8fa5b506c48b7862fc3d889a6fcf0/seite.html          → 403
+host eigen.md                                                     → 200
+gast .extern/18365f837fe04a299fdd62116f5071a5/notiz.md?view=1     → 200
+gast .extern/18365f837fe04a299fdd62116f5071a5/notiz.md            → 403
+gast .extern/98a8fa5b506c48b7862fc3d889a6fcf0/seite.html          → 403
+gast eigen.md                                                     → 200
+host [('eigen.md', None)]
+guest [('eigen.md', None)]
+        "text": "Keine Datei in einem Ordner für Artefakte: <HOME>/wegwerf-ordner/notiz.md. Es sind keine Ordner für Artefakte eingetragen (Einstellungen).",
+        "type": "text"
+    "isError": true
+Hinweis: Am Gast kommt für ?view=1 die Betrachter-Hülle ohne Inhalt (200) für jeden Pfad, auch für <session>/gibtsnicht.md?view=1; der Inhalt selbst gibt 403.

@@ -14,6 +14,13 @@ impl SessionRegistry {
         Ok(artifacts::dir(&self.get(session_id)?.workspace))
     }
 
+    /// Die app-weit eingetragenen Ordner für Artefakte (Taiga 139); eine unlesbare Einstellung gilt als
+    /// keine Ordner.
+    pub fn artifact_folders(&self) -> Vec<String> {
+        crate::settings::load(&self.database)
+            .map_or_else(|_| Vec::new(), |loaded| loaded.artifact_folders)
+    }
+
     /// Der Workspace des Vorhabens der Session.
     pub fn workspace_of(&self, session_id: &str) -> Result<PathBuf, CommandError> {
         Ok(self.get(session_id)?.workspace.clone())

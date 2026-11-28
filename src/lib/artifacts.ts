@@ -12,9 +12,11 @@ const ARTIFACT_SHOW_EVENT = 'artifacts://show';
  *  als Betrachter-Seite (`?view=1`). `v=` zwingt das iframe zum Neuladen,
  *  sobald die Datei sich ändert. `scheme=light` oder `scheme=dark` trägt das Farbschema der App in den
  *  Rahmen, der von sich aus nur das des Systems sieht; bei `system` fehlt der Parameter, und die Seite
- *  folgt dem System. Ein Wechsel des Schemas ändert die Adresse und lädt den Rahmen neu. */
+ *  folgt dem System. Ein Wechsel des Schemas ändert die Adresse und lädt den Rahmen neu. Kodiert wird je
+ *  Bestandteil von `file`: Bei einer Datei aus einem eingetragenen Ordner (`.extern/<schlüssel>/<name>`) holen der
+ *  Betrachter und die Seite relativ unter `.extern/<schlüssel>/`, nie aus `.artefakte`. */
 export function artifactUrl(baseUrl: string, item: Artifact, colorScheme: ColorScheme): string {
-  const path: string = `${baseUrl}${encodeURIComponent(item.file)}`;
+  const path: string = `${baseUrl}${item.file.split('/').map(encodeURIComponent).join('/')}`;
   const scheme: string = colorScheme === 'system' ? '' : `&scheme=${colorScheme}`;
   const version: string = `v=${String(item.modifiedAt)}${scheme}`;
   switch (item.kind) {
@@ -48,6 +50,24 @@ export async function openArtifactDefault(sessionId: string, file: string): Prom
  *    `fileNotAllowed` (kein Artefakt), `io` (Explorer nicht gestartet) */
 export async function revealArtifact(sessionId: string, file: string): Promise<void> {
   await invoke('artifact_reveal', { sessionId, file });
+}
+
+/** Speichert den Zustand eines Artefakts (ADR 081) und gibt den Änderungszeitpunkt der Datei zurück. Der Core
+ *  prüft Artefakt, Größe (1 MiB) und Inhalt.
+ *  @throws {import('@/lib/bindings/CommandError').CommandError} `sessionNotFound`, `fileNotFound`,
+ *    `fileNotAllowed` (kein Artefakt, zu groß, ungültig), `io` */
+export async function saveArtifactState(
+  sessionId: string,
+  file: string,
+  state: Record<string, string>,
+): Promise<number> {
+  return invoke<number>('artifact_state_save', { sessionId, file, data: JSON.stringify(state) });
+}
+
+/** Löscht den Zustand eines Artefakts.
+ *  @throws {import('@/lib/bindings/CommandError').CommandError} `sessionNotFound`, `fileNotAllowed`, `io` */
+export async function resetArtifactState(sessionId: string, file: string): Promise<void> {
+  await invoke('artifact_state_reset', { sessionId, file });
 }
 
 /** Meldet, dass der Agent einer Session per MCP-Zugang ein Artefakt ausgewählt hat (ADR 046). */

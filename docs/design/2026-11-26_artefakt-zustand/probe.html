@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script>
+// Erstes Skript im <head>: tut vor allem anderen, was das spätere eingesetzte Skript tut.
+window.__probe = { before: {}, define: {}, after: {}, ops: {}, ua: navigator.userAgent };
+(function () {
+  function makeStore() {
+    var data = {};
+    return {
+      getItem: function (k) { return Object.prototype.hasOwnProperty.call(data, k) ? data[k] : null; },
+      setItem: function (k, v) { data[k] = String(v); },
+      removeItem: function (k) { delete data[k]; },
+      clear: function () { data = {}; },
+      key: function (i) { var ks = Object.keys(data); return i < ks.length ? ks[i] : null; },
+      get length() { return Object.keys(data).length; }
+    };
+  }
+  ['localStorage', 'sessionStorage'].forEach(function (name) {
+    var P = window.__probe;
+    try { void window[name]; P.before[name] = 'liest ohne Fehler'; }
+    catch (e) { P.before[name] = 'wirft ' + e.name; }
+    var mine = makeStore();
+    try {
+      Object.defineProperty(window, name, { configurable: true, get: function () { return mine; } });
+      P.define[name] = true;
+    } catch (e) { P.define[name] = 'wirft ' + e.name + ': ' + e.message; }
+    try { P.after[name] = window[name] === mine; } catch (e) { P.after[name] = 'wirft ' + e.name; }
+    try {
+      var s = window[name];
+      s.clear();
+      var ok = s.length === 0 && s.getItem('a') === null;
+      s.setItem('a', '1'); s.setItem('b', '2');
+      ok = ok && s.length === 2 && s.getItem('a') === '1' && s.key(0) === 'a' && s.key(5) === null;
+      s.removeItem('a');
+      ok = ok && s.length === 1 && s.getItem('a') === null;
+      s.clear();
+      ok = ok && s.length === 0;
+      P.ops[name] = ok;
+    } catch (e) { P.ops[name] = 'wirft ' + e.name + ': ' + e.message; }
+  });
+})();
+</script>
+<title>Zustand-Probe localStorage</title>
+<style>
+  :root { --bg: #fff; --fg: #1a1a1a; --line: #c8c8c8; --pass: #0a6b2d; --fail: #b00020; }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --bg: #181818; --fg: #eee; --line: #444; --pass: #5fd68a; --fail: #ff7a8a; } }
+  :root[data-theme="dark"] { --bg: #181818; --fg: #eee; --line: #444; --pass: #5fd68a; --fail: #ff7a8a; }
+  body { background: var(--bg); color: var(--fg); font: 16px/1.4 system-ui, sans-serif; margin: 0; padding: 16px; }
+  h1 { font-size: 20px; margin: 0 0 12px; }
+  .row { display: flex; align-items: baseline; gap: 16px; padding: 10px 0; border-top: 1px solid var(--line); }
+  .row:last-of-type { border-bottom: 1px solid var(--line); }
+  .res { font: 700 32px/1 ui-monospace, monospace; min-width: 90px; }
+  .PASS { color: var(--pass); } .FAIL { color: var(--fail); }
+  .txt small { display: block; opacity: .75; word-break: break-word; }
+  #summary { font: 700 24px/1.2 ui-monospace, monospace; margin: 16px 0; }
+  pre { white-space: pre-wrap; word-break: break-all; font-size: 13px; opacity: .85; }
+</style>
+</head>
+<body>
+<h1>Zustand-Probe: überschreibt <code>defineProperty</code> den Speicher im Rahmen ohne <code>allow-same-origin</code>?</h1>
+<div id="rows"></div>
+<div id="summary"></div>
+<pre id="env"></pre>
+<script>
+(function () {
+  var P = window.__probe, rows = [], rowsEl = document.getElementById('rows');
+  function add(title, ok, detail) { rows.push(ok === true); var r = document.createElement('div'); r.className = 'row';
+    r.innerHTML = '<div class="res ' + (ok === true ? 'PASS' : 'FAIL') + '">' + (ok === true ? 'PASS' : 'FAIL') + '</div><div class="txt">' + title + '<small>' + detail + '</small></div>';
+    rowsEl.appendChild(r); }
+  // 1: Zugriff wirft vorher (erwartet im Rahmen ohne allow-same-origin)
+  add('1 · Zugriff auf window.localStorage wirft vorher', /wirft/.test(P.before.localStorage), 'Beobachtet: ' + P.before.localStorage);
+  add('2 · defineProperty wirft nicht', P.define.localStorage === true, String(P.define.localStorage));
+  add('3 · window.localStorage liefert danach das eigene Objekt', P.after.localStorage === true, String(P.after.localStorage));
+  add('4 · setItem/getItem/removeItem/clear/key/length arbeiten', P.ops.localStorage === true, String(P.ops.localStorage));
+  add('5 · Dasselbe für sessionStorage', P.define.sessionStorage === true && P.after.sessionStorage === true && P.ops.sessionStorage === true,
+    'vorher: ' + P.before.sessionStorage + '; define: ' + P.define.sessionStorage + '; eigenes Objekt: ' + P.after.sessionStorage + '; Operationen: ' + P.ops.sessionStorage);
+  var s = document.getElementById('summary'), all = rows.slice(1).every(Boolean);
+  s.className = all ? 'PASS' : 'FAIL'; s.textContent = all ? 'GESAMT: PASS (Prüfungen 2 bis 5)' : 'GESAMT: FAIL';
+  var eng = /Edg\//.test(P.ua) ? 'WebView2 (Chromium)' : /AppleWebKit/.test(P.ua) && !/Chrome\//.test(P.ua) ? 'WebKit (WebKitGTK/WKWebView)' : /Chrome\//.test(P.ua) ? 'Chromium' : 'unbekannt';
+  document.getElementById('env').textContent = '6 · Engine: ' + eng + '\nnavigator.userAgent: ' + P.ua + '\nBeobachtung zu 1: Fehlt der Wurf, läuft die Seite mit allow-same-origin oder die Engine erlaubt den Zugriff; die Prüfungen 2 bis 5 zählen trotzdem.';
+  document.body.setAttribute('data-done', all ? 'pass' : 'fail');
+  try { parent.postMessage({ probe: 'zustand', rows: rows, ua: P.ua }, '*'); } catch (e) {}
+})();
+</script>
+</body>
+</html>

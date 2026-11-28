@@ -89,6 +89,8 @@ const TABLE: &[(Class, Option<IdKind>, &[&str])] = &[
         Class::HostWrite,
         Some(IdKind::Session),
         &[
+            "artifact_state_reset",
+            "artifact_state_save",
             "background_stop",
             "chat_send",
             "chat_send_now",
@@ -211,7 +213,7 @@ const TABLE: &[(Class, Option<IdKind>, &[&str])] = &[
     (
         Class::NeverGuestOpen,
         Some(IdKind::Project),
-        &["project_set_group", "remote_share_set"],
+        &["project_set_group", "project_move", "remote_share_set"],
     ),
     (
         // Die Gruppe ist keine Vorhaben-ID: Der Host entscheidet allein, ein Gast gibt nichts frei.
@@ -231,6 +233,7 @@ const TABLE: &[(Class, Option<IdKind>, &[&str])] = &[
         &[
             "attachment_add_bytes",
             "usage_load",
+            "tempo_load",
             "usage_refresh",
             "codex_models",
             "settings_local_models",
@@ -304,6 +307,7 @@ const TABLE: &[(Class, Option<IdKind>, &[&str])] = &[
             // Am Gast lokal; `remote_host_profile` beantwortet der Server am Host vor der Prüfung.
             "remote_host_profile",
             "remote_usage_load",
+            "remote_tempo_load",
             "remote_usage_refresh",
             "remote_agent_queue",
             // Am Gast lokal; der Host beantwortet die Namen vor der Prüfung, nach dem Recht des Geräts.
@@ -327,10 +331,10 @@ pub fn class_of(command: &str) -> Option<Class> {
 }
 
 /// Ob der Gast einen Aufruf mit der ID eines entfernten Vorhabens an dessen Host gibt. Was dort
-/// nie erlaubt ist, lehnt der Host ab; nur `project_set_group` bleibt lokal (Vertrag), was ohne
+/// nie erlaubt ist, lehnt der Host ab; nur `project_set_group` und `project_move` bleiben lokal (Vertrag), was ohne
 /// ID auskommt, hat eigene Wege, und `session_set_viewed` geht an beide Seiten (der Command).
 pub fn routes_to_host(command: &str) -> bool {
-    command != "project_set_group"
+    !matches!(command, "project_set_group" | "project_move")
         && matches!(
             class_of(command),
             Some(

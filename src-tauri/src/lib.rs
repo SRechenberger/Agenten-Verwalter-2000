@@ -39,6 +39,7 @@ pub mod side;
 pub mod skills;
 pub mod sourcing;
 pub mod standalone;
+pub mod tempo;
 pub mod terminal;
 pub mod tldr;
 pub mod usage;
@@ -191,6 +192,7 @@ pub fn run() {
             commands::projects::project_group_rename,
             commands::projects::project_group_delete,
             commands::projects::project_group_set_collapsed,
+            commands::projects::project_move,
             commands::projects::project_set_group,
             commands::remote::remote_share_set,
             commands::remote::remote_group_share_set,
@@ -207,6 +209,7 @@ pub fn run() {
             commands::remote::remote_take,
             commands::remote::remote_give_back,
             commands::remote::remote_host_profile,
+            commands::remote::remote_tempo_load,
             commands::remote::remote_usage_load,
             commands::remote::remote_agent_queue,
             commands::remote::remote_repository_list,
@@ -251,6 +254,7 @@ pub fn run() {
             commands::mcp::mcp_reconnect,
             commands::mcp::mcp_toggle,
             commands::mcp::mcp_authenticate,
+            commands::tempo::tempo_load,
             commands::usage::usage_load,
             commands::usage::usage_refresh,
             commands::account::account_load,
@@ -301,6 +305,8 @@ pub fn run() {
             commands::artifacts::artifacts_list,
             commands::artifacts::artifact_open_default,
             commands::artifacts::artifact_reveal,
+            commands::artifacts::artifact_state_save,
+            commands::artifacts::artifact_state_reset,
             commands::side::side_ask,
             commands::side::side_load,
             commands::side::side_dismiss,

@@ -161,6 +161,8 @@ pub struct AssistantMessage {
     /// Eine Antwort kommt in mehreren `assistant`-Zeilen mit derselben `id`.
     #[serde(default, deserialize_with = "lenient")]
     pub id: Option<String>,
+    #[serde(default, deserialize_with = "lenient")]
+    pub model: Option<String>,
     pub content: Vec<ContentBlock>,
     pub usage: Option<Usage>,
 }
@@ -206,6 +208,7 @@ pub struct Usage {
     pub input_tokens: Option<u64>,
     pub cache_creation_input_tokens: Option<u64>,
     pub cache_read_input_tokens: Option<u64>,
+    pub output_tokens: Option<u64>,
     #[serde(default, deserialize_with = "lenient")]
     pub cache_creation: Option<CacheCreation>,
 }

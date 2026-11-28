@@ -27,7 +27,7 @@ impl SessionRegistry {
         app: &AppHandle,
         project_id: &str,
     ) -> Result<ProjectRestored, CommandError> {
-        let (project, loaded): (ProjectRow, Vec<StoredSession>) =
+        let (mut project, loaded): (ProjectRow, Vec<StoredSession>) =
             self.database.with(|connection| {
                 let project = project_rows::load_one(connection, project_id)?
                     .ok_or_else(|| project_not_found(project_id))?;
@@ -66,7 +66,8 @@ impl SessionRegistry {
             sessions.push(session);
             interrupted.extend(paused_row);
         }
-        self.database
+        project.position = self
+            .database
             .with(|connection| project_rows::restore(connection, project_id))?;
         // Sperr-Regel der Registry: erst die Vorhaben, loslassen, dann die Sessions-Map.
         self.lock_projects()

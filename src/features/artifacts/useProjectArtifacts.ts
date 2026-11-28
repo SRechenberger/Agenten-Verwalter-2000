@@ -1,23 +1,14 @@
 import { useEffect, useState } from 'react';
-import type { Artifact } from '@/lib/bindings/Artifact';
 import type { ArtifactList } from '@/lib/bindings/ArtifactList';
 import { listArtifacts } from '@/lib/artifacts';
 import { commandErrorText } from '@/lib/errors';
+import { listKey } from '@/features/artifacts/artifactListKey';
 
 const POLL_MS = 2000;
 
 interface LoadedList {
   projectId: string;
   list: ArtifactList;
-}
-
-/** Was die Oberfläche sieht: ändert sich der Schlüssel nicht, wird nicht neu gerendert. */
-function listKey(list: ArtifactList): string {
-  const rows: string[] = list.items.map(
-    (item: Artifact) =>
-      `${item.file}|${String(item.modifiedAt)}|${item.title}|${item.sessionId ?? ''}|${item.sessionName ?? ''}`,
-  );
-  return [list.dir, list.baseUrl, ...rows].join('\n');
 }
 
 /** Die Artefakte des Vorhabens, zu dem `sessionId` gehört, alle `POLL_MS` neu gelesen (keine Ereignisse: auch

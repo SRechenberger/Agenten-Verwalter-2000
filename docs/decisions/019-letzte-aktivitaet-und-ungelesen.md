@@ -31,3 +31,15 @@ Die Sidebar verteilte die Vorhaben auf drei Gruppen („Braucht dich“, „Läu
 ## Nachtrag (Dashboard, [ADR 071](071-dashboard.md))
 
 Die App startet auf dem Dashboard. Es zeigt keine Session und gilt wie die Übersicht, die Einstellungen und „Neues Vorhaben“ als Seite ohne Session; deshalb markiert der Start keine Session mehr als gelesen, und der Punkt der zuletzt aktiven Session bleibt bis zum ersten Öffnen stehen. Die Auswahl der neuesten Session (`holdSession`) bleibt im Hintergrund, bis der Benutzer eine Session wählt.
+
+## Nachtrag: Reihenfolge von Hand (Taiga 101)
+
+Die Reihenfolge nach letzter Aktivität wird in diesem Punkt abgelöst; Ungelesen-Punkt und Status-Symbol bleiben. Aktivität (Senden, Rückfrage, Fertigwerden, Fehler) verschiebt keine Zeile mehr.
+
+- **R1 Position:** Die Spalte `projects.position` (Migration 42, kleiner = weiter oben) hält eine Folge für alle Vorhaben; die Gruppe wählt nur aus. Die Migration vergibt sie in der alten Reihenfolge (jüngste Aktivität der Sessions, ohne Sessions der Anlegezeitpunkt, dann `created_at`), der erste Start zeigt also dasselbe wie vorher.
+- **R2 Neues Vorhaben:** bekommt `MIN(position) - 1` (`next_top_position`) und steht oben in seiner Gruppe, auf jedem Weg, der ein Vorhaben anlegt, auch über die Fernsteuerung. Ein aus dem Archiv zurückgeholtes Vorhaben ebenso (`restore`): Seine alte Position könnte mit einer vergebenen zusammenfallen.
+- **R3 Ein Befehl:** `project_move` ändert Position und Gruppe in einer Transaktion (`move_to`): vor ein Vorhaben (dessen Gruppe) oder ans Ende einer Gruppe bzw. von „Ohne Gruppe“; danach sind die Positionen der nicht archivierten Vorhaben 0, 1, 2 …. `project_set_group` bleibt für das Menü „In Gruppe verschieben“ und lässt die Position stehen. Klasse wie `project_set_group` (nie vom Gast an den Host, `remote/access.rs`). Ein Vorhaben eines Hosts ändert beim Gast nur seine lokale Gruppe; seine Position ist dort fest (`i32::MAX`: hinter den eigenen Vorhaben).
+- **R4 Ziehen:** immer an (auch ohne Gruppen), beim Umbenennen aus. Ziele: zwischen zwei Vorhaben mit Einfügelinie (obere Hälfte einer Zeile davor, untere samt Kindzeilen dahinter), Gruppenkopf (an den Anfang der Gruppe), Fläche „Ohne Gruppe“ (ans Ende). Die Gruppen bleiben in Anlegereihenfolge. Ein Vorhaben eines Hosts zielt beim Gast nur auf Gruppenkopf und „Ohne Gruppe“, nie zwischen Vorhaben (`dropSpotFor`).
+- **R5 Tastatur:** „Nach oben“ und „Nach unten“ im Menü der Zeile, innerhalb der eigenen Gruppe, über `project_move`. Vorhaben eines Hosts haben beides nicht und zählen in der eigenen Reihenfolge nicht mit: „Nach unten“ ist beim letzten eigenen Vorhaben einer Gruppe aus, auch wenn eines des Hosts folgt.
+- **R6 Keine Umsortierung:** Die Leiste ordnet nur nach `position`; die Sortierung nach Aktivität (`sessionsByActivity`, `projectActivity`) ist entfernt.
+- **R7 Sessions:** in der Leiste nach Nummer absteigend (`sessionsByNumber`); das Kürzen bleibt (ab 5 Sessions die ersten 3, dazu angeheftete und Master).

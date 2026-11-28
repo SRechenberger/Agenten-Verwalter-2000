@@ -124,6 +124,7 @@
     flex-shrink: 0;
     width: 20px;
     text-align: center;
+    -webkit-user-select: none;
     user-select: none;
 
     &--added {

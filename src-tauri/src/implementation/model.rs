@@ -2,7 +2,7 @@
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
-use super::command;
+use super::{command, message};
 use crate::agent_types::model::{AgentType, AgentValueSource};
 use crate::agent_types::name_key;
 use crate::agent_types::validate::MAX_NAME_CHARS as MAX_AGENT_CHARS;
@@ -41,7 +41,8 @@ pub struct InquiryCreated {
     pub attachment: Attachment,
 }
 
-/// Art der Station (ADR 073): ein Agent, der Benutzer („durch dich“) oder ein Befehl des Verwalters.
+/// Art der Station (ADR 073): ein Agent, der Benutzer („durch dich“), ein Befehl des Verwalters oder eine
+/// Nachricht aus einer Vorlage (Nachtrag Taiga 133).
 /// Die Quelle ist `implementation_stations.kind`.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
@@ -50,6 +51,7 @@ pub enum StationKind {
     Agent,
     User,
     Command,
+    Message,
 }
 
 /// Zustand einer Station, abgeleitet aus ihrer Session; nie gespeichert.
@@ -220,6 +222,20 @@ pub struct StationView {
     pub resolved: Option<Vec<String>>,
     pub output: Option<String>,
     pub step: Option<u32>,
+    // Ab hier Nachtrag Taiga 133, Station „Nachricht“: Empfänger, Vorlage, zugestellter Text. `None` bei
+    // einer anderen Art. Ein Fehler steht in `start_error`.
+    pub message: Option<MessageView>,
+}
+
+/// Empfänger, Vorlage und zugestellter Text einer Station „Nachricht“.
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct MessageView {
+    /// `master` oder die Plan-Kennung der Station, deren Session die Nachricht bekommt.
+    pub to: String,
+    pub text: String,
+    /// Der Text, wie er zugestellt wurde; `None` vor dem Lauf.
+    pub sent: Option<String>,
 }
 
 // Grund der Pause einer Session an der Station.
@@ -471,6 +487,13 @@ pub struct StationPatch {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub cwd: Option<String>,
+    // Nachtrag Taiga 133: nur bei einer nicht gestarteten Station „Nachricht“.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub to: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub text: Option<String>,
 }
 
 /// Die Übergabenotiz einer Fertigmeldung (ADR 061, Werkzeuge): `note` ergänzt den Auftrag jedes
@@ -581,7 +604,7 @@ pub struct StationInput {
     #[ts(optional, type = "'fable' | 'opusplan' | 'opus' | 'sonnet' | 'haiku'")]
     pub model: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional, type = "'agent' | 'you' | 'command'")]
+    #[ts(optional, type = "'agent' | 'you' | 'command' | 'message'")]
     pub by: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
@@ -631,6 +654,13 @@ pub struct StationInput {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub cwd: Option<String>,
+    // Ab hier Nachtrag Taiga 133: Empfänger und Vorlage einer Station „Nachricht“ (`by: "message"`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub to: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub text: Option<String>,
 }
 
 /// Die Einstellungen einer Station von der Karte (ADR 060): `implementation_set_station_agent`
@@ -653,6 +683,11 @@ pub struct StationSettings {
 const BY_AGENT: &str = "agent";
 const BY_USER: &str = "you";
 const BY_COMMAND: &str = "command";
+const BY_MESSAGE: &str = "message";
+/// Höchstlänge der Vorlage einer Station „Nachricht“, wie der Zusatztext einer Station.
+pub const MAX_MESSAGE_CHARS: usize = MAX_PROMPT_CHARS;
+/// Der Empfänger „Master“ einer Station „Nachricht“.
+pub const TO_MASTER: &str = "master";
 
 impl StationInput {
     /// Nur nach `validate` aufrufen: dann ist ein gesetzter Name bekannt.
@@ -693,6 +728,7 @@ impl StationInput {
         match self.by.as_deref() {
             Some(BY_USER) => StationKind::User,
             Some(BY_COMMAND) => StationKind::Command,
+            Some(BY_MESSAGE) => StationKind::Message,
             _ => StationKind::Agent,
         }
     }
@@ -790,12 +826,14 @@ pub fn validate_station(field: &str, station: &StationInput) -> Result<(), Strin
         && by != BY_AGENT
         && by != BY_USER
         && by != BY_COMMAND
+        && by != BY_MESSAGE
     {
         return Err(format!(
-            "{field}.by: „{BY_AGENT}“, „{BY_USER}“ oder „{BY_COMMAND}“, nicht „{by}“"
+            "{field}.by: „{BY_AGENT}“, „{BY_USER}“, „{BY_COMMAND}“ oder „{BY_MESSAGE}“, nicht „{by}“"
         ));
     }
     check_command_fields(field, station)?;
+    message::check_fields(field, station)?;
     if let Some(skill) = &station.skill {
         check_length(
             &format!("{field}.skill"),

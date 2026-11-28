@@ -55,7 +55,7 @@ use crate::db::session_inbox::{self, Reference};
 use crate::db::sessions::{self as session_rows, SessionRow};
 use crate::db::{
     Database, background as background_rows, chat_entries, repositories as repository_rows,
-    session_commits, session_files, session_repositories, session_ticket_worktrees,
+    session_commits, session_files, session_repositories, session_ticket_worktrees, token_usage,
     tool_details as tool_detail_rows,
 };
 use crate::error::CommandError;
@@ -88,6 +88,7 @@ use crate::settings::model::OperatingMode;
 use crate::side::model::SideQuestion;
 use crate::skills::{self, model::SkillRef};
 use crate::sourcing::{self, Sources};
+use crate::tempo;
 use crate::tldr::model::{ProjectTldr, SessionTldr};
 use crate::tldr::transcript::with_project_tldr;
 use crate::usage::{UsageService, reset_text};
@@ -140,10 +141,6 @@ const MAX_LOG_LINE_CHARS: usize = 500;
 const MAX_HISTORY_PAGE: u32 = 500;
 const RESUME_MESSAGE: &str = "Mach weiter.";
 
-/// Der Text des Fortsetzens, von Hand oder mit „Automatisch fortsetzen“.
-fn is_resume_text(text: &str) -> bool {
-    text == RESUME_MESSAGE || text == auto_resume::RESUME_TEXT
-}
 const EMPTY_MESSAGE: &str = "Leere Nachricht: Text, Anhang oder Kommentar fehlt.";
 const PLAN_NEEDS_TASK: &str = "„Plane Vorhaben“ braucht einen Auftrag.";
 const PLAN_NEEDS_CLAUDE: &str = "„Plane Vorhaben“ gibt es nur in der Betriebsart „Claude“: Nur dort \
@@ -194,6 +191,8 @@ struct ProjectState {
     group_id: Option<String>,
     /// Stufe in der globalen Warteschlange (ADR 068).
     priority: ProjectPriority,
+    /// Platz in der Leiste, kleiner = weiter oben.
+    position: i32,
     created_at: f64,
     tldr: Option<ProjectTldr>,
     tldr_at: Option<f64>,
@@ -220,6 +219,7 @@ impl ProjectState {
             self_release: SelfRelease::OFF,
             group_id: None,
             priority: ProjectPriority::Normal,
+            position: 0,
             created_at,
             tldr: None,
             tldr_at: None,
@@ -235,6 +235,7 @@ impl ProjectState {
         let mut state = ProjectState::new(row.name.clone(), row.created_at);
         state.name_auto = row.name_auto;
         state.priority = row.priority;
+        state.position = row.position;
         state.self_release = row.self_release;
         state.group_id = row.group_id.clone();
         state.tldr = row
@@ -247,6 +248,27 @@ impl ProjectState {
         }
         state
     }
+}
+
+/// Die Ticket-Worktrees der Sessions ohne Doppelte. Eine Session nach der anderen gesperrt — nie zwei
+/// zugleich und nie unter der Map-Sperre.
+fn ticket_worktrees_of(members: &[Arc<Session>]) -> Vec<(u32, String)> {
+    let mut worktrees: Vec<(u32, String)> = Vec::new();
+    for session in members {
+        let session_worktrees = session.lock().ticket_worktrees.clone();
+        for (position, folder) in session_worktrees {
+            let is_known =
+                worktrees
+                    .iter()
+                    .any(|(known_position, known_folder): &(u32, String)| {
+                        *known_position == position && known_folder.eq_ignore_ascii_case(&folder)
+                    });
+            if !is_known {
+                worktrees.push((position, folder));
+            }
+        }
+    }
+    worktrees
 }
 
 pub struct Session {
@@ -600,6 +622,8 @@ struct Outbox {
     ticket_worktrees: Vec<(u32, String)>,
     /// Von Agent oder Subagent geschriebene Dateien als (normalisierter Pfad, ms).
     touched_files: Vec<(String, f64)>,
+    /// Die Token neuer Antworten des Modells (ADR 080).
+    token_rows: Vec<token_usage::TokenRow>,
     /// Zeitfenster beendeter Git-Befehle; nach dem Freigeben der Sperre sucht ein Thread darin die
     /// eigenen Commits.
     commit_windows: Vec<(f64, f64)>,
@@ -810,6 +834,9 @@ impl SessionRegistry {
         project.name_auto = project_name_auto;
         project.self_release = default_self_release;
         project.group_id.clone_from(&group_id);
+        project.position = self
+            .database
+            .with(|connection| project_rows::next_top_position(connection))?;
         let session = Arc::new(Session {
             id: id.clone(),
             project_id: project_id.clone(),
@@ -833,6 +860,7 @@ impl SessionRegistry {
             self_release: default_self_release,
             group_id,
             priority: project.priority,
+            position: project.position,
         };
         let saved = self.database.with(|connection| {
             project_rows::insert(connection, &project_row)?;
@@ -988,7 +1016,7 @@ impl SessionRegistry {
 
     /// Unbekanntes Vorhaben → Fehler.
     pub fn project_summary(&self, project_id: &str) -> Result<ProjectSummary, CommandError> {
-        let (name, created_at, self_release, group_id, priority) = {
+        let (name, created_at, self_release, group_id, priority, position) = {
             let projects = self.lock_projects();
             let project = projects
                 .get(project_id)
@@ -999,6 +1027,7 @@ impl SessionRegistry {
                 project.self_release,
                 project.group_id.clone(),
                 project.priority,
+                project.position,
             )
         };
         Ok(ProjectSummary {
@@ -1010,6 +1039,7 @@ impl SessionRegistry {
             group_id,
             access: self.remote.with(|control| control.access(project_id)),
             priority,
+            position,
         })
     }
 
@@ -1100,7 +1130,9 @@ impl SessionRegistry {
             .filter_map(|id: &String| self.project_summary(id).ok())
             .collect();
         summaries.sort_by(|left: &ProjectSummary, right: &ProjectSummary| {
-            right.created_at.total_cmp(&left.created_at)
+            left.position
+                .cmp(&right.position)
+                .then_with(|| right.created_at.total_cmp(&left.created_at))
         });
         summaries
     }
@@ -1230,6 +1262,47 @@ impl SessionRegistry {
         // Freigabe der Gruppe und wirft einen haltenden Gast hinaus (G3).
         let synced = self.sync_shared(app, stop_agents);
         let _ = app.emit(PROJECT_CHANGED_EVENT, self.project_summary(project_id)?);
+        synced
+    }
+
+    /// Stellt das Vorhaben an `target` und in dessen Gruppe (Taiga 101); `stop_agents` wie bei
+    /// `set_project_group`. Unbekanntes oder archiviertes Vorhaben, Ziel oder Gruppe → Fehler, ohne
+    /// dass sich etwas ändert. Jedes Vorhaben, dessen Platz oder Gruppe sich ändert, meldet sich neu.
+    pub fn move_project(
+        &self,
+        app: &AppHandle,
+        project_id: &str,
+        target: project_rows::MoveTarget<'_>,
+        stop_agents: bool,
+    ) -> Result<(), CommandError> {
+        let changed: Vec<String> = {
+            // Über das Schreiben gehalten, siehe `delete_project_group`.
+            let mut projects = self.lock_projects();
+            if !projects.contains_key(project_id) {
+                return Err(project_not_found(project_id));
+            }
+            let after = self.database.with(|connection| {
+                project_rows::move_to(connection, project_id, target)?;
+                project_rows::load_active(connection)
+            })?;
+            let mut changed = Vec::new();
+            for row in after {
+                if let Some(project) = projects.get_mut(&row.id)
+                    && (project.position != row.position || project.group_id != row.group_id)
+                {
+                    project.position = row.position;
+                    project.group_id = row.group_id;
+                    changed.push(row.id);
+                }
+            }
+            changed
+        };
+        let synced = self.sync_shared(app, stop_agents);
+        for id in &changed {
+            if let Ok(summary) = self.project_summary(id) {
+                let _ = app.emit(PROJECT_CHANGED_EVENT, summary);
+            }
+        }
         synced
     }
 
@@ -1436,6 +1509,7 @@ impl SessionRegistry {
             PlanTurn::No,
             None,
             None,
+            false,
         )
         .map(|_sent: SendOutcome| ())
     }
@@ -1466,6 +1540,7 @@ impl SessionRegistry {
             PlanTurn::No,
             None,
             Some(claimed),
+            false,
         );
         if claimed {
             self.release_session_slot(session_id);
@@ -1511,6 +1586,7 @@ impl SessionRegistry {
             PlanTurn::No,
             Some((subject, sender)),
             None,
+            false,
         )
         .map(|_sent: SendOutcome| ())
     }
@@ -1542,6 +1618,7 @@ impl SessionRegistry {
             PlanTurn::Start,
             None,
             None,
+            false,
         )
         .map(|_sent: SendOutcome| ())
     }
@@ -1658,6 +1735,7 @@ impl SessionRegistry {
         planning: PlanTurn,
         station_subject: Option<(&str, &SessionRef)>,
         claimed: Option<bool>,
+        resume: bool,
     ) -> Result<SendOutcome, CommandError> {
         let session = self.get(session_id)?;
         review::validate(comments)?;
@@ -1715,11 +1793,7 @@ impl SessionRegistry {
                 // Die übrigen Wege (Plan, Station, Erinnerung) gehen nie hinein; nur das Fortsetzen einer
                 // pausierten Session, mit dem sich der Compact fortsetzt (`send_resume`).
                 if route == InputRoute::Start
-                    && compact::refuses_start(
-                        state.compact_locked(),
-                        state.status,
-                        is_resume_text(text),
-                    )
+                    && compact::refuses_start(state.compact_locked(), state.status, resume)
                 {
                     return Err(CommandError::Implementation(
                         compact::COMPACT_LOCKED.to_owned(),
@@ -1853,7 +1927,22 @@ impl SessionRegistry {
             self.start_phase_turn(app, &session)
                 .map(|_started: bool| ())
         } else {
-            self.send(app, session_id, text, &[], &[], None)
+            refuse_empty_message(text, &[], &[])?;
+            // Das Kennzeichen „Fortsetzen“ geht an den Start; die Sperre im Compact erkennt es daran,
+            // nicht am Text (Taiga 253).
+            self.send_turn(
+                app,
+                session_id,
+                text,
+                &[],
+                &[],
+                None,
+                PlanTurn::No,
+                None,
+                None,
+                true,
+            )
+            .map(|_sent: SendOutcome| ())
         }
     }
 
@@ -2218,25 +2307,7 @@ impl SessionRegistry {
         session_id: &str,
     ) -> Result<Vec<(u32, String)>, CommandError> {
         let project_id = self.get(session_id)?.project_id.clone();
-        let members = self.project_members(&project_id);
-        // Eine Session nach der anderen sperren — nie zwei zugleich und nie unter der Map-Sperre.
-        let mut worktrees: Vec<(u32, String)> = Vec::new();
-        for session in &members {
-            let session_worktrees = session.lock().ticket_worktrees.clone();
-            for (position, folder) in session_worktrees {
-                let is_known =
-                    worktrees
-                        .iter()
-                        .any(|(known_position, known_folder): &(u32, String)| {
-                            *known_position == position
-                                && known_folder.eq_ignore_ascii_case(&folder)
-                        });
-                if !is_known {
-                    worktrees.push((position, folder));
-                }
-            }
-        }
-        Ok(worktrees)
+        Ok(ticket_worktrees_of(&self.project_members(&project_id)))
     }
 
     /// Der Ordner zu jedem Kommentar, in dessen Reihenfolge. Der Schlüssel aus der Oberfläche wird
@@ -2265,6 +2336,23 @@ impl SessionRegistry {
         comments
             .iter()
             .map(|comment: &ReviewComment| match &comment.target {
+                // Eine Datei aus einem eingetragenen Ordner: ihr eigener Ordner, wie ihn die Liste zeigt.
+                CommentTarget::Artifact { file, .. }
+                    if crate::artifacts::extern_files::is_extern(file) =>
+                {
+                    self.artifacts_dir(session_id)
+                        .ok()
+                        .and_then(|dir: PathBuf| {
+                            crate::artifacts::extern_files::resolve(
+                                &dir,
+                                file,
+                                &self.artifact_folders(),
+                            )
+                            .ok()?
+                            .parent()
+                            .map(Path::to_path_buf)
+                        })
+                }
                 CommentTarget::Artifact { .. } => self.artifacts_dir(session_id).ok(),
                 CommentTarget::Image { .. } => None,
                 CommentTarget::Diff => entries
@@ -2373,6 +2461,44 @@ impl SessionRegistry {
                     remembered,
                     ticket_roots,
                     created_at,
+                )
+            }
+            ChangesReach::Implementation => {
+                let (implementation_id, ticket_roots) = {
+                    let state = session.lock();
+                    (
+                        state
+                            .station_of
+                            .clone()
+                            .or_else(|| state.inquiry_of.clone()),
+                        state.ticket_roots.clone(),
+                    )
+                };
+                let implementation_id = implementation_id.ok_or_else(|| {
+                    CommandError::Internal("Die Session gehört zu keiner Umsetzung.".to_owned())
+                })?;
+                // Stationen und Rückfragen derselben Umsetzung; eine Session ohne Umsetzung zählt nicht.
+                let members: Vec<Arc<Session>> = self
+                    .project_members(&session.project_id)
+                    .into_iter()
+                    .filter(|member: &Arc<Session>| {
+                        let state = member.lock();
+                        state.station_of.as_deref() == Some(implementation_id.as_str())
+                            || state.inquiry_of.as_deref() == Some(implementation_id.as_str())
+                    })
+                    .collect();
+                let since_ms = members
+                    .iter()
+                    .map(|member: &Arc<Session>| member.lock().created_at)
+                    .fold(f64::INFINITY, f64::min);
+                (
+                    members
+                        .iter()
+                        .map(|member: &Arc<Session>| member.id.clone())
+                        .collect(),
+                    ticket_worktrees_of(&members),
+                    ticket_roots,
+                    since_ms,
                 )
             }
             ChangesReach::Project => {
@@ -3839,6 +3965,23 @@ impl SessionState {
                 written_5m,
                 written_1h,
             } => self.note_prompt_cache(outbox, message_id, tokens, written_5m, written_1h),
+            AgentEvent::TokensUsed {
+                message_id,
+                model,
+                input,
+                cache_write,
+                cache_read,
+                output,
+            } => outbox.token_rows.push(token_usage::TokenRow {
+                // Ohne `message.id` zählt jede Zeile für sich.
+                message_id: message_id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string()),
+                at_ms: now_ms(),
+                model: model.unwrap_or_default(),
+                input: u64::from(input),
+                cache_write: u64::from(cache_write),
+                cache_read: u64::from(cache_read),
+                output: u64::from(output),
+            }),
             AgentEvent::Compacted {
                 trigger,
                 pre_tokens,
@@ -4723,6 +4866,9 @@ fn update<R>(
     {
         session.log_line(format!("Befehlsliste nicht gespeichert: {error}"));
     }
+    if !outbox.token_rows.is_empty() {
+        tempo::notify_changed(app, &session.id);
+    }
     // Git gehört nicht unter die Session-Sperre.
     let windows = std::mem::take(&mut outbox.commit_windows);
     if !windows.is_empty() {
@@ -4891,6 +5037,9 @@ fn persist(session: &Session, state: &mut SessionState, outbox: &Outbox) {
         }
         if !outbox.touched_files.is_empty() {
             session_files::upsert_all(connection, &session.id, &outbox.touched_files)?;
+        }
+        if !outbox.token_rows.is_empty() {
+            token_usage::upsert_all(connection, &session.id, &outbox.token_rows)?;
         }
         Ok(())
     });
@@ -5394,6 +5543,10 @@ fn start_process(
             local: backend.cloned(),
             scratchpad: scratchpad_dir,
             artifacts: artifacts_dir,
+            artifact_folders: app
+                .try_state::<SessionRegistry>()
+                .map(|registry| registry.artifact_folders())
+                .unwrap_or_default(),
             chrome: state.chrome,
             codex_exe,
             verwalter_mcp,
@@ -9593,9 +9746,22 @@ mod tests {
             !refuses_start(false, SessionStatus::Completed, false),
             "ohne Compact: frei"
         );
-        assert!(is_resume_text(RESUME_MESSAGE));
-        assert!(is_resume_text(auto_resume::RESUME_TEXT));
-        assert!(!is_resume_text("Mach etwas anderes."));
+    }
+
+    #[test]
+    fn a_turn_with_the_resume_text_is_locked_during_compact() {
+        use compact::refuses_start;
+        // Das Fortsetzen erkennt die Sperre am Weg (`send_resume` setzt das Kennzeichen), nicht am Text:
+        // Ein Zug mit „Mach weiter.“ oder dem Text des Zeitgebers über `send` oder `plan_vorhaben` trägt
+        // das Kennzeichen nicht und bleibt draußen, auch bei einer pausierten Session.
+        for text in [RESUME_MESSAGE, auto_resume::RESUME_TEXT] {
+            assert!(!text.is_empty());
+            assert!(
+                refuses_start(true, SessionStatus::Paused, false),
+                "{text}: ohne Kennzeichen gesperrt"
+            );
+        }
+        assert!(!refuses_start(true, SessionStatus::Paused, true));
     }
 
     #[test]
@@ -10021,5 +10187,95 @@ mod tests {
                 .iter()
                 .any(|spec| spec.name == "verwalter_compact_ready")
         );
+    }
+
+    // Ab hier Taiga-Story 254: Changes je Umsetzung.
+
+    fn git_in(dir: &Path, args: &[&str]) {
+        let status = crate::processes::command("git")
+            .args(["-c", "user.name=t", "-c", "user.email=t@t"])
+            .args(args)
+            .current_dir(dir)
+            .status()
+            .expect("git");
+        assert!(status.success(), "git {args:?}");
+    }
+
+    #[test]
+    fn the_implementation_reach_shows_only_the_files_of_its_own_sessions() {
+        let base = std::env::temp_dir().join(format!("verwalter-254-{}", uuid::Uuid::new_v4()));
+        let repo = base.join("repo");
+        fs::create_dir_all(&repo).expect("Repository");
+        git_in(&repo, &["init", "-q", "-b", "main"]);
+        fs::write(repo.join("start.txt"), "a\n").expect("Datei");
+        git_in(&repo, &["add", "."]);
+        git_in(&repo, &["commit", "-q", "-m", "start"]);
+        let head = crate::processes::command("git")
+            .args(["rev-parse", "HEAD"])
+            .current_dir(&repo)
+            .output()
+            .expect("rev-parse");
+        let head = String::from_utf8_lossy(&head.stdout).trim().to_owned();
+        let registry = registry_with_one_slot();
+        // Zwei Umsetzungen im Vorhaben `p`: `a1` ist Station von `i1`, `a2` Rückfrage zu `i1`,
+        // `b1` Station von `i2`, `x` gehört zu keiner.
+        registry.add_station_session_for_test("a1", "p", "i1", SessionStatus::Completed);
+        registry.add_station_session_for_test("b1", "p", "i2", SessionStatus::Completed);
+        registry.add_session_for_test("a2", "p", SessionStatus::Completed);
+        registry.set_inquiry_for_test("a2", "i1");
+        registry.add_session_for_test("x", "p", SessionStatus::Completed);
+        registry
+            .database
+            .with(|connection| {
+                connection.execute_batch("PRAGMA foreign_keys = OFF")?;
+                Ok(())
+            })
+            .expect("Schlüssel");
+        for (id, file) in [
+            ("a1", "eins.txt"),
+            ("a2", "zwei.txt"),
+            ("b1", "drei.txt"),
+            ("x", "vier.txt"),
+        ] {
+            fs::write(repo.join(file), "neu\n").expect("Datei");
+            let path = attribution::normalize_path(&repo.join(file).to_string_lossy());
+            registry
+                .database
+                .with(|connection| session_files::upsert_all(connection, id, &[(path, 1.0)]))
+                .expect("geschrieben");
+            *registry
+                .get(id)
+                .expect("Session")
+                .repositories
+                .write()
+                .expect("Sperre") = vec![SessionRepository {
+                name: "repo".to_owned(),
+                repository_path: repo.clone(),
+                base_ref: "main".to_owned(),
+                base_commit: head.clone(),
+                checkout: crate::worktrees::RepositoryCheckout::Main,
+            }];
+        }
+        let shown = |anchor: &str| -> Vec<String> {
+            let input = registry
+                .changes_input(anchor, ChangesReach::Implementation)
+                .expect("Eingabe");
+            let mut paths: Vec<String> = crate::changes::load(&input)
+                .repositories
+                .into_iter()
+                .flat_map(|repository| repository.files.into_iter().map(|file| file.path))
+                .collect();
+            paths.sort();
+            paths
+        };
+        assert_eq!(shown("a1"), ["eins.txt", "zwei.txt"]);
+        assert_eq!(shown("a2"), ["eins.txt", "zwei.txt"]);
+        assert_eq!(shown("b1"), ["drei.txt"]);
+        assert!(
+            registry
+                .changes_input("x", ChangesReach::Implementation)
+                .is_err()
+        );
+        fs::remove_dir_all(&base).ok();
     }
 }
